@@ -114,6 +114,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: IDT loaded; exceptions armed\n");
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
+    if (cpu_security_init() != 0) {
+        serial_write("ProsenjitOS: NXE enabled; supervisor write protection enabled\n");
+    } else {
+        serial_write("ProsenjitOS: NX unavailable; supervisor write protection enabled\n");
+    }
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
     serial_write("ProsenjitOS: kernel online\n");
     for (;;) __asm__ volatile ("hlt");
