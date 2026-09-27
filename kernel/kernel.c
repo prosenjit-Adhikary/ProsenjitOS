@@ -371,9 +371,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
     uint64_t lifecycle_free_before = physical_memory_free_pages();
+    uint64_t lifecycle_user_page = physical_page_alloc();
     object_init(&lifecycle_object, PROS_OBJECT_FILE);
-    if (process_create(&init_process, &lifecycle_parent, 6,
+    if (!lifecycle_user_page ||
+        process_create(&init_process, &lifecycle_parent, 6,
                        PROS_SECURITY_LIMITED) != 0 ||
+        address_space_map_user_page(&lifecycle_parent.address_space,
+                                    PROSENJIT_USER_TEST_VA,
+                                    lifecycle_user_page,
+                                    PROSENJIT_PAGE_WRITABLE) != 0 ||
         process_grant_handle(&lifecycle_parent, &lifecycle_object,
                              PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
         lifecycle_object.refcount != 2 ||
@@ -381,9 +387,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
         waited_exit != 13 ||
         lifecycle_object.refcount != 1 ||
-        lifecycle_parent.address_space.root != 0 ||
-        physical_memory_free_pages() != lifecycle_free_before) {
+        lifecycle_parent.address_space.root != 0) {
         serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    physical_page_free(lifecycle_user_page);
+    if (physical_memory_free_pages() != lifecycle_free_before) {
+        serial_write("ProsenjitOS: ERROR address-space page-table cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process resource cleanup regression passed\n");
