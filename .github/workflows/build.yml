@@ -47,6 +47,7 @@ jobs:
           grep -q "ProsenjitOS: page allocation/free test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: kernel heap allocation/free test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process lifecycle/parent/exit-wait test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: process state validation regression passed" build/qemu-serial.log
           grep -q "ProsenjitOS: thread lifecycle/run-queue scheduler test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: interrupt-frame scheduler save/restore test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: duplicate authorization attenuation test passed" build/qemu-serial.log
