@@ -101,10 +101,36 @@ isr32:
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
+
+    ; A switched thread supplies a saved pros_interrupt_frame whose layout
+    ; is RAX..R15, RIP, CS, RFLAGS. It has no synthetic vector/error pair.
     mov rsp, rax
-    sub rsp, 24
+    jmp .timer_restore_switched
+
 .timer_no_switch:
+    ; The current IRQ frame still contains vector/error below RAX..R15.
+    ; Restore the GPRs first, then skip those two words before IRET.
     add rsp, 24
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+    add rsp, 16
+    call pic_eoi_master
+    iretq
+
+.timer_restore_switched:
     pop rax
     pop rbx
     pop rcx
