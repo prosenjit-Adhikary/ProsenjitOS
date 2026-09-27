@@ -36,6 +36,8 @@
   - [x] PID registry and process lookup
   - [x] Process exit/zombie state
   - [x] Parent wait/reap semantics
+  - [x] Process resource cleanup on reap
+  - [x] Safe unregister/double-reap protection
 - [ ] Thread scheduler
   - [x] Thread object and lifecycle state
   - [x] FIFO run queue and scheduler selection
@@ -46,6 +48,8 @@
   - [x] Kernel-thread timer preemption validated under QEMU
 - [x] System-call boundary
 - [ ] IPC
+  - [ ] Kernel message/channel objects
+  - [ ] Capability-mediated endpoint transfer
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
