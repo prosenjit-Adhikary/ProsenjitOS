@@ -3,6 +3,7 @@ BITS 64
 section .text
 global idt_load
 global isr_common
+extern exception_dispatch
 %assign n 0
 %rep 32
 global isr%+n
