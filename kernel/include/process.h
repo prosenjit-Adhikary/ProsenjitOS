@@ -1,0 +1,29 @@
+#ifndef PROSENJIT_PROCESS_H
+#define PROSENJIT_PROCESS_H
+
+#include <stdint.h>
+#include "object.h"
+#include "address_space.h"
+
+enum pros_security_level {
+    PROS_SECURITY_LIMITED = 1,
+    PROS_SECURITY_SUPER = 2,
+};
+
+struct pros_process {
+    struct pros_object object;
+    uint64_t pid;
+    uint32_t security_level;
+    struct pros_address_space address_space;
+    struct pros_handle_table handles;
+};
+
+int process_init(struct pros_process *process,
+                 uint64_t pid,
+                 uint32_t security_level);
+int process_grant_handle(struct pros_process *process,
+                         struct pros_object *object,
+                         uint32_t rights,
+                         uint64_t *handle_out);
+
+#endif
