@@ -116,19 +116,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
     if (physical_memory_init((uint64_t)boot_info) != 0) {
-        serial_write("ProsenjitOS: ERROR physical memory initialization failed\\n");
+        serial_write("ProsenjitOS: ERROR physical memory initialization failed\n");
         vga_write("ProsenjitOS: memory initialization failed", 0x4F);
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    serial_write("ProsenjitOS: physical memory manager online\\n");
+    serial_write("ProsenjitOS: physical memory manager online\n");
     serial_write("ProsenjitOS: free pages = ");
     serial_hex64(physical_memory_free_pages());
-    serial_write("\\n");
+    serial_write("\n");
 
     uint64_t test_page = physical_page_alloc();
     if (test_page == 0) {
-        serial_write("ProsenjitOS: ERROR page allocation test failed\\n");
+        serial_write("ProsenjitOS: ERROR page allocation test failed\n");
         vga_write("ProsenjitOS: page allocation failed", 0x4F);
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -136,7 +136,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_hex64(test_page);
     serial_write("\\n");
     physical_page_free(test_page);
-    serial_write("ProsenjitOS: page allocation/free test passed\\n");
+    serial_write("ProsenjitOS: page allocation/free test passed\n");
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
     serial_write("ProsenjitOS: kernel online\n");
