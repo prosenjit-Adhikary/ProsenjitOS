@@ -100,6 +100,11 @@ long_mode_entry:
 
 enter_user_mode:
     ; RDI=entry, RSI=stack_top, RDX=initial capability handle.
+    ; Load CPL3-compatible data segments before IRET so the first user
+    ; memory access does not inherit the CPL0 data-segment cache.
+    mov ax, gdt64.user_data
+    mov ds, ax
+    mov es, ax
     mov rax, rdi
     mov r8, rdx
     mov rdx, rsi
