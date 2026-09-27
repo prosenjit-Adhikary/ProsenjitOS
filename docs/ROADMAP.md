@@ -21,7 +21,7 @@
 - [x] Interrupt and exception handlers
 - [ ] Timer
 - [x] Physical page allocator
-- [ ] Virtual memory and paging
+- [x] Virtual memory and paging
 - [ ] Kernel heap
 - [ ] User/kernel address-space separation
 - [ ] NX/W^X memory policy where supported
