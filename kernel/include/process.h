@@ -14,6 +14,7 @@ struct pros_process {
     struct pros_object object;
     uint64_t pid;
     uint32_t security_level;
+    uint64_t capability_policy;
     struct pros_address_space address_space;
     struct pros_handle_table handles;
 };
@@ -21,6 +22,8 @@ struct pros_process {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
+uint64_t process_allowed_capabilities(const struct pros_process *process);
+
 int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
                          uint64_t rights,
