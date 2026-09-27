@@ -249,7 +249,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     object_init(&user_test_object, PROS_OBJECT_FILE);
     if (process_grant_handle(&init_process, &user_test_object,
-                             PROSENJIT_CAP_READ, &user_test_handle) != 0) {
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE, &user_test_handle) != 0) {
         serial_write("ProsenjitOS: ERROR initial process handle grant failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
