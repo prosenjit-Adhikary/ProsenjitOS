@@ -32,9 +32,13 @@ isr128:
     push rcx
     push rbx
     push rax
-    mov rdi, rsp
-    lea rsi, [rsp + 120]
+    ; The CPL3 iret frame plus 15 saved GPRs leaves RSP 0 mod 16.
+    ; Keep the C ABI aligned while passing the original frame addresses.
+    sub rsp, 8
+    lea rdi, [rsp + 8]
+    lea rsi, [rsp + 128]
     call syscall_dispatch
+    add rsp, 8
     pop rax
     pop rbx
     pop rcx
@@ -85,17 +89,21 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    mov rdi, rsp
+    ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
+    ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
+    sub rsp, 8
+    lea rdi, [rsp + 8]
     call timer_dispatch
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    mov rdi, rsp
+    lea rdi, [rsp + 8]
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
     mov rsp, rax
 .timer_no_switch:
+    add rsp, 8
     add rsp, 16
     pop rax
     pop rbx
