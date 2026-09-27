@@ -25,7 +25,10 @@ static uint64_t *alloc_table(void) {
 
 static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) {
     uint64_t entry = parent[index];
-    if (entry & PROSENJIT_PAGE_PRESENT) return (uint64_t *)(entry & PAGE_MASK);
+    if (entry & PROSENJIT_PAGE_PRESENT) {
+        if (entry & LARGE_PAGE_FLAG) return 0;
+        return (uint64_t *)(entry & PAGE_MASK);
+    }
 
     uint64_t *table = alloc_table();
     if (!table) return 0;
