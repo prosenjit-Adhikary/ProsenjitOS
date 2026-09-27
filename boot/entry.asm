@@ -156,8 +156,7 @@ cpu_security_init:
     mov dword [gdt64.tss_high], 0
     mov rax, stack_top
     mov [tss64 + 4], rax
-    mov ax, gdt64.tss_low
-    ltr ax
+    ; Temporary diagnostic: defer LTR while isolating CPL3 entry failure.
     ret
 
 section .user_text
