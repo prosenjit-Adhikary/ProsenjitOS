@@ -254,12 +254,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
 
     struct pros_process init_process;
-    struct pros_object user_test_object;
-    uint64_t user_test_handle;
-    if (process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0) {
-        serial_write("ProsenjitOS: ERROR initial process creation failed\\n");
+    if (process_manager_init() != 0 ||
+        process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
+        process_register(&init_process) != 0 ||
+        process_lookup(1) != &init_process) {
+        serial_write("ProsenjitOS: ERROR process manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    struct pros_object user_test_object;
+    uint64_t user_test_handle;
     object_init(&user_test_object, PROS_OBJECT_FILE);
     if (process_grant_handle(&init_process, &user_test_object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER, &user_test_handle) != 0) {
@@ -284,13 +287,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR child process lifecycle test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (process_set_state(&child_process, PROS_PROCESS_ZOMBIE) != 0 ||
-        process_set_state(&child_process, PROS_PROCESS_DEAD) != 0 ||
-        process_set_state(&child_process, PROS_PROCESS_RUNNING) == 0) {
-        serial_write("ProsenjitOS: ERROR process terminal-state test failed\n");
+    if (process_exit(&child_process, 42) != 0 ||
+        process_state(&child_process) != PROS_PROCESS_ZOMBIE) {
+        serial_write("ProsenjitOS: ERROR process exit test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: process lifecycle/parent test passed\n");
+    int32_t waited_exit = 0;
+    if (process_wait(&init_process, child_process.pid, &waited_exit) != 0 ||
+        waited_exit != 42 ||
+        process_lookup(child_process.pid) != 0) {
+        serial_write("ProsenjitOS: ERROR process wait/reap test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
     serial_write("ProsenjitOS: initial limited process and capability context online\\n");
     if ((process_allowed_capabilities(&init_process) & PROSENJIT_CAP_ADMIN) != 0 ||
         (process_allowed_capabilities(&init_process) & PROSENJIT_CAP_READ) == 0) {
