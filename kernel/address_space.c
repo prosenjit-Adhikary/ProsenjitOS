@@ -48,14 +48,12 @@ int address_space_create(struct pros_address_space *space) {
     if (!kernel_root) return -1;
 
     /*
-     * PML4[0] is shared with the kernel's low identity map because the
-     * bootstrap kernel currently executes below the first 512 GiB.
-     * Keep the USER bit at the top level so CPL3 can reach explicitly
-     * user-marked leaf pages. Kernel identity pages remain protected by
-     * supervisor-only PTEs; therefore setting USER here does not expose
-     * those kernel pages to user mode.
+     * PML4[0] is shared with the kernel's low identity map so CPL3
+     * interrupts can still enter kernel code and use the TSS RSP0 stack.
+     * Keep this top-level entry supervisor-only: user pages live at
+     * PML4[1] (0x0000008000000000), so they do not need USER on PML4[0].
      */ 
-    root[0] = kernel_root[0];
+    root[0] = kernel_root[0] & ~PROSENJIT_PAGE_USER;
     for (uint32_t i = 256; i < ENTRIES; ++i)
         root[i] = kernel_root[i];
 
