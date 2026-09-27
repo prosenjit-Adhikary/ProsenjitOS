@@ -1,74 +1,113 @@
 # ProsenjitOS
 
-**ProsenjitOS** is an independent x86-64 operating-system project developed with the assistance of ChatGPT.
+**ProsenjitOS** is an independent 64-bit x86-64 operating-system project developed with the assistance of ChatGPT.
 
-The goal is to build a small, understandable operating system from the ground up while exploring architectural ideas commonly associated with modern Windows/NT systems.
+The project is being designed from first principles. It may study ideas used by existing operating systems, but it will **not copy proprietary source code, proprietary binaries, branding, protected assets, or implementation details from Windows, Linux, or another operating system**.
 
 ## Vision
 
-ProsenjitOS is not a clone of Windows and does not use Microsoft proprietary source code. It is an original learning and engineering project.
+ProsenjitOS aims to become a practical general-purpose OS with:
 
-## Current status — v0.1 foundation
+- a native x86-64 kernel and native application platform
+- both GUI and CUI/CLI environments
+- strong application isolation and least-privilege security
+- explicit permissions for files, devices, processes, IPC, and network access
+- package integrity and signed software support
+- Windows application compatibility through an independent compatibility layer
+- Linux/POSIX application compatibility through an independent user-space compatibility layer
+- a native ProsenjitOS SDK/API for applications that want the best integration
+- an API-based AI service so AI can run remotely, locally, or on another machine without requiring a large model inside the OS
+- modular drivers, services, and user-space components so the base system remains maintainable and hardware-efficient
 
-- Repository initialized
-- Project architecture documented
-- Development roadmap created
-- Kernel C entry point scaffolded
-- VGA text-console output implemented
-- Build-system skeleton added
+Compatibility is a **user-space feature**, not a promise that arbitrary Windows or Linux kernel drivers will run unchanged. Kernel drivers will use the ProsenjitOS driver model.
 
-## Architecture
+## Security principles
 
-```text
-Applications / Shell
-        |
-User-mode services
-        |
-System-call interface
-        |
-Kernel executive-style subsystems
-        |
-Kernel core: scheduler, memory, interrupts
-        |
-Drivers / hardware abstraction
-        |
-x86-64 hardware
-```
+Security is a core architectural requirement, not a later add-on.
 
-## Planned kernel subsystems
+The design will use multiple independent layers:
 
-- Boot and CPU initialization
-- Physical and virtual memory management
-- Interrupts and timers
-- Processes and threads
-- Scheduler
-- Kernel object/handle model
-- System calls
-- I/O manager and driver model
-- Filesystem and storage
-- Networking
-- Security and access control
-- User-mode services
-- Command-line shell
+1. CPU privilege separation and protected memory
+2. per-process identity
+3. capability/handle-based resource access
+4. application sandboxing
+5. explicit permission brokering
+6. executable/package integrity verification
+7. controlled driver loading
+8. syscall and IPC policy enforcement
+9. filesystem and network access controls
+10. security event logging and audit trails
+11. update, rollback, and recovery mechanisms
+12. secure/verified boot as the platform matures
+
+No operating system can honestly promise perfect protection against every future attack. The engineering goal is to make compromise harder, limit blast radius, detect abuse, and provide reliable recovery.
+
+## Compatibility strategy
+
+ProsenjitOS will have three application paths:
+
+- **Native:** ProsenjitOS ABI/API and SDK
+- **Linux/POSIX:** ELF loader + POSIX/Linux user-space compatibility runtime
+- **Windows:** Windows API compatibility runtime, conceptually similar to the role a compatibility layer such as Wine plays, but integrated with ProsenjitOS security and packaging
+
+Existing applications will not receive unrestricted access to the host OS simply because they are compatible applications. They will run through the same security and permission model.
+
+## AI strategy
+
+AI will be exposed through an OS-level API/broker rather than requiring a large model to be bundled with the base OS:
+
+`Application -> ProsenjitOS AI API -> Policy/Permission Broker -> Local/LAN/Remote AI Provider`
+
+The broker will eventually handle authentication, permissions, quotas, privacy policy, provider selection, and optional local inference.
+
+## Development status
+
+### Current — v0.1 foundation
+
+- repository initialized
+- architecture and roadmap documented
+- 64-bit/security/compatibility/AI requirements defined
+- kernel C entry scaffolded
+- VGA diagnostic output scaffolded
+- build-system skeleton created
+
+### Next engineering milestones
+
+- bootable x86-64 kernel image
+- CPU mode and interrupt initialization
+- physical/virtual memory manager
+- process and thread isolation
+- syscall and capability model
+- security policy broker
+- storage and filesystem
+- drivers and device broker
+- CUI/CLI
+- GUI
+- Linux/POSIX compatibility runtime
+- Windows API compatibility runtime
+- package manager and signed packages
+- AI API broker
+- hardening, testing, recovery, and release engineering
 
 ## Repository layout
 
 ```text
 ProsenjitOS/
-├── boot/              # Bootloader and early CPU setup
+├── boot/              # Boot protocol, early CPU setup and boot assets
 ├── kernel/            # Kernel source and headers
 ├── drivers/           # Hardware drivers
 ├── user/              # User-mode programs and services
-├── docs/              # Architecture and development documentation
+├── docs/              # Architecture, security and development documentation
 ├── scripts/            # Build/development helpers
-└── Makefile           # Build entry point
+├── .github/            # CI and repository automation
+└── Makefile             # Build entry point
 ```
 
-## First milestone
+## Engineering rule
 
-The first technical milestone is a bootable x86-64 image that reaches the kernel entry point and displays a diagnostic message. Later milestones will add interrupts, memory management, scheduling, drivers, storage, networking, and user mode.
+**Original implementation first. Compatibility second.**
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Where an existing open-source compatibility project is useful, it may be integrated only under its applicable license and with a clear boundary between that component and ProsenjitOS-original code. ProsenjitOS itself will not reproduce another OS's proprietary implementation.
 
 ## License
 
