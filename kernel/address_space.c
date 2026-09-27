@@ -48,12 +48,13 @@ int address_space_create(struct pros_address_space *space) {
     if (!kernel_root) return -1;
 
     /*
-     * PML4 entries 256-511 form the kernel half. Entry 0 is retained as
-     * supervisor-only identity space so kernel code can continue running
-     * during the transition to a user process. Do NOT copy PML4[0]:
-     * the bootstrap kernel identity mapping is supervisor-owned and would
-     * otherwise make low physical memory reachable from CPL3.
+     * PML4 entries 256-511 form the kernel half. The bootstrap kernel also
+     * needs its low identity-mapped stack while handling a CPL3 interrupt,
+     * so PML4[0] is retained but explicitly made supervisor-only. Clearing
+     * the USER bit at the top-level entry prevents CPL3 access while still
+     * allowing the CPU to switch to the TSS RSP0 kernel stack.
      */
+    root[0] = kernel_root[0] & ~PROSENJIT_PAGE_USER;
     for (uint32_t i = 256; i < ENTRIES; ++i)
         root[i] = kernel_root[i];
 
