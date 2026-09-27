@@ -40,13 +40,18 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->context.rbx = 0;
     thread->context.rbp = 0;
     uint64_t *stack = (uint64_t *)(uintptr_t)stack_top;
-    *(--stack) = (uint64_t)(uintptr_t)thread_start_trampoline;
-    *(--stack) = 0; /* r15 */
-    *(--stack) = 0; /* r14 */
-    *(--stack) = 0; /* r13 */
-    *(--stack) = (uint64_t)(uintptr_t)thread; /* r12 */
-    *(--stack) = 0; /* rbp */
+    /*
+     * thread_context_switch restores in this order:
+     *   r15, r14, r13, r12, rbp, rbx, ret
+     * Build the initial stack in reverse so the first POP sees r15.
+     */
+    *(--stack) = (uint64_t)(uintptr_t)thread_start_trampoline; /* ret */
     *(--stack) = 0; /* rbx */
+    *(--stack) = 0; /* rbp */
+    *(--stack) = (uint64_t)(uintptr_t)thread; /* r12 */
+    *(--stack) = 0; /* r13 */
+    *(--stack) = 0; /* r14 */
+    *(--stack) = 0; /* r15 */
     thread->context.rsp = (uint64_t)(uintptr_t)stack;
     thread->context.rip = entry;
     thread->context.rflags = 0x202;
