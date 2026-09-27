@@ -50,5 +50,9 @@ int handle_close(struct pros_handle_table *table, uint64_t handle);
 uint64_t handle_duplicate(struct pros_handle_table *table,
                           uint64_t source_handle,
                           uint64_t requested_rights);
+uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
+                              struct pros_handle_table *target_table,
+                              uint64_t source_handle,
+                              uint64_t requested_rights);
 
 #endif
