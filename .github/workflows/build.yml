@@ -1,0 +1,28 @@
+name: Build ProsenjitOS
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso gcc binutils
+
+      - name: Build ISO
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosenjitOS-iso
+          path: build/prosenjitOS.iso
