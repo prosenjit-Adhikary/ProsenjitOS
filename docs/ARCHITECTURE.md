@@ -112,7 +112,44 @@ Possible providers include a remote cloud API, a local lightweight model, a user
 
 Applications should not receive unrestricted API keys or credentials. The OS AI service should mediate authentication, permissions, quotas, privacy policy, and network access.
 
-### Privacy
+#
+## Natural-language system administration
+
+A core planned workflow is:
+
+> User: "Install Chrome."
+
+The AI service should translate the request into a structured action plan rather than executing arbitrary generated commands directly. The plan can include package lookup, dependency resolution, download verification, installation, configuration, and reporting.
+
+Before execution:
+1. Identify the requesting user/session.
+2. Check the policy for each requested action.
+3. Separate actions allowed at the current privilege level from protected actions.
+4. If elevation is required, show the requested privilege and intended operation and require authorization.
+5. Execute only approved, policy-compliant actions.
+6. Record relevant actions and elevation events for audit/troubleshooting.
+
+The AI service must never silently convert a Limited User session into a Super User session.
+
+### User privilege model
+
+The planned model includes at least:
+
+- **Limited User:** ordinary account with restricted access to protected system resources.
+- **Super User:** explicitly authorized account/session with permission to perform protected administrative operations.
+
+The distinction is enforced by the OS security architecture, not by the AI model. AI may request an authorization/elevation flow, but it cannot grant itself privileges.
+
+### AI safety and privacy boundaries
+
+- AI-generated actions are data, not authority.
+- Privilege is granted only by the OS policy/security layer.
+- Sensitive data must not be sent to remote AI providers without an applicable policy/authorization decision.
+- Provider credentials are isolated from applications.
+- Actions and elevation events should be auditable.
+- The system should support dry-run/planning mode before sensitive operations.
+
+## Privacy
 AI requests should clearly indicate whether data is processed locally, sent to a remote provider, stored, or shared with an application. Sensitive OS data must never be silently uploaded because an application invokes the AI API.
 
 ## Hardware/resource strategy
@@ -148,5 +185,11 @@ x86-64 Hardware
 9. AI integration must be API-based and permission-aware.
 10. Keep optional components modular so the base OS remains lightweight.
 
+## Current implementation status
+
+The project has progressed beyond the initial boot-only design. A bootable x86-64 ISO is built and exercised through QEMU, with CI checking kernel startup and long-mode activation.
+
+The next implementation focus is memory management and the kernel isolation primitives required to safely introduce user-mode processes, system calls, capabilities, and the permission broker.
+
 ## Initial target
-The first target remains a bootable x86-64 kernel that reaches a C kernel entry point and writes a diagnostic message. Security, application isolation, GUI/CUI, compatibility, and AI services will be built as explicit subsystems rather than bolted on at the end.
+The first target was a bootable x86-64 kernel that reaches a C kernel entry point and writes a diagnostic message. Security, application isolation, GUI/CUI, compatibility, and AI services will be built as explicit subsystems rather than bolted on at the end.
