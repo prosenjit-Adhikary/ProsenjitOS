@@ -3,6 +3,7 @@
 static struct pros_process *current_process;
 static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
+static int process_release_resources(struct pros_process *process);
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
@@ -56,6 +57,12 @@ static int process_is_active(const struct pros_process *process) {
            process->state != PROS_PROCESS_DEAD;
 }
 
+static int process_release_resources(struct pros_process *process) {
+    if (!process) return -1;
+    if (handle_table_close_all(&process->handles) != 0) return -1;
+    return address_space_destroy(&process->address_space);
+}
+
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
@@ -92,7 +99,10 @@ int process_create(struct pros_process *parent,
     child->parent_pid = parent ? parent->pid : 0;
     child->parent = parent;
     child->state = PROS_PROCESS_READY;
-    if (process_register(child) != 0) return -1;
+    if (process_register(child) != 0) {
+        (void)process_release_resources(child);
+        return -1;
+    }
     return 0;
 }
 
@@ -112,6 +122,7 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
     *exit_code = child->exit_code;
+    if (process_release_resources(child) != 0) return -3;
     child->state = PROS_PROCESS_DEAD;
     return process_unregister(child);
 }
