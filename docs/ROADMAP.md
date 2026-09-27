@@ -40,7 +40,8 @@
   - [x] Thread object and lifecycle state
   - [x] FIFO run queue and scheduler selection
   - [ ] Timer-driven preemption
-- [ ] Context switching
+- [x] Context switching foundation (kernel-stack switch + callee-saved state)
+- [ ] Preemptive interrupt-frame context switching
 - [x] System-call boundary
 - [ ] IPC
 
