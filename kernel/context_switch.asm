@@ -4,7 +4,6 @@ default rel
 section .text
 global thread_context_switch
 global thread_start_trampoline
-global thread_start_trampoline
 
 ; RDI = previous thread, RSI = next thread.
 ; Save/restore the System V callee-saved register set on each thread's
