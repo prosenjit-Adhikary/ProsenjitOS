@@ -109,7 +109,7 @@ enter_user_mode:
     or qword [rsp], 0x200
     push qword 0x1B
     push rax
-    mov rbx, r8
+    mov rdi, r8
     iretq
 
 user_mode_exit_trampoline:
