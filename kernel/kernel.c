@@ -1,5 +1,6 @@
 #include "prosenjit.h"
 #include "memory.h"
+#include "paging.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -134,9 +135,23 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: allocated test page = ");
     serial_hex64(test_page);
-    serial_write("\\n");
+    serial_write("\n");
     physical_page_free(test_page);
     serial_write("ProsenjitOS: page allocation/free test passed\n");
+
+    if (paging_init() != 0) {
+        serial_write("ProsenjitOS: ERROR virtual memory initialization failed\n");
+        vga_write("ProsenjitOS: paging initialization failed", 0x4F);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uint64_t translated = paging_translate(PROSENJIT_KERNEL_TEST_VA);
+    serial_write("ProsenjitOS: paging active; test VA -> ");
+    serial_hex64(translated);
+    serial_write("\n");
+    if (translated == 0) {
+        serial_write("ProsenjitOS: ERROR paging translation test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
     serial_write("ProsenjitOS: kernel online\n");
