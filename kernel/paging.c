@@ -102,25 +102,62 @@ uint64_t paging_translate(uint64_t virtual_address) {
     return (entry & PAGE_MASK) | (virtual_address & 0xFFFULL);
 }
 
+extern char __kernel_text_start[];
+extern char __kernel_text_end[];
+
+static int map_identity_4k(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+    uint64_t *pdpt = ensure_table(kernel_pml4, PML4_INDEX(virtual_address),
+                                   PROSENJIT_PAGE_WRITABLE);
+    if (!pdpt) return -1;
+    uint64_t *pd = ensure_table(pdpt, PDPT_INDEX(virtual_address),
+                                PROSENJIT_PAGE_WRITABLE);
+    if (!pd) return -1;
+    uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address),
+                                PROSENJIT_PAGE_WRITABLE);
+    if (!pt) return -1;
+    pt[PT_INDEX(virtual_address)] = (physical_address & PAGE_MASK) |
+                                    PROSENJIT_PAGE_PRESENT |
+                                    (flags & (PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX));
+    return 0;
+}
+
+static int map_identity_range(uint64_t start, uint64_t end, uint64_t flags) {
+    start &= ~0xFFFULL;
+    end = (end + 0xFFFULL) & ~0xFFFULL;
+    for (uint64_t address = start; address < end; address += PROSENJIT_PAGE_SIZE) {
+        if (map_identity_4k(address, address, flags) != 0) return -1;
+    }
+    return 0;
+}
+
 int paging_init(void) {
     kernel_pml4 = alloc_table();
     if (!kernel_pml4) return -1;
 
     uint64_t *pdpt = alloc_table();
-    uint64_t *pd = alloc_table();
-    if (!pdpt || !pd) return -1;
+    if (!pdpt) return -1;
+    kernel_pml4[0] = ((uint64_t)pdpt & PAGE_MASK) |
+                     PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE;
 
-    kernel_pml4[0] = ((uint64_t)pdpt & PAGE_MASK) | PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE;
-    pdpt[0] = ((uint64_t)pd & PAGE_MASK) | PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE;
+    /*
+     * Replace the bootstrap 2 MiB identity mapping with 4 KiB mappings.
+     * All identity-mapped pages default to writable + NX. Kernel text is
+     * subsequently changed to read/execute only, giving the kernel a
+     * section-aware W^X foundation.
+     */
+    if (map_identity_range(0, PROSENJIT_PHYS_LIMIT,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+        return -1;
 
-    for (uint32_t i = 0; i < ENTRIES; ++i)
-        pd[i] = ((uint64_t)i << 21) | PROSENJIT_PAGE_PRESENT |
-                PROSENJIT_PAGE_WRITABLE | LARGE_PAGE_FLAG;
+    uint64_t text_start = (uint64_t)(uintptr_t)__kernel_text_start;
+    uint64_t text_end = (uint64_t)(uintptr_t)__kernel_text_end;
+    if (map_identity_range(text_start, text_end, 0) != 0) return -1;
 
     uint64_t test_page = physical_page_alloc();
     if (!test_page) return -1;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, test_page,
-                        PROSENJIT_PAGE_WRITABLE)) return -1;
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) return -1;
 
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)kernel_pml4) : "memory");
     return 0;
