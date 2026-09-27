@@ -340,7 +340,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     if (address_space_map_user_page(user_space, PROSENJIT_USER_CODE_VA,
                                     user_code_page, 0) != 0 ||
-        address_space_map_user_page(&user_space, PROSENJIT_USER_TEST_VA,
+        address_space_map_user_page(user_space, PROSENJIT_USER_TEST_VA,
                                     user_data_page,
                                     PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         address_space_map_user_page(&user_space, PROSENJIT_USER_STACK_VA,
