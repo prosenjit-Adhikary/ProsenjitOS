@@ -15,6 +15,12 @@ uint64_t *paging_kernel_root(void) {
     return kernel_pml4;
 }
 
+int paging_switch_kernel(void) {
+    if (!kernel_pml4) return -1;
+    __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)kernel_pml4) : "memory");
+    return 0;
+}
+
 static void page_zero(uint64_t *page) {
     for (uint32_t i = 0; i < ENTRIES; ++i) page[i] = 0;
 }
