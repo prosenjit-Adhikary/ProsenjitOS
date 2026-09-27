@@ -23,7 +23,7 @@
 - [x] Physical page allocator
 - [x] Virtual memory and paging
 - [x] Kernel heap
-- [ ] User/kernel address-space separation
+- [x] User/kernel address-space separation foundation
 - [ ] NX/W^X memory policy where supported
 
 ## Phase 3 — Kernel architecture
