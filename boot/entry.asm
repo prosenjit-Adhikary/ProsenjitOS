@@ -156,7 +156,11 @@ cpu_security_init:
     mov dword [gdt64.tss_high], 0
     mov rax, stack_top
     mov [tss64 + 4], rax
-    ; Temporary diagnostic: defer LTR while isolating CPL3 entry failure.
+    ; Disable the TSS I/O-permission bitmap explicitly.
+    mov word [tss64 + 102], 104
+    ; A CPL3 interrupt that enters CPL0 requires a valid task-state register.
+    mov ax, gdt64.tss_low
+    ltr ax
     ret
 
 section .user_text
@@ -207,6 +211,10 @@ stack_top:
 align 16
 tss64:
     resb 104
+
+section .note.GNU-stack noalloc noexec nowrite progbits
+
+section .data
 
 boot_magic: resd 1
 boot_info:  resd 1
