@@ -1,4 +1,4 @@
-name: Build ProsenjitOS
+name: Build and boot-test ProsenjitOS
 
 on:
   push:
@@ -14,15 +14,35 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso gcc binutils
+          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso gcc binutils qemu-system-x86
 
       - name: Build ISO
         run: |
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
-      - name: Upload ISO
+      - name: Boot-test ISO in QEMU
+        run: |
+          set +e
+          timeout 8s qemu-system-x86_64 \
+            -cdrom build/prosenjitOS.iso \
+            -display none \
+            -serial file:build/qemu-serial.log \
+            -no-reboot \
+            -no-shutdown
+          qemu_status=$?
+          set -e
+
+          echo "QEMU exit status: $qemu_status"
+          cat build/qemu-serial.log
+
+          grep -q "ProsenjitOS: kernel online" build/qemu-serial.log
+          grep -q "ProsenjitOS: x86-64 long mode active" build/qemu-serial.log
+
+      - name: Upload ISO and boot log
         uses: actions/upload-artifact@v4
         with:
-          name: prosenjitOS-iso
-          path: build/prosenjitOS.iso
+          name: prosenjitOS-boot-test
+          path: |
+            build/prosenjitOS.iso
+            build/qemu-serial.log
