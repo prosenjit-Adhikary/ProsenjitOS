@@ -10,14 +10,12 @@ extern user_mode_exit_trampoline
 extern paging_switch_kernel
 extern stack_top
 
-; int 0x80 is the initial ProsenjitOS user/kernel syscall ABI entry.
-; General registers are saved so the C dispatcher can inspect/return RAX
-; without depending on a compiler-specific interrupt ABI.
 isr128:
     cli
     push r15
     push r14
     push r13
+    push r12
     push r11
     push r10
     push r9
@@ -52,9 +50,8 @@ isr128:
     iretq
 
 .exit_to_kernel:
-    ; INT 0x80 already performed the CPL3 -> CPL0 transition and the CPU
-    ; placed us on the TSS RSP0 stack. Restore kernel CR3 before entering
-    ; kernel-only text; then use the canonical bootstrap stack.
+    ; INT 0x80 already performed the CPL3 -> CPL0 transition. Restore the
+    ; kernel address space before entering supervisor-only kernel text.
     call paging_switch_kernel
     mov rsp, stack_top
     jmp user_mode_exit_trampoline
@@ -70,7 +67,6 @@ isr%1:
 %macro ISR_WITH_ERROR 1
 global isr%1
 isr%1:
-    ; CPU already pushed the architectural error code.
     push qword %1
     jmp isr_common
 %endmacro
@@ -97,7 +93,6 @@ ISR_NO_ERROR 18
 ISR_NO_ERROR 19
 ISR_NO_ERROR 20
 ISR_NO_ERROR 21
-ISR_WITH_ERROR 21
 ISR_NO_ERROR 22
 ISR_NO_ERROR 23
 ISR_NO_ERROR 24
