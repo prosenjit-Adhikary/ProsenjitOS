@@ -333,6 +333,41 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
+    /* Lifecycle regressions: duplicate PID, zombie parent, and current-process clearing. */
+    struct pros_process duplicate_pid_process;
+    struct pros_process lifecycle_parent;
+    struct pros_process lifecycle_child;
+    if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        process_create(&init_process, &lifecycle_parent, 3,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_create(&lifecycle_parent, &lifecycle_child, 4,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_exit(&lifecycle_parent, 7) != 0 ||
+        process_create(&lifecycle_parent, &duplicate_pid_process, 5,
+                       PROS_SECURITY_LIMITED) == 0 ||
+        process_wait(&lifecycle_parent, lifecycle_child.pid, &waited_exit) != -1) {
+        serial_write("ProsenjitOS: ERROR process state validation regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    process_set_current(&lifecycle_parent);
+    if (process_current() != 0) {
+        serial_write("ProsenjitOS: ERROR zombie process became current\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_exit(&lifecycle_child, 99) != 0 ||
+        process_wait(&lifecycle_parent, lifecycle_child.pid, &waited_exit) != -1) {
+        serial_write("ProsenjitOS: ERROR zombie parent waited for child\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_unregister(&lifecycle_child) != 0 ||
+        process_unregister(&lifecycle_parent) != 0) {
+        serial_write("ProsenjitOS: ERROR lifecycle regression cleanup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    process_set_current(&init_process);
+    serial_write("ProsenjitOS: process state validation regression passed\n");
+
 
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
