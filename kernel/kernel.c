@@ -3,6 +3,7 @@
 #include "paging.h"
 #include "heap.h"
 #include "address_space.h"
+#include "object.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -237,6 +238,38 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
+
+    /*
+     * Capability foundation test:
+     * - handles carry explicit rights
+     * - type/rights checks are enforced by the kernel
+     * - closing a handle invalidates its old generation
+     */
+    struct pros_handle_table capability_table;
+    struct pros_object capability_object;
+    handle_table_init(&capability_table);
+    object_init(&capability_object, PROS_OBJECT_FILE);
+
+    uint64_t read_handle = handle_alloc(&capability_table, &capability_object,
+                                        PROSENJIT_CAP_READ);
+    if (read_handle == PROSENJIT_HANDLE_INVALID ||
+        handle_check(&capability_table, read_handle,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        handle_check(&capability_table, read_handle,
+                     PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+        handle_check(&capability_table, read_handle,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_DEVICE) == 0) {
+        serial_write("ProsenjitOS: ERROR capability enforcement test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    if (handle_close(&capability_table, read_handle) != 0 ||
+        handle_check(&capability_table, read_handle,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0) {
+        serial_write("ProsenjitOS: ERROR stale capability handle test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: capability handle/rights test passed\n");
 
     struct pros_address_space user_space;
     if (address_space_create(&user_space) != 0) {
