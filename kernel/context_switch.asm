@@ -3,6 +3,7 @@ default rel
 
 section .text
 global thread_context_switch
+global thread_start_trampoline
 
 ; RDI = previous thread, RSI = next thread.
 ; Save/restore the System V callee-saved register set on each thread's
@@ -19,10 +20,10 @@ thread_context_switch:
     push r13
     push r14
     push r15
-    mov [rdi + 72], rsp
+    mov [rdi + 80], rsp
 
 .load_next:
-    mov rsp, [rsi + 72]
+    mov rsp, [rsi + 80]
     pop r15
     pop r14
     pop r13
@@ -38,3 +39,5 @@ thread_start_trampoline:
     mov rdi, r12
     call thread_bootstrap
     ud2
+
+section .note.GNU-stack noalloc noexec nowrite progbits
