@@ -133,10 +133,10 @@ void exception_dispatch(uint64_t *frame) {
     serial_hex64(vector);
     serial_write("\n");
     serial_write("ProsenjitOS: exception error code = ");
-    serial_hex64(frame[2]);
+    serial_hex64(frame[1]);
     serial_write("\n");
     serial_write("ProsenjitOS: exception RIP = ");
-    serial_hex64(frame[3]);
+    serial_hex64(frame[2]);
     serial_write("\n");
     if (vector == 128) {
         if (((volatile uint8_t *)(uintptr_t)USER_DATA_VA)[0] != 0x5A) {
