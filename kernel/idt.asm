@@ -9,6 +9,7 @@ extern exception_dispatch
 extern syscall_dispatch
 extern timer_dispatch
 extern timer_should_preempt
+extern thread_schedule_interrupt
 extern pic_eoi_master
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
@@ -87,8 +88,11 @@ isr32:
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    ; Context switching from this interrupt frame is intentionally deferred
-    ; until the full interrupt-frame scheduler ABI is implemented.
+    mov rdi, rsp
+    call thread_schedule_interrupt
+    test rax, rax
+    jz .timer_no_switch
+    mov rsp, rax
 .timer_no_switch:
     add rsp, 16
     pop r15
