@@ -115,3 +115,29 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
 
     return object_release(object);
 }
+
+uint64_t handle_duplicate(struct pros_handle_table *table,
+                          uint64_t source_handle,
+                          uint64_t requested_rights) {
+    if (!table || source_handle == PROSENJIT_HANDLE_INVALID ||
+        requested_rights == 0 ||
+        (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    uint32_t slot = handle_slot(source_handle);
+    uint16_t generation = handle_generation(source_handle);
+    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    struct pros_handle_entry *source = &table->entries[slot];
+    if (!source->object || source->generation != generation ||
+        source->object->refcount == 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    /* Duplication can only attenuate authority; it can never add rights. */
+    if ((source->rights & PROSENJIT_CAP_DUPLICATE) == 0 ||
+        (requested_rights & ~source->rights) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    return handle_alloc(table, source->object, requested_rights);
+}
