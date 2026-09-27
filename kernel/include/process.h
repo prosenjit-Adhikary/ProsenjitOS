@@ -30,5 +30,7 @@ int process_check_handle(const struct pros_process *process,
                          uint64_t required_rights,
                          uint16_t expected_type);
 int process_close_handle(struct pros_process *process, uint64_t handle);
+void process_set_current(struct pros_process *process);
+struct pros_process *process_current(void);
 
 #endif
