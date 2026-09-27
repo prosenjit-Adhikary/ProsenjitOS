@@ -336,7 +336,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Lifecycle regressions: duplicate PID, zombie parent, and current-process clearing. */
     struct pros_process duplicate_pid_process;
     struct pros_process lifecycle_parent;
-    struct pros_process lifecycle_child;
     if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
                        PROS_SECURITY_LIMITED) == 0 ||
         process_create(&init_process, &lifecycle_parent, 3,
