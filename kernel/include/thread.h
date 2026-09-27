@@ -24,6 +24,7 @@ struct pros_thread {
     struct pros_process *process;
     uint32_t state;
     uint32_t priority;
+    uint64_t entry;
     struct pros_cpu_context context;
     struct pros_thread *next;
     struct pros_thread *prev;
