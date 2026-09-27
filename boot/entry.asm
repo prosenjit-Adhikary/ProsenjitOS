@@ -99,7 +99,9 @@ long_mode_entry:
     jmp .halt
 
 enter_user_mode:
+    ; RDI=entry, RSI=stack_top, RDX=initial capability handle.
     mov rax, rdi
+    mov r8, rdx
     mov rdx, rsi
     push qword 0x23
     push rdx
@@ -107,6 +109,7 @@ enter_user_mode:
     or qword [rsp], 0x200
     push qword 0x1B
     push rax
+    mov rdi, r8
     iretq
 
 user_mode_exit_trampoline:
@@ -188,6 +191,14 @@ user_test_entry:
     int 0x80
     cmp rax, 0x0000000000010000
     jne .user_halt
+
+    ; Close the process-owned capability. The kernel resolves the
+    ; opaque handle in the current process table; user space has no object
+    ; pointer or rights field to forge.
+    mov rax, 3
+    int 0x80
+    test rax, rax
+    jnz .user_halt
 
     ; Ask the kernel to finish the CPL3 test. The kernel validates the
     ; caller privilege and user mapping before returning to its trampoline.
