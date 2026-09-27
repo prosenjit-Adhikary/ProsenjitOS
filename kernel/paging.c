@@ -8,7 +8,6 @@
 #define PDPT_INDEX(va) (((va) >> 30) & 0x1FFu)
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
-#define ADDRESS_SPACE_LIMIT (1ULL << 30)
 
 static uint64_t *kernel_pml4;
 
