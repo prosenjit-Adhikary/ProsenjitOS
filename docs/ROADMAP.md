@@ -5,20 +5,20 @@
 - [x] Initial README
 - [x] License and ignore rules
 - [x] Architecture/security requirements documented
-- [ ] First bootable image
+- [x] First bootable image
 
 ## Phase 1 — 64-bit boot and kernel foundation
-- [ ] BIOS boot path
-- [ ] 32-bit protected mode
-- [ ] Long-mode transition
-- [ ] x86-64 kernel entry
-- [ ] VGA and serial console
-- [ ] Linker script and reproducible build
-- [ ] Early boot security checks
+- [x] BIOS boot path
+- [x] 32-bit protected mode
+- [x] Long-mode transition
+- [x] x86-64 kernel entry
+- [x] VGA and serial console
+- [x] Linker script and reproducible build
+- [x] Early boot security checks
 
 ## Phase 2 — CPU and memory isolation
-- [ ] GDT/IDT
-- [ ] Interrupt and exception handlers
+- [x] GDT/IDT
+- [x] Interrupt and exception handlers
 - [ ] Timer
 - [ ] Physical page allocator
 - [ ] Virtual memory and paging
