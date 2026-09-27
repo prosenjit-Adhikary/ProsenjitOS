@@ -40,6 +40,10 @@ uint64_t process_transfer_handle_copy(struct pros_process *source,
                                       struct pros_process *target,
                                       uint64_t source_handle,
                                       uint64_t requested_rights);
+uint64_t process_transfer_handle_move(struct pros_process *source,
+                                      struct pros_process *target,
+                                      uint64_t source_handle,
+                                      uint64_t requested_rights);
 void process_set_current(struct pros_process *process);
 struct pros_process *process_current(void);
 
