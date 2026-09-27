@@ -19,7 +19,7 @@
 ## Phase 2 — CPU and memory isolation
 - [x] GDT/IDT
 - [x] Interrupt and exception handlers
-- [ ] Timer
+- [x] Timer (PIT channel 0, IRQ0 tick source)
 - [x] Physical page allocator
 - [x] Virtual memory and paging
 - [x] Kernel heap
