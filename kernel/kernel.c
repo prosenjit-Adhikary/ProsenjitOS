@@ -368,8 +368,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     while (timer_ticks() < preempt_start + 30u)
         __asm__ volatile ("pause");
     __asm__ volatile ("cli");
+    /*
+     * kernel_main is executing on the stack currently associated with the
+     * worker test thread. A successful timer preemption must first run the
+     * other kernel thread and then rotate back before this loop can continue.
+     */
     if (scheduler_test_init_progress == 0 ||
-        scheduler_test_worker_progress == 0) {
+        thread_current() != &worker_thread) {
         serial_write("ProsenjitOS: ERROR timer-driven kernel-thread preemption test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
