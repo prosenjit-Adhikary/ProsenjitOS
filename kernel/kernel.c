@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "paging.h"
 #include "heap.h"
+#include "address_space.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -171,6 +172,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
+
+    struct pros_address_space user_space;
+    if (address_space_create(&user_space) != 0) {
+        serial_write("ProsenjitOS: ERROR user address-space creation failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    uint64_t user_page = physical_page_alloc();
+    if (!user_page ||
+        address_space_map_user_page(&user_space, PROSENJIT_USER_TEST_VA,
+                                    user_page, PROSENJIT_PAGE_WRITABLE) != 0) {
+        serial_write("ProsenjitOS: ERROR user page mapping failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (address_space_switch(&user_space) != 0) {
+        serial_write("ProsenjitOS: ERROR user address-space switch failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ((volatile uint8_t *)(uintptr_t)PROSENJIT_USER_TEST_VA)[0] = 0x5A;
+    if (((volatile uint8_t *)(uintptr_t)PROSENJIT_USER_TEST_VA)[0] != 0x5A) {
+        serial_write("ProsenjitOS: ERROR user mapping memory test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (paging_switch_kernel() != 0) {
+        serial_write("ProsenjitOS: ERROR kernel address-space restore failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: user address-space isolation foundation test passed\\n");
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
     serial_write("ProsenjitOS: kernel online\n");
