@@ -3,6 +3,12 @@
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
+static int thread_process_runnable(const struct pros_thread *thread) {
+    return thread && thread->process &&
+           process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
+           process_state(thread->process) != PROS_PROCESS_DEAD;
+}
+
 
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
@@ -105,8 +111,14 @@ struct pros_thread *thread_current(void) {
 }
 
 int thread_schedule(void) {
-    struct pros_thread *next = thread_dequeue();
-    if (!next) return -1;
+    struct pros_thread *next;
+    do {
+        next = thread_dequeue();
+        if (!next) return -1;
+        if (!thread_process_runnable(next)) {
+            next->state = PROS_THREAD_DEAD;
+        }
+    } while (next->state == PROS_THREAD_DEAD);
 
     if (current_thread && current_thread != next &&
         current_thread->state == PROS_THREAD_RUNNING) {
