@@ -140,7 +140,7 @@ int paging_init(void) {
     uint64_t *pdpt = alloc_table();
     if (!pdpt) return -1;
     kernel_pml4[0] = ((uint64_t)pdpt & PAGE_MASK) |
-                     PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE;
+                     PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER;
 
     /*
      * Replace the bootstrap 2 MiB identity mapping with 4 KiB mappings.
