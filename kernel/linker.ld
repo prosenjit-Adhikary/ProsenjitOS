@@ -10,7 +10,7 @@ SECTIONS
         KEEP(*(.multiboot))
         *(.text*)
     }
-    __kernel_text_end = .;
+    __kernel_text_end = ALIGN(4K);
 
     .rodata : ALIGN(4K)
     {
@@ -18,7 +18,7 @@ SECTIONS
         *(.rodata*)
     }
 
-    __kernel_rodata_end = .;
+    __kernel_rodata_end = ALIGN(4K);
 
     .data : ALIGN(4K)
     {
