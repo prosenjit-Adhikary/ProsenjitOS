@@ -1,4 +1,5 @@
 #include "prosenjit.h"
+#include "memory.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
