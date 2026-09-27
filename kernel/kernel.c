@@ -110,10 +110,10 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("\n");
     if (vector == 128) {
         if (((volatile uint8_t *)(uintptr_t)USER_DATA_VA)[0] != 0x5A) {
-            serial_write("ProsenjitOS: ERROR user-mode write verification failed\\n");
+            serial_write("ProsenjitOS: ERROR user-mode write verification failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
-        serial_write("ProsenjitOS: CPL3 syscall returned to kernel successfully\\n");
+        serial_write("ProsenjitOS: CPL3 syscall returned to kernel successfully\n");
         if (paging_switch_kernel() != 0) {
             serial_write("ProsenjitOS: ERROR kernel address-space restore failed\\n");
             for (;;) __asm__ volatile ("cli; hlt");
@@ -127,7 +127,7 @@ void exception_dispatch(uint64_t *frame) {
 }
 
 void user_mode_test_complete(void) {
-    serial_write("ProsenjitOS: CPL3 user-mode execution test passed\\n");
+    serial_write("ProsenjitOS: CPL3 user-mode execution test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
     for (;;) __asm__ volatile ("cli; hlt");
 }
