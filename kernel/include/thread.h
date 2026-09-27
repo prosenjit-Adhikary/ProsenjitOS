@@ -33,6 +33,7 @@ struct pros_thread {
     uint32_t priority;
     uint64_t entry;
     struct pros_cpu_context context;
+    struct pros_interrupt_frame *interrupt_frame;
     struct pros_thread *next;
     struct pros_thread *prev;
 };
