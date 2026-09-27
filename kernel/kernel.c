@@ -6,6 +6,7 @@
 #include "object.h"
 #include "process.h"
 #include "thread.h"
+#include "timer.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -74,6 +75,7 @@ struct idt_gate {
 static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
+extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 
@@ -132,6 +134,7 @@ void idt_init(void) {
      */
     idt_set_gate(13, handlers[13], 0);
     idt_set_gate(14, handlers[14], 0);
+    idt_set_gate(32, isr32, 0);
     idt_set_gate(128, isr128, 0);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
@@ -196,6 +199,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     debug_tss_descriptor();
     cpu_load_tss();
     serial_write("ProsenjitOS: TSS loaded successfully\n");
+    if (timer_init(100) != 0) {
+        serial_write("ProsenjitOS: ERROR PIT timer initialization failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: PIT timer initialized at 100 Hz\\n");
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
