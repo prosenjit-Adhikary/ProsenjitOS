@@ -61,6 +61,9 @@ int process_check_handle(const struct pros_process *process,
                          uint64_t handle,
                          uint64_t required_rights,
                          uint16_t expected_type);
+int process_handle_type(const struct pros_process *process,
+                        uint64_t handle,
+                        uint16_t *type_out);
 int process_close_handle(struct pros_process *process, uint64_t handle);
 uint64_t process_duplicate_handle(struct pros_process *process,
                                   uint64_t source_handle,
