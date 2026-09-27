@@ -214,8 +214,8 @@ user_test_entry:
     mov rdi, r12
     mov rsi, 2                  ; PROSENJIT_CAP_WRITE
     int 0x80
-    test rax, rax
-    jz .user_halt
+    cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
 
     ; Close the duplicated READ-only capability.
     mov rdi, r13
