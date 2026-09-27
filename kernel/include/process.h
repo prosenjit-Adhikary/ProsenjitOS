@@ -23,7 +23,12 @@ int process_init(struct pros_process *process,
                  uint32_t security_level);
 int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
-                         uint32_t rights,
+                         uint64_t rights,
                          uint64_t *handle_out);
+int process_check_handle(const struct pros_process *process,
+                         uint64_t handle,
+                         uint64_t required_rights,
+                         uint16_t expected_type);
+int process_close_handle(struct pros_process *process, uint64_t handle);
 
 #endif
