@@ -36,8 +36,10 @@ jobs:
           echo "QEMU exit status: $qemu_status"
           cat build/qemu-serial.log
 
-          grep -q "ProsenjitOS: kernel online" build/qemu-serial.log
+          grep -q "ProsenjitOS: CPL3 user-mode execution test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: x86-64 long mode active" build/qemu-serial.log
+          grep -q "ProsenjitOS: capability handle/rights test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: process capability authorization test passed" build/qemu-serial.log
 
       - name: Upload ISO and boot log
         uses: actions/upload-artifact@v4
