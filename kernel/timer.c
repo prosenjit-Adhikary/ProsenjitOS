@@ -13,7 +13,7 @@ int timer_init(uint32_t hz) {
     timer_out8(0x43, 0x36);
     timer_out8(0x40, (uint8_t)(divisor & 0xFFu));
     timer_out8(0x40, (uint8_t)((divisor >> 8) & 0xFFu));
-    return 0;
+    return pic_init_for_timer();
 }
 
 uint64_t timer_ticks(void) {
