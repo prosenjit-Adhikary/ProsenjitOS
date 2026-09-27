@@ -72,6 +72,7 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top);
+extern void cpu_load_tss(void);
 extern void user_mode_exit_trampoline(void);
 extern char __user_text_start[];
 extern char __user_text_end[];
@@ -144,6 +145,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     idt_init();
     __asm__ volatile ("cli");
+    cpu_load_tss();
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
