@@ -355,6 +355,46 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: capability copy-transfer test passed\n");
 
+    /*
+     * Cross-process move-transfer:
+     * - requires TRANSFER authority
+     * - attenuates rights
+     * - consumes the source only after target allocation succeeds
+     */
+    struct pros_object move_test_object;
+    uint64_t move_source_handle;
+    uint64_t moved_handle;
+    object_init(&move_test_object, PROS_OBJECT_FILE);
+    if (process_grant_handle(&init_process, &move_test_object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_TRANSFER,
+                             &move_source_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR move-transfer source grant failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    moved_handle = process_transfer_handle_move(&init_process, &transfer_target,
+                                                move_source_handle,
+                                                PROSENJIT_CAP_READ);
+    if (moved_handle == PROSENJIT_HANDLE_INVALID ||
+        process_check_handle(&transfer_target, moved_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        process_check_handle(&transfer_target, moved_handle,
+                             PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+        process_check_handle(&init_process, move_source_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 ||
+        process_transfer_handle_move(&init_process, &transfer_target,
+                                     move_source_handle,
+                                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID) {
+        serial_write("ProsenjitOS: ERROR capability move-transfer test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    if (process_close_handle(&transfer_target, moved_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR moved handle close failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: capability move-transfer test passed\n");
+
     struct pros_address_space *user_space = &init_process.address_space;
     uint64_t user_page = physical_page_alloc();
     if (!user_page ||
