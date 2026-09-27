@@ -6,6 +6,7 @@ extern kernel_main
 
 _start:
     cli
+    cld
 
     ; GRUB supplies:
     ; EAX = Multiboot2 boot magic
@@ -73,6 +74,12 @@ long_mode_entry:
     mov ss, ax
 
     mov rsp, stack_top
+
+    ; Set all data segments explicitly for a clean kernel entry.
+    mov ax, gdt64.data
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
 
     ; Pass the original Multiboot2 values to C:
     ; System V x86-64 ABI: RDI, RSI.
