@@ -110,7 +110,10 @@ enter_user_mode:
 user_mode_exit_trampoline:
     mov rsp, stack_top
     call user_mode_test_complete
-    jmp .halt
+.user_halt:
+    cli
+    hlt
+    jmp .user_halt
 
 cpu_security_init:
     xor eax, eax
