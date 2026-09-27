@@ -41,13 +41,25 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             uint64_t new_handle = process_duplicate_handle(process,
                                                             source_handle,
                                                             requested_rights);
-            registers[0] = new_handle ? new_handle : PROSENJIT_SYSCALL_EPERM;
+            if (new_handle == PROSENJIT_HANDLE_INVALID) {
+                serial_write("ProsenjitOS: syscall DUP denied by handle operation\\n");
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+            } else {
+                registers[0] = new_handle;
+            }
             return;
         }
 
         case PROSENJIT_SYS_HANDLE_CLOSE: {
             struct pros_process *process = process_current();
-            if (!process || process_close_handle(process, registers[5]) != 0) {
+            uint64_t handle = registers[5];
+            if (!process) {
+                serial_write("ProsenjitOS: syscall CLOSE failed: no current process\\n");
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            if (process_close_handle(process, handle) != 0) {
+                serial_write("ProsenjitOS: syscall CLOSE failed: invalid/stale handle\\n");
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
