@@ -124,9 +124,13 @@ void idt_init(void) {
     };
     for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
     for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
-    idt_set_gate(8, handlers[8], 2);
-    idt_set_gate(13, handlers[13], 1); /* safe stack for IRET/#GP diagnostics */
-    idt_set_gate(14, handlers[14], 1);
+    idt_set_gate(8, handlers[8], 2); /* dedicated double-fault stack */
+    /*
+     * Keep #GP/#PF on the normal CPL0 stack while debugging the user entry
+     * path. If delivery itself fails, #DF will still have its dedicated IST.
+     */
+    idt_set_gate(13, handlers[13], 0);
+    idt_set_gate(14, handlers[14], 0);
     idt_set_gate(128, isr128, 0);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
