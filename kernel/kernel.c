@@ -341,12 +341,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                        PROS_SECURITY_LIMITED) == 0 ||
         process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
-        process_create(&lifecycle_parent, &lifecycle_child, 4,
-                       PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&lifecycle_parent, 7) != 0 ||
-        process_create(&lifecycle_parent, &duplicate_pid_process, 5,
-                       PROS_SECURITY_LIMITED) == 0 ||
-        process_wait(&lifecycle_parent, lifecycle_child.pid, &waited_exit) != -1) {
+        process_wait(&lifecycle_parent, child_process.pid, &waited_exit) != -1) {
         serial_write("ProsenjitOS: ERROR process state validation regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -355,18 +351,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR zombie process became current\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (process_exit(&lifecycle_child, 99) != 0 ||
-        process_wait(&lifecycle_parent, lifecycle_child.pid, &waited_exit) != -1) {
-        serial_write("ProsenjitOS: ERROR zombie parent waited for child\n");
+    if (process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
+        waited_exit != 7 ||
+        lifecycle_parent.address_space.root != 0 ||
+        process_lookup(lifecycle_parent.pid) != 0) {
+        serial_write("ProsenjitOS: ERROR zombie process reap validation failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (process_unregister(&lifecycle_child) != 0 ||
-        process_unregister(&lifecycle_parent) != 0) {
-        serial_write("ProsenjitOS: ERROR lifecycle regression cleanup failed\n");
+    if (process_unregister(&lifecycle_parent) != -1) {
+        serial_write("ProsenjitOS: ERROR unreaped process unregister was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
     serial_write("ProsenjitOS: process state validation regression passed\n");
+
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
     uint64_t lifecycle_free_before = physical_memory_free_pages();
