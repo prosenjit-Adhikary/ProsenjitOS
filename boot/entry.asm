@@ -178,7 +178,7 @@ user_test_entry:
     hlt
     jmp .user_halt
 
-section .rodata
+section .data
 align 8
 gdt64:
     dq 0
