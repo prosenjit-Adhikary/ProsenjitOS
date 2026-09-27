@@ -42,6 +42,7 @@
   - [ ] Timer-driven preemption
 - [x] Context switching foundation (kernel-stack switch + callee-saved state)
 - [ ] Preemptive interrupt-frame context switching
+  - [x] Interrupt-frame ABI and scheduler hand-off foundation
 - [x] System-call boundary
 - [ ] IPC
 
