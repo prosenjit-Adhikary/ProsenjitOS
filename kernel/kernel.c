@@ -132,6 +132,12 @@ void user_mode_test_complete(void) {
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+void user_mode_test_complete(void) {
+    serial_write("ProsenjitOS: CPL3 user-mode execution test passed\n");
+    vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
@@ -228,6 +234,45 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: user address-space isolation foundation test passed\n");
+
+    uint64_t user_text_size = (uint64_t)(uintptr_t)__user_text_end -
+                              (uint64_t)(uintptr_t)__user_text_start;
+    if (user_text_size == 0 || user_text_size > PROSENJIT_PAGE_SIZE) {
+        serial_write("ProsenjitOS: ERROR user test code does not fit one page\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    uint64_t user_code_page = physical_page_alloc();
+    uint64_t user_data_page = physical_page_alloc();
+    uint64_t user_stack_page = physical_page_alloc();
+    if (!user_code_page || !user_data_page || !user_stack_page) {
+        serial_write("ProsenjitOS: ERROR user-mode page allocation failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    for (uint64_t i = 0; i < user_text_size; ++i)
+        ((uint8_t *)(uintptr_t)user_code_page)[i] =
+            ((const uint8_t *)__user_text_start)[i];
+
+    if (address_space_map_user_page(&user_space, PROSENJIT_USER_CODE_VA,
+                                    user_code_page, 0) != 0 ||
+        address_space_map_user_page(&user_space, PROSENJIT_USER_TEST_VA,
+                                    user_data_page,
+                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        address_space_map_user_page(&user_space, PROSENJIT_USER_STACK_VA,
+                                    user_stack_page,
+                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        serial_write("ProsenjitOS: ERROR user-mode mappings failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    serial_write("ProsenjitOS: entering CPL3 user-mode test\n");
+    if (address_space_switch(&user_space) != 0) {
+        serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    enter_user_mode(PROSENJIT_USER_CODE_VA, PROSENJIT_USER_STACK_TOP);
+    for (;;) __asm__ volatile ("cli; hlt");
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
     serial_write("ProsenjitOS: kernel online\n");
