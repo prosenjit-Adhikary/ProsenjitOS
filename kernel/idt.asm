@@ -3,7 +3,13 @@ BITS 64
 section .text
 global idt_load
 global isr_common
+global isr128
 extern exception_dispatch
+isr128:
+    push qword 0
+    push qword 128
+    jmp isr_common
+
 %assign n 0
 %rep 32
 global isr%+n
@@ -22,8 +28,7 @@ isr_common:
     cli
     mov rdi, rsp
     call exception_dispatch
-.hang:
-    hlt
-    jmp .hang
+    add rsp, 16
+    iretq
 
 section .note.GNU-stack noalloc noexec nowrite progbits
