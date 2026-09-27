@@ -95,6 +95,18 @@ int handle_check(const struct pros_handle_table *table,
     return 0;
 }
 
+int handle_table_close_all(struct pros_handle_table *table) {
+    if (!table) return -1;
+    int rc = 0;
+    for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
+        if (table->entries[i].object) {
+            uint64_t handle = make_handle(i, table->entries[i].generation);
+            if (handle_close(table, handle) != 0) rc = -1;
+        }
+    }
+    return rc;
+}
+
 int handle_close(struct pros_handle_table *table, uint64_t handle) {
     if (!table || handle == PROSENJIT_HANDLE_INVALID) return -1;
 
