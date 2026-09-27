@@ -46,17 +46,20 @@
 - [ ] IPC
 
 ## Phase 4 — Security foundation
-- [ ] Per-process security identity
-- [ ] Capability/permission model
+- [x] Per-process security identity
+- [x] Capability/permission model
   - [x] Kernel capability-handle foundation
   - [x] Per-process capability policy\n  - [x] Capability transfer rules\n  - [ ] Kernel-mediated cross-process transfer syscall
+  - [x] Intent-aware authorization pipeline
+  - [x] Policy decision and bounded Reason Ledger
+  - [x] Process quarantine containment state
 - [ ] Protected object manager
 - [ ] Application sandbox
 - [ ] Filesystem access control
 - [ ] Process isolation
 - [ ] Device permission broker
 - [ ] Network permission policy
-- [ ] Security event log
+- [x] Security event log (Reason Ledger foundation)
 - [ ] Signed package verification
 - [ ] Controlled driver loading
 
