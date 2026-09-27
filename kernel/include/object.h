@@ -47,5 +47,8 @@ int handle_check(const struct pros_handle_table *table,
                  uint64_t required_rights,
                  uint16_t expected_type);
 int handle_close(struct pros_handle_table *table, uint64_t handle);
+uint64_t handle_duplicate(struct pros_handle_table *table,
+                          uint64_t source_handle,
+                          uint64_t requested_rights);
 
 #endif
