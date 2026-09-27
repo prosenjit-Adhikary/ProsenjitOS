@@ -112,9 +112,17 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - ISO boot-tested with QEMU
 - CI build-and-boot test configured to verify kernel startup and x86-64 long-mode activation
 
+### Completed — initial memory-management foundation
+
+- physical memory manager with Multiboot2 memory-map discovery
+- 4 KiB physical page allocation/free support
+- initial x86-64 virtual-memory/page-table manager
+- first 1 GiB identity mapping retained for early kernel operation
+- 4 KiB high-half mapping and translation smoke test
+
 ### In progress / next engineering milestones
 
-- physical memory manager (first allocator implemented)\n- virtual memory and paging
+- kernel heap
 - syscall and capability model
 - security policy and permission broker
 - user/session and Limited User / Super User model
