@@ -15,6 +15,15 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
             registers[0] = PROSENJIT_ABI_VERSION;
             return;
 
+        case PROSENJIT_SYS_HANDLE_DUP: {
+            struct pros_process *process = process_current();
+            uint64_t new_handle = process
+                ? process_duplicate_handle(process, registers[9], registers[10])
+                : PROSENJIT_HANDLE_INVALID;
+            registers[0] = new_handle ? new_handle : PROSENJIT_SYSCALL_EPERM;
+            return;
+        }
+
         case PROSENJIT_SYS_HANDLE_CLOSE: {
             struct pros_process *process = process_current();
             if (!process || process_close_handle(process, registers[9]) != 0) {
