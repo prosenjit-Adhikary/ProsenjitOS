@@ -83,6 +83,12 @@ isr32:
     push qword 32
     mov rdi, rsp
     call timer_dispatch
+    call timer_should_preempt
+    test eax, eax
+    jz .timer_no_switch
+    ; Context switching from this interrupt frame is intentionally deferred
+    ; until the full interrupt-frame scheduler ABI is implemented.
+.timer_no_switch:
     add rsp, 16
     pop r15
     pop r14
