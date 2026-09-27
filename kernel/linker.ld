@@ -12,6 +12,13 @@ SECTIONS
     }
     __kernel_text_end = ALIGN(4K);
 
+    .user_text : ALIGN(4K)
+    {
+        __user_text_start = .;
+        *(.user_text*)
+        __user_text_end = ALIGN(4K);
+    }
+
     .rodata : ALIGN(4K)
     {
         __kernel_rodata_start = .;
