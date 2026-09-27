@@ -27,7 +27,9 @@ idt_load:
 isr_common:
     cli
     mov rdi, rsp
+    sub rsp, 8
     call exception_dispatch
+    add rsp, 8
     add rsp, 16
     iretq
 
