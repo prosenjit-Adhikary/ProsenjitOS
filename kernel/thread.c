@@ -148,11 +148,18 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (!prev || !current_frame) return current_frame;
 
     prev->interrupt_frame = current_frame;
-    struct pros_thread *next = thread_dequeue();
-    if (!next) return current_frame;
+    struct pros_thread *next;
+    do {
+        next = thread_dequeue();
+        if (!next) return current_frame;
+        if (!thread_process_runnable(next))
+            next->state = PROS_THREAD_DEAD;
+    } while (next->state == PROS_THREAD_DEAD);
 
     prev->state = PROS_THREAD_READY;
-    if (thread_enqueue(prev) != 0) {
+    if (!thread_process_runnable(prev)) {
+        prev->state = PROS_THREAD_DEAD;
+    } else if (thread_enqueue(prev) != 0) {
         prev->state = PROS_THREAD_RUNNING;
         thread_enqueue(next);
         return current_frame;
