@@ -268,6 +268,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     process_set_current(&init_process);
     serial_write("ProsenjitOS: initial limited process and capability context online\\n");
+    if ((process_allowed_capabilities(&init_process) & PROSENJIT_CAP_ADMIN) != 0 ||
+        (process_allowed_capabilities(&init_process) & PROSENJIT_CAP_READ) == 0) {
+        serial_write("ProsenjitOS: ERROR limited-process capability policy test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    struct pros_object admin_test_object;
+    uint64_t admin_test_handle;
+    object_init(&admin_test_object, PROS_OBJECT_DEVICE);
+    if (process_grant_handle(&init_process, &admin_test_object,
+                             PROSENJIT_CAP_ADMIN, &admin_test_handle) == 0) {
+        serial_write("ProsenjitOS: ERROR limited process received ADMIN capability\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: limited-process capability policy test passed\\n");
 
     /*
      * Capability foundation test:
