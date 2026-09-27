@@ -33,6 +33,9 @@
   - [x] Process lifecycle states
   - [x] Parent-process identity
   - [x] Basic child-process creation
+  - [x] PID registry and process lookup
+  - [x] Process exit/zombie state
+  - [x] Parent wait/reap semantics
 - [ ] Thread scheduler
 - [ ] Context switching
 - [x] System-call boundary
