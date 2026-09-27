@@ -29,7 +29,10 @@
 ## Phase 3 — Kernel architecture
 - [x] Kernel object model
 - [x] Protected handles
-- [ ] Process manager
+- [x] Process manager
+  - [x] Process lifecycle states
+  - [x] Parent-process identity
+  - [x] Basic child-process creation
 - [ ] Thread scheduler
 - [ ] Context switching
 - [x] System-call boundary
