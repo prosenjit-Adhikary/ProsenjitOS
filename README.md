@@ -54,15 +54,50 @@ Existing applications will not receive unrestricted access to the host OS simply
 
 ## AI strategy
 
+AI is intended to be an **OS-level control and assistance layer**, not merely a chatbot application.
+
+The architecture is:
+
+`User request -> AI service/API -> intent and action planning -> Policy/Permission Broker -> approved system action`
+
 AI will be exposed through an OS-level API/broker rather than requiring a large model to be bundled with the base OS:
 
 `Application -> ProsenjitOS AI API -> Policy/Permission Broker -> Local/LAN/Remote AI Provider`
 
 The broker will eventually handle authentication, permissions, quotas, privacy policy, provider selection, and optional local inference.
 
+### Natural-language system administration
+
+A core goal is to let users describe an administrative task in natural language. For example:
+
+> "Install Chrome."
+
+The AI should be able to:
+
+1. understand the user's requested outcome
+2. determine the required package/software and dependencies
+3. explain the planned action when appropriate
+4. check the user's identity and effective permissions
+5. request elevation or confirmation when the action requires additional privileges
+6. execute only the actions allowed by the policy engine
+7. report the result and relevant errors to the user
+
+AI should **not** receive unrestricted administrator/root access merely because it is an AI service. Every privileged operation must pass through the ProsenjitOS permission and policy model.
+
+### User privilege model
+
+The planned user model distinguishes at least:
+
+- **Limited User:** normal day-to-day account with restricted access to protected system resources
+- **Super User:** authorized account/session capable of performing protected administrative operations
+
+The AI broker will preserve this distinction. A Limited User request such as software installation may require an explicit authorization/elevation flow rather than silently granting administrative access.
+
+The final design may use capabilities, scoped elevation, approval prompts, policy rules, audit logging, or combinations of these mechanisms.
+
 ## Development status
 
-### Current — v0.1 foundation
+### Completed — x86-64 boot foundation
 
 - repository initialized
 - architecture and roadmap documented
@@ -70,15 +105,20 @@ The broker will eventually handle authentication, permissions, quotas, privacy p
 - kernel C entry scaffolded
 - VGA diagnostic output scaffolded
 - build-system skeleton created
+- bootable x86-64 ISO produced
+- x86-64 long-mode boot path implemented
+- early CPU security/memory-protection initialization implemented
+- early protected exception/IDT foundation implemented
+- ISO boot-tested with QEMU
+- CI build-and-boot test configured to verify kernel startup and x86-64 long-mode activation
 
-### Next engineering milestones
+### In progress / next engineering milestones
 
-- bootable x86-64 kernel image
-- CPU mode and interrupt initialization
 - physical/virtual memory manager
 - process and thread isolation
 - syscall and capability model
-- security policy broker
+- security policy and permission broker
+- user/session and Limited User / Super User model
 - storage and filesystem
 - drivers and device broker
 - CUI/CLI
@@ -86,21 +126,42 @@ The broker will eventually handle authentication, permissions, quotas, privacy p
 - Linux/POSIX compatibility runtime
 - Windows API compatibility runtime
 - package manager and signed packages
-- AI API broker
+- AI API and system-action broker
+- natural-language administrative workflows
 - hardening, testing, recovery, and release engineering
+
+> **Status note:** The project has reached the point where a bootable x86-64 image can be built and boot-tested in QEMU. This is an early kernel foundation, not a complete operating system.
+
+## CI verification
+
+The repository includes GitHub Actions automation that:
+
+1. checks out the source
+2. installs the required build and QEMU toolchain
+3. builds the bootable ISO
+4. boots the ISO in QEMU
+5. verifies expected kernel serial-output markers
+6. uploads the ISO and QEMU boot log as CI artifacts
+
+The boot test currently verifies, among other startup markers:
+
+- `ProsenjitOS: kernel online`
+- `ProsenjitOS: x86-64 long mode active`
+
+This provides a repeatable minimum regression check for the boot foundation.
 
 ## Repository layout
 
 ```text
 ProsenjitOS/
-├── boot/              # Boot protocol, early CPU setup and boot assets
-├── kernel/            # Kernel source and headers
-├── drivers/           # Hardware drivers
-├── user/              # User-mode programs and services
-├── docs/              # Architecture, security and development documentation
+├── boot/               # Boot protocol, early CPU setup and boot assets
+├── kernel/             # Kernel source and headers
+├── drivers/            # Hardware drivers
+├── user/               # User-mode programs and services
+├── docs/               # Architecture, security and development documentation
 ├── scripts/            # Build/development helpers
 ├── .github/            # CI and repository automation
-└── Makefile             # Build entry point
+└── Makefile            # Build entry point
 ```
 
 ## Engineering rule
