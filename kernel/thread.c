@@ -160,7 +160,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     frame->rax = frame->rbx = frame->rcx = frame->rdx = 0;
     frame->rsi = frame->rdi = frame->rbp = 0;
     frame->r8 = frame->r9 = frame->r10 = frame->r11 = 0;
-    frame->r12 = frame->r13 = frame->r14 = frame->r15 = 0;
+    frame->r12 = (uint64_t)(uintptr_t)next;
+    frame->r13 = frame->r14 = frame->r15 = 0;
     frame->vector = 32;
     frame->error_code = 0;
     frame->rip = (uint64_t)(uintptr_t)thread_start_trampoline;
