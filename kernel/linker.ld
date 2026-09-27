@@ -4,27 +4,25 @@ SECTIONS
 {
     . = 1M;
     __kernel_start = .;
-    __kernel_text_start = .;
-
     .text : ALIGN(4K)
     {
+        __kernel_text_start = .;
         KEEP(*(.multiboot))
         *(.text*)
     }
     __kernel_text_end = .;
 
-    __kernel_rodata_start = .;
-
     .rodata : ALIGN(4K)
     {
+        __kernel_rodata_start = .;
         *(.rodata*)
     }
 
     __kernel_rodata_end = .;
 
-    __kernel_data_start = .;
     .data : ALIGN(4K)
     {
+        __kernel_data_start = .;
         *(.data*)
     }
     __kernel_data_end = .;
