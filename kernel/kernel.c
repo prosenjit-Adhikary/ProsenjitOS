@@ -181,7 +181,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     uint64_t user_page = physical_page_alloc();
     if (!user_page ||
         address_space_map_user_page(&user_space, PROSENJIT_USER_TEST_VA,
-                                    user_page, PROSENJIT_PAGE_WRITABLE) != 0) {
+                                    user_page, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
         serial_write("ProsenjitOS: ERROR user page mapping failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
