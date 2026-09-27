@@ -27,6 +27,8 @@ struct pros_process {
     uint32_t state;
     int32_t exit_code;
     uint64_t capability_policy;
+    uint8_t quarantined;
+    uint8_t security_reserved[7];
     struct pros_address_space address_space;
     struct pros_handle_table handles;
     struct pros_process *parent;
