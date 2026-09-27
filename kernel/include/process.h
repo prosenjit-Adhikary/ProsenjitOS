@@ -30,6 +30,9 @@ int process_check_handle(const struct pros_process *process,
                          uint64_t required_rights,
                          uint16_t expected_type);
 int process_close_handle(struct pros_process *process, uint64_t handle);
+uint64_t process_duplicate_handle(struct pros_process *process,
+                                  uint64_t source_handle,
+                                  uint64_t requested_rights);
 void process_set_current(struct pros_process *process);
 struct pros_process *process_current(void);
 
