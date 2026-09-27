@@ -31,7 +31,9 @@ int process_register(struct pros_process *process) {
 }
 
 int process_unregister(struct pros_process *process) {
-    if (!process) return -1;
+    if (!process || process->state != PROS_PROCESS_DEAD ||
+        process->address_space.root != 0)
+        return -1;
     struct pros_process **link = &process_list;
     while (*link) {
         if (*link == process) {
