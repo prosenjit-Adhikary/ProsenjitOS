@@ -267,6 +267,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
+    if (process_state(&init_process) != PROS_PROCESS_NEW ||
+        process_set_state(&init_process, PROS_PROCESS_RUNNING) != 0 ||
+        process_state(&init_process) != PROS_PROCESS_RUNNING) {
+        serial_write("ProsenjitOS: ERROR initial process lifecycle test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    struct pros_process child_process;
+    if (process_create(&init_process, &child_process, 2,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        child_process.parent_pid != init_process.pid ||
+        process_state(&child_process) != PROS_PROCESS_READY ||
+        process_set_state(&child_process, PROS_PROCESS_RUNNING) != 0 ||
+        process_state(&child_process) != PROS_PROCESS_RUNNING) {
+        serial_write("ProsenjitOS: ERROR child process lifecycle test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_set_state(&child_process, PROS_PROCESS_ZOMBIE) != 0 ||
+        process_set_state(&child_process, PROS_PROCESS_DEAD) != 0 ||
+        process_set_state(&child_process, PROS_PROCESS_RUNNING) == 0) {
+        serial_write("ProsenjitOS: ERROR process terminal-state test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process lifecycle/parent test passed\n");
     serial_write("ProsenjitOS: initial limited process and capability context online\\n");
     if ((process_allowed_capabilities(&init_process) & PROSENJIT_CAP_ADMIN) != 0 ||
         (process_allowed_capabilities(&init_process) & PROSENJIT_CAP_READ) == 0) {
