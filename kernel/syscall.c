@@ -15,18 +15,9 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
             registers[0] = PROSENJIT_ABI_VERSION;
             return;
 
-        case PROSENJIT_SYS_HANDLE_DUP: {
-            struct pros_process *process = process_current();
-            uint64_t new_handle = process
-                ? process_duplicate_handle(process, registers[9], registers[10])
-                : PROSENJIT_HANDLE_INVALID;
-            registers[0] = new_handle ? new_handle : PROSENJIT_SYSCALL_EPERM;
-            return;
-        }
-
         case PROSENJIT_SYS_HANDLE_CLOSE: {
             struct pros_process *process = process_current();
-            if (!process || process_close_handle(process, registers[9]) != 0) {
+            if (!process || process_close_handle(process, registers[13]) != 0) {
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
@@ -35,11 +26,6 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
         }
 
         case PROSENJIT_SYS_USER_TEST_COMPLETE:
-            /*
-             * The test syscall is deliberately restricted to a CPL3 caller.
-             * A future production syscall layer will perform per-process
-             * identity and capability checks before dispatching operations.
-             */
             if ((cpu_frame[1] & 3ULL) != 3ULL) {
                 registers[0] = PROSENJIT_SYSCALL_EPERM;
                 return;
@@ -50,17 +36,13 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
                 return;
             }
 
-            /*
-             * Leave user mode through a controlled kernel trampoline. The
-             * current user stack is intentionally discarded by the trampoline.
-             */
             if (paging_switch_kernel() != 0) {
                 registers[0] = PROSENJIT_SYSCALL_EPERM;
                 return;
             }
 
             cpu_frame[0] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
-            cpu_frame[1] = 0x08; /* kernel code selector */
+            cpu_frame[1] = 0x08;
             registers[0] = PROSENJIT_SYSCALL_OK;
             return;
 
