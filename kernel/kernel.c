@@ -328,7 +328,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_process duplicate_pid_process;
     if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
                        PROS_SECURITY_LIMITED) == 0) {
-        serial_write("ProsenjitOS: ERROR duplicate live/zombie PID was accepted\\n");
+        serial_write("ProsenjitOS: ERROR duplicate live/zombie PID was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     int32_t waited_exit = 0;
