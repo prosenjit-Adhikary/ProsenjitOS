@@ -221,13 +221,13 @@ page_directory: resb 4096
                 resb 4096
 
 align 16
+tss64:
+    resb 104
+
+align 16
 stack_bottom:
     resb 16384
 stack_top:
-
-align 16
-tss64:
-    resb 104
 boot_magic: resd 1
 boot_info:  resd 1
 
