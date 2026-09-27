@@ -50,8 +50,18 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
                 return;
             }
 
+            /*
+             * Return to a kernel trampoline after switching CR3 back to the
+             * kernel address space.  Because IRETQ is changing CPL3 -> CPL0,
+             * its frame must also contain a valid kernel RSP/SS pair; leaving
+             * the user RSP/SS in place makes the CPU raise #GP(0x20).
+             * The current kernel interrupt stack is still valid, and the
+             * trampoline immediately installs the canonical bootstrap stack.
+             */
             cpu_frame[0] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
             cpu_frame[1] = 0x08;
+            cpu_frame[3] = (uint64_t)(uintptr_t)(cpu_frame + 5);
+            cpu_frame[4] = 0x10;
             registers[0] = PROSENJIT_SYSCALL_OK;
             return;
 
