@@ -105,7 +105,8 @@ enum pros_security_decision security_authorize(
     uint32_t reason = PROS_REASON_NONE;
     enum pros_security_decision decision = PROS_DECISION_DENY;
 
-    if (!process || process_state(process) == PROS_PROCESS_DEAD) {
+    if (!process || process_state(process) == PROS_PROCESS_DEAD ||
+        process_state(process) == PROS_PROCESS_ZOMBIE) {
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
