@@ -4,6 +4,7 @@ section .text
 global _start
 extern kernel_main
 extern cpu_security_init
+extern user_mode_test_complete
 
 _start:
     cli
@@ -93,6 +94,11 @@ long_mode_entry:
     hlt
     jmp .halt
 
+user_mode_exit_trampoline:
+    mov rsp, stack_top
+    call user_mode_test_complete
+    jmp .halt
+
 cpu_security_init:
     xor eax, eax
 
@@ -116,16 +122,48 @@ cpu_security_init:
     wrmsr
     mov eax, 1
 .done:
+    ; Load a long-mode TSS with RSP0 pointing at the kernel bootstrap stack.
+    mov rax, tss64
+    mov rdx, rax
+    mov rcx, rax
+    and eax, 0xFFFF
+    mov word [gdt64.tss_low + 2], ax
+    shr rdx, 16
+    mov word [gdt64.tss_low + 4], dx
+    shr rcx, 16
+    mov byte [gdt64.tss_low + 7], cl
+    mov byte [gdt64.tss_low + 6], 0x89
+    mov dword [gdt64.tss_low + 8], ecx
+    mov dword [gdt64.tss_high], 0
+    mov rax, stack_top
+    mov [tss64 + 4], rax
+    mov ax, gdt64.tss_low
+    ltr ax
     ret
+
+user_test_entry:
+    mov byte [0x0000004000001000], 0x5A
+    int 0x80
+.user_halt:
+    hlt
+    jmp .user_halt
 
 section .rodata
 align 8
 gdt64:
     dq 0
 .code equ $ - gdt64
-    dq 0x00AF9A000000FFFF   ; 64-bit code
+    dq 0x00AF9A000000FFFF
 .data equ $ - gdt64
-    dq 0x00AF92000000FFFF   ; data
+    dq 0x00AF92000000FFFF
+.user_code equ $ - gdt64
+    dq 0x00AFFA000000FFFF
+.user_data equ $ - gdt64
+    dq 0x00AFF2000000FFFF
+.tss_low equ $ - gdt64
+    dq 0
+.tss_high equ $ - gdt64
+    dq 0
 .pointer:
     dw $ - gdt64 - 1
     dq gdt64
@@ -143,6 +181,10 @@ align 16
 stack_bottom:
     resb 16384
 stack_top:
+
+align 16
+tss64:
+    times 104 db 0
 
 boot_magic: resd 1
 boot_info:  resd 1
