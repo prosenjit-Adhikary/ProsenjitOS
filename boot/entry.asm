@@ -157,6 +157,12 @@ cpu_security_init:
     mov dword [gdt64 + gdt64.tss_high], 0
     mov rax, stack_top
     mov [tss64 + 4], rax
+    ; Dedicated IST stacks make double-fault/page-fault diagnostics independent
+    ; of the current task stack.
+    mov rax, ist1_stack_top
+    mov [tss64 + 36], rax
+    mov rax, ist2_stack_top
+    mov [tss64 + 44], rax
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
@@ -174,7 +180,7 @@ align 16
 global user_test_entry
 user_test_entry:
     ; Write a marker through the isolated user mapping.
-    mov rdx, 0x0000008000001000
+    mov rdx, 0x0000004000001000
     mov byte [rdx], 0x5A
 
     ; Exercise the shared user/kernel ABI and verify the return value.
@@ -224,6 +230,16 @@ align 16
 stack_bottom:
     resb 16384
 stack_top:
+
+align 16
+ist1_stack_bottom:
+    resb 8192
+ist1_stack_top:
+
+align 16
+ist2_stack_bottom:
+    resb 8192
+ist2_stack_top:
 
 align 16
 tss64:
