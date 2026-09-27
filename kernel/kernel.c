@@ -401,6 +401,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR security manager initialization failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    /*
+     * Regression guard for CPL3 HANDLE_DUP authorization: DUPLICATE is the
+     * operation authority, while requested_rights describes the attenuated
+     * rights of the new handle. A READ-only duplication must therefore be
+     * allowed from a READ|DUPLICATE source, while requesting WRITE must fail.
+     */
+    struct pros_intent duplicate_intent;
+    uint64_t duplicate_reason;
+    if (security_make_intent(&duplicate_intent, PROS_INTENT_DUPLICATE,
+                             PROS_OBJECT_FILE, user_test_handle,
+                             PROSENJIT_CAP_READ) != 0 ||
+        security_authorize(&init_process, &duplicate_intent, 1,
+                           &duplicate_reason) != PROS_DECISION_ALLOW) {
+        serial_write("ProsenjitOS: ERROR duplicate READ authorization regression\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (security_make_intent(&duplicate_intent, PROS_INTENT_DUPLICATE,
+                             PROS_OBJECT_FILE, user_test_handle,
+                             PROSENJIT_CAP_WRITE) != 0 ||
+        security_authorize(&init_process, &duplicate_intent, 1,
+                           &duplicate_reason) != PROS_DECISION_DENY) {
+        serial_write("ProsenjitOS: ERROR duplicate WRITE attenuation regression\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: duplicate authorization attenuation test passed\\n");
+
     struct pros_intent security_intent;
     uint64_t security_reason;
     if (security_make_intent(&security_intent, PROS_INTENT_READ,
