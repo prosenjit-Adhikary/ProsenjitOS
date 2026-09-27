@@ -180,7 +180,7 @@ align 16
 global user_test_entry
 user_test_entry:
     ; Write a marker through the isolated user mapping.
-    mov rdx, 0x0000004000001000
+    mov rdx, 0x0000008000001000
     mov byte [rdx], 0x5A
 
     ; Exercise the shared user/kernel ABI and verify the return value.
