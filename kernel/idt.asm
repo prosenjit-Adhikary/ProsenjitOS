@@ -8,6 +8,7 @@ global isr32
 extern exception_dispatch
 extern syscall_dispatch
 extern timer_dispatch
+extern timer_should_preempt
 extern pic_eoi_master
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
