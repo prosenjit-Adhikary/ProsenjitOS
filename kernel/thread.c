@@ -96,3 +96,11 @@ int thread_schedule(void) {
         process_set_current(current_thread->process);
     return 0;
 }
+
+int thread_schedule_preempt(void) {
+    struct pros_thread *prev = current_thread;
+    if (thread_schedule() != 0) return -1;
+    if (prev && prev != current_thread)
+        thread_context_switch(prev, current_thread);
+    return 0;
+}
