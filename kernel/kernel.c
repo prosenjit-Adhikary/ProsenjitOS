@@ -1,6 +1,7 @@
 #include "prosenjit.h"
 #include "memory.h"
 #include "paging.h"
+#include "heap.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -152,6 +153,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR paging translation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    if (heap_init() != 0) {
+        serial_write("ProsenjitOS: ERROR kernel heap initialization failed\n");
+        vga_write("ProsenjitOS: heap initialization failed", 0x4F);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    void *heap_test = kmalloc(128);
+    if (!heap_test) {
+        serial_write("ProsenjitOS: ERROR kernel heap allocation failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ((volatile uint8_t *)heap_test)[0] = 0xA5;
+    if (((volatile uint8_t *)heap_test)[0] != 0xA5) {
+        serial_write("ProsenjitOS: ERROR kernel heap memory test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    kfree(heap_test);
+    serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
     serial_write("ProsenjitOS: kernel online\n");
