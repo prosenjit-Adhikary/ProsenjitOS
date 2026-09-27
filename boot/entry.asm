@@ -210,6 +210,10 @@ user_test_entry:
     mov rdi, r12
     mov rsi, 1                  ; PROSENJIT_CAP_READ
     int 0x80
+    ; Handles are bounded generation/slot values. Any non-zero upper
+    ; 32 bits means the syscall returned an ABI error, not a handle.
+    test rax, 0xFFFFFFFF00000000
+    jnz .user_halt
     test rax, rax
     jz .user_halt
 
