@@ -142,6 +142,11 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("ProsenjitOS: exception RIP = ");
     serial_hex64(frame[2]);
     serial_write("\n");
+    uint64_t cr2;
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    serial_write("ProsenjitOS: CR2 = ");
+    serial_hex64(cr2);
+    serial_write("\n");
     if (vector == 128) {
         if (((volatile uint8_t *)(uintptr_t)USER_DATA_VA)[0] != 0x5A) {
             serial_write("ProsenjitOS: ERROR user-mode write verification failed\n");
