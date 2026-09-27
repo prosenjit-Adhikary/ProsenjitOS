@@ -175,6 +175,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     idt_init();
     __asm__ volatile ("cli");
     serial_write("ProsenjitOS: IDT loaded; attempting LTR\n");
+    debug_tss_descriptor();
     cpu_load_tss();
     serial_write("ProsenjitOS: TSS loaded successfully\n");
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
