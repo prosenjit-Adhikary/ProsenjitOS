@@ -45,7 +45,10 @@ int address_space_create(struct pros_address_space *space) {
     if (!root) return -1;
 
     uint64_t *kernel_root = paging_kernel_root();
-    if (!kernel_root) return -1;
+    if (!kernel_root) {
+        physical_page_free((uint64_t)(uintptr_t)root);
+        return -1;
+    }
 
     /*
      * PML4[0] is shared with the kernel's low identity map so CPL3
