@@ -3,6 +3,7 @@ BITS 32
 section .text
 global _start
 extern kernel_main
+extern cpu_security_init
 
 _start:
     cli
@@ -77,6 +78,9 @@ long_mode_entry:
 
     mov rsp, stack_top
 
+    ; Enable CPU memory-protection features that are safe at this stage.
+    call cpu_security_init
+
     ; Pass the original Multiboot2 values to C:
     ; System V x86-64 ABI: RDI, RSI.
     mov edi, [boot_magic]
@@ -88,6 +92,28 @@ long_mode_entry:
     cli
     hlt
     jmp .halt
+
+cpu_security_init:
+    ; Enable CR0.WP so supervisor writes obey read-only page permissions.
+    mov rax, cr0
+    or rax, (1 << 16)
+    mov cr0, rax
+
+    ; Enable EFER.NXE when the CPU advertises NX support.
+    mov eax, 0x80000000
+    cpuid
+    cmp eax, 0x80000001
+    jb .done
+    mov eax, 0x80000001
+    cpuid
+    test edx, (1 << 20)
+    jz .done
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, (1 << 11)
+    wrmsr
+.done:
+    ret
 
 section .rodata
 align 8
