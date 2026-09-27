@@ -45,21 +45,12 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 return;
             }
 
-            if (paging_switch_kernel() != 0) {
-                registers[0] = PROSENJIT_SYSCALL_EPERM;
-                return;
-            }
-
-            /*
-             * IRETQ in 64-bit mode consumes RIP, CS, RFLAGS, RSP and SS
-             * from the interrupt frame. Switch the return frame to a
-             * kernel CPL0 context before returning from the user syscall.
-             */
-            cpu_frame[0] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
-            cpu_frame[1] = 0x08;
-            cpu_frame[3] = (uint64_t)(uintptr_t)(cpu_frame + 5);
-            cpu_frame[4] = 0x10;
-            registers[0] = PROSENJIT_SYSCALL_OK;
+            /* INT 0x80 entered from CPL3. Do not rewrite its IRET
+             * frame to a CPL0 CS: IRET is a return mechanism, not a
+             * privilege-escalation mechanism. The assembly syscall exit
+             * path converts this internal sentinel into a direct jump
+             * to the kernel trampoline. */
+            registers[0] = 0xFFFFFFFFFFFFFF00ULL;
             return;
 
         default:
