@@ -1,6 +1,7 @@
 #include "process.h"
 
 static struct pros_process *current_process;
+static int process_is_live(const struct pros_process *process);
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
