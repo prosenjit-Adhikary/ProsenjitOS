@@ -17,3 +17,5 @@ mb2_header:
     dw 0
     dd 8
 mb2_header_end:
+
+section .note.GNU-stack noalloc noexec nowrite progbits
