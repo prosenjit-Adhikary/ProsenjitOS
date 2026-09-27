@@ -37,7 +37,8 @@ jobs:
 
           echo "QEMU exit status: $qemu_status"
           cat build/qemu-serial.log
-          cat build/qemu-int.log || true
+          echo "===== QEMU interrupt trace (exceptions) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
 
