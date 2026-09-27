@@ -240,3 +240,10 @@ Every decision is recorded in a bounded 128-entry Reason Ledger containing proce
 The quarantine state blocks a process from remaining READY/RUNNING and can be explicitly cleared by a trusted kernel policy path. No intent can elevate a Limited process into a Super process.
 
 The current implementation is intentionally deterministic and small. It is a security foundation rather than a complete sandbox, filesystem ACL system, device broker, or user-facing permission prompt.
+
+
+## Interrupt-frame scheduler ABI
+
+The timer IRQ now has an explicit kernel interrupt-frame contract. IRQ0 saves all general-purpose registers, records the synthetic vector/error fields used by the common layout, and passes a stable frame pointer to the C scheduler. The scheduler records the interrupted frame against the current thread and can synthesize a first-run CPL0 interrupt-return frame for a thread that has not previously been interrupted.
+
+The assembly return path can select the scheduler-returned frame, send the PIC EOI, restore the saved registers, and finish through iretq. This is currently an ABI foundation: timer interrupts remain disabled during boot until the complete preemption path is validated under QEMU. User-mode frame switching, address-space switching during preemption, nested-interrupt policy, and final scheduler tests remain future steps.
