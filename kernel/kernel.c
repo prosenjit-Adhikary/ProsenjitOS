@@ -325,6 +325,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR process exit test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    struct pros_process duplicate_pid_process;
+    if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
+                       PROS_SECURITY_LIMITED) == 0) {
+        serial_write("ProsenjitOS: ERROR duplicate live/zombie PID was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     int32_t waited_exit = 0;
     if (process_wait(&init_process, child_process.pid, &waited_exit) != 0 ||
         waited_exit != 42 ||
@@ -333,11 +339,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
-    /* Lifecycle regressions: duplicate PID, zombie parent, and current-process clearing. */
-    struct pros_process duplicate_pid_process;
+    /* Lifecycle regressions: zombie parent and current-process clearing. */
     struct pros_process lifecycle_parent;
-    if (process_create(&init_process, &duplicate_pid_process, child_process.pid,
-                       PROS_SECURITY_LIMITED) == 0 ||
+    if (process_create(&init_process, &lifecycle_parent, 3,
         process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_unregister(&lifecycle_parent) != -1 ||
