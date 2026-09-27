@@ -37,6 +37,9 @@
   - [x] Process exit/zombie state
   - [x] Parent wait/reap semantics
 - [ ] Thread scheduler
+  - [x] Thread object and lifecycle state
+  - [x] FIFO run queue and scheduler selection
+  - [ ] Timer-driven preemption
 - [ ] Context switching
 - [x] System-call boundary
 - [ ] IPC
