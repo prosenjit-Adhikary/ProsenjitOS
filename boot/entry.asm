@@ -192,9 +192,35 @@ user_test_entry:
     cmp rax, 0x0000000000010000
     jne .user_halt
 
-    ; Close the process-owned capability. The kernel resolves the
-    ; opaque handle in the current process table; user space has no object
-    ; pointer or rights field to forge.
+    ; Capability duplication must attenuate authority:
+    ; READ succeeds, while WRITE must be rejected because the source handle
+    ; does not carry WRITE.
+    mov r12, rdi
+
+    mov rax, 4
+    mov rdi, r12
+    mov rsi, 1                  ; PROSENJIT_CAP_READ
+    int 0x80
+    test rax, rax
+    jz .user_halt
+
+    mov r13, rax
+    mov rax, 4
+    mov rdi, r12
+    mov rsi, 2                  ; PROSENJIT_CAP_WRITE
+    int 0x80
+    test rax, rax
+    jz .user_halt
+
+    ; Close the duplicated READ-only capability.
+    mov rdi, r13
+    mov rax, 3
+    int 0x80
+    test rax, rax
+    jnz .user_halt
+
+    ; Close the original READ|DUP capability.
+    mov rdi, r12
     mov rax, 3
     int 0x80
     test rax, rax
