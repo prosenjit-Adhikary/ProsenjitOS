@@ -73,6 +73,29 @@ extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top);
 extern void cpu_load_tss(void);
+
+struct gdtr_snapshot {
+    uint16_t limit;
+    uint64_t base;
+} __attribute__((packed));
+
+static void debug_tss_descriptor(void) {
+    struct gdtr_snapshot gdtr;
+    __asm__ volatile ("sgdt %0" : "=m"(gdtr));
+    serial_write("ProsenjitOS: GDTR base = ");
+    serial_hex64(gdtr.base);
+    serial_write("\n");
+    serial_write("ProsenjitOS: GDTR limit = ");
+    serial_hex64(gdtr.limit);
+    serial_write("\n");
+    volatile uint64_t *gdt = (volatile uint64_t *)(uintptr_t)gdtr.base;
+    serial_write("ProsenjitOS: TSS descriptor low = ");
+    serial_hex64(gdt[5]);
+    serial_write("\n");
+    serial_write("ProsenjitOS: TSS descriptor high = ");
+    serial_hex64(gdt[6]);
+    serial_write("\n");
+}
 extern void user_mode_exit_trampoline(void);
 extern char __user_text_start[];
 extern char __user_text_end[];
