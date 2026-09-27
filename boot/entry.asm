@@ -143,18 +143,18 @@ cpu_security_init:
 .done:
     ; Load a long-mode TSS with RSP0 pointing at the kernel bootstrap stack.
     mov rax, tss64
-    mov word [gdt64.tss_low + 0], 103
-    mov word [gdt64.tss_low + 2], ax
+    mov word [gdt64 + gdt64.tss_low + 0], 103
+    mov word [gdt64 + gdt64.tss_low + 2], ax
     mov rdx, rax
     shr rdx, 16
-    mov word [gdt64.tss_low + 4], dx
-    mov byte [gdt64.tss_low + 5], 0x89
-    mov byte [gdt64.tss_low + 6], 0x00
+    mov word [gdt64 + gdt64.tss_low + 4], dx
+    mov byte [gdt64 + gdt64.tss_low + 5], 0x89
+    mov byte [gdt64 + gdt64.tss_low + 6], 0x00
     mov rdx, rax
     shr rdx, 32
-    mov byte [gdt64.tss_low + 7], dl
-    mov dword [gdt64.tss_low + 8], edx
-    mov dword [gdt64.tss_high], 0
+    mov byte [gdt64 + gdt64.tss_low + 7], dl
+    mov dword [gdt64 + gdt64.tss_low + 8], edx
+    mov dword [gdt64 + gdt64.tss_high], 0
     mov rax, stack_top
     mov [tss64 + 4], rax
     ; Disable the TSS I/O-permission bitmap explicitly.
