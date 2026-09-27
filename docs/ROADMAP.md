@@ -38,6 +38,8 @@
 ## Phase 4 — Security foundation
 - [ ] Per-process security identity
 - [ ] Capability/permission model
+  - [x] Kernel capability-handle foundation
+  - [ ] Per-process capability policy and transfer rules
 - [ ] Protected object manager
 - [ ] Application sandbox
 - [ ] Filesystem access control
