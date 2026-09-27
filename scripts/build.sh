@@ -14,7 +14,8 @@ nasm -f elf64 "$ROOT/kernel/idt.asm" -o "$BUILD/obj/idt.o"
 
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/kernel.c" -o "$BUILD/obj/kernel.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/memory.c" -o "$BUILD/obj/memory.o"
-gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/paging.c" -o "$BUILD/obj/paging.o"
+gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/paging.c" -o "$BUILD/obj/paging.o" "$BUILD/obj/heap.o"
+gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/heap.c" -o "$BUILD/obj/heap.o"
 
 ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib    -o "$BUILD/prosenjit.elf"    "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o" "$BUILD/obj/paging.o"
 
