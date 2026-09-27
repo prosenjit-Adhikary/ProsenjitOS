@@ -48,6 +48,13 @@ int process_close_handle(struct pros_process *process, uint64_t handle) {
     return handle_close(&process->handles, handle);
 }
 
+uint64_t process_duplicate_handle(struct pros_process *process,
+                                  uint64_t source_handle,
+                                  uint64_t requested_rights) {
+    if (!process_is_live(process)) return PROSENJIT_HANDLE_INVALID;
+    return handle_duplicate(&process->handles, source_handle, requested_rights);
+}
+
 void process_set_current(struct pros_process *process) {
     current_process = process;
 }
