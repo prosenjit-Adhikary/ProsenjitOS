@@ -33,6 +33,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->state = PROS_THREAD_NEW;
     thread->priority = 0;
     thread->entry = entry;
+    thread->interrupt_frame = 0;
     thread->context.r15 = 0;
     thread->context.r14 = 0;
     thread->context.r13 = 0;
