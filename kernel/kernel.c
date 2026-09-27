@@ -288,11 +288,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: capability handle/rights test passed\n");
 
-    struct pros_address_space user_space;
-    if (address_space_create(&user_space) != 0) {
-        serial_write("ProsenjitOS: ERROR user address-space creation failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
+    struct pros_address_space *user_space = &init_process.address_space;
     uint64_t user_page = physical_page_alloc();
     if (!user_page ||
         address_space_map_user_page(user_space, PROSENJIT_USER_TEST_VA,
@@ -334,7 +330,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         ((uint8_t *)(uintptr_t)user_code_page)[i] =
             ((const uint8_t *)__user_text_start)[i];
 
-    if (address_space_map_user_page(&user_space, PROSENJIT_USER_CODE_VA,
+    if (address_space_map_user_page(user_space, PROSENJIT_USER_CODE_VA,
                                     user_code_page, 0) != 0 ||
         address_space_map_user_page(&user_space, PROSENJIT_USER_TEST_VA,
                                     user_data_page,
@@ -347,7 +343,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
 
     serial_write("ProsenjitOS: entering CPL3 user-mode test\n");
-    if (address_space_switch(&user_space) != 0) {
+    if (address_space_switch(user_space) != 0) {
         serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
