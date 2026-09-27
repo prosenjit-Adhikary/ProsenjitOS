@@ -287,6 +287,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: capability handle/rights test passed\n");
+    if (process_check_handle(&init_process, user_test_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        process_check_handle(&init_process, user_test_handle,
+                             PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0) {
+        serial_write("ProsenjitOS: ERROR process capability authorization test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process capability authorization test passed\n");
 
     struct pros_address_space *user_space = &init_process.address_space;
     uint64_t user_page = physical_page_alloc();
