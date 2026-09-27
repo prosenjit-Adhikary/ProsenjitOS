@@ -246,7 +246,7 @@ The current implementation is intentionally deterministic and small. It is a sec
 
 The timer IRQ now has an explicit kernel interrupt-frame contract. IRQ0 saves all general-purpose registers, records the synthetic vector/error fields used by the common layout, and passes a stable frame pointer to the C scheduler. The scheduler records the interrupted frame against the current thread and can synthesize a first-run CPL0 interrupt-return frame for a thread that has not previously been interrupted.
 
-The assembly return path can select the scheduler-returned frame, send the PIC EOI, restore the saved registers, and finish through iretq. The kernel-thread preemption path has now been exercised under QEMU with IRQ0 enabled for a bounded test window; both dedicated kernel test threads must make forward progress before boot continues. User-mode frame switching, address-space switching during preemption, nested-interrupt policy, scheduler locking, and SMP-safe scheduling remain future steps.
+The assembly return path can select the scheduler-returned frame, send the PIC EOI, restore the saved registers, and finish through iretq. The scheduler now also filters runnable threads whose owning process is already zombie/dead. The kernel-thread preemption path has now been exercised under QEMU with IRQ0 enabled for a bounded test window; both dedicated kernel test threads must make forward progress before boot continues. User-mode frame switching, address-space switching during preemption, nested-interrupt policy, scheduler locking, and SMP-safe scheduling remain future steps.
 
 
 ## Syscall intent authorization
