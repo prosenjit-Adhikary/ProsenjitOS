@@ -215,7 +215,7 @@ stack_top:
 align 16
 tss64:
     resb 104
-\nboot_magic: resd 1
+boot_magic: resd 1
 boot_info:  resd 1
 
 section .note.GNU-stack noalloc noexec nowrite progbits
