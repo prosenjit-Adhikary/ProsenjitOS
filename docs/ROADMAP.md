@@ -24,7 +24,7 @@
 - [x] Virtual memory and paging
 - [x] Kernel heap
 - [x] User/kernel address-space separation foundation
-- [ ] NX/W^X memory policy where supported
+- [x] NX/W^X memory policy where supported
 
 ## Phase 3 — Kernel architecture
 - [ ] Kernel object model
@@ -32,7 +32,7 @@
 - [ ] Process manager
 - [ ] Thread scheduler
 - [ ] Context switching
-- [ ] System-call boundary
+- [x] System-call boundary
 - [ ] IPC
 
 ## Phase 4 — Security foundation
@@ -67,7 +67,7 @@
 - [ ] Network sandbox policy
 
 ## Phase 7 — User mode and CUI
-- [ ] User address spaces
+- [x] User address spaces
 - [ ] ELF loader
 - [ ] Process startup
 - [ ] Init/service manager
