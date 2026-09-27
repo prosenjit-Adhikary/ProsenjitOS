@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
-void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame);
+/*
+ * These buffers are shared with the assembly interrupt return path.
+ * Volatile prevents the compiler from removing stores that IRETQ consumes.
+ */
+void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame);
 
 #endif
