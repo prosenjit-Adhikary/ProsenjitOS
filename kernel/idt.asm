@@ -66,21 +66,23 @@ isr32:
     ; IRQ0 is a returning interrupt, so preserve the complete general
     ; register state before entering C code. This is the minimum safe
     ; foundation for later timer-driven context switching.
-    push rax
-    push rbx
-    push rcx
-    push rdx
-    push rsi
-    push rdi
-    push rbp
-    push r8
-    push r9
-    push r10
-    push r11
-    push r12
-    push r13
-    push r14
+    ; Build pros_interrupt_frame in memory order:
+    ; rax..r15, vector, error_code, then the CPU iret frame.
     push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rbp
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    push rax
     push qword 0
     push qword 32
     mov rdi, rsp
@@ -95,21 +97,21 @@ isr32:
     mov rsp, rax
 .timer_no_switch:
     add rsp, 16
-    pop r15
-    pop r14
-    pop r13
-    pop r12
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rbp
-    pop rdi
-    pop rsi
-    pop rdx
-    pop rcx
-    pop rbx
     pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
     call pic_eoi_master
     iretq
 
