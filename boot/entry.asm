@@ -5,6 +5,7 @@ global _start
 global enter_user_mode
 global user_mode_exit_trampoline
 global cpu_load_tss
+global stack_top
 extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
@@ -118,6 +119,9 @@ enter_user_mode:
     iretq
 
 user_mode_exit_trampoline:
+    ; This entry is reached only after CPL3 has already transitioned to
+    ; CPL0 through INT 0x80 or an exception path. Restore the canonical
+    ; kernel CR3/stack before touching kernel-only state.
     mov rsp, stack_top
     call paging_switch_kernel
     call user_mode_test_complete
