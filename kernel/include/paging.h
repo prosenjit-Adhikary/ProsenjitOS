@@ -14,5 +14,6 @@ int paging_init(void);
 int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags);
 void paging_unmap_page(uint64_t virtual_address);
 uint64_t paging_translate(uint64_t virtual_address);
+uint64_t *paging_kernel_root(void);
 
 #endif
