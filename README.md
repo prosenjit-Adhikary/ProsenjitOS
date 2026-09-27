@@ -115,7 +115,6 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 ### In progress / next engineering milestones
 
 - physical memory manager (first allocator implemented)\n- virtual memory and paging
-- process and thread isolation
 - syscall and capability model
 - security policy and permission broker
 - user/session and Limited User / Super User model
