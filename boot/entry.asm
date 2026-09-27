@@ -215,6 +215,22 @@ user_test_entry:
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
 
+    ; Invalid/unknown capability rights must be rejected before authorization.
+    mov rax, 4
+    mov rdi, r12
+    mov rsi, 0x8000000000000000
+    int 0x80
+    cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
+    ; A zero handle is never a valid capability.
+    mov rax, 4
+    xor rdi, rdi
+    mov rsi, 1
+    int 0x80
+    cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
     ; Capability duplication must attenuate authority:
     ; READ succeeds, while WRITE must be rejected because the source handle
     ; does not carry WRITE.
