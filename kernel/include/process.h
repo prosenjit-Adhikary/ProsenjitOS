@@ -5,6 +5,15 @@
 #include "object.h"
 #include "address_space.h"
 
+enum pros_process_state {
+    PROS_PROCESS_NEW = 0,
+    PROS_PROCESS_READY = 1,
+    PROS_PROCESS_RUNNING = 2,
+    PROS_PROCESS_BLOCKED = 3,
+    PROS_PROCESS_ZOMBIE = 4,
+    PROS_PROCESS_DEAD = 5,
+};
+
 enum pros_security_level {
     PROS_SECURITY_LIMITED = 1,
     PROS_SECURITY_SUPER = 2,
@@ -13,7 +22,10 @@ enum pros_security_level {
 struct pros_process {
     struct pros_object object;
     uint64_t pid;
+    uint64_t parent_pid;
     uint32_t security_level;
+    uint32_t state;
+    int32_t exit_code;
     uint64_t capability_policy;
     struct pros_address_space address_space;
     struct pros_handle_table handles;
@@ -22,6 +34,12 @@ struct pros_process {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
+int process_create(struct pros_process *parent,
+                   struct pros_process *child,
+                   uint64_t pid,
+                   uint32_t security_level);
+int process_set_state(struct pros_process *process, uint32_t state);
+uint32_t process_state(const struct pros_process *process);
 uint64_t process_allowed_capabilities(const struct pros_process *process);
 
 int process_grant_handle(struct pros_process *process,
