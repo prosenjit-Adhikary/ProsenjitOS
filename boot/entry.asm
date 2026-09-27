@@ -2,6 +2,8 @@ BITS 32
 
 section .text
 global _start
+global enter_user_mode
+global user_mode_exit_trampoline
 extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
@@ -94,6 +96,17 @@ long_mode_entry:
     hlt
     jmp .halt
 
+enter_user_mode:
+    mov rax, rdi
+    mov rdx, rsi
+    push qword 0x20
+    push rdx
+    pushfq
+    or qword [rsp], 0x200
+    push qword 0x18
+    push rax
+    iretq
+
 user_mode_exit_trampoline:
     mov rsp, stack_top
     call user_mode_test_complete
@@ -131,9 +144,10 @@ cpu_security_init:
     shr rdx, 16
     mov word [gdt64.tss_low + 4], dx
     shr rcx, 16
+    mov byte [gdt64.tss_low + 5], 0x89
+    mov byte [gdt64.tss_low + 6], 0x00
     mov byte [gdt64.tss_low + 7], cl
-    mov byte [gdt64.tss_low + 6], 0x89
-    mov dword [gdt64.tss_low + 8], ecx
+    mov dword [gdt64.tss_low + 8], edx
     mov dword [gdt64.tss_high], 0
     mov rax, stack_top
     mov [tss64 + 4], rax
@@ -141,8 +155,12 @@ cpu_security_init:
     ltr ax
     ret
 
+section .user_text
+align 16
+global user_test_entry
 user_test_entry:
-    mov byte [0x0000004000001000], 0x5A
+    mov rax, 0x0000004000001000
+    mov byte [rax], 0x5A
     int 0x80
 .user_halt:
     hlt
