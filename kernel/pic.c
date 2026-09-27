@@ -20,7 +20,7 @@ int pic_init_for_timer(void) {
      * exceptions. Keep every IRQ masked except IRQ0 until a driver enables it.
      */
     uint8_t master_mask = pic_in8(0x21);
-    uint8_t slave_mask = pic_in8(0xA1);
+    (void)pic_in8(0xA1);
 
     pic_out8(0x20, 0x11);
     pic_io_wait();
