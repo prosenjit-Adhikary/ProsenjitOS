@@ -349,7 +349,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
-        thread_state(&worker_thread) != PROS_THREAD_RUNNING) {
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -365,8 +368,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_test_worker_progress = 0;
     uint64_t preempt_start = timer_ticks();
     __asm__ volatile ("sti");
-    while (timer_ticks() < preempt_start + 30u)
+    while (timer_ticks() < preempt_start + 30u) {
+        ++scheduler_test_init_progress;
         __asm__ volatile ("pause");
+    }
     __asm__ volatile ("cli");
     /*
      * kernel_main is executing on the stack currently associated with the
