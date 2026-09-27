@@ -355,6 +355,40 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    /*
+     * Validate the complete user-code page walk before IRET. This catches
+     * permission/table-construction errors before they become a nested
+     * page-fault/double-fault during CPL3 entry.
+     */
+    {
+        const uint64_t mask = 0x000FFFFFFFFFF000ULL;
+        const uint64_t va = PROSENJIT_USER_CODE_VA;
+        const uint32_t pml4_i = (uint32_t)((va >> 39) & 0x1FFu);
+        const uint32_t pdpt_i = (uint32_t)((va >> 30) & 0x1FFu);
+        const uint32_t pd_i = (uint32_t)((va >> 21) & 0x1FFu);
+        const uint32_t pt_i = (uint32_t)((va >> 12) & 0x1FFu);
+        uint64_t *root = user_space->root;
+        uint64_t pml4e = root[pml4_i];
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & mask);
+        uint64_t pdpte = pdpt[pdpt_i];
+        uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & mask);
+        uint64_t pde = pd[pd_i];
+        uint64_t *pt = (uint64_t *)(uintptr_t)(pde & mask);
+        uint64_t pte = pt[pt_i];
+        serial_write("ProsenjitOS: user code PML4E = "); serial_hex64(pml4e); serial_write("\n");
+        serial_write("ProsenjitOS: user code PDPTE = "); serial_hex64(pdpte); serial_write("\n");
+        serial_write("ProsenjitOS: user code PDE = "); serial_hex64(pde); serial_write("\n");
+        serial_write("ProsenjitOS: user code PTE = "); serial_hex64(pte); serial_write("\n");
+        if ((pml4e & 0x7ULL) != 0x7ULL ||
+            (pdpte & 0x7ULL) != 0x7ULL ||
+            (pde & 0x7ULL) != 0x7ULL ||
+            (pte & 0x7ULL) != 0x5ULL ||
+            (pte & (1ULL << 63)) != 0) {
+            serial_write("ProsenjitOS: ERROR user code page walk validation failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
     serial_write("ProsenjitOS: entering CPL3 user-mode test\n");
     if (address_space_switch(user_space) != 0) {
         serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
