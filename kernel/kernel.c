@@ -159,6 +159,9 @@ void exception_dispatch(uint64_t *frame) {
         }
         frame[2] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
         frame[3] = 0x08;
+        /* exception_dispatch's frame is: vector,error,RIP,CS,RFLAGS,RSP,SS */
+        frame[5] = (uint64_t)(uintptr_t)(frame + 7);
+        frame[6] = 0x10;
         return;
     }
     vga_write("ProsenjitOS: CPU exception - system halted", 0x4F);
