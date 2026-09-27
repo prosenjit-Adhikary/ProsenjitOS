@@ -17,7 +17,7 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
 
         case PROSENJIT_SYS_HANDLE_CLOSE: {
             struct pros_process *process = process_current();
-            if (!process || process_close_handle(process, registers[1]) != 0) {
+            if (!process || process_close_handle(process, registers[9]) != 0) {
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
