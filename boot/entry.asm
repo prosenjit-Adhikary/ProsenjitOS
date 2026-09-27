@@ -239,6 +239,21 @@ user_test_entry:
     test rax, rax
     jnz .user_halt
 
+    ; The original handle is now stale. Exercise both syscall failure
+    ; paths explicitly so an invalid handle can never be reused as a live one.
+    mov rax, 4
+    mov rdi, r12
+    mov rsi, 1                  ; PROSENJIT_CAP_READ
+    int 0x80
+    cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
+    mov rdi, r12
+    mov rax, 3
+    int 0x80
+    cmp rax, 0xFFFFFFFFFFFFFFF6 ; PROSENJIT_SYSCALL_EBADF
+    jne .user_halt
+
     ; Ask the kernel to finish the CPL3 test. The kernel validates the
     ; caller privilege and user mapping before returning to its trampoline.
     mov rax, 2
