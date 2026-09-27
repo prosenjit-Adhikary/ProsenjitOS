@@ -120,7 +120,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         current = (current + (uint64_t)tag->size + 7ULL) & ~7ULL;
     }
 
-    total_pages = MAX_PAGES;
+    total_pages = free_pages;
 
     /*
      * Keep low memory and all boot/kernel storage unavailable to the allocator.
@@ -134,6 +134,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     /* The Multiboot information structure must remain readable by the kernel. */
     reserve_range(multiboot_info_address, total_size);
 
+    /* Recalculate the managed-page count after all boot reservations. */
+    total_pages = free_pages;
     return free_pages != 0 ? 0 : -5;
 }
 
