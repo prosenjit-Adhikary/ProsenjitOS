@@ -4,6 +4,7 @@
 #include "heap.h"
 #include "address_space.h"
 #include "object.h"
+#include "process.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -239,6 +240,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
 
+    struct pros_process init_process;
+    struct pros_object user_test_object;
+    uint64_t user_test_handle;
+    if (process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR initial process creation failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    object_init(&user_test_object, PROS_OBJECT_FILE);
+    if (process_grant_handle(&init_process, &user_test_object,
+                             PROSENJIT_CAP_READ, &user_test_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR initial process handle grant failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    process_set_current(&init_process);
+    serial_write("ProsenjitOS: initial limited process and capability context online\\n");
+
     /*
      * Capability foundation test:
      * - handles carry explicit rights
@@ -278,12 +295,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     uint64_t user_page = physical_page_alloc();
     if (!user_page ||
-        address_space_map_user_page(&user_space, PROSENJIT_USER_TEST_VA,
+        address_space_map_user_page(user_space, PROSENJIT_USER_TEST_VA,
                                     user_page, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
         serial_write("ProsenjitOS: ERROR user page mapping failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (address_space_switch(&user_space) != 0) {
+    if (address_space_switch(user_space) != 0) {
         serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -334,7 +351,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    enter_user_mode(PROSENJIT_USER_CODE_VA, PROSENJIT_USER_STACK_TOP);
+    enter_user_mode(PROSENJIT_USER_CODE_VA, PROSENJIT_USER_STACK_TOP, user_test_handle);
     for (;;) __asm__ volatile ("cli; hlt");
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
