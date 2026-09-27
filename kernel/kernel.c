@@ -79,7 +79,7 @@ struct gdtr_snapshot {
     uint64_t base;
 } __attribute__((packed));
 
-static void debug_tss_descriptor(void) {
+void debug_tss_descriptor(void) {
     struct gdtr_snapshot gdtr;
     __asm__ volatile ("sgdt %0" : "=m"(gdtr));
     serial_write("ProsenjitOS: GDTR base = ");
