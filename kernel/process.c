@@ -66,6 +66,37 @@ uint64_t process_duplicate_handle(struct pros_process *process,
     return handle_duplicate(&process->handles, source_handle, requested_rights);
 }
 
+uint64_t process_transfer_handle_copy(struct pros_process *source,
+                                      struct pros_process *target,
+                                      uint64_t source_handle,
+                                      uint64_t requested_rights) {
+    if (!process_is_live(source) || !process_is_live(target) ||
+        source == target || requested_rights == 0 ||
+        (requested_rights & ~target->capability_policy) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    /*
+     * Transfer is an explicit authority: the source handle must carry
+     * TRANSFER, while the new handle may only retain rights already held
+     * by that source handle. The source handle itself remains valid.
+     */
+    if (handle_check(&source->handles, source_handle,
+                     PROSENJIT_CAP_TRANSFER, PROS_OBJECT_NONE) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    uint32_t slot = (uint32_t)(source_handle & 0xFFULL);
+    uint16_t generation = (uint16_t)(source_handle >> 8);
+    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    struct pros_handle_entry *entry = &source->handles.entries[slot];
+    if (!entry->object || entry->generation != generation ||
+        (requested_rights & ~entry->rights) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    return handle_alloc(&target->handles, entry->object, requested_rights);
+}
+
 void process_set_current(struct pros_process *process) {
     current_process = process;
 }
