@@ -126,6 +126,12 @@ void exception_dispatch(uint64_t *frame) {
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+void user_mode_test_complete(void) {
+    serial_write("ProsenjitOS: CPL3 user-mode execution test passed\\n");
+    vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
