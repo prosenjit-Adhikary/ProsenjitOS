@@ -4,12 +4,14 @@ SECTIONS
 {
     . = 1M;
     __kernel_start = .;
+    __kernel_text_start = .;
 
     .text : ALIGN(4K)
     {
         KEEP(*(.multiboot))
         *(.text*)
     }
+    __kernel_text_end = .;
 
     .rodata : ALIGN(4K)
     {
