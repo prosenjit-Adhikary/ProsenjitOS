@@ -42,6 +42,11 @@ static void syscall_serial_hex64(uint64_t value) {
         syscall_serial_putc(hex[(value >> shift) & 0xFu]);
 }
 
+static int syscall_rights_valid(uint64_t rights) {
+    return rights != 0 &&
+           (rights & ~PROSENJIT_CAP_RIGHTS_ALL) == 0;
+}
+
 extern void user_mode_exit_trampoline(void);
 
 void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame) {
@@ -57,6 +62,11 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             uint64_t source_handle = registers[5];
             uint64_t requested_rights = registers[4];
             uint16_t object_type = PROS_OBJECT_NONE;
+
+            if (!syscall_rights_valid(requested_rights)) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
             struct pros_intent intent;
             uint64_t reason = PROS_REASON_NONE;
             uint64_t tid = 0;
