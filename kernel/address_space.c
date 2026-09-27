@@ -50,11 +50,12 @@ int address_space_create(struct pros_address_space *space) {
     /*
      * PML4 entries 256-511 form the kernel half. Entry 0 is retained as
      * supervisor-only identity space so kernel code can continue running
-     * during the transition to a user process.
+     * during the transition to a user process. Do NOT copy PML4[0]:
+     * the bootstrap kernel identity mapping is supervisor-owned and would
+     * otherwise make low physical memory reachable from CPL3.
      */
     for (uint32_t i = 256; i < ENTRIES; ++i)
         root[i] = kernel_root[i];
-    root[0] = kernel_root[0];
 
     space->root = root;
     return 0;
