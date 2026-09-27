@@ -5,6 +5,7 @@
 #include "address_space.h"
 #include "object.h"
 #include "process.h"
+#include "thread.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -300,6 +301,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle/parent/exit-wait test passed\n");
+
+    struct pros_thread init_thread;
+    struct pros_thread worker_thread;
+    if (thread_manager_init() != 0 ||
+        thread_init(&init_thread, &init_process, 1,
+                    (uint64_t)(uintptr_t)kernel_main,
+                    (uint64_t)(uintptr_t)&init_thread + 0x1000) != 0 ||
+        thread_init(&worker_thread, &init_process, 2,
+                    (uint64_t)(uintptr_t)kernel_main,
+                    (uint64_t)(uintptr_t)&worker_thread + 0x1000) != 0 ||
+        thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
+        thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&init_thread) != 0 ||
+        thread_enqueue(&worker_thread) != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
     serial_write("ProsenjitOS: initial limited process and capability context online\\n");
     if ((process_allowed_capabilities(&init_process) & PROSENJIT_CAP_ADMIN) != 0 ||
         (process_allowed_capabilities(&init_process) & PROSENJIT_CAP_READ) == 0) {
