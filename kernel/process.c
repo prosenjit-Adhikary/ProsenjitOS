@@ -1,5 +1,7 @@
 #include "process.h"
 
+static struct pros_process *current_process;
+
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
@@ -17,7 +19,7 @@ int process_init(struct pros_process *process,
 
 int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
-                         uint32_t rights,
+                         uint64_t rights,
                          uint64_t *handle_out) {
     if (!process || !object || !handle_out) return -1;
     uint64_t handle = handle_alloc(&process->handles, object, rights);
@@ -39,4 +41,12 @@ int process_check_handle(const struct pros_process *process,
 int process_close_handle(struct pros_process *process, uint64_t handle) {
     if (!process) return -1;
     return handle_close(&process->handles, handle);
+}
+
+void process_set_current(struct pros_process *process) {
+    current_process = process;
+}
+
+struct pros_process *process_current(void) {
+    return current_process;
 }
