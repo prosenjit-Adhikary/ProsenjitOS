@@ -7,7 +7,7 @@
 
 extern void user_mode_exit_trampoline(void);
 
-void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
+void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame) {
     if (!registers || !cpu_frame) return;
 
     switch (registers[0]) {
@@ -51,12 +51,9 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
             }
 
             /*
-             * Return to a kernel trampoline after switching CR3 back to the
-             * kernel address space.  Because IRETQ is changing CPL3 -> CPL0,
-             * its frame must also contain a valid kernel RSP/SS pair; leaving
-             * the user RSP/SS in place makes the CPU raise #GP(0x20).
-             * The current kernel interrupt stack is still valid, and the
-             * trampoline immediately installs the canonical bootstrap stack.
+             * IRETQ in 64-bit mode consumes RIP, CS, RFLAGS, RSP and SS
+             * from the interrupt frame. Switch the return frame to a
+             * kernel CPL0 context before returning from the user syscall.
              */
             cpu_frame[0] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
             cpu_frame[1] = 0x08;
