@@ -147,6 +147,26 @@ int process_check_handle(const struct pros_process *process,
                         expected_type);
 }
 
+int process_handle_type(const struct pros_process *process,
+                        uint64_t handle,
+                        uint16_t *type_out) {
+    if (!process || !type_out || handle == PROSENJIT_HANDLE_INVALID)
+        return -1;
+
+    uint32_t slot = (uint32_t)(handle & 0xFFULL);
+    uint16_t generation = (uint16_t)(handle >> 8);
+    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
+        return -1;
+
+    const struct pros_handle_entry *entry = &process->handles.entries[slot];
+    if (!entry->object || entry->generation != generation ||
+        entry->object->refcount == 0)
+        return -1;
+
+    *type_out = entry->object->type;
+    return 0;
+}
+
 int process_close_handle(struct pros_process *process, uint64_t handle) {
     if (!process_is_live(process)) return -1;
     return handle_close(&process->handles, handle);
