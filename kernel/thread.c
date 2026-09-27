@@ -44,7 +44,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     *(--stack) = 0; /* r15 */
     *(--stack) = 0; /* r14 */
     *(--stack) = 0; /* r13 */
-    *(--stack) = 0; /* r12 */
+    *(--stack) = (uint64_t)(uintptr_t)thread; /* r12 */
     *(--stack) = 0; /* rbp */
     *(--stack) = 0; /* rbx */
     thread->context.rsp = (uint64_t)(uintptr_t)stack;
