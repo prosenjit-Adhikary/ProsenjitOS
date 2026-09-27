@@ -6,7 +6,17 @@
 #define VGA_ROWS 25u
 
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
-static volatile uint8_t *const COM1 = (uint8_t *)0x3F8u;
+static inline void io_out8(uint16_t port, uint8_t value) {
+    __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static inline uint8_t io_in8(uint16_t port) {
+    uint8_t value;
+    __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
+#define COM1_PORT 0x3F8u
 
 static uint16_t vga_entry(char c, uint8_t color) {
     return ((uint16_t)color << 8) | (uint8_t)c;
@@ -27,24 +37,24 @@ static void vga_write(const char *text, uint8_t color) {
 }
 
 static void serial_init(void) {
-    COM1[1] = 0x00;
-    COM1[3] = 0x80;
-    COM1[0] = 0x03;
-    COM1[1] = 0x00;
-    COM1[3] = 0x03;
-    COM1[2] = 0xC7;
-    COM1[4] = 0x03;
+    io_out8(COM1_PORT + 1u, 0x00);
+    io_out8(COM1_PORT + 3u, 0x80);
+    io_out8(COM1_PORT + 0u, 0x03);
+    io_out8(COM1_PORT + 1u, 0x00);
+    io_out8(COM1_PORT + 3u, 0x03);
+    io_out8(COM1_PORT + 2u, 0xC7);
+    io_out8(COM1_PORT + 4u, 0x03);
 }
 
 static int serial_ready(void) {
-    return (COM1[5] & 0x20u) != 0;
+    return (io_in8(COM1_PORT + 5u) & 0x20u) != 0;
 }
 
 static void serial_putc(char c) {
     while (!serial_ready()) {
         __asm__ volatile ("pause");
     }
-    COM1[0] = (uint8_t)c;
+    io_out8(COM1_PORT, (uint8_t)c);
 }
 
 static void serial_write(const char *text) {
