@@ -7,6 +7,7 @@
 #include "process.h"
 #include "thread.h"
 #include "timer.h"
+#include "intent.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -334,6 +335,52 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
     serial_write("ProsenjitOS: initial limited process and capability context online\\n");
+    if (security_manager_init() != 0) {
+        serial_write("ProsenjitOS: ERROR security manager initialization failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    struct pros_intent security_intent;
+    uint64_t security_reason;
+    if (security_make_intent(&security_intent, PROS_INTENT_READ,
+                             PROS_OBJECT_FILE, user_test_handle,
+                             PROSENJIT_CAP_READ) != 0 ||
+        security_authorize(&init_process, &security_intent, 1,
+                           &security_reason) != PROS_DECISION_ALLOW) {
+        serial_write("ProsenjitOS: ERROR intent/capability/policy allow test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (security_make_intent(&security_intent, PROS_INTENT_WRITE,
+                             PROS_OBJECT_FILE, user_test_handle,
+                             PROSENJIT_CAP_WRITE) != 0 ||
+        security_authorize(&init_process, &security_intent, 1,
+                           &security_reason) != PROS_DECISION_DENY) {
+        serial_write("ProsenjitOS: ERROR capability-deny policy test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (security_make_intent(&security_intent, PROS_INTENT_ADMIN,
+                             PROS_OBJECT_FILE, user_test_handle,
+                             PROSENJIT_CAP_ADMIN) != 0 ||
+        security_authorize(&init_process, &security_intent, 1,
+                           &security_reason) != PROS_DECISION_QUARANTINE ||
+        !security_is_quarantined(&init_process)) {
+        serial_write("ProsenjitOS: ERROR quarantine decision test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (security_clear_quarantine(&init_process) != 0 ||
+        security_is_quarantined(&init_process) ||
+        security_ledger_count() < 3) {
+        serial_write("ProsenjitOS: ERROR quarantine/ledger recovery test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    struct pros_reason_record latest_reason;
+    if (security_ledger_latest(&latest_reason) != 0 ||
+        latest_reason.decision != PROS_DECISION_QUARANTINE ||
+        latest_reason.reason != PROS_REASON_QUARANTINE_REQUEST) {
+        serial_write("ProsenjitOS: ERROR reason ledger verification failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed\\n");
+
     if ((process_allowed_capabilities(&init_process) & PROSENJIT_CAP_ADMIN) != 0 ||
         (process_allowed_capabilities(&init_process) & PROSENJIT_CAP_READ) == 0) {
         serial_write("ProsenjitOS: ERROR limited-process capability policy test failed\\n");
