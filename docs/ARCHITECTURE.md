@@ -200,7 +200,7 @@ The first syscall ABI currently uses `int 0x80` as a deliberately simple bootstr
 
 The project has progressed beyond the initial boot-only design. A bootable x86-64 ISO is built and exercised through QEMU, with CI checking kernel startup, long-mode activation, and the user-mode/syscall path.
 
-The implemented memory/isolation foundation now includes a physical page allocator, 4 KiB paging, kernel heap, per-address-space page tables, CPL3 entry, a shared user/kernel ABI, and a minimal syscall dispatcher. The next implementation focus is the kernel object/handle model and capability enforcement that will turn the syscall boundary into a permission-aware security boundary.
+The implemented memory/isolation foundation now includes a physical page allocator, 4 KiB paging, kernel heap, per-address-space page tables, CPL3 entry, a shared user/kernel ABI, and a minimal syscall dispatcher. The kernel now also has a generation-checked handle table with explicit capability rights, object type checks, reference counting, and stale-handle rejection. Process objects expose handle validation/close helpers. The next implementation focus is connecting these primitives to real per-process syscall authorization, capability transfer, and the security policy layer.
 
 ## Initial target
 The first target was a bootable x86-64 kernel that reaches a C kernel entry point and writes a diagnostic message. Security, application isolation, GUI/CUI, compatibility, and AI services will be built as explicit subsystems rather than bolted on at the end.
