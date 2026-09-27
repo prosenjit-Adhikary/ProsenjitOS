@@ -201,6 +201,20 @@ user_test_entry:
     cmp rax, 0x0000000000010000
     jne .user_halt
 
+    ; Unknown syscall numbers must fail closed with ENOSYS.
+    mov rax, 0x7FFF
+    int 0x80
+    cmp rax, 0xFFFFFFFFFFFFFFDA ; PROSENJIT_SYSCALL_ENOSYS
+    jne .user_halt
+
+    ; Zero requested rights must never manufacture a capability.
+    mov rax, 4
+    mov rdi, r12
+    xor rsi, rsi
+    int 0x80
+    cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
     ; Capability duplication must attenuate authority:
     ; READ succeeds, while WRITE must be rejected because the source handle
     ; does not carry WRITE.
