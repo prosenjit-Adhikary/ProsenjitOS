@@ -126,6 +126,8 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - generation-checked kernel handles with explicit capability rights
 - object type and rights validation plus stale-handle rejection
 - process-level handle validation/close interfaces
+- per-process Limited/Super capability policy enforcement
+- capability duplication restricted to existing rights and process policy
 
 ### In progress / next engineering milestones
 
