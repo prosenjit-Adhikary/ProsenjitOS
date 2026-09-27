@@ -20,7 +20,7 @@
 - [x] GDT/IDT
 - [x] Interrupt and exception handlers
 - [ ] Timer
-- [ ] Physical page allocator
+- [x] Physical page allocator
 - [ ] Virtual memory and paging
 - [ ] Kernel heap
 - [ ] User/kernel address-space separation
