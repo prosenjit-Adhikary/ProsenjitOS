@@ -171,7 +171,7 @@ int process_check_handle(const struct pros_process *process,
 int process_handle_type(const struct pros_process *process,
                         uint64_t handle,
                         uint16_t *type_out) {
-    if (!process || !type_out || handle == PROSENJIT_HANDLE_INVALID)
+    if (!process_is_active(process) || !type_out || handle == PROSENJIT_HANDLE_INVALID)
         return -1;
 
     uint32_t slot = (uint32_t)(handle & 0xFFULL);
