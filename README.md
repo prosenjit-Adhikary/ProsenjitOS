@@ -120,6 +120,9 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - first 1 GiB identity mapping retained for early kernel operation
 - 4 KiB high-half mapping and translation smoke test
 - initial page-backed kernel heap with allocation/free and memory smoke tests
+- initial shared user/kernel ABI header under `include/abi/`
+- register-safe `int 0x80` syscall entry with a minimal dispatcher
+- CPL3 syscall round-trip test with ABI version validation and controlled return to the kernel
 
 ### In progress / next engineering milestones
 
