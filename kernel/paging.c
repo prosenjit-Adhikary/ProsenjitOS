@@ -104,6 +104,8 @@ uint64_t paging_translate(uint64_t virtual_address) {
 
 extern char __kernel_text_start[];
 extern char __kernel_text_end[];
+extern char __kernel_rodata_start[];
+extern char __kernel_rodata_end[];
 
 static int map_identity_4k(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
     uint64_t *pdpt = ensure_table(kernel_pml4, PML4_INDEX(virtual_address),
@@ -153,6 +155,11 @@ int paging_init(void) {
     uint64_t text_start = (uint64_t)(uintptr_t)__kernel_text_start;
     uint64_t text_end = (uint64_t)(uintptr_t)__kernel_text_end;
     if (map_identity_range(text_start, text_end, 0) != 0) return -1;
+
+    uint64_t rodata_start = (uint64_t)(uintptr_t)__kernel_rodata_start;
+    uint64_t rodata_end = (uint64_t)(uintptr_t)__kernel_rodata_end;
+    if (map_identity_range(rodata_start, rodata_end, PROSENJIT_PAGE_NX) != 0)
+        return -1;
 
     uint64_t test_page = physical_page_alloc();
     if (!test_page) return -1;
