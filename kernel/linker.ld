@@ -13,12 +13,23 @@ SECTIONS
     }
     __kernel_text_end = .;
 
+    __kernel_rodata_start = .;
+
     .rodata : ALIGN(4K)
     {
         *(.rodata*)
     }
 
+    __kernel_rodata_end = .;
+
     .data : ALIGN(4K)
+    {
+        *(.data*)
+    }
+
+    __kernel_data_end = .;
+
+    .bss : ALIGN(4K)
     {
         *(.data*)
     }
