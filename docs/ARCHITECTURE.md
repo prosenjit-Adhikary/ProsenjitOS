@@ -185,11 +185,22 @@ x86-64 Hardware
 9. AI integration must be API-based and permission-aware.
 10. Keep optional components modular so the base OS remains lightweight.
 
+## Shared user/kernel ABI
+
+User-space and kernel-space interfaces are separated from private kernel headers.
+
+- `include/abi/` contains ABI-visible definitions that may be consumed by both sides.
+- Syscall numbers and ABI-visible constants are defined centrally rather than duplicated in assembly and C.
+- Private kernel implementation headers remain under `kernel/include/`.
+- Once a published ABI value is used by user programs, changing it requires an explicit compatibility/versioning decision.
+
+The first syscall ABI currently uses `int 0x80` as a deliberately simple bootstrap mechanism. The syscall entry saves general-purpose registers, dispatches through C, restores the register state, and returns with `iretq`. This is an initial kernel boundary, not yet the final high-performance syscall mechanism.
+
 ## Current implementation status
 
-The project has progressed beyond the initial boot-only design. A bootable x86-64 ISO is built and exercised through QEMU, with CI checking kernel startup and long-mode activation.
+The project has progressed beyond the initial boot-only design. A bootable x86-64 ISO is built and exercised through QEMU, with CI checking kernel startup, long-mode activation, and the user-mode/syscall path.
 
-The next implementation focus is memory management and the kernel isolation primitives required to safely introduce user-mode processes, system calls, capabilities, and the permission broker.
+The implemented memory/isolation foundation now includes a physical page allocator, 4 KiB paging, kernel heap, per-address-space page tables, CPL3 entry, a shared user/kernel ABI, and a minimal syscall dispatcher. The next implementation focus is the kernel object/handle model and capability enforcement that will turn the syscall boundary into a permission-aware security boundary.
 
 ## Initial target
 The first target was a bootable x86-64 kernel that reaches a C kernel entry point and writes a diagnostic message. Security, application isolation, GUI/CUI, compatibility, and AI services will be built as explicit subsystems rather than bolted on at the end.
