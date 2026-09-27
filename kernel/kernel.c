@@ -378,6 +378,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      */
     if (scheduler_test_worker_progress == 0 ||
         thread_current() != &init_thread) {
+        serial_write("ProsenjitOS: TIMER diagnostic ticks=");
+        serial_hex64(timer_ticks());
+        serial_write(" worker_progress=");
+        serial_hex64(scheduler_test_worker_progress);
+        serial_write(" init_progress=");
+        serial_hex64(scheduler_test_init_progress);
+        serial_write(" current_tid=");
+        serial_hex64(thread_current() ? thread_current()->tid : 0);
+        serial_write(" worker_state=");
+        serial_hex64(thread_state(&worker_thread));
+        serial_write(" init_state=");
+        serial_hex64(thread_state(&init_thread));
+        serial_write("\n");
         serial_write("ProsenjitOS: ERROR timer-driven kernel-thread preemption test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
