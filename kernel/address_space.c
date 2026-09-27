@@ -84,6 +84,49 @@ int address_space_map_user_page(struct pros_address_space *space,
     return 0;
 }
 
+static void destroy_table(uint64_t *table, uint32_t level) {
+    if (!table) return;
+
+    for (uint32_t i = 0; i < ENTRIES; ++i) {
+        uint64_t entry = table[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT)) continue;
+        if (entry & LARGE_PAGE_FLAG) continue;
+
+        uint64_t *child = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+        if (level > 1) {
+            destroy_table(child, level - 1);
+            physical_page_free((uint64_t)(uintptr_t)child);
+        }
+        /* At level 1, entries are leaf mappings; their physical pages
+         * are owned by the caller and are intentionally not freed here. */
+    }
+}
+
+int address_space_destroy(struct pros_address_space *space) {
+    if (!space || !space->root) return -1;
+
+    /*
+     * PML4[0] and PML4[256..511] reference shared kernel mappings and are
+     * never owned by this address space. Only user-space PML4[1..255] is
+     * recursively owned and released.
+     */
+    for (uint32_t i = 1; i < 256; ++i) {
+        uint64_t entry = space->root[i];
+        if (!(entry & PROSENJIT_PAGE_PRESENT) ||
+            (entry & LARGE_PAGE_FLAG))
+            continue;
+
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
+        destroy_table(pdpt, 3);
+        physical_page_free((uint64_t)(uintptr_t)pdpt);
+    }
+
+    uint64_t root = (uint64_t)(uintptr_t)space->root;
+    space->root = 0;
+    physical_page_free(root);
+    return 0;
+}
+
 int address_space_switch(struct pros_address_space *space) {
     if (!space || !space->root) return -1;
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)(uintptr_t)space->root) : "memory");
