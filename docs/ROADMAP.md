@@ -39,7 +39,7 @@
 - [ ] Per-process security identity
 - [ ] Capability/permission model
   - [x] Kernel capability-handle foundation
-  - [x] Per-process capability policy\n  - [ ] Capability transfer rules
+  - [x] Per-process capability policy\n  - [x] Capability transfer rules\n  - [ ] Kernel-mediated cross-process transfer syscall
 - [ ] Protected object manager
 - [ ] Application sandbox
 - [ ] Filesystem access control
