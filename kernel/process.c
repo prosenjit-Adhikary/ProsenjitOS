@@ -1,6 +1,47 @@
 #include "process.h"
 
 static struct pros_process *current_process;
+static struct pros_process *process_list;
+static uint64_t next_pid = 1;
+
+int process_manager_init(void) {
+    process_list = 0;
+    current_process = 0;
+    next_pid = 1;
+    return 0;
+}
+
+struct pros_process *process_lookup(uint64_t pid) {
+    for (struct pros_process *p = process_list; p; p = p->next)
+        if (p->pid == pid && p->state != PROS_PROCESS_DEAD)
+            return p;
+    return 0;
+}
+
+int process_register(struct pros_process *process) {
+    if (!process_is_live(process) || process->pid == 0 ||
+        process_lookup(process->pid) != 0) return -1;
+    process->next = process_list;
+    process_list = process;
+    if (process->pid >= next_pid) next_pid = process->pid + 1;
+    return 0;
+}
+
+int process_unregister(struct pros_process *process) {
+    if (!process) return -1;
+    struct pros_process **link = &process_list;
+    while (*link) {
+        if (*link == process) {
+            *link = process->next;
+            process->next = 0;
+            if (current_process == process) current_process = 0;
+            return 0;
+        }
+        link = &(*link)->next;
+    }
+    return -1;
+}
+
 
 static int process_is_live(const struct pros_process *process) {
     return process && process->object.type == PROS_OBJECT_PROCESS &&
@@ -21,6 +62,8 @@ int process_init(struct pros_process *process,
     process->security_level = security_level;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
+    process->parent = 0;
+    process->next = 0;
     process->capability_policy = (security_level == PROS_SECURITY_SUPER)
         ? PROSENJIT_CAP_RIGHTS_ALL
         : (PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN);
@@ -37,8 +80,30 @@ int process_create(struct pros_process *parent,
     if (process_init(child, pid, security_level) != 0) return -1;
 
     child->parent_pid = parent ? parent->pid : 0;
+    child->parent = parent;
     child->state = PROS_PROCESS_READY;
+    if (process_register(child) != 0) return -1;
     return 0;
+}
+
+int process_exit(struct pros_process *process, int32_t exit_code) {
+    if (!process_is_live(process) ||
+        process->state == PROS_PROCESS_DEAD ||
+        process->state == PROS_PROCESS_ZOMBIE) return -1;
+    process->exit_code = exit_code;
+    process->state = PROS_PROCESS_ZOMBIE;
+    if (current_process == process) current_process = 0;
+    return 0;
+}
+
+int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
+    if (!process_is_live(parent) || !exit_code || pid == 0) return -1;
+    struct pros_process *child = process_lookup(pid);
+    if (!child || child->parent != parent) return -1;
+    if (child->state != PROS_PROCESS_ZOMBIE) return -2;
+    *exit_code = child->exit_code;
+    child->state = PROS_PROCESS_DEAD;
+    return process_unregister(child);
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
