@@ -38,6 +38,7 @@ int thread_enqueue(struct pros_thread *thread);
 struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 int thread_schedule(void);
+int thread_schedule_preempt(void);
 
 /* Switches CPU execution from prev to next using their saved kernel stacks. */
 void thread_context_switch(struct pros_thread *prev,
