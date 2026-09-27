@@ -27,8 +27,8 @@
 - [x] NX/W^X memory policy where supported
 
 ## Phase 3 — Kernel architecture
-- [ ] Kernel object model
-- [ ] Protected handles
+- [x] Kernel object model
+- [x] Protected handles
 - [ ] Process manager
 - [ ] Thread scheduler
 - [ ] Context switching
