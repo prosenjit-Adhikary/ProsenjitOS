@@ -105,11 +105,11 @@ ISR(8) ISR(9) ISR(10) ISR(11) ISR(12) ISR(13) ISR(14) ISR(15)
 ISR(16) ISR(17) ISR(18) ISR(19) ISR(20) ISR(21) ISR(22) ISR(23)
 ISR(24) ISR(25) ISR(26) ISR(27) ISR(28) ISR(29) ISR(30) ISR(31)
 
-static void idt_set_gate(uint32_t n, void (*handler)(void)) {
+static void idt_set_gate(uint32_t n, void (*handler)(void), uint8_t ist) {
     uint64_t addr = (uint64_t)handler;
     idt[n].offset_low = (uint16_t)addr;
     idt[n].selector = 0x08;
-    idt[n].ist = 0;
+    idt[n].ist = ist & 0x07u;
     idt[n].type_attr = 0x8E;
     idt[n].offset_mid = (uint16_t)(addr >> 16);
     idt[n].offset_high = (uint32_t)(addr >> 32);
@@ -121,8 +121,10 @@ void idt_init(void) {
         isr16,isr17,isr18,isr19,isr20,isr21,isr22,isr23,isr24,isr25,isr26,isr27,isr28,isr29,isr30,isr31
     };
     for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
-    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i]);
-    idt_set_gate(128, isr128);
+    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
+    idt_set_gate(8, handlers[8], 2);
+    idt_set_gate(14, handlers[14], 1);
+    idt_set_gate(128, isr128, 0);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
