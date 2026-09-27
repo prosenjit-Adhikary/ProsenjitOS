@@ -169,3 +169,46 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
 
     return handle_alloc(target_table, source->object, requested_rights);
 }
+
+uint64_t handle_transfer_move(struct pros_handle_table *source_table,
+                              struct pros_handle_table *target_table,
+                              uint64_t source_handle,
+                              uint64_t requested_rights) {
+    if (!source_table || !target_table ||
+        source_table == target_table ||
+        source_handle == PROSENJIT_HANDLE_INVALID ||
+        requested_rights == 0 ||
+        (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    uint32_t slot = handle_slot(source_handle);
+    uint16_t generation = handle_generation(source_handle);
+    if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    struct pros_handle_entry *source = &source_table->entries[slot];
+    if (!source->object || source->generation != generation ||
+        source->object->refcount == 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    /*
+     * Move-transfer requires TRANSFER authority and can only attenuate the
+     * rights carried by the source capability. Allocate the destination
+     * handle first so a full target table never destroys the source handle.
+     */
+    if ((source->rights & PROSENJIT_CAP_TRANSFER) == 0 ||
+        (requested_rights & ~source->rights) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    uint64_t target_handle = handle_alloc(target_table, source->object,
+                                          requested_rights);
+    if (target_handle == PROSENJIT_HANDLE_INVALID)
+        return PROSENJIT_HANDLE_INVALID;
+
+    if (handle_close(source_table, source_handle) != 0) {
+        (void)handle_close(target_table, target_handle);
+        return PROSENJIT_HANDLE_INVALID;
+    }
+
+    return target_handle;
+}
