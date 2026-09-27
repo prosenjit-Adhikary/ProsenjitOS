@@ -125,11 +125,11 @@ void kfree(void *address) {
         block = prev;
     }
 
-    if (!block->next && (uint8_t *)block + sizeof(struct heap_block) + block->size == (uint8_t *)heap_end) {
-        heap_end = (uint64_t)block;
-        if (!block->prev) heap_head = 0;
-        else block->prev->next = 0;
-    }
+    /*
+     * Keep the virtual heap frontier monotonic. Mapped pages are retained
+     * for reuse; lowering heap_end here would cause the next allocation to
+     * remap already-mapped virtual pages.
+     */
 }
 
 uint64_t heap_used_bytes(void) {
