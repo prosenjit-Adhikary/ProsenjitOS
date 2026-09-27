@@ -28,7 +28,7 @@ static int heap_grow(uint64_t required_end) {
         if (heap_end - PROSENJIT_HEAP_BASE >= PROSENJIT_HEAP_MAX) return -1;
         uint64_t physical = physical_page_alloc();
         if (!physical) return -1;
-        if (paging_map_page(heap_end, physical, PROSENJIT_PAGE_WRITABLE) != 0) {
+        if (paging_map_page(heap_end, physical, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
             physical_page_free(physical);
             return -1;
         }
