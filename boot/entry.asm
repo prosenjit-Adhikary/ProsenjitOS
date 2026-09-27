@@ -205,7 +205,7 @@ stack_top:
 
 align 16
 tss64:
-    times 104 db 0
+    resb 104
 
 boot_magic: resd 1
 boot_info:  resd 1
