@@ -2,6 +2,7 @@
 
 static struct pros_process *current_process;
 static int process_is_live(const struct pros_process *process);
+static int process_is_active(const struct pros_process *process);
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
@@ -49,6 +50,12 @@ static int process_is_live(const struct pros_process *process) {
            process->object.refcount != 0;
 }
 
+static int process_is_active(const struct pros_process *process) {
+    return process_is_live(process) &&
+           process->state != PROS_PROCESS_ZOMBIE &&
+           process->state != PROS_PROCESS_DEAD;
+}
+
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
@@ -78,7 +85,8 @@ int process_create(struct pros_process *parent,
                    uint64_t pid,
                    uint32_t security_level) {
     if (!child || pid == 0) return -1;
-    if (parent && !process_is_live(parent)) return -1;
+    if (parent && !process_is_active(parent)) return -1;
+    if (process_lookup(pid) != 0) return -1;
     if (process_init(child, pid, security_level) != 0) return -1;
 
     child->parent_pid = parent ? parent->pid : 0;
@@ -99,7 +107,7 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
 }
 
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
-    if (!process_is_live(parent) || !exit_code || pid == 0) return -1;
+    if (!process_is_active(parent) || !exit_code || pid == 0) return -1;
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
@@ -232,7 +240,7 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
 }
 
 void process_set_current(struct pros_process *process) {
-    current_process = process;
+    current_process = process_is_active(process) ? process : 0;
 }
 
 struct pros_process *process_current(void) {
