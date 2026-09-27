@@ -9,7 +9,7 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD/obj" "$BUILD/isodir/boot/grub"
 
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
-nasm -f elf32 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
+nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
 
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx \
     -I"$ROOT/kernel/include" \
