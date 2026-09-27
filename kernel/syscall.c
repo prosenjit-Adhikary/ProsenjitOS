@@ -2,6 +2,7 @@
 #include "address_space.h"
 #include "paging.h"
 #include "prosenjit.h"
+#include "process.h"
 #include "../include/abi/syscall.h"
 
 extern void user_mode_exit_trampoline(void);
@@ -13,6 +14,16 @@ void syscall_dispatch(uint64_t *registers, uint64_t *cpu_frame) {
         case PROSENJIT_SYS_GET_VERSION:
             registers[0] = PROSENJIT_ABI_VERSION;
             return;
+
+        case PROSENJIT_SYS_HANDLE_CLOSE: {
+            struct pros_process *process = process_current();
+            if (!process || process_close_handle(process, registers[1]) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            registers[0] = PROSENJIT_SYSCALL_OK;
+            return;
+        }
 
         case PROSENJIT_SYS_USER_TEST_COMPLETE:
             /*
