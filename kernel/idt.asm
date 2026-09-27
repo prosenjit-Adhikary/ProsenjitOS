@@ -6,6 +6,7 @@ global isr_common
 global isr128
 extern exception_dispatch
 extern syscall_dispatch
+extern user_mode_exit_trampoline
 
 ; int 0x80 is the initial ProsenjitOS user/kernel syscall ABI entry.
 ; General registers are saved so the C dispatcher can inspect/return RAX
@@ -45,7 +46,12 @@ isr128:
     pop r13
     pop r14
     pop r15
+    cmp rax, 0xFFFFFFFFFFFFFF00
+    je .exit_to_kernel
     iretq
+
+.exit_to_kernel:
+    jmp user_mode_exit_trampoline
 
 %macro ISR_NO_ERROR 1
 global isr%1
