@@ -616,12 +616,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
+    /*
+     * Give the CPL3 test a fresh capability after all kernel-side handle
+     * lifecycle tests. This keeps the user-mode ABI test independent from
+     * earlier slot/generation churn.
+     */
+    uint64_t user_mode_handle;
+    if (process_check_handle(&init_process, user_test_handle,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE,
+                             PROS_OBJECT_FILE) != 0 ||
+        (user_mode_handle = process_duplicate_handle(
+             &init_process, user_test_handle,
+             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE)) ==
+            PROSENJIT_HANDLE_INVALID ||
+        process_check_handle(&init_process, user_mode_handle,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE,
+                             PROS_OBJECT_FILE) != 0) {
+        serial_write("ProsenjitOS: ERROR user-mode capability preparation failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: user-mode capability prepared\n");
+
     serial_write("ProsenjitOS: entering CPL3 user-mode test\n");
     if (address_space_switch(user_space) != 0) {
         serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    enter_user_mode(PROSENJIT_USER_CODE_VA, PROSENJIT_USER_STACK_TOP, user_test_handle);
+    enter_user_mode(PROSENJIT_USER_CODE_VA, PROSENJIT_USER_STACK_TOP, user_mode_handle);
     for (;;) __asm__ volatile ("cli; hlt");
 
     vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
