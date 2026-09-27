@@ -44,9 +44,19 @@ jobs:
 
           grep -q "ProsenjitOS: CPL3 user-mode execution test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: x86-64 long mode active" build/qemu-serial.log
+          grep -q "ProsenjitOS: page allocation/free test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: kernel heap allocation/free test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: process lifecycle/parent/exit-wait test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: thread lifecycle/run-queue scheduler test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: timer-driven kernel-thread preemption test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: duplicate authorization attenuation test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: limited-process capability policy test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: capability handle/rights test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process capability authorization test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: capability copy-transfer test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: capability move-transfer test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: user address-space isolation foundation test passed" build/qemu-serial.log
 
       - name: Upload ISO and boot diagnostics
         if: always()
