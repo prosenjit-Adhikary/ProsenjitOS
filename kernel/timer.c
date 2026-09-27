@@ -1,4 +1,5 @@
 #include "timer.h"
+#include "pic.h"
 
 static volatile uint64_t ticks;
 static inline void timer_out8(uint16_t port, uint8_t value) {
