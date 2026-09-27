@@ -30,3 +30,11 @@ thread_context_switch:
     pop rbp
     pop rbx
     ret
+
+
+extern thread_bootstrap
+thread_start_trampoline:
+    ; r12 is intentionally reserved as the bootstrap thread pointer.
+    mov rdi, r12
+    call thread_bootstrap
+    ud2
