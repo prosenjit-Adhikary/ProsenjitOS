@@ -25,3 +25,18 @@ int process_grant_handle(struct pros_process *process,
     *handle_out = handle;
     return 0;
 }
+
+
+int process_check_handle(const struct pros_process *process,
+                         uint64_t handle,
+                         uint64_t required_rights,
+                         uint16_t expected_type) {
+    if (!process) return -1;
+    return handle_check(&process->handles, handle, required_rights,
+                        expected_type);
+}
+
+int process_close_handle(struct pros_process *process, uint64_t handle) {
+    if (!process) return -1;
+    return handle_close(&process->handles, handle);
+}
