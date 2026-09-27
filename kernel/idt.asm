@@ -97,14 +97,14 @@ isr32:
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 24]
+    lea rdi, [rsp + 8]
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
     mov rsp, rax
+    sub rsp, 8
 .timer_no_switch:
     add rsp, 8
-    add rsp, 16
     pop rax
     pop rbx
     pop rcx
