@@ -367,6 +367,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     process_set_current(&init_process);
     serial_write("ProsenjitOS: process state validation regression passed\n");
+    struct pros_object lifecycle_object;
+    uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
+    uint64_t lifecycle_free_before = physical_memory_free_pages();
+    object_init(&lifecycle_object, PROS_OBJECT_FILE);
+    if (process_create(&init_process, &lifecycle_parent, 6,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_grant_handle(&lifecycle_parent, &lifecycle_object,
+                             PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
+        lifecycle_object.refcount != 2 ||
+        process_exit(&lifecycle_parent, 13) != 0 ||
+        process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
+        waited_exit != 13 ||
+        lifecycle_object.refcount != 1 ||
+        lifecycle_parent.address_space.root != 0 ||
+        physical_memory_free_pages() != lifecycle_free_before) {
+        serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process resource cleanup regression passed\n");
+
 
 
     struct pros_thread init_thread;
