@@ -25,11 +25,13 @@ _start:
     rep stosd
 
     ; PML4[0] -> PDPT
-    mov eax, pdpt | 0x003
+    mov eax, pdpt
+    or eax, 0x003
     mov [pml4 + 0], eax
 
     ; PDPT[0] -> page directory
-    mov eax, page_directory | 0x003
+    mov eax, page_directory
+    or eax, 0x003
     mov [pdpt + 0], eax
 
     ; Fill 512 PDEs, each mapping 2 MiB.
