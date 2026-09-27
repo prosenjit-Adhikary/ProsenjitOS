@@ -17,6 +17,9 @@
 #define USER_DATA_VA PROSENJIT_USER_TEST_VA
 
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
+
+static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
+static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static inline void io_out8(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
@@ -316,10 +319,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_manager_init() != 0 ||
         thread_init(&init_thread, &init_process, 1,
                     (uint64_t)(uintptr_t)kernel_main,
-                    (uint64_t)(uintptr_t)&init_thread + 0x1000) != 0 ||
+                    (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) != 0 ||
         thread_init(&worker_thread, &init_process, 2,
                     (uint64_t)(uintptr_t)kernel_main,
-                    (uint64_t)(uintptr_t)&worker_thread + 0x1000) != 0 ||
+                    (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
         thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&init_thread) != 0 ||
