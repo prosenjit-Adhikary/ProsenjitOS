@@ -2,6 +2,11 @@
 
 static struct pros_process *current_process;
 
+static int process_is_live(const struct pros_process *process) {
+    return process && process->object.type == PROS_OBJECT_PROCESS &&
+           process->object.refcount != 0;
+}
+
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
@@ -33,13 +38,13 @@ int process_check_handle(const struct pros_process *process,
                          uint64_t handle,
                          uint64_t required_rights,
                          uint16_t expected_type) {
-    if (!process) return -1;
+    if (!process_is_live(process)) return -1;
     return handle_check(&process->handles, handle, required_rights,
                         expected_type);
 }
 
 int process_close_handle(struct pros_process *process, uint64_t handle) {
-    if (!process) return -1;
+    if (!process_is_live(process)) return -1;
     return handle_close(&process->handles, handle);
 }
 
