@@ -63,12 +63,37 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             struct pros_thread *current = thread_current();
 
             if (current) tid = current->tid;
-            if (!process ||
-                process_handle_type(process, source_handle, &object_type) != 0 ||
-                security_make_intent(&intent, PROS_INTENT_DUPLICATE,
-                                     object_type, source_handle,
-                                     requested_rights) != 0 ||
-                security_authorize(process, &intent, tid, &reason) != PROS_DECISION_ALLOW) {
+            int type_rc = process ? process_handle_type(process, source_handle, &object_type) : -1;
+            int intent_rc = -1;
+            enum pros_security_decision decision = PROS_DECISION_DENY;
+            if (type_rc == 0)
+                intent_rc = security_make_intent(&intent, PROS_INTENT_DUPLICATE,
+                                                 object_type, source_handle,
+                                                 requested_rights);
+            if (intent_rc == 0)
+                decision = security_authorize(process, &intent, tid, &reason);
+
+            if (!process || type_rc != 0 || intent_rc != 0 ||
+                decision != PROS_DECISION_ALLOW) {
+                syscall_serial_write("ProsenjitOS: DUP denied: process=");
+                syscall_serial_hex64((uint64_t)(uintptr_t)process);
+                syscall_serial_write(" handle=");
+                syscall_serial_hex64(source_handle);
+                syscall_serial_write(" rights=");
+                syscall_serial_hex64(requested_rights);
+                syscall_serial_write(" type=");
+                syscall_serial_hex64(object_type);
+                syscall_serial_write(" type_rc=");
+                syscall_serial_hex64((uint64_t)(int64_t)type_rc);
+                syscall_serial_write(" intent_rc=");
+                syscall_serial_hex64((uint64_t)(int64_t)intent_rc);
+                syscall_serial_write(" decision=");
+                syscall_serial_hex64((uint64_t)decision);
+                syscall_serial_write(" reason=");
+                syscall_serial_hex64(reason);
+                syscall_serial_write(" tid=");
+                syscall_serial_hex64(tid);
+                syscall_serial_write("\n");
                 registers[0] = PROSENJIT_SYSCALL_EPERM;
                 return;
             }
