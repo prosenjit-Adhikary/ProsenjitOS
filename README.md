@@ -1,2 +1,2 @@
 # ProsenjitOS
-Developing 
+This OS Developing by our favorite AI CHATGPT.
