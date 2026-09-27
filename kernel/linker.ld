@@ -22,17 +22,12 @@ SECTIONS
 
     __kernel_rodata_end = .;
 
+    __kernel_data_start = .;
     .data : ALIGN(4K)
     {
         *(.data*)
     }
-
     __kernel_data_end = .;
-
-    .bss : ALIGN(4K)
-    {
-        *(.data*)
-    }
 
     .bss : ALIGN(4K)
     {
