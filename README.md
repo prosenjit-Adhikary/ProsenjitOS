@@ -119,10 +119,10 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - initial x86-64 virtual-memory/page-table manager
 - first 1 GiB identity mapping retained for early kernel operation
 - 4 KiB high-half mapping and translation smoke test
+- initial page-backed kernel heap with allocation/free and memory smoke tests
 
 ### In progress / next engineering milestones
 
-- kernel heap
 - syscall and capability model
 - security policy and permission broker
 - user/session and Limited User / Super User model
