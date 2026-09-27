@@ -211,3 +211,32 @@ The first target was a bootable x86-64 kernel that reaches a C kernel entry poin
 Kernel resources are represented as typed objects. Processes own a handle table containing opaque numeric handles, object references, and an explicit rights mask. Kernel code can validate both the expected object type and required rights before exposing a resource through a syscall.
 
 The current implementation is deliberately small: it establishes ownership, reference counting, handle allocation/close, and the Limited/Super security-level fields needed by the process model. It does not yet claim complete capability security; syscall integration and policy enforcement remain future work.
+
+
+## Intent-aware kernel authorization
+
+ProsenjitOS now defines an experimental kernel authorization pipeline:
+
+    Process
+       |
+    Intent
+       |
+    Capability check
+       |
+    Policy evaluation
+       |
+    Kernel decision
+       |
+    Reason Ledger
+       |
+    Execute / Deny / Quarantine
+
+An intent is a structured description of an operation: operation class, target object type, handle, requested rights, and creation tick. Intent is not authority; the capability/handle remains the authority boundary.
+
+The kernel authorization path validates the process and intent, then checks the requested rights against the process capability table and capability policy. A successful decision is ALLOW. Missing ordinary capability authority produces DENY. A sensitive unauthorized administrative request can produce QUARANTINE; quarantine is an attenuation/containment state and does not grant privilege.
+
+Every decision is recorded in a bounded 128-entry Reason Ledger containing process/thread identity, intent ID, operation, object type, handle, requested rights, decision, reason code, and timer tick. The ledger is a diagnostic/security provenance mechanism, not a source of authority.
+
+The quarantine state blocks a process from remaining READY/RUNNING and can be explicitly cleared by a trusted kernel policy path. No intent can elevate a Limited process into a Super process.
+
+The current implementation is intentionally deterministic and small. It is a security foundation rather than a complete sandbox, filesystem ACL system, device broker, or user-facing permission prompt.
