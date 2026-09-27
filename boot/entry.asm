@@ -163,6 +163,8 @@ cpu_security_init:
     ret
 
 cpu_load_tss:
+    ; Load the GDT again immediately before LTR so GDTR is known-good.
+    lgdt [gdt64.pointer]
     mov ax, gdt64.tss_low
     ltr ax
     ret
