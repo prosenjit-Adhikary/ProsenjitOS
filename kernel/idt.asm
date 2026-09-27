@@ -92,19 +92,19 @@ isr32:
     ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
     ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
     sub rsp, 8
-    lea rdi, [rsp + 8]
+    lea rdi, [rsp + 24]
     call timer_dispatch
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 8]
+    lea rdi, [rsp + 24]
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
     mov rsp, rax
-    sub rsp, 8
+    sub rsp, 24
 .timer_no_switch:
-    add rsp, 8
+    add rsp, 24
     pop rax
     pop rbx
     pop rcx
