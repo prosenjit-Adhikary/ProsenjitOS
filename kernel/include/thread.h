@@ -19,9 +19,14 @@ struct pros_cpu_context {
     uint64_t rflags;
 };
 
+/* Exact memory layout produced by isr32:
+ * r15..rax, vector, error_code, RIP, CS, RFLAGS.
+ * Keeping this ABI explicit is required because the timer handler may
+ * replace the frame pointer before the final iretq.
+ */
 struct pros_interrupt_frame {
-    uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp;
-    uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+    uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
+    uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
     uint64_t vector, error_code;
     uint64_t rip, cs, rflags;
 };
