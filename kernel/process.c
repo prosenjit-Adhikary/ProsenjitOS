@@ -111,6 +111,24 @@ uint64_t process_transfer_handle_copy(struct pros_process *source,
                                 source_handle, requested_rights);
 }
 
+uint64_t process_transfer_handle_move(struct pros_process *source,
+                                      struct pros_process *target,
+                                      uint64_t source_handle,
+                                      uint64_t requested_rights) {
+    if (!process_is_live(source) || !process_is_live(target) ||
+        source == target || requested_rights == 0 ||
+        (requested_rights & ~target->capability_policy) != 0)
+        return PROSENJIT_HANDLE_INVALID;
+
+    /*
+     * The object layer performs the source capability check, attenuates
+     * rights, allocates the target handle first, and consumes the source
+     * only after the target handle exists.
+     */
+    return handle_transfer_move(&source->handles, &target->handles,
+                                source_handle, requested_rights);
+}
+
 void process_set_current(struct pros_process *process) {
     current_process = process;
 }
