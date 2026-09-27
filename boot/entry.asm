@@ -94,6 +94,8 @@ long_mode_entry:
     jmp .halt
 
 cpu_security_init:
+    xor eax, eax
+
     ; Enable CR0.WP so supervisor writes obey read-only page permissions.
     mov rax, cr0
     or rax, (1 << 16)
@@ -112,6 +114,7 @@ cpu_security_init:
     rdmsr
     or eax, (1 << 11)
     wrmsr
+    mov eax, 1
 .done:
     ret
 
