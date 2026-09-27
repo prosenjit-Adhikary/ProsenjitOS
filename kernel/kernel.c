@@ -101,6 +101,7 @@ extern void isr128(void);
 extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
+extern void thread_start_trampoline(void);
 
 struct gdtr_snapshot {
     uint16_t limit;
