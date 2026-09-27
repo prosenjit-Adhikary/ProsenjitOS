@@ -46,6 +46,8 @@ jobs:
           grep -q "ProsenjitOS: x86-64 long mode active" build/qemu-serial.log
           grep -q "ProsenjitOS: capability handle/rights test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process capability authorization test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: timer-driven kernel-thread preemption test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed" build/qemu-serial.log
 
       - name: Upload ISO and boot diagnostics
         if: always()
