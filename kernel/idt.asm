@@ -4,8 +4,10 @@ section .text
 global idt_load
 global isr_common
 global isr128
+global isr32
 extern exception_dispatch
 extern syscall_dispatch
+extern timer_dispatch
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
 extern stack_top
@@ -55,6 +57,17 @@ isr128:
     call paging_switch_kernel
     mov rsp, stack_top
     jmp user_mode_exit_trampoline
+
+isr32:
+    cli
+    push qword 0
+    push qword 32
+    mov rdi, rsp
+    call timer_dispatch
+    add rsp, 16
+    mov al, 0x20
+    out 0x20, al
+    iretq
 
 %macro ISR_NO_ERROR 1
 global isr%1
