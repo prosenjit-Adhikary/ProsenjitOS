@@ -22,7 +22,7 @@
 - [ ] Timer
 - [x] Physical page allocator
 - [x] Virtual memory and paging
-- [ ] Kernel heap
+- [x] Kernel heap
 - [ ] User/kernel address-space separation
 - [ ] NX/W^X memory policy where supported
 
