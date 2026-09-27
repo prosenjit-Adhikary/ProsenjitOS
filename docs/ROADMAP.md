@@ -39,10 +39,11 @@
 - [ ] Thread scheduler
   - [x] Thread object and lifecycle state
   - [x] FIFO run queue and scheduler selection
-  - [ ] Timer-driven preemption
+  - [x] Timer-driven preemption
 - [x] Context switching foundation (kernel-stack switch + callee-saved state)
-- [ ] Preemptive interrupt-frame context switching
+- [x] Preemptive interrupt-frame context switching
   - [x] Interrupt-frame ABI and scheduler hand-off foundation
+  - [x] Kernel-thread timer preemption validated under QEMU
 - [x] System-call boundary
 - [ ] IPC
 
