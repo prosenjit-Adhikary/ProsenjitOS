@@ -29,11 +29,20 @@ struct pros_process {
     uint64_t capability_policy;
     struct pros_address_space address_space;
     struct pros_handle_table handles;
+    struct pros_process *parent;
+    struct pros_process *next;
 };
 
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level);
+int process_manager_init(void);
+struct pros_process *process_lookup(uint64_t pid);
+int process_register(struct pros_process *process);
+int process_unregister(struct pros_process *process);
+int process_exit(struct pros_process *process, int32_t exit_code);
+int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code);
+
 int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,
