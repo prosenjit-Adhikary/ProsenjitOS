@@ -4,67 +4,125 @@
 - [x] Repository created
 - [x] Initial README
 - [x] License and ignore rules
+- [x] Architecture/security requirements documented
 - [ ] First bootable image
 
-## Phase 1 — Boot and kernel foundation
+## Phase 1 — 64-bit boot and kernel foundation
 - [ ] BIOS boot path
 - [ ] 32-bit protected mode
 - [ ] Long-mode transition
 - [ ] x86-64 kernel entry
-- [ ] VGA/serial console
+- [ ] VGA and serial console
 - [ ] Linker script and reproducible build
+- [ ] Early boot security checks
 
-## Phase 2 — CPU and memory
+## Phase 2 — CPU and memory isolation
 - [ ] GDT/IDT
 - [ ] Interrupt and exception handlers
-- [ ] PIT/APIC timer
+- [ ] Timer
 - [ ] Physical page allocator
 - [ ] Virtual memory and paging
 - [ ] Kernel heap
+- [ ] User/kernel address-space separation
+- [ ] NX/W^X memory policy where supported
 
-## Phase 3 — Windows/NT-inspired kernel architecture
+## Phase 3 — Kernel architecture
 - [ ] Kernel object model
+- [ ] Protected handles
 - [ ] Process manager
 - [ ] Thread scheduler
-- [ ] Handle table
-- [ ] Executive-style subsystems
+- [ ] Context switching
 - [ ] System-call boundary
+- [ ] IPC
 
-## Phase 4 — I/O and drivers
+## Phase 4 — Security foundation
+- [ ] Per-process security identity
+- [ ] Capability/permission model
+- [ ] Protected object manager
+- [ ] Application sandbox
+- [ ] Filesystem access control
+- [ ] Process isolation
+- [ ] Device permission broker
+- [ ] Network permission policy
+- [ ] Security event log
+- [ ] Signed package verification
+- [ ] Controlled driver loading
+
+## Phase 5 — I/O and drivers
 - [ ] Driver model
 - [ ] Keyboard
 - [ ] Storage
 - [ ] PCI enumeration
+- [ ] Display abstraction
 - [ ] Network device abstraction
 
-## Phase 5 — Storage and networking
+## Phase 6 — Storage and networking
 - [ ] VFS
 - [ ] FAT-compatible filesystem support
+- [ ] Native filesystem design
 - [ ] Ethernet
 - [ ] ARP
 - [ ] IPv4
 - [ ] UDP/TCP
+- [ ] Network sandbox policy
 
-## Phase 6 — User mode
+## Phase 7 — User mode and CUI
 - [ ] User address spaces
 - [ ] ELF loader
+- [ ] Process startup
 - [ ] Init/service manager
-- [ ] Shell
+- [ ] Secure shell
 - [ ] Basic utilities
+- [ ] Package manager
 
-## Phase 7 — Security and usability
-- [ ] Access tokens / identities
-- [ ] ACL-inspired permissions
-- [ ] Logging
-- [ ] Configuration store
-- [ ] Installer and recovery environment
+## Phase 8 — GUI
+- [ ] Graphics abstraction
+- [ ] Framebuffer
+- [ ] Input subsystem
+- [ ] Window manager/compositor
+- [ ] Desktop shell
+- [ ] File manager
+- [ ] Terminal emulator
+- [ ] Settings/security center
+- [ ] Permission prompts
+
+## Phase 9 — Application compatibility
+- [ ] Native ProsenjitOS SDK
+- [ ] POSIX-compatible user API
+- [ ] Linux ELF compatibility environment
+- [ ] Linux application packaging/container integration
+- [ ] Windows API compatibility layer integration
+- [ ] Windows application installer
+- [ ] Compatibility sandbox profiles
+- [ ] Application permissions UI
+
+## Phase 10 — AI API
+- [ ] OS AI service
+- [ ] Stable AI API for applications
+- [ ] Permission broker for AI requests
+- [ ] Remote AI provider interface
+- [ ] Local model provider interface
+- [ ] LAN AI provider interface
+- [ ] Credential isolation
+- [ ] AI data/privacy policy
+
+## Phase 11 — Hardening
+- [ ] Secure/verified boot
+- [ ] Kernel self-protection
+- [ ] Driver signing policy
+- [ ] Update/rollback system
+- [ ] Recovery environment
+- [ ] Security auditing
+- [ ] Fuzzing and regression tests
+- [ ] Malware containment tests
 
 ## Long-term
-- GUI/window manager
-- USB
-- SMP/multi-core scheduling
-- Power management
-- Modern boot support
-- Developer SDK
+- [ ] USB
+- [ ] SMP/multi-core scheduling
+- [ ] Power management
+- [ ] UEFI
+- [ ] Developer SDK
+- [ ] Software repository
+- [ ] Full desktop environment
 
-ProsenjitOS is an independent learning project and does not contain Microsoft proprietary source code.
+ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
