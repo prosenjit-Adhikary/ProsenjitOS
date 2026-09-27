@@ -342,7 +342,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Lifecycle regressions: zombie parent and current-process clearing. */
     struct pros_process lifecycle_parent;
     if (process_create(&init_process, &lifecycle_parent, 3,
-        process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_unregister(&lifecycle_parent) != -1 ||
         process_exit(&lifecycle_parent, 7) != 0 ||
