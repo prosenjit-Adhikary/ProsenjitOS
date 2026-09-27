@@ -354,6 +354,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
+
+    /*
+     * Bounded IRQ0 preemption smoke test. The two kernel test threads above
+     * both make forward progress only when the timer interrupt can rotate
+     * between their saved interrupt frames. Keep the window short so this
+     * remains a deterministic boot-time regression test.
+     */
+    scheduler_test_init_progress = 0;
+    scheduler_test_worker_progress = 0;
+    uint64_t preempt_start = timer_ticks();
+    __asm__ volatile ("sti");
+    while (timer_ticks() < preempt_start + 30u)
+        __asm__ volatile ("pause");
+    __asm__ volatile ("cli");
+    if (scheduler_test_init_progress == 0 ||
+        scheduler_test_worker_progress == 0) {
+        serial_write("ProsenjitOS: ERROR timer-driven kernel-thread preemption test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: timer-driven kernel-thread preemption test passed\n");
+
     serial_write("ProsenjitOS: initial limited process and capability context online\\n");
     if (security_manager_init() != 0) {
         serial_write("ProsenjitOS: ERROR security manager initialization failed\\n");
