@@ -121,13 +121,28 @@ enum pros_security_decision security_authorize(
 
     {
         uint64_t required = intent_required_rights(intent->operation);
-        if (required == 0 ||
-            (intent->requested_rights & required) != required) {
+        uint64_t check_rights = intent->requested_rights;
+
+        /*
+         * DUPLICATE is special: requested_rights describes the attenuated
+         * rights of the new handle, while DUPLICATE is the authority needed
+         * to perform the operation. The source handle must therefore carry
+         * both DUPLICATE and every right requested for the new handle.
+         */
+        if (intent->operation == PROS_INTENT_DUPLICATE) {
+            if (required == 0) {
+                reason = PROS_REASON_POLICY_RESTRICTED;
+                goto record;
+            }
+            check_rights |= required;
+        } else if (required == 0 ||
+                   (intent->requested_rights & required) != required) {
             reason = PROS_REASON_POLICY_RESTRICTED;
             goto record;
         }
+
         if (handle_check(&process->handles, intent->handle,
-                         intent->requested_rights,
+                         check_rights,
                          (uint16_t)intent->object_type) != 0) {
             reason = PROS_REASON_CAPABILITY_MISSING;
             if (intent->operation == PROS_INTENT_ADMIN ||
