@@ -204,3 +204,10 @@ The implemented memory/isolation foundation now includes a physical page allocat
 
 ## Initial target
 The first target was a bootable x86-64 kernel that reaches a C kernel entry point and writes a diagnostic message. Security, application isolation, GUI/CUI, compatibility, and AI services will be built as explicit subsystems rather than bolted on at the end.
+
+
+## Object and handle foundation
+
+Kernel resources are represented as typed objects. Processes own a handle table containing opaque numeric handles, object references, and an explicit rights mask. Kernel code can validate both the expected object type and required rights before exposing a resource through a syscall.
+
+The current implementation is deliberately small: it establishes ownership, reference counting, handle allocation/close, and the Limited/Super security-level fields needed by the process model. It does not yet claim complete capability security; syscall integration and policy enforcement remain future work.
