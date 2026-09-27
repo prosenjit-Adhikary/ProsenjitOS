@@ -120,6 +120,8 @@ isr32:
     pop r13
     pop r14
     pop r15
+    ; Skip the synthetic vector/error words before returning with iretq.
+    add rsp, 16
     call pic_eoi_master
     iretq
 
