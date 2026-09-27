@@ -341,6 +341,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                        PROS_SECURITY_LIMITED) == 0 ||
         process_create(&init_process, &lifecycle_parent, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
+        process_unregister(&lifecycle_parent) != -1 ||
         process_exit(&lifecycle_parent, 7) != 0 ||
         process_wait(&lifecycle_parent, child_process.pid, &waited_exit) != -1) {
         serial_write("ProsenjitOS: ERROR process state validation regression failed\n");
