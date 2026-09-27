@@ -20,6 +20,14 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
 static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
+
+static void scheduler_test_init_entry(void) {
+    for (;;) __asm__ volatile ("pause");
+}
+
+static void scheduler_test_worker_entry(void) {
+    for (;;) __asm__ volatile ("pause");
+}
 static inline void io_out8(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
@@ -318,10 +326,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread worker_thread;
     if (thread_manager_init() != 0 ||
         thread_init(&init_thread, &init_process, 1,
-                    (uint64_t)(uintptr_t)kernel_main,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
                     (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) != 0 ||
         thread_init(&worker_thread, &init_process, 2,
-                    (uint64_t)(uintptr_t)kernel_main,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
                     (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
         thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
