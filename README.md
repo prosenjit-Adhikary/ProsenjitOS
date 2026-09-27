@@ -123,6 +123,9 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - initial shared user/kernel ABI header under `include/abi/`
 - register-safe `int 0x80` syscall entry with a minimal dispatcher
 - CPL3 syscall round-trip test with ABI version validation and controlled return to the kernel
+- generation-checked kernel handles with explicit capability rights
+- object type and rights validation plus stale-handle rejection
+- process-level handle validation/close interfaces
 
 ### In progress / next engineering milestones
 
