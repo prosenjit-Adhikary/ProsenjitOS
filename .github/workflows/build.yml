@@ -29,22 +29,28 @@ jobs:
             -display none \
             -serial file:build/qemu-serial.log \
             -no-reboot \
-            -no-shutdown
+            -no-shutdown \
+            -d int \
+            -D build/qemu-debug.log
           qemu_status=$?
           set -e
 
           echo "QEMU exit status: $qemu_status"
           cat build/qemu-serial.log
+          echo "===== QEMU exception diagnostics (tail) ====="
+          tail -n 200 build/qemu-debug.log || true
 
           grep -q "ProsenjitOS: CPL3 user-mode execution test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: x86-64 long mode active" build/qemu-serial.log
           grep -q "ProsenjitOS: capability handle/rights test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process capability authorization test passed" build/qemu-serial.log
 
-      - name: Upload ISO and boot log
+      - name: Upload ISO and boot diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: prosenjitOS-boot-test
           path: |
             build/prosenjitOS.iso
             build/qemu-serial.log
+            build/qemu-debug.log
