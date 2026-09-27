@@ -48,13 +48,14 @@ int address_space_create(struct pros_address_space *space) {
     if (!kernel_root) return -1;
 
     /*
-     * PML4 entries 256-511 form the kernel half. The bootstrap kernel also
-     * needs its low identity-mapped stack while handling a CPL3 interrupt,
-     * so PML4[0] is retained but explicitly made supervisor-only. Clearing
-     * the USER bit at the top-level entry prevents CPL3 access while still
-     * allowing the CPU to switch to the TSS RSP0 kernel stack.
-     */
-    root[0] = kernel_root[0] & ~PROSENJIT_PAGE_USER;
+     * PML4[0] is shared with the kernel's low identity map because the
+     * bootstrap kernel currently executes below the first 512 GiB.
+     * Keep the USER bit at the top level so CPL3 can reach explicitly
+     * user-marked leaf pages. Kernel identity pages remain protected by
+     * supervisor-only PTEs; therefore setting USER here does not expose
+     * those kernel pages to user mode.
+     */ 
+    root[0] = kernel_root[0];
     for (uint32_t i = 256; i < ENTRIES; ++i)
         root[i] = kernel_root[i];
 
