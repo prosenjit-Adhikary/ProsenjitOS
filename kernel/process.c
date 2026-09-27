@@ -17,12 +17,40 @@ int process_init(struct pros_process *process,
 
     object_init(&process->object, PROS_OBJECT_PROCESS);
     process->pid = pid;
+    process->parent_pid = 0;
     process->security_level = security_level;
+    process->state = PROS_PROCESS_NEW;
+    process->exit_code = 0;
     process->capability_policy = (security_level == PROS_SECURITY_SUPER)
         ? PROSENJIT_CAP_RIGHTS_ALL
         : (PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN);
     handle_table_init(&process->handles);
     return 0;
+}
+
+int process_create(struct pros_process *parent,
+                   struct pros_process *child,
+                   uint64_t pid,
+                   uint32_t security_level) {
+    if (!child || pid == 0) return -1;
+    if (parent && !process_is_live(parent)) return -1;
+    if (process_init(child, pid, security_level) != 0) return -1;
+
+    child->parent_pid = parent ? parent->pid : 0;
+    child->state = PROS_PROCESS_READY;
+    return 0;
+}
+
+int process_set_state(struct pros_process *process, uint32_t state) {
+    if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
+    if (process->state == PROS_PROCESS_DEAD &&
+        state != PROS_PROCESS_DEAD) return -1;
+    process->state = state;
+    return 0;
+}
+
+uint32_t process_state(const struct pros_process *process) {
+    return process_is_live(process) ? process->state : PROS_PROCESS_DEAD;
 }
 
 uint64_t process_allowed_capabilities(const struct pros_process *process) {
