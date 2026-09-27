@@ -89,3 +89,48 @@ int address_space_switch(struct pros_address_space *space) {
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)(uintptr_t)space->root) : "memory");
     return 0;
 }
+
+int address_space_validate_user_range(const struct pros_address_space *space,
+                                      uint64_t virtual_address,
+                                      uint64_t size,
+                                      int write_access) {
+    if (!space || !space->root || size == 0) return -1;
+
+    uint64_t end = virtual_address + size - 1ULL;
+    if (end < virtual_address || (virtual_address >> 47) != 0 ||
+        (end >> 47) != 0)
+        return -1;
+
+    for (uint64_t va = virtual_address & PAGE_MASK;; va += 0x1000ULL) {
+        uint64_t pml4e = space->root[PML4_INDEX(va)];
+        if ((pml4e & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+            return -1;
+
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
+        uint64_t pdpte = pdpt[PDPT_INDEX(va)];
+        if ((pdpte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+            (pdpte & LARGE_PAGE_FLAG))
+            return -1;
+
+        uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
+        uint64_t pde = pd[PD_INDEX(va)];
+        if ((pde & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
+            (pde & LARGE_PAGE_FLAG))
+            return -1;
+
+        uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
+        uint64_t pte = pt[PT_INDEX(va)];
+        if ((pte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+            return -1;
+        if (write_access && !(pte & PROSENJIT_PAGE_WRITABLE))
+            return -1;
+
+        if (va >= (end & PAGE_MASK)) break;
+    }
+
+    return 0;
+}
