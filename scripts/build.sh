@@ -19,10 +19,10 @@ gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mn
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/address_space.c" -o "$BUILD/obj/address_space.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/syscall.c" -o "$BUILD/obj/syscall.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/object.c" -o "$BUILD/obj/object.o"
-gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/process.c" -o "$BUILD/obj/process.o" "$BUILD/obj/thread.o"
+gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/process.c" -o "$BUILD/obj/process.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/thread.c" -o "$BUILD/obj/thread.o"
 
-ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib    -o "$BUILD/prosenjit.elf"    "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o" "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/process.o"
+ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib    -o "$BUILD/prosenjit.elf"    "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o" "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/process.o" "$BUILD/obj/thread.o"
 
 grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
