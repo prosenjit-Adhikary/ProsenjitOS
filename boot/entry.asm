@@ -7,6 +7,7 @@ global user_mode_exit_trampoline
 extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
+extern paging_switch_kernel
 
 _start:
     cli
@@ -99,16 +100,17 @@ long_mode_entry:
 enter_user_mode:
     mov rax, rdi
     mov rdx, rsi
-    push qword 0x20
+    push qword 0x23
     push rdx
     pushfq
     or qword [rsp], 0x200
-    push qword 0x18
+    push qword 0x1B
     push rax
     iretq
 
 user_mode_exit_trampoline:
     mov rsp, stack_top
+    call paging_switch_kernel
     call user_mode_test_complete
 .user_halt:
     cli
@@ -140,16 +142,16 @@ cpu_security_init:
 .done:
     ; Load a long-mode TSS with RSP0 pointing at the kernel bootstrap stack.
     mov rax, tss64
-    mov rdx, rax
-    mov rcx, rax
-    and eax, 0xFFFF
+    mov word [gdt64.tss_low + 0], 103
     mov word [gdt64.tss_low + 2], ax
+    mov rdx, rax
     shr rdx, 16
     mov word [gdt64.tss_low + 4], dx
-    shr rcx, 16
     mov byte [gdt64.tss_low + 5], 0x89
     mov byte [gdt64.tss_low + 6], 0x00
-    mov byte [gdt64.tss_low + 7], cl
+    mov rdx, rax
+    shr rdx, 32
+    mov byte [gdt64.tss_low + 7], dl
     mov dword [gdt64.tss_low + 8], edx
     mov dword [gdt64.tss_high], 0
     mov rax, stack_top
