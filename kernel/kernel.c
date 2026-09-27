@@ -8,7 +8,8 @@
 #define VGA_ADDRESS 0xB8000u
 #define VGA_COLUMNS 80u
 #define VGA_ROWS 25u
-#define IDT_ENTRIES 32u
+#define IDT_ENTRIES 256u
+#define USER_DATA_VA PROSENJIT_USER_TEST_VA
 
 static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 static inline void io_out8(uint16_t port, uint8_t value) {
@@ -69,6 +70,11 @@ struct idt_gate {
 
 static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
+extern void isr128(void);
+extern void enter_user_mode(uint64_t entry, uint64_t stack_top);
+extern void user_mode_exit_trampoline(void);
+extern char __user_text_start[];
+extern char __user_text_end[];
 #define ISR(n) extern void isr##n(void);
 ISR(0) ISR(1) ISR(2) ISR(3) ISR(4) ISR(5) ISR(6) ISR(7)
 ISR(8) ISR(9) ISR(10) ISR(11) ISR(12) ISR(13) ISR(14) ISR(15)
@@ -90,7 +96,10 @@ void idt_init(void) {
         isr0,isr1,isr2,isr3,isr4,isr5,isr6,isr7,isr8,isr9,isr10,isr11,isr12,isr13,isr14,isr15,
         isr16,isr17,isr18,isr19,isr20,isr21,isr22,isr23,isr24,isr25,isr26,isr27,isr28,isr29,isr30,isr31
     };
-    for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt_set_gate(i, handlers[i]);
+    for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
+    for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i]);
+    idt_set_gate(128, isr128);
+    idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
 }
@@ -99,6 +108,20 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
+    if (vector == 128) {
+        if (((volatile uint8_t *)(uintptr_t)USER_DATA_VA)[0] != 0x5A) {
+            serial_write("ProsenjitOS: ERROR user-mode write verification failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: CPL3 syscall returned to kernel successfully\\n");
+        if (paging_switch_kernel() != 0) {
+            serial_write("ProsenjitOS: ERROR kernel address-space restore failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        frame[2] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
+        frame[3] = 0x08;
+        return;
+    }
     vga_write("ProsenjitOS: CPU exception - system halted", 0x4F);
     for (;;) __asm__ volatile ("cli; hlt");
 }
