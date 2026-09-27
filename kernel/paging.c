@@ -11,6 +11,10 @@
 
 static uint64_t *kernel_pml4;
 
+uint64_t *paging_kernel_root(void) {
+    return kernel_pml4;
+}
+
 static void page_zero(uint64_t *page) {
     for (uint32_t i = 0; i < ENTRIES; ++i) page[i] = 0;
 }
