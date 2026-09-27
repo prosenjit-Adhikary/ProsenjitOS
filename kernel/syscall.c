@@ -3,6 +3,8 @@
 #include "paging.h"
 #include "prosenjit.h"
 #include "process.h"
+#include "thread.h"
+#include "intent.h"
 #include "../include/abi/syscall.h"
 
 extern void user_mode_exit_trampoline(void);
@@ -17,9 +19,28 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
         case PROSENJIT_SYS_HANDLE_DUP: {
             struct pros_process *process = process_current();
-            uint64_t new_handle = process
-                ? process_duplicate_handle(process, registers[5], registers[4])
-                : PROSENJIT_HANDLE_INVALID;
+            uint64_t source_handle = registers[5];
+            uint64_t requested_rights = registers[4];
+            uint16_t object_type = PROS_OBJECT_NONE;
+            struct pros_intent intent;
+            uint64_t reason = PROS_REASON_NONE;
+            uint64_t tid = 0;
+            struct pros_thread *current = thread_current();
+
+            if (current) tid = current->tid;
+            if (!process ||
+                process_handle_type(process, source_handle, &object_type) != 0 ||
+                security_make_intent(&intent, PROS_INTENT_DUPLICATE,
+                                     object_type, source_handle,
+                                     requested_rights) != 0 ||
+                security_authorize(process, &intent, tid, &reason) != PROS_DECISION_ALLOW) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
+            uint64_t new_handle = process_duplicate_handle(process,
+                                                            source_handle,
+                                                            requested_rights);
             registers[0] = new_handle ? new_handle : PROSENJIT_SYSCALL_EPERM;
             return;
         }
