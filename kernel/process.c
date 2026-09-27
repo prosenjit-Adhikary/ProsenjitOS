@@ -149,7 +149,7 @@ int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
                          uint64_t rights,
                          uint64_t *handle_out) {
-    if (!process || !object || !handle_out || rights == 0 ||
+    if (!process_is_active(process) || !object || !handle_out || rights == 0 ||
         (rights & ~process->capability_policy) != 0) return -1;
     uint64_t handle = handle_alloc(&process->handles, object, rights);
     if (handle == PROSENJIT_HANDLE_INVALID) return -1;
@@ -162,7 +162,7 @@ int process_check_handle(const struct pros_process *process,
                          uint64_t handle,
                          uint64_t required_rights,
                          uint16_t expected_type) {
-    if (!process_is_live(process) ||
+    if (!process_is_active(process) ||
         (required_rights & ~process->capability_policy) != 0) return -1;
     return handle_check(&process->handles, handle, required_rights,
                         expected_type);
@@ -189,14 +189,14 @@ int process_handle_type(const struct pros_process *process,
 }
 
 int process_close_handle(struct pros_process *process, uint64_t handle) {
-    if (!process_is_live(process)) return -1;
+    if (!process_is_active(process)) return -1;
     return handle_close(&process->handles, handle);
 }
 
 uint64_t process_duplicate_handle(struct pros_process *process,
                                   uint64_t source_handle,
                                   uint64_t requested_rights) {
-    if (!process_is_live(process) || requested_rights == 0 ||
+    if (!process_is_active(process) || requested_rights == 0 ||
         (requested_rights & ~process->capability_policy) != 0)
         return PROSENJIT_HANDLE_INVALID;
     return handle_duplicate(&process->handles, source_handle, requested_rights);
@@ -206,7 +206,7 @@ uint64_t process_transfer_handle_copy(struct pros_process *source,
                                       struct pros_process *target,
                                       uint64_t source_handle,
                                       uint64_t requested_rights) {
-    if (!process_is_live(source) || !process_is_live(target) ||
+    if (!process_is_active(source) || !process_is_active(target) ||
         source == target || requested_rights == 0 ||
         (requested_rights & ~target->capability_policy) != 0)
         return PROSENJIT_HANDLE_INVALID;
