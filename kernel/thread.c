@@ -4,6 +4,15 @@ static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 
+void thread_bootstrap(struct pros_thread *thread) {
+    if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
+    ((void (*)(void))(uintptr_t)thread->entry)();
+    thread->state = PROS_THREAD_DEAD;
+    current_thread = 0;
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+extern void thread_start_trampoline(void);
+
 int thread_manager_init(void) {
     runq_head = 0;
     runq_tail = 0;
@@ -23,13 +32,22 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->process = process;
     thread->state = PROS_THREAD_NEW;
     thread->priority = 0;
+    thread->entry = entry;
     thread->context.r15 = 0;
     thread->context.r14 = 0;
     thread->context.r13 = 0;
     thread->context.r12 = 0;
     thread->context.rbx = 0;
     thread->context.rbp = 0;
-    thread->context.rsp = stack_top;
+    uint64_t *stack = (uint64_t *)(uintptr_t)stack_top;
+    *(--stack) = (uint64_t)(uintptr_t)thread_start_trampoline;
+    *(--stack) = 0; /* r15 */
+    *(--stack) = 0; /* r14 */
+    *(--stack) = 0; /* r13 */
+    *(--stack) = 0; /* r12 */
+    *(--stack) = 0; /* rbp */
+    *(--stack) = 0; /* rbx */
+    thread->context.rsp = (uint64_t)(uintptr_t)stack;
     thread->context.rip = entry;
     thread->context.rflags = 0x202;
     thread->next = 0;
