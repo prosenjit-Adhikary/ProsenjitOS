@@ -19,7 +19,7 @@ struct pros_cpu_context {
     uint64_t rflags;
 };
 
-struct pros_thread {
+struct pros_interrupt_frame {\n    uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp;\n    uint64_t r8, r9, r10, r11, r12, r13, r14, r15;\n    uint64_t vector, error_code;\n    uint64_t rip, cs, rflags;\n};\n\nstruct pros_thread {
     uint64_t tid;
     struct pros_process *process;
     uint32_t state;
@@ -39,7 +39,7 @@ int thread_enqueue(struct pros_thread *thread);
 struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 int thread_schedule(void);
-int thread_schedule_preempt(void);
+int thread_schedule_preempt(void);\n\n/* Save the current IRQ frame and select the next runnable thread frame. */\nstruct pros_interrupt_frame *thread_schedule_interrupt(\n    struct pros_interrupt_frame *current_frame);
 
 /* Switches CPU execution from prev to next using their saved kernel stacks. */
 void thread_context_switch(struct pros_thread *prev,
