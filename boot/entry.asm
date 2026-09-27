@@ -246,11 +246,11 @@ gdt64:
 .code equ $ - gdt64
     dq 0x00AF9A000000FFFF
 .data equ $ - gdt64
-    dq 0x00AF92000000FFFF
+    dq 0x008F92000000FFFF
 .user_code equ $ - gdt64
     dq 0x00AFFA000000FFFF
 .user_data equ $ - gdt64
-    dq 0x00AFF2000000FFFF
+    dq 0x008FF2000000FFFF
 .tss_low equ $ - gdt64
     dq 0
 .tss_high equ $ - gdt64
