@@ -4,6 +4,7 @@ section .text
 global _start
 global enter_user_mode
 global user_mode_exit_trampoline
+global cpu_load_tss
 extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
@@ -159,6 +160,11 @@ cpu_security_init:
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
+    ret
+
+cpu_load_tss:
+    mov ax, gdt64.tss_low
+    ltr ax
     ret
 
 section .user_text
