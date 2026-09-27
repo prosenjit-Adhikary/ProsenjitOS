@@ -73,7 +73,7 @@ struct idt_gate {
 static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
-extern void enter_user_mode(uint64_t entry, uint64_t stack_top);
+extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 
 struct gdtr_snapshot {
@@ -343,7 +343,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         address_space_map_user_page(user_space, PROSENJIT_USER_TEST_VA,
                                     user_data_page,
                                     PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
-        address_space_map_user_page(&user_space, PROSENJIT_USER_STACK_VA,
+        address_space_map_user_page(user_space, PROSENJIT_USER_STACK_VA,
                                     user_stack_page,
                                     PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
         serial_write("ProsenjitOS: ERROR user-mode mappings failed\n");
