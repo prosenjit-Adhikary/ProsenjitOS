@@ -8,6 +8,7 @@ global isr32
 extern exception_dispatch
 extern syscall_dispatch
 extern timer_dispatch
+extern pic_eoi_master
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
 extern stack_top
@@ -98,8 +99,7 @@ isr32:
     pop rcx
     pop rbx
     pop rax
-    mov al, 0x20
-    out 0x20, al
+    call pic_eoi_master
     iretq
 
 %macro ISR_NO_ERROR 1
