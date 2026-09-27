@@ -21,12 +21,21 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 
+static volatile uint64_t scheduler_test_init_progress;
+static volatile uint64_t scheduler_test_worker_progress;
+
 static void scheduler_test_init_entry(void) {
-    for (;;) __asm__ volatile ("pause");
+    for (;;) {
+        ++scheduler_test_init_progress;
+        __asm__ volatile ("pause");
+    }
 }
 
 static void scheduler_test_worker_entry(void) {
-    for (;;) __asm__ volatile ("pause");
+    for (;;) {
+        ++scheduler_test_worker_progress;
+        __asm__ volatile ("pause");
+    }
 }
 static inline void io_out8(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
