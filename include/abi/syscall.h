@@ -23,4 +23,11 @@ enum pros_syscall_number {
 #define PROSENJIT_SYSCALL_EPERM     0xFFFFFFFFFFFFFFF3ULL
 #define PROSENJIT_SYSCALL_EBADF     0xFFFFFFFFFFFFFFF6ULL
 
+/*
+ * Internal kernel-only dispatcher result. It is deliberately outside the
+ * public errno-style ABI range and is consumed by the assembly syscall exit
+ * path after INT 0x80 has already switched CPL3 -> CPL0.
+ */
+#define PROSENJIT_SYSCALL_INTERNAL_EXIT 0xFFFFFFFFFFFFFF00ULL
+
 #endif
