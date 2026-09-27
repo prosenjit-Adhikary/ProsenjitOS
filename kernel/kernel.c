@@ -262,7 +262,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     object_init(&user_test_object, PROS_OBJECT_FILE);
     if (process_grant_handle(&init_process, &user_test_object,
-                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE, &user_test_handle) != 0) {
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER, &user_test_handle) != 0) {
         serial_write("ProsenjitOS: ERROR initial process handle grant failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -322,6 +322,38 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process capability authorization test passed\n");
+
+    /* Cross-process copy-transfer: the source remains valid and the target
+     * receives only the explicitly requested subset of rights. */
+    struct pros_process transfer_target;
+    uint64_t transferred_handle;
+    if (process_init(&transfer_target, 2, PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR transfer target process creation failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    transferred_handle = process_transfer_handle_copy(&init_process, &transfer_target,
+                                                       user_test_handle,
+                                                       PROSENJIT_CAP_READ);
+    if (transferred_handle == PROSENJIT_HANDLE_INVALID ||
+        process_check_handle(&transfer_target, transferred_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        process_check_handle(&transfer_target, transferred_handle,
+                             PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+        process_check_handle(&init_process, user_test_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        process_transfer_handle_copy(&init_process, &transfer_target,
+                                     user_test_handle,
+                                     PROSENJIT_CAP_WRITE) != PROSENJIT_HANDLE_INVALID) {
+        serial_write("ProsenjitOS: ERROR capability copy-transfer test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_close_handle(&transfer_target, transferred_handle) != 0 ||
+        process_check_handle(&transfer_target, transferred_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0) {
+        serial_write("ProsenjitOS: ERROR transferred handle lifecycle test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: capability copy-transfer test passed\n");
 
     struct pros_address_space *user_space = &init_process.address_space;
     uint64_t user_page = physical_page_alloc();
