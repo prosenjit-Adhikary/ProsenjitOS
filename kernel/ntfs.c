@@ -320,20 +320,20 @@ int ntfs_selftest(void)
         fs.bytes_per_sector != 512u || fs.sectors_per_cluster != 8u ||
         fs.bytes_per_file_record != 1024u ||
         ntfs_cluster_lba(&fs,4u,&lba) != PROS_NTFS_OK || lba != 32u)
-        return -1;
+        return -101;
 
     if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 3u, &run_count) !=
             PROS_NTFS_OK || run_count != 3u ||
         runs[0].lcn != 4u || runs[0].clusters != 3u || runs[0].sparse != 0u ||
         runs[1].lcn != 2u || runs[1].clusters != 1u || runs[1].sparse != 0u ||
         runs[2].lcn != 0u || runs[2].clusters != 2u || runs[2].sparse != 1u)
-        return -2;
+        return -102;
     if (ntfs_decode_runlist(unterminated, sizeof(unterminated), runs, 3u,
                             &run_count) != PROS_NTFS_ECORRUPT)
-        return -3;
+        return -103;
     if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 2u, &run_count) !=
             PROS_NTFS_EOVERFLOW)
-        return -4;
+        return -104;
 
     for (uint32_t i=0u; i<sizeof(record); ++i) record[i]=0u;
     record[0]='F'; record[1]='I'; record[2]='L'; record[3]='E';
@@ -346,7 +346,7 @@ int ntfs_selftest(void)
     if (ntfs_file_record_fixup(record, sizeof(record), 512u) != PROS_NTFS_OK ||
         record[510] != 0x78u || record[511] != 0x56u ||
         record[1022] != 0x00u || record[1023] != 0x00u)
-        return -5;
+        return -105;
 
     for (uint32_t i=0u; i<sizeof(attr_record); ++i) attr_record[i]=0u;
     attr_record[0]='F'; attr_record[1]='I'; attr_record[2]='L'; attr_record[3]='E';
@@ -361,7 +361,7 @@ int ntfs_selftest(void)
         ntfs_attribute_data(attr_record, sizeof(attr_record), attr_offset,
                             &data, &data_size) != PROS_NTFS_OK ||
         data_size != 3u || data[0] != 'a' || data[1] != 'b' || data[2] != 'c')
-        return -6;
+        return -106;
 
     return 0;
 }
