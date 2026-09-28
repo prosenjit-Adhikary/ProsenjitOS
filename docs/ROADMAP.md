@@ -54,7 +54,8 @@
   - [x] CPL3 user-buffer validation for IPC I/O
   - [ ] Capability-mediated endpoint transfer
   - [ ] Kernel-mediated cross-process transfer syscall
-  - [ ] Blocking receive and scheduler wakeups
+  - [x] Kernel receiver wait queue and scheduler wakeup primitive
+  - [ ] Blocking receive syscall scheduler handoff
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
