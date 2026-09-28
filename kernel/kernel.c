@@ -23,6 +23,7 @@ static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_ipc_channel user_ipc_channel;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -833,16 +834,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * earlier slot/generation churn.
      */
     uint64_t user_mode_handle;
-    if (process_check_handle(&init_process, user_test_handle,
-                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE,
-                             PROS_OBJECT_FILE) != 0 ||
+    uint64_t user_ipc_handle;
+    if (ipc_channel_init(&user_ipc_channel) != PROSENJIT_IPC_OK ||
+        process_grant_handle(&init_process, &user_ipc_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER,
+                             &user_ipc_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR user IPC capability preparation failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_check_handle(&init_process, user_ipc_handle,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE,
+                             PROS_OBJECT_IPC) != 0 ||
         (user_mode_handle = process_duplicate_handle(
-             &init_process, user_test_handle,
-             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE)) ==
-            PROSENJIT_HANDLE_INVALID ||
+             &init_process, user_ipc_handle,
+             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+             PROSENJIT_CAP_DUPLICATE)) == PROSENJIT_HANDLE_INVALID ||
         process_check_handle(&init_process, user_mode_handle,
-                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE,
-                             PROS_OBJECT_FILE) != 0) {
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE,
+                             PROS_OBJECT_IPC) != 0) {
         serial_write("ProsenjitOS: ERROR user-mode capability preparation failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
