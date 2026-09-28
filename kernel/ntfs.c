@@ -723,7 +723,7 @@ int ntfs_directory_lookup(const struct pros_ntfs *fs,
     uint32_t index_root_offset;
     uint32_t index_allocation_offset;
     int status;
-    struct pros_ntfs_upcase upcase;
+    static struct pros_ntfs_upcase upcase;
 
     if (!fs || !name_utf16le || name_length == 0u || !file_reference ||
         fs->bytes_per_file_record > sizeof(record))
