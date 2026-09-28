@@ -2196,15 +2196,21 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     ntfs_active_upcase = ntfs_upcase_data;
 
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
-                            0x90u, &index_root_offset) != PROS_NTFS_OK)
+                            0x90u, &index_root_offset) != PROS_NTFS_OK) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ENOTSUP;
+    }
     if (ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
-                               index_root_offset, &root) != PROS_NTFS_OK)
+                               index_root_offset, &root) != PROS_NTFS_OK) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
+    }
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
                             index_root_offset, &root_data, &root_size) !=
-        PROS_NTFS_OK || root.allocated_size > root_size)
+        PROS_NTFS_OK || root.allocated_size > root_size) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
+    }
 
     if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
                             0x30u, &file_name_offset) != PROS_NTFS_OK ||
@@ -2213,8 +2219,10 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
                             &child_name_size) != PROS_NTFS_OK ||
         child_name_size < 66u || child_name_size > sizeof(key_copy) ||
         child_name[64u] == 0u || child_name[65u] > 3u ||
-        66u + (uint32_t)child_name[64u] * 2u > child_name_size)
+        66u + (uint32_t)child_name[64u] * 2u > child_name_size) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
+    }
 
     for (uint32_t i = 0u; i < child_name_size; ++i)
         key_copy[i] = child_name[i];
@@ -2286,16 +2294,16 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     file_reference = ((uint64_t)le16(child_record + 16u) << 48) |
                      (child_record_number & 0x0000FFFFFFFFFFFFull);
     for (uint32_t i = 0u; i < 8u; ++i)
-        ((uint8_t *)root_data)[terminal + i] =
+        ((uint8_t *)root_data)[insert_offset + i] =
             (uint8_t)(file_reference >> (8u * i));
-    ((uint8_t *)root_data)[terminal + 8u] = (uint8_t)entry_size;
-    ((uint8_t *)root_data)[terminal + 9u] = (uint8_t)(entry_size >> 8);
-    ((uint8_t *)root_data)[terminal + 10u] = (uint8_t)child_name_size;
-    ((uint8_t *)root_data)[terminal + 11u] =
+    ((uint8_t *)root_data)[insert_offset + 8u] = (uint8_t)entry_size;
+    ((uint8_t *)root_data)[insert_offset + 9u] = (uint8_t)(entry_size >> 8);
+    ((uint8_t *)root_data)[insert_offset + 10u] = (uint8_t)child_name_size;
+    ((uint8_t *)root_data)[insert_offset + 11u] =
         (uint8_t)(child_name_size >> 8);
-    ((uint8_t *)root_data)[terminal + 12u] = 0u;
+    ((uint8_t *)root_data)[insert_offset + 12u] = 0u;
     for (uint32_t i = 0u; i < child_name_size; ++i)
-        ((uint8_t *)root_data)[terminal + 16u + i] = key_copy[i];
+        ((uint8_t *)root_data)[insert_offset + 16u + i] = key_copy[i];
 
     new_entries_size = root.entries_size + entry_size;
     ((uint8_t *)root_data)[20u] = (uint8_t)new_entries_size;
