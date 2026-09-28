@@ -12,6 +12,8 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 5. **I/O foundation:** build the driver model and block-device/device broker around the completed PCI enumeration layer, then add keyboard/display/network device abstractions.
 6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
 7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone.
+8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
+9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -169,8 +171,10 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Graphics abstraction
 - [ ] Framebuffer
 - [ ] Input subsystem
-- [ ] Window manager/compositor
-- [ ] Desktop shell
+- [ ] Existing window-system integration (X11/Xorg and/or Wayland)
+- [ ] Existing desktop environment integration (initial target: XFCE)
+- [ ] ProsenjitOS-specific window manager/compositor (future, optional)
+- [ ] Desktop shell integration
 - [ ] File manager
 - [ ] Terminal emulator
 - [ ] Settings/security center
@@ -183,6 +187,9 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Linux application packaging/container integration
 - [ ] Windows API compatibility layer integration
 - [ ] Windows application installer
+- [ ] Microsoft Office compatibility validation (Word/Excel/PowerPoint/Outlook)
+- [ ] OneDrive-compatible authentication and background-sync validation
+- [ ] Office + cloud-sync file-locking/conflict/rename/move validation
 - [ ] Compatibility sandbox profiles
 - [ ] Application permissions UI
 
@@ -197,9 +204,16 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] AI data/privacy policy
 
 ## Phase 11 — Hardening
+- [ ] Production/release build separation from debug artifacts
+- [ ] Release symbol/debug-metadata minimization
+- [ ] Compiler/linker and memory-safety hardening
+- [ ] Kernel control-flow and integrity protections
 - [ ] Secure/verified boot
 - [ ] Kernel self-protection
 - [ ] Driver signing policy
+- [ ] Signed kernel/system-component update policy
+- [ ] Kernel tamper/integrity detection
+- [ ] Reproducible/independently verifiable release artifacts where practical
 - [ ] Update/rollback system
 - [ ] Recovery environment
 - [ ] Security auditing
@@ -210,6 +224,14 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Sandbox/behavior containment tests
   - [ ] Offline-safe security policy tests
   - [ ] External reputation-provider integration tests
+
+## Standing architectural decisions
+
+- **Security:** do not depend on source-code secrecy as the primary defense. Assume an attacker may reverse-engineer release binaries; security must remain based on isolation, least privilege, capabilities, integrity, authentication and layered hardening.
+- **Release hardening:** reduce unnecessary production information exposure (debug symbols, internal metadata and unnecessary exports) without sacrificing auditability or maintainability.
+- **Desktop:** use mature existing desktop/window-system technology first; a new ProsenjitOS windowing stack is not an immediate development target.
+- **Filesystem extensibility:** future filesystem providers should attach through the VFS/provider boundary without requiring kernel-core redesign; existing FAT32/exFAT/NTFS/ProsenjitFS implementations remain protected from unnecessary architectural churn.
+- **Compatibility:** Windows Office and OneDrive support are engineering targets to be validated incrementally, not current guarantees.
 
 ## Long-term
 - [ ] USB
