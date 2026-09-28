@@ -40,6 +40,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->priority = 0;
     thread->entry = entry;
     thread->interrupt_frame = 0;
+    thread->wait_channel = 0;
     thread->context.r15 = 0;
     thread->context.r14 = 0;
     thread->context.r13 = 0;
@@ -131,6 +132,22 @@ int thread_schedule(void) {
     if (current_thread->process)
         process_set_current(current_thread->process);
     return 0;
+}
+
+int thread_block(void *wait_channel) {
+    if (!current_thread || !wait_channel ||
+        current_thread->state != PROS_THREAD_RUNNING)
+        return -1;
+    current_thread->wait_channel = wait_channel;
+    current_thread->state = PROS_THREAD_BLOCKED;
+    return 0;
+}
+
+int thread_wake(struct pros_thread *thread) {
+    if (!thread || thread->state != PROS_THREAD_BLOCKED)
+        return -1;
+    thread->wait_channel = 0;
+    return thread_enqueue(thread);
 }
 
 int thread_schedule_preempt(void) {
