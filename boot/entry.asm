@@ -218,7 +218,7 @@ user_test_entry:
     ; Invalid/unknown capability rights must be rejected before authorization.
     mov rax, 4
     mov rdi, r12
-    mov rsi, 0x8000000000000000
+    mov rsi, 0x0000008000000000
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
