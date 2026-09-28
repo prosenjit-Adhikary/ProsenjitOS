@@ -238,7 +238,7 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
                                       struct pros_process *target,
                                       uint64_t source_handle,
                                       uint64_t requested_rights) {
-    if (!process_is_live(source) || !process_is_live(target) ||
+    if (!process_is_active(source) || !process_is_active(target) ||
         source == target || requested_rights == 0 ||
         (requested_rights & ~target->capability_policy) != 0)
         return PROSENJIT_HANDLE_INVALID;
