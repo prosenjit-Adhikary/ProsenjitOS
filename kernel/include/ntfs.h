@@ -11,6 +11,14 @@
 #define PROS_NTFS_ECORRUPT   -4
 #define PROS_NTFS_EOVERFLOW  -5
 #define PROS_NTFS_MFT_RUN_MAX 16u
+#define PROS_NTFS_VFS_NODE_MAX 32u
+
+struct pros_ntfs_vfs_node {
+    struct pros_vfs_vnode vnode;
+    uint64_t record_number;
+    uint64_t data_size;
+    uint8_t used;
+};
 
 struct pros_ntfs_run {
     uint64_t lcn;
@@ -29,6 +37,7 @@ struct pros_ntfs {
     uint32_t bytes_per_file_record;
     struct pros_ntfs_run mft_runs[PROS_NTFS_MFT_RUN_MAX];
     uint32_t mft_run_count;
+    struct pros_ntfs_vfs_node vfs_nodes[PROS_NTFS_VFS_NODE_MAX];
 };
 
 int ntfs_mount(struct pros_ntfs *, struct pros_block_device *);
