@@ -976,6 +976,82 @@ static int ntfs_extend_last_run(uint8_t *record, uint32_t record_size,
     last_run->clusters += added_clusters;
     return PROS_NTFS_OK;
 }
+static uint32_t ntfs_signed_width(int64_t value)
+{
+    for (uint32_t n = 1u; n < 8u; ++n) {
+        int64_t min = -(1ll << (n * 8u - 1u));
+        int64_t max = (1ll << (n * 8u - 1u)) - 1ll;
+        if (value >= min && value <= max)
+            return n;
+    }
+    return 8u;
+}
+
+static int ntfs_append_run(uint8_t *record, uint32_t record_size,
+                           uint32_t attr_offset, uint64_t vcn,
+                           uint64_t lcn, uint64_t clusters,
+                           const struct pros_ntfs_run *last_run)
+{
+    const uint8_t *runlist;
+    uint32_t runlist_size;
+    uint32_t pos = 0u;
+    uint32_t required;
+    int64_t lcn_delta;
+
+    if (!record || !last_run || clusters == 0u ||
+        vcn > 0x7FFFFFFFFFFFFFFFull ||
+        clusters > 0x7FFFFFFFFFFFFFFFull)
+        return PROS_NTFS_EINVAL;
+    if (ntfs_attribute_runlist(record, record_size, attr_offset,
+                               &runlist, &runlist_size) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    while (pos < runlist_size && runlist[pos] != 0u) {
+        uint8_t h = runlist[pos++];
+        uint32_t vbytes = h & 0x0Fu;
+        uint32_t lbytes = (h >> 4) & 0x0Fu;
+        if (vbytes == 0u || vbytes > 8u || lbytes > 8u ||
+            pos + vbytes + lbytes > runlist_size)
+            return PROS_NTFS_ECORRUPT;
+        pos += vbytes + lbytes;
+    }
+    if (pos >= runlist_size || runlist[pos] != 0u)
+        return PROS_NTFS_ECORRUPT;
+
+    if (lcn < last_run->lcn)
+        lcn_delta = -(int64_t)(last_run->lcn - lcn);
+    else if (lcn - last_run->lcn > 0x7FFFFFFFFFFFFFFFull)
+        return PROS_NTFS_EOVERFLOW;
+    else
+        lcn_delta = (int64_t)(lcn - last_run->lcn);
+
+    {
+        uint32_t vbytes = ntfs_signed_width((int64_t)clusters);
+        uint32_t lbytes = ntfs_signed_width(lcn_delta);
+        required = 1u + vbytes + lbytes + 1u;
+        if (attr_offset + le32(record + attr_offset + 4u) >
+                record_size ||
+            pos + required > le32(record + attr_offset + 4u) -
+                              le16(record + attr_offset + 32u))
+            return PROS_NTFS_ENOTSUP;
+
+        uint8_t *dst = record + attr_offset +
+                       le16(record + attr_offset + 32u) + pos;
+        dst[0] = (uint8_t)(vbytes | (lbytes << 4));
+        for (uint32_t i = 0u; i < vbytes; ++i)
+            dst[1u + i] = (uint8_t)(clusters >> (8u * i));
+        for (uint32_t i = 0u; i < lbytes; ++i)
+            dst[1u + vbytes + i] =
+                (uint8_t)(((uint64_t)lcn_delta) >> (8u * i));
+        dst[1u + vbytes + lbytes] = 0u;
+    }
+
+    for (uint32_t i = 0u; i < 8u; ++i)
+        record[attr_offset + 24u + i] =
+            (uint8_t)((vcn + clusters - 1u) >> (8u * i));
+    return PROS_NTFS_OK;
+}
+
 
 int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
                     uint64_t offset, const void *buffer, uint32_t size,
@@ -1100,28 +1176,40 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             runs[run_count - 1u].clusters >
                 0xFFFFFFFFFFFFFFFFull - runs[run_count - 1u].lcn)
             return PROS_NTFS_ENOTSUP;
-        if (runs[run_count - 1u].lcn +
-            runs[run_count - 1u].clusters != old_alloc_clusters)
-            return PROS_NTFS_ENOTSUP;
-
         growth_lcn = runs[run_count - 1u].lcn +
                      runs[run_count - 1u].clusters;
-        if (growth_lcn > 0xFFFFFFFFFFFFFFFFull - (required_clusters - 1u))
+        if (growth_lcn < runs[run_count - 1u].lcn)
             return PROS_NTFS_EOVERFLOW;
 
         if (ntfs_bitmap_allocate_clusters_exact(fs, growth_lcn,
-                                                         required_clusters) !=
-            PROS_NTFS_OK)
-            return PROS_NTFS_EIO;
+                                                 required_clusters) !=
+            PROS_NTFS_OK) {
+            if (ntfs_bitmap_allocate_clusters(fs, required_clusters,
+                                               &growth_lcn) != PROS_NTFS_OK)
+                return PROS_NTFS_EIO;
+        }
         growth_clusters = required_clusters;
 
-        if (ntfs_extend_last_run(record, fs->bytes_per_file_record,
-                                 attr_offset, required_clusters,
-                                 new_alloc_clusters,
-                                 &runs[run_count - 1u]) != PROS_NTFS_OK) {
-            (void)ntfs_bitmap_free_clusters(fs, growth_lcn,
-                                             growth_clusters);
-            return PROS_NTFS_ENOTSUP;
+        if (growth_lcn == runs[run_count - 1u].lcn +
+                         runs[run_count - 1u].clusters) {
+            if (ntfs_extend_last_run(record, fs->bytes_per_file_record,
+                                     attr_offset, required_clusters,
+                                     new_alloc_clusters,
+                                     &runs[run_count - 1u]) != PROS_NTFS_OK) {
+                (void)ntfs_bitmap_free_clusters(fs, growth_lcn,
+                                                 growth_clusters);
+                return PROS_NTFS_ENOTSUP;
+            }
+        } else {
+            uint64_t new_vcn = old_alloc_clusters;
+            if (ntfs_append_run(record, fs->bytes_per_file_record,
+                                attr_offset, new_vcn, growth_lcn,
+                                required_clusters,
+                                &runs[run_count - 1u]) != PROS_NTFS_OK) {
+                (void)ntfs_bitmap_free_clusters(fs, growth_lcn,
+                                                 growth_clusters);
+                return PROS_NTFS_ENOTSUP;
+            }
         }
         allocated_size = new_alloc_clusters * (uint64_t)cluster_bytes;
         for (uint32_t b = 0u; b < 8u; ++b)
