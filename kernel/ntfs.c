@@ -3007,10 +3007,16 @@ int ntfs_selftest(void)
         if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK)
             return -1223;
-        if (read_back != sizeof(replacement) ||
-            verify[0] != 'X' || verify[1] != 'Y' ||
-            verify[2] != 'Z' || verify[3] != '!')
-            return -1224;
+        if (read_back != sizeof(replacement))
+            return -1231;
+        if (verify[0] != 'X')
+            return -1232;
+        if (verify[1] != 'Y')
+            return -1233;
+        if (verify[2] != 'Z')
+            return -1234;
+        if (verify[3] != '!')
+            return -1235;
         if (disk.nonresident_data[509u] != 'p' ||
             disk.nonresident_data[514u] != 'u')
             return -1225;
