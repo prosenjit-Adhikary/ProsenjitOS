@@ -257,6 +257,66 @@ ProsenjitOS will have three application paths:
 
 Existing applications will not receive unrestricted access to the host OS simply because they are compatible applications. They will run through the same security and permission model.
 
+## Desktop, GUI and Windows-application compatibility tracking
+
+ProsenjitOS will **not develop a new X Window System, Wayland compositor, or desktop environment at the current stage**. The project will use mature, existing desktop and display technologies first so development effort stays focused on the kernel, storage, security, drivers, compatibility layers, and system services.
+
+### Current desktop strategy
+
+- **Desktop environment:** use an existing mature environment such as **XFCE** during the early desktop phase.
+- **Display/window stack:** use existing **X11/Xorg and/or Wayland** components where appropriate instead of creating a new windowing system.
+- **Application stack:** prefer existing applications and open-source components where their licenses permit.
+- **ProsenjitOS-specific work:** focus on integration, security policy, packaging, system services, and compatibility rather than replacing the entire desktop stack.
+- A future ProsenjitOS desktop shell or compositor may be considered only after the underlying OS and compatibility foundations are mature.
+
+### Windows application compatibility target
+
+The long-term compatibility target includes practical use of common Windows applications through an independent user-space compatibility layer. In particular, the project should track compatibility for:
+
+- Microsoft Office applications such as Word, Excel, PowerPoint and Outlook
+- Windows application installation, process execution, file dialogs and common Win32 APIs
+- Windows-style filesystem semantics required by applications
+- Unicode filenames, timestamps, attributes, locking/sharing and rename/move behavior
+- NTFS compatibility for Windows-originated data and removable storage
+
+### OneDrive compatibility target
+
+OneDrive synchronization is a **tracked compatibility requirement**, not a claim that it already works.
+
+The compatibility layer and filesystem/user-space services should eventually support the behaviors required for reliable OneDrive use, including:
+
+- Microsoft account authentication/sign-in flows where technically and legally feasible
+- background synchronization
+- file creation, modification, rename and move propagation
+- file locking/sharing behavior used by Office applications
+- timestamps, metadata and Unicode filenames
+- online/offline state handling
+- conflict detection and resolution
+- reliable synchronization of Office documents stored in a OneDrive-backed directory
+
+The combined target is:
+
+`Windows application -> compatibility layer -> VFS/filesystem -> storage`
+
+and, for cloud-backed files:
+
+`Office application -> Windows compatibility layer -> OneDrive-compatible sync service -> VFS/filesystem -> storage`
+
+**Compatibility status:** these are engineering targets and test requirements, not current guarantees. Compatibility will be validated incrementally with application-level tests as the relevant runtime, networking, authentication, filesystem semantics and background-service infrastructure are implemented.
+
+### Future filesystem extensibility
+
+Existing filesystem implementations should remain independent of this desktop strategy. FAT32, exFAT, NTFS and ProsenjitFS will continue through the existing VFS/storage architecture.
+
+Future filesystems should be addable through a filesystem-provider/registration boundary rather than requiring changes to the kernel's core file API. This reserved extension path is intended to make future support for filesystems such as APFS, Btrfs or other formats possible without redesigning the kernel core.
+
+The desired architecture is:
+
+`Applications -> File API -> VFS -> Filesystem Registry/Providers -> Block/Partition Layer -> Hardware`
+
+with existing providers kept intact and future providers added behind the same interface. Unsupported filesystems should fail cleanly rather than destabilizing the kernel.
+
+
 ## AI strategy
 
 AI is intended to be an **OS-level control and assistance layer**, not merely a chatbot application.
