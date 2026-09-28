@@ -173,13 +173,15 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             next->state = PROS_THREAD_DEAD;
     } while (next->state == PROS_THREAD_DEAD);
 
-    prev->state = PROS_THREAD_READY;
-    if (!thread_process_runnable(prev)) {
-        prev->state = PROS_THREAD_DEAD;
-    } else if (thread_enqueue(prev) != 0) {
-        prev->state = PROS_THREAD_RUNNING;
-        thread_enqueue(next);
-        return current_frame;
+    if (prev->state != PROS_THREAD_BLOCKED) {
+        prev->state = PROS_THREAD_READY;
+        if (!thread_process_runnable(prev)) {
+            prev->state = PROS_THREAD_DEAD;
+        } else if (thread_enqueue(prev) != 0) {
+            prev->state = PROS_THREAD_RUNNING;
+            thread_enqueue(next);
+            return current_frame;
+        }
     }
 
     current_thread = next;
