@@ -58,7 +58,7 @@ int security_manager_init(void) {
     if (fat32_selftest() != 0) return -5;
     if (exfat_selftest() != 0) return -6;
     { int ntfs_status = ntfs_selftest(); if (ntfs_status != 0) return -700 + ntfs_status; }
-    if (partition_selftest() != 0) return -8;
+    { int partition_status = partition_selftest(); if (partition_status != 0) return -800 + partition_status; }
     if (pros_security_quarantine_selftest() != 0) return -9;
     if (pros_security_exec_selftest() != 0) return -10;
     next_intent_id = 1;
