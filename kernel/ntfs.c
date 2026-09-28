@@ -1,6 +1,10 @@
 #include "ntfs.h"
 
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
+static uint8_t ntfs_name_key_matches(const uint8_t *key,
+                                      uint16_t key_size,
+                                      const uint8_t *name_utf16le,
+                                      uint8_t name_length);
 
 static int ntfs_vfs_mount(struct pros_ntfs *fs);
 static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops;
