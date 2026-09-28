@@ -2924,6 +2924,21 @@ int ntfs_selftest(void)
             return -127;
     }
 
+    /*
+     * Write-boundary regression: an overflowing offset+size must be rejected
+     * before any allocation or metadata commit, and the byte count must stay
+     * zero.
+     */
+    {
+        static const uint8_t one[] = { 'X' };
+        uint32_t written = 99u;
+        if (ntfs_file_write(&fs, 12u, 0xFFFFFFFFFFFFFFFFull, one,
+                            sizeof(one), &written) !=
+                PROS_NTFS_EOVERFLOW ||
+            written != 0u)
+            return -128;
+    }
+
 
     for (uint32_t i=0u; i<sizeof(record); ++i) record[i]=0u;
     record[0]='F'; record[1]='I'; record[2]='L'; record[3]='E';
