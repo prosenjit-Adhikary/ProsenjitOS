@@ -745,6 +745,50 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: inactive capability move regression passed\n");
 
+    /* Syscall-level cross-process transfer regression. */
+    {
+        struct pros_process syscall_transfer_target;
+        struct pros_object syscall_transfer_object;
+        uint64_t syscall_source;
+        uint64_t regs[16] = {0};
+        uint64_t cpu_frame[7] = {0};
+
+        object_init(&syscall_transfer_object, PROS_OBJECT_FILE);
+        if (process_create(&init_process, &syscall_transfer_target, 8,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_grant_handle(&init_process, &syscall_transfer_object,
+                                 PROSENJIT_CAP_READ | PROSENJIT_CAP_TRANSFER,
+                                 &syscall_source) != 0) {
+            serial_write("ProsenjitOS: ERROR transfer syscall setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        process_set_current(&init_process);
+        regs[0] = PROSENJIT_SYS_HANDLE_TRANSFER;
+        regs[5] = syscall_source;
+        regs[4] = syscall_transfer_target.pid;
+        regs[3] = PROSENJIT_CAP_READ;
+        regs[2] = 1;
+        syscall_dispatch(regs, cpu_frame);
+        if (regs[0] == PROSENJIT_SYSCALL_EPERM ||
+            regs[0] == PROSENJIT_SYSCALL_EBADF ||
+            process_check_handle(&syscall_transfer_target, regs[0],
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            process_check_handle(&init_process, syscall_source,
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0) {
+            serial_write("ProsenjitOS: ERROR cross-process transfer syscall regression failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (process_close_handle(&syscall_transfer_target, regs[0]) != 0 ||
+            process_exit(&syscall_transfer_target, 88) != 0 ||
+            process_wait(&init_process, syscall_transfer_target.pid, &waited_exit) != 0 ||
+            waited_exit != 88 ||
+            process_close_handle(&init_process, syscall_source) == 0) {
+            serial_write("ProsenjitOS: ERROR transfer syscall cleanup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: cross-process transfer syscall test passed\n");
+    }
+
 
     /*
      * IPC foundation regression:

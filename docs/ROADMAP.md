@@ -52,8 +52,8 @@
   - [x] IPC object represented by capability handles
   - [x] Capability-mediated send/receive syscalls
   - [x] CPL3 user-buffer validation for IPC I/O
-  - [ ] Capability-mediated endpoint transfer
-  - [ ] Kernel-mediated cross-process transfer syscall
+  - [x] Capability-mediated endpoint transfer
+  - [x] Kernel-mediated cross-process transfer syscall
   - [x] Kernel receiver wait queue and scheduler wakeup primitive
   - [x] Blocking receive syscall scheduler handoff
   - [x] IPC channel queue/waiter concurrency lock

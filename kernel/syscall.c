@@ -126,6 +126,38 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             return;
         }
 
+        case PROSENJIT_SYS_HANDLE_TRANSFER: {
+            struct pros_process *source = process_current();
+            uint64_t source_handle = registers[5];
+            uint64_t target_pid = registers[4];
+            uint64_t requested_rights = registers[3];
+            uint64_t mode = registers[2];
+            struct pros_process *target = process_lookup(target_pid);
+            struct pros_thread *current = thread_current();
+            uint64_t tid = current ? current->tid : 0;
+            uint16_t object_type = PROS_OBJECT_NONE;
+            struct pros_intent intent;
+            uint64_t reason = PROS_REASON_NONE;
+
+            if (!source || !target || source == target ||
+                mode > 1 || !syscall_rights_valid(requested_rights) ||
+                process_handle_type(source, source_handle, &object_type) != 0 ||
+                security_make_intent(&intent, PROS_INTENT_TRANSFER,
+                                     object_type, source_handle,
+                                     requested_rights) != 0 ||
+                security_authorize(source, &intent, tid, &reason) != PROS_DECISION_ALLOW) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
+            uint64_t new_handle = mode == 0
+                ? process_transfer_handle_copy(source, target, source_handle, requested_rights)
+                : process_transfer_handle_move(source, target, source_handle, requested_rights);
+            registers[0] = (new_handle == PROSENJIT_HANDLE_INVALID)
+                ? PROSENJIT_SYSCALL_EPERM : new_handle;
+            return;
+        }
+
         case PROSENJIT_SYS_HANDLE_CLOSE: {
             struct pros_process *process = process_current();
             uint64_t handle = registers[5];
