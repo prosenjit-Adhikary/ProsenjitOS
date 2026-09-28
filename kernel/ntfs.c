@@ -2457,6 +2457,7 @@ int ntfs_selftest(void)
             disk.file_record[fn + 16u] = 74u;
             disk.file_record[fn + 20u] = 24u;
             disk.file_record[value + 0u] = 5u;
+            disk.file_record[value + 48u] = 5u;
             disk.file_record[value + 56u] = 0u;
             disk.file_record[value + 64u] = 4u;
             disk.file_record[value + 65u] = 1u;
