@@ -3721,11 +3721,17 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EIO;
     {
         uint32_t attr_offset = 0u;
-        if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x30u,
-                                &attr_offset) != PROS_NTFS_OK ||
-            ntfs_file_name_attribute(record, fs->bytes_per_file_record,
-                                     attr_offset, &info) != PROS_NTFS_OK)
-            return PROS_VFS_EIO;
+        status = ntfs_find_attribute(record, fs->bytes_per_file_record,
+                                     0x30u, &attr_offset);
+        if (status != PROS_NTFS_OK)
+            return status == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOENT :
+                   (status == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
+                    PROS_VFS_EIO);
+        status = ntfs_file_name_attribute(record, fs->bytes_per_file_record,
+                                           attr_offset, &info);
+        if (status != PROS_NTFS_OK)
+            return status == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
+                   PROS_VFS_EIO;
     }
 
     for (uint32_t i = 1u; i < PROS_NTFS_VFS_NODE_MAX; ++i) {
