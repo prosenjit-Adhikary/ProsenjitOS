@@ -222,6 +222,10 @@ int ntfs_cluster_lba(const struct pros_ntfs *fs, uint64_t lcn,
     uint64_t offset;
     if (!fs || !lba || !fs->mount.active || lcn > 0x0000FFFFFFFFFFFFull)
         return PROS_NTFS_EINVAL;
+    if (fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
+    if (lcn > 0xFFFFFFFFFFFFFFFFull / fs->sectors_per_cluster)
+        return PROS_NTFS_EOVERFLOW;
     offset = lcn * fs->sectors_per_cluster;
     if (offset > fs->total_sectors ||
         fs->sectors_per_cluster > fs->total_sectors - offset ||
@@ -563,7 +567,8 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                 PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
     }
-    if (bitmap_size < (total_clusters + 7u) / 8u)
+    if (bitmap_size < total_clusters / 8u +
+                      ((total_clusters % 8u) != 0u ? 1u : 0u))
         return PROS_NTFS_ECORRUPT;
 
     start_byte = first_lcn / 8u;
@@ -665,7 +670,8 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
     }
-    if (bitmap_size < (total_clusters + 7u) / 8u)
+    if (bitmap_size < total_clusters / 8u +
+                      ((total_clusters % 8u) != 0u ? 1u : 0u))
         return PROS_NTFS_ECORRUPT;
 
     scan_lcn = start_lcn;
@@ -770,7 +776,8 @@ static int ntfs_bitmap_allocate_clusters_exact(struct pros_ntfs *fs,
                 PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
     }
-    if (bitmap_size < (total_clusters + 7u) / 8u)
+    if (bitmap_size < total_clusters / 8u +
+                      ((total_clusters % 8u) != 0u ? 1u : 0u))
         return PROS_NTFS_ECORRUPT;
 
     start_byte = first_lcn / 8u;
@@ -852,10 +859,10 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
         record[end + 1u] = (uint8_t)(sequence >> 8);
     }
 
-    byte_offset = record_number * (uint64_t)fs->bytes_per_file_record;
     if (record_number > 0xFFFFFFFFFFFFFFFFull /
                         fs->bytes_per_file_record)
         return PROS_NTFS_EOVERFLOW;
+    byte_offset = record_number * (uint64_t)fs->bytes_per_file_record;
 
     cluster_bytes = (uint64_t)fs->bytes_per_sector *
                     fs->sectors_per_cluster;
