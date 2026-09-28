@@ -1,5 +1,9 @@
 #include "ntfs.h"
 
+/* Shared NTFS UpCase table state used by index name comparison/insertion. */
+static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
+static const uint8_t *ntfs_active_upcase = 0;
+
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
 static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
@@ -568,7 +572,6 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
     uint64_t bitmap_size, total_clusters;
     uint64_t start_byte, end_byte;
-    uint32_t got;
 
     if (!fs || cluster_count == 0u ||
         first_lcn > 0xFFFFFFFFFFFFFFFFull - (cluster_count - 1u) ||
@@ -626,7 +629,6 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
         if (byte_count > sizeof(bitmap_chunk))
             return PROS_NTFS_EOVERFLOW;
 
-        got = 0u;
         if (ntfs_file_read(fs, 6u, start_byte, bitmap_chunk,
                            byte_count, &got) != PROS_NTFS_OK ||
             got != byte_count)
@@ -1246,7 +1248,7 @@ int ntfs_mft_add_file_name(struct pros_ntfs *fs,
     uint16_t attr_id;
     uint32_t flags;
 
-    if (!fs || !name_utf16le || name_length == 0u || name_length > 255u ||
+    if (!fs || !name_utf16le || name_length == 0u ||
         namespace_id > 3u ||
         fs->bytes_per_file_record > sizeof(record))
         return PROS_NTFS_EINVAL;
@@ -1437,7 +1439,6 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
                 return PROS_NTFS_ECORRUPT;
             for (uint32_t i = 0u; i < want; ++i)
                 bitmap[i] = bitmap_data[byte_offset + i];
-            got = want;
         }
 
         for (uint32_t byte = 0u; byte < want; ++byte) {
@@ -2471,8 +2472,6 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
 #define PROS_NTFS_UPCASE_RECORD 10u
 #define PROS_NTFS_UPCASE_BYTES 131072u
 
-static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
-static const uint8_t *ntfs_active_upcase = 0;
 
 static int ntfs_upcase_load(const struct pros_ntfs *fs)
 {
