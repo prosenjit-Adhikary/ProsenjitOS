@@ -1183,7 +1183,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
 
         old_alloc_clusters = allocated_size / cluster_bytes;
         new_alloc_clusters =
-            (new_real_size + cluster_bytes - 1u) / cluster_bytes;
+            new_real_size / cluster_bytes +
+            ((new_real_size % cluster_bytes) != 0u ? 1u : 0u);
         if (new_alloc_clusters < old_alloc_clusters)
             return PROS_NTFS_ECORRUPT;
         required_clusters = new_alloc_clusters - old_alloc_clusters;
