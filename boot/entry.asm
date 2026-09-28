@@ -238,8 +238,11 @@ user_test_entry:
     jne .user_halt
 
     ; Capability duplication must attenuate authority:
-    ; READ succeeds, while ADMIN must be rejected because the source handle
-    ; does not carry ADMIN.
+    ; READ succeeds, while EXECUTE must be rejected because the source
+    ; handle does not carry EXECUTE. Do not request ADMIN here: a denied
+    ; ADMIN authorization is intentionally a quarantine decision, which
+    ; would terminate the limited test process before the remaining IPC
+    ; ABI checks can run.
     mov rax, 4
     mov rdi, r12
     mov rsi, 1                  ; PROSENJIT_CAP_READ
@@ -254,7 +257,7 @@ user_test_entry:
     mov r13, rax
     mov rax, 4
     mov rdi, r12
-    mov rsi, 32                 ; PROSENJIT_CAP_ADMIN
+    mov rsi, 8                  ; PROSENJIT_CAP_EXECUTE
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
