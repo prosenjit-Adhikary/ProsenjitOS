@@ -627,5 +627,125 @@ int ntfs_selftest(void)
         data_size != 3u || data[0] != 'a' || data[1] != 'b' || data[2] != 'c')
         return -106;
 
+
+    /*
+     * Directory metadata regression:
+     * $FILE_NAME is resident and carries the Unicode name used by the
+     * directory index. $INDEX_ROOT is resident and contains aligned index
+     * entries whose keys are $FILE_NAME bodies.
+     */
+    {
+        uint8_t directory_record[256] = {0};
+        uint32_t file_name_offset = 24u;
+        uint32_t index_root_offset = 128u;
+        uint32_t file_name_value_size = 74u; /* 66-byte header + "test" */
+        uint32_t index_value_size = 144u;
+        struct pros_ntfs_file_name name_info;
+        struct pros_ntfs_index_root index_info;
+        uint64_t reference;
+        const uint8_t *key;
+        uint16_t key_size;
+        uint8_t entry_flags;
+        uint32_t next_entry;
+        uint32_t i;
+
+        directory_record[0] = 'F'; directory_record[1] = 'I';
+        directory_record[2] = 'L'; directory_record[3] = 'E';
+        directory_record[20] = 24u;
+
+        /* Resident $FILE_NAME attribute. */
+        directory_record[file_name_offset + 0u] = 0x30u;
+        directory_record[file_name_offset + 4u] = 98u;
+        directory_record[file_name_offset + 16u] = (uint8_t)file_name_value_size;
+        directory_record[file_name_offset + 17u] = 0u;
+        directory_record[file_name_offset + 20u] = 24u;
+        directory_record[file_name_offset + 24u + 0u] = 5u;
+        directory_record[file_name_offset + 24u + 1u] = 0u;
+        directory_record[file_name_offset + 24u + 40u] = 0x00u;
+        directory_record[file_name_offset + 24u + 41u] = 0x10u;
+        directory_record[file_name_offset + 24u + 48u] = 0x20u;
+        directory_record[file_name_offset + 24u + 49u] = 0x00u;
+        directory_record[file_name_offset + 24u + 56u] = 0x00u;
+        directory_record[file_name_offset + 24u + 57u] = 0x10u;
+        directory_record[file_name_offset + 24u + 64u] = 4u;
+        directory_record[file_name_offset + 24u + 65u] = 1u;
+        directory_record[file_name_offset + 24u + 66u] = 't';
+        directory_record[file_name_offset + 24u + 67u] = 0u;
+        directory_record[file_name_offset + 24u + 68u] = 'e';
+        directory_record[file_name_offset + 24u + 69u] = 0u;
+        directory_record[file_name_offset + 24u + 70u] = 's';
+        directory_record[file_name_offset + 24u + 71u] = 0u;
+        directory_record[file_name_offset + 24u + 72u] = 't';
+        directory_record[file_name_offset + 24u + 73u] = 0u;
+
+        if (ntfs_file_name_attribute(directory_record, sizeof(directory_record),
+                                     file_name_offset, &name_info) !=
+                PROS_NTFS_OK ||
+            name_info.parent_reference != 5u ||
+            name_info.allocated_size != 0x1000u ||
+            name_info.data_size != 0x1000u ||
+            name_info.name_length != 4u ||
+            name_info.namespace_id != 1u ||
+            le16(name_info.name_utf16le) != 't' ||
+            le16(name_info.name_utf16le + 2u) != 'e' ||
+            le16(name_info.name_utf16le + 6u) != 't')
+            return -107;
+
+        /* Resident $INDEX_ROOT with one filename entry and a terminator. */
+        directory_record[index_root_offset + 0u] = 0x90u;
+        directory_record[index_root_offset + 4u] = 168u;
+        directory_record[index_root_offset + 16u] = (uint8_t)index_value_size;
+        directory_record[index_root_offset + 17u] = 0u;
+        directory_record[index_root_offset + 20u] = 24u;
+
+        {
+            uint8_t *v = directory_record + index_root_offset + 24u;
+            v[0] = 0x01u; v[8] = 0x00u; v[9] = 0x10u;
+            v[12] = 1u; /* filename collation */
+            v[16] = 32u; v[20] = 144u; v[24] = 144u;
+            v[28] = 0u;
+            for (i = 0u; i < 74u; ++i)
+                v[32u + 16u + i] =
+                    directory_record[file_name_offset + 24u + i];
+            v[32u + 8u] = 96u;
+            v[32u + 10u] = 74u;
+            v[32u + 12u] = 0u;
+            v[128u + 8u] = 16u;
+            v[128u + 10u] = 0u;
+            v[128u + 12u] = 2u;
+        }
+
+        if (ntfs_index_root_header(directory_record, sizeof(directory_record),
+                                   index_root_offset, &index_info) !=
+                PROS_NTFS_OK ||
+            index_info.first_entry_offset != 32u ||
+            index_info.entries_size != 144u ||
+            index_info.allocated_size != 144u ||
+            index_info.flags != 0u)
+            return -108;
+
+        if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
+                                  index_root_offset, 32u, &reference, &key,
+                                  &key_size, &entry_flags, &next_entry) !=
+                PROS_NTFS_OK ||
+            reference != 0x1000u || key_size != 74u || entry_flags != 0u ||
+            next_entry != 128u ||
+            le16(key + 66u) != 't' || le16(key + 72u) != 't')
+            return -109;
+
+        if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
+                                  index_root_offset, 128u, &reference, &key,
+                                  &key_size, &entry_flags, &next_entry) !=
+                PROS_NTFS_OK ||
+            entry_flags != 2u || key_size != 0u || next_entry != 0u)
+            return -110;
+
+        if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
+                                  index_root_offset, 129u, &reference, &key,
+                                  &key_size, &entry_flags, &next_entry) !=
+                PROS_NTFS_EINVAL)
+            return -111;
+    }
+
     return 0;
 }
