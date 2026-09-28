@@ -81,9 +81,12 @@
 - [x] Security event log (Reason Ledger foundation)
 - [ ] Signed package verification
 - [ ] Controlled driver loading
-- [ ] File admission/security broker
-- [ ] Local file verification and SHA-256 reputation interface
-- [ ] Security trust-state model (Trusted/Verified/Unknown/Suspicious/Malicious)
+- [x] File-security policy contract and admission decision engine
+- [x] Freestanding SHA-256 implementation with known-answer self-test
+- [x] Security trust-state model (Trusted/Verified/Unknown/Suspicious/Malicious)
+- [x] Local file verification contract and SHA-256 reputation interface
+- [ ] Filesystem-backed file admission/security broker
+- [ ] External reputation provider adapters
 
 ## Phase 5 — I/O and drivers
 - [ ] Driver model

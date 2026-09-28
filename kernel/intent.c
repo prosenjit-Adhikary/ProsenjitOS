@@ -1,6 +1,7 @@
 #include "intent.h"
 #include "process.h"
 #include "timer.h"
+#include "security_file.h"
 
 static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
@@ -41,6 +42,8 @@ static void ledger_record(const struct pros_process *process,
 }
 
 int security_manager_init(void) {
+    if (pros_file_security_selftest() != 0)
+        return -1;
     next_intent_id = 1;
     ledger_sequence = 0;
     ledger_count_value = 0;
