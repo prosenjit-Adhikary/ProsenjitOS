@@ -289,7 +289,7 @@ int ntfs_selftest(void)
 {
     struct ntfs_test_disk disk = {{0}};
     struct pros_block_device device;
-    struct pros_ntfs fs;
+    struct pros_ntfs fs = {0};
     uint64_t lba = 0;
 
     disk.boot[3]='N'; disk.boot[4]='T'; disk.boot[5]='F'; disk.boot[6]='S';
