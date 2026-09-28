@@ -1,1 +1,77 @@
-# NTFS Write Implementation Status\n\n## Current supported write path\n\nProsenjitOS now has a real NTFS file-data write path for validated, unnamed `$DATA` streams.\n\nSupported cases:\n- resident unnamed `$DATA` overwrite\n- nonresident unnamed `$DATA` overwrite\n- partial-sector read-modify-write\n- full-sector writes\n- growth inside an already allocated non-sparse extent\n- zero-filling the gap between the old EOF and a forward write\n- updating nonresident `$DATA` real/initialized sizes\n- updating resident `$FILE_NAME` data-size copies when applicable\n- `$Bitmap` free-cluster scanning and allocation\n- exact allocation immediately after the final extent when available\n- non-contiguous extent allocation when contiguous growth is unavailable\n- mapping-pairs append for a newly allocated extent\n- bitmap rollback when runlist metadata expansion cannot be committed\n- VFS write integration and vnode-size synchronization\n\nThe implementation deliberately rejects unsupported metadata-changing cases instead of silently producing incomplete NTFS metadata.\n\n## Current regression coverage\n\nThe synthetic NTFS disk exercises:\n1. resident write and USA re-sealing\n2. nonresident overwrite across a sector boundary\n3. preallocated EOF growth with gap zero-fill\n4. contiguous cluster allocation\n5. fragmented cluster allocation\n6. mapping-pairs encoding for an appended extent\n7. `$Bitmap` state after allocation\n8. VFS open/read/write/reopen verification\n\nThe build workflow requires the NTFS file-data write marker during the QEMU regression boot.\n\n## Important transaction boundary\n\nThe current metadata/data write path is **not journaled**. Allocation is rolled back when a pre-commit metadata operation fails, but a failure after physical data sectors have already been written can leave stale data in clusters that are subsequently returned to the free bitmap.\n\nThat is acceptable for the current controlled milestone only because the driver does not claim crash-safe filesystem transactions.\n\nFull crash-safe write support requires `$LogFile` transaction handling and a recovery model.\n\n## Next implementation milestones\n\nThe next NTFS write stages are:\n1. allocate and initialize a free MFT record\n2. create a resident `$FILE_NAME`\n3. create an initial unnamed `$DATA` attribute\n4. insert the new `$FILE_NAME` key into the parent directory index\n5. update directory index allocation when `$INDEX_ROOT` has no space\n6. synchronize `$MFTMirr` where required\n7. add deletion and reclamation\n8. add journal-aware commit/recovery\n\nA future implementation must also handle MFT record growth through additional records/attribute lists rather than assuming every attribute fits in one 1 KiB record.\n\n## Deliberate exclusions\n\nThe current path does not yet write:\n- named data streams\n- sparse mappings\n- compressed data\n- encrypted data\n- arbitrary attribute-list expansion\n- directory index growth/splitting\n- security descriptors\n- `$LogFile` journal transactions\n\nThese should be added only with corresponding metadata validation and regression tests.\n
+# NTFS Write Implementation Status
+
+## Current supported write path
+
+ProsenjitOS now has a real NTFS file-data write path for validated, unnamed `$DATA` streams.
+
+Supported cases:
+- resident unnamed `$DATA` overwrite
+- nonresident unnamed `$DATA` overwrite
+- partial-sector read-modify-write
+- full-sector writes
+- growth inside an already allocated non-sparse extent
+- zero-filling the gap between the old EOF and a forward write
+- updating nonresident `$DATA` real/initialized sizes
+- updating resident `$FILE_NAME` data-size copies when applicable
+- `$Bitmap` free-cluster scanning and allocation
+- exact allocation immediately after the final extent when available
+- non-contiguous extent allocation when contiguous growth is unavailable
+- mapping-pairs append for a newly allocated extent
+- bitmap rollback when runlist metadata expansion cannot be committed
+- VFS write integration and vnode-size synchronization
+
+The implementation deliberately rejects unsupported metadata-changing cases instead of silently producing incomplete NTFS metadata.
+
+## Current regression coverage
+
+The synthetic NTFS disk exercises:
+1. resident write and USA re-sealing
+2. nonresident overwrite across a sector boundary
+3. preallocated EOF growth with gap zero-fill
+4. contiguous cluster allocation
+5. fragmented cluster allocation
+6. mapping-pairs encoding for an appended extent
+7. `$Bitmap` state after allocation
+8. VFS open/read/write/reopen verification
+
+The build workflow requires the NTFS file-data write marker during the QEMU regression boot.
+
+## Important transaction boundary
+
+The current metadata/data write path is **not journaled**. Allocation is rolled back when a pre-commit metadata operation fails, but a failure after physical data sectors have already been written can leave stale data in clusters that are subsequently returned to the free bitmap.
+
+That is acceptable for the current controlled milestone only because the driver does not claim crash-safe filesystem transactions.
+
+Full crash-safe write support requires `$LogFile` transaction handling and a recovery model.
+
+## Next implementation milestones
+
+The current creation path covers:
+1. allocate and initialize a free MFT record
+2. create a resident `$FILE_NAME`
+3. create an initial unnamed `$DATA` attribute
+4. insert the new `$FILE_NAME` key into the parent directory index
+5. expose the new file through VFS `O_CREATE`
+
+The next NTFS write stages are:
+1. update directory index allocation when `$INDEX_ROOT` has no space
+2. implement generic nonresident MFT `$BITMAP` stream updates
+3. synchronize `$MFTMirr` where required
+4. add deletion and reclamation
+5. add journal-aware commit/recovery
+
+A future implementation must also handle MFT record growth through additional records/attribute lists rather than assuming every attribute fits in one 1 KiB record.
+
+## Deliberate exclusions
+
+The current path does not yet write:
+- named data streams
+- sparse mappings
+- compressed data
+- encrypted data
+- arbitrary attribute-list expansion
+- directory index growth/splitting
+- security descriptors
+- `$LogFile` journal transactions
+
+These should be added only with corresponding metadata validation and regression tests.
