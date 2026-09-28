@@ -1,4 +1,5 @@
 #include "vfs.h"
+#include "partition.h"
 
 static int vfs_selftest_read(struct pros_block_device *device,
                              uint64_t lba, uint32_t count, void *buffer)
@@ -25,6 +26,52 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
     mount->read_only = read_only ? 1u : 0u;
     mount->active = 0;
     return PROS_VFS_OK;
+}
+
+int vfs_mount_partition(struct pros_vfs_mount *mount,
+                        enum pros_filesystem_type type,
+                        struct pros_partition_device *view,
+                        struct pros_block_device *parent,
+                        const struct pros_partition *partition,
+                        void *private_data, uint8_t read_only)
+{
+    if (!mount || !view || !parent || !partition)
+        return PROS_VFS_EINVAL;
+    if (partition_device_init(view, parent, partition) != PROS_PARTITION_OK)
+        return PROS_VFS_EINVAL;
+    return vfs_mount_init(mount, type, &view->device, private_data, read_only);
+}
+
+int vfs_probe_filesystem(struct pros_block_device *device,
+                         enum pros_filesystem_type *type)
+{
+    uint8_t sector[512];
+    if (!device || !type || device->sector_size < 512u)
+        return PROS_VFS_EINVAL;
+    if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
+        return PROS_VFS_EIO;
+
+    /* FAT32: filesystem signature plus the FAT32 extended BPB fields. */
+    if (sector[510] == 0x55 && sector[511] == 0xAA &&
+        sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' &&
+        sector[85] == '3' && sector[86] == '2') {
+        *type = PROS_FS_FAT32;
+        return PROS_VFS_OK;
+    }
+    /* NTFS: OEM ID at BPB offset 3. */
+    if (sector[3] == 'N' && sector[4] == 'T' && sector[5] == 'F' &&
+        sector[6] == 'S' && sector[7] == ' ') {
+        *type = PROS_FS_NTFS;
+        return PROS_VFS_OK;
+    }
+    /* exFAT: OEM ID at BPB offset 3. */
+    if (sector[3] == 'E' && sector[4] == 'X' && sector[5] == 'F' &&
+        sector[6] == 'A' && sector[7] == 'T') {
+        *type = PROS_FS_EXFAT;
+        return PROS_VFS_OK;
+    }
+    *type = PROS_FS_UNKNOWN;
+    return PROS_VFS_ENOSYS;
 }
 
 int vfs_mount_set_root(struct pros_vfs_mount *mount,
