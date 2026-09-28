@@ -80,6 +80,132 @@ See [docs/SECURITY-MALWARE.md](docs/SECURITY-MALWARE.md) for the detailed design
 
 No operating system can honestly promise perfect protection against every future attack. The engineering goal is to make compromise harder, limit blast radius, detect abuse, and provide reliable recovery.
 
+## Unknown-threat handling and firewall-inspired security model
+
+ProsenjitOS will treat **unknown activity as a security state**, not as an automatic malware verdict.
+
+The design is intentionally informed by publicly documented techniques used by major security platforms such as Microsoft Defender, Palo Alto Networks WildFire, and Fortinet FortiSandbox. These platforms combine reputation/signatures with static analysis, machine learning, sandbox/dynamic behavior analysis, network indicators, quarantine/blocking, and feedback from centralized threat intelligence rather than relying on one signal alone. Microsoft documents local behavioral analysis plus cloud protection for cases where the endpoint cannot make a clear determination; WildFire forwards unknown samples for static/ML and dynamic analysis; FortiSandbox combines static scanning, cloud intelligence, and contained VM execution with behavior and network inspection. citeturn0search1turn0search6turn1search9
+
+### ProsenjitOS target decision pipeline
+
+```text
+Process / file / script / network activity
+                 |
+                 v
+        Kernel Security Monitor
+                 |
+        +--------+---------+
+        |                  |
+   Known/trusted       Unknown
+        |                  |
+      Policy             Freeze /
+      checks            Restricted
+        |                  |
+        v                  v
+      Allow       +--------+---------+
+                  | Local analysis  |
+                  | reputation      |
+                  | static checks   |
+                  | behavior        |
+                  | network         |
+                  | sandbox         |
+                  +--------+---------+
+                           |
+                    Security Manager
+                           |
+                  +--------+---------+
+                  |                  |
+             AI assessment      No AI / timeout
+                  |                  |
+                  +--------+---------+
+                           |
+                    Kernel Policy
+                      is final
+                           |
+          +----------------+----------------+
+          |                |                |
+        Allow          Quarantine        Terminate
+      (scoped)         + isolate       + revoke
+```
+
+### Unknown-process policy
+
+When a process is not known to ProsenjitOS:
+
+1. **Do not immediately trust it.**
+2. Start it with the minimum possible capabilities, or keep it suspended while a decision is pending.
+3. Collect a structured security context: executable hash, signature/publisher, parent process, launch source, requested capabilities, file operations, process creation, IPC, device access, persistence attempts, DNS/network destinations, and other relevant behavior.
+4. Check local reputation, allow/deny policy, package/signature state, and known indicators first.
+5. If still unresolved, perform controlled behavior analysis in a sandbox/restricted execution environment.
+6. Ask the ProsenjitOS Security Manager/AI analysis layer for an **advisory assessment** when available.
+7. The AI response must never directly grant kernel privileges. The kernel policy engine remains authoritative.
+8. If the analysis is inconclusive, the safe default is **restricted execution, quarantine, or deny**, depending on the requested capability and risk.
+9. If malicious behavior or a hard policy violation is confirmed, immediately suspend/terminate the process, revoke its capabilities, isolate/quarantine affected objects, and record the reason.
+10. Every decision and important evidence must be written to the Security Event/Reason Ledger.
+
+### Multi-signal analysis
+
+No single signal should decide trust in isolation. ProsenjitOS should correlate:
+
+- cryptographic hash and local reputation
+- code signature and trusted publisher
+- package provenance and integrity
+- executable format validation
+- parent/child process relationships
+- privilege and capability requests
+- filesystem behavior
+- process injection or cross-process manipulation attempts
+- persistence/autostart changes
+- device access
+- IPC behavior
+- DNS and network destinations
+- connection timing and unusual traffic patterns
+- sandbox behavior
+- memory/runtime indicators where available
+- historical reputation and previous local observations
+- AI/security-service assessment
+
+This follows the general defense-in-depth pattern documented by commercial security platforms: unknown samples are subjected to additional analysis rather than being treated as either automatically safe or automatically malicious. citeturn0search0turn0search4turn1search0
+
+### AI safety boundary
+
+The AI/security-analysis layer is an **advisor, not the final authority**.
+
+It may return:
+
+- `ALLOW_RESTRICTED`
+- `ALLOW`
+- `SUSPEND_FOR_ANALYSIS`
+- `QUARANTINE`
+- `TERMINATE`
+- `INCONCLUSIVE`
+
+The kernel/policy engine may reject an AI recommendation whenever a hard security rule is violated. AI failure, timeout, unavailable network service, malformed responses, or suspected AI compromise must never silently become an `ALLOW` decision.
+
+### Firewall-inspired improvements planned for ProsenjitOS
+
+The security roadmap will progressively add:
+
+- local reputation cache
+- threat-intelligence/query interface
+- static inspection
+- lightweight machine-learning classification hooks
+- restricted dynamic execution/sandboxing
+- behavior tree/event correlation
+- network-aware threat scoring
+- quarantine and recovery
+- capability revocation on containment
+- tamper-resistant Reason Ledger entries
+- reusable indicators of compromise
+- verdict caching with expiration
+- offline-first protection when external services are unavailable
+- safe sample/report submission with privacy controls
+- protection against analysis abuse, request flooding, and security-service denial of service
+
+**Important:** ProsenjitOS will not copy proprietary implementation or source code from these vendors. The goal is to adopt the documented **security principles and layered decision flow** and implement an original architecture appropriate for this OS.
+
+This model extends the existing kernel-enforced security + user-space PSS architecture and is now a standing security requirement for future implementation work.
+
 ## Storage and filesystem strategy
 
 ProsenjitOS is being designed to access common removable and internal storage without depending on a single filesystem. The storage stack separates hardware, block I/O, partitions, VFS, and filesystem drivers.
