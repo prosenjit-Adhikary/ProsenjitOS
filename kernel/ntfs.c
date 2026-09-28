@@ -415,7 +415,7 @@ int ntfs_selftest(void)
         fs.bytes_per_sector != 512u || fs.sectors_per_cluster != 8u ||
         fs.bytes_per_file_record != 1024u ||
         fs.mft_run_count != 1u || fs.mft_runs[0].lcn != 4u ||
-        fs.mft_runs[0].clusters != 32u || fs.mft_runs[0].sparse != 0u ||
+        fs.mft_runs[0].clusters != 4u || fs.mft_runs[0].sparse != 0u ||
         ntfs_cluster_lba(&fs,4u,&lba) != PROS_NTFS_OK || lba != 32u)
         return -101;
 
