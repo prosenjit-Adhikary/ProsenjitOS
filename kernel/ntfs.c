@@ -4620,9 +4620,10 @@ int ntfs_selftest(void)
         disk.root_record[92u] = 0u;
         for (uint32_t i = 0u; i < 74u; ++i)
             disk.root_record[96u + i] = path_key[i];
-        disk.root_record[192u] = 16u;
-        disk.root_record[194u] = 0u;
-        disk.root_record[196u] = 2u;
+        disk.root_record[192u] = 0xFFu;
+        disk.root_record[193u] = 0xFFu;
+        disk.root_record[194u] = 0xFFu;
+        disk.root_record[195u] = 0xFFu;
         disk.root_record[510u] = 0x34u; disk.root_record[511u] = 0x12u;
         disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
 
