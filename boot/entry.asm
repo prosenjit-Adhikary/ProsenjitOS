@@ -257,7 +257,7 @@ user_test_entry:
     mov r13, rax
     mov rax, 4
     mov rdi, r12
-    mov rsi, 8                  ; PROSENJIT_CAP_EXECUTE
+    mov rsi, 4                  ; PROSENJIT_CAP_EXECUTE
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
