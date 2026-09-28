@@ -128,6 +128,8 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - process-level handle validation/close interfaces
 - per-process Limited/Super capability policy enforcement
 - capability duplication restricted to existing rights and process policy
+- kernel-mediated cross-process capability copy/move transfer with authority attenuation
+- per-process syscall sandbox allowlist enforced at the syscall boundary
 
 ### In progress / next engineering milestones
 
