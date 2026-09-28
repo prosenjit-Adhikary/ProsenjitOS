@@ -340,6 +340,152 @@ int ntfs_attribute_runlist(const void *record, uint32_t record_size,
     return PROS_NTFS_OK;
 }
 
+int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
+                   uint64_t offset, void *buffer, uint32_t size,
+                   uint32_t *bytes_read)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+    const uint8_t *data;
+    const uint8_t *runlist;
+    uint32_t data_size, attr_offset, attr_length, runlist_size, run_count;
+    uint64_t real_size;
+    uint32_t wanted;
+    uint32_t copied = 0u;
+
+    if (!fs || !buffer || !bytes_read || size == 0u ||
+        fs->bytes_per_file_record > sizeof(record))
+        return PROS_NTFS_EINVAL;
+    *bytes_read = 0u;
+
+    if (ntfs_read_file_record(fs, record_number, record, sizeof(record)) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
+                            &attr_offset) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    attr_length = le32(record + attr_offset + 4u);
+    if (attr_length < 24u ||
+        attr_offset + attr_length > fs->bytes_per_file_record)
+        return PROS_NTFS_ECORRUPT;
+
+    /* The first DATA attribute is the unnamed/default data stream. */
+    if (record[attr_offset + 9u] != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    if (record[attr_offset + 8u] == 0u) {
+        if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                attr_offset, &data, &data_size) !=
+            PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        if (offset > data_size)
+            return PROS_NTFS_EINVAL;
+        wanted = data_size - (uint32_t)offset;
+        if (wanted > size)
+            wanted = size;
+        for (uint32_t i = 0u; i < wanted; ++i)
+            ((uint8_t *)buffer)[i] = data[(uint32_t)offset + i];
+        *bytes_read = wanted;
+        return PROS_NTFS_OK;
+    }
+
+    if (record[attr_offset + 8u] != 1u || attr_length < 64u)
+        return PROS_NTFS_ECORRUPT;
+    if (le64(record + attr_offset + 16u) != 0u)
+        return PROS_NTFS_ENOTSUP;
+    if (le16(record + attr_offset + 12u) != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    real_size = le64(record + attr_offset + 48u);
+    if (offset > real_size)
+        return PROS_NTFS_EINVAL;
+    wanted = size;
+    if ((uint64_t)wanted > real_size - offset)
+        wanted = (uint32_t)(real_size - offset);
+    if (wanted == 0u)
+        return PROS_NTFS_OK;
+
+    if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
+                               attr_offset, &runlist, &runlist_size) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_decode_runlist(runlist, runlist_size, runs,
+                            PROS_NTFS_MFT_RUN_MAX, &run_count) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    {
+        uint32_t cluster_bytes = fs->bytes_per_sector *
+                                 fs->sectors_per_cluster;
+        uint64_t file_offset = offset;
+
+        if (cluster_bytes == 0u || fs->bytes_per_sector > 4096u)
+            return PROS_NTFS_EINVAL;
+
+        while (copied < wanted) {
+            uint64_t logical_cluster = file_offset / cluster_bytes;
+            uint64_t cluster_offset = file_offset % cluster_bytes;
+            uint64_t cumulative = 0u;
+            uint64_t physical_lcn = 0u;
+            uint8_t sparse = 0u;
+            uint8_t found = 0u;
+            uint32_t sector_index;
+            uint32_t in_sector;
+            uint32_t take;
+            uint64_t lba;
+            uint8_t sector[4096];
+
+            for (uint32_t r = 0u; r < run_count; ++r) {
+                if (logical_cluster < cumulative + runs[r].clusters) {
+                    physical_lcn = runs[r].lcn +
+                                   (logical_cluster - cumulative);
+                    if (physical_lcn < runs[r].lcn)
+                        return PROS_NTFS_EOVERFLOW;
+                    sparse = runs[r].sparse;
+                    found = 1u;
+                    break;
+                }
+                if (runs[r].clusters >
+                    0xFFFFFFFFFFFFFFFFull - cumulative)
+                    return PROS_NTFS_EOVERFLOW;
+                cumulative += runs[r].clusters;
+            }
+            if (!found)
+                return PROS_NTFS_EIO;
+
+            sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+            in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+            take = fs->bytes_per_sector - in_sector;
+            if (take > wanted - copied)
+                take = wanted - copied;
+            if (sector_index >= fs->sectors_per_cluster)
+                return PROS_NTFS_EIO;
+
+            if (sparse) {
+                for (uint32_t i = 0u; i < take; ++i)
+                    ((uint8_t *)buffer)[copied + i] = 0u;
+            } else {
+                if (ntfs_cluster_lba(fs, physical_lcn, &lba) !=
+                    PROS_NTFS_OK)
+                    return PROS_NTFS_EIO;
+                lba += sector_index;
+                if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                    PROS_BLOCK_OK)
+                    return PROS_NTFS_EIO;
+                for (uint32_t i = 0u; i < take; ++i)
+                    ((uint8_t *)buffer)[copied + i] =
+                        sector[in_sector + i];
+            }
+            copied += take;
+            file_offset += take;
+        }
+    }
+
+    *bytes_read = copied;
+    return PROS_NTFS_OK;
+}
+
 
 int ntfs_file_name_attribute(const void *record, uint32_t record_size,
                              uint32_t attr_offset,
