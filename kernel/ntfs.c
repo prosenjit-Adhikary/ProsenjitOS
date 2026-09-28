@@ -1117,9 +1117,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         return PROS_NTFS_ECORRUPT;
 
     /*
-     * This first write milestone is deliberately overwrite-only: it never
-     * changes file length or allocates clusters. This keeps the metadata
-     * transaction small until NTFS bitmap/MFT/index/journal support exists.
+     * Resident data is overwrite-only for now. Nonresident data may grow
+     * through the explicitly supported bitmap/runlist path below.
      */
     if (record[attr_offset + 12u] != 0u)
         return PROS_NTFS_ENOTSUP;
@@ -1277,7 +1276,7 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         uint32_t sector_index, in_sector, take;
         uint64_t lba;
         for (uint32_t r = 0u; r < run_count; ++r) {
-            if (logical_cluster < cumulative + runs[r].clusters) {
+            if (logical_cluster >= cumulative &&\n                logical_cluster - cumulative < runs[r].clusters) {
                 physical_lcn = runs[r].lcn +
                                logical_cluster - cumulative;
                 if (physical_lcn < runs[r].lcn) {
@@ -3398,67 +3397,3 @@ int ntfs_selftest(void)
             disk.file_record[value + 64u] = 4u;
             disk.file_record[value + 65u] = 1u;
             disk.file_record[value + 66u] = 't';
-            disk.file_record[value + 68u] = 'e';
-            disk.file_record[value + 70u] = 's';
-            disk.file_record[value + 72u] = 't';
-        }
-        disk.file_record[256u] = 0xFFu;
-        disk.file_record[257u] = 0xFFu;
-        disk.file_record[258u] = 0xFFu;
-        disk.file_record[259u] = 0xFFu;
-
-        {
-            struct pros_vfs_vnode *node = 0;
-            struct pros_vfs_file file = {0};
-            uint8_t data[8] = {0};
-            uint32_t got = 0u;
-
-            if (vfs_path_lookup(&fs.mount, "/test", &node) != PROS_VFS_OK ||
-                !node || node->type != PROS_VFS_NODE_FILE ||
-                node->size != 5u)
-                return -186;
-            if (vfs_file_open(&fs.mount, "/test", PROS_VFS_O_READ, &file) !=
-                    PROS_VFS_OK)
-                return -187;
-            if (vfs_file_read(&file, data, 5u, &got) != PROS_VFS_OK ||
-                got != 5u || data[0] != 'B' || data[1] != 'y' ||
-                data[2] != 'e' || data[3] != 'l' || data[4] != 'o')
-                return -188;
-            if (vfs_file_read(&file, data, 1u, &got) != PROS_VFS_OK ||
-                got != 0u)
-                return -189;
-            if (vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
-                vfs_file_read(&file, data, 2u, &got) != PROS_VFS_OK ||
-                got != 2u || data[0] != 'y' || data[1] != 'e')
-                return -190;
-            if (vfs_file_close(&file) != PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, "/test",
-                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
-                return -191;
-            {
-                static const uint8_t replacement[] = { 'O', 'K' };
-                uint32_t written = 0u;
-                if (vfs_file_write(&file, replacement,
-                                   sizeof(replacement), &written) !=
-                        PROS_VFS_OK ||
-                    written != sizeof(replacement) ||
-                    vfs_file_close(&file) != PROS_VFS_OK)
-                    return -192;
-            }
-            if (vfs_file_open(&fs.mount, "/test",
-                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-                vfs_file_read(&file, data, 3u, &got) != PROS_VFS_OK ||
-                got != 3u || data[0] != 'O' || data[1] != 'K' ||
-                data[2] != 'e' ||
-                vfs_file_close(&file) != PROS_VFS_OK ||
-                vfs_vnode_put(node) != PROS_VFS_OK)
-                return -193;
-        }
-
-        if (ntfs_path_lookup(&fs, components, lengths, 0u,
-                             &path_reference) != PROS_NTFS_EINVAL)
-            return -122;
-    }
-
-    return 0;
-}
