@@ -878,6 +878,9 @@ int ntfs_create_file(struct pros_ntfs *fs,
     if (!fs || !record_number || !name_utf16le || name_length == 0u ||
         fs->bytes_per_file_record > sizeof(parent_record))
         return PROS_NTFS_EINVAL;
+    if (!fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_ENOTSUP;
     *record_number = 0u;
 
     if (ntfs_read_file_record(fs, parent_record_number, parent_record,
