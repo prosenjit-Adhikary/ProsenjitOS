@@ -1365,12 +1365,15 @@ int ntfs_selftest(void)
             index_info.entries_size != 176u)
             return -113;
 
-        if (ntfs_index_allocation_lookup(&fs, lookup_record,
-                                         sizeof(lookup_record), 24u, 200u,
-                                         lookup_name, 4u,
-                                         &child_reference) != PROS_NTFS_OK ||
-            child_reference != 0x3000u)
-            return -114;
+        {
+            int index_status = ntfs_index_allocation_lookup(
+                &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
+                lookup_name, 4u, &child_reference);
+            if (index_status != PROS_NTFS_OK)
+                return -120 + index_status;
+            if (child_reference != 0x3000u)
+                return -130;
+        }
 
         /* USA corruption must reject the child node rather than guess. */
         disk.index_record[510u] = 0xFFu;
