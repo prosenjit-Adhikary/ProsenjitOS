@@ -2055,7 +2055,7 @@ struct ntfs_test_disk {
     uint8_t mft_record[1024];
     uint8_t file_record[1024];
     uint8_t nonresident_record[1024];
-    uint8_t nonresident_data[4096];
+    uint8_t nonresident_data[8192];
     uint8_t upcase_record[1024];
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
     uint8_t index_record[4096];
@@ -2088,9 +2088,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s == 44u || lba + s == 45u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->bitmap_record[(lba + s - 44u) * 512u + i];
-        else if (lba + s >= 344u && lba + s < 345u)
+        else if (lba + s >= 368u && lba + s < 369u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->bitmap_data[(lba + s - 344u) * 512u + i];
+                dst[i] = disk->bitmap_data[(lba + s - 368u) * 512u + i];
         else if (lba + s == 52u || lba + s == 53u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->upcase_record[(lba + s - 52u) * 512u + i];
@@ -2129,13 +2129,13 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 56u || sector == 57u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_record[(sector - 56u) * 512u + i] = src[i];
-        } else if (sector >= 336u && sector < 344u) {
+        } else if (sector >= 336u && sector < 352u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_data[(sector - 336u) * 512u + i] = src[i];
         } else if (sector == 44u || sector == 45u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->bitmap_record[(sector - 44u) * 512u + i] = src[i];
-        } else if (sector == 344u) {
+        } else if (sector == 368u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->bitmap_data[i] = src[i];
         } else {
@@ -2527,11 +2527,11 @@ int ntfs_selftest(void)
     disk.nonresident_record[64]=0u;
     disk.nonresident_record[65]=0u;
     disk.nonresident_record[80]=0x40u;
-    disk.nonresident_record[88]=0x00u; disk.nonresident_record[89]=0x10u;
+    disk.nonresident_record[88]=0x00u; disk.nonresident_record[89]=0x04u;
     disk.nonresident_record[96]=0x00u; disk.nonresident_record[97]=0x04u;
     disk.nonresident_record[104]=0x00u; disk.nonresident_record[105]=0x04u;
     disk.nonresident_record[112]=0x11u;
-    disk.nonresident_record[113]=1u;
+    disk.nonresident_record[113]=2u;
     disk.nonresident_record[114]=42u;
     disk.nonresident_record[115]=0u;
     disk.nonresident_record[120]=0xFFu; disk.nonresident_record[121]=0xFFu;
@@ -2543,7 +2543,7 @@ int ntfs_selftest(void)
 
     /*
      * Synthetic $Bitmap (MFT record 6): 64-byte allocation bitmap covering
-     * the 512 test clusters. Its data is stored at LCN 43 (LBA 344).
+     * the 512 test clusters. Its data is stored at LCN 46 (LBA 368).
      */
     for (uint32_t i = 0u; i < sizeof(disk.bitmap_record); ++i)
         disk.bitmap_record[i] = 0u;
@@ -2564,7 +2564,7 @@ int ntfs_selftest(void)
     disk.bitmap_record[104]=64u;
     disk.bitmap_record[112]=0x11u;
     disk.bitmap_record[113]=1u;
-    disk.bitmap_record[114]=43u;
+    disk.bitmap_record[114]=46u;
     disk.bitmap_record[115]=0u;
     disk.bitmap_record[120]=0xFFu; disk.bitmap_record[121]=0xFFu;
     disk.bitmap_record[122]=0xFFu; disk.bitmap_record[123]=0xFFu;
@@ -2574,7 +2574,7 @@ int ntfs_selftest(void)
     /* Mark clusters used by the synthetic metadata/data mappings. */
     for (uint32_t lcn = 0u; lcn <= 7u; ++lcn)
         disk.bitmap_data[lcn / 8u] |= (uint8_t)(1u << (lcn % 8u));
-    for (uint32_t lcn = 10u; lcn <= 43u; ++lcn)
+    for (uint32_t lcn = 10u; lcn <= 46u; ++lcn)
         disk.bitmap_data[lcn / 8u] |= (uint8_t)(1u << (lcn % 8u));
 
     for (uint32_t i = 0u; i < sizeof(disk.upcase_record); ++i)
@@ -2703,8 +2703,11 @@ int ntfs_selftest(void)
         if (ntfs_file_write(&fs, 12u, 1024u, growth,
                             sizeof(growth), &written) != PROS_NTFS_OK ||
             written != sizeof(growth) ||
+            le64(disk.nonresident_record + 88u) != 4096u ||
             le64(disk.nonresident_record + 96u) != 1028u ||
-            le64(disk.nonresident_record + 104u) != 1028u)
+            le64(disk.nonresident_record + 104u) != 1028u ||
+            disk.nonresident_record[113u] != 8u ||
+            (disk.bitmap_data[5u] & 0x03u) != 0x03u)
             return -123;
         if (ntfs_file_read(&fs, 12u, 1024u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK ||
