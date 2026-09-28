@@ -31,6 +31,7 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/timer.c" -o "$BUILD/obj/timer.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/intent.c" -o "$BUILD/obj/intent.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/security_file.c" -o "$BUILD/obj/security_file.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/security_provider.c" -o "$BUILD/obj/security_provider.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/security_admission.c" -o "$BUILD/obj/security_admission.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pic.c" -o "$BUILD/obj/pic.o"
 
 ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf" \
@@ -40,7 +41,7 @@ ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"
   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o" \
   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" \
   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o" \
-  "$BUILD/obj/security_file.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/pic.o"
+  "$BUILD/obj/security_file.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_admission.o" "$BUILD/obj/pic.o"
 
 grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
