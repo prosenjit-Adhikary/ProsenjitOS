@@ -55,7 +55,7 @@
   - [ ] Capability-mediated endpoint transfer
   - [ ] Kernel-mediated cross-process transfer syscall
   - [x] Kernel receiver wait queue and scheduler wakeup primitive
-  - [ ] Blocking receive syscall scheduler handoff
+  - [x] Blocking receive syscall scheduler handoff
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
