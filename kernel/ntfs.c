@@ -2189,7 +2189,7 @@ int ntfs_bootstrap_mft(struct pros_ntfs *fs)
     uint32_t count;
     int rc;
 
-    if (!fs || fs->bytes_per_file_record == 0u ||
+    if (!vnode->mount || !fs || fs->bytes_per_file_record == 0u ||
         fs->bytes_per_file_record > PROS_NTFS_RECORD_WORK_MAX)
         return PROS_NTFS_EINVAL;
     rc = ntfs_read_file_record(fs, 0u, record, sizeof(record));
@@ -2561,7 +2561,6 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                             if ((candidate_namespace == 1u ||
                                  candidate_namespace == 3u) &&
                                 candidate_length != 0u &&
-                                candidate_length <= 255u &&
                                 66u + (uint32_t)candidate_length * 2u <=
                                     value_length) {
                                 parent_reference = le64(data);
