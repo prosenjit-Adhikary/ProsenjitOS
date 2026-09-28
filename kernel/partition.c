@@ -49,7 +49,7 @@ int partition_read_mbr(struct pros_block_device *device,
 {
     uint8_t sector[512];
     uint32_t found = 0;
-    if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u
+    if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
