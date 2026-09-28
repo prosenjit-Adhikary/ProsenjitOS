@@ -2180,16 +2180,20 @@ int ntfs_selftest(void)
         uint32_t read_back = 0u;
 
         if (ntfs_file_write(&fs, 12u, 510u, replacement,
-                            sizeof(replacement), &written) != PROS_NTFS_OK ||
-            written != sizeof(replacement) ||
-            ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
-                           &read_back) != PROS_NTFS_OK ||
-            read_back != sizeof(replacement) ||
+                            sizeof(replacement), &written) != PROS_NTFS_OK)
+            return -1221;
+        if (written != sizeof(replacement))
+            return -1222;
+        if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
+                           &read_back) != PROS_NTFS_OK)
+            return -1223;
+        if (read_back != sizeof(replacement) ||
             verify[0] != 'X' || verify[1] != 'Y' ||
-            verify[2] != 'Z' || verify[3] != '!' ||
-            disk.nonresident_data[509u] != 'p' ||
+            verify[2] != 'Z' || verify[3] != '!')
+            return -1224;
+        if (disk.nonresident_data[509u] != 'p' ||
             disk.nonresident_data[514u] != 'u')
-            return -122;
+            return -1225;
     }
 
 
