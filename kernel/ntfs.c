@@ -905,6 +905,133 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
     return ntfs_write_file_record(fs, record_number, record);
 }
 
+int ntfs_mft_add_file_name(struct pros_ntfs *fs,
+                           uint64_t record_number,
+                           uint64_t parent_reference,
+                           const uint16_t *name_utf16le,
+                           uint8_t name_length,
+                           uint8_t namespace_id)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t first;
+    uint32_t pos;
+    uint32_t old_len;
+    uint32_t attr_len;
+    uint32_t value_len;
+    uint32_t new_used;
+    uint16_t attr_id;
+    uint8_t flags;
+
+    if (!fs || !name_utf16le || name_length == 0u || name_length > 255u ||
+        namespace_id > 3u ||
+        fs->bytes_per_file_record > sizeof(record))
+        return PROS_NTFS_EINVAL;
+
+    if (ntfs_read_file_record(fs, record_number, record, sizeof(record)) !=
+            PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x30u,
+                            &pos) == PROS_NTFS_OK)
+        return PROS_NTFS_EINVAL;
+
+    first = le16(record + 20u);
+    if (first < 24u || first + 8u > fs->bytes_per_file_record)
+        return PROS_NTFS_ECORRUPT;
+
+    pos = first;
+    while (pos + 8u <= fs->bytes_per_file_record) {
+        uint32_t type = le32(record + pos);
+        old_len = le32(record + pos + 4u);
+        if (type == 0xFFFFFFFFu)
+            break;
+        if (old_len < 16u || pos + old_len > fs->bytes_per_file_record)
+            return PROS_NTFS_ECORRUPT;
+        pos += old_len;
+    }
+
+    if (pos + 8u > fs->bytes_per_file_record)
+        return PROS_NTFS_EOVERFLOW;
+
+    value_len = 66u + (uint32_t)name_length * 2u;
+    attr_len = (value_len + 24u + 7u) & ~7u;
+    new_used = pos + attr_len + 8u;
+    if (attr_len < 32u || new_used > fs->bytes_per_file_record)
+        return PROS_NTFS_EOVERFLOW;
+
+    for (uint32_t i = 0u; i < attr_len + 8u; ++i)
+        record[pos + i] = 0u;
+
+    record[pos + 0u] = 0x30u;
+    record[pos + 4u] = (uint8_t)attr_len;
+    record[pos + 5u] = (uint8_t)(attr_len >> 8);
+    record[pos + 6u] = (uint8_t)(attr_len >> 16);
+    record[pos + 7u] = (uint8_t)(attr_len >> 24);
+    record[pos + 8u] = 0u;
+
+    /* $FILE_NAME is resident, unnamed, and has no attribute flags. */
+    record[pos + 9u] = 0u;
+    record[pos + 10u] = 0u;
+    record[pos + 11u] = 0u;
+    record[pos + 12u] = (uint8_t)value_len;
+    record[pos + 16u] = (uint8_t)value_len;
+    record[pos + 17u] = (uint8_t)(value_len >> 8);
+    record[pos + 18u] = (uint8_t)(value_len >> 16);
+    record[pos + 19u] = (uint8_t)(value_len >> 24);
+    record[pos + 20u] = 24u;
+
+    /* Attribute identifier follows the highest existing identifier. */
+    attr_id = 0u;
+    {
+        uint32_t scan = first;
+        while (scan + 8u <= fs->bytes_per_file_record) {
+            uint32_t type = le32(record + scan);
+            uint32_t len = le32(record + scan + 4u);
+            if (type == 0xFFFFFFFFu)
+                break;
+            if (len < 16u || scan + len > fs->bytes_per_file_record)
+                return PROS_NTFS_ECORRUPT;
+            {
+                uint16_t id = le16(record + scan + 14u);
+                if (id >= attr_id)
+                    attr_id = (uint16_t)(id + 1u);
+            }
+            scan += len;
+        }
+    }
+    record[pos + 14u] = (uint8_t)attr_id;
+    record[pos + 15u] = (uint8_t)(attr_id >> 8);
+
+    for (uint32_t i = 0u; i < 8u; ++i)
+        record[pos + 24u + i] = (uint8_t)(parent_reference >> (8u * i));
+
+    /* Timestamps are intentionally zero until the standard-information builder. */
+    flags = (record[22u] & 0x03u) == 0x03u ? 0x10u : 0u;
+    record[pos + 24u + 56u] = 0u;
+    record[pos + 24u + 56u] = flags;
+    record[pos + 24u + 64u] = name_length;
+    record[pos + 24u + 65u] = namespace_id;
+
+    for (uint32_t i = 0u; i < (uint32_t)name_length * 2u; ++i) {
+        const uint8_t *src = (const uint8_t *)name_utf16le;
+        record[pos + 24u + 66u + i] = src[i];
+    }
+
+    record[pos + attr_len + 0u] = 0xFFu;
+    record[pos + attr_len + 1u] = 0xFFu;
+    record[pos + attr_len + 2u] = 0xFFu;
+    record[pos + attr_len + 3u] = 0xFFu;
+
+    record[24] = (uint8_t)new_used;
+    record[25] = (uint8_t)(new_used >> 8);
+    record[26] = (uint8_t)(new_used >> 16);
+    record[27] = (uint8_t)(new_used >> 24);
+
+    if (ntfs_write_file_record(fs, record_number, record) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    return PROS_NTFS_OK;
+}
+
 int ntfs_mft_allocate_record(struct pros_ntfs *fs,
                                  uint64_t *record_number)
 {
