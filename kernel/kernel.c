@@ -429,6 +429,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
 
+    /* IPC wait-queue regression: block a receiver, schedule another thread,
+     * then wake the receiver when a message arrives. */
+    struct pros_ipc_channel ipc_wait_test;
+    if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
+        thread_current() != &init_thread ||
+        ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        init_thread.wait_channel != &ipc_wait_test ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    const uint8_t wait_message[] = { 'W', 'A', 'K', 'E' };
+    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) != PROSENJIT_IPC_OK ||
+        thread_state(&init_thread) != PROS_THREAD_READY ||
+        init_thread.wait_channel != 0 ||
+        ipc_wait_test.waiter_count != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR IPC wakeup regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
