@@ -68,12 +68,12 @@
   - [x] Kernel capability-handle foundation
   - [x] Per-process capability policy
   - [x] Capability transfer rules
-  - [ ] Kernel-mediated cross-process transfer syscall
+  - [x] Kernel-mediated cross-process transfer syscall
   - [x] Intent-aware authorization pipeline
   - [x] Policy decision and bounded Reason Ledger
   - [x] Process quarantine containment state
-- [ ] Protected object manager
-- [ ] Application sandbox
+- [x] Protected object manager (capability-backed kernel object/handle lifecycle)
+- [x] Application sandbox foundation (per-process syscall allowlist enforced at syscall boundary)
 - [ ] Filesystem access control
 - [ ] Process isolation
 - [ ] Device permission broker
