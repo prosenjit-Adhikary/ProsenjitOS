@@ -288,8 +288,9 @@ int partition_selftest(void)
     gpt_media[512u + 84u] = 44u;
     gpt_media[512u + 85u] = 1u;
     gpt_media[2u * 512u + 300u] = 0x11u;
-    gpt_media[2u * 512u + 332u] = 3u;
-    gpt_media[2u * 512u + 340u] = 4u;
+    /* With a 4-sector device, usable LBAs 2..3 form the valid span. */
+    gpt_media[2u * 512u + 332u] = 2u;
+    gpt_media[2u * 512u + 340u] = 3u;
     gpt_media[2u * 512u + 341u] = 0u;
     gpt_media[2u * 512u + 342u] = 0u;
     gpt_media[2u * 512u + 343u] = 0u;
@@ -316,7 +317,7 @@ int partition_selftest(void)
         return -3;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
-        count != 1u || partitions[0].first_lba != 3u ||
+        count != 1u || partitions[0].first_lba != 2u ||
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
