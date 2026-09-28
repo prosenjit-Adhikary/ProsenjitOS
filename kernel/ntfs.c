@@ -179,16 +179,18 @@ int ntfs_cluster_lba(const struct pros_ntfs *fs, uint64_t lcn,
 }
 
 int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
-                           uint64_t *lcn, uint64_t *clusters)
+                           struct pros_ntfs_run *runs, uint32_t capacity,
+                           uint32_t *run_count)
 {
-    uint32_t pos = 0u;
+    uint32_t pos = 0u, count = 0u;
     int64_t current_lcn = 0;
-    if (!runlist || !lcn || !clusters || length == 0u) return PROS_NTFS_EINVAL;
+    if (!runlist || !runs || !run_count || length == 0u || capacity == 0u)
+        return PROS_NTFS_EINVAL;
     while (pos < length) {
         uint8_t header = runlist[pos++];
         uint32_t len_bytes = header & 0x0Fu;
         uint32_t off_bytes = (header >> 4) & 0x0Fu;
-        uint64_t run_len = 0u;
+        uint64_t run_len = 0u, raw = 0u;
         int64_t delta = 0;
         if (header == 0u) break;
         if (len_bytes == 0u || len_bytes > 8u || off_bytes > 8u ||
@@ -198,26 +200,24 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
             run_len |= (uint64_t)runlist[pos+i] << (8u*i);
         pos += len_bytes;
         if (off_bytes) {
-            uint64_t raw = 0u;
             for (uint32_t i=0u;i<off_bytes;++i)
                 raw |= (uint64_t)runlist[pos+i] << (8u*i);
             if (raw & (1ull << (off_bytes*8u-1u)))
                 raw |= ~0ull << (off_bytes*8u);
             delta = (int64_t)raw;
-        }
-        pos += off_bytes;
-        if (run_len == 0u) return PROS_NTFS_ECORRUPT;
-        if (off_bytes == 0u) {
-            *lcn = 0u;
-        } else {
             current_lcn += delta;
             if (current_lcn < 0) return PROS_NTFS_ECORRUPT;
-            *lcn = (uint64_t)current_lcn;
         }
-        *clusters = run_len;
-        return PROS_NTFS_OK;
+        pos += off_bytes;
+        if (run_len == 0u || count >= capacity) return PROS_NTFS_EOVERFLOW;
+        runs[count].lcn = off_bytes ? (uint64_t)current_lcn : 0u;
+        runs[count].clusters = run_len;
+        runs[count].sparse = off_bytes == 0u ? 1u : 0u;
+        ++count;
     }
-    return PROS_NTFS_ENOTSUP;
+    if (count == 0u) return PROS_NTFS_ENOTSUP;
+    *run_count = count;
+    return PROS_NTFS_OK;
 }
 
 static uint16_t ntfs_attr_type(const uint8_t *a) { return le16(a); }
