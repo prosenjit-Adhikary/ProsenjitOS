@@ -58,6 +58,13 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
                                    uint64_t *first_lcn);
 int ntfs_mft_allocate_record(struct pros_ntfs *fs,
                               uint64_t *record_number);
+int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number);
+int ntfs_create_file(struct pros_ntfs *fs,
+                     uint64_t parent_record_number,
+                     uint64_t *record_number,
+                     const uint16_t *name_utf16le,
+                     uint8_t name_length);
+
 int ntfs_mft_initialize_record(struct pros_ntfs *fs,
                                 uint64_t record_number,
                                 uint8_t directory);
