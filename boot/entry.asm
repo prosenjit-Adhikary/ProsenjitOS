@@ -249,7 +249,10 @@ user_test_entry:
     int 0x80
     ; Handles are bounded generation/slot values. Any non-zero upper
     ; 32 bits means the syscall returned an ABI error, not a handle.
-    test rax, 0xFFFFFFFF00000000
+    ; TEST r64, imm64 is not encodable; inspect the upper half explicitly.
+    mov rcx, rax
+    shr rcx, 32
+    test ecx, ecx
     jnz .user_halt
     test rax, rax
     jz .user_halt
