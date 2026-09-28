@@ -999,9 +999,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s == 42u || lba + s == 43u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->root_record[(lba + s - 42u) * 512u + i];
-        else if (lba + s >= 40u && lba + s < 48u)
+        else if (lba + s >= 64u && lba + s < 72u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->index_record[(lba + s - 40u) * 512u + i];
+                dst[i] = disk->index_record[(lba + s - 64u) * 512u + i];
     }
     return PROS_BLOCK_OK;
 }
@@ -1396,7 +1396,7 @@ int ntfs_selftest(void)
             root_attr[terminal + 12u] = 2u;
         }
 
-        /* Nonresident $INDEX_ALLOCATION: one cluster at LCN 5 (LBA 40). */
+        /* Nonresident $INDEX_ALLOCATION: one cluster at LCN 8 (LBA 64). */
         alloc_attr[0] = 0xA0u;
         alloc_attr[4] = 68u;
         alloc_attr[8] = 1u;
@@ -1409,7 +1409,7 @@ int ntfs_selftest(void)
         alloc_attr[57u] = 0x10u;
         alloc_attr[64u] = 0x11u;
         alloc_attr[65u] = 1u;
-        alloc_attr[66u] = 5u;
+        alloc_attr[66u] = 8u;
         alloc_attr[67u] = 0u;
 
         /* 4096-byte INDX page at VCN 0. */
@@ -1463,7 +1463,7 @@ int ntfs_selftest(void)
                 return -116;
             if (ntfs_decode_runlist(index_runlist_data, index_runlist_size, index_runs, 2u,
                                     &index_run_count) != PROS_NTFS_OK ||
-                index_run_count != 1u || index_runs[0].lcn != 5u ||
+                index_run_count != 1u || index_runs[0].lcn != 8u ||
                 index_runs[0].clusters != 1u)
                 return -117;
             if (ntfs_index_allocation_read(&fs, index_runs, index_run_count,
