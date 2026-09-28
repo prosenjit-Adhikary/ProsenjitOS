@@ -38,6 +38,9 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length, struct pros_ntf
 int ntfs_find_attribute(const void *record, uint32_t record_size, uint32_t type, uint32_t *offset);
 int ntfs_attribute_data(const void *record, uint32_t record_size, uint32_t attr_offset, const uint8_t **data, uint32_t *data_size);
 int ntfs_attribute_runlist(const void *record, uint32_t record_size, uint32_t attr_offset, const uint8_t **runlist, uint32_t *runlist_size);
+int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
+                   uint64_t offset, void *buffer, uint32_t size,
+                   uint32_t *bytes_read);
 int ntfs_bootstrap_mft(struct pros_ntfs *fs);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
 
