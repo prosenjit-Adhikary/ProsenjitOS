@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "object.h"
+struct pros_thread;
 
 #define PROSENJIT_IPC_CAPACITY 8u
 #define PROSENJIT_IPC_MESSAGE_MAX 64u
@@ -24,6 +25,8 @@ struct pros_ipc_channel {
     uint32_t tail;
     uint32_t count;
     struct pros_ipc_message messages[PROSENJIT_IPC_CAPACITY];
+    struct pros_thread *waiters[PROSENJIT_IPC_CAPACITY];
+    uint32_t waiter_count;
 };
 
 int ipc_channel_init(struct pros_ipc_channel *channel);
@@ -31,5 +34,7 @@ int ipc_channel_send(struct pros_ipc_channel *channel, const void *data, uint32_
 int ipc_channel_receive(struct pros_ipc_channel *channel, void *data, uint32_t capacity, uint32_t *length_out);
 uint32_t ipc_channel_count(const struct pros_ipc_channel *channel);
 uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel);
+int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread);
+int ipc_channel_wake_one(struct pros_ipc_channel *channel);
 
 #endif
