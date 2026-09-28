@@ -94,14 +94,28 @@
 ## Phase 5 — I/O and drivers
 - [ ] Driver model
 - [ ] Keyboard
-- [ ] Storage
+- [x] Storage abstraction (block-device contract)
 - [ ] PCI enumeration
 - [ ] Display abstraction
 - [ ] Network device abstraction
 
 ## Phase 6 — Storage and networking
 - [ ] VFS
-- [ ] FAT-compatible filesystem support
+  - [x] VFS mount object foundation
+  - [x] Filesystem type contract for FAT32/exFAT/NTFS/ProsenjitFS
+  - [ ] Path, vnode/inode, file and directory APIs
+  - [ ] Filesystem probe and partition integration
+- [ ] FAT32 filesystem support
+  - [ ] Read-only FAT32 mount/parser
+  - [ ] FAT32 write support
+- [ ] exFAT filesystem support
+  - [ ] Read-only exFAT mount/parser
+  - [ ] exFAT write support
+- [ ] NTFS filesystem support
+  - [x] NTFS compatibility architecture documented
+  - [ ] Read-only NTFS mount/parser
+  - [ ] NTFS write support
+  - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
 - [ ] Ethernet
 - [ ] ARP
