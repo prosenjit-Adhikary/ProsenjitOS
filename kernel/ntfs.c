@@ -4720,8 +4720,15 @@ int ntfs_selftest(void)
         disk.file_record[121u] = 0xFFu;
         disk.file_record[122u] = 0xFFu;
         disk.file_record[123u] = 0xFFu;
+        /*
+         * The resident $DATA attribute occupies 48..119, so the following
+         * $FILE_NAME attribute must begin at 120.  A 0xFFFFFFFF attribute
+         * terminator at 120 would make ntfs_find_attribute() stop before
+         * ever seeing $FILE_NAME, which is exactly the metadata VFS lookup
+         * must resolve from a real NTFS MFT record.
+         */
         {
-            uint32_t fn = 128u;
+            uint32_t fn = 120u;
             uint32_t value = fn + 24u;
             disk.file_record[fn + 0u] = 0x30u;
             disk.file_record[fn + 4u] = 128u;
@@ -4737,10 +4744,10 @@ int ntfs_selftest(void)
             disk.file_record[value + 70u] = 's';
             disk.file_record[value + 72u] = 't';
         }
-        disk.file_record[256u] = 0xFFu;
-        disk.file_record[257u] = 0xFFu;
-        disk.file_record[258u] = 0xFFu;
-        disk.file_record[259u] = 0xFFu;
+        disk.file_record[248u] = 0xFFu;
+        disk.file_record[249u] = 0xFFu;
+        disk.file_record[250u] = 0xFFu;
+        disk.file_record[251u] = 0xFFu;
 
         {
             struct pros_vfs_vnode *node = 0;
