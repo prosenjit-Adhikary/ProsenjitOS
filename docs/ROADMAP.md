@@ -59,8 +59,8 @@
   - [x] IPC channel queue/waiter concurrency lock
   - [x] Validated kernel user-copy primitives for IPC
   - [x] Fault-recoverable user-copy with page-fault fixup
-  - [ ] Per-CPU usercopy fault state for SMP
-  - [ ] SMP-safe scheduler/run-queue locking
+  - [x] Per-CPU usercopy fault state for SMP
+  - [x] SMP-safe scheduler/run-queue locking
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
