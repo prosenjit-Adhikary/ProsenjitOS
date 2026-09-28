@@ -1,6 +1,8 @@
 #include "paging.h"
 #include "memory.h"
 
+extern char stack_top[];
+
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
 #define PT_INDEX(va) (((va) >> 12) & 0x1FFu)
