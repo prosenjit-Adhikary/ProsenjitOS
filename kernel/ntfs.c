@@ -2491,6 +2491,8 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
     if (!vnode || !cookie || !entry ||
         vnode->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
+    if (!vnode->mount)
+        return PROS_VFS_EINVAL;
 
     parent_node = (struct pros_ntfs_vfs_node *)vnode->private_data;
     fs = parent_node ? (struct pros_ntfs *)vnode->mount->private_data : 0;
@@ -2498,11 +2500,6 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         fs->bytes_per_file_record > sizeof(record))
         return PROS_VFS_EINVAL;
 
-    /*
-     * Derive the current MFT length from record 0 ($MFT), rather than
-     * guessing from the volume size. This bounds enumeration to actual
-     * MFT records and avoids walking arbitrary disk space.
-     */
     if (ntfs_read_file_record(fs, 0u, record, sizeof(record)) !=
             PROS_NTFS_OK ||
         ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
@@ -2542,16 +2539,15 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                     if (attr_type == 0xFFFFFFFFu)
                         break;
                     if (attr_len < 24u ||
-                        attr_pos + attr_len > fs->bytes_per_file_record)
+                        attr_pos > fs->bytes_per_file_record - attr_len)
                         break;
 
                     if (attr_type == 0x30u && record[attr_pos + 8u] == 0u) {
-                        uint16_t value_offset =
-                            le16(record + attr_pos + 20u);
-                        uint32_t value_length =
-                            le32(record + attr_pos + 16u);
+                        uint16_t value_offset = le16(record + attr_pos + 20u);
+                        uint32_t value_length = le32(record + attr_pos + 16u);
 
-                        if ((uint32_t)value_offset + value_length <= attr_len &&
+                        if ((uint32_t)value_offset <= attr_len &&
+                            value_length <= attr_len - (uint32_t)value_offset &&
                             value_length >= 66u) {
                             const uint8_t *data =
                                 record + attr_pos + value_offset;
@@ -2590,11 +2586,6 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         if (!found_name)
             continue;
 
-        /*
-         * The VFS dirent ABI is a UTF-8/byte-oriented string. Convert the
-         * UTF-16LE NTFS name here and reject malformed/unrepresentable names
-         * rather than silently truncating or replacing them.
-         */
         {
             uint32_t out = 0u;
             uint32_t units = name_bytes / 2u;
@@ -2641,7 +2632,7 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                 }
             }
 
-            entry->name[out] = '\0';
+            entry->name[out] = '\\0';
             entry->type = (record_flags & 0x0002u) != 0u ?
                           PROS_VFS_NODE_DIRECTORY :
                           PROS_VFS_NODE_FILE;
