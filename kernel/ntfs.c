@@ -1202,7 +1202,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             }
         } else {
             uint64_t new_vcn = old_alloc_clusters;
-            if (ntfs_append_run(record, fs->bytes_per_file_record,
+            if (run_count >= PROS_NTFS_MFT_RUN_MAX ||
+                ntfs_append_run(record, fs->bytes_per_file_record,
                                 attr_offset, new_vcn, growth_lcn,
                                 required_clusters,
                                 &runs[run_count - 1u]) != PROS_NTFS_OK) {
@@ -1210,6 +1211,10 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
                                                  growth_clusters);
                 return PROS_NTFS_ENOTSUP;
             }
+            runs[run_count].lcn = growth_lcn;
+            runs[run_count].clusters = required_clusters;
+            runs[run_count].sparse = 0u;
+            ++run_count;
         }
         allocated_size = new_alloc_clusters * (uint64_t)cluster_bytes;
         for (uint32_t b = 0u; b < 8u; ++b)
