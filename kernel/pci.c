@@ -28,7 +28,7 @@ static uint32_t pci_config_address(uint8_t bus, uint8_t slot,
 int pci_config_read32(uint8_t bus, uint8_t slot, uint8_t function,
                       uint8_t offset, uint32_t *value)
 {
-    if (!value || slot >= 32u || function >= 8u || offset >= 256u ||
+    if (!value || slot >= 32u || function >= 8u ||
         (offset & 3u) != 0u)
         return PROS_PCI_EINVAL;
 
