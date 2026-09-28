@@ -164,7 +164,12 @@ void idt_init(void) {
     idt_set_gate(13, handlers[13], 0);
     idt_set_gate(14, handlers[14], 0);
     idt_set_gate(32, isr32, 0);
-    /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.\n     * The regular RSP0 bootstrap stack is also used by early kernel code;\n     * keeping syscall entry on IST1 makes the privilege transition robust\n     * even while the active user address space has supervisor-only kernel\n     * mappings. */\n    idt_set_gate(128, isr128, 1);
+    /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
+     * The regular RSP0 bootstrap stack is also used by early kernel code;
+     * keeping syscall entry on IST1 makes the privilege transition robust
+     * even while the active user address space has supervisor-only kernel
+     * mappings. */
+    idt_set_gate(128, isr128, 1);
     idt[128].type_attr = 0xEE;
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
