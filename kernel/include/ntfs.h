@@ -74,9 +74,9 @@ int ntfs_index_root_entry(const void *record, uint32_t record_size,
                           uint8_t *entry_flags, uint32_t *next_entry_offset);
 
 /*
- * Read-only directory lookup over a resident $INDEX_ROOT. The lookup is
- * deliberately exact UTF-16LE for now; NTFS case-folding via $UpCase is a
- * later compatibility milestone.
+ * Read-only directory lookup over a resident $INDEX_ROOT. This low-level
+ * helper intentionally retains exact UTF-16LE semantics; filesystem-level
+ * directory/path lookup applies the NTFS $UpCase table.
  */
 int ntfs_index_root_lookup(const void *record, uint32_t record_size,
                            uint32_t attr_offset,
@@ -105,9 +105,8 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                                  uint64_t *file_reference);
 
 /*
- * Read-only directory and path lookup. Path components are exact UTF-16LE
- * names for now; the NTFS $UpCase collation table is a later milestone.
- * NTFS directory record 5 ($Root) is used as the starting point.
+ * Read-only directory and path lookup. Path components use NTFS $UpCase
+ * case folding. NTFS directory record 5 ($Root) is used as the starting point.
  */
 int ntfs_directory_lookup(const struct pros_ntfs *fs,
                           uint64_t directory_record_number,
