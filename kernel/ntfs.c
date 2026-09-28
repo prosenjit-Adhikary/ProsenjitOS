@@ -5,6 +5,11 @@ static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
                                       const uint8_t *name_utf16le,
                                       uint8_t name_length);
+static int ntfs_name_key_compare(const uint8_t *key,
+                                 uint16_t key_size,
+                                 const uint8_t *name_utf16le,
+                                 uint8_t name_length);
+static int ntfs_upcase_load(const struct pros_ntfs *fs);
 
 static int ntfs_vfs_mount(struct pros_ntfs *fs);
 static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops;
@@ -2170,6 +2175,7 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     struct pros_ntfs_index_root root;
     uint32_t offset;
     uint32_t terminal = 0u;
+    uint32_t insert_offset = 0u;
     uint32_t entry_size;
     uint32_t required_size;
     uint32_t new_entries_size;
@@ -2185,6 +2191,9 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
         ntfs_read_file_record(fs, child_record_number, child_record,
                               sizeof(child_record)) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
+    if (ntfs_upcase_load(fs) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    ntfs_active_upcase = ntfs_upcase_data;
 
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0x90u, &index_root_offset) != PROS_NTFS_OK)
@@ -2220,37 +2229,59 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
 
         if (ntfs_index_root_entry(directory_record, fs->bytes_per_file_record,
                                   index_root_offset, offset, &reference, &key,
-                                  &key_size, &flags, &next) != PROS_NTFS_OK)
+                                  &key_size, &flags, &next) != PROS_NTFS_OK) {
+            ntfs_active_upcase = 0;
             return PROS_NTFS_ECORRUPT;
+        }
+
         if ((flags & 2u) != 0u) {
             terminal = offset;
+            if (insert_offset == 0u)
+                insert_offset = offset;
             break;
         }
+
         if (ntfs_name_key_matches(key, key_size, key_copy,
-                                  key_copy[64u]))
+                                  key_copy[64u])) {
+            ntfs_active_upcase = 0;
             return PROS_NTFS_EINVAL;
-        if (next == 0u || next <= offset || next >= root.entries_size)
+        }
+
+        if (insert_offset == 0u &&
+            ntfs_name_key_compare(key, key_size, key_copy,
+                                  key_copy[64u]) > 0)
+            insert_offset = offset;
+
+        if (next == 0u || next <= offset || next >= root.entries_size) {
+            ntfs_active_upcase = 0;
             return PROS_NTFS_ECORRUPT;
+        }
         offset = next;
     }
 
-    if (terminal == 0u)
+    if (terminal == 0u || insert_offset == 0u) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
+    }
 
     required_size = 16u + child_name_size;
-    if (required_size > 0xFFFFu)
+    if (required_size > 0xFFFFu) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_EOVERFLOW;
+    }
     entry_size = (required_size + 7u) & ~7u;
     if (entry_size > 0xFFFFu ||
         root.allocated_size < root.entries_size ||
-        entry_size > root.allocated_size - root.entries_size)
+        entry_size > root.allocated_size - root.entries_size) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ENOTSUP;
+    }
 
-    for (uint32_t i = root.entries_size; i > terminal; --i)
+    for (uint32_t i = root.entries_size; i > insert_offset; --i)
         ((uint8_t *)root_data)[i + entry_size - 1u] =
             root_data[i - 1u];
     for (uint32_t i = 0u; i < entry_size; ++i)
-        ((uint8_t *)root_data)[terminal + i] = 0u;
+        ((uint8_t *)root_data)[insert_offset + i] = 0u;
 
     file_reference = ((uint64_t)le16(child_record + 16u) << 48) |
                      (child_record_number & 0x0000FFFFFFFFFFFFull);
@@ -2272,8 +2303,12 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     ((uint8_t *)root_data)[22u] = (uint8_t)(new_entries_size >> 16);
     ((uint8_t *)root_data)[23u] = (uint8_t)(new_entries_size >> 24);
 
-    return ntfs_write_file_record(fs, directory_record_number,
-                                  directory_record);
+    {
+        int status = ntfs_write_file_record(fs, directory_record_number,
+                                             directory_record);
+        ntfs_active_upcase = 0;
+        return status;
+    }
 }
 
 
@@ -2442,6 +2477,48 @@ static int ntfs_upcase_load(const struct pros_ntfs *fs)
     return PROS_NTFS_OK;
 }
 
+
+static int ntfs_name_key_compare(const uint8_t *key,
+                                 uint16_t key_size,
+                                 const uint8_t *name_utf16le,
+                                 uint8_t name_length)
+{
+    uint32_t key_name_length;
+    uint32_t limit;
+
+    if (!key || !name_utf16le || key_size < 66u || name_length == 0u)
+        return 0;
+
+    key_name_length = key[64u];
+    if ((key[65u] != 1u && key[65u] != 3u) ||
+        key_name_length == 0u ||
+        66u + key_name_length * 2u > key_size)
+        return 0;
+
+    limit = key_name_length < name_length ? key_name_length : name_length;
+    for (uint32_t i = 0u; i < limit; ++i) {
+        uint16_t stored = le16(key + 66u + i * 2u);
+        uint16_t wanted = le16(name_utf16le + i * 2u);
+        uint16_t a = stored;
+        uint16_t b = wanted;
+
+        if (ntfs_active_upcase) {
+            a = le16(ntfs_active_upcase + (uint32_t)stored * 2u);
+            b = le16(ntfs_active_upcase + (uint32_t)wanted * 2u);
+        }
+
+        if (a < b)
+            return -1;
+        if (a > b)
+            return 1;
+    }
+
+    if (key_name_length < name_length)
+        return -1;
+    if (key_name_length > name_length)
+        return 1;
+    return 0;
+}
 
 static uint8_t ntfs_name_key_matches(const uint8_t *key, uint16_t key_size,
                                       const uint8_t *name_utf16le,
