@@ -401,7 +401,7 @@ int ntfs_selftest(void)
     disk.mft_record[111]=0u;
     disk.mft_record[112]=0x11u;
     disk.mft_record[113]=4u;
-    disk.mft_record[114]=0u;
+    disk.mft_record[114]=4u;
     disk.mft_record[115]=0x00u;
 
     if (block_device_init(&device,512,4096,ntfs_test_read,0,&disk) != PROS_BLOCK_OK ||
