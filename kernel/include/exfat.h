@@ -25,6 +25,23 @@ struct pros_exfat {
 int exfat_mount(struct pros_exfat *, struct pros_block_device *);
 int exfat_cluster_lba(const struct pros_exfat *, uint32_t, uint64_t *);
 int exfat_read_cluster(const struct pros_exfat *, uint32_t, void *);
+
+/*
+ * Read the active FAT entry for a cluster.  The returned value is either
+ * another valid cluster, 0xFFFFFFF7 (bad cluster), or 0xFFFFFFFF (EOC).
+ */
+int exfat_read_fat_entry(const struct pros_exfat *, uint32_t, uint32_t *);
+
+/*
+ * Read a file data stream without allocating a filesystem-sized buffer.
+ * no_fat_chain follows the exFAT Stream Extension NoFatChain flag.
+ * Bytes beyond valid_data_length are returned as zeroes.
+ */
+int exfat_file_read(const struct pros_exfat *, uint32_t first_cluster,
+                    uint8_t no_fat_chain, uint64_t data_length,
+                    uint64_t valid_data_length, uint64_t offset,
+                    void *buffer, uint32_t length, uint32_t *done);
+
 int exfat_selftest(void);
 
 #endif
