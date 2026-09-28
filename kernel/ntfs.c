@@ -1501,7 +1501,14 @@ int ntfs_selftest(void)
         static const uint8_t path_name[] = {
             't', 0u, 'e', 0u, 's', 0u, 't', 0u
         };
+        uint8_t path_key[74] = {0};
         const uint8_t *components[] = { path_name };
+        path_key[64u] = 4u;
+        path_key[65u] = 1u;
+        path_key[66u] = 't'; path_key[67u] = 0u;
+        path_key[68u] = 'e'; path_key[69u] = 0u;
+        path_key[70u] = 's'; path_key[71u] = 0u;
+        path_key[72u] = 't'; path_key[73u] = 0u;
         const uint8_t lengths[] = { 4u };
         uint64_t path_reference = 0u;
 
@@ -1529,7 +1536,7 @@ int ntfs_selftest(void)
         disk.root_record[90u] = 74u;
         disk.root_record[92u] = 0u;
         for (uint32_t i = 0u; i < 74u; ++i)
-            disk.root_record[96u + i] = file_name_key[i];
+            disk.root_record[96u + i] = path_key[i];
         disk.root_record[192u] = 16u;
         disk.root_record[194u] = 0u;
         disk.root_record[196u] = 2u;
