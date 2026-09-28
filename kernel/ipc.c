@@ -53,8 +53,22 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
 
     channel->tail = (channel->tail + 1u) % PROSENJIT_IPC_CAPACITY;
     ++channel->count;
+
+    /*
+     * Wake while holding the channel lock so publishing the message and
+     * removing a receiver waiter are one atomic state transition.  The
+     * wake path does not touch IPC state, so it is safe to run here.
+     */
+    if (channel->waiter_count != 0) {
+        struct pros_thread *thread = channel->waiters[0];
+        if (thread_wake(thread) == 0) {
+            for (uint32_t i = 1; i < channel->waiter_count; ++i)
+                channel->waiters[i - 1] = channel->waiters[i];
+            --channel->waiter_count;
+            channel->waiters[channel->waiter_count] = 0;
+        }
+    }
     ipc_unlock(channel);
-    (void)ipc_channel_wake_one(channel);
     return PROSENJIT_IPC_OK;
 }
 
@@ -134,10 +148,13 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
         return PROSENJIT_IPC_EEMPTY;
     }
     struct pros_thread *thread = channel->waiters[0];
-    for (uint32_t i = 1; i < channel->waiter_count; ++i)
-        channel->waiters[i - 1] = channel->waiters[i];
-    --channel->waiter_count;
-    channel->waiters[channel->waiter_count] = 0;
+    int rc = thread_wake(thread);
+    if (rc == 0) {
+        for (uint32_t i = 1; i < channel->waiter_count; ++i)
+            channel->waiters[i - 1] = channel->waiters[i];
+        --channel->waiter_count;
+        channel->waiters[channel->waiter_count] = 0;
+    }
     ipc_unlock(channel);
-    return thread_wake(thread);
+    return rc == 0 ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EINVAL;
 }
