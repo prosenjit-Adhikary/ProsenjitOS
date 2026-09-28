@@ -746,7 +746,7 @@ int ntfs_selftest(void)
         if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
                                   index_root_offset, 129u, &reference, &key,
                                   &key_size, &entry_flags, &next_entry) !=
-                PROS_NTFS_EINVAL)
+                PROS_NTFS_ECORRUPT)
             return -111;
     }
 
