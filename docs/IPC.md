@@ -60,3 +60,13 @@ helpers. Each helper validates the complete user range and required permissions 
 performing the copy, and IPC queue locks are not held during user-memory access.
 This reduces duplicated raw user-pointer dereferences. It is not yet fault-recoverable:
 a concurrent unmap or page fault after validation still requires a page-fault fixup path.
+
+
+## Fault-recoverable user copy
+
+The shared user-copy layer now uses a small assembly backend with a page-fault fixup
+address. While a copy is active, a kernel page fault redirects the saved RIP to the
+copy's recovery path, which returns an error instead of halting the kernel. A regression
+probe exercises an intentionally unmapped kernel-mode source address. The design is
+currently single-copy-at-a-time and should be extended with per-CPU fault state before
+SMP support.
