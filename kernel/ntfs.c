@@ -1779,6 +1779,8 @@ struct ntfs_test_disk {
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
     uint8_t index_record[4096];
     uint8_t root_record[1024];
+    uint8_t bitmap_record[1024];
+    uint8_t bitmap_data[512];
 };
 
 static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
@@ -1802,6 +1804,12 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s == 42u || lba + s == 43u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->root_record[(lba + s - 42u) * 512u + i];
+        else if (lba + s == 44u || lba + s == 45u)
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->bitmap_record[(lba + s - 44u) * 512u + i];
+        else if (lba + s >= 344u && lba + s < 345u)
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->bitmap_data[(lba + s - 344u) * 512u + i];
         else if (lba + s == 52u || lba + s == 53u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->upcase_record[(lba + s - 52u) * 512u + i];
@@ -1843,6 +1851,12 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector >= 336u && sector < 344u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_data[(sector - 336u) * 512u + i] = src[i];
+        } else if (sector == 44u || sector == 45u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->bitmap_record[(sector - 44u) * 512u + i] = src[i];
+        } else if (sector == 344u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->bitmap_data[i] = src[i];
         } else {
             return PROS_BLOCK_EIO;
         }
@@ -2245,6 +2259,42 @@ int ntfs_selftest(void)
     disk.nonresident_record[1022]=0x11u; disk.nonresident_record[1023]=0x11u;
     for (uint32_t i = 0u; i < sizeof(disk.nonresident_data); ++i)
         disk.nonresident_data[i] = (uint8_t)('a' + (i % 26u));
+
+    /*
+     * Synthetic $Bitmap (MFT record 6): 64-byte allocation bitmap covering
+     * the 512 test clusters. Its data is stored at LCN 43 (LBA 344).
+     */
+    for (uint32_t i = 0u; i < sizeof(disk.bitmap_record); ++i)
+        disk.bitmap_record[i] = 0u;
+    for (uint32_t i = 0u; i < sizeof(disk.bitmap_data); ++i)
+        disk.bitmap_data[i] = 0u;
+    disk.bitmap_record[0]='F'; disk.bitmap_record[1]='I';
+    disk.bitmap_record[2]='L'; disk.bitmap_record[3]='E';
+    disk.bitmap_record[4]=8u; disk.bitmap_record[6]=3u;
+    disk.bitmap_record[8]=0x21u; disk.bitmap_record[9]=0x43u;
+    disk.bitmap_record[20]=48u;
+    disk.bitmap_record[48]=0x80u;
+    disk.bitmap_record[52]=72u;
+    disk.bitmap_record[56]=1u;
+    disk.bitmap_record[64]=0u;
+    disk.bitmap_record[80]=0x40u;
+    disk.bitmap_record[88]=64u;
+    disk.bitmap_record[96]=64u;
+    disk.bitmap_record[104]=64u;
+    disk.bitmap_record[112]=0x11u;
+    disk.bitmap_record[113]=1u;
+    disk.bitmap_record[114]=43u;
+    disk.bitmap_record[115]=0u;
+    disk.bitmap_record[120]=0xFFu; disk.bitmap_record[121]=0xFFu;
+    disk.bitmap_record[122]=0xFFu; disk.bitmap_record[123]=0xFFu;
+    disk.bitmap_record[510]=0x21u; disk.bitmap_record[511]=0x43u;
+    disk.bitmap_record[1022]=0x21u; disk.bitmap_record[1023]=0x43u;
+
+    /* Mark clusters used by the synthetic metadata/data mappings. */
+    disk.bitmap_data[4u / 8u] |= (uint8_t)(1u << (4u % 8u));
+    disk.bitmap_data[5u / 8u] |= (uint8_t)(1u << (5u % 8u));
+    disk.bitmap_data[42u / 8u] |= (uint8_t)(1u << (42u % 8u));
+    disk.bitmap_data[43u / 8u] |= (uint8_t)(1u << (43u % 8u));
 
     for (uint32_t i = 0u; i < sizeof(disk.upcase_record); ++i)
         disk.upcase_record[i] = 0u;
@@ -2811,6 +2861,15 @@ int ntfs_selftest(void)
                              &path_reference) != PROS_NTFS_ENOTSUP)
             return -183;
         disk.root_record[96u + 65u] = 1u;
+
+        {
+            uint64_t allocated_lcn = 0u;
+            if (ntfs_bitmap_allocate_clusters(&fs, 3u, &allocated_lcn) !=
+                    PROS_NTFS_OK ||
+                allocated_lcn != 0u ||
+                (disk.bitmap_data[0] & 0x07u) != 0x07u)
+                return -194;
+        }
 
         {
             uint8_t file_data[8] = {0};
