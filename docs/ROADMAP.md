@@ -81,6 +81,9 @@
 - [x] Security event log (Reason Ledger foundation)
 - [ ] Signed package verification
 - [ ] Controlled driver loading
+- [ ] File admission/security broker
+- [ ] Local file verification and SHA-256 reputation interface
+- [ ] Security trust-state model (Trusted/Verified/Unknown/Suspicious/Malicious)
 
 ## Phase 5 — I/O and drivers
 - [ ] Driver model
@@ -149,6 +152,11 @@
 - [ ] Security auditing
 - [ ] Fuzzing and regression tests
 - [ ] Malware containment tests
+  - [ ] File admission and quarantine regression tests
+  - [ ] Critical-file protection and recovery tests
+  - [ ] Sandbox/behavior containment tests
+  - [ ] Offline-safe security policy tests
+  - [ ] External reputation-provider integration tests
 
 ## Long-term
 - [ ] USB

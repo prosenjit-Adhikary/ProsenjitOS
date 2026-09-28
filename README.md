@@ -13,6 +13,7 @@ ProsenjitOS aims to become a practical general-purpose OS with:
 - strong application isolation and least-privilege security
 - explicit permissions for files, devices, processes, IPC, and network access
 - package integrity and signed software support
+- malware containment and recovery as part of the security architecture
 - Windows application compatibility through an independent compatibility layer
 - Linux/POSIX application compatibility through an independent user-space compatibility layer
 - a native ProsenjitOS SDK/API for applications that want the best integration
@@ -37,8 +38,45 @@ The design will use multiple independent layers:
 8. syscall and IPC policy enforcement
 9. filesystem and network access controls
 10. security event logging and audit trails
-11. update, rollback, and recovery mechanisms
-12. secure/verified boot as the platform matures
+11. malware detection, containment, and recovery
+12. update, rollback, and recovery mechanisms
+13. secure/verified boot as the platform matures
+
+### Malware and file-security architecture
+
+ProsenjitOS will not make the kernel itself depend on external malware-analysis websites. File security is planned as a **user-space security service** enforced by kernel policy.
+
+The planned admission flow is:
+
+`New file / download / USB / package
+        ↓
+Local verification
+        ↓
+Signature + format + permissions + provenance + SHA-256
+        ↓
+Trusted ───────────────→ Allow
+        │
+        └→ Unknown → hash reputation → local sandbox/behavior analysis
+                                      ↓
+                              Suspicious → Quarantine
+                                      ↓
+                              Malicious → Block + quarantine
+`
+
+Important security rules:
+
+- A hash is evidence, not proof of safety by itself.
+- An unknown hash is **not automatically malicious**.
+- Digital signatures and trusted publishers will be considered in addition to hashes.
+- Hash-only reputation lookups should be preferred before any file upload to an external service.
+- External reputation providers such as VirusTotal- or Hybrid Analysis-style services are evidence sources, not the sole authority.
+- Suspicious files should be quarantined rather than immediately deleted.
+- Critical system files should be protected and recoverable; automatic destructive deletion is not the default.
+- Process isolation and sandboxing will limit the impact of a malicious file that reaches execution.
+- Security decisions and containment actions will be recorded in the security event/Reason Ledger.
+- The system should continue to provide a safe offline path when cloud reputation services are unavailable.
+
+See [docs/SECURITY-MALWARE.md](docs/SECURITY-MALWARE.md) for the detailed design and staged implementation plan.
 
 No operating system can honestly promise perfect protection against every future attack. The engineering goal is to make compromise harder, limit blast radius, detect abuse, and provide reliable recovery.
 
@@ -143,6 +181,7 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - Linux/POSIX compatibility runtime
 - Windows API compatibility runtime
 - package manager and signed packages
+- malware containment/security service
 - AI API and system-action broker
 - natural-language administrative workflows
 - hardening, testing, recovery, and release engineering
@@ -158,7 +197,10 @@ The repository includes GitHub Actions automation that:
 3. builds the bootable ISO
 4. boots the ISO in QEMU
 5. verifies expected kernel serial-output markers
-6. uploads the ISO and QEMU boot log as CI artifacts
+6. validates the security architecture documentation contract
+7. uploads the ISO and QEMU boot log as CI artifacts
+
+The security documentation check verifies that the planned malware-security architecture remains represented in the repository without pretending that the future scanner/service is already implemented.
 
 The boot test currently verifies, among other startup markers:
 
