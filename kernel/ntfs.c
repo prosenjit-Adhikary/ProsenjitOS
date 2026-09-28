@@ -3677,6 +3677,14 @@ static int ntfs_vfs_create(struct pros_vfs_vnode *parent, const char *name,
             cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
             return PROS_VFS_EINVAL;
 
+        /* Keep VFS create consistent with VFS lookup/NTFS filename rules. */
+        if (cp < 0x20u || cp == (uint32_t)'"' ||
+            cp == (uint32_t)'/' || cp == (uint32_t)'\\' ||
+            cp == (uint32_t)':' || cp == (uint32_t)'|' ||
+            cp == (uint32_t)'<' || cp == (uint32_t)'>' ||
+            cp == (uint32_t)'*' || cp == (uint32_t)'?')
+            return PROS_VFS_EINVAL;
+
         if (cp <= 0xFFFFu) {
             if (units >= PROS_VFS_NAME_MAX) return PROS_VFS_EOVERFLOW;
             utf16le[units * 2u] = (uint8_t)cp;
