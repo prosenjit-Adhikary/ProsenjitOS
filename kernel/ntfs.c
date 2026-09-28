@@ -354,7 +354,7 @@ int ntfs_selftest(void)
     attr_record[24]=0x80u;
     attr_record[28]=48u;
     attr_record[40]=3u;
-    attr_record[44]=16u;
+    attr_record[44]=40u;
     attr_record[64]='a'; attr_record[65]='b'; attr_record[66]='c';
     if (ntfs_find_attribute(attr_record, sizeof(attr_record), 0x80u,
                             &attr_offset) != PROS_NTFS_OK || attr_offset != 24u ||
