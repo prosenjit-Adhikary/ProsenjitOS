@@ -89,7 +89,7 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
 }
 
 int ntfs_file_record_fixup(void *record, uint32_t record_size,
-                               uint32_t bytes_per_sector)
+                           uint32_t bytes_per_sector)
 {
     uint8_t *p = (uint8_t *)record;
     uint16_t usa_offset, usa_count;
@@ -179,8 +179,8 @@ int ntfs_cluster_lba(const struct pros_ntfs *fs, uint64_t lcn,
 }
 
 int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
-                           struct pros_ntfs_run *runs, uint32_t capacity,
-                           uint32_t *run_count)
+                        struct pros_ntfs_run *runs, uint32_t capacity,
+                        uint32_t *run_count)
 {
     uint32_t pos = 0u, count = 0u;
     int64_t current_lcn = 0;
@@ -219,8 +219,6 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
     *run_count = count;
     return PROS_NTFS_OK;
 }
-
-static uint16_t ntfs_attr_type(const uint8_t *a) { return le16(a); }
 
 int ntfs_find_attribute(const void *record, uint32_t record_size,
                         uint32_t type, uint32_t *offset)
@@ -297,10 +295,10 @@ int ntfs_selftest(void)
     disk.boot[3]='N'; disk.boot[4]='T'; disk.boot[5]='F'; disk.boot[6]='S';
     for (uint32_t i=7;i<11u;++i) disk.boot[i]=' ';
     disk.boot[11]=0x00; disk.boot[12]=0x02;
-    disk.boot[13]=8; /* 4 KiB cluster */
-    disk.boot[40]=0x00; disk.boot[41]=0x10; /* 4096 sectors */
+    disk.boot[13]=8;
+    disk.boot[40]=0x00; disk.boot[41]=0x10;
     disk.boot[48]=4; disk.boot[56]=8;
-    disk.boot[64]=0xF6; /* 1024-byte file record */
+    disk.boot[64]=0xF6;
     disk.boot[510]=0x55; disk.boot[511]=0xAA;
 
     if (block_device_init(&device,512,4096,ntfs_test_read,0,&disk) != PROS_BLOCK_OK ||
