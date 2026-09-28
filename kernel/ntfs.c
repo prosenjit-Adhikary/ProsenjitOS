@@ -3717,6 +3717,44 @@ int ntfs_selftest(void)
                 return -197;
         }
 
+        /*
+         * VFS UTF-8 decoder regression: malformed sequences must be
+         * rejected before they reach the NTFS UTF-16LE lookup layer, while
+         * valid multi-byte sequences must be accepted by the decoder.
+         */
+        {
+            static const char valid_utf8_3[] = "\xE2\x82\xAC";
+            static const char valid_utf8_4[] = "\xF0\x9F\x92\xA9";
+            static const char bad_continuation[] = "\xE2\x28\xA1";
+            static const char truncated[] = "\xF0\x9F\x92";
+            static const char overlong[] = "\xC0\xAF";
+            static const char surrogate[] = "\xED\xA0\x80";
+            static const char out_of_range[] = "\xF4\x90\x80\x80";
+            struct pros_vfs_vnode *unicode_node = 0;
+
+            if (!fs.mount.root || !fs.mount.root->ops ||
+                !fs.mount.root->ops->lookup)
+                return -198;
+
+            if (fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_3,
+                                           &unicode_node) != PROS_VFS_ENOENT ||
+                fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_4,
+                                           &unicode_node) != PROS_VFS_ENOENT)
+                return -199;
+
+            if (fs.mount.root->ops->lookup(fs.mount.root, bad_continuation,
+                                           &unicode_node) != PROS_VFS_EINVAL ||
+                fs.mount.root->ops->lookup(fs.mount.root, truncated,
+                                           &unicode_node) != PROS_VFS_EINVAL ||
+                fs.mount.root->ops->lookup(fs.mount.root, overlong,
+                                           &unicode_node) != PROS_VFS_EINVAL ||
+                fs.mount.root->ops->lookup(fs.mount.root, surrogate,
+                                           &unicode_node) != PROS_VFS_EINVAL ||
+                fs.mount.root->ops->lookup(fs.mount.root, out_of_range,
+                                           &unicode_node) != PROS_VFS_EINVAL)
+                return -200;
+        }
+
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
                              &path_reference) != PROS_NTFS_EINVAL)
             return -122;
