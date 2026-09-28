@@ -8,6 +8,7 @@
 #include "thread.h"
 #include "timer.h"
 #include "intent.h"
+#include "ipc.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
@@ -659,6 +660,84 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: capability move-transfer test passed\n");
+
+    /*
+     * IPC foundation regression:
+     * - channel is a first-class capability object
+     * - FIFO ordering is preserved
+     * - bounded capacity is enforced
+     * - receive with a short buffer leaves the message queued
+     */
+    struct pros_ipc_channel ipc_test_channel;
+    uint64_t ipc_handle;
+    const uint8_t ipc_message[] = { 'P', 'r', 'o', 's', 'e', 'n', 'j', 'i', 't' };
+    uint8_t ipc_buffer[PROSENJIT_IPC_MESSAGE_MAX];
+    uint32_t ipc_length = 0;
+
+    if (ipc_channel_init(&ipc_test_channel) != PROSENJIT_IPC_OK ||
+        ipc_channel_capacity(&ipc_test_channel) != PROSENJIT_IPC_CAPACITY ||
+        ipc_channel_count(&ipc_test_channel) != 0 ||
+        process_grant_handle(&init_process, &ipc_test_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER,
+                             &ipc_handle) != 0 ||
+        process_check_handle(&init_process, ipc_handle,
+                             PROSENJIT_CAP_WRITE, PROS_OBJECT_IPC) != 0 ||
+        process_check_handle(&init_process, ipc_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_IPC) != 0) {
+        serial_write("ProsenjitOS: ERROR IPC capability setup test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    if (ipc_channel_send(&ipc_test_channel, ipc_message, sizeof(ipc_message)) != 0 ||
+        ipc_channel_count(&ipc_test_channel) != 1 ||
+        ipc_channel_receive(&ipc_test_channel, ipc_buffer, 4, &ipc_length) !=
+            PROSENJIT_IPC_EMSGSIZE ||
+        ipc_channel_count(&ipc_test_channel) != 1 ||
+        ipc_channel_receive(&ipc_test_channel, ipc_buffer, sizeof(ipc_buffer),
+                            &ipc_length) != 0 ||
+        ipc_length != sizeof(ipc_message)) {
+        serial_write("ProsenjitOS: ERROR IPC send/receive regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    for (uint32_t i = 0; i < sizeof(ipc_message); ++i) {
+        if (ipc_buffer[i] != ipc_message[i]) {
+            serial_write("ProsenjitOS: ERROR IPC FIFO payload mismatch\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    if (ipc_channel_receive(&ipc_test_channel, ipc_buffer, sizeof(ipc_buffer),
+                            &ipc_length) != PROSENJIT_IPC_EEMPTY) {
+        serial_write("ProsenjitOS: ERROR IPC empty-queue regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    for (uint32_t i = 0; i < PROSENJIT_IPC_CAPACITY; ++i) {
+        if (ipc_channel_send(&ipc_test_channel, ipc_message,
+                             sizeof(ipc_message)) != PROSENJIT_IPC_OK) {
+            serial_write("ProsenjitOS: ERROR IPC capacity fill failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    if (ipc_channel_count(&ipc_test_channel) != PROSENJIT_IPC_CAPACITY ||
+        ipc_channel_send(&ipc_test_channel, ipc_message,
+                         sizeof(ipc_message)) != PROSENJIT_IPC_EFULL ||
+        ipc_channel_send(&ipc_test_channel, ipc_message,
+                         PROSENJIT_IPC_MESSAGE_MAX + 1u) !=
+            PROSENJIT_IPC_EMSGSIZE) {
+        serial_write("ProsenjitOS: ERROR IPC bounds regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    if (process_close_handle(&init_process, ipc_handle) != 0 ||
+        process_check_handle(&init_process, ipc_handle,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_IPC) == 0) {
+        serial_write("ProsenjitOS: ERROR IPC capability lifecycle failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC channel/capability foundation test passed\n");
 
     struct pros_address_space *user_space = &init_process.address_space;
     uint64_t user_page = physical_page_alloc();
