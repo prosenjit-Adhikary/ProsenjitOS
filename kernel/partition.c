@@ -30,7 +30,13 @@ int partition_probe(struct pros_block_device *device,
     for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
         if (entry[4] == 0xEE) {
-            *table_type = PROS_PARTITION_GPT;
+            uint8_t header[512];
+            if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
+                return PROS_PARTITION_EIO;
+            if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
+                header[3] == ' ' && header[4] == 'P' && header[5] == 'A' &&
+                header[6] == 'R' && header[7] == 'T')
+                *table_type = PROS_PARTITION_GPT;
             break;
         }
     }
@@ -246,6 +252,9 @@ int partition_selftest(void)
     gpt_media[512u + 5u] = 'A';
     gpt_media[512u + 6u] = 'R';
     gpt_media[512u + 7u] = 'T';
+    gpt_media[446u + 4u] = 0xEEu;
+    gpt_media[510u] = 0x55u;
+    gpt_media[511u] = 0xAAu;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
     gpt_media[512u + 84u] = 300u;
@@ -272,12 +281,16 @@ int partition_selftest(void)
         if (i < sizeof(partition_test_media))
             partition_test_media[i] = gpt_media[i];
     }
+    enum pros_partition_type gpt_type = PROS_PARTITION_NONE;
+    if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
+        gpt_type != PROS_PARTITION_GPT)
+        return -3;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 3u ||
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
-        return -3;
+        return -4;
 
     return PROS_PARTITION_OK;
 }
