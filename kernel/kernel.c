@@ -3,6 +3,7 @@
 #include "paging.h"
 #include "heap.h"
 #include "address_space.h"
+#include "usercopy.h"
 #include "object.h"
 #include "process.h"
 #include "thread.h"
