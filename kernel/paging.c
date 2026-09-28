@@ -5,6 +5,8 @@ extern char __kernel_text_start[];
 extern char __kernel_text_end[];
 extern char __kernel_rodata_start[];
 extern char __kernel_rodata_end[];
+extern char __kernel_bss_start[];
+extern char __kernel_bss_end[];
 extern char stack_bottom[];
 extern char stack_top[];
 extern char ist1_stack_bottom[];
@@ -170,6 +172,13 @@ int paging_init(void) {
     uint64_t rodata_start = (uint64_t)(uintptr_t)__kernel_rodata_start;
     uint64_t rodata_end = (uint64_t)(uintptr_t)__kernel_rodata_end;
     if (map_identity_range(rodata_start, rodata_end, PROSENJIT_PAGE_NX) != 0)
+        return -1;
+
+    /* BSS contains bootstrap stacks and other mutable kernel state. Keep it supervisor-writable. */
+    uint64_t bss_start = (uint64_t)(uintptr_t)__kernel_bss_start;
+    uint64_t bss_end = (uint64_t)(uintptr_t)__kernel_bss_end;
+    if (map_identity_range(bss_start, bss_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
         return -1;
 
     /*
