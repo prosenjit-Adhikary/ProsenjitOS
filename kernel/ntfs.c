@@ -82,8 +82,9 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
     fs->mft_lcn = le64(&boot[48]);
     fs->mftmirr_lcn = le64(&boot[56]);
 
-    return vfs_mount_activate(&fs->mount) == PROS_VFS_OK
-        ? PROS_NTFS_OK : PROS_NTFS_EINVAL;
+    if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
+        return PROS_NTFS_EINVAL;
+    return ntfs_bootstrap_mft(fs);
 }
 
 int ntfs_file_record_fixup(void *record, uint32_t record_size,
@@ -268,6 +269,65 @@ int ntfs_attribute_data(const void *record, uint32_t record_size,
         return PROS_NTFS_ECORRUPT;
     *data = a + attr_offset + value_offset;
     *data_size = value_length;
+    return PROS_NTFS_OK;
+}
+
+int ntfs_attribute_runlist(const void *record, uint32_t record_size,
+                           uint32_t attr_offset, const uint8_t **runlist,
+                           uint32_t *runlist_size)
+{
+    const uint8_t *a = (const uint8_t *)record;
+    uint32_t attr_len;
+    uint16_t run_offset;
+    uint64_t allocated;
+    if (!a || !runlist || !runlist_size || attr_offset + 64u > record_size)
+        return PROS_NTFS_EINVAL;
+    attr_len = le32(a + attr_offset + 4u);
+    if (attr_len < 64u || attr_offset + attr_len > record_size)
+        return PROS_NTFS_ECORRUPT;
+    if (a[attr_offset + 8u] == 0u)
+        return PROS_NTFS_ENOTSUP;
+    run_offset = le16(a + attr_offset + 32u);
+    allocated = le64(a + attr_offset + 40u);
+    if ((uint32_t)run_offset >= attr_len || allocated == 0u)
+        return PROS_NTFS_ECORRUPT;
+    *runlist = a + attr_offset + run_offset;
+    *runlist_size = attr_len - run_offset;
+    return PROS_NTFS_OK;
+}
+
+#define PROS_NTFS_RECORD_WORK_MAX 65536u
+
+int ntfs_bootstrap_mft(struct pros_ntfs *fs)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t attr_offset;
+    const uint8_t *runlist;
+    uint32_t runlist_size;
+    uint32_t count;
+    int rc;
+
+    if (!fs || fs->bytes_per_file_record == 0u ||
+        fs->bytes_per_file_record > PROS_NTFS_RECORD_WORK_MAX)
+        return PROS_NTFS_EINVAL;
+    rc = ntfs_read_file_record(fs, 0u, record, sizeof(record));
+    if (rc != PROS_NTFS_OK)
+        return rc;
+    rc = ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
+                             &attr_offset);
+    if (rc != PROS_NTFS_OK)
+        return rc;
+    rc = ntfs_attribute_runlist(record, fs->bytes_per_file_record,
+                                attr_offset, &runlist, &runlist_size);
+    if (rc != PROS_NTFS_OK)
+        return rc;
+    rc = ntfs_decode_runlist(runlist, runlist_size, fs->mft_runs,
+                             PROS_NTFS_MFT_RUN_MAX, &count);
+    if (rc != PROS_NTFS_OK)
+        return rc;
+    if (count == 0u || fs->mft_runs[0].sparse)
+        return PROS_NTFS_ECORRUPT;
+    fs->mft_run_count = count;
     return PROS_NTFS_OK;
 }
 
