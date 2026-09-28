@@ -38,7 +38,7 @@
   - [x] Parent wait/reap semantics
   - [x] Process resource cleanup on reap
   - [x] Safe unregister/double-reap protection
-- [ ] Thread scheduler
+- [x] Thread scheduler
   - [x] Thread object and lifecycle state
   - [x] FIFO run queue and scheduler selection
   - [x] Timer-driven preemption
