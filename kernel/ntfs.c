@@ -1545,10 +1545,26 @@ int ntfs_selftest(void)
         disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
 
         {
-            int directory_status = ntfs_directory_lookup(
-                &fs, 5u, path_name, 4u, &path_reference);
-            if (directory_status != PROS_NTFS_OK)
-                return -140 + directory_status;
+            uint8_t root_probe[1024];
+            uint32_t root_attr_probe = 0u;
+            for (uint32_t i = 0u; i < sizeof(root_probe); ++i)
+                root_probe[i] = disk.root_record[i];
+            if (ntfs_file_record_fixup(root_probe, sizeof(root_probe), 512u) !=
+                    PROS_NTFS_OK)
+                return -180;
+            if (ntfs_find_attribute(root_probe, sizeof(root_probe), 0x90u,
+                                     &root_attr_probe) != PROS_NTFS_OK)
+                return -181;
+            if (ntfs_index_root_lookup(root_probe, sizeof(root_probe),
+                                       root_attr_probe, path_name, 4u,
+                                       &path_reference) != PROS_NTFS_OK)
+                return -182;
+
+            {
+                int directory_status = ntfs_directory_lookup(
+                    &fs, 5u, path_name, 4u, &path_reference);
+                if (directory_status != PROS_NTFS_OK)
+                    return -140 + directory_status;
             if (path_reference != 0x2000u)
                 return -150;
             {
