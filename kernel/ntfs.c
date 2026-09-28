@@ -889,6 +889,24 @@ int ntfs_create_file(struct pros_ntfs *fs,
     parent_reference = (parent_record_number & 0x0000FFFFFFFFFFFFull) |
                        ((uint64_t)le16(parent_record + 16u) << 48);
 
+    /*
+     * Reject an existing case-insensitive name before consuming an MFT slot.
+     * A missing resident entry is reported as ENOTSUP by the current lookup
+     * path; that is the expected fall-through for a new name.
+     */
+    {
+        uint64_t existing_reference = 0u;
+        int lookup_status = ntfs_directory_lookup(fs, parent_record_number,
+                                                   (const uint8_t *)
+                                                   name_utf16le,
+                                                   name_length,
+                                                   &existing_reference);
+        if (lookup_status == PROS_NTFS_OK)
+            return PROS_NTFS_EINVAL;
+        if (lookup_status != PROS_NTFS_ENOTSUP)
+            return lookup_status;
+    }
+
     rc = ntfs_mft_allocate_record(fs, &allocated_record);
     if (rc != PROS_NTFS_OK)
         return rc;
