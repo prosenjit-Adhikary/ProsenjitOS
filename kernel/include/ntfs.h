@@ -4,15 +4,19 @@
 #include <stdint.h>
 #include "vfs.h"
 
-#define PROS_NTFS_OK        0
-#define PROS_NTFS_EINVAL   -1
-#define PROS_NTFS_EIO      -2
-#define PROS_NTFS_ENOTSUP  -3
-#define PROS_NTFS_ECORRUPT -4
-#define PROS_NTFS_EOVERFLOW -5
+#define PROS_NTFS_OK          0
+#define PROS_NTFS_EINVAL     -1
+#define PROS_NTFS_EIO        -2
+#define PROS_NTFS_ENOTSUP    -3
+#define PROS_NTFS_ECORRUPT   -4
+#define PROS_NTFS_EOVERFLOW  -5
 #define PROS_NTFS_MFT_RUN_MAX 16u
 
-struct pros_ntfs_run { uint64_t lcn; uint64_t clusters; uint8_t sparse; };
+struct pros_ntfs_run {
+    uint64_t lcn;
+    uint64_t clusters;
+    uint8_t sparse;
+};
 
 struct pros_ntfs {
     struct pros_vfs_mount mount;
@@ -23,9 +27,9 @@ struct pros_ntfs {
     uint64_t mftmirr_lcn;
     uint32_t clusters_per_file_record;
     uint32_t bytes_per_file_record;
-    
-
-struct pros_ntfs_run { uint64_t lcn; uint64_t clusters; uint8_t sparse; };
+    struct pros_ntfs_run mft_runs[PROS_NTFS_MFT_RUN_MAX];
+    uint32_t mft_run_count;
+};
 
 int ntfs_mount(struct pros_ntfs *, struct pros_block_device *);
 int ntfs_cluster_lba(const struct pros_ntfs *, uint64_t, uint64_t *);
