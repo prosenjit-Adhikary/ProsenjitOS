@@ -15,7 +15,7 @@ section .text
 ; int copy_from_user_asm(void *dst, const void *src, uint64_t size)
 copy_from_user_asm:
     test rdx, rdx
-    jz .success
+    jz .from_success
     ; User copy runs with interrupts disabled so a timer interrupt cannot
     ; preempt this single-copy fault-fixup context.
     pushfq
@@ -43,7 +43,7 @@ copy_from_user_asm:
 ; int copy_to_user_asm(void *dst, const void *src, uint64_t size)
 copy_to_user_asm:
     test rdx, rdx
-    jz .success
+    jz .to_success
     ; Keep the fault-fixup context atomic on the current CPU.
     pushfq
     cli
@@ -67,7 +67,11 @@ copy_to_user_asm:
     mov rax, -1
     ret
 
-.success:
+.from_success:
+    xor eax, eax
+    ret
+
+.to_success:
     xor eax, eax
     ret
 
