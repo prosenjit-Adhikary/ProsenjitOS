@@ -1260,7 +1260,14 @@ int ntfs_selftest(void)
         static const uint8_t lookup_name[] = {
             't', 0u, 'e', 0u, 's', 0u, 't', 0u
         };
+        uint8_t file_name_key[74] = {0};
         uint64_t child_reference = 0u;
+        file_name_key[64u] = 4u;
+        file_name_key[65u] = 1u;
+        file_name_key[66u] = 't'; file_name_key[67u] = 0u;
+        file_name_key[68u] = 'e'; file_name_key[69u] = 0u;
+        file_name_key[70u] = 's'; file_name_key[71u] = 0u;
+        file_name_key[72u] = 't'; file_name_key[73u] = 0u;
         struct pros_ntfs_index_record index_info;
 
         lookup_record[0] = 'F'; lookup_record[1] = 'I';
@@ -1289,7 +1296,7 @@ int ntfs_selftest(void)
             root_attr[entry + 12u] = 1u;
             for (uint32_t i = 0u; i < 74u; ++i)
                 root_attr[entry + 16u + i] =
-                    directory_record[file_name_offset + 24u + i];
+                    file_name_key[i];
             /* Child VCN 0 occupies the final eight bytes. */
             root_attr[entry + 104u - 8u] = 0u;
 
@@ -1345,7 +1352,7 @@ int ntfs_selftest(void)
             disk.index_record[entry + 12u] = 0u;
             for (uint32_t i = 0u; i < 74u; ++i)
                 disk.index_record[entry + 16u + i] =
-                    directory_record[file_name_offset + 24u + i];
+                    file_name_key[i];
             disk.index_record[terminal + 8u] = 16u;
             disk.index_record[terminal + 10u] = 0u;
             disk.index_record[terminal + 12u] = 2u;
