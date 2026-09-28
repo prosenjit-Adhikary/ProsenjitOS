@@ -299,7 +299,7 @@ int ntfs_selftest(void)
     uint32_t run_count = 0u;
     static uint8_t record[1024];
     static uint8_t attr_record[128];
-    const uint8_t runlist[] = { 0x21u, 3u, 4u, 0x11u, 1u, 0xFEu,
+    const uint8_t runlist[] = { 0x11u, 3u, 4u, 0x11u, 1u, 0xFEu,
                                 0x01u, 2u, 0x00u };
     const uint8_t unterminated[] = { 0x21u, 1u, 1u };
     uint32_t attr_offset = 0u;
