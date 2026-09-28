@@ -1075,10 +1075,12 @@ int ntfs_path_lookup(const struct pros_ntfs *fs,
         if (!components[i] || component_lengths[i] == 0u)
             return PROS_NTFS_EINVAL;
 
-        if (ntfs_directory_lookup(fs, current, components[i],
-                                   component_lengths[i], &next) !=
-            PROS_NTFS_OK)
-            return PROS_NTFS_ENOTSUP;
+        {
+            int status = ntfs_directory_lookup(fs, current, components[i],
+                                               component_lengths[i], &next);
+            if (status != PROS_NTFS_OK)
+                return status;
+        }
 
         current = next;
     }
