@@ -1497,6 +1497,8 @@ struct ntfs_test_disk {
     uint8_t boot[512];
     uint8_t mft_record[1024];
     uint8_t file_record[1024];
+    uint8_t nonresident_record[1024];
+    uint8_t nonresident_data[4096];
     uint8_t upcase_record[1024];
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
     uint8_t index_record[4096];
@@ -1559,6 +1561,12 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 54u || sector == 55u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->file_record[(sector - 54u) * 512u + i] = src[i];
+        } else if (sector == 56u || sector == 57u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->nonresident_record[(sector - 56u) * 512u + i] = src[i];
+        } else if (sector >= 336u && sector < 344u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->nonresident_data[(sector - 336u) * 512u + i] = src[i];
         } else {
             return PROS_BLOCK_EIO;
         }
@@ -1925,6 +1933,32 @@ int ntfs_selftest(void)
     disk.mft_record[114]=4u;
     disk.mft_record[115]=0x00u;
 
+    for (uint32_t i = 0u; i < sizeof(disk.nonresident_record); ++i)
+        disk.nonresident_record[i] = 0u;
+    disk.nonresident_record[0]='F'; disk.nonresident_record[1]='I';
+    disk.nonresident_record[2]='L'; disk.nonresident_record[3]='E';
+    disk.nonresident_record[4]=8u; disk.nonresident_record[6]=3u;
+    disk.nonresident_record[8]=0x11u; disk.nonresident_record[9]=0x11u;
+    disk.nonresident_record[20]=48u;
+    disk.nonresident_record[48]=0x80u;
+    disk.nonresident_record[52]=72u;
+    disk.nonresident_record[56]=1u;
+    disk.nonresident_record[64]=0u;
+    disk.nonresident_record[65]=0u;
+    disk.nonresident_record[72]=0x00u; disk.nonresident_record[73]=0x10u;
+    disk.nonresident_record[80]=0x00u; disk.nonresident_record[81]=0x10u;
+    disk.nonresident_record[88]=0x00u; disk.nonresident_record[89]=0x10u;
+    disk.nonresident_record[112]=0x11u;
+    disk.nonresident_record[113]=1u;
+    disk.nonresident_record[114]=42u;
+    disk.nonresident_record[115]=0u;
+    disk.nonresident_record[120]=0xFFu; disk.nonresident_record[121]=0xFFu;
+    disk.nonresident_record[122]=0xFFu; disk.nonresident_record[123]=0xFFu;
+    disk.nonresident_record[510]=0x11u; disk.nonresident_record[511]=0x11u;
+    disk.nonresident_record[1022]=0x11u; disk.nonresident_record[1023]=0x11u;
+    for (uint32_t i = 0u; i < sizeof(disk.nonresident_data); ++i)
+        disk.nonresident_data[i] = (uint8_t)('a' + (i % 26u));
+
     for (uint32_t i = 0u; i < sizeof(disk.upcase_record); ++i)
         disk.upcase_record[i] = 0u;
     disk.upcase_record[0]='F'; disk.upcase_record[1]='I';
@@ -1998,6 +2032,29 @@ int ntfs_selftest(void)
             ntfs_file_write(&fs, 11u, 2u, replacement, 2u, &written) !=
                 PROS_NTFS_EOVERFLOW)
             return -121;
+    }
+
+    /*
+     * Nonresident overwrite regression. The write crosses a 512-byte sector
+     * boundary, so both read-modify-write and direct-sector paths are tested.
+     */
+    {
+        static const uint8_t replacement[] = { 'X', 'Y', 'Z', '!' };
+        static uint8_t verify[8];
+        uint32_t written = 0u;
+        uint32_t read_back = 0u;
+
+        if (ntfs_file_write(&fs, 12u, 510u, replacement,
+                            sizeof(replacement), &written) != PROS_NTFS_OK ||
+            written != sizeof(replacement) ||
+            ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
+                           &read_back) != PROS_NTFS_OK ||
+            read_back != sizeof(replacement) ||
+            verify[0] != 'X' || verify[1] != 'Y' ||
+            verify[2] != 'Z' || verify[3] != '!' ||
+            disk.nonresident_data[509u] != 'z' ||
+            disk.nonresident_data[514u] != 'o')
+            return -122;
     }
 
 
