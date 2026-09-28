@@ -118,8 +118,7 @@ int ntfs_file_record_fixup(void *record, uint32_t record_size,
             uint32_t end = i * bytes_per_sector - 2u;
             uint16_t saved = le16(p + end);
             if (saved != sequence)
-                write_status = PROS_NTFS_ECORRUPT;
-                goto write_fail;
+                return PROS_NTFS_ECORRUPT;
             p[end] = p[usa_offset + i*2u];
             p[end+1u] = p[usa_offset + i*2u + 1u];
         }
@@ -161,8 +160,7 @@ int ntfs_read_file_record(const struct pros_ntfs *fs, uint64_t record_number,
         if (fs->mft_run_count == 0u) {
             physical_lcn = fs->mft_lcn + logical_cluster;
             if (physical_lcn < fs->mft_lcn)
-                write_status = PROS_NTFS_EOVERFLOW;
-                goto write_fail;
+                return PROS_NTFS_EOVERFLOW;
             found = 1u;
         } else {
             for (uint32_t r = 0u; r < fs->mft_run_count; ++r) {
@@ -170,8 +168,7 @@ int ntfs_read_file_record(const struct pros_ntfs *fs, uint64_t record_number,
                 if (logical_cluster < cumulative + run->clusters) {
                     physical_lcn = run->lcn + (logical_cluster - cumulative);
                     if (physical_lcn < run->lcn)
-                        write_status = PROS_NTFS_EOVERFLOW;
-            goto write_fail;
+                        return PROS_NTFS_EOVERFLOW;
                     sparse = run->sparse;
                     found = 1u;
                     break;
@@ -880,10 +877,8 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
                 return PROS_NTFS_EOVERFLOW;
             cumulative += run->clusters;
         }
-        if (!found || sparse) {
-            write_status = PROS_NTFS_EIO;
-            goto write_fail;
-        }
+        if (!found || sparse)
+            return PROS_NTFS_EIO;
 
         sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
         in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
@@ -1282,13 +1277,17 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         lba += sector_index;
 
         if (block_device_read(fs->mount.device, lba, 1u, growth_sector) !=
-            PROS_BLOCK_OK)
-            return PROS_NTFS_EIO;
+            PROS_BLOCK_OK) {
+            write_status = PROS_NTFS_EIO;
+            goto write_fail;
+        }
         for (uint32_t i = 0u; i < take; ++i)
             growth_sector[in_sector + i] = 0u;
         if (block_device_write(fs->mount.device, lba, 1u, growth_sector) !=
-            PROS_BLOCK_OK)
-            return PROS_NTFS_EIO;
+            PROS_BLOCK_OK) {
+            write_status = PROS_NTFS_EIO;
+            goto write_fail;
+        }
 
         file_offset += take;
     }
@@ -1307,14 +1306,18 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             if (logical_cluster < cumulative + runs[r].clusters) {
                 physical_lcn = runs[r].lcn +
                                logical_cluster - cumulative;
-                if (physical_lcn < runs[r].lcn)
-                    return PROS_NTFS_EOVERFLOW;
+                if (physical_lcn < runs[r].lcn) {
+                    write_status = PROS_NTFS_EOVERFLOW;
+                    goto write_fail;
+                }
                 sparse = runs[r].sparse;
                 found = 1u;
                 break;
             }
-            if (runs[r].clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
-                return PROS_NTFS_EOVERFLOW;
+            if (runs[r].clusters > 0xFFFFFFFFFFFFFFFFull - cumulative) {
+                write_status = PROS_NTFS_EOVERFLOW;
+                goto write_fail;
+            }
             cumulative += runs[r].clusters;
         }
         if (!found || sparse) {
@@ -1328,21 +1331,27 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         if (take > size - copied)
             take = size - copied;
         if (sector_index >= fs->sectors_per_cluster ||
-            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
-            return PROS_NTFS_EIO;
+            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK) {
+            write_status = PROS_NTFS_EIO;
+            goto write_fail;
+        }
         lba += sector_index;
 
         if (in_sector != 0u || take != fs->bytes_per_sector) {
             if (block_device_read(fs->mount.device, lba, 1u, data_sector) !=
-                PROS_BLOCK_OK)
-                return PROS_NTFS_EIO;
+                PROS_BLOCK_OK) {
+                write_status = PROS_NTFS_EIO;
+                goto write_fail;
+            }
         }
         for (uint32_t i = 0u; i < take; ++i)
             data_sector[in_sector + i] = input[copied + i];
 
         if (block_device_write(fs->mount.device, lba, 1u, data_sector) !=
-            PROS_BLOCK_OK)
-            return PROS_NTFS_EIO;
+            PROS_BLOCK_OK) {
+            write_status = PROS_NTFS_EIO;
+            goto write_fail;
+        }
 
         copied += take;
         file_offset += take;
@@ -1384,8 +1393,9 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             if (type == 0xFFFFFFFFu)
                 break;
             if (len < 16u || pos + len > fs->bytes_per_file_record)
-                return PROS_NTFS_ECORRUPT;
-            if (type == 0x30u && record[pos + 8u] == 0u) {
+                write_status = PROS_NTFS_ECORRUPT;
+                goto write_fail;
+            if (type == 0x30u; && record[pos + 8u] == 0u) {
                 uint32_t value_offset = le16(record + pos + 20u);
                 uint32_t value_length = le32(record + pos + 16u);
                 if (value_offset < 66u ||
