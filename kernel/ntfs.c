@@ -511,7 +511,7 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
     static uint8_t bitmap_chunk[4096];
     uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     const uint8_t *runlist;
-    uint32_t attr_offset, runlist_size;
+    uint32_t attr_offset, runlist_size, run_count;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
     uint64_t bitmap_size, total_clusters;
     uint64_t scan_lcn = 0u;
