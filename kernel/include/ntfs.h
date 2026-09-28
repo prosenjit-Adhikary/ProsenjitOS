@@ -56,6 +56,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
 int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
                                    uint64_t cluster_count,
                                    uint64_t *first_lcn);
+int ntfs_mft_allocate_record(struct pros_ntfs *fs,
+                              uint64_t *record_number);
 int ntfs_bootstrap_mft(struct pros_ntfs *fs);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
 
