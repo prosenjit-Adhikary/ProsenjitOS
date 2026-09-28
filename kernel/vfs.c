@@ -709,16 +709,6 @@ static int vfs_vnode_api_selftest(void)
 
 static uint8_t vfs_probe_test_sector[512];
 
-static int vfs_probe_test_read(struct pros_block_device *device,
-                               uint64_t lba, uint32_t count, void *buffer)
-{
-    (void)device;
-    if (!buffer || lba != 0u || count != 1u)
-        return PROS_BLOCK_EINVAL;
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        ((uint8_t *)buffer)[i] = vfs_probe_test_sector[i];
-    return PROS_BLOCK_OK;
-}
 
 static uint8_t vfs_probe_test_disk[3u * 512u];
 
