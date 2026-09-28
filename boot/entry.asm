@@ -354,16 +354,22 @@ page_directory: resb 4096
                 resb 4096
 
 align 16
+global stack_bottom
+global stack_top
 stack_bottom:
     resb 16384
 stack_top:
 
 align 16
+global ist1_stack_bottom
+global ist1_stack_top
 ist1_stack_bottom:
     resb 8192
 ist1_stack_top:
 
 align 16
+global ist2_stack_bottom
+global ist2_stack_top
 ist2_stack_bottom:
     resb 8192
 ist2_stack_top:
