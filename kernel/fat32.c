@@ -572,7 +572,58 @@ static int fat32_vfs_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
 static int fat32_vfs_close(struct pros_vfs_file *);
 static const struct pros_vfs_file_ops fat32_vfs_ops = { .read = fat32_vfs_read, .close = fat32_vfs_close };
 
-static int fat32_vfs_lookup(struct pros_vfs_vnode *parent, const char *name, struct pros_vfs_vnode **result);
+static int fat32_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
+                              struct pros_vfs_vnode **result)
+{
+    struct pros_fat32_vfs_node *dir;
+    struct pros_fat32 *fs;
+    struct pros_fat32_dirent found;
+    if (!parent || !name || !result ||
+        parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    dir = (struct pros_fat32_vfs_node *)parent->private_data;
+    fs = dir ? (struct pros_fat32 *)parent->mount->private_data : 0;
+    if (!fs)
+        return PROS_VFS_EINVAL;
+    if (fat32_find(fs, dir->entry.first_cluster, name, &found) !=
+        PROS_FAT32_OK)
+        return PROS_VFS_ENOENT;
+    for (uint32_t i = 0; i < PROS_FAT32_VFS_NODE_MAX; ++i) {
+        struct pros_fat32_vfs_node *node = &fs->vfs_nodes[i];
+        if (node->used && node->vnode.parent == parent &&
+            fat32_name_equal(node->entry.name, found.name)) {
+            vfs_vnode_get(&node->vnode);
+            *result = &node->vnode;
+            return PROS_VFS_OK;
+        }
+    }
+    for (uint32_t i = 1; i < PROS_FAT32_VFS_NODE_MAX; ++i) {
+        struct pros_fat32_vfs_node *node = &fs->vfs_nodes[i];
+        if (node->used)
+            continue;
+        node->used = 1u;
+        node->entry = found;
+        node->directory_cluster = (found.attributes & 0x10u) ?
+                                  found.first_cluster : dir->entry.first_cluster;
+        if (vfs_vnode_init(&node->vnode, &fs->mount, parent,
+                           (found.attributes & 0x10u) ?
+                           PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE,
+                           &fat32_vfs_vnode_ops,
+                           &fat32_vfs_ops, node, found.size) != PROS_VFS_OK) {
+            node->used = 0u;
+            return PROS_VFS_EIO;
+        }
+        *result = &node->vnode;
+        return PROS_VFS_OK;
+    }
+    return PROS_VFS_EBUSY;
+}
+
+static const struct pros_vfs_vnode_ops fat32_vfs_vnode_ops = {
+    .lookup = fat32_vfs_lookup,
+    .readdir = fat32_vfs_readdir
+};
+
 static int fat32_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie, struct pros_vfs_dirent *entry)
 {
     struct pros_fat32_vfs_node *dir;
