@@ -77,7 +77,7 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
         le64(&boot[56]) >= le64(&boot[40]))
         return PROS_NTFS_ECORRUPT;
 
-    if (vfs_mount_init(&fs->mount, PROS_FS_NTFS, device, fs, 1u) !=
+    if (vfs_mount_init(&fs->mount, PROS_FS_NTFS, device, fs, device->write ? 0u : 1u) !=
         PROS_VFS_OK)
         return PROS_NTFS_EINVAL;
 
@@ -493,6 +493,251 @@ int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
     }
 
     *bytes_read = copied;
+    return PROS_NTFS_OK;
+}
+
+
+static int ntfs_write_file_record(struct pros_ntfs *fs,
+                                      uint64_t record_number,
+                                      uint8_t *record)
+{
+    uint16_t usa_offset, usa_count;
+    uint16_t sequence;
+    uint64_t byte_offset;
+    uint64_t cluster_bytes;
+
+    if (!fs || !record || fs->bytes_per_file_record == 0u ||
+        fs->bytes_per_sector == 0u ||
+        fs->bytes_per_file_record % fs->bytes_per_sector != 0u)
+        return PROS_NTFS_EINVAL;
+
+    if (record[0] != 'F' || record[1] != 'I' ||
+        record[2] != 'L' || record[3] != 'E')
+        return PROS_NTFS_ECORRUPT;
+
+    usa_offset = le16(record + 4u);
+    usa_count = le16(record + 6u);
+    if (usa_count < 2u ||
+        (uint32_t)usa_offset + (uint32_t)usa_count * 2u >
+            fs->bytes_per_file_record)
+        return PROS_NTFS_ECORRUPT;
+
+    if ((uint32_t)usa_count !=
+        fs->bytes_per_file_record / fs->bytes_per_sector + 1u)
+        return PROS_NTFS_ECORRUPT;
+
+    sequence = le16(record + usa_offset);
+    if (sequence == 0xFFFFu)
+        sequence = 1u;
+    else
+        ++sequence;
+    record[usa_offset] = (uint8_t)sequence;
+    record[usa_offset + 1u] = (uint8_t)(sequence >> 8);
+
+    for (uint32_t i = 1u; i < usa_count; ++i) {
+        uint32_t end = i * fs->bytes_per_sector - 2u;
+        record[end] = (uint8_t)sequence;
+        record[end + 1u] = (uint8_t)(sequence >> 8);
+    }
+
+    byte_offset = record_number * (uint64_t)fs->bytes_per_file_record;
+    if (record_number > 0xFFFFFFFFFFFFFFFFull /
+                        fs->bytes_per_file_record)
+        return PROS_NTFS_EOVERFLOW;
+
+    cluster_bytes = (uint64_t)fs->bytes_per_sector *
+                    fs->sectors_per_cluster;
+    if (cluster_bytes == 0u)
+        return PROS_NTFS_EOVERFLOW;
+
+    uint32_t written = 0u;
+    while (written < fs->bytes_per_file_record) {
+        uint64_t logical_cluster = byte_offset / cluster_bytes;
+        uint64_t cluster_offset = byte_offset % cluster_bytes;
+        uint64_t cumulative = 0u, physical_lcn = 0u;
+        uint8_t found = 0u, sparse = 0u;
+        uint32_t sector_index, in_sector, take;
+        uint64_t lba;
+
+        for (uint32_t r = 0u; r < fs->mft_run_count; ++r) {
+            const struct pros_ntfs_run *run = &fs->mft_runs[r];
+            if (logical_cluster < cumulative + run->clusters) {
+                physical_lcn = run->lcn + logical_cluster - cumulative;
+                if (physical_lcn < run->lcn)
+                    return PROS_NTFS_EOVERFLOW;
+                sparse = run->sparse;
+                found = 1u;
+                break;
+            }
+            if (run->clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
+                return PROS_NTFS_EOVERFLOW;
+            cumulative += run->clusters;
+        }
+        if (!found || sparse)
+            return PROS_NTFS_EIO;
+
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        take = fs->bytes_per_sector - in_sector;
+        if (take > fs->bytes_per_file_record - written)
+            take = fs->bytes_per_file_record - written;
+        if (in_sector != 0u || take != fs->bytes_per_sector)
+            return PROS_NTFS_ECORRUPT;
+
+        if (ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK ||
+            sector_index >= fs->sectors_per_cluster)
+            return PROS_NTFS_EIO;
+        lba += sector_index;
+        if (block_device_write(fs->mount.device, lba, 1u,
+                               record + written) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
+
+        written += take;
+        byte_offset += take;
+    }
+
+    return PROS_NTFS_OK;
+}
+
+int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
+                    uint64_t offset, const void *buffer, uint32_t size,
+                    uint32_t *bytes_written)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    const uint8_t *input = (const uint8_t *)buffer;
+    const uint8_t *runlist;
+    uint32_t runlist_size, run_count, attr_offset, attr_length;
+    uint64_t real_size;
+    struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+
+    if (!fs || !buffer || !bytes_written || size == 0u ||
+        fs->bytes_per_file_record > sizeof(record) ||
+        !fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device->write)
+        return PROS_NTFS_EINVAL;
+    *bytes_written = 0u;
+
+    if (ntfs_read_file_record(fs, record_number, record, sizeof(record)) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
+                            &attr_offset) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    attr_length = le32(record + attr_offset + 4u);
+    if (attr_length < 24u ||
+        attr_offset + attr_length > fs->bytes_per_file_record ||
+        record[attr_offset + 9u] != 0u)
+        return PROS_NTFS_ECORRUPT;
+
+    /*
+     * This first write milestone is deliberately overwrite-only: it never
+     * changes file length or allocates clusters. This keeps the metadata
+     * transaction small until NTFS bitmap/MFT/index/journal support exists.
+     */
+    if (record[attr_offset + 12u] != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    if (record[attr_offset + 8u] == 0u) {
+        const uint8_t *data;
+        uint32_t data_size;
+        if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                attr_offset, &data, &data_size) !=
+            PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        if (offset > data_size ||
+            (uint64_t)size > (uint64_t)data_size - offset)
+            return PROS_NTFS_EOVERFLOW;
+
+        for (uint32_t i = 0u; i < size; ++i)
+            ((uint8_t *)data)[(uint32_t)offset + i] = input[i];
+
+        if (ntfs_write_file_record(fs, record_number, record) !=
+            PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        *bytes_written = size;
+        return PROS_NTFS_OK;
+    }
+
+    if (record[attr_offset + 8u] != 1u || attr_length < 64u)
+        return PROS_NTFS_ECORRUPT;
+    if (le64(record + attr_offset + 16u) != 0u ||
+        le16(record + attr_offset + 12u) != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    real_size = le64(record + attr_offset + 48u);
+    if (offset > real_size ||
+        (uint64_t)size > real_size - offset)
+        return PROS_NTFS_EOVERFLOW;
+
+    if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
+                               attr_offset, &runlist, &runlist_size) !=
+        PROS_NTFS_OK ||
+        ntfs_decode_runlist(runlist, runlist_size, runs,
+                            PROS_NTFS_MFT_RUN_MAX, &run_count) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    uint32_t cluster_bytes = fs->bytes_per_sector *
+                             fs->sectors_per_cluster;
+    if (cluster_bytes == 0u || fs->bytes_per_sector > 4096u)
+        return PROS_NTFS_EINVAL;
+
+    uint64_t file_offset = offset;
+    uint32_t copied = 0u;
+    while (copied < size) {
+        uint64_t logical_cluster = file_offset / cluster_bytes;
+        uint64_t cluster_offset = file_offset % cluster_bytes;
+        uint64_t cumulative = 0u, physical_lcn = 0u;
+        uint8_t found = 0u, sparse = 0u;
+        uint32_t sector_index, in_sector, take;
+        uint64_t lba;
+        uint8_t sector[4096];
+
+        for (uint32_t r = 0u; r < run_count; ++r) {
+            if (logical_cluster < cumulative + runs[r].clusters) {
+                physical_lcn = runs[r].lcn +
+                               logical_cluster - cumulative;
+                if (physical_lcn < runs[r].lcn)
+                    return PROS_NTFS_EOVERFLOW;
+                sparse = runs[r].sparse;
+                found = 1u;
+                break;
+            }
+            if (runs[r].clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
+                return PROS_NTFS_EOVERFLOW;
+            cumulative += runs[r].clusters;
+        }
+        if (!found || sparse)
+            return PROS_NTFS_EIO;
+
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        take = fs->bytes_per_sector - in_sector;
+        if (take > size - copied)
+            take = size - copied;
+        if (sector_index >= fs->sectors_per_cluster ||
+            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        lba += sector_index;
+
+        if (in_sector != 0u || take != fs->bytes_per_sector) {
+            if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                PROS_BLOCK_OK)
+                return PROS_NTFS_EIO;
+        }
+        for (uint32_t i = 0u; i < take; ++i)
+            sector[in_sector + i] = input[copied + i];
+
+        if (block_device_write(fs->mount.device, lba, 1u, sector) !=
+            PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
+
+        copied += take;
+        file_offset += take;
+    }
+
+    *bytes_written = copied;
     return PROS_NTFS_OK;
 }
 
@@ -1422,8 +1667,32 @@ static int ntfs_vfs_read(struct pros_vfs_file *file, uint32_t offset,
     return (int)got;
 }
 
+static int ntfs_vfs_write(struct pros_vfs_file *file, uint32_t offset,
+                          uint32_t length, const void *buffer)
+{
+    struct pros_ntfs_vfs_node *node;
+    uint32_t written = 0u;
+    int rc;
+
+    if (!file || !file->mount || !buffer)
+        return PROS_VFS_EINVAL;
+    node = (struct pros_ntfs_vfs_node *)file->private_data;
+    if (!node || node->vnode.type != PROS_VFS_NODE_FILE)
+        return PROS_VFS_EINVAL;
+    rc = ntfs_file_write((struct pros_ntfs *)file->mount->private_data,
+                         node->record_number, offset, buffer, length,
+                         &written);
+    if (rc != PROS_NTFS_OK)
+        return rc == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
+               (rc == PROS_NTFS_EOVERFLOW ? PROS_VFS_EOVERFLOW :
+                rc == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOSYS :
+                PROS_VFS_EIO);
+    return (int)written;
+}
+
 static const struct pros_vfs_file_ops ntfs_vfs_file_ops = {
     .read = ntfs_vfs_read,
+    .write = ntfs_vfs_write,
     .close = ntfs_vfs_close
 };
 
