@@ -191,6 +191,9 @@ section .user_text
 align 16
 global user_test_entry
 user_test_entry:
+    ; Preserve the initial IPC capability before exercising syscall arguments.
+    mov r12, rdi
+
     ; Write a marker through the isolated user mapping.
     mov rdx, 0x0000008000001000
     mov byte [rdx], 0x5A
@@ -232,10 +235,8 @@ user_test_entry:
     jne .user_halt
 
     ; Capability duplication must attenuate authority:
-    ; READ succeeds, while WRITE must be rejected because the source handle
-    ; does not carry WRITE.
-    mov r12, rdi
-
+    ; READ succeeds, while ADMIN must be rejected because the source handle
+    ; does not carry ADMIN.
     mov rax, 4
     mov rdi, r12
     mov rsi, 1                  ; PROSENJIT_CAP_READ
@@ -250,9 +251,39 @@ user_test_entry:
     mov r13, rax
     mov rax, 4
     mov rdi, r12
-    mov rsi, 2                  ; PROSENJIT_CAP_WRITE
+    mov rsi, 32                 ; PROSENJIT_CAP_ADMIN
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
+    ; Send a short message through the capability-mediated IPC syscall.
+    mov byte [rdx + 1], 'I'
+    mov byte [rdx + 2], 'P'
+    mov byte [rdx + 3], 'C'
+    mov rax, 5
+    mov rdi, r12
+    lea rsi, [rdx + 1]
+    mov rdx, 3
+    int 0x80
+    test rax, rax
+    jnz .user_halt
+
+    ; Receive it back and have the kernel write the message length to user memory.
+    mov rax, 6
+    mov rdi, r12
+    lea rsi, [rdx + 32]
+    mov rdx, 64
+    lea rcx, [rdx + 16]
+    int 0x80
+    cmp rax, 3
+    jne .user_halt
+    cmp dword [rdx + 16], 3
+    jne .user_halt
+    cmp byte [rdx + 32], 'I'
+    jne .user_halt
+    cmp byte [rdx + 33], 'P'
+    jne .user_halt
+    cmp byte [rdx + 34], 'C'
     jne .user_halt
 
     ; Close the duplicated READ-only capability.
