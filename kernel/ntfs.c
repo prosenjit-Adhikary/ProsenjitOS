@@ -475,8 +475,6 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
     if (!record || !name_utf16le || !file_reference || name_length == 0u)
         return PROS_NTFS_EINVAL;
     want_bytes = (uint8_t)(name_length * 2u);
-    if (name_length > 255u)
-        return PROS_NTFS_EINVAL;
     if (ntfs_index_root_header(record, record_size, attr_offset, &root) !=
         PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
