@@ -1330,13 +1330,13 @@ int ntfs_selftest(void)
             disk.index_record[511u + i * 512u] = 0x12u;
         }
         disk.index_record[16u] = 0u;
-        disk.index_record[24u] = 24u;
-        disk.index_record[28u] = 144u;
-        disk.index_record[32u] = 144u;
+        disk.index_record[24u] = 40u;
+        disk.index_record[28u] = 152u;
+        disk.index_record[32u] = 152u;
         disk.index_record[36u] = 0u;
 
         {
-            uint32_t entry = 48u;
+            uint32_t entry = 64u;
             uint32_t terminal = entry + 96u;
             disk.index_record[entry + 0u] = 0x00u;
             disk.index_record[entry + 1u] = 0x30u;
@@ -1354,8 +1354,8 @@ int ntfs_selftest(void)
         if (ntfs_index_record_header(disk.index_record,
                                      sizeof(disk.index_record), 512u, 0u,
                                      &index_info) != PROS_NTFS_OK ||
-            index_info.first_entry_offset != 48u ||
-            index_info.entries_size != 168u)
+            index_info.first_entry_offset != 64u ||
+            index_info.entries_size != 176u)
             return -113;
 
         if (ntfs_index_allocation_lookup(&fs, lookup_record,
