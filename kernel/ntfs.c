@@ -2129,7 +2129,7 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 56u || sector == 57u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_record[(sector - 56u) * 512u + i] = src[i];
-        } else if (sector >= 336u && sector < 352u) {
+        } else if (sector >= 336u && sector < 360u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_data[(sector - 336u) * 512u + i] = src[i];
         } else if (sector == 44u || sector == 45u) {
