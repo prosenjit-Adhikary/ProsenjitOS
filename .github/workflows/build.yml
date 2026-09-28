@@ -49,9 +49,9 @@ jobs:
           grep -q "ProsenjitOS: process lifecycle/parent/exit-wait test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process state validation regression passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process resource cleanup regression passed" build/qemu-serial.log
-grep -q "ProsenjitOS: IPC channel/capability foundation test passed" build/qemu-serial.log
-grep -q "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" build/qemu-serial.log
-grep -q "ProsenjitOS: IPC wait-queue block/wakeup test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: IPC channel/capability foundation test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: IPC wait-queue block/wakeup test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: thread lifecycle/run-queue scheduler test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: interrupt-frame scheduler save/restore test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: duplicate authorization attenuation test passed" build/qemu-serial.log
