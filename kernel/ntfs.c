@@ -4694,7 +4694,7 @@ int ntfs_selftest(void)
             if (ntfs_file_read(&fs, 11u, 1u, file_data, 3u,
                                &file_bytes) != PROS_NTFS_OK ||
                 file_bytes != 3u ||
-                file_data[0] != 'e' || file_data[1] != 'l' ||
+                file_data[0] != 'y' || file_data[1] != 'e' ||
                 file_data[2] != 'l')
                 return -184;
             if (ntfs_file_read(&fs, 11u, 99u, file_data, 1u,
