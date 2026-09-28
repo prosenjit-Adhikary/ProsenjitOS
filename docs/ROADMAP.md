@@ -104,7 +104,7 @@
 - [ ] VFS
   - [x] VFS mount object foundation
   - [x] Filesystem type contract for FAT32/exFAT/NTFS/ProsenjitFS
-  - [ ] Path, vnode/inode, file and directory APIs
+  - [x] Path, vnode/inode, file and directory APIs
   - [ ] Filesystem probe and partition integration
 - [ ] FAT32 filesystem support
   - [x] Read-only FAT32 BPB mount/parser foundation
