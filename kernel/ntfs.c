@@ -1005,7 +1005,7 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
 
 int ntfs_selftest(void)
 {
-    struct ntfs_test_disk disk = {0};
+    static struct ntfs_test_disk disk;
     struct pros_block_device device;
     struct pros_ntfs fs = {0};
     uint64_t lba = 0;
