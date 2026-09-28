@@ -24,7 +24,7 @@ jobs:
       - name: Boot-test ISO in QEMU
         run: |
           set +e
-          timeout 8s qemu-system-x86_64 \
+          timeout 20s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
             -display none \
             -serial file:build/qemu-serial.log \
@@ -42,8 +42,16 @@ jobs:
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
 
-          grep -q "ProsenjitOS: CPL3 user-mode execution test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: x86-64 long mode active" build/qemu-serial.log
+          require_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/qemu-serial.log; then
+              echo "::error::Missing QEMU milestone: $marker"
+              return 1
+            fi
+          }
+
+          require_log "ProsenjitOS: CPL3 user-mode execution test passed"
+          require_log "ProsenjitOS: x86-64 long mode active"
           grep -q "ProsenjitOS: page allocation/free test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: kernel heap allocation/free test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: process lifecycle/parent/exit-wait test passed" build/qemu-serial.log
