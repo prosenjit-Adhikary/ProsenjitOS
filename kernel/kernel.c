@@ -519,7 +519,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
-    serial_write("ProsenjitOS: NTFS FILE_NAME/INDEX_ROOT parsing test passed\n");
+    serial_write("ProsenjitOS: NTFS directory lookup test passed\n");
 
     /*
      * Regression guard for CPL3 HANDLE_DUP authorization: DUPLICATE is the
