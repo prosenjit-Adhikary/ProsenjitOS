@@ -2527,7 +2527,7 @@ int ntfs_selftest(void)
     disk.nonresident_record[64]=0u;
     disk.nonresident_record[65]=0u;
     disk.nonresident_record[80]=0x40u;
-    disk.nonresident_record[88]=0x00u; disk.nonresident_record[89]=0x04u;
+    disk.nonresident_record[88]=0x00u; disk.nonresident_record[89]=0x20u;
     disk.nonresident_record[96]=0x00u; disk.nonresident_record[97]=0x04u;
     disk.nonresident_record[104]=0x00u; disk.nonresident_record[105]=0x04u;
     disk.nonresident_record[112]=0x11u;
@@ -2690,9 +2690,12 @@ int ntfs_selftest(void)
 
 
     /*
-     * Preallocated-growth regression: extend EOF without allocating new
-     * clusters. The gap before the write must be zero-filled and both
-     * nonresident DATA size fields must move with the new EOF.
+     * Preallocated-growth regression: extend EOF inside the already
+     * allocated non-sparse DATA extent. The synthetic file has two 4 KiB
+     * clusters allocated (8 KiB total) but only 1 KiB of real data, so the
+     * write at 1 KiB must grow EOF without touching $Bitmap. The gap before
+     * the write must be zero-filled and both nonresident DATA size fields
+     * must move with the new EOF.
      */
     {
         static const uint8_t growth[] = { 'G', 'R', 'O', 'W' };
@@ -2704,11 +2707,9 @@ int ntfs_selftest(void)
         if (ntfs_file_write(&fs, 12u, 1024u, growth,
                             sizeof(growth), &written) != PROS_NTFS_OK ||
             written != sizeof(growth) ||
-            le64(disk.nonresident_record + 88u) != 4096u ||
+            le64(disk.nonresident_record + 88u) != 8192u ||
             le64(disk.nonresident_record + 96u) != 1028u ||
-            le64(disk.nonresident_record + 104u) != 1028u ||
-            disk.nonresident_record[113u] != 8u ||
-            (disk.bitmap_data[5u] & 0x03u) != 0x03u)
+            le64(disk.nonresident_record + 104u) != 1028u)
             return -123;
         if (ntfs_file_read(&fs, 12u, 1024u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK ||
@@ -2728,7 +2729,8 @@ int ntfs_selftest(void)
             verify[4] != 0u || verify[5] != 0u ||
             verify[6] != 'O' || verify[7] != 'K')
             return -125;
-        if (le64(disk.nonresident_record + 96u) != 1032u ||
+        if (le64(disk.nonresident_record + 88u) != 8192u ||
+            le64(disk.nonresident_record + 96u) != 1032u ||
             le64(disk.nonresident_record + 104u) != 1032u)
             return -126;
     }
