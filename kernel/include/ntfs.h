@@ -12,6 +12,8 @@
 #define PROS_NTFS_EOVERFLOW -5
 #define PROS_NTFS_MFT_RUN_MAX 16u
 
+struct pros_ntfs_run { uint64_t lcn; uint64_t clusters; uint8_t sparse; };
+
 struct pros_ntfs {
     struct pros_vfs_mount mount;
     uint32_t bytes_per_sector;
@@ -21,9 +23,7 @@ struct pros_ntfs {
     uint64_t mftmirr_lcn;
     uint32_t clusters_per_file_record;
     uint32_t bytes_per_file_record;
-    struct pros_ntfs_run mft_runs[PROS_NTFS_MFT_RUN_MAX];
-    uint32_t mft_run_count;
-};
+    
 
 struct pros_ntfs_run { uint64_t lcn; uint64_t clusters; uint8_t sparse; };
 
