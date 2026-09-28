@@ -742,7 +742,8 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                                                uint64_t *first_lcn)
 {
     static uint8_t bitmap_chunk[4096];
-    uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    /* Keep the large MFT record workspace out of the kernel stack. */
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     const uint8_t *runlist;
     uint32_t attr_offset, runlist_size, run_count;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
