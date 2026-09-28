@@ -2198,10 +2198,8 @@ int ntfs_selftest(void)
         if (ntfs_file_write(&fs, 12u, 1024u, growth,
                             sizeof(growth), &written) != PROS_NTFS_OK ||
             written != sizeof(growth) ||
-            disk.nonresident_record[96u] != 0x00u ||
-            disk.nonresident_record[97u] != 0x04u ||
-            disk.nonresident_record[104u] != 0x00u ||
-            disk.nonresident_record[105u] != 0x04u)
+            le64(disk.nonresident_record + 96u) != 1028u ||
+            le64(disk.nonresident_record + 104u) != 1028u)
             return -123;
         if (ntfs_file_read(&fs, 12u, 1024u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK ||
@@ -2221,8 +2219,8 @@ int ntfs_selftest(void)
             verify[4] != 0u || verify[5] != 0u ||
             verify[6] != 'O' || verify[7] != 'K')
             return -125;
-        if (le64(disk.nonresident_record + 96u) != 4096u ||
-            le64(disk.nonresident_record + 104u) != 4096u)
+        if (le64(disk.nonresident_record + 96u) != 1032u ||
+            le64(disk.nonresident_record + 104u) != 1032u)
             return -126;
     }
 
