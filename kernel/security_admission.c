@@ -37,12 +37,17 @@ int pros_file_admission_selftest(void) {
             .signature_present = 1,
             .local_trusted = 0,
             .local_denied = 0,
-            .reputation = PROS_FILE_REPUTATION_UNAVAILABLE,
+            .reputation = PROS_FILE_REPUTATION_CLEAN,
             .provenance_known = 1
         }
     };
     struct pros_file_admission_record record;
 
+    /*
+     * The provider layer has its own isolated selftest and restores its
+     * registry state. Keep this admission selftest independent of provider
+     * registration order while still exercising the admission evaluator.
+     */
     if (pros_file_admission_evaluate(&input, &record) != 0)
         return -1;
     if (record.security.state != PROS_FILE_VERIFIED ||
