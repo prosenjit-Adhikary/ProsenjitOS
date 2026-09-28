@@ -130,7 +130,11 @@ enum pros_security_decision security_authorize(
          * to perform the operation. The source handle must therefore carry
          * both DUPLICATE and every right requested for the new handle.
          */
-        if (intent->operation == PROS_INTENT_DUPLICATE) {
+        if (intent->operation == PROS_INTENT_DUPLICATE ||
+            intent->operation == PROS_INTENT_TRANSFER) {
+            /* DUPLICATE and TRANSFER are operation authorities. The
+             * requested rights are the attenuated rights of the new handle;
+             * the source capability must also carry the operation right. */
             if (required == 0) {
                 reason = PROS_REASON_POLICY_RESTRICTED;
                 goto record;
