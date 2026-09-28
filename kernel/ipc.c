@@ -100,9 +100,13 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
 }
 
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread) {
-    if (!ipc_channel_valid(channel) || !thread || channel->waiter_count >= PROSENJIT_IPC_CAPACITY)
+    if (!ipc_channel_valid(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
     ipc_lock(channel);
+    if (channel->waiter_count >= PROSENJIT_IPC_CAPACITY) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->count != 0) {
         ipc_unlock(channel);
         return PROSENJIT_IPC_OK;
