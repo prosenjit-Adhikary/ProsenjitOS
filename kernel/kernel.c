@@ -1097,14 +1097,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * ownership yet.
      */
     if (pci_selftest() != PROS_PCI_OK) {
-        serial_write("ProsenjitOS: ERROR PCI configuration self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR PCI configuration self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     {
         struct pros_pci_device pci_devices[PROS_PCI_MAX_DEVICES];
         uint32_t pci_count = 0u;
         if (pci_scan(pci_devices, PROS_PCI_MAX_DEVICES, &pci_count) != PROS_PCI_OK) {
-            serial_write("ProsenjitOS: ERROR PCI enumeration failed\\n");
+            serial_write("ProsenjitOS: ERROR PCI enumeration failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: PCI enumeration passed; devices = ");
