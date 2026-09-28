@@ -215,8 +215,7 @@ int exfat_file_read(const struct pros_exfat *fs, uint32_t first_cluster,
 
     cluster_bytes = (uint64_t)fs->bytes_per_sector *
                     fs->sectors_per_cluster;
-    if (data_length > 0u &&
-        data_length > 0xFFFFFFFFFFFFFFFFull - cluster_bytes + 1u)
+    if (data_length > UINT64_MAX - (cluster_bytes - 1u))
         return PROS_EXFAT_ECORRUPT;
     clusters_required = (data_length + cluster_bytes - 1u) / cluster_bytes;
     if (clusters_required == 0u ||
