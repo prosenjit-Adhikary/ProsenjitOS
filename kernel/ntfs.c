@@ -2183,6 +2183,50 @@ int ntfs_selftest(void)
     }
 
 
+    /*
+     * Preallocated-growth regression: extend EOF without allocating new
+     * clusters. The gap before the write must be zero-filled and both
+     * nonresident DATA size fields must move with the new EOF.
+     */
+    {
+        static const uint8_t growth[] = { 'G', 'R', 'O', 'W' };
+        static const uint8_t second[] = { 'O', 'K' };
+        static uint8_t verify[16];
+        uint32_t written = 0u;
+        uint32_t read_back = 0u;
+
+        if (ntfs_file_write(&fs, 12u, 1024u, growth,
+                            sizeof(growth), &written) != PROS_NTFS_OK ||
+            written != sizeof(growth) ||
+            disk.nonresident_record[96u] != 0x00u ||
+            disk.nonresident_record[97u] != 0x04u ||
+            disk.nonresident_record[104u] != 0x00u ||
+            disk.nonresident_record[105u] != 0x04u)
+            return -123;
+        if (ntfs_file_read(&fs, 12u, 1024u, verify, sizeof(verify),
+                           &read_back) != PROS_NTFS_OK ||
+            read_back != sizeof(growth) ||
+            verify[0] != 'G' || verify[1] != 'R' ||
+            verify[2] != 'O' || verify[3] != 'W')
+            return -124;
+
+        if (ntfs_file_write(&fs, 12u, 1030u, second,
+                            sizeof(second), &written) != PROS_NTFS_OK ||
+            written != sizeof(second) ||
+            ntfs_file_read(&fs, 12u, 1024u, verify, 8u,
+                           &read_back) != PROS_NTFS_OK ||
+            read_back != 8u ||
+            verify[0] != 'G' || verify[1] != 'R' ||
+            verify[2] != 'O' || verify[3] != 'W' ||
+            verify[4] != 0u || verify[5] != 0u ||
+            verify[6] != 'O' || verify[7] != 'K')
+            return -125;
+        if (le64(disk.nonresident_record + 96u) != 4096u ||
+            le64(disk.nonresident_record + 104u) != 4096u)
+            return -126;
+    }
+
+
     for (uint32_t i=0u; i<sizeof(record); ++i) record[i]=0u;
     record[0]='F'; record[1]='I'; record[2]='L'; record[3]='E';
     record[4]=32u; record[6]=3u;
