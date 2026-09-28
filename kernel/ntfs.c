@@ -2574,8 +2574,9 @@ int ntfs_selftest(void)
     /* Mark clusters used by the synthetic metadata/data mappings. */
     for (uint32_t lcn = 0u; lcn <= 7u; ++lcn)
         disk.bitmap_data[lcn / 8u] |= (uint8_t)(1u << (lcn % 8u));
-    for (uint32_t lcn = 10u; lcn <= 46u; ++lcn)
+    for (uint32_t lcn = 10u; lcn <= 43u; ++lcn)
         disk.bitmap_data[lcn / 8u] |= (uint8_t)(1u << (lcn % 8u));
+    disk.bitmap_data[46u / 8u] |= (uint8_t)(1u << (46u % 8u));
 
     for (uint32_t i = 0u; i < sizeof(disk.upcase_record); ++i)
         disk.upcase_record[i] = 0u;
