@@ -4121,19 +4121,27 @@ int ntfs_selftest(void)
 
         disk.bitmap_data[44u / 8u] |= (uint8_t)(1u << (44u % 8u));
         if (ntfs_file_write(&fs, 12u, 8192u, fragmented,
-                            sizeof(fragmented), &written) != PROS_NTFS_OK ||
-            written != sizeof(fragmented) ||
-            le64(disk.nonresident_record + 88u) != 12288u ||
-            le64(disk.nonresident_record + 96u) != 8196u ||
-            le64(disk.nonresident_record + 104u) != 8196u ||
-            disk.nonresident_record[112u] != 0x11u ||
+                            sizeof(fragmented), &written) != PROS_NTFS_OK)
+            return -1271;
+        if (written != sizeof(fragmented))
+            return -1272;
+        if (le64(disk.nonresident_record + 88u) != 12288u)
+            return -1273;
+        if (le64(disk.nonresident_record + 96u) != 8196u)
+            return -1274;
+        if (le64(disk.nonresident_record + 104u) != 8196u)
+            return -1275;
+        if (disk.nonresident_record[112u] != 0x11u ||
             disk.nonresident_record[113u] != 2u ||
-            disk.nonresident_record[114u] != 42u ||
-            disk.nonresident_record[115u] != 0x11u ||
+            disk.nonresident_record[114u] != 42u)
+            return -1276;
+        if (disk.nonresident_record[115u] != 0x11u ||
             disk.nonresident_record[116u] != 1u ||
-            disk.nonresident_record[117u] != 43u ||
-            disk.bitmap_data[45u / 8u] == 0u)
-            return -127;
+            disk.nonresident_record[117u] != 43u)
+            return -1277;
+        if ((disk.bitmap_data[45u / 8u] &
+             (uint8_t)(1u << (45u % 8u))) == 0u)
+            return -1278;
     }
 
     /*
