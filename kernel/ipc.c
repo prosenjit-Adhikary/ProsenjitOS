@@ -1,6 +1,15 @@
 #include "ipc.h"
 #include "thread.h"
 
+static void ipc_lock(struct pros_ipc_channel *channel) {
+    while (__atomic_test_and_set(&channel->lock, __ATOMIC_ACQUIRE))
+        __asm__ volatile ("pause");
+}
+
+static void ipc_unlock(struct pros_ipc_channel *channel) {
+    __atomic_clear(&channel->lock, __ATOMIC_RELEASE);
+}
+
 static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
     return channel &&
            channel->object.type == PROS_OBJECT_IPC &&
@@ -21,6 +30,7 @@ int ipc_channel_init(struct pros_ipc_channel *channel) {
         channel->waiters[i] = 0;
     }
     channel->waiter_count = 0;
+    channel->lock = 0;
     return PROSENJIT_IPC_OK;
 }
 
@@ -29,7 +39,12 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
     if (length > PROSENJIT_IPC_MESSAGE_MAX) return PROSENJIT_IPC_EMSGSIZE;
     if (length != 0 && !data) return PROSENJIT_IPC_EINVAL;
-    if (channel->count == PROSENJIT_IPC_CAPACITY) return PROSENJIT_IPC_EFULL;
+
+    ipc_lock(channel);
+    if (channel->count == PROSENJIT_IPC_CAPACITY) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EFULL;
+    }
 
     struct pros_ipc_message *message = &channel->messages[channel->tail];
     message->length = length;
@@ -38,6 +53,7 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
 
     channel->tail = (channel->tail + 1u) % PROSENJIT_IPC_CAPACITY;
     ++channel->count;
+    ipc_unlock(channel);
     (void)ipc_channel_wake_one(channel);
     return PROSENJIT_IPC_OK;
 }
@@ -47,11 +63,22 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
                         uint32_t *length_out) {
     if (!ipc_channel_valid(channel) || !length_out)
         return PROSENJIT_IPC_EINVAL;
-    if (channel->count == 0) return PROSENJIT_IPC_EEMPTY;
+
+    ipc_lock(channel);
+    if (channel->count == 0) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EEMPTY;
+    }
 
     struct pros_ipc_message *message = &channel->messages[channel->head];
-    if (message->length > capacity) return PROSENJIT_IPC_EMSGSIZE;
-    if (message->length != 0 && !data) return PROSENJIT_IPC_EINVAL;
+    if (message->length > capacity) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EMSGSIZE;
+    }
+    if (message->length != 0 && !data) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EINVAL;
+    }
 
     for (uint32_t i = 0; i < message->length; ++i)
         ((uint8_t *)data)[i] = message->data[i];
@@ -60,6 +87,7 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
     message->length = 0;
     channel->head = (channel->head + 1u) % PROSENJIT_IPC_CAPACITY;
     --channel->count;
+    ipc_unlock(channel);
     return PROSENJIT_IPC_OK;
 }
 
@@ -74,20 +102,38 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread || channel->waiter_count >= PROSENJIT_IPC_CAPACITY)
         return PROSENJIT_IPC_EINVAL;
-    if (channel->count != 0) return PROSENJIT_IPC_OK;
-    for (uint32_t i = 0; i < channel->waiter_count; ++i)
-        if (channel->waiters[i] == thread) return PROSENJIT_IPC_EINVAL;
+    ipc_lock(channel);
+    if (channel->count != 0) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_OK;
+    }
+    for (uint32_t i = 0; i < channel->waiter_count; ++i) {
+        if (channel->waiters[i] == thread) {
+            ipc_unlock(channel);
+            return PROSENJIT_IPC_EINVAL;
+        }
+    }
+    if (thread_block(channel) != 0) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EINVAL;
+    }
     channel->waiters[channel->waiter_count++] = thread;
-    return thread_block(channel);
+    ipc_unlock(channel);
+    return PROSENJIT_IPC_OK;
 }
 
 int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
-    if (!ipc_channel_valid(channel) || channel->waiter_count == 0)
+    if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
+    ipc_lock(channel);
+    if (channel->waiter_count == 0) {
+        ipc_unlock(channel);
         return PROSENJIT_IPC_EEMPTY;
+    }
     struct pros_thread *thread = channel->waiters[0];
     for (uint32_t i = 1; i < channel->waiter_count; ++i)
         channel->waiters[i - 1] = channel->waiters[i];
     --channel->waiter_count;
     channel->waiters[channel->waiter_count] = 0;
+    ipc_unlock(channel);
     return thread_wake(thread);
 }
