@@ -1371,7 +1371,31 @@ int ntfs_selftest(void)
             return -113;
 
         {
-            int index_status = ntfs_index_allocation_lookup(
+            struct pros_ntfs_run index_runs[2] = {{0}};
+            uint32_t index_run_count = 0u;
+            static uint8_t read_index_record[4096];
+
+            if (ntfs_attribute_runlist(lookup_record, sizeof(lookup_record),
+                                        200u, &data, &data_size) !=
+                    PROS_NTFS_OK)
+                return -116;
+            if (ntfs_decode_runlist(data, data_size, index_runs, 2u,
+                                    &index_run_count) != PROS_NTFS_OK ||
+                index_run_count != 1u || index_runs[0].lcn != 5u ||
+                index_runs[0].clusters != 1u)
+                return -117;
+            if (ntfs_index_allocation_read(&fs, index_runs, index_run_count,
+                                           0u, read_index_record,
+                                           sizeof(read_index_record)) !=
+                    PROS_NTFS_OK)
+                return -118;
+            if (ntfs_index_record_header(read_index_record,
+                                         sizeof(read_index_record), 512u, 0u,
+                                         &index_info) != PROS_NTFS_OK)
+                return -119;
+
+            {
+                int index_status = ntfs_index_allocation_lookup(
                 &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
                 lookup_name, 4u, &child_reference);
             if (index_status != PROS_NTFS_OK)
