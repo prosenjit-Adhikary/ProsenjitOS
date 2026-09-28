@@ -785,6 +785,8 @@ static int vfs_probe_selftest(void)
     const char ntfs_oem[8] = {'N','T','F','S',' ',' ',' ',' '};
     for (uint32_t i = 0u; i < 8u; ++i)
         vfs_probe_test_sector[3u + i] = (uint8_t)ntfs_oem[i];
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
     if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
         type != PROS_FS_NTFS)
         return -7;
@@ -792,6 +794,8 @@ static int vfs_probe_selftest(void)
     const char exfat_oem[8] = {'E','X','F','A','T',' ',' ',' '};
     for (uint32_t i = 0u; i < 8u; ++i)
         vfs_probe_test_sector[3u + i] = (uint8_t)exfat_oem[i];
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
     if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
         type != PROS_FS_EXFAT)
         return -8;
@@ -803,18 +807,24 @@ static int vfs_probe_selftest(void)
     vfs_probe_test_sector[84] = 'T';
     vfs_probe_test_sector[85] = '3';
     vfs_probe_test_sector[86] = '2';
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
     if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
         type != PROS_FS_FAT32)
         return -9;
 
     vfs_probe_test_sector[11] = 0x00u;
     vfs_probe_test_sector[12] = 0x04u;
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
     if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
         type != PROS_FS_UNKNOWN)
         return -10;
     vfs_probe_test_sector[11] = 0x00u;
     vfs_probe_test_sector[12] = 0x02u;
     vfs_probe_test_sector[13] = 0u;
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
     if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
         type != PROS_FS_UNKNOWN)
         return -11;
