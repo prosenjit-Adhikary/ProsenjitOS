@@ -151,5 +151,29 @@ int exfat_selftest(void)
         exfat_mount(&fs,&device) != PROS_EXFAT_OK ||
         exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 32u)
         return -1;
+
+    /* Reject geometry that extends beyond the physical device. */
+    disk.boot[72] = 0x00; disk.boot[73] = 0x20; /* 8192 sectors */
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+        return -2;
+
+    /* Restore a valid volume and reject an overlapping cluster heap. */
+    disk.boot[72] = 0x00; disk.boot[73] = 0x10; /* 4096 sectors */
+    disk.boot[88] = 31u; /* heap starts before FAT end (24 + 8). */
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+        return -3;
+
+    /* Restore heap layout and reject a root cluster outside the heap. */
+    disk.boot[88] = 32u;
+    disk.boot[96] = 66u; /* cluster_count is 64; valid max is 65. */
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+        return -4;
+
+    /* Restore root cluster and reject an impossible cluster size. */
+    disk.boot[96] = 2u;
+    disk.boot[109] = 17u; /* 512-byte sectors would yield 128 KiB clusters. */
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ENOTSUP)
+        return -5;
+
     return 0;
 }
