@@ -40,6 +40,39 @@ int ntfs_attribute_data(const void *record, uint32_t record_size, uint32_t attr_
 int ntfs_attribute_runlist(const void *record, uint32_t record_size, uint32_t attr_offset, const uint8_t **runlist, uint32_t *runlist_size);
 int ntfs_bootstrap_mft(struct pros_ntfs *fs);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
+
+struct pros_ntfs_file_name {
+    uint64_t parent_reference;
+    uint64_t allocated_size;
+    uint64_t data_size;
+    uint32_t flags;
+    uint32_t reparse_tag;
+    uint8_t name_length;
+    uint8_t namespace_id;
+    const uint8_t *name_utf16le;
+};
+
+struct pros_ntfs_index_root {
+    uint32_t bytes_per_index_record;
+    uint8_t clusters_per_index_record;
+    uint32_t first_entry_offset;
+    uint32_t entries_size;
+    uint32_t allocated_size;
+    uint8_t flags;
+};
+
+int ntfs_file_name_attribute(const void *record, uint32_t record_size,
+                             uint32_t attr_offset,
+                             struct pros_ntfs_file_name *info);
+int ntfs_index_root_header(const void *record, uint32_t record_size,
+                           uint32_t attr_offset,
+                           struct pros_ntfs_index_root *info);
+int ntfs_index_root_entry(const void *record, uint32_t record_size,
+                          uint32_t attr_offset, uint32_t entry_offset,
+                          uint64_t *file_reference,
+                          const uint8_t **key, uint16_t *key_size,
+                          uint8_t *entry_flags, uint32_t *next_entry_offset);
+
 int ntfs_selftest(void);
 
 #endif
