@@ -2023,7 +2023,7 @@ int ntfs_selftest(void)
         if (ntfs_file_read(&fs, 11u, 0u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK)
             return -1133;
-        if (read_back != 3u ||
+        if (read_back != 5u ||
             verify[0] != 'B' || verify[1] != 'y' || verify[2] != 'e')
             return -1134;
         if (disk.file_record[510u] != disk.file_record[8u] ||
@@ -2548,22 +2548,38 @@ int ntfs_selftest(void)
                     PROS_VFS_OK)
                 return -187;
             if (vfs_file_read(&file, data, 5u, &got) != PROS_VFS_OK ||
-                got != 5u || data[0] != 'H' || data[1] != 'e' ||
-                data[2] != 'l' || data[3] != 'l' || data[4] != 'o')
+                got != 5u || data[0] != 'B' || data[1] != 'y' ||
+                data[2] != 'e' || data[3] != 'l' || data[4] != 'o')
                 return -188;
             if (vfs_file_read(&file, data, 1u, &got) != PROS_VFS_OK ||
                 got != 0u)
                 return -189;
             if (vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
-                vfs_file_read(&file, data, 3u, &got) != PROS_VFS_OK ||
-                got != 3u || data[0] != 'e' || data[1] != 'l' ||
-                data[2] != 'l')
+                vfs_file_read(&file, data, 2u, &got) != PROS_VFS_OK ||
+                got != 2u || data[0] != 'y' || data[1] != 'e')
                 return -190;
             if (vfs_file_close(&file) != PROS_VFS_OK ||
                 vfs_file_open(&fs.mount, "/test",
-                              PROS_VFS_O_WRITE, &file) != PROS_VFS_EPERM ||
-                vfs_vnode_put(node) != PROS_VFS_OK)
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
                 return -191;
+            {
+                static const uint8_t replacement[] = { 'O', 'K' };
+                uint32_t written = 0u;
+                if (vfs_file_write(&file, replacement,
+                                   sizeof(replacement), &written) !=
+                        PROS_VFS_OK ||
+                    written != sizeof(replacement) ||
+                    vfs_file_close(&file) != PROS_VFS_OK)
+                    return -192;
+            }
+            if (vfs_file_open(&fs.mount, "/test",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, data, 3u, &got) != PROS_VFS_OK ||
+                got != 3u || data[0] != 'O' || data[1] != 'K' ||
+                data[2] != 'e' ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_vnode_put(node) != PROS_VFS_OK)
+                return -193;
         }
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
