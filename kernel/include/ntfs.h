@@ -50,6 +50,9 @@ int ntfs_attribute_runlist(const void *record, uint32_t record_size, uint32_t at
 int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
                    uint64_t offset, void *buffer, uint32_t size,
                    uint32_t *bytes_read);
+int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
+                    uint64_t offset, const void *buffer, uint32_t size,
+                    uint32_t *bytes_written);
 int ntfs_bootstrap_mft(struct pros_ntfs *fs);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
 
