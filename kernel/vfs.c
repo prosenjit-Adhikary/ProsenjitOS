@@ -44,36 +44,64 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
     return vfs_mount_init(mount, type, &view->device, private_data, read_only);
 }
 
+static uint16_t vfs_le16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static int vfs_power_of_two(uint32_t value)
+{
+    return value != 0u && (value & (value - 1u)) == 0u;
+}
+
 int vfs_probe_filesystem(struct pros_block_device *device,
                          enum pros_filesystem_type *type)
 {
     uint8_t sector[PROS_VFS_PROBE_SECTOR_MAX];
+    uint32_t bytes_per_sector;
+    uint32_t sectors_per_cluster;
+
     if (!device || !type || device->sector_size < 512u ||
         device->sector_size > PROS_VFS_PROBE_SECTOR_MAX)
         return PROS_VFS_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_VFS_EIO;
 
-    /* FAT32: filesystem signature plus the FAT32 extended BPB fields. */
-    if (sector[510] == 0x55 && sector[511] == 0xAA &&
-        sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' &&
+    *type = PROS_FS_UNKNOWN;
+    if (sector[510] != 0x55u || sector[511] != 0xAAu)
+        return PROS_VFS_ENOSYS;
+
+    bytes_per_sector = vfs_le16(&sector[11]);
+    sectors_per_cluster = sector[13];
+    if (!vfs_power_of_two(bytes_per_sector) ||
+        bytes_per_sector != device->sector_size ||
+        bytes_per_sector > PROS_VFS_PROBE_SECTOR_MAX ||
+        !vfs_power_of_two(sectors_per_cluster))
+        return PROS_VFS_ENOSYS;
+
+    /* NTFS: OEM ID plus a sane BPB geometry. */
+    if (sector[3] == 'N' && sector[4] == 'T' && sector[5] == 'F' &&
+        sector[6] == 'S' && sector[7] == ' ' && sector[8] == ' ' &&
+        sector[9] == ' ' && sector[10] == ' ') {
+        *type = PROS_FS_NTFS;
+        return PROS_VFS_OK;
+    }
+
+    /* exFAT: the complete eight-byte OEM ID is "EXFAT   ". */
+    if (sector[3] == 'E' && sector[4] == 'X' && sector[5] == 'F' &&
+        sector[6] == 'A' && sector[7] == 'T' && sector[8] == ' ' &&
+        sector[9] == ' ' && sector[10] == ' ') {
+        *type = PROS_FS_EXFAT;
+        return PROS_VFS_OK;
+    }
+
+    /* FAT32: filesystem type label is at BPB offset 82. */
+    if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' &&
         sector[85] == '3' && sector[86] == '2') {
         *type = PROS_FS_FAT32;
         return PROS_VFS_OK;
     }
-    /* NTFS: OEM ID at BPB offset 3. */
-    if (sector[3] == 'N' && sector[4] == 'T' && sector[5] == 'F' &&
-        sector[6] == 'S' && sector[7] == ' ') {
-        *type = PROS_FS_NTFS;
-        return PROS_VFS_OK;
-    }
-    /* exFAT: OEM ID at BPB offset 3. */
-    if (sector[3] == 'E' && sector[4] == 'X' && sector[5] == 'F' &&
-        sector[6] == 'A' && sector[7] == 'T') {
-        *type = PROS_FS_EXFAT;
-        return PROS_VFS_OK;
-    }
-    *type = PROS_FS_UNKNOWN;
+
     return PROS_VFS_ENOSYS;
 }
 
