@@ -252,3 +252,8 @@ The assembly return path can select the scheduler-returned frame, send the PIC E
 ## Syscall intent authorization
 
 Handle duplication is now routed through the same intent-aware security pipeline used by kernel self-tests. The syscall validates the source handle and resolves its object type before constructing a DUPLICATE intent. The security manager then checks the requested rights against the handle capability and process policy, records the decision in the Reason Ledger, and only then permits the existing duplication primitive to execute. This keeps the syscall as a policy enforcement boundary rather than allowing the syscall dispatcher to bypass the security model.
+
+
+## IPC
+
+The kernel now has a bounded non-blocking IPC channel object (`PROS_OBJECT_IPC`) with eight 64-byte message slots. Existing capability handles can authorize READ, WRITE, DUPLICATE, and TRANSFER access to the channel. User-facing IPC syscalls, user-buffer validation, blocking/wakeup, and explicit endpoint-transfer syscall semantics remain future work.
