@@ -4756,6 +4756,27 @@ int ntfs_selftest(void)
         disk.file_record[251u] = 0xFFu;
 
         {
+            static uint8_t vfs_child_record[1024];
+            uint32_t vfs_fn_offset = 0u;
+            struct pros_ntfs_file_name vfs_fn_info;
+            if (ntfs_read_file_record(&fs, 11u, vfs_child_record,
+                                      sizeof(vfs_child_record)) != PROS_NTFS_OK)
+                return -1851;
+            if (ntfs_find_attribute(vfs_child_record,
+                                    fs.bytes_per_file_record, 0x30u,
+                                    &vfs_fn_offset) != PROS_NTFS_OK)
+                return -1852;
+            if (ntfs_file_name_attribute(vfs_child_record,
+                                          fs.bytes_per_file_record,
+                                          vfs_fn_offset,
+                                          &vfs_fn_info) != PROS_NTFS_OK ||
+                vfs_fn_info.name_length != 4u ||
+                vfs_fn_info.namespace_id != 1u ||
+                vfs_fn_info.data_size != 5u)
+                return -1853;
+        }
+
+        {
             struct pros_vfs_vnode *node = 0;
             struct pros_vfs_file file = {0};
             uint8_t data[8] = {0};
