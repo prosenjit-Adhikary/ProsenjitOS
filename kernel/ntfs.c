@@ -295,6 +295,16 @@ int ntfs_selftest(void)
     struct pros_block_device device;
     struct pros_ntfs fs = {0};
     uint64_t lba = 0;
+    struct pros_ntfs_run runs[3] = {{0}};
+    uint32_t run_count = 0u;
+    static uint8_t record[1024];
+    static uint8_t attr_record[128];
+    const uint8_t runlist[] = { 0x21u, 3u, 4u, 0x11u, 1u, 0xFEu,
+                                0x01u, 2u, 0x00u };
+    const uint8_t unterminated[] = { 0x21u, 1u, 1u };
+    uint32_t attr_offset = 0u;
+    const uint8_t *data = 0;
+    uint32_t data_size = 0u;
 
     disk.boot[3]='N'; disk.boot[4]='T'; disk.boot[5]='F'; disk.boot[6]='S';
     for (uint32_t i=7;i<11u;++i) disk.boot[i]=' ';
@@ -311,5 +321,47 @@ int ntfs_selftest(void)
         fs.bytes_per_file_record != 1024u ||
         ntfs_cluster_lba(&fs,4u,&lba) != PROS_NTFS_OK || lba != 32u)
         return -1;
+
+    if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 3u, &run_count) !=
+            PROS_NTFS_OK || run_count != 3u ||
+        runs[0].lcn != 4u || runs[0].clusters != 3u || runs[0].sparse != 0u ||
+        runs[1].lcn != 2u || runs[1].clusters != 1u || runs[1].sparse != 0u ||
+        runs[2].lcn != 0u || runs[2].clusters != 2u || runs[2].sparse != 1u)
+        return -2;
+    if (ntfs_decode_runlist(unterminated, sizeof(unterminated), runs, 3u,
+                            &run_count) != PROS_NTFS_ECORRUPT)
+        return -3;
+    if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 2u, &run_count) !=
+            PROS_NTFS_EOVERFLOW)
+        return -4;
+
+    for (uint32_t i=0u; i<sizeof(record); ++i) record[i]=0u;
+    record[0]='F'; record[1]='I'; record[2]='L'; record[3]='E';
+    record[4]=48u; record[6]=3u;
+    record[48]=0x34u; record[49]=0x12u;
+    record[50]=0x78u; record[51]=0x56u;
+    record[52]=0x00u; record[53]=0x00u;
+    record[510]=0x34u; record[511]=0x12u;
+    record[1022]=0x34u; record[1023]=0x12u;
+    if (ntfs_file_record_fixup(record, sizeof(record), 512u) != PROS_NTFS_OK ||
+        record[510] != 0x78u || record[511] != 0x56u ||
+        record[1022] != 0x00u || record[1023] != 0x00u)
+        return -5;
+
+    for (uint32_t i=0u; i<sizeof(attr_record); ++i) attr_record[i]=0u;
+    attr_record[0]='F'; attr_record[1]='I'; attr_record[2]='L'; attr_record[3]='E';
+    attr_record[20]=24u;
+    attr_record[24]=0x80u;
+    attr_record[28]=48u;
+    attr_record[40]=3u;
+    attr_record[44]=16u;
+    attr_record[64]='a'; attr_record[65]='b'; attr_record[66]='c';
+    if (ntfs_find_attribute(attr_record, sizeof(attr_record), 0x80u,
+                            &attr_offset) != PROS_NTFS_OK || attr_offset != 24u ||
+        ntfs_attribute_data(attr_record, sizeof(attr_record), attr_offset,
+                            &data, &data_size) != PROS_NTFS_OK ||
+        data_size != 3u || data[0] != 'a' || data[1] != 'b' || data[2] != 'c')
+        return -6;
+
     return 0;
 }
