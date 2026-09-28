@@ -27,6 +27,7 @@ struct pros_process {
     uint32_t state;
     int32_t exit_code;
     uint64_t capability_policy;
+    uint64_t syscall_policy;
     uint8_t quarantined;
     uint8_t security_reserved[7];
     struct pros_address_space address_space;
@@ -52,6 +53,8 @@ int process_create(struct pros_process *parent,
 int process_set_state(struct pros_process *process, uint32_t state);
 uint32_t process_state(const struct pros_process *process);
 uint64_t process_allowed_capabilities(const struct pros_process *process);
+uint64_t process_allowed_syscalls(const struct pros_process *process);
+int process_set_syscall_policy(struct pros_process *process, uint64_t policy);
 
 int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
