@@ -49,17 +49,18 @@ The ProsenjitOS NTFS implementation will be staged:
 4. resident/non-resident attribute parsing
 5. directory index traversal
 6. Unicode filename handling
-7. read-only file access
-8. security metadata exposure through the VFS
-9. safe write support
-10. journal/recovery handling
-11. advanced NTFS features where justified
+7. resident directory name lookup
+8. read-only file access
+9. security metadata exposure through the VFS
+10. safe write support
+11. journal/recovery handling
+12. advanced NTFS features where justified
 
 The first NTFS milestone will deliberately be read-only. This prevents an incomplete driver from corrupting a Windows data volume.
 
 ### Current NTFS directory metadata milestone
 
-The NTFS parser now validates and exposes the resident `$FILE_NAME` attribute fields needed for directory entries: parent MFT reference, allocated/real file size, flags, reparse tag, namespace, and UTF-16LE filename bytes. It also validates resident `$INDEX_ROOT` headers and iterates aligned index entries, including terminal-entry and sub-node flag rules. Directory lookup and `$INDEX_ALLOCATION` traversal remain the next layer above these parsers.
+The NTFS parser now validates and exposes the resident `$FILE_NAME` attribute fields needed for directory entries: parent MFT reference, allocated/real file size, flags, reparse tag, namespace, and UTF-16LE filename bytes. It also validates resident `$INDEX_ROOT` headers and iterates aligned index entries, including terminal-entry and sub-node flag rules. The parser now also performs exact UTF-16LE resident `$INDEX_ROOT` name lookup and returns the referenced MFT record. NTFS case-folding through `$UpCase`, child-node traversal through `$INDEX_ALLOCATION`, and full path traversal remain subsequent milestones.
 
 ### Native ProsenjitFS
 
