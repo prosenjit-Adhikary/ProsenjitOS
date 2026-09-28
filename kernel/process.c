@@ -1,4 +1,5 @@
 #include "process.h"
+#include "../../include/abi/syscall.h"
 
 static struct pros_process *current_process;
 static int process_is_live(const struct pros_process *process);
@@ -85,6 +86,7 @@ int process_init(struct pros_process *process,
     process->capability_policy = (security_level == PROS_SECURITY_SUPER)
         ? PROSENJIT_CAP_RIGHTS_ALL
         : (PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN);
+    process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
     handle_table_init(&process->handles);
     return 0;
 }
@@ -143,6 +145,21 @@ uint32_t process_state(const struct pros_process *process) {
 
 uint64_t process_allowed_capabilities(const struct pros_process *process) {
     return process_is_live(process) ? process->capability_policy : 0;
+}
+
+uint64_t process_allowed_syscalls(const struct pros_process *process) {
+    return process_is_live(process) ? process->syscall_policy : 0;
+}
+
+int process_set_syscall_policy(struct pros_process *process, uint64_t policy) {
+    if (!process_is_active(process) ||
+        (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0)
+        return -1;
+    /* Only a Super process may tighten its own policy at this layer. */
+    if (process->security_level != PROS_SECURITY_SUPER)
+        return -1;
+    process->syscall_policy = policy;
+    return 0;
 }
 
 int process_grant_handle(struct pros_process *process,
