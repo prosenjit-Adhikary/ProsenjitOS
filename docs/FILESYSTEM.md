@@ -57,6 +57,10 @@ The ProsenjitOS NTFS implementation will be staged:
 
 The first NTFS milestone will deliberately be read-only. This prevents an incomplete driver from corrupting a Windows data volume.
 
+### Current NTFS directory metadata milestone
+
+The NTFS parser now validates and exposes the resident `$FILE_NAME` attribute fields needed for directory entries: parent MFT reference, allocated/real file size, flags, reparse tag, namespace, and UTF-16LE filename bytes. It also validates resident `$INDEX_ROOT` headers and iterates aligned index entries, including terminal-entry and sub-node flag rules. Directory lookup and `$INDEX_ALLOCATION` traversal remain the next layer above these parsers.
+
 ### Native ProsenjitFS
 
 ProsenjitFS is the native filesystem target. Its on-disk format will be designed around crash recovery, checksummed metadata, permissions/capabilities, efficient directory indexing, large files, security metadata and atomic metadata updates.
