@@ -35,9 +35,7 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
 
     if (boot[3] != 'N' || boot[4] != 'T' || boot[5] != 'F' ||
         boot[6] != 'S' || boot[7] != ' ' || boot[8] != ' ' ||
-        boot[9] != ' ' || boot[10] != ' ' || boot[11] != ' ' ||
-        boot[12] != ' ' || boot[13] != ' ' || boot[14] != ' ' ||
-        boot[15] != ' ')
+        boot[9] != ' ' || boot[10] != ' ')
         return PROS_NTFS_ENOTSUP;
 
     sector_size = le16(&boot[11]);
