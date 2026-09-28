@@ -342,7 +342,7 @@ int exfat_selftest(void)
         output[0] != 'A' ||
         output[511] != 'R' ||
         output[512] != 'a' ||
-        output[699] != 'p')
+        output[699] != 'f')
         return -3;
 
     /* NoFatChain must read a contiguous allocation without consulting FAT. */
