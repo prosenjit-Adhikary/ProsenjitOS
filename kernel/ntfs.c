@@ -2480,10 +2480,183 @@ static const struct pros_vfs_file_ops ntfs_vfs_file_ops = {
 static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                             struct pros_vfs_dirent *entry)
 {
-    (void)vnode;
-    (void)cookie;
-    (void)entry;
-    return PROS_VFS_ENOSYS;
+    struct pros_ntfs_vfs_node *parent_node;
+    struct pros_ntfs *fs;
+    uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t mft_attr;
+    uint64_t mft_size;
+    uint64_t max_records;
+    uint64_t record_number;
+
+    if (!vnode || !cookie || !entry ||
+        vnode->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+
+    parent_node = (struct pros_ntfs_vfs_node *)vnode->private_data;
+    fs = parent_node ? (struct pros_ntfs *)vnode->mount->private_data : 0;
+    if (!fs || fs->bytes_per_file_record == 0u ||
+        fs->bytes_per_file_record > sizeof(record))
+        return PROS_VFS_EINVAL;
+
+    /*
+     * Derive the current MFT length from record 0 ($MFT), rather than
+     * guessing from the volume size. This bounds enumeration to actual
+     * MFT records and avoids walking arbitrary disk space.
+     */
+    if (ntfs_read_file_record(fs, 0u, record, sizeof(record)) !=
+            PROS_NTFS_OK ||
+        ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
+                            &mft_attr) != PROS_NTFS_OK)
+        return PROS_VFS_EIO;
+
+    if (le32(record + mft_attr + 4u) < 64u ||
+        record[mft_attr + 8u] != 1u)
+        return PROS_VFS_ENOSYS;
+
+    mft_size = le64(record + mft_attr + 48u);
+    max_records = mft_size / fs->bytes_per_file_record;
+    if (max_records == 0u)
+        return PROS_VFS_EIO;
+
+    record_number = *cookie;
+    while (record_number < max_records) {
+        uint16_t record_flags;
+        uint32_t attr_pos;
+        uint64_t parent_reference;
+        uint64_t child_reference;
+        uint64_t data_size = 0u;
+        const uint8_t *name = 0;
+        uint32_t name_bytes = 0u;
+        uint8_t namespace_id = 0u;
+        uint8_t found_name = 0u;
+
+        if (ntfs_read_file_record(fs, record_number, record,
+                                  sizeof(record)) == PROS_NTFS_OK) {
+            record_flags = le16(record + 22u);
+            if ((record_flags & 0x0001u) != 0u) {
+                uint16_t first_attr = le16(record + 20u);
+                attr_pos = first_attr;
+
+                while (attr_pos + 24u <= fs->bytes_per_file_record) {
+                    uint32_t attr_type = le32(record + attr_pos);
+                    uint32_t attr_len = le32(record + attr_pos + 4u);
+
+                    if (attr_type == 0xFFFFFFFFu)
+                        break;
+                    if (attr_len < 24u ||
+                        attr_pos + attr_len > fs->bytes_per_file_record)
+                        break;
+
+                    if (attr_type == 0x30u && record[attr_pos + 8u] == 0u) {
+                        uint16_t value_offset =
+                            le16(record + attr_pos + 20u);
+                        uint32_t value_length =
+                            le32(record + attr_pos + 16u);
+
+                        if ((uint32_t)value_offset + value_length <= attr_len &&
+                            value_length >= 66u) {
+                            const uint8_t *data =
+                                record + attr_pos + value_offset;
+                            uint8_t candidate_length = data[64u];
+                            uint8_t candidate_namespace = data[65u];
+
+                            if ((candidate_namespace == 1u ||
+                                 candidate_namespace == 3u) &&
+                                candidate_length != 0u &&
+                                candidate_length <= 255u &&
+                                66u + (uint32_t)candidate_length * 2u <=
+                                    value_length) {
+                                parent_reference = le64(data);
+                                if ((parent_reference &
+                                     0x0000FFFFFFFFFFFFull) ==
+                                    (parent_node->record_number &
+                                     0x0000FFFFFFFFFFFFull)) {
+                                    child_reference = record_number;
+                                    name = data + 66u;
+                                    name_bytes =
+                                        (uint32_t)candidate_length * 2u;
+                                    namespace_id = candidate_namespace;
+                                    data_size = le64(data + 48u);
+                                    found_name = 1u;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    attr_pos += attr_len;
+                }
+            }
+        }
+
+        ++record_number;
+        *cookie = record_number;
+
+        if (!found_name)
+            continue;
+
+        /*
+         * The VFS dirent ABI is a UTF-8/byte-oriented string. Convert the
+         * UTF-16LE NTFS name here and reject malformed/unrepresentable names
+         * rather than silently truncating or replacing them.
+         */
+        {
+            uint32_t out = 0u;
+            uint32_t units = name_bytes / 2u;
+
+            for (uint32_t i = 0u; i < units; ++i) {
+                uint32_t cp = le16(name + i * 2u);
+
+                if (cp >= 0xD800u && cp <= 0xDBFFu) {
+                    uint32_t low;
+                    if (i + 1u >= units)
+                        return PROS_VFS_EIO;
+                    low = le16(name + (i + 1u) * 2u);
+                    if (low < 0xDC00u || low > 0xDFFFu)
+                        return PROS_VFS_EIO;
+                    cp = 0x10000u + ((cp - 0xD800u) << 10u) +
+                         (low - 0xDC00u);
+                    ++i;
+                } else if (cp >= 0xDC00u) {
+                    return PROS_VFS_EIO;
+                }
+
+                if (cp <= 0x7Fu) {
+                    if (out + 1u > PROS_VFS_NAME_MAX)
+                        return PROS_VFS_EOVERFLOW;
+                    entry->name[out++] = (char)cp;
+                } else if (cp <= 0x7FFu) {
+                    if (out + 2u > PROS_VFS_NAME_MAX)
+                        return PROS_VFS_EOVERFLOW;
+                    entry->name[out++] = (char)(0xC0u | (cp >> 6u));
+                    entry->name[out++] = (char)(0x80u | (cp & 0x3Fu));
+                } else if (cp <= 0xFFFFu) {
+                    if (out + 3u > PROS_VFS_NAME_MAX)
+                        return PROS_VFS_EOVERFLOW;
+                    entry->name[out++] = (char)(0xE0u | (cp >> 12u));
+                    entry->name[out++] = (char)(0x80u | ((cp >> 6u) & 0x3Fu));
+                    entry->name[out++] = (char)(0x80u | (cp & 0x3Fu));
+                } else {
+                    if (out + 4u > PROS_VFS_NAME_MAX)
+                        return PROS_VFS_EOVERFLOW;
+                    entry->name[out++] = (char)(0xF0u | (cp >> 18u));
+                    entry->name[out++] = (char)(0x80u | ((cp >> 12u) & 0x3Fu));
+                    entry->name[out++] = (char)(0x80u | ((cp >> 6u) & 0x3Fu));
+                    entry->name[out++] = (char)(0x80u | (cp & 0x3Fu));
+                }
+            }
+
+            entry->name[out] = '\0';
+            entry->type = (record_flags & 0x0002u) != 0u ?
+                          PROS_VFS_NODE_DIRECTORY :
+                          PROS_VFS_NODE_FILE;
+            entry->size = data_size;
+            (void)namespace_id;
+        }
+        return 1;
+    }
+
+    return 0;
 }
 
 static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
