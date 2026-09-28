@@ -14,5 +14,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info);
 void idt_init(void);
 uint64_t cpu_security_init(void);
 void exception_dispatch(uint64_t *frame);
+void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame);
 
 #endif
