@@ -231,9 +231,27 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
                                           (void *)(uintptr_t)buffer,
                                           (uint32_t)capacity, &received);
+            if (rc == PROSENJIT_IPC_EEMPTY) {
+                /*
+                 * Do not block if there is no runnable successor. Until the
+                 * kernel has a dedicated idle thread, returning an error is
+                 * safer than suspending the only runnable execution context.
+                 */
+                if (!current || !thread_has_runnable()) {
+                    registers[0] = PROSENJIT_SYSCALL_EPERM;
+                    return;
+                }
+                if (ipc_channel_wait((struct pros_ipc_channel *)entry->object,
+                                      current) != PROSENJIT_IPC_OK) {
+                    registers[0] = PROSENJIT_SYSCALL_EPERM;
+                    return;
+                }
+                current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+                registers[0] = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
+                return;
+            }
             if (rc != PROSENJIT_IPC_OK) {
-                registers[0] = (rc == PROSENJIT_IPC_EEMPTY ||
-                                rc == PROSENJIT_IPC_EMSGSIZE)
+                registers[0] = (rc == PROSENJIT_IPC_EMSGSIZE)
                                ? PROSENJIT_SYSCALL_EPERM
                                : PROSENJIT_SYSCALL_EBADF;
                 return;
