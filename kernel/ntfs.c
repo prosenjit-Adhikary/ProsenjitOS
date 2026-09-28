@@ -861,13 +861,23 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
     record[6] = (uint8_t)usa_count;
     record[7] = (uint8_t)(usa_count >> 8);
 
-    /* Sequence starts at zero; ntfs_write_file_record advances it to 1. */
+    /* First record sequence number; keep it distinct from the USA value. */
+    record[16] = 1u;
+    record[17] = 0u;
+
+    /* One hard-link/name reference is expected once $FILE_NAME is added. */
+    record[18] = 1u;
+    record[19] = 0u;
+
+    /* Next attribute identifier starts at zero. */
     record[40] = 0u;
     record[41] = 0u;
 
-    /* One hard-link/name reference is expected once $FILE_NAME is added. */
-    record[44] = 1u;
-    record[45] = 0u;
+    /* Store the MFT record number in the standard header field. */
+    record[44] = (uint8_t)record_number;
+    record[45] = (uint8_t)(record_number >> 8);
+    record[46] = (uint8_t)(record_number >> 16);
+    record[47] = (uint8_t)(record_number >> 24);
 
     record[20] = (uint8_t)first_attr;
     record[21] = (uint8_t)(first_attr >> 8);
