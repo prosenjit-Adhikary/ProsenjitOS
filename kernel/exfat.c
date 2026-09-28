@@ -1,4 +1,5 @@
 #include "exfat.h"
+#include "block.h"
 
 static uint32_t le32(const uint8_t *p)
 {
@@ -123,7 +124,8 @@ int exfat_read_fat_entry(const struct pros_exfat *fs, uint32_t cluster,
     uint32_t in_sector;
     uint8_t sector[4096];
 
-    if (!fs || !value || !fs->mount.active || cluster < 2u ||
+    if (!fs || !value || !fs->mount.active ||
+        !fs->mount.device || !fs->mount.device->read || cluster < 2u ||
         (uint64_t)cluster > (uint64_t)fs->cluster_count + 1u ||
         fs->bytes_per_sector > sizeof(sector))
         return PROS_EXFAT_EINVAL;
