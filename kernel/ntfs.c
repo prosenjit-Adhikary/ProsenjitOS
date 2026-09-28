@@ -3398,7 +3398,10 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
             return PROS_VFS_EOVERFLOW;
 
         for (uint32_t i = 0u; i < extra; ++i) {
-            unsigned char tail = (unsigned char)name[pos++];
+            unsigned char tail;
+            if (name[pos] == '\0')
+                return PROS_VFS_EINVAL;
+            tail = (unsigned char)name[pos++];
             if ((tail & 0xC0u) != 0x80u)
                 return PROS_VFS_EINVAL;
             cp = (cp << 6u) | (tail & 0x3Fu);
