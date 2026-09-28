@@ -857,9 +857,10 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
         return PROS_NTFS_ENOTSUP;
 
     if (record[attr_offset + 8u] == 0u) {
+        const uint8_t *bitmap_data;
         uint32_t size;
         if (ntfs_attribute_data(record, fs->bytes_per_file_record,
-                                attr_offset, (const uint8_t **)&record,
+                                attr_offset, &bitmap_data,
                                 &size) != PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
         bitmap_size = size;
