@@ -638,7 +638,12 @@ static uint8_t ntfs_name_key_matches(const uint8_t *key, uint16_t key_size,
     if (!key || !name_utf16le || key_size < 66u || name_length == 0u)
         return 0u;
     name_bytes = (uint32_t)key[64u] * 2u;
-    if (key[65u] > 3u || name_bytes != (uint32_t)name_length * 2u ||
+    /*
+     * $FILE_NAME namespace: 1 = Win32, 3 = Win32+DOS. Normal Windows
+     * path lookup must not resolve POSIX-only or DOS-only aliases.
+     */
+    if ((key[65u] != 1u && key[65u] != 3u) ||
+        name_bytes != (uint32_t)name_length * 2u ||
         66u + name_bytes > key_size)
         return 0u;
     if (ntfs_active_upcase) {
@@ -1736,6 +1741,13 @@ int ntfs_selftest(void)
             }
             }
         }
+
+        /* DOS-only aliases must not satisfy a normal path lookup. */
+        disk.root_record[96u + 65u] = 2u;
+        if (ntfs_path_lookup(&fs, components, lengths, 1u,
+                             &path_reference) != PROS_NTFS_ENOTSUP)
+            return -183;
+        disk.root_record[96u + 65u] = 1u;
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
                              &path_reference) != PROS_NTFS_EINVAL)
