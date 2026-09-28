@@ -340,6 +340,129 @@ int ntfs_attribute_runlist(const void *record, uint32_t record_size,
     return PROS_NTFS_OK;
 }
 
+
+int ntfs_file_name_attribute(const void *record, uint32_t record_size,
+                             uint32_t attr_offset,
+                             struct pros_ntfs_file_name *info)
+{
+    const uint8_t *data;
+    uint32_t data_size;
+    uint32_t name_bytes;
+
+    if (!record || !info)
+        return PROS_NTFS_EINVAL;
+    if (ntfs_attribute_data(record, record_size, attr_offset,
+                            &data, &data_size) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (data_size < 66u)
+        return PROS_NTFS_ECORRUPT;
+
+    name_bytes = (uint32_t)data[0x40u] * 2u;
+    if (data[0x41u] > 3u || data[0x40u] == 0u ||
+        data[0x40u] > 255u || 66u + name_bytes > data_size)
+        return PROS_NTFS_ECORRUPT;
+
+    info->parent_reference = le64(data + 0x00u);
+    info->allocated_size = le64(data + 0x28u);
+    info->data_size = le64(data + 0x30u);
+    info->flags = le32(data + 0x38u);
+    info->reparse_tag = le32(data + 0x3Cu);
+    info->name_length = data[0x40u];
+    info->namespace_id = data[0x41u];
+    info->name_utf16le = data + 0x42u;
+    return PROS_NTFS_OK;
+}
+
+int ntfs_index_root_header(const void *record, uint32_t record_size,
+                           uint32_t attr_offset,
+                           struct pros_ntfs_index_root *info)
+{
+    const uint8_t *data;
+    uint32_t data_size;
+    uint32_t first;
+    uint32_t entries;
+    uint32_t allocated;
+
+    if (!record || !info)
+        return PROS_NTFS_EINVAL;
+    if (ntfs_attribute_data(record, record_size, attr_offset,
+                            &data, &data_size) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (data_size < 32u)
+        return PROS_NTFS_ECORRUPT;
+
+    first = le32(data + 16u);
+    entries = le32(data + 20u);
+    allocated = le32(data + 24u);
+    if (first < 32u || entries < first || entries > data_size ||
+        allocated < entries || allocated > data_size ||
+        (data[28u] & 0xFEu) != 0u ||
+        le32(data + 8u) == 0u || data[12u] == 0u)
+        return PROS_NTFS_ECORRUPT;
+
+    info->bytes_per_index_record = le32(data + 8u);
+    info->clusters_per_index_record = data[12u];
+    info->first_entry_offset = first;
+    info->entries_size = entries;
+    info->allocated_size = allocated;
+    info->flags = data[28u];
+    return PROS_NTFS_OK;
+}
+
+int ntfs_index_root_entry(const void *record, uint32_t record_size,
+                          uint32_t attr_offset, uint32_t entry_offset,
+                          uint64_t *file_reference,
+                          const uint8_t **key, uint16_t *key_size,
+                          uint8_t *entry_flags, uint32_t *next_entry_offset)
+{
+    const uint8_t *data;
+    uint32_t data_size;
+    struct pros_ntfs_index_root root;
+    uint32_t remaining;
+    uint16_t entry_size;
+    uint16_t stream_size;
+    uint8_t flags;
+    uint32_t key_limit;
+
+    if (!record || !file_reference || !key || !key_size ||
+        !entry_flags || !next_entry_offset)
+        return PROS_NTFS_EINVAL;
+    if (ntfs_attribute_data(record, record_size, attr_offset,
+                            &data, &data_size) != PROS_NTFS_OK ||
+        ntfs_index_root_header(record, record_size, attr_offset, &root) !=
+            PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    if (entry_offset < root.first_entry_offset ||
+        entry_offset >= root.entries_size ||
+        entry_offset >= data_size)
+        return PROS_NTFS_EINVAL;
+
+    remaining = root.entries_size - entry_offset;
+    if (remaining < 16u)
+        return PROS_NTFS_ECORRUPT;
+
+    entry_size = le16(data + entry_offset + 8u);
+    stream_size = le16(data + entry_offset + 10u);
+    flags = data[entry_offset + 12u];
+    if (entry_size < 16u || entry_size > remaining ||
+        (entry_size & 7u) != 0u || (flags & ~3u) != 0u)
+        return PROS_NTFS_ECORRUPT;
+
+    key_limit = (flags & 1u) ? 8u : 0u;
+    if (entry_size < 16u + key_limit ||
+        stream_size > entry_size - 16u - key_limit)
+        return PROS_NTFS_ECORRUPT;
+
+    *file_reference = le64(data + entry_offset);
+    *key = data + entry_offset + 16u;
+    *key_size = stream_size;
+    *entry_flags = flags;
+    *next_entry_offset = (flags & 2u) ? 0u : entry_offset + entry_size;
+    return PROS_NTFS_OK;
+}
+
+
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
 
 int ntfs_bootstrap_mft(struct pros_ntfs *fs)
