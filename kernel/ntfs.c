@@ -2958,6 +2958,7 @@ int ntfs_selftest(void)
     {
         static const uint8_t replacement[] = { 'B', 'y', 'e' };
         static uint8_t verify[8];
+        static uint8_t record_verify[1024];
         uint32_t written = 0u;
         uint32_t read_back = 0u;
 
@@ -3004,9 +3005,9 @@ int ntfs_selftest(void)
                             &written) != PROS_NTFS_OK ||
             written != 2u)
             return -1222;
-        if (ntfs_read_file_record(&fs, 12u, verify, 1024u) != PROS_NTFS_OK)
+        if (ntfs_read_file_record(&fs, 12u, record_verify, sizeof(record_verify)) != PROS_NTFS_OK)
             return -1236;
-        if (le64(verify + 48u + 48u) != 1024u)
+        if (le64(record_verify + 48u + 48u) != 1024u)
             return -1237;
         if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK)
