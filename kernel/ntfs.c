@@ -1242,6 +1242,7 @@ int ntfs_bootstrap_mft(struct pros_ntfs *fs)
 struct ntfs_test_disk {
     uint8_t boot[512];
     uint8_t mft_record[1024];
+    uint8_t file_record[1024];
     uint8_t upcase_record[1024];
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
     uint8_t index_record[4096];
@@ -1263,6 +1264,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s == 32u || lba + s == 33u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->mft_record[(lba + s - 32u) * 512u + i];
+        else if (lba + s == 54u || lba + s == 55u)
+            for (uint32_t i = 0u; i < 512u; ++i)
+                dst[i] = disk->file_record[(lba + s - 54u) * 512u + i];
         else if (lba + s == 42u || lba + s == 43u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->root_record[(lba + s - 42u) * 512u + i];
@@ -1396,6 +1400,26 @@ int ntfs_selftest(void)
 
     disk.boot[3]='N'; disk.boot[4]='T'; disk.boot[5]='F'; disk.boot[6]='S';
     for (uint32_t i=7;i<11u;++i) disk.boot[i]=' ';
+
+    for (uint32_t i = 0u; i < sizeof(disk.file_record); ++i)
+        disk.file_record[i] = 0u;
+    disk.file_record[0]='F'; disk.file_record[1]='I';
+    disk.file_record[2]='L'; disk.file_record[3]='E';
+    disk.file_record[4]=8u; disk.file_record[6]=3u;
+    disk.file_record[8]=0x56u; disk.file_record[9]=0x34u;
+    disk.file_record[20]=48u;
+    disk.file_record[48]=0x80u;
+    disk.file_record[52]=72u;
+    disk.file_record[56]=0u;
+    disk.file_record[64]=5u; disk.file_record[65]=0u;
+    disk.file_record[68]=24u; disk.file_record[69]=0u;
+    disk.file_record[72]='H'; disk.file_record[73]='e';
+    disk.file_record[74]='l'; disk.file_record[75]='l';
+    disk.file_record[76]='o';
+    disk.file_record[120]=0xFFu; disk.file_record[121]=0xFFu;
+    disk.file_record[122]=0xFFu; disk.file_record[123]=0xFFu;
+    disk.file_record[510]=0x56u; disk.file_record[511]=0x34u;
+    disk.file_record[1022]=0x56u; disk.file_record[1023]=0x34u;
     disk.boot[11]=0x00; disk.boot[12]=0x02;
     disk.boot[13]=8;
     disk.boot[40]=0x00; disk.boot[41]=0x10;
@@ -1894,6 +1918,20 @@ int ntfs_selftest(void)
                              &path_reference) != PROS_NTFS_ENOTSUP)
             return -183;
         disk.root_record[96u + 65u] = 1u;
+
+        {
+            uint8_t file_data[8] = {0};
+            uint32_t file_bytes = 0u;
+            if (ntfs_file_read(&fs, 11u, 1u, file_data, 3u,
+                               &file_bytes) != PROS_NTFS_OK ||
+                file_bytes != 3u ||
+                file_data[0] != 'e' || file_data[1] != 'l' ||
+                file_data[2] != 'l')
+                return -184;
+            if (ntfs_file_read(&fs, 11u, 99u, file_data, 1u,
+                               &file_bytes) != PROS_NTFS_EINVAL)
+                return -185;
+        }
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
                              &path_reference) != PROS_NTFS_EINVAL)
