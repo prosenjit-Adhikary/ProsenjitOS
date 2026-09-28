@@ -920,7 +920,7 @@ int ntfs_mft_add_file_name(struct pros_ntfs *fs,
     uint32_t value_len;
     uint32_t new_used;
     uint16_t attr_id;
-    uint8_t flags;
+    uint32_t flags;
 
     if (!fs || !name_utf16le || name_length == 0u || name_length > 255u ||
         namespace_id > 3u ||
@@ -1007,8 +1007,10 @@ int ntfs_mft_add_file_name(struct pros_ntfs *fs,
         record[pos + 24u + i] = (uint8_t)(parent_reference >> (8u * i));
 
     /* Timestamps are intentionally zero until the standard-information builder. */
-    flags = (record[22u] & 0x03u) == 0x03u ? 0x10u : 0u;
-    record[pos + 24u + 56u] = flags;
+    flags = (record[22u] & 0x03u) == 0x03u ? 0x10000000u : 0u;
+    for (uint32_t i = 0u; i < 4u; ++i)
+        record[pos + 24u + 56u + i] =
+            (uint8_t)(flags >> (8u * i));
     record[pos + 24u + 64u] = name_length;
     record[pos + 24u + 65u] = namespace_id;
 
