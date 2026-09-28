@@ -2659,13 +2659,14 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
     struct pros_ntfs *fs;
     uint8_t name_utf16le[PROS_VFS_NAME_MAX * 2u];
     uint32_t name_length = 0u;
+    uint32_t pos = 0u;
     uint64_t record_number = 0u;
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     struct pros_ntfs_file_name info;
     int status;
 
     if (!parent || !name || !result ||
-        parent->type != PROS_VFS_NODE_DIRECTORY)
+        parent->type != PROS_VFS_NODE_DIRECTORY || !parent->mount)
         return PROS_VFS_EINVAL;
 
     parent_node = (struct pros_ntfs_vfs_node *)parent->private_data;
@@ -2673,14 +2674,70 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
     if (!fs)
         return PROS_VFS_EINVAL;
 
-    while (name[name_length] != '\0') {
-        unsigned char ch = (unsigned char)name[name_length];
-        if (name_length >= PROS_VFS_NAME_MAX || ch > 0x7Fu)
+    /*
+     * VFS paths are UTF-8. NTFS directory lookup operates on UTF-16LE.
+     * Decode strictly here so Unicode filenames exposed by readdir() can
+     * also be opened through the normal VFS path API. Invalid UTF-8,
+     * overlong encodings, surrogate code points and out-of-range scalars
+     * are rejected rather than being silently substituted.
+     */
+    while (name[pos] != '\0') {
+        uint32_t cp;
+        uint32_t extra;
+        unsigned char ch = (unsigned char)name[pos++];
+
+        if (ch <= 0x7Fu) {
+            cp = ch;
+            extra = 0u;
+        } else if (ch >= 0xC2u && ch <= 0xDFu) {
+            cp = ch & 0x1Fu;
+            extra = 1u;
+        } else if (ch >= 0xE0u && ch <= 0xEFu) {
+            cp = ch & 0x0Fu;
+            extra = 2u;
+        } else if (ch >= 0xF0u && ch <= 0xF4u) {
+            cp = ch & 0x07u;
+            extra = 3u;
+        } else {
             return PROS_VFS_EINVAL;
-        name_utf16le[name_length * 2u] = ch;
-        name_utf16le[name_length * 2u + 1u] = 0u;
-        ++name_length;
+        }
+
+        if (pos + extra > PROS_VFS_NAME_MAX * 4u)
+            return PROS_VFS_EOVERFLOW;
+
+        for (uint32_t i = 0u; i < extra; ++i) {
+            unsigned char tail = (unsigned char)name[pos++];
+            if ((tail & 0xC0u) != 0x80u)
+                return PROS_VFS_EINVAL;
+            cp = (cp << 6u) | (tail & 0x3Fu);
+        }
+
+        if ((extra == 2u && cp < 0x800u) ||
+            (extra == 3u && cp < 0x10000u) ||
+            cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
+            return PROS_VFS_EINVAL;
+
+        if (cp <= 0xFFFFu) {
+            if (name_length >= PROS_VFS_NAME_MAX)
+                return PROS_VFS_EOVERFLOW;
+            name_utf16le[name_length * 2u] = (uint8_t)cp;
+            name_utf16le[name_length * 2u + 1u] = (uint8_t)(cp >> 8u);
+            ++name_length;
+        } else {
+            uint32_t scalar = cp - 0x10000u;
+            uint16_t high = (uint16_t)(0xD800u + (scalar >> 10u));
+            uint16_t low = (uint16_t)(0xDC00u + (scalar & 0x3FFu));
+            if (name_length + 2u > PROS_VFS_NAME_MAX)
+                return PROS_VFS_EOVERFLOW;
+            name_utf16le[name_length * 2u] = (uint8_t)high;
+            name_utf16le[name_length * 2u + 1u] = (uint8_t)(high >> 8u);
+            ++name_length;
+            name_utf16le[name_length * 2u] = (uint8_t)low;
+            name_utf16le[name_length * 2u + 1u] = (uint8_t)(low >> 8u);
+            ++name_length;
+        }
     }
+
     if (name_length == 0u)
         return PROS_VFS_EINVAL;
 
