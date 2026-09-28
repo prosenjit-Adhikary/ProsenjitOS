@@ -1390,15 +1390,12 @@ int ntfs_selftest(void)
                                          &index_info) != PROS_NTFS_OK)
                 return -119;
 
-            {
-                int index_status = ntfs_index_allocation_lookup(
-                &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
-                lookup_name, 4u, &child_reference);
-            if (index_status != PROS_NTFS_OK)
-                return -120 + index_status;
+            if (ntfs_index_allocation_lookup(
+                    &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
+                    lookup_name, 4u, &child_reference) != PROS_NTFS_OK)
+                return -114;
             if (child_reference != 0x3000u)
-                return -130;
-            }
+                return -115;
         }
 
         /* USA corruption must reject the child node rather than guess. */
@@ -1406,7 +1403,7 @@ int ntfs_selftest(void)
         if (ntfs_index_record_header(disk.index_record,
                                      sizeof(disk.index_record), 512u, 0u,
                                      &index_info) != PROS_NTFS_ECORRUPT)
-            return -115;
+            return -120;
     }
 
     return 0;
