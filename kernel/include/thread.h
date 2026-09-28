@@ -38,6 +38,7 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
+    void *wait_channel;
     struct pros_thread *next;
     struct pros_thread *prev;
 };
@@ -52,6 +53,8 @@ struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 int thread_schedule(void);
 int thread_schedule_preempt(void);
+int thread_block(void *wait_channel);
+int thread_wake(struct pros_thread *thread);
 
 /* Save the current IRQ frame and select the next runnable thread frame. */
 struct pros_interrupt_frame *thread_schedule_interrupt(
