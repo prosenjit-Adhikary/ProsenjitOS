@@ -608,6 +608,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
     const uint8_t *runlist;
     uint32_t runlist_size, run_count, attr_offset, attr_length;
     uint64_t real_size;
+    uint64_t allocated_size;
+    uint64_t new_real_size;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
 
     if (!fs || !buffer || !bytes_written || size == 0u ||
@@ -666,8 +668,13 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         return PROS_NTFS_ENOTSUP;
 
     real_size = le64(record + attr_offset + 48u);
-    if (offset > real_size ||
-        (uint64_t)size > real_size - offset)
+    allocated_size = le64(record + attr_offset + 40u);
+    if (real_size > allocated_size)
+        return PROS_NTFS_ECORRUPT;
+    if (offset > 0xFFFFFFFFFFFFFFFFull - (uint64_t)size)
+        return PROS_NTFS_EOVERFLOW;
+    new_real_size = offset + (uint64_t)size;
+    if (new_real_size > allocated_size)
         return PROS_NTFS_EOVERFLOW;
 
     if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
@@ -683,8 +690,64 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
     if (cluster_bytes == 0u || fs->bytes_per_sector > 4096u)
         return PROS_NTFS_EINVAL;
 
-    uint64_t file_offset = offset;
+    /*
+     * Growth is allowed only inside already allocated, non-sparse clusters.
+     * If the caller writes beyond EOF, the gap is explicitly zero-filled so
+     * the newly exposed bytes are initialized before the metadata length is
+     * committed.
+     */
+    uint64_t file_offset = real_size;
     uint32_t copied = 0u;
+    while (file_offset < offset) {
+        uint64_t logical_cluster = file_offset / cluster_bytes;
+        uint64_t cluster_offset = file_offset % cluster_bytes;
+        uint64_t cumulative = 0u, physical_lcn = 0u;
+        uint8_t found = 0u, sparse = 0u;
+        uint32_t sector_index, in_sector, take;
+        uint64_t lba;
+        uint8_t sector[4096];
+
+        for (uint32_t r = 0u; r < run_count; ++r) {
+            if (logical_cluster < cumulative + runs[r].clusters) {
+                physical_lcn = runs[r].lcn +
+                               logical_cluster - cumulative;
+                if (physical_lcn < runs[r].lcn)
+                    return PROS_NTFS_EOVERFLOW;
+                sparse = runs[r].sparse;
+                found = 1u;
+                break;
+            }
+            if (runs[r].clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
+                return PROS_NTFS_EOVERFLOW;
+            cumulative += runs[r].clusters;
+        }
+        if (!found || sparse)
+            return PROS_NTFS_EIO;
+
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        take = fs->bytes_per_sector - in_sector;
+        if (take > offset - file_offset)
+            take = (uint32_t)(offset - file_offset);
+        if (sector_index >= fs->sectors_per_cluster ||
+            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        lba += sector_index;
+
+        if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+            PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
+        for (uint32_t i = 0u; i < take; ++i)
+            sector[in_sector + i] = 0u;
+        if (block_device_write(fs->mount.device, lba, 1u, sector) !=
+            PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
+
+        file_offset += take;
+    }
+
+    file_offset = offset;
+    copied = 0u;
     while (copied < size) {
         uint64_t logical_cluster = file_offset / cluster_bytes;
         uint64_t cluster_offset = file_offset % cluster_bytes;
@@ -735,6 +798,62 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
 
         copied += take;
         file_offset += take;
+    }
+
+    /*
+     * Commit the stream length only after all data and zero-fill writes have
+     * succeeded. The initialized size follows the new EOF because the newly
+     * exposed range has been explicitly initialized to zero.
+     */
+    if (new_real_size > real_size) {
+        record[attr_offset + 48u] = (uint8_t)new_real_size;
+        record[attr_offset + 49u] = (uint8_t)(new_real_size >> 8);
+        record[attr_offset + 50u] = (uint8_t)(new_real_size >> 16);
+        record[attr_offset + 51u] = (uint8_t)(new_real_size >> 24);
+        record[attr_offset + 52u] = (uint8_t)(new_real_size >> 32);
+        record[attr_offset + 53u] = (uint8_t)(new_real_size >> 40);
+        record[attr_offset + 54u] = (uint8_t)(new_real_size >> 48);
+        record[attr_offset + 55u] = (uint8_t)(new_real_size >> 56);
+        record[attr_offset + 56u] = (uint8_t)new_real_size;
+        record[attr_offset + 57u] = (uint8_t)(new_real_size >> 8);
+        record[attr_offset + 58u] = (uint8_t)(new_real_size >> 16);
+        record[attr_offset + 59u] = (uint8_t)(new_real_size >> 24);
+        record[attr_offset + 60u] = (uint8_t)(new_real_size >> 32);
+        record[attr_offset + 61u] = (uint8_t)(new_real_size >> 40);
+        record[attr_offset + 62u] = (uint8_t)(new_real_size >> 48);
+        record[attr_offset + 63u] = (uint8_t)(new_real_size >> 56);
+
+        /*
+         * Every resident $FILE_NAME copy stores the stream data size. Keep
+         * those MFT copies synchronized. Directory index keys are a separate
+         * metadata transaction and remain a later milestone.
+         */
+        uint16_t first = le16(record + 20u);
+        uint32_t pos = first;
+        while (pos + 8u <= fs->bytes_per_file_record) {
+            uint32_t len = le32(record + pos + 4u);
+            uint32_t type = le32(record + pos);
+            if (type == 0xFFFFFFFFu)
+                break;
+            if (len < 16u || pos + len > fs->bytes_per_file_record)
+                return PROS_NTFS_ECORRUPT;
+            if (type == 0x30u && record[pos + 8u] == 0u) {
+                uint32_t value_offset = le16(record + pos + 20u);
+                uint32_t value_length = le32(record + pos + 16u);
+                if (value_offset < 66u ||
+                    value_offset + value_length > len ||
+                    value_offset + 56u > len)
+                    return PROS_NTFS_ECORRUPT;
+                for (uint32_t b = 0u; b < 8u; ++b)
+                    record[pos + value_offset + 48u + b] =
+                        (uint8_t)(new_real_size >> (8u * b));
+            }
+            pos += len;
+        }
+
+        if (ntfs_write_file_record(fs, record_number, record) !=
+            PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
     }
 
     *bytes_written = copied;
