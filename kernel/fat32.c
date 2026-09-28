@@ -451,12 +451,13 @@ int fat32_find(const struct pros_fat32 *fs, uint32_t directory_cluster,
             }
 
             int matched = 0;
+            parsed[0] = 0;
             if (lfn_count != 0u &&
                 fat32_lfn_build(lfn, lfn_count, parsed, sizeof(parsed),
-                                lfn_checksum) == PROS_FAT32_OK) {
-                if (fat32_lfn_checksum(entry) == lfn_checksum &&
-                    fat32_name_equal(parsed, name))
-                    matched = 1;
+                                lfn_checksum) == PROS_FAT32_OK &&
+                fat32_lfn_checksum(entry) == lfn_checksum &&
+                fat32_name_equal(parsed, name)) {
+                matched = 1;
             }
             if (!matched) {
                 char short_name[12];
