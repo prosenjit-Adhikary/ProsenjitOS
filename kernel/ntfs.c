@@ -511,7 +511,7 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
     static uint8_t bitmap_chunk[4096];
     uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     const uint8_t *runlist;
-    uint32_t attr_offset, runlist_size, run_count;
+    uint32_t attr_offset, runlist_size;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
     uint64_t bitmap_size, total_clusters;
     uint64_t scan_lcn = 0u;
@@ -547,7 +547,6 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
                                 &resident_size) != PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
         bitmap_size = resident_size;
-        run_count = 0u;
     } else {
         if (record[attr_offset + 8u] != 1u ||
             le64(record + attr_offset + 16u) != 0u ||
