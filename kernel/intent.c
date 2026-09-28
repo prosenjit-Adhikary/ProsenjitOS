@@ -8,6 +8,8 @@
 #include "security_exec.h"
 #include "vfs.h"
 #include "fat32.h"
+#include "exfat.h"
+#include "ntfs.h"
 #include "partition.h"
 
 static uint64_t next_intent_id = 1;
@@ -58,6 +60,10 @@ int security_manager_init(void) {
     if (vfs_security_selftest() != 0)
         return -1;
     if (fat32_selftest() != 0)
+        return -1;
+    if (exfat_selftest() != 0)
+        return -1;
+    if (ntfs_selftest() != 0)
         return -1;
     if (partition_selftest() != 0)
         return -1;
