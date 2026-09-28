@@ -24,6 +24,7 @@ struct pros_exfat {
 
 int exfat_mount(struct pros_exfat *, struct pros_block_device *);
 int exfat_cluster_lba(const struct pros_exfat *, uint32_t, uint64_t *);
+int exfat_read_cluster(const struct pros_exfat *, uint32_t, void *);
 int exfat_selftest(void);
 
 #endif
