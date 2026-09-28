@@ -1,5 +1,29 @@
 # ProsenjitOS Roadmap
 
+## Current status — 2026-09-28
+
+The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, and documented the firewall-inspired unknown-threat handling model. The repository is private.
+
+### Current engineering focus
+1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
+2. **exFAT:** turn the current geometry/mount foundation and regression coverage into a read-only filesystem implementation, then add directory/file reads.
+3. **NTFS:** continue from the current safe file-data write path toward directory-index mutation, cluster allocation, and journal/recovery; keep destructive metadata writes out until each stage is regression-tested.
+4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing admission/quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
+5. **I/O foundation:** build the driver model and block-device/device broker around the completed PCI enumeration layer, then add keyboard/display/network device abstractions.
+6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
+7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone.
+
+### Latest verified repository work
+- PCI configuration/enumeration foundation implemented and marked complete.
+- FAT32 geometry regression coverage expanded.
+- exFAT geometry regression coverage expanded.
+- Firewall-inspired unknown-threat handling documented as a standing security requirement.
+- NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
+- No open pull requests are currently present.
+
+### CI note
+The repository contains build/boot and security-architecture GitHub Actions workflows. The latest commit currently has no published combined status entries through the connected GitHub status interface, so this status check cannot independently claim that the latest push passed CI. The next execution priority is therefore to verify the current Actions run/logs before treating the new storage/security changes as CI-validated.
+
 ## Phase 0 — Repository bootstrap
 - [x] Repository created
 - [x] Initial README
