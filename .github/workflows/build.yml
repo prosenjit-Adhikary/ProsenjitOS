@@ -67,6 +67,7 @@ jobs:
           require_log "ProsenjitOS: limited-process capability policy test passed"
           require_log "ProsenjitOS: capability handle/rights test passed"
           require_log "ProsenjitOS: process capability authorization test passed"
+          require_log "ProsenjitOS: syscall sandbox enforcement test passed"
           require_log "ProsenjitOS: capability copy-transfer test passed"
           require_log "ProsenjitOS: capability move-transfer test passed"
           require_log "ProsenjitOS: inactive capability move regression passed"
