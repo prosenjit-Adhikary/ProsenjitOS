@@ -504,9 +504,10 @@ int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
  * contiguous extent; runlist expansion can then append that extent without
  * inventing sparse mappings.
  */
-int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
-                                   uint64_t cluster_count,
-                                   uint64_t *first_lcn)
+static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
+                                          uint64_t first_lcn,
+                                          uint64_t cluster_count,
+                                          uint8_t allocate)
 {
     static uint8_t bitmap_chunk[4096];
     uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
@@ -514,9 +515,107 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
     uint32_t attr_offset, runlist_size, run_count;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
     uint64_t bitmap_size, total_clusters;
-    uint64_t scan_lcn = 0u;
-    uint64_t candidate = 0u;
-    uint64_t candidate_len = 0u;
+    uint64_t start_byte, end_byte;
+    uint32_t got;
+
+    if (!fs || cluster_count == 0u ||
+        first_lcn > 0xFFFFFFFFFFFFFFFFull - (cluster_count - 1u) ||
+        fs->bytes_per_file_record > sizeof(record))
+        return PROS_NTFS_EINVAL;
+
+    total_clusters = fs->total_sectors / fs->sectors_per_cluster;
+    if (fs->sectors_per_cluster == 0u || total_clusters == 0u ||
+        first_lcn >= total_clusters ||
+        cluster_count > total_clusters - first_lcn)
+        return PROS_NTFS_EOVERFLOW;
+
+    if (ntfs_read_file_record(fs, 6u, record, sizeof(record)) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
+                            &attr_offset) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (record[attr_offset + 9u] != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    if (record[attr_offset + 8u] == 0u) {
+        uint32_t resident_size;
+        if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                (uint32_t)attr_offset,
+                                (const uint8_t **)&runlist,
+                                &resident_size) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        bitmap_size = resident_size;
+    } else {
+        if (record[attr_offset + 8u] != 1u ||
+            le64(record + attr_offset + 16u) != 0u ||
+            le16(record + attr_offset + 12u) != 0u)
+            return PROS_NTFS_ENOTSUP;
+        bitmap_size = le64(record + attr_offset + 48u);
+        if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
+                                    attr_offset, &runlist,
+                                    &runlist_size) != PROS_NTFS_OK ||
+            ntfs_decode_runlist(runlist, runlist_size, runs,
+                                PROS_NTFS_MFT_RUN_MAX, &run_count) !=
+                PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+    }
+    if (bitmap_size < (total_clusters + 7u) / 8u)
+        return PROS_NTFS_ECORRUPT;
+
+    start_byte = first_lcn / 8u;
+    end_byte = (first_lcn + cluster_count - 1u) / 8u;
+    while (start_byte <= end_byte) {
+        uint32_t byte_count =
+            (uint32_t)(end_byte - start_byte + 1u);
+        if (byte_count > sizeof(bitmap_chunk))
+            return PROS_NTFS_EOVERFLOW;
+
+        got = 0u;
+        if (ntfs_file_read(fs, 6u, start_byte, bitmap_chunk,
+                           byte_count, &got) != PROS_NTFS_OK ||
+            got != byte_count)
+            return PROS_NTFS_EIO;
+
+        for (uint32_t i = 0u; i < byte_count; ++i) {
+            uint64_t byte_lcn = (start_byte + i) * 8u;
+            uint8_t mask = 0u;
+            for (uint32_t j = 0u; j < 8u; ++j) {
+                uint64_t bit_lcn = byte_lcn + j;
+                if (bit_lcn >= first_lcn &&
+                    bit_lcn < first_lcn + cluster_count)
+                    mask |= (uint8_t)(1u << j);
+            }
+            if (allocate)
+                bitmap_chunk[i] |= mask;
+            else
+                bitmap_chunk[i] &= (uint8_t)~mask;
+        }
+
+        {
+            uint32_t written = 0u;
+            if (ntfs_file_write(fs, 6u, start_byte, bitmap_chunk,
+                                byte_count, &written) != PROS_NTFS_OK ||
+                written != byte_count)
+                return PROS_NTFS_EIO;
+        }
+        start_byte += byte_count;
+    }
+    return PROS_NTFS_OK;
+}
+
+static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
+                                               uint64_t start_lcn,
+                                               uint64_t cluster_count,
+                                               uint64_t *first_lcn)
+{
+    static uint8_t bitmap_chunk[4096];
+    uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    const uint8_t *runlist;
+    uint32_t attr_offset, runlist_size, run_count;
+    struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+    uint64_t bitmap_size, total_clusters;
+    uint64_t scan_lcn, candidate = 0u, candidate_len = 0u;
     uint32_t got;
 
     if (!fs || !first_lcn || cluster_count == 0u ||
@@ -527,7 +626,8 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
     total_clusters = fs->total_sectors / fs->sectors_per_cluster;
     if (fs->sectors_per_cluster == 0u || total_clusters == 0u)
         return PROS_NTFS_ECORRUPT;
-    if (cluster_count > total_clusters)
+    if (start_lcn >= total_clusters ||
+        cluster_count > total_clusters - start_lcn)
         return PROS_NTFS_EOVERFLOW;
 
     if (ntfs_read_file_record(fs, 6u, record, sizeof(record)) !=
@@ -536,7 +636,6 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
     if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
                             &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
-
     if (record[attr_offset + 9u] != 0u)
         return PROS_NTFS_ENOTSUP;
 
@@ -561,15 +660,10 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
                 PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
     }
-
     if (bitmap_size < (total_clusters + 7u) / 8u)
         return PROS_NTFS_ECORRUPT;
 
-    /*
-     * Scan in bounded chunks so allocator memory use does not depend on
-     * volume size. We only commit the bitmap bytes containing the selected
-     * extent after the complete contiguous extent has been found.
-     */
+    scan_lcn = start_lcn;
     while (scan_lcn < total_clusters) {
         uint64_t byte_offset = scan_lcn / 8u;
         uint32_t want = (uint32_t)(bitmap_size - byte_offset);
@@ -585,60 +679,24 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
 
         for (uint32_t b = 0u; b < want && scan_lcn < total_clusters; ++b) {
             uint8_t value = bitmap_chunk[b];
-            uint32_t bits = 8u;
-            if ((uint64_t)(b + 1u) * 8u > total_clusters - scan_lcn + 8u)
+            uint32_t bit_start = (uint32_t)(scan_lcn & 7u);
+            uint32_t bits = 8u - bit_start;
+            if ((uint64_t)bits > total_clusters - scan_lcn)
                 bits = (uint32_t)(total_clusters - scan_lcn);
+
             for (uint32_t bit = 0u; bit < bits; ++bit) {
                 uint64_t lcn = scan_lcn + bit;
-                uint8_t used = (uint8_t)((value >> bit) & 1u);
+                uint8_t used = (uint8_t)((value >> (bit + bit_start)) & 1u);
                 if (!used) {
                     if (candidate_len == 0u)
                         candidate = lcn;
                     ++candidate_len;
                     if (candidate_len == cluster_count) {
+                        if (ntfs_bitmap_update_clusters(fs, candidate,
+                                                        cluster_count, 1u) !=
+                            PROS_NTFS_OK)
+                            return PROS_NTFS_EIO;
                         *first_lcn = candidate;
-
-                        /*
-                         * Mark the selected bits. Re-read the affected
-                         * bitmap bytes so the write is based on the current
-                         * on-disk value, then write only those bytes.
-                         */
-                        uint64_t start_byte = candidate / 8u;
-                        uint64_t end_byte =
-                            (candidate + cluster_count - 1u) / 8u;
-                        while (start_byte <= end_byte) {
-                            uint32_t byte_count =
-                                (uint32_t)(end_byte - start_byte + 1u);
-                            if (byte_count > sizeof(bitmap_chunk))
-                                return PROS_NTFS_EOVERFLOW;
-                            got = 0u;
-                            if (ntfs_file_read(fs, 6u, start_byte,
-                                               bitmap_chunk, byte_count,
-                                               &got) != PROS_NTFS_OK ||
-                                got != byte_count)
-                                return PROS_NTFS_EIO;
-                            for (uint32_t i = 0u; i < byte_count; ++i) {
-                                uint64_t byte_lcn = (start_byte + i) * 8u;
-                                uint8_t mask = 0u;
-                                for (uint32_t j = 0u; j < 8u; ++j) {
-                                    uint64_t bit_lcn = byte_lcn + j;
-                                    if (bit_lcn >= candidate &&
-                                        bit_lcn < candidate + cluster_count)
-                                        mask |= (uint8_t)(1u << j);
-                                }
-                                bitmap_chunk[i] |= mask;
-                            }
-                            {
-                                uint32_t written = 0u;
-                                if (ntfs_file_write(fs, 6u, start_byte,
-                                                    bitmap_chunk, byte_count,
-                                                    &written) !=
-                                        PROS_NTFS_OK ||
-                                    written != byte_count)
-                                    return PROS_NTFS_EIO;
-                            }
-                            start_byte += byte_count;
-                        }
                         return PROS_NTFS_OK;
                     }
                 } else {
@@ -648,10 +706,23 @@ int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
             scan_lcn += bits;
         }
     }
-
     return PROS_NTFS_EIO;
 }
 
+int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
+                                   uint64_t cluster_count,
+                                   uint64_t *first_lcn)
+{
+    return ntfs_bitmap_allocate_clusters_from(fs, 0u, cluster_count,
+                                              first_lcn);
+}
+
+static int ntfs_bitmap_free_clusters(struct pros_ntfs *fs,
+                                     uint64_t first_lcn,
+                                     uint64_t cluster_count)
+{
+    return ntfs_bitmap_update_clusters(fs, first_lcn, cluster_count, 0u);
+}
 
 static int ntfs_write_file_record(struct pros_ntfs *fs,
                                       uint64_t record_number,
