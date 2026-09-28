@@ -178,6 +178,55 @@ int ntfs_cluster_lba(const struct pros_ntfs *fs, uint64_t lcn,
     return PROS_NTFS_OK;
 }
 
+static uint16_t ntfs_attr_type(const uint8_t *a) { return le16(a); }
+
+int ntfs_find_attribute(const void *record, uint32_t record_size,
+                        uint32_t type, uint32_t *offset)
+{
+    const uint8_t *p = (const uint8_t *)record;
+    uint16_t first;
+    uint32_t pos;
+    if (!p || !offset || record_size < 24u) return PROS_NTFS_EINVAL;
+    if (p[0]!='F' || p[1]!='I' || p[2]!='L' || p[3]!='E')
+        return PROS_NTFS_ECORRUPT;
+    first = le16(p + 20);
+    pos = first;
+    while (pos + 8u <= record_size) {
+        uint32_t len = le32(p + pos + 4u);
+        uint32_t atype = le32(p + pos);
+        if (atype == 0xFFFFFFFFu) return PROS_NTFS_ENOTSUP;
+        if (len < 16u || pos + len > record_size) return PROS_NTFS_ECORRUPT;
+        if (atype == type) { *offset = pos; return PROS_NTFS_OK; }
+        pos += len;
+    }
+    return PROS_NTFS_ENOTSUP;
+}
+
+int ntfs_attribute_data(const void *record, uint32_t record_size,
+                        uint32_t attr_offset, const uint8_t **data,
+                        uint32_t *data_size)
+{
+    const uint8_t *a = (const uint8_t *)record;
+    uint8_t nonresident;
+    uint16_t value_offset;
+    uint32_t value_length;
+    if (!a || !data || !data_size || attr_offset + 24u > record_size)
+        return PROS_NTFS_EINVAL;
+    if (le32(a + attr_offset) == 0xFFFFFFFFu) return PROS_NTFS_ENOTSUP;
+    if (le32(a + attr_offset + 4u) < 24u) return PROS_NTFS_ECORRUPT;
+    nonresident = a[attr_offset + 8u];
+    if (nonresident) return PROS_NTFS_ENOTSUP;
+    value_length = le32(a + attr_offset + 16u);
+    value_offset = le16(a + attr_offset + 20u);
+    if ((uint32_t)value_offset + value_length >
+        le32(a + attr_offset + 4u) ||
+        attr_offset + (uint32_t)value_offset + value_length > record_size)
+        return PROS_NTFS_ECORRUPT;
+    *data = a + attr_offset + value_offset;
+    *data_size = value_length;
+    return PROS_NTFS_OK;
+}
+
 struct ntfs_test_disk { uint8_t boot[512]; };
 
 static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
