@@ -11,6 +11,16 @@
 #define PROS_VFS_EBUSY   -3
 #define PROS_VFS_ENOENT  -4
 #define PROS_VFS_EIO     -5
+#define PROS_VFS_NAME_MAX 255u
+#define PROS_VFS_PATH_MAX 4096u
+#define PROS_VFS_EOVERFLOW -6
+#define PROS_VFS_ENOTDIR -7
+#define PROS_VFS_EISDIR -8
+#define PROS_VFS_EPERM -9
+#define PROS_VFS_ELOOP -10
+#define PROS_VFS_O_READ  (1u << 0)
+#define PROS_VFS_O_WRITE (1u << 1)
+#define PROS_VFS_O_DIRECTORY (1u << 2)
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
