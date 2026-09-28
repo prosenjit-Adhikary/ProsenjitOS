@@ -2527,7 +2527,7 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
          */
         if (key_size >= 66u) {
             uint32_t key_name_bytes = (uint32_t)key[64u] * 2u;
-            if (key[65u] <= 3u && key_name_bytes == want_bytes &&
+            if (key[65u] != 2u && key[65u] <= 3u && key_name_bytes == want_bytes &&
                 66u + key_name_bytes <= key_size) {
                 uint8_t equal = ntfs_active_upcase ?
                     ntfs_name_key_matches(key, key_size, name_utf16le,
