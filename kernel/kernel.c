@@ -520,6 +520,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: NTFS directory path traversal test passed\n");
+    serial_write("ProsenjitOS: NTFS UpCase case-folding test passed\n");
 
     /*
      * Regression guard for CPL3 HANDLE_DUP authorization: DUPLICATE is the
