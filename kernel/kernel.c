@@ -644,16 +644,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * dispatcher must enforce that mask before entering the syscall body.
      */
     {
+        struct pros_process sandbox_actor;
         struct pros_process sandbox_target;
         uint64_t sandbox_policy = PROSENJIT_SYSCALL_POLICY(PROSENJIT_SYS_GET_VERSION);
         uint64_t sandbox_regs[16] = {0};
         uint64_t sandbox_frame[7] = {0};
 
-        if (process_create(&init_process, &sandbox_target, 9,
+        /* Policy-control authority belongs to a Super process. Keep the
+         * init process Limited for the restricted-baseline tests and use a
+         * short-lived Super actor for this target-policy regression. */
+        if (process_create(&init_process, &sandbox_actor, 9,
+                           PROS_SECURITY_SUPER) != 0 ||
+            process_create(&init_process, &sandbox_target, 10,
                            PROS_SECURITY_LIMITED) != 0 ||
-            process_apply_syscall_policy(&init_process, &sandbox_target,
+            process_apply_syscall_policy(&sandbox_actor, &sandbox_target,
                                          sandbox_policy) != 0) {
-            serial_write("ProsenjitOS: ERROR syscall sandbox setup failed\n");
+            serial_write("ProsenjitOS: ERROR syscall sandbox setup failed\\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
 
@@ -676,7 +682,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_set_current(&init_process);
         if (process_exit(&sandbox_target, 91) != 0 ||
             process_wait(&init_process, sandbox_target.pid, &waited_exit) != 0 ||
-            waited_exit != 91) {
+            waited_exit != 91 ||
+            process_exit(&sandbox_actor, 93) != 0 ||
+            process_wait(&init_process, sandbox_actor.pid, &waited_exit) != 0 ||
+            waited_exit != 93) {
             serial_write("ProsenjitOS: ERROR syscall sandbox target cleanup failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
