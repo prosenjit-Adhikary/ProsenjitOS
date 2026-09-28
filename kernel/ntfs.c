@@ -2258,7 +2258,7 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s >= 368u && lba + s < 369u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->bitmap_data[(lba + s - 368u) * 512u + i];
-        else if (lba + s == 52u || lba + s == 53u;
+        else if (lba + s == 52u || lba + s == 53u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->upcase_record[(lba + s - 52u) * 512u + i];
         else if (lba + s >= 80u && lba + s < 336u)
