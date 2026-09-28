@@ -136,7 +136,9 @@ int fat32_read_cluster(const struct pros_fat32 *fs,
 
 struct fat32_test_disk {
     uint8_t boot[512];
+    uint8_t fat[512];
     uint8_t root[512];
+    uint8_t file[512];
 };
 
 static int fat32_test_read(struct pros_block_device *device,
@@ -160,9 +162,15 @@ static int fat32_test_read(struct pros_block_device *device,
         if (current == 0u) {
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->boot[i];
+        } else if (current == 32u) {
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->fat[i];
         } else if (current == 16032u) {
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->root[i];
+        } else if (current == 16033u) {
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->file[i];
         }
     }
 
@@ -187,8 +195,36 @@ int fat32_selftest(void)
     disk.boot[36] = 0x40; disk.boot[37] = 0x1F; /* 8,000 sectors/FAT */
     disk.boot[44] = 0x02;                         /* root cluster */
     disk.boot[510] = 0x55; disk.boot[511] = 0xAA;
-    disk.root[0] = 'P'; disk.root[1] = 'R';
-    disk.root[2] = 'O'; disk.root[3] = 'S';
+    /* FAT[3] = end-of-chain. */
+    disk.fat[12] = 0xFF; disk.fat[13] = 0xFF;
+    disk.fat[14] = 0xFF; disk.fat[15] = 0x0F;
+
+    /* One LFN entry for "README.TXT", followed by its 8.3 entry. */
+    {
+        uint8_t *lfn = disk.root;
+        uint8_t *short_entry = disk.root + 32u;
+        const char *long_name = "README.TXT";
+        uint8_t sum = 0;
+        for (uint32_t i = 0; i < 11u; ++i) {
+            uint8_t ch = (i < 8u) ? (uint8_t)('R' + (i == 1u ? 0 : 0)) : 0;
+            (void)ch;
+        }
+        short_entry[0]='R'; short_entry[1]='E'; short_entry[2]='A'; short_entry[3]='D';
+        short_entry[4]='M'; short_entry[5]='E'; short_entry[6]=' '; short_entry[7]=' ';
+        short_entry[8]='T'; short_entry[9]='X'; short_entry[10]='T';
+        short_entry[11]=0x20; short_entry[26]=3; short_entry[28]=10;
+        for (uint32_t i=0;i<11u;++i)
+            sum=(uint8_t)(((sum&1u)?0x80u:0u)+(sum>>1)+short_entry[i]);
+        lfn[0]=0x41; lfn[11]=0x0F; lfn[13]=sum;
+        const uint16_t pos[13] = {1,3,5,7,9,14,16,18,20,22,24,28,30};
+        for (uint32_t i=0;i<10u;++i) { lfn[pos[i]]=(uint8_t)long_name[i]; lfn[pos[i]+1]=0; }
+        lfn[21]=0; lfn[22]=0;
+        lfn[26]=0; lfn[27]=0;
+        lfn[0x0D]=sum;
+        disk.root[64]=0x00;
+        for (uint32_t i=0;i<10u;++i) disk.file[i]=(uint8_t)"HELLO FAT32"[i];
+        (void)long_name;
+    }
 
     if (block_device_init(&device, 512, 1000000u,
                           fat32_test_read, 0, &disk) != PROS_BLOCK_OK ||
@@ -206,6 +242,24 @@ int fat32_selftest(void)
         fat32_cluster_lba(&fs, fs.cluster_count + 2u, &lba) ==
             PROS_FAT32_OK)
         return -1;
+
+    if (fat32_vfs_mount(&fs) != PROS_FAT32_OK)
+        return -1;
+    {
+        struct pros_vfs_vnode *node = 0;
+        struct pros_vfs_file file = {0};
+        uint8_t data[16] = {0};
+        uint32_t got = 0;
+        if (vfs_path_lookup(&fs.mount, "/README.TXT", &node) != PROS_VFS_OK ||
+            !node || node->type != PROS_VFS_NODE_FILE ||
+            vfs_file_open(&fs.mount, "/README.TXT", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, data, 10u, &got) != PROS_VFS_OK ||
+            got != 10u || data[0] != 'H' || data[9] != '3')
+            return -1;
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_vnode_put(node) != PROS_VFS_OK)
+            return -1;
+    }
 
     return 0;
 }
