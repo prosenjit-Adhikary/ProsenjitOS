@@ -4180,10 +4180,11 @@ int ntfs_selftest(void)
     }
 
     /*
-     * Fragmented-growth regression: the final existing run ends at LCN 44.
-     * Make LCN 44 busy so the preferred contiguous allocation fails; the
-     * allocator must select LCN 45 and append a mapping-pairs run. The mapping-pairs
-     * LCN delta is 43 because the existing run starts at LCN 2.
+     * Fragmented-growth regression: the existing DATA allocation is two
+     * clusters at LCN 42-43. Make the preferred next cluster (LCN 44) busy;
+     * the allocator must select LCN 45 and append a mapping-pairs run.
+     * The new write crosses the two-cluster allocation boundary, requiring
+     * exactly one additional cluster.
      */
     {
         static const uint8_t fragmented[] = { 'F', 'R', 'A', 'G' };
@@ -4191,26 +4192,18 @@ int ntfs_selftest(void)
 
         disk.bitmap_data[44u / 8u] |= (uint8_t)(1u << (44u % 8u));
         {
-            int write_rc = ntfs_file_write(&fs, 12u, 12288u, fragmented,
+            int write_rc = ntfs_file_write(&fs, 12u, 8192u, fragmented,
                                            sizeof(fragmented), &written);
-            if (write_rc != PROS_NTFS_OK) {
-                /*
-                 * Preserve the primary regression code while exposing which
-                 * post-allocation state survived if the write path fails.
-                 */
-                if ((disk.bitmap_data[45u / 8u] &
-                     (uint8_t)(1u << (45u % 8u))) != 0u)
-                    return -1281;
+            if (write_rc != PROS_NTFS_OK)
                 return -1271;
-            }
         }
         if (written != sizeof(fragmented))
             return -1272;
-        if (le64(disk.nonresident_record + 88u) != 16384u)
+        if (le64(disk.nonresident_record + 88u) != 12288u)
             return -1273;
-        if (le64(disk.nonresident_record + 96u) != 12292u)
+        if (le64(disk.nonresident_record + 96u) != 8196u)
             return -1274;
-        if (le64(disk.nonresident_record + 104u) != 12292u)
+        if (le64(disk.nonresident_record + 104u) != 8196u)
             return -1275;
         if (disk.nonresident_record[112u] != 0x11u ||
             disk.nonresident_record[113u] != 2u ||
@@ -4218,7 +4211,7 @@ int ntfs_selftest(void)
             return -1276;
         if (disk.nonresident_record[115u] != 0x11u ||
             disk.nonresident_record[116u] != 1u ||
-            disk.nonresident_record[117u] != 43u)
+            disk.nonresident_record[117u] != 3u)
             return -1277;
         if ((disk.bitmap_data[45u / 8u] &
              (uint8_t)(1u << (45u % 8u))) == 0u)
