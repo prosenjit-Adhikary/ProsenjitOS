@@ -49,17 +49,17 @@ int pros_file_admission_selftest(void) {
      * registration order while still exercising the admission evaluator.
      */
     if (pros_file_admission_evaluate(&input, &record) != 0)
-        return -1;
+        return -301;
     if (record.security.state != PROS_FILE_VERIFIED ||
         record.security.action != PROS_FILE_ALLOW)
-        return -1;
+        return -302;
 
     input.metadata.local_denied = 1;
     if (pros_file_admission_evaluate(&input, &record) != 0)
-        return -1;
+        return -303;
     if (record.security.state != PROS_FILE_MALICIOUS ||
         record.security.action != PROS_FILE_BLOCK)
-        return -1;
+        return -304;
 
     return 0;
 }
