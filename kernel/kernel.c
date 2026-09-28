@@ -11,6 +11,7 @@
 #include "intent.h"
 #include "ipc.h"
 #include "usercopy.h"
+#include "pci.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -1088,6 +1089,35 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: user-mode capability prepared\n");
+
+    /*
+     * PCI enumeration foundation: probe the standard PCI configuration
+     * mechanism before entering CPL3. The scanner is deliberately read-only;
+     * later driver work can build on this inventory without claiming device
+     * ownership yet.
+     */
+    if (pci_selftest() != PROS_PCI_OK) {
+        serial_write("ProsenjitOS: ERROR PCI configuration self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    {
+        struct pros_pci_device pci_devices[PROS_PCI_MAX_DEVICES];
+        uint32_t pci_count = 0u;
+        if (pci_scan(pci_devices, PROS_PCI_MAX_DEVICES, &pci_count) != PROS_PCI_OK) {
+            serial_write("ProsenjitOS: ERROR PCI enumeration failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: PCI enumeration passed; devices = ");
+        serial_hex64(pci_count);
+        serial_write("\\n");
+        if (pci_count != 0u) {
+            serial_write("ProsenjitOS: first PCI device BDF = ");
+            serial_hex64(((uint64_t)pci_devices[0].bus << 16) |
+                         ((uint64_t)pci_devices[0].slot << 8) |
+                         pci_devices[0].function);
+            serial_write("\\n");
+        }
+    }
 
     serial_write("ProsenjitOS: entering CPL3 user-mode test\n");
     if (address_space_switch(user_space) != 0) {
