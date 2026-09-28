@@ -572,6 +572,10 @@ static int fat32_vfs_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
 static int fat32_vfs_close(struct pros_vfs_file *);
 static const struct pros_vfs_file_ops fat32_vfs_ops = { .read = fat32_vfs_read, .close = fat32_vfs_close };
 
+static int fat32_vfs_readdir(struct pros_vfs_vnode *, uint64_t *,
+                              struct pros_vfs_dirent *);
+static const struct pros_vfs_vnode_ops fat32_vfs_vnode_ops;
+
 static int fat32_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
                               struct pros_vfs_vnode **result)
 {
@@ -618,11 +622,6 @@ static int fat32_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
     }
     return PROS_VFS_EBUSY;
 }
-
-static const struct pros_vfs_vnode_ops fat32_vfs_vnode_ops = {
-    .lookup = fat32_vfs_lookup,
-    .readdir = fat32_vfs_readdir
-};
 
 static int fat32_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie, struct pros_vfs_dirent *entry)
 {
@@ -719,6 +718,11 @@ static int fat32_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie, str
 
     return PROS_VFS_EIO;
 }
+
+static const struct pros_vfs_vnode_ops fat32_vfs_vnode_ops = {
+    .lookup = fat32_vfs_lookup,
+    .readdir = fat32_vfs_readdir
+};
 
 int fat32_vfs_mount(struct pros_fat32 *fs)
 {
