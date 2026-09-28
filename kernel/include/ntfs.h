@@ -104,6 +104,21 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                                  uint8_t name_length,
                                  uint64_t *file_reference);
 
+/*
+ * Read-only directory and path lookup. Path components are exact UTF-16LE
+ * names for now; the NTFS $UpCase collation table is a later milestone.
+ * NTFS directory record 5 ($Root) is used as the starting point.
+ */
+int ntfs_directory_lookup(const struct pros_ntfs *fs,
+                          uint64_t directory_record_number,
+                          const uint8_t *name_utf16le, uint8_t name_length,
+                          uint64_t *file_reference);
+int ntfs_path_lookup(const struct pros_ntfs *fs,
+                     const uint8_t *const *components,
+                     const uint8_t *component_lengths,
+                     uint32_t component_count,
+                     uint64_t *file_reference);
+
 int ntfs_selftest(void);
 
 #endif
