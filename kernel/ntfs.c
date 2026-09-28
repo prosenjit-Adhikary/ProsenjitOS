@@ -331,7 +331,7 @@ int ntfs_bootstrap_mft(struct pros_ntfs *fs)
     return PROS_NTFS_OK;
 }
 
-struct ntfs_test_disk { uint8_t boot[512]; };
+struct ntfs_test_disk { uint8_t boot[512]; uint8_t mft_record[1024]; };
 
 static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
                           uint32_t count, void *buffer)
@@ -345,6 +345,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         for (uint32_t i = 0; i < 512u; ++i) dst[i] = 0;
         if (lba + s == 0u)
             for (uint32_t i = 0; i < 512u; ++i) dst[i] = disk->boot[i];
+        else if (lba + s == 32u || lba + s == 33u)
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->mft_record[(lba + s - 32u) * 512u + i];
     }
     return PROS_BLOCK_OK;
 }
@@ -375,10 +378,38 @@ int ntfs_selftest(void)
     disk.boot[64]=0xF6;
     disk.boot[510]=0x55; disk.boot[511]=0xAA;
 
+    for (uint32_t i=0u; i<sizeof(disk.mft_record); ++i) disk.mft_record[i]=0u;
+    disk.mft_record[0]='F'; disk.mft_record[1]='I';
+    disk.mft_record[2]='L'; disk.mft_record[3]='E';
+    disk.mft_record[4]=48u; disk.mft_record[6]=3u;
+    disk.mft_record[48]=0x80u;
+    disk.mft_record[52]=72u;
+    disk.mft_record[56]=1u;
+    disk.mft_record[80]=64u;
+    disk.mft_record[81]=0u;
+    disk.mft_record[88]=0u;
+    disk.mft_record[89]=4u;
+    disk.mft_record[96]=32u;
+    disk.mft_record[100]=0u;
+    disk.mft_record[104]=0u;
+    disk.mft_record[105]=0u;
+    disk.mft_record[106]=0u;
+    disk.mft_record[107]=0u;
+    disk.mft_record[108]=0u;
+    disk.mft_record[109]=0u;
+    disk.mft_record[110]=0u;
+    disk.mft_record[111]=0u;
+    disk.mft_record[112]=0x11u;
+    disk.mft_record[113]=4u;
+    disk.mft_record[114]=0u;
+    disk.mft_record[115]=0x00u;
+
     if (block_device_init(&device,512,4096,ntfs_test_read,0,&disk) != PROS_BLOCK_OK ||
         ntfs_mount(&fs,&device) != PROS_NTFS_OK ||
         fs.bytes_per_sector != 512u || fs.sectors_per_cluster != 8u ||
         fs.bytes_per_file_record != 1024u ||
+        fs.mft_run_count != 1u || fs.mft_runs[0].lcn != 4u ||
+        fs.mft_runs[0].clusters != 32u || fs.mft_runs[0].sparse != 0u ||
         ntfs_cluster_lba(&fs,4u,&lba) != PROS_NTFS_OK || lba != 32u)
         return -101;
 
