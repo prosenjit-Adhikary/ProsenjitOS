@@ -635,7 +635,7 @@ int ntfs_selftest(void)
      * entries whose keys are $FILE_NAME bodies.
      */
     {
-        uint8_t directory_record[256] = {0};
+        uint8_t directory_record[320] = {0};
         uint32_t file_name_offset = 24u;
         uint32_t index_root_offset = 128u;
         uint32_t file_name_value_size = 74u; /* 66-byte header + "test" */
