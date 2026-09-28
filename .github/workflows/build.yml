@@ -52,26 +52,26 @@ jobs:
 
           require_log "ProsenjitOS: CPL3 user-mode execution test passed"
           require_log "ProsenjitOS: x86-64 long mode active"
-          grep -q "ProsenjitOS: page allocation/free test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: kernel heap allocation/free test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: process lifecycle/parent/exit-wait test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: process state validation regression passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: process resource cleanup regression passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: IPC channel/capability foundation test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: IPC wait-queue block/wakeup test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: thread lifecycle/run-queue scheduler test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: interrupt-frame scheduler save/restore test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: duplicate authorization attenuation test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: limited-process capability policy test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: capability handle/rights test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: process capability authorization test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: capability copy-transfer test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: capability move-transfer test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: inactive capability move regression passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: user address-space isolation foundation test passed" build/qemu-serial.log
-          grep -q "ProsenjitOS: usercopy page-fault recovery test passed" build/qemu-serial.log
+          require_log "ProsenjitOS: page allocation/free test passed"
+          require_log "ProsenjitOS: kernel heap allocation/free test passed"
+          require_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
+          require_log "ProsenjitOS: process state validation regression passed"
+          require_log "ProsenjitOS: process resource cleanup regression passed"
+          require_log "ProsenjitOS: IPC channel/capability foundation test passed"
+          require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
+          require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
+          require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_log "ProsenjitOS: duplicate authorization attenuation test passed"
+          require_log "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed"
+          require_log "ProsenjitOS: limited-process capability policy test passed"
+          require_log "ProsenjitOS: capability handle/rights test passed"
+          require_log "ProsenjitOS: process capability authorization test passed"
+          require_log "ProsenjitOS: capability copy-transfer test passed"
+          require_log "ProsenjitOS: capability move-transfer test passed"
+          require_log "ProsenjitOS: inactive capability move regression passed"
+          require_log "ProsenjitOS: user address-space isolation foundation test passed"
+          require_log "ProsenjitOS: usercopy page-fault recovery test passed"
 
       - name: Upload ISO and boot diagnostics
         if: always()
