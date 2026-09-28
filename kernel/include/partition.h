@@ -15,6 +15,12 @@ enum pros_partition_type {
     PROS_PARTITION_GPT
 };
 
+struct pros_partition_device {
+    struct pros_block_device device;
+    struct pros_block_device *parent;
+    uint64_t first_lba;
+};
+
 struct pros_partition {
     uint64_t first_lba;
     uint64_t sector_count;
@@ -31,5 +37,9 @@ int partition_read_mbr(struct pros_block_device *device,
 int partition_read_gpt(struct pros_block_device *device,
                        struct pros_partition *partitions,
                        uint32_t capacity, uint32_t *count);
+int partition_device_init(struct pros_partition_device *,
+                          struct pros_block_device *,
+                          const struct pros_partition *);
+int partition_selftest(void);
 
 #endif
