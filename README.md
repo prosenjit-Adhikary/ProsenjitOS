@@ -99,6 +99,21 @@ The planned removable-media path is:
 
 Filesystem implementations are isolated behind the VFS and block-device contracts. This allows the same filesystem code to work with USB, SATA and NVMe storage drivers. Filesystem metadata is also subject to the ProsenjitOS security/admission model.
 
+### NTFS implementation progress
+
+The read-only NTFS driver now includes:
+
+- validated NTFS boot geometry
+- FILE-record multi-sector USA/fixup validation
+- resident attribute discovery and data access
+- nonresident attribute runlist extraction
+- multi-run and sparse-run decoding with bounded validation
+- MFT record 0 bootstrap from its $DATA runlist
+- fragmented MFT record mapping for subsequent record reads
+- bounded MFT run storage to keep the freestanding kernel deterministic
+
+The MFT path remains intentionally read-only. Directory indexes ($INDEX_ROOT / $INDEX_ALLOCATION), $FILE_NAME namespace parsing, general file-data streaming, and NTFS write/journal support remain later milestones.
+
 See [docs/FILESYSTEM.md](docs/FILESYSTEM.md) for the detailed filesystem architecture and implementation order.
 
 ## Compatibility strategy
