@@ -34,6 +34,9 @@ copy_from_user_asm:
     popfq
     xor eax, eax
     ret
+.from_success:
+    xor eax, eax
+    ret
 .from_fault:
     mov qword [rel usercopy_fault_active], 0
     popfq
@@ -61,18 +64,13 @@ copy_to_user_asm:
     popfq
     xor eax, eax
     ret
+.to_success:
+    xor eax, eax
+    ret
 .to_fault:
     mov qword [rel usercopy_fault_active], 0
     popfq
     mov rax, -1
-    ret
-
-.from_success:
-    xor eax, eax
-    ret
-
-.to_success:
-    xor eax, eax
     ret
 
 section .note.GNU-stack noalloc noexec nowrite progbits
