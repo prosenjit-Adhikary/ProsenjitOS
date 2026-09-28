@@ -88,6 +88,7 @@
 - [x] Replaceable reputation provider adapter contract (hash-only, user-space compatible)
 - [x] Filesystem-independent file admission broker (hash + policy + reputation)
 - [x] Protected quarantine metadata store and execution admission contract
+- [x] Filesystem-neutral VFS admission boundary with startup regression test
 - [ ] Filesystem-backed file admission/security broker
 - [ ] External reputation provider adapters
 
