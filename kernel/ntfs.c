@@ -182,6 +182,7 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
 {
     uint32_t pos = 0u, count = 0u;
     int64_t current_lcn = 0;
+    uint8_t terminated = 0u;
     if (!runlist || !runs || !run_count || length == 0u || capacity == 0u)
         return PROS_NTFS_EINVAL;
     while (pos < length) {
@@ -190,7 +191,10 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
         uint32_t off_bytes = (header >> 4) & 0x0Fu;
         uint64_t run_len = 0u, raw = 0u;
         int64_t delta = 0;
-        if (header == 0u) break;
+        if (header == 0u) {
+            terminated = 1u;
+            break;
+        }
         if (len_bytes == 0u || len_bytes > 8u || off_bytes > 8u ||
             pos + len_bytes + off_bytes > length)
             return PROS_NTFS_ECORRUPT;
@@ -213,6 +217,8 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
         runs[count].sparse = off_bytes == 0u ? 1u : 0u;
         ++count;
     }
+    if (!terminated)
+        return PROS_NTFS_ECORRUPT;
     if (count == 0u) return PROS_NTFS_ENOTSUP;
     *run_count = count;
     return PROS_NTFS_OK;
