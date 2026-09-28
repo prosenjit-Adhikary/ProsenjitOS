@@ -8,6 +8,7 @@
 #include "security_exec.h"
 #include "vfs.h"
 #include "fat32.h"
+#include "partition.h"
 
 static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
@@ -57,6 +58,8 @@ int security_manager_init(void) {
     if (vfs_security_selftest() != 0)
         return -1;
     if (fat32_selftest() != 0)
+        return -1;
+    if (partition_selftest() != 0)
         return -1;
     if (pros_security_quarantine_selftest() != 0)
         return -1;
