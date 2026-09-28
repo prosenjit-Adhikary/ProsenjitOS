@@ -2070,6 +2070,129 @@ int ntfs_index_root_entry(const void *record, uint32_t record_size,
 }
 
 
+int ntfs_index_root_insert(struct pros_ntfs *fs,
+                           uint64_t directory_record_number,
+                           uint64_t child_record_number)
+{
+    static uint8_t directory_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t child_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t key_copy[0x10000];
+    uint32_t index_root_offset;
+    uint32_t file_name_offset;
+    const uint8_t *root_data;
+    const uint8_t *child_name;
+    uint32_t root_size;
+    uint32_t child_name_size;
+    struct pros_ntfs_index_root root;
+    uint32_t offset;
+    uint32_t terminal = 0u;
+    uint32_t entry_size;
+    uint32_t required_size;
+    uint32_t new_entries_size;
+    uint64_t file_reference;
+
+    if (!fs || directory_record_number > 0x0000FFFFFFFFFFFFull ||
+        child_record_number > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record > sizeof(directory_record))
+        return PROS_NTFS_EINVAL;
+
+    if (ntfs_read_file_record(fs, directory_record_number, directory_record,
+                              sizeof(directory_record)) != PROS_NTFS_OK ||
+        ntfs_read_file_record(fs, child_record_number, child_record,
+                              sizeof(child_record)) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0x90u, &index_root_offset) != PROS_NTFS_OK)
+        return PROS_NTFS_ENOTSUP;
+    if (ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
+                               index_root_offset, &root) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
+                            index_root_offset, &root_data, &root_size) !=
+        PROS_NTFS_OK || root.allocated_size > root_size)
+        return PROS_NTFS_ECORRUPT;
+
+    if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
+                            0x30u, &file_name_offset) != PROS_NTFS_OK ||
+        ntfs_attribute_data(child_record, fs->bytes_per_file_record,
+                            file_name_offset, &child_name,
+                            &child_name_size) != PROS_NTFS_OK ||
+        child_name_size < 66u || child_name_size > sizeof(key_copy) ||
+        child_name[64u] == 0u || child_name[65u] > 3u ||
+        66u + (uint32_t)child_name[64u] * 2u > child_name_size)
+        return PROS_NTFS_ECORRUPT;
+
+    for (uint32_t i = 0u; i < child_name_size; ++i)
+        key_copy[i] = child_name[i];
+
+    offset = root.first_entry_offset;
+    while (offset < root.entries_size) {
+        uint64_t reference;
+        const uint8_t *key;
+        uint16_t key_size;
+        uint8_t flags;
+        uint32_t next;
+
+        if (ntfs_index_root_entry(directory_record, fs->bytes_per_file_record,
+                                  index_root_offset, offset, &reference, &key,
+                                  &key_size, &flags, &next) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        if ((flags & 2u) != 0u) {
+            terminal = offset;
+            break;
+        }
+        if (ntfs_name_key_matches(key, key_size, key_copy,
+                                  key_copy[64u]))
+            return PROS_NTFS_EINVAL;
+        if (next == 0u || next <= offset || next >= root.entries_size)
+            return PROS_NTFS_ECORRUPT;
+        offset = next;
+    }
+
+    if (terminal == 0u)
+        return PROS_NTFS_ECORRUPT;
+
+    required_size = 16u + child_name_size;
+    if (required_size > 0xFFFFu)
+        return PROS_NTFS_EOVERFLOW;
+    entry_size = (required_size + 7u) & ~7u;
+    if (entry_size > 0xFFFFu ||
+        root.allocated_size < root.entries_size ||
+        entry_size > root.allocated_size - root.entries_size)
+        return PROS_NTFS_ENOTSUP;
+
+    for (uint32_t i = root.entries_size; i > terminal; --i)
+        ((uint8_t *)root_data)[i + entry_size - 1u] =
+            root_data[i - 1u];
+    for (uint32_t i = 0u; i < entry_size; ++i)
+        ((uint8_t *)root_data)[terminal + i] = 0u;
+
+    file_reference = ((uint64_t)le16(child_record + 16u) << 48) |
+                     (child_record_number & 0x0000FFFFFFFFFFFFull);
+    for (uint32_t i = 0u; i < 8u; ++i)
+        ((uint8_t *)root_data)[terminal + i] =
+            (uint8_t)(file_reference >> (8u * i));
+    ((uint8_t *)root_data)[terminal + 8u] = (uint8_t)entry_size;
+    ((uint8_t *)root_data)[terminal + 9u] = (uint8_t)(entry_size >> 8);
+    ((uint8_t *)root_data)[terminal + 10u] = (uint8_t)child_name_size;
+    ((uint8_t *)root_data)[terminal + 11u] =
+        (uint8_t)(child_name_size >> 8);
+    ((uint8_t *)root_data)[terminal + 12u] = 0u;
+    for (uint32_t i = 0u; i < child_name_size; ++i)
+        ((uint8_t *)root_data)[terminal + 16u + i] = key_copy[i];
+
+    new_entries_size = root.entries_size + entry_size;
+    ((uint8_t *)root_data)[20u] = (uint8_t)new_entries_size;
+    ((uint8_t *)root_data)[21u] = (uint8_t)(new_entries_size >> 8);
+    ((uint8_t *)root_data)[22u] = (uint8_t)(new_entries_size >> 16);
+    ((uint8_t *)root_data)[23u] = (uint8_t)(new_entries_size >> 24);
+
+    return ntfs_write_file_record(fs, directory_record_number,
+                                  directory_record);
+}
+
+
 
 int ntfs_index_root_lookup(const void *record, uint32_t record_size,
                            uint32_t attr_offset,
