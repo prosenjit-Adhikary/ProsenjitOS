@@ -196,6 +196,7 @@ user_test_entry:
 
     ; Write a marker through the isolated user mapping.
     mov rdx, 0x0000008000001000
+    mov r14, rdx
     mov byte [rdx], 0x5A
 
     ; Exercise the shared user/kernel ABI and verify the return value.
@@ -257,12 +258,12 @@ user_test_entry:
     jne .user_halt
 
     ; Send a short message through the capability-mediated IPC syscall.
-    mov byte [rdx + 1], 'I'
-    mov byte [rdx + 2], 'P'
-    mov byte [rdx + 3], 'C'
+    mov byte [r14 + 1], 'I'
+    mov byte [r14 + 2], 'P'
+    mov byte [r14 + 3], 'C'
     mov rax, 5
     mov rdi, r12
-    lea rsi, [rdx + 1]
+    lea rsi, [r14 + 1]
     mov rdx, 3
     int 0x80
     test rax, rax
@@ -271,19 +272,19 @@ user_test_entry:
     ; Receive it back and have the kernel write the message length to user memory.
     mov rax, 6
     mov rdi, r12
-    lea rsi, [rdx + 32]
+    lea rsi, [r14 + 32]
     mov rdx, 64
-    lea rcx, [rdx + 16]
+    lea rcx, [r14 + 16]
     int 0x80
     cmp rax, 3
     jne .user_halt
-    cmp dword [rdx + 16], 3
+    cmp dword [r14 + 16], 3
     jne .user_halt
-    cmp byte [rdx + 32], 'I'
+    cmp byte [r14 + 32], 'I'
     jne .user_halt
-    cmp byte [rdx + 33], 'P'
+    cmp byte [r14 + 33], 'P'
     jne .user_halt
-    cmp byte [rdx + 34], 'C'
+    cmp byte [r14 + 34], 'C'
     jne .user_halt
 
     ; Close the duplicated READ-only capability.
