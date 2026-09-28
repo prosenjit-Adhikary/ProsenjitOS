@@ -96,7 +96,7 @@
 - [ ] Driver model
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
-- [ ] PCI enumeration
+- [x] PCI enumeration
 - [ ] Display abstraction
 - [ ] Network device abstraction
 
