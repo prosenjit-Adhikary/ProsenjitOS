@@ -163,28 +163,64 @@ int partition_device_init(struct pros_partition_device *view,
     return PROS_PARTITION_OK;
 }
 
+static uint8_t partition_test_media[4 * 512];
+
+static int partition_test_read(struct pros_block_device *device,
+                               uint64_t lba, uint32_t count, void *buffer)
+{
+    (void)device;
+    if (!buffer || lba > 4u || count > 4u - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t i = 0; i < count * 512u; ++i)
+        ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
+    return PROS_BLOCK_OK;
+}
+
+static int partition_test_write(struct pros_block_device *device,
+                                uint64_t lba, uint32_t count,
+                                const void *buffer)
+{
+    (void)device;
+    if (!buffer || lba > 4u || count > 4u - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t i = 0; i < count * 512u; ++i)
+        partition_test_media[lba * 512u + i] = ((const uint8_t *)buffer)[i];
+    return PROS_BLOCK_OK;
+}
+
 int partition_selftest(void)
 {
-    static uint8_t media[4 * 512];
-    static struct pros_block_device parent;
+    struct pros_block_device parent;
     struct pros_partition_device view;
     struct pros_partition part;
     uint8_t buffer[512];
 
-    for (uint32_t i = 0; i < sizeof(media); ++i)
-        media[i] = 0;
-    media[510] = 0x55;
-    media[511] = 0xAA;
-    media[446 + 4] = 0x0Bu;
-    media[446 + 8] = 1u;
-    media[446 + 12] = 2u;
+    for (uint32_t i = 0; i < sizeof(partition_test_media); ++i)
+        partition_test_media[i] = 0;
+    partition_test_media[510] = 0x55;
+    partition_test_media[511] = 0xAA;
+    partition_test_media[446 + 4] = 0x0Bu;
+    partition_test_media[446 + 8] = 1u;
+    partition_test_media[446 + 12] = 2u;
 
-    static int selftest_read(struct pros_block_device *d, uint64_t lba,
-                             uint32_t count, void *buf);
-    (void)selftest_read;
-    (void)buffer;
-    (void)part;
-    (void)view;
-    (void)parent;
-    return 0;
+    if (block_device_init(&parent, 512, 4, partition_test_read,
+                          partition_test_write, 0) != PROS_BLOCK_OK)
+        return -1;
+    struct pros_partition partitions[4];
+    uint32_t count = 0;
+    if (partition_read_mbr(&parent, partitions, 4, &count) !=
+            PROS_PARTITION_OK ||
+        count != 1u || partitions[0].first_lba != 1u ||
+        partitions[0].sector_count != 2u)
+        return -1;
+    part = partitions[0];
+    if (partition_device_init(&view, &parent, &part) != PROS_PARTITION_OK)
+        return -1;
+    if (block_device_read(&view.device, 0, 1, buffer) != PROS_BLOCK_OK)
+        return -1;
+    if (buffer[0] != partition_test_media[512])
+        return -1;
+    if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
+        return -1;
+    return PROS_PARTITION_OK;
 }
