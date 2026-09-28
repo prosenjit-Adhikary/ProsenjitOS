@@ -815,6 +815,18 @@ int ntfs_selftest(void)
                                   &key_size, &entry_flags, &next_entry) !=
                 PROS_NTFS_ECORRUPT)
             return -111;
+
+        {
+            static const uint8_t lookup_name[] = {
+                't', 0u, 'e', 0u, 's', 0u, 't', 0u
+            };
+            if (ntfs_index_root_lookup(directory_record, sizeof(directory_record),
+                                       index_root_offset, lookup_name, 4u,
+                                       &reference) != PROS_NTFS_OK ||
+                reference != 0x1000u)
+                return -112;
+
+        }
     }
 
     return 0;
