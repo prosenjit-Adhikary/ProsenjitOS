@@ -381,7 +381,13 @@ int ntfs_selftest(void)
     for (uint32_t i=0u; i<sizeof(disk.mft_record); ++i) disk.mft_record[i]=0u;
     disk.mft_record[0]='F'; disk.mft_record[1]='I';
     disk.mft_record[2]='L'; disk.mft_record[3]='E';
-    disk.mft_record[4]=48u; disk.mft_record[6]=3u;
+    disk.mft_record[4]=16u; disk.mft_record[6]=3u;
+    disk.mft_record[16]=0x34u; disk.mft_record[17]=0x12u;
+    disk.mft_record[18]=0u; disk.mft_record[19]=0u;
+    disk.mft_record[20]=0u; disk.mft_record[21]=0u;
+    disk.mft_record[510]=0x34u; disk.mft_record[511]=0x12u;
+    disk.mft_record[1022]=0x34u; disk.mft_record[1023]=0x12u;
+    disk.mft_record[20]=24u;
     disk.mft_record[48]=0x80u;
     disk.mft_record[52]=72u;
     disk.mft_record[56]=1u;
