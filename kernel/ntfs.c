@@ -1874,8 +1874,19 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         if (ntfs_bitmap_allocate_clusters_exact(fs, growth_lcn,
                                                  required_clusters) !=
             PROS_NTFS_OK) {
-            if (ntfs_bitmap_allocate_clusters(fs, required_clusters,
-                                               &growth_lcn) != PROS_NTFS_OK)
+            /*
+             * If the preferred contiguous extension is unavailable, keep the
+             * fallback allocation at or after the old run's end. Starting the
+             * global scan at LCN 0 could consume an unrelated low-numbered
+             * free cluster and would produce a non-local fragmented run.
+             */
+            uint64_t fallback_start =
+                runs[run_count - 1u].lcn + runs[run_count - 1u].clusters;
+            if (fallback_start < runs[run_count - 1u].lcn ||
+                ntfs_bitmap_allocate_clusters_from(fs, fallback_start,
+                                                    required_clusters,
+                                                    &growth_lcn) !=
+                    PROS_NTFS_OK)
                 return PROS_NTFS_EIO;
         }
         growth_clusters = required_clusters;
