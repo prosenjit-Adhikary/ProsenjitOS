@@ -235,7 +235,7 @@ int partition_selftest(void)
      * A 300-byte entry starts at offset 300, so its tail is in the next
      * sector and must be read as a two-sector span.
      */
-    static uint8_t gpt_media[6u * 512u];
+    static uint8_t gpt_media[4u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
         gpt_media[i] = 0u;
     gpt_media[512u + 0u] = 'E';
@@ -261,7 +261,7 @@ int partition_selftest(void)
     gpt_media[2u * 512u + 347u] = 0u;
 
     struct pros_block_device gpt_parent;
-    if (block_device_init(&gpt_parent, 512u, 6u, partition_test_read, 0, 0) !=
+    if (block_device_init(&gpt_parent, 512u, 4u, partition_test_read, 0, 0) !=
         PROS_BLOCK_OK)
         return -2;
     /*
@@ -272,7 +272,6 @@ int partition_selftest(void)
         if (i < sizeof(partition_test_media))
             partition_test_media[i] = gpt_media[i];
     }
-    /* The callback exposes four sectors, so use a four-sector GPT image. */
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 3u ||
