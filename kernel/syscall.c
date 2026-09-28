@@ -54,6 +54,14 @@ extern void user_mode_exit_trampoline(void);
 void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame) {
     if (!registers || !cpu_frame) return;
 
+    struct pros_process *policy_process = process_current();
+    uint64_t syscall_number = registers[0];
+    if (policy_process && syscall_number >= 1 && syscall_number <= 64 &&
+        (process_allowed_syscalls(policy_process) & (1ULL << (syscall_number - 1U))) == 0) {
+        registers[0] = PROSENJIT_SYSCALL_EPERM;
+        return;
+    }
+
     switch (registers[0]) {
         case PROSENJIT_SYS_GET_VERSION:
             registers[0] = PROSENJIT_ABI_VERSION;
