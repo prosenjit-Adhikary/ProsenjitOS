@@ -27,6 +27,7 @@ struct pros_ipc_channel {
     struct pros_ipc_message messages[PROSENJIT_IPC_CAPACITY];
     struct pros_thread *waiters[PROSENJIT_IPC_CAPACITY];
     uint32_t waiter_count;
+    volatile uint8_t lock;
 };
 
 int ipc_channel_init(struct pros_ipc_channel *channel);
