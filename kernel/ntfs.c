@@ -4773,9 +4773,10 @@ int ntfs_selftest(void)
             if (le32(vfs_child_record + 48u) != 0x80u ||
                 le32(vfs_child_record + 52u) != 72u)
                 return -1842;
-            if (le32(vfs_child_record + 120u) != 0x30u ||
-                le32(vfs_child_record + 124u) != 128u)
-                return -1843;
+            if (le32(vfs_child_record + 120u) != 0x30u)
+                return -1844;
+            if (le32(vfs_child_record + 124u) != 128u)
+                return -1845;
             if (ntfs_find_attribute(vfs_child_record,
                                     fs.bytes_per_file_record, 0x30u,
                                     &vfs_fn_offset) != PROS_NTFS_OK)
