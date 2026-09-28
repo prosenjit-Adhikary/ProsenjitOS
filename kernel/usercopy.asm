@@ -16,6 +16,10 @@ section .text
 copy_from_user_asm:
     test rdx, rdx
     jz .success
+    ; User copy runs with interrupts disabled so a timer interrupt cannot
+    ; preempt this single-copy fault-fixup context.
+    pushfq
+    cli
     mov qword [rel usercopy_fault_active], 1
     lea rax, [rel .from_fault]
     mov [rel usercopy_fault_rip], rax
@@ -27,10 +31,12 @@ copy_from_user_asm:
     dec rdx
     jnz .from_loop
     mov qword [rel usercopy_fault_active], 0
+    popfq
     xor eax, eax
     ret
 .from_fault:
     mov qword [rel usercopy_fault_active], 0
+    popfq
     mov rax, -1
     ret
 
@@ -38,6 +44,9 @@ copy_from_user_asm:
 copy_to_user_asm:
     test rdx, rdx
     jz .success
+    ; Keep the fault-fixup context atomic on the current CPU.
+    pushfq
+    cli
     mov qword [rel usercopy_fault_active], 1
     lea rax, [rel .to_fault]
     mov [rel usercopy_fault_rip], rax
@@ -49,10 +58,12 @@ copy_to_user_asm:
     dec rdx
     jnz .to_loop
     mov qword [rel usercopy_fault_active], 0
+    popfq
     xor eax, eax
     ret
 .to_fault:
     mov qword [rel usercopy_fault_active], 0
+    popfq
     mov rax, -1
     ret
 
