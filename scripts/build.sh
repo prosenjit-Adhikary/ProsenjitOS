@@ -39,9 +39,10 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/block.c" -o "$BUILD/obj/block.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/vfs.c" -o "$BUILD/obj/vfs.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/fat32.c" -o "$BUILD/obj/fat32.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/exfat.c" -o "$BUILD/obj/exfat.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ntfs.c" -o "$BUILD/obj/ntfs.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/partition.c" -o "$BUILD/obj/partition.o"
 
-ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/vfs.o" "$BUILD/obj/fat32.o" "$BUILD/obj/exfat.o" "$BUILD/obj/partition.o"
+ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/vfs.o" "$BUILD/obj/fat32.o" "$BUILD/obj/exfat.o" "$BUILD/obj/ntfs.o" "$BUILD/obj/partition.o"
 
 grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
