@@ -4738,6 +4738,8 @@ int ntfs_selftest(void)
             uint32_t value = fn + 24u;
             disk.file_record[fn + 0u] = 0x30u;
             disk.file_record[fn + 4u] = 128u;
+            disk.file_record[fn + 14u] = 1u;
+            disk.file_record[fn + 15u] = 0u;
             disk.file_record[fn + 16u] = 74u;
             disk.file_record[fn + 20u] = 24u;
             disk.file_record[value + 0u] = 5u;
@@ -4754,6 +4756,10 @@ int ntfs_selftest(void)
         disk.file_record[249u] = 0xFFu;
         disk.file_record[250u] = 0xFFu;
         disk.file_record[251u] = 0xFFu;
+        disk.file_record[24u] = 0x00u;
+        disk.file_record[25u] = 0x01u;
+        disk.file_record[26u] = 0x00u;
+        disk.file_record[27u] = 0x00u;
 
         {
             static uint8_t vfs_child_record[1024];
