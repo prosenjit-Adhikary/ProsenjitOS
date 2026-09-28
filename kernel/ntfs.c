@@ -1392,16 +1392,19 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             uint32_t type = le32(record + pos);
             if (type == 0xFFFFFFFFu)
                 break;
-            if (len < 16u || pos + len > fs->bytes_per_file_record)
+            if (len < 16u || pos + len > fs->bytes_per_file_record) {
                 write_status = PROS_NTFS_ECORRUPT;
                 goto write_fail;
-            if (type == 0x30u; && record[pos + 8u] == 0u) {
+            }
+            if (type == 0x30u && record[pos + 8u] == 0u) {
                 uint32_t value_offset = le16(record + pos + 20u);
                 uint32_t value_length = le32(record + pos + 16u);
                 if (value_offset < 66u ||
                     value_offset + value_length > len ||
-                    value_offset + 56u > len)
-                    return PROS_NTFS_ECORRUPT;
+                    value_offset + 56u > len) {
+                    write_status = PROS_NTFS_ECORRUPT;
+                    goto write_fail;
+                }
                 for (uint32_t b = 0u; b < 8u; ++b)
                     record[pos + value_offset + 48u + b] =
                         (uint8_t)(new_real_size >> (8u * b));
