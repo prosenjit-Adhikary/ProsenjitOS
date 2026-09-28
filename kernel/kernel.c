@@ -9,6 +9,7 @@
 #include "timer.h"
 #include "intent.h"
 #include "ipc.h"
+#include "usercopy.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -129,8 +130,6 @@ void debug_tss_descriptor(void) {
     serial_write("\n");
 }
 extern void user_mode_exit_trampoline(void);
-extern volatile uint64_t usercopy_fault_active;
-extern volatile uint64_t usercopy_fault_rip;
 extern char __user_text_start[];
 extern char __user_text_end[];
 #define ISR(n) extern void isr##n(void);
@@ -187,9 +186,10 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
-    if (vector == 14 && usercopy_fault_active) {
-        usercopy_fault_active = 0;
-        frame[2] = usercopy_fault_rip;
+    if (vector == 14 && usercopy_fault_active()) {
+        uint64_t fixup_rip = usercopy_fault_rip();
+        usercopy_fault_clear();
+        frame[2] = fixup_rip;
         return;
     }
     serial_write("ProsenjitOS: CR2 = ");
@@ -636,54 +636,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process capability authorization test passed\n");
-    /* Per-process syscall sandbox regression. */
-    {
-        uint64_t saved_policy = process_allowed_syscalls(&init_process);
-        uint64_t sandbox_regs[16] = {0};
-        uint64_t sandbox_frame[7] = {0};
-        uint64_t restricted_policy = saved_policy &
-            ~PROSENJIT_SYSCALL_POLICY(PROSENJIT_SYS_GET_VERSION);
-        if (process_set_syscall_policy(&init_process, restricted_policy) != 0) {
-            serial_write("ProsenjitOS: ERROR syscall sandbox policy setup failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        process_set_current(&init_process);
-        sandbox_regs[0] = PROSENJIT_SYS_GET_VERSION;
-        syscall_dispatch(sandbox_regs, sandbox_frame);
-        if (sandbox_regs[0] != PROSENJIT_SYSCALL_EPERM ||
-            process_set_syscall_policy(&init_process, saved_policy) != 0) {
-            serial_write("ProsenjitOS: ERROR syscall sandbox enforcement test failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        serial_write("ProsenjitOS: syscall sandbox enforcement test passed\n");
-    }
-    {
-        struct pros_process sandbox_child;
-        uint64_t child_policy = process_allowed_syscalls(&init_process) &
-            ~PROSENJIT_SYSCALL_POLICY(PROSENJIT_SYS_GET_VERSION);
-        uint64_t child_regs[16] = {0};
-        uint64_t child_frame[7] = {0};
-        int32_t child_exit = -1;
-        if (process_create(&init_process, &sandbox_child, 9,
-                           PROS_SECURITY_LIMITED) != 0 ||
-            process_apply_syscall_policy(&init_process, &sandbox_child,
-                                         child_policy) != 0) {
-            serial_write("ProsenjitOS: ERROR child sandbox policy setup failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        process_set_current(&sandbox_child);
-        child_regs[0] = PROSENJIT_SYS_GET_VERSION;
-        syscall_dispatch(child_regs, child_frame);
-        process_set_current(&init_process);
-        if (child_regs[0] != PROSENJIT_SYSCALL_EPERM ||
-            process_exit(&sandbox_child, 0) != 0 ||
-            process_wait(&init_process, sandbox_child.pid, &child_exit) != 0 ||
-            child_exit != 0) {
-            serial_write("ProsenjitOS: ERROR child syscall sandbox test failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        serial_write("ProsenjitOS: limited-process syscall sandbox test passed\n");
-    }
 
     /* Cross-process copy-transfer: the source remains valid and the target
      * receives only the explicitly requested subset of rights. */

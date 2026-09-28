@@ -4,6 +4,22 @@
 extern int copy_from_user_asm(void *destination, const void *source, uint64_t size);
 extern int copy_to_user_asm(void *destination, const void *source, uint64_t size);
 
+uint64_t usercopy_fault_active(void) {
+    uint64_t value;
+    __asm__ volatile ("mov %%gs:0, %0" : "=r"(value) : : "memory");
+    return value;
+}
+
+uint64_t usercopy_fault_rip(void) {
+    uint64_t value;
+    __asm__ volatile ("mov %%gs:8, %0" : "=r"(value) : : "memory");
+    return value;
+}
+
+void usercopy_fault_clear(void) {
+    __asm__ volatile ("movq $0, %%gs:0" : : : "memory");
+}
+
 int copy_from_user(const struct pros_address_space *space,
                    void *kernel_destination,
                    uint64_t user_source,

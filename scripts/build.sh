@@ -27,11 +27,13 @@ gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mn
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx \
     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 \
     -c -o "$BUILD/obj/thread.o" "$ROOT/kernel/thread.c"
+ gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/spinlock.c" -o "$BUILD/obj/spinlock.o"
+ gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/percpu.c" -o "$BUILD/obj/percpu.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/timer.c" -o "$BUILD/obj/timer.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/intent.c" -o "$BUILD/obj/intent.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/pic.c" -o "$BUILD/obj/pic.o"
 
-ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib    -o "$BUILD/prosenjit.elf"    "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o" "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o" "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o" "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o" "$BUILD/obj/pic.o"
+ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib    -o "$BUILD/prosenjit.elf"    "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o" "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o" "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o" "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/thread.o" "$BUILD/obj/spinlock.o" "$BUILD/obj/percpu.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o" "$BUILD/obj/pic.o"
 
 grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
