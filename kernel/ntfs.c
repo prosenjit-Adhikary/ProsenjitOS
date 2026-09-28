@@ -528,7 +528,423 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
     return PROS_NTFS_ENOTSUP;
 }
 
+
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
+#define PROS_NTFS_INDEX_NODE_MAX 128u
+
+static uint8_t ntfs_name_key_matches(const uint8_t *key, uint16_t key_size,
+                                      const uint8_t *name_utf16le,
+                                      uint8_t name_length)
+{
+    uint32_t name_bytes;
+    if (!key || !name_utf16le || key_size < 66u || name_length == 0u)
+        return 0u;
+    name_bytes = (uint32_t)key[64u] * 2u;
+    if (key[65u] > 3u || name_bytes != (uint32_t)name_length * 2u ||
+        66u + name_bytes > key_size)
+        return 0u;
+    for (uint32_t i = 0u; i < name_bytes; ++i)
+        if (key[66u + i] != name_utf16le[i])
+            return 0u;
+    return 1u;
+}
+
+int ntfs_index_record_fixup(void *record, uint32_t record_size,
+                            uint32_t bytes_per_sector)
+{
+    uint8_t *p = (uint8_t *)record;
+    uint16_t usa_offset;
+    uint16_t usa_count;
+
+    if (!p || record_size < 48u || bytes_per_sector < 512u ||
+        record_size % bytes_per_sector != 0u)
+        return PROS_NTFS_EINVAL;
+    if (p[0] != 'I' || p[1] != 'N' || p[2] != 'D' || p[3] != 'X')
+        return PROS_NTFS_ECORRUPT;
+
+    usa_offset = le16(p + 4u);
+    usa_count = le16(p + 6u);
+    if (usa_count < 2u ||
+        (uint32_t)usa_offset + (uint32_t)usa_count * 2u > record_size)
+        return PROS_NTFS_ECORRUPT;
+
+    {
+        uint16_t sequence = le16(p + usa_offset);
+        for (uint32_t i = 1u; i < usa_count; ++i) {
+            uint32_t end = i * bytes_per_sector - 2u;
+            uint16_t saved;
+            if (end + 2u > record_size)
+                return PROS_NTFS_ECORRUPT;
+            saved = le16(p + end);
+            if (saved != sequence)
+                return PROS_NTFS_ECORRUPT;
+            p[end] = p[usa_offset + i * 2u];
+            p[end + 1u] = p[usa_offset + i * 2u + 1u];
+        }
+    }
+    return PROS_NTFS_OK;
+}
+
+int ntfs_index_record_header(const void *record, uint32_t record_size,
+                             uint32_t bytes_per_sector, uint64_t expected_vcn,
+                             struct pros_ntfs_index_record *info)
+{
+    const uint8_t *p = (const uint8_t *)record;
+    uint32_t first_relative;
+    uint32_t entries_size;
+    uint32_t allocated_size;
+    uint8_t flags;
+
+    if (!p || !info)
+        return PROS_NTFS_EINVAL;
+    if (record_size < 40u || bytes_per_sector < 512u ||
+        record_size % bytes_per_sector != 0u)
+        return PROS_NTFS_EINVAL;
+    if (p[0] != 'I' || p[1] != 'N' || p[2] != 'D' || p[3] != 'X')
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_index_record_fixup((void *)record, record_size,
+                                bytes_per_sector) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    if (le64(p + 16u) != expected_vcn)
+        return PROS_NTFS_ECORRUPT;
+
+    first_relative = le32(p + 24u);
+    entries_size = le32(p + 28u);
+    allocated_size = le32(p + 32u);
+    flags = p[36u];
+
+    if (first_relative < 16u ||
+        entries_size < first_relative ||
+        allocated_size < entries_size ||
+        (flags & ~1u) != 0u ||
+        24u + allocated_size > record_size ||
+        24u + entries_size > record_size ||
+        24u + first_relative > 24u + entries_size)
+        return PROS_NTFS_ECORRUPT;
+
+    info->vcn = expected_vcn;
+    info->first_entry_offset = 24u + first_relative;
+    info->entries_size = 24u + entries_size;
+    info->allocated_size = 24u + allocated_size;
+    info->flags = flags;
+    return PROS_NTFS_OK;
+}
+
+static int ntfs_index_allocation_read(const struct pros_ntfs *fs,
+                                      const struct pros_ntfs_run *runs,
+                                      uint32_t run_count,
+                                      uint64_t byte_offset,
+                                      void *buffer,
+                                      uint32_t size)
+{
+    uint8_t sector[4096];
+    uint32_t copied = 0u;
+    uint64_t cluster_bytes;
+
+    if (!fs || !runs || run_count == 0u || !buffer || size == 0u ||
+        fs->bytes_per_sector < 512u || fs->bytes_per_sector > sizeof(sector) ||
+        fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
+
+    cluster_bytes = (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
+    while (copied < size) {
+        uint64_t logical_cluster = byte_offset / cluster_bytes;
+        uint64_t cluster_offset = byte_offset % cluster_bytes;
+        uint64_t cumulative = 0u;
+        uint64_t physical_lcn = 0u;
+        uint8_t sparse = 0u;
+        uint8_t found = 0u;
+
+        for (uint32_t r = 0u; r < run_count; ++r) {
+            const struct pros_ntfs_run *run = &runs[r];
+            if (logical_cluster < cumulative + run->clusters) {
+                physical_lcn = run->lcn + (logical_cluster - cumulative);
+                if (physical_lcn < run->lcn)
+                    return PROS_NTFS_EOVERFLOW;
+                sparse = run->sparse;
+                found = 1u;
+                break;
+            }
+            if (run->clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
+                return PROS_NTFS_EOVERFLOW;
+            cumulative += run->clusters;
+        }
+        if (!found)
+            return PROS_NTFS_EIO;
+
+        {
+            uint32_t sector_index =
+                (uint32_t)(cluster_offset / fs->bytes_per_sector);
+            uint32_t in_sector =
+                (uint32_t)(cluster_offset % fs->bytes_per_sector);
+            uint32_t take = fs->bytes_per_sector - in_sector;
+            uint64_t lba;
+
+            if (take > size - copied)
+                take = size - copied;
+            if (sparse) {
+                for (uint32_t i = 0u; i < take; ++i)
+                    ((uint8_t *)buffer)[copied + i] = 0u;
+            } else {
+                if (sector_index >= fs->sectors_per_cluster ||
+                    ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+                    return PROS_NTFS_EIO;
+                lba += sector_index;
+                if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                    PROS_BLOCK_OK)
+                    return PROS_NTFS_EIO;
+                for (uint32_t i = 0u; i < take; ++i)
+                    ((uint8_t *)buffer)[copied + i] = sector[in_sector + i];
+            }
+            copied += take;
+            byte_offset += take;
+        }
+    }
+    return PROS_NTFS_OK;
+}
+
+static int ntfs_index_record_geometry(const struct pros_ntfs *fs,
+                                      const struct pros_ntfs_index_root *root,
+                                      uint32_t *record_clusters)
+{
+    uint32_t cluster_bytes;
+    int8_t encoded;
+    uint32_t expected_bytes;
+
+    if (!fs || !root || !record_clusters || fs->bytes_per_sector == 0u ||
+        fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
+
+    cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
+    if (cluster_bytes == 0u)
+        return PROS_NTFS_EOVERFLOW;
+
+    encoded = (int8_t)root->clusters_per_index_record;
+    if (encoded > 0) {
+        if ((uint32_t)encoded > 128u ||
+            (uint32_t)encoded > 0xFFFFFFFFu / cluster_bytes)
+            return PROS_NTFS_ECORRUPT;
+        expected_bytes = (uint32_t)encoded * cluster_bytes;
+        *record_clusters = (uint32_t)encoded;
+    } else if (encoded < 0) {
+        uint32_t shift = abs_u8(encoded);
+        if (shift > 16u)
+            return PROS_NTFS_ECORRUPT;
+        expected_bytes = 1u << shift;
+        if (expected_bytes % cluster_bytes != 0u)
+            return PROS_NTFS_ECORRUPT;
+        *record_clusters = expected_bytes / cluster_bytes;
+        if (*record_clusters == 0u)
+            return PROS_NTFS_ECORRUPT;
+    } else {
+        return PROS_NTFS_ECORRUPT;
+    }
+
+    if (expected_bytes != root->bytes_per_index_record ||
+        expected_bytes > PROS_NTFS_RECORD_WORK_MAX ||
+        expected_bytes < fs->bytes_per_sector ||
+        (expected_bytes % fs->bytes_per_sector) != 0u)
+        return PROS_NTFS_ECORRUPT;
+    return PROS_NTFS_OK;
+}
+
+int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
+                                 const void *record, uint32_t record_size,
+                                 uint32_t index_root_attr_offset,
+                                 uint32_t index_allocation_attr_offset,
+                                 const uint8_t *name_utf16le,
+                                 uint8_t name_length,
+                                 uint64_t *file_reference)
+{
+    struct pros_ntfs_index_root root;
+    struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+    uint32_t run_count = 0u;
+    uint32_t record_clusters;
+    const uint8_t *root_data;
+    uint32_t root_size;
+    uint64_t pending[PROS_NTFS_INDEX_NODE_MAX];
+    uint64_t visited[PROS_NTFS_INDEX_NODE_MAX];
+    uint32_t pending_count = 0u;
+    uint32_t visited_count = 0u;
+    static uint8_t index_record[PROS_NTFS_RECORD_WORK_MAX];
+
+    if (!fs || !record || !name_utf16le || !file_reference ||
+        name_length == 0u)
+        return PROS_NTFS_EINVAL;
+
+    if (ntfs_index_root_header(record, record_size, index_root_attr_offset,
+                               &root) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_index_record_geometry(fs, &root, &record_clusters) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    if (ntfs_attribute_runlist(record, record_size,
+                               index_allocation_attr_offset, &root_data,
+                               &root_size) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_decode_runlist(root_data, root_size, runs,
+                            PROS_NTFS_MFT_RUN_MAX, &run_count) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    /*
+     * Scan the resident root first. Every sub-node pointer is queued, so
+     * exact lookup does not depend on implementing NTFS collation yet.
+     */
+    {
+        const uint8_t *data;
+        uint32_t data_size;
+        uint32_t offset;
+
+        if (ntfs_attribute_data(record, record_size, index_root_attr_offset,
+                                 &data, &data_size) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+
+        offset = root.first_entry_offset;
+        while (offset < root.entries_size) {
+            uint16_t entry_size;
+            uint16_t stream_size;
+            uint8_t flags;
+            uint32_t remaining;
+
+            if (root.entries_size - offset < 16u)
+                return PROS_NTFS_ECORRUPT;
+            remaining = root.entries_size - offset;
+            entry_size = le16(data + offset + 8u);
+            stream_size = le16(data + offset + 10u);
+            flags = data[offset + 12u];
+
+            if (entry_size < 16u || entry_size > remaining ||
+                (entry_size & 7u) != 0u || (flags & ~3u) != 0u)
+                return PROS_NTFS_ECORRUPT;
+
+            if ((flags & 2u) == 0u && stream_size != 0u &&
+                stream_size <= entry_size - 16u -
+                ((flags & 1u) ? 8u : 0u) &&
+                ntfs_name_key_matches(data + offset + 16u, stream_size,
+                                      name_utf16le, name_length)) {
+                *file_reference = le64(data + offset) &
+                    0x0000FFFFFFFFFFFFull;
+                return PROS_NTFS_OK;
+            }
+
+            if (flags & 1u) {
+                uint64_t child_vcn;
+                if (entry_size < 24u)
+                    return PROS_NTFS_ECORRUPT;
+                child_vcn = le64(data + offset + entry_size - 8u);
+                if (child_vcn > 0x0000FFFFFFFFFFFFull ||
+                    child_vcn % record_clusters != 0u)
+                    return PROS_NTFS_ECORRUPT;
+                if (pending_count >= PROS_NTFS_INDEX_NODE_MAX)
+                    return PROS_NTFS_EOVERFLOW;
+                pending[pending_count++] = child_vcn;
+            }
+
+            if (flags & 2u)
+                break;
+            if (offset + entry_size <= offset)
+                return PROS_NTFS_ECORRUPT;
+            offset += entry_size;
+        }
+    }
+
+    while (pending_count != 0u) {
+        uint64_t vcn = pending[--pending_count];
+        uint8_t duplicate = 0u;
+
+        for (uint32_t i = 0u; i < visited_count; ++i)
+            if (visited[i] == vcn) {
+                duplicate = 1u;
+                break;
+            }
+        if (duplicate)
+            continue;
+        if (visited_count >= PROS_NTFS_INDEX_NODE_MAX)
+            return PROS_NTFS_EOVERFLOW;
+        visited[visited_count++] = vcn;
+
+        if (vcn > 0xFFFFFFFFFFFFFFFFull / (uint64_t)fs->bytes_per_sector /
+                  fs->sectors_per_cluster / record_clusters)
+            return PROS_NTFS_EOVERFLOW;
+
+        {
+            uint64_t byte_offset =
+                vcn * (uint64_t)fs->bytes_per_sector *
+                fs->sectors_per_cluster;
+            struct pros_ntfs_index_record info;
+
+            if (ntfs_index_allocation_read(fs, runs, run_count,
+                                           byte_offset, index_record,
+                                           root.bytes_per_index_record) !=
+                PROS_NTFS_OK)
+                return PROS_NTFS_EIO;
+
+            if (ntfs_index_record_header(index_record,
+                                         root.bytes_per_index_record,
+                                         fs->bytes_per_sector, vcn, &info) !=
+                PROS_NTFS_OK)
+                return PROS_NTFS_ECORRUPT;
+
+            {
+                uint32_t offset = info.first_entry_offset;
+                while (offset < info.entries_size) {
+                    uint16_t entry_size;
+                    uint16_t stream_size;
+                    uint8_t flags;
+                    uint32_t remaining;
+
+                    if (info.entries_size - offset < 16u)
+                        return PROS_NTFS_ECORRUPT;
+                    remaining = info.entries_size - offset;
+                    entry_size = le16(index_record + offset + 8u);
+                    stream_size = le16(index_record + offset + 10u);
+                    flags = index_record[offset + 12u];
+
+                    if (entry_size < 16u || entry_size > remaining ||
+                        (entry_size & 7u) != 0u || (flags & ~3u) != 0u)
+                        return PROS_NTFS_ECORRUPT;
+
+                    if ((flags & 2u) == 0u && stream_size != 0u &&
+                        stream_size <= entry_size - 16u -
+                        ((flags & 1u) ? 8u : 0u) &&
+                        ntfs_name_key_matches(index_record + offset + 16u,
+                                              stream_size, name_utf16le,
+                                              name_length)) {
+                        *file_reference = le64(index_record + offset) &
+                            0x0000FFFFFFFFFFFFull;
+                        return PROS_NTFS_OK;
+                    }
+
+                    if (flags & 1u) {
+                        uint64_t child_vcn;
+                        if (entry_size < 24u)
+                            return PROS_NTFS_ECORRUPT;
+                        child_vcn = le64(index_record + offset +
+                                         entry_size - 8u);
+                        if (child_vcn > 0x0000FFFFFFFFFFFFull ||
+                            child_vcn % record_clusters != 0u)
+                            return PROS_NTFS_ECORRUPT;
+                        if (pending_count >= PROS_NTFS_INDEX_NODE_MAX)
+                            return PROS_NTFS_EOVERFLOW;
+                        pending[pending_count++] = child_vcn;
+                    }
+
+                    if (flags & 2u)
+                        break;
+                    if (offset + entry_size <= offset)
+                        return PROS_NTFS_ECORRUPT;
+                    offset += entry_size;
+                }
+            }
+        }
+    }
+
+    return PROS_NTFS_ENOTSUP;
+}
+
 
 int ntfs_bootstrap_mft(struct pros_ntfs *fs)
 {
