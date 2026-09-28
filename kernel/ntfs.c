@@ -1117,8 +1117,8 @@ int ntfs_mft_add_standard_information(struct pros_ntfs *fs,
     record[pos + 16u] = (uint8_t)value_len;
     record[pos + 17u] = 0u;
     record[pos + 20u] = 24u;
-    record[pos + 24u] = (uint8_t)attr_id;
-    record[pos + 25u] = (uint8_t)(attr_id >> 8);
+    record[pos + 14u] = (uint8_t)attr_id;
+    record[pos + 15u] = (uint8_t)(attr_id >> 8);
 
     /* Four NTFS timestamps remain zero until a clock source is wired in. */
     for (uint32_t i = 0u; i < 4u; ++i)
