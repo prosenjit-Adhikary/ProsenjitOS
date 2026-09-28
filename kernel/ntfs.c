@@ -434,10 +434,10 @@ int ntfs_selftest(void)
 
     for (uint32_t i=0u; i<sizeof(record); ++i) record[i]=0u;
     record[0]='F'; record[1]='I'; record[2]='L'; record[3]='E';
-    record[4]=48u; record[6]=3u;
-    record[48]=0x34u; record[49]=0x12u;
-    record[50]=0x78u; record[51]=0x56u;
-    record[52]=0x00u; record[53]=0x00u;
+    record[4]=32u; record[6]=3u;
+    record[32]=0x34u; record[33]=0x12u;
+    record[34]=0x78u; record[35]=0x56u;
+    record[36]=0x00u; record[37]=0x00u;
     record[510]=0x34u; record[511]=0x12u;
     record[1022]=0x34u; record[1023]=0x12u;
     if (ntfs_file_record_fixup(record, sizeof(record), 512u) != PROS_NTFS_OK ||
