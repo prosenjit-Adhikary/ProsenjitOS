@@ -565,3 +565,47 @@ int fat32_read_file(const struct pros_fat32 *fs,
     }
     return PROS_FAT32_OK;
 }
+
+static int fat32_vfs_read(struct pros_vfs_file *file, uint32_t offset,
+                          uint32_t length, void *buffer)
+{
+    struct pros_fat32_dirent *entry =
+        (struct pros_fat32_dirent *)file->private_data;
+    uint32_t available;
+    if (!entry || offset > entry->size)
+        return PROS_VFS_EINVAL;
+    available = entry->size - offset;
+    if (length > available)
+        length = available;
+    if (fat32_read_file(file->mount->private_data, entry, offset, length,
+                         buffer) != PROS_FAT32_OK)
+        return PROS_VFS_EIO;
+    return (int)length;
+}
+
+static int fat32_vfs_close(struct pros_vfs_file *file)
+{
+    (void)file;
+    return PROS_VFS_OK;
+}
+
+static const struct pros_vfs_file_ops fat32_vfs_ops = {
+    .read = fat32_vfs_read,
+    .close = fat32_vfs_close
+};
+
+int fat32_open_83(struct pros_fat32 *fs, uint32_t directory_cluster,
+                  const char *name, struct pros_vfs_file *file,
+                  struct pros_fat32_dirent *entry)
+{
+    if (!fs || !file || !entry || !name || !fs->mount.active)
+        return PROS_FAT32_EINVAL;
+    if (fat32_find(fs, directory_cluster, name, entry) != PROS_FAT32_OK)
+        return PROS_FAT32_ENOENT;
+    if ((entry->attributes & 0x10u) != 0u)
+        return PROS_FAT32_EINVAL;
+    if (vfs_file_init(file, &fs->mount, &fat32_vfs_ops, entry, 0u) !=
+        PROS_VFS_OK)
+        return PROS_FAT32_EINVAL;
+    return PROS_FAT32_OK;
+}
