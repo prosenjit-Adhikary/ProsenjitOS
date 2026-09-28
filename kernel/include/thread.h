@@ -39,6 +39,7 @@ struct pros_thread {
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
     void *wait_channel;
+    uint64_t blocked_syscall;
     struct pros_thread *next;
     struct pros_thread *prev;
 };
@@ -55,6 +56,7 @@ int thread_schedule(void);
 int thread_schedule_preempt(void);
 int thread_block(void *wait_channel);
 int thread_wake(struct pros_thread *thread);
+int thread_has_runnable(void);
 
 /* Save the current IRQ frame and select the next runnable thread frame. */
 struct pros_interrupt_frame *thread_schedule_interrupt(
