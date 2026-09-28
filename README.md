@@ -111,6 +111,8 @@ The read-only NTFS driver now includes:
 - MFT record 0 bootstrap from its $DATA runlist
 - fragmented MFT record mapping for subsequent record reads
 - bounded MFT run storage to keep the freestanding kernel deterministic
+- resident $FILE_NAME metadata parsing with UTF-16LE filename exposure
+- resident $INDEX_ROOT header and entry validation, including terminal/sub-node flags
 
 The MFT path remains intentionally read-only. Directory indexes ($INDEX_ROOT / $INDEX_ALLOCATION), $FILE_NAME namespace parsing, general file-data streaming, and NTFS write/journal support remain later milestones.
 
