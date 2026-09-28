@@ -1538,6 +1538,35 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
 }
 
 
+
+static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
+                           uint32_t count, const void *buffer)
+{
+    struct ntfs_test_disk *disk =
+        (struct ntfs_test_disk *)device->private_data;
+    if (!disk || !buffer || count == 0u)
+        return PROS_BLOCK_EIO;
+
+    for (uint32_t s = 0u; s < count; ++s) {
+        const uint8_t *src = (const uint8_t *)buffer + s * 512u;
+        uint64_t sector = lba + s;
+        if (sector == 0u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->boot[i] = src[i];
+        } else if (sector == 32u || sector == 33u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->mft_record[(sector - 32u) * 512u + i] = src[i];
+        } else if (sector == 54u || sector == 55u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->file_record[(sector - 54u) * 512u + i] = src[i];
+        } else {
+            return PROS_BLOCK_EIO;
+        }
+    }
+    return PROS_BLOCK_OK;
+}
+
+
 int ntfs_directory_lookup(const struct pros_ntfs *fs,
                           uint64_t directory_record_number,
                           const uint8_t *name_utf16le, uint8_t name_length,
@@ -1918,7 +1947,7 @@ int ntfs_selftest(void)
         disk.upcase_data[i * 2u + 1u] = (uint8_t)(folded >> 8);
     }
 
-    if (block_device_init(&device,512,4096,ntfs_test_read,0,&disk) != PROS_BLOCK_OK ||
+    if (block_device_init(&device,512,4096,ntfs_test_read,ntfs_test_write,&disk) != PROS_BLOCK_OK ||
         ntfs_mount(&fs,&device) != PROS_NTFS_OK ||
         fs.bytes_per_sector != 512u || fs.sectors_per_cluster != 8u ||
         fs.bytes_per_file_record != 1024u ||
@@ -1939,6 +1968,38 @@ int ntfs_selftest(void)
     if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 2u, &run_count) !=
             PROS_NTFS_EOVERFLOW)
         return -104;
+
+    /*
+     * Safe NTFS write regression: overwrite an existing resident $DATA
+     * stream without changing its length or allocating clusters. The write
+     * path must re-seal the MFT record USA sequence before committing it.
+     */
+    {
+        static const uint8_t replacement[] = { 'B', 'y', 'e' };
+        static uint8_t verify[8];
+        uint32_t written = 0u;
+        uint32_t read_back = 0u;
+
+        if (ntfs_file_write(&fs, 11u, 0u, replacement,
+                            sizeof(replacement), &written) != PROS_NTFS_OK ||
+            written != sizeof(replacement) ||
+            ntfs_file_read(&fs, 11u, 0u, verify, sizeof(verify),
+                           &read_back) != PROS_NTFS_OK ||
+            read_back != 3u ||
+            verify[0] != 'B' || verify[1] != 'y' || verify[2] != 'e' ||
+            disk.file_record[510u] != disk.file_record[8u] ||
+            disk.file_record[511u] != disk.file_record[9u] ||
+            disk.file_record[1022u] != disk.file_record[8u] ||
+            disk.file_record[1023u] != disk.file_record[9u])
+            return -113;
+
+        if (ntfs_file_write(&fs, 11u, 0u, replacement,
+                            sizeof(replacement), &written) != PROS_NTFS_OK ||
+            ntfs_file_write(&fs, 11u, 2u, replacement, 2u, &written) !=
+                PROS_NTFS_EOVERFLOW)
+            return -121;
+    }
+
 
     for (uint32_t i=0u; i<sizeof(record); ++i) record[i]=0u;
     record[0]='F'; record[1]='I'; record[2]='L'; record[3]='E';
