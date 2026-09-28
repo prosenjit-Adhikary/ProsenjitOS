@@ -2482,7 +2482,7 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
 {
     struct pros_ntfs_vfs_node *parent_node;
     struct pros_ntfs *fs;
-    uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     uint32_t mft_attr;
     uint64_t mft_size;
     uint64_t max_records;
