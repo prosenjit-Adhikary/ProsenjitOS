@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include "security_quarantine.h"
+#include "intent.h"
 
 int pros_security_exec_admit(
     struct pros_process *process,
