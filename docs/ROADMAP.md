@@ -87,6 +87,7 @@
 - [x] Local file verification contract and SHA-256 reputation interface
 - [x] Replaceable reputation provider adapter contract (hash-only, user-space compatible)
 - [x] Filesystem-independent file admission broker (hash + policy + reputation)
+- [x] Protected quarantine metadata store and execution admission contract
 - [ ] Filesystem-backed file admission/security broker
 - [ ] External reputation provider adapters
 
