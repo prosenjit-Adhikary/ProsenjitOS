@@ -149,12 +149,15 @@ int thread_wake(struct pros_thread *thread) {
         !thread_process_runnable(thread))
         return -1;
     /*
-     * Put the thread back on the run queue before mutating its saved syscall
-     * frame.  If queue insertion fails, the blocked state and retry metadata
-     * remain intact so the IPC waiter cannot be lost.
+     * thread_enqueue() intentionally rejects BLOCKED threads. Transition to
+     * READY only for the enqueue operation; if enqueue fails, restore the
+     * blocked state so the IPC waiter remains valid.
      */
-    if (thread_enqueue(thread) != 0)
+    thread->state = PROS_THREAD_READY;
+    if (thread_enqueue(thread) != 0) {
+        thread->state = PROS_THREAD_BLOCKED;
         return -1;
+    }
     if (thread->blocked_syscall != 0 && thread->interrupt_frame) {
         thread->interrupt_frame->rax = thread->blocked_syscall;
         /* INT 0x80 is two bytes: CD 80. Resume by retrying the syscall. */
