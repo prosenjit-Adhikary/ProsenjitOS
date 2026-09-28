@@ -10,7 +10,6 @@ extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
 extern paging_switch_kernel
-extern percpu_init
 
 _start:
     cli
@@ -181,9 +180,6 @@ cpu_security_init:
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
-    ; Initialize GS for the current logical CPU. AP startup code must call
-    ; the same percpu_init() before enabling interrupts/user execution.
-    call percpu_init
     ret
 
 cpu_load_tss:

@@ -3,17 +3,26 @@ BITS 64
 section .text
 global copy_from_user_asm
 global copy_to_user_asm
+global usercopy_fault_active
+global usercopy_fault_rip
 
-; The GS base is initialized once per logical CPU by percpu_init(). Each CPU
-; therefore owns an independent usercopy fault-fixup pair at GS:0/GS:8.
+section .data
+align 8
+usercopy_fault_active: dq 0
+usercopy_fault_rip:    dq 0
+
+section .text
+; int copy_from_user_asm(void *dst, const void *src, uint64_t size)
 copy_from_user_asm:
     test rdx, rdx
     jz .from_success
+    ; User copy runs with interrupts disabled so a timer interrupt cannot
+    ; preempt this single-copy fault-fixup context.
     pushfq
     cli
-    mov qword [gs:0], 1
+    mov qword [rel usercopy_fault_active], 1
     lea rax, [rel .from_fault]
-    mov [gs:8], rax
+    mov [rel usercopy_fault_rip], rax
 .from_loop:
     mov al, [rsi]
     mov [rdi], al
@@ -21,7 +30,7 @@ copy_from_user_asm:
     inc rdi
     dec rdx
     jnz .from_loop
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active], 0
     popfq
     xor eax, eax
     ret
@@ -29,19 +38,21 @@ copy_from_user_asm:
     xor eax, eax
     ret
 .from_fault:
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active], 0
     popfq
     mov rax, -1
     ret
 
+; int copy_to_user_asm(void *dst, const void *src, uint64_t size)
 copy_to_user_asm:
     test rdx, rdx
     jz .to_success
+    ; Keep the fault-fixup context atomic on the current CPU.
     pushfq
     cli
-    mov qword [gs:0], 1
+    mov qword [rel usercopy_fault_active], 1
     lea rax, [rel .to_fault]
-    mov [gs:8], rax
+    mov [rel usercopy_fault_rip], rax
 .to_loop:
     mov al, [rsi]
     mov [rdi], al
@@ -49,7 +60,7 @@ copy_to_user_asm:
     inc rdi
     dec rdx
     jnz .to_loop
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active], 0
     popfq
     xor eax, eax
     ret
@@ -57,7 +68,7 @@ copy_to_user_asm:
     xor eax, eax
     ret
 .to_fault:
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active], 0
     popfq
     mov rax, -1
     ret

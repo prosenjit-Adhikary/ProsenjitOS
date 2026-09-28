@@ -637,6 +637,74 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: process capability authorization test passed\n");
 
+    /*
+     * Syscall sandbox enforcement regression:
+     * a Super process may tighten a target's syscall mask, and the
+     * dispatcher must enforce that mask before entering the syscall body.
+     */
+    {
+        struct pros_process sandbox_target;
+        uint64_t sandbox_policy = PROSENJIT_SYSCALL_POLICY(PROSENJIT_SYS_GET_VERSION);
+        uint64_t sandbox_regs[16] = {0};
+        uint64_t sandbox_frame[7] = {0};
+
+        if (process_create(&init_process, &sandbox_target, 9,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_apply_syscall_policy(&init_process, &sandbox_target,
+                                         sandbox_policy) != 0) {
+            serial_write("ProsenjitOS: ERROR syscall sandbox setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        process_set_current(&sandbox_target);
+        sandbox_regs[0] = PROSENJIT_SYS_GET_VERSION;
+        syscall_dispatch(sandbox_regs, sandbox_frame);
+        if (sandbox_regs[0] != PROSENJIT_ABI_VERSION) {
+            serial_write("ProsenjitOS: ERROR syscall sandbox allowed call failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        sandbox_regs[0] = PROSENJIT_SYS_HANDLE_CLOSE;
+        sandbox_regs[5] = PROSENJIT_HANDLE_INVALID;
+        syscall_dispatch(sandbox_regs, sandbox_frame);
+        if (sandbox_regs[0] != PROSENJIT_SYSCALL_EPERM) {
+            serial_write("ProsenjitOS: ERROR syscall sandbox denied call escaped policy\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        process_set_current(&init_process);
+        if (process_exit(&sandbox_target, 91) != 0 ||
+            process_wait(&init_process, sandbox_target.pid, &waited_exit) != 0 ||
+            waited_exit != 91) {
+            serial_write("ProsenjitOS: ERROR syscall sandbox target cleanup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: syscall sandbox enforcement test passed\n");
+    }
+
+    /*
+     * Limited-process sandbox regression: a limited process cannot alter
+     * its own syscall policy, even when the requested mask is valid.
+     */
+    {
+        struct pros_process limited_sandbox;
+        if (process_create(&init_process, &limited_sandbox, 10,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_set_syscall_policy(&limited_sandbox,
+                PROSENJIT_SYSCALL_POLICY(PROSENJIT_SYS_GET_VERSION)) == 0) {
+            serial_write("ProsenjitOS: ERROR limited-process syscall sandbox enforcement failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (process_exit(&limited_sandbox, 92) != 0 ||
+            process_wait(&init_process, limited_sandbox.pid, &waited_exit) != 0 ||
+            waited_exit != 92) {
+            serial_write("ProsenjitOS: ERROR limited-process syscall sandbox cleanup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: limited-process syscall sandbox test passed\n");
+    }
+
+
     /* Cross-process copy-transfer: the source remains valid and the target
      * receives only the explicitly requested subset of rights. */
     struct pros_process transfer_target;
