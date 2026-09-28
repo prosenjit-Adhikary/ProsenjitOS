@@ -11,6 +11,10 @@
 #define PROS_FAT32_ECORRUPT -4
 #define PROS_FAT32_ENOENT   -5
 
+struct pros_fat32_vfs_node;
+
+#define PROS_FAT32_VFS_NODE_MAX 32u
+
 struct pros_fat32 {
     struct pros_vfs_mount mount;
     uint32_t bytes_per_sector;
@@ -37,8 +41,6 @@ struct pros_fat32_vfs_node {
     uint32_t directory_cluster;
     uint8_t used;
 };
-
-#define PROS_FAT32_VFS_NODE_MAX 32u
 
 
 int fat32_mount(struct pros_fat32 *, struct pros_block_device *);
