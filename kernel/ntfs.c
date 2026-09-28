@@ -569,6 +569,7 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                                           uint8_t allocate)
 {
     static uint8_t bitmap_chunk[4096];
+    static uint8_t bitmap_sector[4096];
     /* Keep the large MFT record workspace out of the kernel stack. */
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     const uint8_t *runlist;
@@ -654,12 +655,81 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                 bitmap_chunk[i] &= (uint8_t)~mask;
         }
 
-        {
+        if (record[attr_offset + 8u] == 0u) {
             uint32_t written = 0u;
             if (ntfs_file_write(fs, 6u, start_byte, bitmap_chunk,
                                 byte_count, &written) != PROS_NTFS_OK ||
                 written != byte_count)
                 return PROS_NTFS_EIO;
+        } else {
+            /*
+             * Do not route nonresident $Bitmap writes back through
+             * ntfs_file_write(). Allocation invokes this helper from inside
+             * ntfs_file_write(), so that recursive path would reuse the
+             * caller's static record workspace. Write the already-updated
+             * bitmap bytes directly through its decoded runlist instead.
+             */
+            uint64_t done = 0u;
+            uint32_t cluster_bytes =
+                fs->bytes_per_sector * fs->sectors_per_cluster;
+            if (cluster_bytes == 0u || fs->bytes_per_sector > 4096u)
+                return PROS_NTFS_EINVAL;
+            while (done < byte_count) {
+                uint64_t file_byte = start_byte + done;
+                uint64_t logical_cluster = file_byte / cluster_bytes;
+                uint32_t cluster_offset =
+                    (uint32_t)(file_byte % cluster_bytes);
+                uint64_t cumulative = 0u;
+                uint64_t physical_lcn = 0u;
+                uint8_t sparse = 0u, found = 0u;
+                uint32_t sector_index;
+                uint32_t in_sector;
+                uint32_t take;
+                uint64_t lba;
+
+                for (uint32_t r = 0u; r < run_count; ++r) {
+                    if (logical_cluster >= cumulative &&
+                        logical_cluster - cumulative < runs[r].clusters) {
+                        physical_lcn = runs[r].lcn +
+                                       logical_cluster - cumulative;
+                        if (physical_lcn < runs[r].lcn)
+                            return PROS_NTFS_EOVERFLOW;
+                        sparse = runs[r].sparse;
+                        found = 1u;
+                        break;
+                    }
+                    if (runs[r].clusters >
+                        0xFFFFFFFFFFFFFFFFull - cumulative)
+                        return PROS_NTFS_EOVERFLOW;
+                    cumulative += runs[r].clusters;
+                }
+                if (!found || sparse)
+                    return PROS_NTFS_EIO;
+
+                sector_index = cluster_offset / fs->bytes_per_sector;
+                in_sector = cluster_offset % fs->bytes_per_sector;
+                take = fs->bytes_per_sector - in_sector;
+                if ((uint64_t)take > (uint64_t)byte_count - done)
+                    take = (uint32_t)((uint64_t)byte_count - done);
+                if (sector_index >= fs->sectors_per_cluster ||
+                    ntfs_cluster_lba(fs, physical_lcn, &lba) !=
+                        PROS_NTFS_OK)
+                    return PROS_NTFS_EIO;
+                lba += sector_index;
+
+                if (in_sector != 0u || take != fs->bytes_per_sector) {
+                    if (block_device_read(fs->mount.device, lba, 1u,
+                                          bitmap_sector) != PROS_BLOCK_OK)
+                        return PROS_NTFS_EIO;
+                }
+                for (uint32_t i = 0u; i < take; ++i)
+                    bitmap_sector[in_sector + i] =
+                        bitmap_chunk[(uint32_t)done + i];
+                if (block_device_write(fs->mount.device, lba, 1u,
+                                       bitmap_sector) != PROS_BLOCK_OK)
+                    return PROS_NTFS_EIO;
+                done += take;
+            }
         }
         start_byte += byte_count;
     }
