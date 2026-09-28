@@ -601,7 +601,8 @@ static int fat32_vfs_lookup(struct pros_vfs_vnode *parent, const char *name, str
     n=(struct pros_fat32_vfs_node *)parent->private_data; fs=n?(struct pros_fat32 *)parent->mount->private_data:0;
     if (!n || !fs) return PROS_VFS_EINVAL;
     int rc=fat32_find(fs,n->entry.first_cluster,name,&found);
-    if (rc==PROS_FAT32_ENOENT) return PROS_VFS_ENOENT; if (rc!=PROS_FAT32_OK) return PROS_VFS_EIO;
+    if (rc == PROS_FAT32_ENOENT) return PROS_VFS_ENOENT;
+    if (rc != PROS_FAT32_OK) return PROS_VFS_EIO;
     return fat32_vfs_node_create(fs,n,&found,result);
 }
 
