@@ -1,6 +1,14 @@
 #include "ntfs.h"
 
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
+
+#define PROS_NTFS_INDEX_NODE_MAX 128u
+#define PROS_NTFS_UPCASE_RECORD 10u
+#define PROS_NTFS_UPCASE_BYTES 131072u
+
+/* Shared NTFS UpCase table state used by index name comparison/insertion. */
+static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
+static const uint8_t *ntfs_active_upcase = 0;
 static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
                                       const uint8_t *name_utf16le,
@@ -2462,14 +2470,6 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
     return PROS_NTFS_ENOTSUP;
 }
 
-
-#define PROS_NTFS_INDEX_NODE_MAX 128u
-#define PROS_NTFS_UPCASE_RECORD 10u
-#define PROS_NTFS_UPCASE_BYTES 131072u
-
-/* Shared NTFS UpCase table state used by index name comparison/insertion. */
-static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
-static const uint8_t *ntfs_active_upcase = 0;
 
 
 static int ntfs_upcase_load(const struct pros_ntfs *fs)
