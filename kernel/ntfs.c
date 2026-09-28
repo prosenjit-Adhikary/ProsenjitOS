@@ -4748,6 +4748,9 @@ int ntfs_selftest(void)
             disk.file_record[value + 70u] = 's';
             disk.file_record[value + 72u] = 't';
         }
+        /* Mark MFT record 11 as an in-use regular file for readdir(). */
+        disk.file_record[22u] = 0x01u;
+        disk.file_record[23u] = 0x00u;
         disk.file_record[248u] = 0xFFu;
         disk.file_record[249u] = 0xFFu;
         disk.file_record[250u] = 0xFFu;
