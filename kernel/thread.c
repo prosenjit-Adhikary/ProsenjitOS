@@ -41,6 +41,7 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->entry = entry;
     thread->interrupt_frame = 0;
     thread->wait_channel = 0;
+    thread->blocked_syscall = 0;
     thread->context.r15 = 0;
     thread->context.r14 = 0;
     thread->context.r13 = 0;
@@ -147,8 +148,21 @@ int thread_wake(struct pros_thread *thread) {
     if (!thread || thread->state != PROS_THREAD_BLOCKED ||
         !thread_process_runnable(thread))
         return -1;
+    if (thread->blocked_syscall != 0 && thread->interrupt_frame) {
+        thread->interrupt_frame->rax = thread->blocked_syscall;
+        /* INT 0x80 is two bytes: CD 80. Resume by retrying the syscall. */
+        thread->interrupt_frame->rip -= 2;
+        thread->blocked_syscall = 0;
+    }
     thread->wait_channel = 0;
     return thread_enqueue(thread);
+}
+
+int thread_has_runnable(void) {
+    for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
+        if (thread_process_runnable(thread))
+            return 1;
+    return 0;
 }
 
 int thread_schedule_preempt(void) {
