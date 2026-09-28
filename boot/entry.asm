@@ -365,9 +365,10 @@ align 16
 global stack_bottom
 global stack_top
 stack_bottom:
-    ; kernel_main has a large test/regression frame; keep the bootstrap stack
-    ; large enough that compiler stack probing never underflows into .rodata.
-    resb 65536
+    ; kernel_main and NTFS mutation tests can nest a large test frame with
+    ; a 64 KiB MFT-record scratch buffer. Keep enough headroom for compiler
+    ; stack probing so the bootstrap stack cannot underflow into unmapped RAM.
+    resb 131072
 stack_top:
 
 align 16
