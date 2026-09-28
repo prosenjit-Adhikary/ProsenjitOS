@@ -463,6 +463,73 @@ int ntfs_index_root_entry(const void *record, uint32_t record_size,
 }
 
 
+
+int ntfs_index_root_lookup(const void *record, uint32_t record_size,
+                           uint32_t attr_offset,
+                           const uint8_t *name_utf16le, uint8_t name_length,
+                           uint64_t *file_reference)
+{
+    struct pros_ntfs_index_root root;
+    uint32_t offset;
+    uint8_t want_bytes;
+    if (!record || !name_utf16le || !file_reference || name_length == 0u)
+        return PROS_NTFS_EINVAL;
+    want_bytes = (uint8_t)(name_length * 2u);
+    if (name_length > 255u)
+        return PROS_NTFS_EINVAL;
+    if (ntfs_index_root_header(record, record_size, attr_offset, &root) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    offset = root.first_entry_offset;
+    while (offset < root.entries_size) {
+        uint64_t reference;
+        const uint8_t *key;
+        uint16_t key_size;
+        uint8_t flags;
+        uint32_t next;
+
+        if (ntfs_index_root_entry(record, record_size, attr_offset, offset,
+                                  &reference, &key, &key_size, &flags,
+                                  &next) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+
+        if ((flags & 2u) != 0u) {
+            /* End marker: no key and no child node to inspect here. */
+            return PROS_NTFS_ENOTSUP;
+        }
+
+        /*
+         * An INDEX_ROOT filename key contains the $FILE_NAME value. Its
+         * filename length is at byte 64 and UTF-16LE starts at byte 66.
+         */
+        if (key_size >= 66u) {
+            uint32_t key_name_bytes = (uint32_t)key[64u] * 2u;
+            if (key[65u] <= 3u && key_name_bytes == want_bytes &&
+                66u + key_name_bytes <= key_size) {
+                uint8_t equal = 1u;
+                for (uint32_t i = 0u; i < key_name_bytes; ++i) {
+                    if (key[66u + i] != name_utf16le[i]) {
+                        equal = 0u;
+                        break;
+                    }
+                }
+                if (equal) {
+                    *file_reference = reference & 0x0000FFFFFFFFFFFFull;
+                    return PROS_NTFS_OK;
+                }
+            }
+        }
+
+        if (next == 0u)
+            break;
+        if (next <= offset || next >= root.entries_size)
+            return PROS_NTFS_ECORRUPT;
+        offset = next;
+    }
+    return PROS_NTFS_ENOTSUP;
+}
+
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
 
 int ntfs_bootstrap_mft(struct pros_ntfs *fs)
