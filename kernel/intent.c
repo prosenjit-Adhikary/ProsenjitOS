@@ -55,7 +55,7 @@ int security_manager_init(void) {
     if (pros_security_provider_selftest() != 0) return -2;
     if (pros_file_admission_selftest() != 0) return -3;
     { int rc = vfs_security_selftest(); if (rc != 0) return -400 + rc; }
-    if (fat32_selftest() != 0) return -5;
+    { int rc = fat32_selftest(); if (rc != 0) return -500 + rc; }
     if (exfat_selftest() != 0) return -6;
     if (ntfs_selftest() != 0) return -7;
     if (partition_selftest() != 0) return -8;
