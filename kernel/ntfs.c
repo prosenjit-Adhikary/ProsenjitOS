@@ -3652,7 +3652,7 @@ int ntfs_selftest(void)
                 entry.type != PROS_VFS_NODE_FILE || entry.size != 5u ||
                 entry.name[0] != 't' || entry.name[1] != 'e' ||
                 entry.name[2] != 's' || entry.name[3] != 't' ||
-                entry.name[4] != '\\0')
+                entry.name[4] != '\0')
                 return -196;
             if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
                     PROS_VFS_ENOENT || cookie != 12u)
