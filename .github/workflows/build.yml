@@ -61,6 +61,7 @@ jobs:
           grep -q "ProsenjitOS: process capability authorization test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: capability copy-transfer test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: capability move-transfer test passed" build/qemu-serial.log
+          grep -q "ProsenjitOS: inactive capability move regression passed" build/qemu-serial.log
           grep -q "ProsenjitOS: user address-space isolation foundation test passed" build/qemu-serial.log
           grep -q "ProsenjitOS: usercopy page-fault recovery test passed" build/qemu-serial.log
 
