@@ -522,6 +522,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: NTFS directory path traversal test passed\n");
     serial_write("ProsenjitOS: NTFS UpCase case-folding test passed\n");
     serial_write("ProsenjitOS: NTFS file-data read test passed\n");
+    serial_write("ProsenjitOS: NTFS file-data write test passed\n");
     serial_write("ProsenjitOS: NTFS VFS read test passed\n");
 
     /*
