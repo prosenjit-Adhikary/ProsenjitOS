@@ -85,6 +85,7 @@
 - [x] Freestanding SHA-256 implementation with known-answer self-test
 - [x] Security trust-state model (Trusted/Verified/Unknown/Suspicious/Malicious)
 - [x] Local file verification contract and SHA-256 reputation interface
+- [x] Replaceable reputation provider adapter contract (hash-only, user-space compatible)
 - [ ] Filesystem-backed file admission/security broker
 - [ ] External reputation provider adapters
 
