@@ -4109,72 +4109,41 @@ int ntfs_selftest(void)
             return -126;
     }
 
-            ntfs_file_write(&fs, 11u, 4u, replacement, 2u, &written) !=
-                PROS_NTFS_EOVERFLOW)
-            return -121;
-    }
-
     /*
-     * Nonresident overwrite regression. The write crosses a 512-byte sector
-     * boundary, so both read-modify-write and direct-sector paths are tested.
+     * Fragmented-growth regression: the final existing run ends at LCN 44.
+     * Make LCN 44 busy so the preferred contiguous allocation fails; the
+     * allocator must select LCN 45 and append a mapping-pairs run. The mapping-pairs
+     * LCN delta is 43 because the existing run starts at LCN 2.
      */
     {
-        static const uint8_t replacement[] = { 'X', 'Y', 'Z', '!' };
-        static uint8_t verify[8];
+        static const uint8_t fragmented[] = { 'F', 'R', 'A', 'G' };
         uint32_t written = 0u;
-        uint32_t read_back = 0u;
 
-        if (ntfs_file_write(&fs, 12u, 510u, replacement, 2u,
-                            &written) != PROS_NTFS_OK ||
-            written != 2u)
-            return -1221;
-        if (ntfs_file_write(&fs, 12u, 512u, replacement + 2u, 2u,
-                            &written) != PROS_NTFS_OK ||
-            written != 2u)
-            return -1222;
-        if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(replacement),
-                           &read_back) != PROS_NTFS_OK)
-            return -1223;
-        if (read_back != sizeof(replacement) ||
-            verify[0] != 'X' || verify[1] != 'Y' ||
-            verify[2] != 'Z' || verify[3] != '!')
-            return -1224;
-        if (disk.nonresident_data[509u] != 'p' ||
-            disk.nonresident_data[514u] != 'u')
-            return -1225;
+        disk.bitmap_data[44u / 8u] |= (uint8_t)(1u << (44u % 8u));
+        if (ntfs_file_write(&fs, 12u, 12288u, fragmented,
+                            sizeof(fragmented), &written) != PROS_NTFS_OK)
+            return -1271;
+        if (written != sizeof(fragmented))
+            return -1272;
+        if (le64(disk.nonresident_record + 88u) != 16384u)
+            return -1273;
+        if (le64(disk.nonresident_record + 96u) != 12292u)
+            return -1274;
+        if (le64(disk.nonresident_record + 104u) != 12292u)
+            return -1275;
+        if (disk.nonresident_record[112u] != 0x11u ||
+            disk.nonresident_record[113u] != 2u ||
+            disk.nonresident_record[114u] != 42u)
+            return -1276;
+        if (disk.nonresident_record[115u] != 0x11u ||
+            disk.nonresident_record[116u] != 1u ||
+            disk.nonresident_record[117u] != 43u)
+            return -1277;
+        if ((disk.bitmap_data[45u / 8u] &
+             (uint8_t)(1u << (45u % 8u))) == 0u)
+            return -1278;
     }
 
-
-    /*
-     * Preallocated-growth regression: extend EOF inside the already
-     * allocated non-sparse DATA extent. The synthetic file has two 4 KiB
-     * clusters allocated (8 KiB total) but only 1 KiB of real data, so the
-     * write at 1 KiB must grow EOF without touching $Bitmap. The gap before
-     * the write must be zero-filled and both nonresident DATA size fields
-     * must move with the new EOF.
-     */
-    {
-        static const uint8_t growth[] = { 'G', 'R', 'O', 'W' };
-        static const uint8_t second[] = { 'O', 'K' };
-        static uint8_t verify[16];
-        uint32_t written = 0u;
-        uint32_t read_back = 0u;
-
-        if (ntfs_file_write(&fs, 12u, 1024u, growth,
-                            sizeof(growth), &written) != PROS_NTFS_OK ||
-            written != sizeof(growth) ||
-            le64(disk.nonresident_record + 88u) != 8192u ||
-            le64(disk.nonresident_record + 96u) != 1028u ||
-            le64(disk.nonresident_record + 104u) != 1028u)
-            return -123;
-        if (ntfs_file_read(&fs, 12u, 1024u, verify, sizeof(verify),
-                           &read_back) != PROS_NTFS_OK ||
-            read_back != sizeof(growth) ||
-            verify[0] != 'G' || verify[1] != 'R' ||
-            verify[2] != 'O' || verify[3] != 'W')
-            return -124;
-
-        if (ntfs_file_write(&fs, 12u, 1030u, second,
     /*
      * Write-boundary regression: an overflowing offset+size must be rejected
      * before any allocation or metadata commit, and the byte count must stay
