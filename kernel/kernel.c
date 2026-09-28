@@ -9,6 +9,7 @@
 #include "timer.h"
 #include "intent.h"
 #include "ipc.h"
+#include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define VGA_ADDRESS 0xB8000u
