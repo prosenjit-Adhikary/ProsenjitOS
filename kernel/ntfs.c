@@ -1158,6 +1158,10 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
 
+    if (fs->sectors_per_cluster != 0u &&
+        fs->bytes_per_sector > 0u &&
+        fs->sectors_per_cluster > 0xFFFFFFFFu / fs->bytes_per_sector)
+        return PROS_NTFS_EOVERFLOW;
     uint32_t cluster_bytes = fs->bytes_per_sector *
                              fs->sectors_per_cluster;
     uint64_t growth_lcn = 0u;
@@ -1234,6 +1238,11 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             runs[run_count].clusters = required_clusters;
             runs[run_count].sparse = 0u;
             ++run_count;
+        }
+        if (new_alloc_clusters > 0xFFFFFFFFFFFFFFFFull /
+                                (uint64_t)cluster_bytes) {
+            write_status = PROS_NTFS_EOVERFLOW;
+            goto write_fail;
         }
         allocated_size = new_alloc_clusters * (uint64_t)cluster_bytes;
         for (uint32_t b = 0u; b < 8u; ++b)
