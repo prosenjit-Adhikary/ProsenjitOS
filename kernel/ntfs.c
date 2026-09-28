@@ -700,13 +700,16 @@ int ntfs_selftest(void)
 
         {
             uint8_t *v = directory_record + index_root_offset + 24u;
-            v[0] = 0x01u; v[8] = 0x00u; v[9] = 0x10u;
-            v[12] = 1u; /* filename collation */
+            v[0] = 0x30u; /* indexed attribute: $FILE_NAME */
+            v[4] = 1u;    /* filename collation */
+            v[8] = 0x00u; v[9] = 0x10u;
+            v[12] = 1u;   /* clusters per index record */
             v[16] = 32u; v[20] = 144u; v[24] = 144u;
             v[28] = 0u;
             for (i = 0u; i < 74u; ++i)
                 v[32u + 16u + i] =
                     directory_record[file_name_offset + 24u + i];
+            v[32u + 0u] = 0x00u; v[32u + 1u] = 0x10u;
             v[32u + 8u] = 96u;
             v[32u + 10u] = 74u;
             v[32u + 12u] = 0u;
