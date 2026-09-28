@@ -24,7 +24,7 @@ struct pros_fat32 {
 };
 
 struct pros_fat32_dirent {
-    char name[12];
+    char name[261];
     uint8_t attributes;
     uint32_t first_cluster;
     uint32_t size;
@@ -36,6 +36,10 @@ int fat32_read_cluster(const struct pros_fat32 *, uint32_t, void *);
 int fat32_next_cluster(const struct pros_fat32 *, uint32_t, uint32_t *);
 int fat32_find_83(const struct pros_fat32 *, uint32_t, const char *,
                   struct pros_fat32_dirent *);
+int fat32_find(const struct pros_fat32 *, uint32_t, const char *,
+               struct pros_fat32_dirent *);
+int fat32_read_file(const struct pros_fat32 *, const struct pros_fat32_dirent *,
+                    uint32_t, uint32_t, void *);
 int fat32_selftest(void);
 
 #endif
