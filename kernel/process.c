@@ -162,6 +162,17 @@ int process_set_syscall_policy(struct pros_process *process, uint64_t policy) {
     return 0;
 }
 
+int process_apply_syscall_policy(struct pros_process *actor,
+                                 struct pros_process *target,
+                                 uint64_t policy) {
+    if (!process_is_active(actor) || !process_is_active(target) ||
+        (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0 ||
+        actor->security_level != PROS_SECURITY_SUPER)
+        return -1;
+    target->syscall_policy = policy;
+    return 0;
+}
+
 int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
                          uint64_t rights,
