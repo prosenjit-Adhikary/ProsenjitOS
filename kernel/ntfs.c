@@ -923,6 +923,8 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
     uint32_t first_attr;
     uint32_t used_size;
     uint32_t usa_count;
+    uint16_t sequence = 1u;
+    uint8_t old_record[PROS_NTFS_RECORD_WORK_MAX];
 
     if (!fs || fs->bytes_per_file_record < 512u ||
         fs->bytes_per_file_record > sizeof(record) ||
@@ -930,6 +932,31 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
         fs->bytes_per_file_record % fs->bytes_per_sector != 0u ||
         record_number > 0x0000FFFFFFFFFFFFull)
         return PROS_NTFS_EINVAL;
+
+    /*
+     * Reusing an MFT slot must invalidate stale file references. Preserve the
+     * previous FILE record sequence and advance it; an uninitialized/free
+     * slot starts at sequence 1.
+     */
+    {
+        int old_status = ntfs_read_file_record(fs, record_number,
+                                               old_record,
+                                               sizeof(old_record));
+        if (old_status == PROS_NTFS_OK &&
+            old_record[0] == 'F' && old_record[1] == 'I' &&
+            old_record[2] == 'L' && old_record[3] == 'E') {
+            sequence = le16(old_record + 16u);
+            if (sequence == 0xFFFFu)
+                sequence = 1u;
+            else {
+                ++sequence;
+                if (sequence == 0u)
+                    sequence = 1u;
+            }
+        } else if (old_status == PROS_NTFS_EIO) {
+            return PROS_NTFS_EIO;
+        }
+    }
 
     usa_count = fs->bytes_per_file_record / fs->bytes_per_sector + 1u;
     first_attr = 56u;
@@ -951,9 +978,9 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
     record[6] = (uint8_t)usa_count;
     record[7] = (uint8_t)(usa_count >> 8);
 
-    /* First record sequence number; keep it distinct from the USA value. */
-    record[16] = 1u;
-    record[17] = 0u;
+    /* Advance the MFT sequence on reuse; sequence zero is never emitted. */
+    record[16] = (uint8_t)sequence;
+    record[17] = (uint8_t)(sequence >> 8);
 
     /* One hard-link/name reference is expected once $FILE_NAME is added. */
     record[18] = 1u;
