@@ -2529,11 +2529,15 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
             uint32_t key_name_bytes = (uint32_t)key[64u] * 2u;
             if (key[65u] <= 3u && key_name_bytes == want_bytes &&
                 66u + key_name_bytes <= key_size) {
-                uint8_t equal = 1u;
-                for (uint32_t i = 0u; i < key_name_bytes; ++i) {
-                    if (key[66u + i] != name_utf16le[i]) {
-                        equal = 0u;
-                        break;
+                uint8_t equal = ntfs_active_upcase ?
+                    ntfs_name_key_matches(key, key_size, name_utf16le,
+                                          name_length) : 1u;
+                if (!ntfs_active_upcase) {
+                    for (uint32_t i = 0u; i < key_name_bytes; ++i) {
+                        if (key[66u + i] != name_utf16le[i]) {
+                            equal = 0u;
+                            break;
+                        }
                     }
                 }
                 if (equal) {
