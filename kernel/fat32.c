@@ -227,38 +227,42 @@ int fat32_selftest(void)
     }
 
     if (block_device_init(&device, 512, 1000000u,
-                          fat32_test_read, 0, &disk) != PROS_BLOCK_OK ||
-        fat32_mount(&fs, &device) != PROS_FAT32_OK ||
-        fs.fat_lba != 32u || fs.data_lba != 16032u ||
-        fs.root_cluster != 2u ||
-        fat32_cluster_lba(&fs, 2u, &lba) != PROS_FAT32_OK ||
-        lba != 16032u ||
-        fat32_read_cluster(&fs, 2u, root) != PROS_FAT32_OK ||
+                          fat32_test_read, 0, &disk) != PROS_BLOCK_OK)
+        return -101;
+    if (fat32_mount(&fs, &device) != PROS_FAT32_OK)
+        return -102;
+    if (fs.fat_lba != 32u || fs.data_lba != 16032u || fs.root_cluster != 2u)
+        return -103;
+    if (fat32_cluster_lba(&fs, 2u, &lba) != PROS_FAT32_OK || lba != 16032u)
+        return -104;
+    if (fat32_read_cluster(&fs, 2u, root) != PROS_FAT32_OK ||
         root[0] != 0x41u || root[1] != 0x52u ||
         root[11] != 0x0Fu || root[32] != 'R' || root[33] != 'E')
-        return -1;
+        return -105;
 
     if (fat32_cluster_lba(&fs, 0u, &lba) == PROS_FAT32_OK ||
         fat32_cluster_lba(&fs, fs.cluster_count + 2u, &lba) ==
             PROS_FAT32_OK)
-        return -1;
+        return -106;
 
     if (fat32_vfs_mount(&fs) != PROS_FAT32_OK)
-        return -1;
+        return -107;
     {
         struct pros_vfs_vnode *node = 0;
         struct pros_vfs_file file = {0};
         uint8_t data[16] = {0};
         uint32_t got = 0;
         if (vfs_path_lookup(&fs.mount, "/README.TXT", &node) != PROS_VFS_OK ||
-            !node || node->type != PROS_VFS_NODE_FILE ||
-            vfs_file_open(&fs.mount, "/README.TXT", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, data, 10u, &got) != PROS_VFS_OK ||
+            !node || node->type != PROS_VFS_NODE_FILE)
+            return -108;
+        if (vfs_file_open(&fs.mount, "/README.TXT", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return -109;
+        if (vfs_file_read(&file, data, 10u, &got) != PROS_VFS_OK ||
             got != 10u || data[0] != 'H' || data[9] != '3')
-            return -1;
+            return -110;
         if (vfs_file_close(&file) != PROS_VFS_OK ||
             vfs_vnode_put(node) != PROS_VFS_OK)
-            return -1;
+            return -111;
     }
 
     return 0;
