@@ -24,6 +24,8 @@ struct pros_ntfs {
 int ntfs_mount(struct pros_ntfs *, struct pros_block_device *);
 int ntfs_cluster_lba(const struct pros_ntfs *, uint64_t, uint64_t *);
 int ntfs_read_file_record(const struct pros_ntfs *, uint64_t record_number, void *buffer, uint32_t buffer_size);
+int ntfs_find_attribute(const void *record, uint32_t record_size, uint32_t type, uint32_t *offset);
+int ntfs_attribute_data(const void *record, uint32_t record_size, uint32_t attr_offset, const uint8_t **data, uint32_t *data_size);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
 int ntfs_selftest(void);
 
