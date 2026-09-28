@@ -229,5 +229,56 @@ int partition_selftest(void)
         return -1;
     if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
         return -1;
+
+    /*
+     * GPT regression: exercise an entry that crosses a sector boundary.
+     * A 300-byte entry starts at offset 300, so its tail is in the next
+     * sector and must be read as a two-sector span.
+     */
+    static uint8_t gpt_media[6u * 512u];
+    for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
+        gpt_media[i] = 0u;
+    gpt_media[512u + 0u] = 'E';
+    gpt_media[512u + 1u] = 'F';
+    gpt_media[512u + 2u] = 'I';
+    gpt_media[512u + 3u] = ' ';
+    gpt_media[512u + 4u] = 'P';
+    gpt_media[512u + 5u] = 'A';
+    gpt_media[512u + 6u] = 'R';
+    gpt_media[512u + 7u] = 'T';
+    gpt_media[512u + 72u] = 2u;
+    gpt_media[512u + 80u] = 2u;
+    gpt_media[512u + 84u] = 300u;
+    gpt_media[2u * 512u + 300u] = 0x11u;
+    gpt_media[2u * 512u + 332u] = 3u;
+    gpt_media[2u * 512u + 340u] = 4u;
+    gpt_media[2u * 512u + 341u] = 0u;
+    gpt_media[2u * 512u + 342u] = 0u;
+    gpt_media[2u * 512u + 343u] = 0u;
+    gpt_media[2u * 512u + 344u] = 0u;
+    gpt_media[2u * 512u + 345u] = 0u;
+    gpt_media[2u * 512u + 346u] = 0u;
+    gpt_media[2u * 512u + 347u] = 0u;
+
+    struct pros_block_device gpt_parent;
+    if (block_device_init(&gpt_parent, 512u, 6u, partition_test_read, 0, 0) !=
+        PROS_BLOCK_OK)
+        return -2;
+    /*
+     * Reuse the callback's media backing by copying the GPT image into the
+     * existing test medium before probing.
+     */
+    for (uint32_t i = 0u; i < sizeof(gpt_media); ++i) {
+        if (i < sizeof(partition_test_media))
+            partition_test_media[i] = gpt_media[i];
+    }
+    /* The callback exposes four sectors, so use a four-sector GPT image. */
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_OK ||
+        count != 1u || partitions[0].first_lba != 3u ||
+        partitions[0].sector_count != 2u ||
+        partitions[0].type_guid[0] != 0x11u)
+        return -3;
+
     return PROS_PARTITION_OK;
 }
