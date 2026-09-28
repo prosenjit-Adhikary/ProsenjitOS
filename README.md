@@ -257,6 +257,48 @@ ProsenjitOS will have three application paths:
 
 Existing applications will not receive unrestricted access to the host OS simply because they are compatible applications. They will run through the same security and permission model.
 
+## Kernel security, reverse-engineering resistance and release hardening
+
+ProsenjitOS will **not rely on source-code secrecy or obfuscation as its primary security mechanism**. The kernel and security architecture should remain maintainable, auditable, and understandable to trusted developers. The security objective is that an attacker should face strong, independent security boundaries even if they obtain or reverse-engineer the released kernel binary.
+
+### Design decision
+
+Use **defense in depth + minimal disclosure + release hardening**, rather than security through obscurity.
+
+The project will track these principles:
+
+- Keep security-critical source code reviewable and maintainable.
+- Keep unnecessary internal symbols, debug metadata and implementation details out of production/release images.
+- Separate debug symbols from production kernel artifacts.
+- Minimize exported kernel interfaces and internal attack surface.
+- Do not embed private signing keys, long-lived credentials, AI provider secrets, encryption master keys, or other high-value secrets in the kernel or release image.
+- Use compiler/linker hardening and memory-safety protections appropriate to the architecture and toolchain.
+- Add control-flow, stack, memory, module/driver and kernel-integrity protections as the platform matures.
+- Require authenticated/signed kernel, driver and system-component updates.
+- Progress toward Secure Boot, measured/verified boot and rollback protection.
+- Treat kernel integrity verification and tamper detection as separate controls from code secrecy.
+- Keep privilege boundaries, capabilities and policy enforcement effective even when implementation details are known.
+- Avoid unnecessary information disclosure through diagnostics, interfaces, error paths and device-facing APIs.
+- Make production builds deterministic/reproducible where practical so release artifacts can be independently verified.
+
+### Threat-model principle
+
+A ProsenjitOS release should remain secure even under the assumption that an attacker can inspect the binary and understand substantial parts of its implementation.
+
+**Reverse-engineering resistance is therefore a secondary hardening layer, not the root of trust.** Where legally and technically appropriate, additional measures such as symbol minimization, stripping, controlled binary metadata and limited implementation disclosure may raise the cost of analysis, but they must never replace authentication, isolation, least privilege, memory protection, secure boot, integrity verification, or sound security policy.
+
+### Planned release-hardening pipeline
+
+`Source -> review/tests -> hardened release build -> integrity/signing -> verified boot/update -> runtime security policy`
+
+Debug/development artifacts will remain separate from production artifacts so developers can diagnose failures without unnecessarily exposing that information in normal releases.
+
+### Security boundary rule
+
+If a future optimization intended to make reverse engineering harder would reduce auditability, reliability, recoverability, or the strength of a fundamental security boundary, the fundamental security property takes priority.
+
+This decision is a standing architectural requirement for future kernel, driver, security-service and release-engineering work.
+
 ## Desktop, GUI and Windows-application compatibility tracking
 
 ProsenjitOS will **not develop a new X Window System, Wayland compositor, or desktop environment at the current stage**. The project will use mature, existing desktop and display technologies first so development effort stays focused on the kernel, storage, security, drivers, compatibility layers, and system services.
