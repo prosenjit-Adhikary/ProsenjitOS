@@ -120,7 +120,8 @@
   - [x] NTFS file growth inside already allocated non-sparse $DATA
   - [x] NTFS `$Bitmap` contiguous free-cluster allocation primitive
   - [x] NTFS file growth with exact contiguous `$Bitmap` allocation and runlist extension
-  - [ ] NTFS full write support (non-contiguous runlist growth, directory metadata updates, journal/recovery)
+  - [x] NTFS non-contiguous runlist growth with mapping-pairs append
+  - [ ] NTFS full write support (directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
 - [ ] Ethernet
