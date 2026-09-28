@@ -10,6 +10,7 @@
 #define PROS_NTFS_ENOTSUP  -3
 #define PROS_NTFS_ECORRUPT -4
 #define PROS_NTFS_EOVERFLOW -5
+#define PROS_NTFS_MFT_RUN_MAX 16u
 
 struct pros_ntfs {
     struct pros_vfs_mount mount;
@@ -20,6 +21,8 @@ struct pros_ntfs {
     uint64_t mftmirr_lcn;
     uint32_t clusters_per_file_record;
     uint32_t bytes_per_file_record;
+    struct pros_ntfs_run mft_runs[PROS_NTFS_MFT_RUN_MAX];
+    uint32_t mft_run_count;
 };
 
 struct pros_ntfs_run { uint64_t lcn; uint64_t clusters; uint8_t sparse; };
@@ -30,6 +33,8 @@ int ntfs_read_file_record(const struct pros_ntfs *, uint64_t record_number, void
 int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length, struct pros_ntfs_run *runs, uint32_t capacity, uint32_t *run_count);
 int ntfs_find_attribute(const void *record, uint32_t record_size, uint32_t type, uint32_t *offset);
 int ntfs_attribute_data(const void *record, uint32_t record_size, uint32_t attr_offset, const uint8_t **data, uint32_t *data_size);
+int ntfs_attribute_runlist(const void *record, uint32_t record_size, uint32_t attr_offset, const uint8_t **runlist, uint32_t *runlist_size);
+int ntfs_bootstrap_mft(struct pros_ntfs *fs);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
 int ntfs_selftest(void);
 
