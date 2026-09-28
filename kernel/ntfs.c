@@ -1254,84 +1254,67 @@ int ntfs_selftest(void)
      * INDX USA validation, VCN validation, child traversal and lookup.
      */
     {
-        uint8_t child_record[384] = {0};
-        uint32_t alloc_offset = 304u;
-        uint32_t alloc_value_size = 4096u;
-        uint8_t *v = child_record + 24u;
+        uint8_t lookup_record[384] = {0};
+        uint8_t *root_attr = lookup_record + 24u;
+        uint8_t *alloc_attr = lookup_record + 200u;
         static const uint8_t lookup_name[] = {
             't', 0u, 'e', 0u, 's', 0u, 't', 0u
         };
+        uint64_t child_reference = 0u;
+        struct pros_ntfs_index_record index_info;
 
-        child_record[0] = 'F'; child_record[1] = 'I';
-        child_record[2] = 'L'; child_record[3] = 'E';
-        child_record[20] = 24u;
-        child_record[alloc_offset + 0u] = 0xA0u;
-        child_record[alloc_offset + 4u] = 68u;
-        child_record[alloc_offset + 8u] = 1u;
-        child_record[alloc_offset + 32u] = 64u;
-        child_record[alloc_offset + 40u] = 0x00u;
-        child_record[alloc_offset + 41u] = 0x10u;
-        child_record[alloc_offset + 48u] = 0x00u;
-        child_record[alloc_offset + 49u] = 0x10u;
-        child_record[alloc_offset + 56u] = 0x00u;
-        child_record[alloc_offset + 57u] = 0x10u;
-        child_record[alloc_offset + 64u] = 0x11u;
-        child_record[alloc_offset + 65u] = 1u;
-        child_record[alloc_offset + 66u] = 5u;
-        child_record[alloc_offset + 67u] = 0u;
+        lookup_record[0] = 'F'; lookup_record[1] = 'I';
+        lookup_record[2] = 'L'; lookup_record[3] = 'E';
+        lookup_record[20] = 24u;
 
-        /* Replace the small root with a root that owns one child VCN. */
-        child_record[0] = 'F'; child_record[1] = 'I';
-        child_record[2] = 'L'; child_record[3] = 'E';
-        child_record[20] = 24u;
-        v = child_record + 24u + 80u;
-        (void)v;
+        /* Resident $INDEX_ROOT: 4 KiB child records, one VCN-0 child. */
+        root_attr[0] = 0x90u;
+        root_attr[4] = 176u;
+        root_attr[16] = 152u;
+        root_attr[20] = 24u;
+        root_attr[24u + 8u] = 0x00u;
+        root_attr[24u + 9u] = 0x10u;
+        root_attr[24u + 12u] = 1u;
+        root_attr[24u + 16u] = 32u;
+        root_attr[24u + 20u] = 152u;
+        root_attr[24u + 24u] = 152u;
 
         {
-            uint32_t root_offset = 24u;
-            uint8_t *root = child_record + root_offset;
-            uint32_t entry = root_offset + 24u + 32u;
+            uint32_t entry = 24u + 32u;
             uint32_t terminal = entry + 104u;
-
-            root[0] = 0x90u;
-            root[4] = 176u;
-            root[8] = 0u;
-            root[16] = 152u;
-            root[20] = 152u;
-            root[24] = 152u;
-            root[28] = 0u;
-            root[32] = 0u;
-
-            child_record[root_offset + 24u + 16u] = 0x00u;
-            child_record[root_offset + 24u + 17u] = 0x10u;
-            child_record[root_offset + 24u + 20u] = 1u;
-
-            child_record[entry + 0u] = 0x00u;
-            child_record[entry + 1u] = 0x20u;
-            child_record[entry + 8u] = 104u;
-            child_record[entry + 10u] = 74u;
-            child_record[entry + 12u] = 1u;
+            root_attr[entry + 0u] = 0x00u;
+            root_attr[entry + 1u] = 0x20u;
+            root_attr[entry + 8u] = 104u;
+            root_attr[entry + 10u] = 74u;
+            root_attr[entry + 12u] = 1u;
             for (uint32_t i = 0u; i < 74u; ++i)
-                child_record[entry + 16u + i] =
+                root_attr[entry + 16u + i] =
                     directory_record[file_name_offset + 24u + i];
-            child_record[entry + 104u - 8u] = 0u;
+            /* Child VCN 0 occupies the final eight bytes. */
+            root_attr[entry + 104u - 8u] = 0u;
 
-            child_record[terminal + 8u] = 16u;
-            child_record[terminal + 10u] = 0u;
-            child_record[terminal + 12u] = 2u;
-
-            if (ntfs_index_allocation_lookup(&fs, child_record,
-                                             sizeof(child_record), root_offset,
-                                             alloc_offset, lookup_name, 4u,
-                                             &reference) != PROS_NTFS_OK ||
-                reference != 0x2000u)
-                return -113;
+            root_attr[terminal + 8u] = 16u;
+            root_attr[terminal + 10u] = 0u;
+            root_attr[terminal + 12u] = 2u;
         }
 
-        /*
-         * Build one 4096-byte INDX page at VCN 0. The USA lives before the
-         * index entries, and the final sector also carries the sequence.
-         */
+        /* Nonresident $INDEX_ALLOCATION: one cluster at LCN 5 (LBA 40). */
+        alloc_attr[0] = 0xA0u;
+        alloc_attr[4] = 68u;
+        alloc_attr[8] = 1u;
+        alloc_attr[32u] = 64u;
+        alloc_attr[40u] = 0x00u;
+        alloc_attr[41u] = 0x10u;
+        alloc_attr[48u] = 0x00u;
+        alloc_attr[49u] = 0x10u;
+        alloc_attr[56u] = 0x00u;
+        alloc_attr[57u] = 0x10u;
+        alloc_attr[64u] = 0x11u;
+        alloc_attr[65u] = 1u;
+        alloc_attr[66u] = 5u;
+        alloc_attr[67u] = 0u;
+
+        /* 4096-byte INDX page at VCN 0. */
         for (uint32_t i = 0u; i < sizeof(disk.index_record); ++i)
             disk.index_record[i] = 0u;
         disk.index_record[0] = 'I'; disk.index_record[1] = 'N';
@@ -1368,71 +1351,26 @@ int ntfs_selftest(void)
             disk.index_record[terminal + 12u] = 2u;
         }
 
-        /*
-         * The root fixture above is copied into a fresh record because the
-         * existing directory_record test intentionally has no child node.
-         */
-        {
-            uint8_t lookup_record[384] = {0};
-            uint8_t *root_attr = lookup_record + 24u;
-            uint8_t *alloc_attr = lookup_record + 200u;
-            uint64_t child_reference = 0u;
+        if (ntfs_index_record_header(disk.index_record,
+                                     sizeof(disk.index_record), 512u, 0u,
+                                     &index_info) != PROS_NTFS_OK ||
+            index_info.first_entry_offset != 48u ||
+            index_info.entries_size != 168u)
+            return -113;
 
-            lookup_record[0] = 'F'; lookup_record[1] = 'I';
-            lookup_record[2] = 'L'; lookup_record[3] = 'E';
-            lookup_record[20] = 24u;
+        if (ntfs_index_allocation_lookup(&fs, lookup_record,
+                                         sizeof(lookup_record), 24u, 200u,
+                                         lookup_name, 4u,
+                                         &child_reference) != PROS_NTFS_OK ||
+            child_reference != 0x3000u)
+            return -114;
 
-            root_attr[0] = 0x90u;
-            root_attr[4] = 176u;
-            root_attr[16] = 152u;
-            root_attr[20] = 24u;
-            root_attr[24u + 16u] = 0x00u;
-            root_attr[24u + 17u] = 0x10u;
-            root_attr[24u + 20u] = 1u;
-            root_attr[24u + 32u + 0u] = 0x00u;
-            root_attr[24u + 32u + 1u] = 0x20u;
-            root_attr[24u + 32u + 8u] = 104u;
-            root_attr[24u + 32u + 10u] = 74u;
-            root_attr[24u + 32u + 12u] = 1u;
-            for (uint32_t i = 0u; i < 74u; ++i)
-                root_attr[24u + 32u + 16u + i] =
-                    directory_record[file_name_offset + 24u + i];
-            root_attr[24u + 32u + 104u - 8u] = 0u;
-            root_attr[24u + 136u + 8u] = 16u;
-            root_attr[24u + 136u + 12u] = 2u;
-
-            alloc_attr[0] = 0xA0u;
-            alloc_attr[4] = 68u;
-            alloc_attr[8] = 1u;
-            alloc_attr[32u] = 64u;
-            alloc_attr[40u] = 0x00u;
-            alloc_attr[41u] = 0x10u;
-            alloc_attr[48u] = 0x00u;
-            alloc_attr[49u] = 0x10u;
-            alloc_attr[56u] = 0x00u;
-            alloc_attr[57u] = 0x10u;
-            alloc_attr[64u] = 0x11u;
-            alloc_attr[65u] = 1u;
-            alloc_attr[66u] = 5u;
-            alloc_attr[67u] = 0u;
-
-            if (ntfs_index_record_header(disk.index_record,
-                                         sizeof(disk.index_record), 512u, 0u,
-                                         &index_info) != PROS_NTFS_OK ||
-                index_info.first_entry_offset != 48u ||
-                index_info.entries_size != 168u ||
-                ntfs_index_record_fixup(disk.index_record,
-                                         sizeof(disk.index_record), 512u) !=
-                    PROS_NTFS_OK)
-                return -114;
-
-            if (ntfs_index_allocation_lookup(&fs, lookup_record,
-                                             sizeof(lookup_record), 24u, 200u,
-                                             lookup_name, 4u,
-                                             &child_reference) != PROS_NTFS_OK ||
-                child_reference != 0x3000u)
-                return -115;
-        }
+        /* USA corruption must reject the child node rather than guess. */
+        disk.index_record[510u] = 0xFFu;
+        if (ntfs_index_record_header(disk.index_record,
+                                     sizeof(disk.index_record), 512u, 0u,
+                                     &index_info) != PROS_NTFS_ECORRUPT)
+            return -115;
     }
 
     return 0;
