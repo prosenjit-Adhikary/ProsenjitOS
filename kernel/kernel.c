@@ -129,6 +129,8 @@ void debug_tss_descriptor(void) {
     serial_write("\n");
 }
 extern void user_mode_exit_trampoline(void);
+extern volatile uint64_t usercopy_fault_active;
+extern volatile uint64_t usercopy_fault_rip;
 extern char __user_text_start[];
 extern char __user_text_end[];
 #define ISR(n) extern void isr##n(void);
@@ -180,6 +182,11 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    if (vector == 14 && usercopy_fault_active) {
+        usercopy_fault_active = 0;
+        frame[2] = usercopy_fault_rip;
+        return;
+    }
     serial_write("ProsenjitOS: CR2 = ");
     serial_hex64(cr2);
     serial_write("\n");
