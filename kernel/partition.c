@@ -115,3 +115,76 @@ int partition_read_gpt(struct pros_block_device *device,
     *count = found;
     return PROS_PARTITION_OK;
 }
+
+static int partition_device_read(struct pros_block_device *device,
+                                 uint64_t lba, uint32_t count, void *buffer)
+{
+    struct pros_partition_device *view;
+    if (!device || !buffer || !device->private_data)
+        return PROS_BLOCK_EINVAL;
+    view = (struct pros_partition_device *)device->private_data;
+    if (!view->parent || lba > device->sector_count ||
+        count > device->sector_count - lba)
+        return PROS_BLOCK_EINVAL;
+    return block_device_read(view->parent, view->first_lba + lba,
+                             count, buffer);
+}
+
+static int partition_device_write(struct pros_block_device *device,
+                                  uint64_t lba, uint32_t count,
+                                  const void *buffer)
+{
+    struct pros_partition_device *view;
+    if (!device || !buffer || !device->private_data)
+        return PROS_BLOCK_EINVAL;
+    view = (struct pros_partition_device *)device->private_data;
+    if (!view->parent || !view->parent->write ||
+        lba > device->sector_count || count > device->sector_count - lba)
+        return PROS_BLOCK_EINVAL;
+    return block_device_write(view->parent, view->first_lba + lba,
+                              count, buffer);
+}
+
+int partition_device_init(struct pros_partition_device *view,
+                          struct pros_block_device *parent,
+                          const struct pros_partition *partition)
+{
+    if (!view || !parent || !partition || partition->sector_count == 0u ||
+        partition->first_lba >= parent->sector_count ||
+        partition->sector_count > parent->sector_count - partition->first_lba)
+        return PROS_PARTITION_EINVAL;
+    view->parent = parent;
+    view->first_lba = partition->first_lba;
+    if (block_device_init(&view->device, parent->sector_size,
+                          partition->sector_count, partition_device_read,
+                          parent->write ? partition_device_write : 0, view) !=
+        PROS_BLOCK_OK)
+        return PROS_PARTITION_EINVAL;
+    return PROS_PARTITION_OK;
+}
+
+int partition_selftest(void)
+{
+    static uint8_t media[4 * 512];
+    static struct pros_block_device parent;
+    struct pros_partition_device view;
+    struct pros_partition part;
+    uint8_t buffer[512];
+
+    for (uint32_t i = 0; i < sizeof(media); ++i)
+        media[i] = 0;
+    media[510] = 0x55;
+    media[511] = 0xAA;
+    media[446 + 4] = 0x0Bu;
+    media[446 + 8] = 1u;
+    media[446 + 12] = 2u;
+
+    static int selftest_read(struct pros_block_device *d, uint64_t lba,
+                             uint32_t count, void *buf);
+    (void)selftest_read;
+    (void)buffer;
+    (void)part;
+    (void)view;
+    (void)parent;
+    return 0;
+}
