@@ -1,5 +1,7 @@
 #include "ntfs.h"
 
+#define PROS_NTFS_RECORD_WORK_MAX 65536u
+
 static uint16_t le16(const uint8_t *p)
 {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -675,7 +677,6 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
 }
 
 
-#define PROS_NTFS_RECORD_WORK_MAX 65536u
 #define PROS_NTFS_INDEX_NODE_MAX 128u
 #define PROS_NTFS_UPCASE_RECORD 10u
 #define PROS_NTFS_UPCASE_BYTES 131072u
