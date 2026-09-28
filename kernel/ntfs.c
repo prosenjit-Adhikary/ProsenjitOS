@@ -4190,9 +4190,20 @@ int ntfs_selftest(void)
         uint32_t written = 0u;
 
         disk.bitmap_data[44u / 8u] |= (uint8_t)(1u << (44u % 8u));
-        if (ntfs_file_write(&fs, 12u, 12288u, fragmented,
-                            sizeof(fragmented), &written) != PROS_NTFS_OK)
-            return -1271;
+        {
+            int write_rc = ntfs_file_write(&fs, 12u, 12288u, fragmented,
+                                           sizeof(fragmented), &written);
+            if (write_rc != PROS_NTFS_OK) {
+                /*
+                 * Preserve the primary regression code while exposing which
+                 * post-allocation state survived if the write path fails.
+                 */
+                if ((disk.bitmap_data[45u / 8u] &
+                     (uint8_t)(1u << (45u % 8u))) != 0u)
+                    return -1281;
+                return -1271;
+            }
+        }
         if (written != sizeof(fragmented))
             return -1272;
         if (le64(disk.nonresident_record + 88u) != 16384u)
