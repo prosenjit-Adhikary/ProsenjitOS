@@ -920,11 +920,11 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
                                             uint8_t directory)
 {
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t old_record[PROS_NTFS_RECORD_WORK_MAX];
     uint32_t first_attr;
     uint32_t used_size;
     uint32_t usa_count;
     uint16_t sequence = 1u;
-    uint8_t old_record[PROS_NTFS_RECORD_WORK_MAX];
 
     if (!fs || fs->bytes_per_file_record < 512u ||
         fs->bytes_per_file_record > sizeof(record) ||
