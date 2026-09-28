@@ -2291,10 +2291,10 @@ int ntfs_selftest(void)
     disk.bitmap_record[1022]=0x21u; disk.bitmap_record[1023]=0x43u;
 
     /* Mark clusters used by the synthetic metadata/data mappings. */
-    disk.bitmap_data[4u / 8u] |= (uint8_t)(1u << (4u % 8u));
-    disk.bitmap_data[5u / 8u] |= (uint8_t)(1u << (5u % 8u));
-    disk.bitmap_data[42u / 8u] |= (uint8_t)(1u << (42u % 8u));
-    disk.bitmap_data[43u / 8u] |= (uint8_t)(1u << (43u % 8u));
+    for (uint32_t lcn = 0u; lcn <= 7u; ++lcn)
+        disk.bitmap_data[lcn / 8u] |= (uint8_t)(1u << (lcn % 8u));
+    for (uint32_t lcn = 10u; lcn <= 43u; ++lcn)
+        disk.bitmap_data[lcn / 8u] |= (uint8_t)(1u << (lcn % 8u));
 
     for (uint32_t i = 0u; i < sizeof(disk.upcase_record); ++i)
         disk.upcase_record[i] = 0u;
@@ -2864,10 +2864,10 @@ int ntfs_selftest(void)
 
         {
             uint64_t allocated_lcn = 0u;
-            if (ntfs_bitmap_allocate_clusters(&fs, 3u, &allocated_lcn) !=
+            if (ntfs_bitmap_allocate_clusters(&fs, 2u, &allocated_lcn) !=
                     PROS_NTFS_OK ||
-                allocated_lcn != 0u ||
-                (disk.bitmap_data[0] & 0x07u) != 0x07u)
+                allocated_lcn != 8u ||
+                (disk.bitmap_data[1u] & 0x03u) != 0x03u)
                 return -194;
         }
 
