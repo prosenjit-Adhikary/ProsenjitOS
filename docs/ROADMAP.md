@@ -116,8 +116,9 @@
 - [ ] NTFS filesystem support
   - [x] NTFS compatibility architecture documented
   - [ ] Read-only NTFS mount/parser
-  - [x] NTFS safe overwrite of existing unnamed $DATA (no allocation/growth)
-  - [ ] NTFS full write support (allocation, growth, metadata updates)
+  - [x] NTFS safe overwrite of existing unnamed $DATA (no allocation)
+  - [x] NTFS file growth inside already allocated non-sparse $DATA
+  - [ ] NTFS full write support (cluster allocation, runlist growth, directory metadata updates)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
 - [ ] Ethernet
