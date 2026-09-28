@@ -51,6 +51,53 @@ int vfs_mount_is_read_only(const struct pros_vfs_mount *mount)
     return mount->read_only ? 1 : 0;
 }
 
+int vfs_file_init(struct pros_vfs_file *file,
+                  struct pros_vfs_mount *mount,
+                  const struct pros_vfs_file_ops *ops,
+                  void *private_data, uint32_t flags)
+{
+    if (!file || !mount || !mount->active || !ops || !ops->read ||
+        !ops->close)
+        return PROS_VFS_EINVAL;
+    file->mount = mount;
+    file->ops = ops;
+    file->private_data = private_data;
+    file->position = 0;
+    file->flags = flags;
+    file->open = 1u;
+    return PROS_VFS_OK;
+}
+
+int vfs_file_read(struct pros_vfs_file *file, void *buffer,
+                  uint32_t length, uint32_t *bytes_read)
+{
+    int rc;
+    if (!file || !file->open || !file->mount || !file->mount->active ||
+        !file->ops || !file->ops->read || !buffer || !bytes_read)
+        return PROS_VFS_EINVAL;
+    rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
+    if (rc < 0) return rc;
+    file->position += (uint32_t)rc;
+    *bytes_read = (uint32_t)rc;
+    return PROS_VFS_OK;
+}
+
+int vfs_file_close(struct pros_vfs_file *file)
+{
+    int rc;
+    if (!file || !file->open || !file->ops || !file->ops->close)
+        return PROS_VFS_EINVAL;
+    rc = file->ops->close(file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    file->open = 0u;
+    file->mount = 0;
+    file->ops = 0;
+    file->private_data = 0;
+    file->position = 0;
+    return PROS_VFS_OK;
+}
+
 int vfs_file_admit(const struct pros_vfs_mount *mount,
                    const uint8_t *data,
                    uint64_t length,
