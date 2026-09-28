@@ -3632,6 +3632,33 @@ int ntfs_selftest(void)
                 return -193;
         }
 
+        /* End-to-end VFS directory enumeration regression. */
+        {
+            uint64_t cookie = 0u;
+            struct pros_vfs_dirent entry = {0};
+
+            /* Extend the synthetic MFT data-size so record 11 is within the
+             * range that readdir scans. */
+            disk.mft_record[96u] = 0x00u;
+            disk.mft_record[97u] = 0x30u;
+            disk.mft_record[98u] = 0x00u;
+            disk.mft_record[99u] = 0x00u;
+
+            if (!fs.mount.root || !fs.mount.root->ops ||
+                !fs.mount.root->ops->readdir)
+                return -195;
+            if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
+                    PROS_VFS_OK || cookie != 12u ||
+                entry.type != PROS_VFS_NODE_FILE || entry.size != 5u ||
+                entry.name[0] != 't' || entry.name[1] != 'e' ||
+                entry.name[2] != 's' || entry.name[3] != 't' ||
+                entry.name[4] != '\\0')
+                return -196;
+            if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
+                    PROS_VFS_ENOENT || cookie != 12u)
+                return -197;
+        }
+
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
                              &path_reference) != PROS_NTFS_EINVAL)
             return -122;
