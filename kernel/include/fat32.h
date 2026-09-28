@@ -11,7 +11,19 @@
 #define PROS_FAT32_ECORRUPT -4
 #define PROS_FAT32_ENOENT   -5
 
-struct pros_fat32_vfs_node;
+struct pros_fat32_dirent {
+    char name[261];
+    uint8_t attributes;
+    uint32_t first_cluster;
+    uint32_t size;
+};
+
+struct pros_fat32_vfs_node {
+    struct pros_vfs_vnode vnode;
+    struct pros_fat32_dirent entry;
+    uint32_t directory_cluster;
+    uint8_t used;
+};
 
 #define PROS_FAT32_VFS_NODE_MAX 32u
 
@@ -27,21 +39,6 @@ struct pros_fat32 {
     uint32_t cluster_count;
     struct pros_fat32_vfs_node vfs_nodes[PROS_FAT32_VFS_NODE_MAX];
 };
-
-struct pros_fat32_dirent {
-    char name[261];
-    uint8_t attributes;
-    uint32_t first_cluster;
-    uint32_t size;
-};
-
-struct pros_fat32_vfs_node {
-    struct pros_vfs_vnode vnode;
-    struct pros_fat32_dirent entry;
-    uint32_t directory_cluster;
-    uint8_t used;
-};
-
 
 int fat32_mount(struct pros_fat32 *, struct pros_block_device *);
 int fat32_cluster_lba(const struct pros_fat32 *, uint32_t, uint64_t *);
