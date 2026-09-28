@@ -20,7 +20,8 @@ gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mn
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/address_space.c" -o "$BUILD/obj/address_space.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/syscall.c" -o "$BUILD/obj/syscall.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/object.c" -o "$BUILD/obj/object.o"
-gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/ipc.c" -o "$BUILD/obj/ipc.o"
+gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/usercopy.c" \
+    "$ROOT/kernel/ipc.c" -o "$BUILD/obj/ipc.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 -c "$ROOT/kernel/process.c" -o "$BUILD/obj/process.o"
 gcc -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx \
     -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2 \
