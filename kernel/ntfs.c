@@ -2523,11 +2523,9 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         uint16_t record_flags;
         uint32_t attr_pos;
         uint64_t parent_reference;
-        uint64_t child_reference;
         uint64_t data_size = 0u;
         const uint8_t *name = 0;
         uint32_t name_bytes = 0u;
-        uint8_t namespace_id = 0u;
         uint8_t found_name = 0u;
 
         if (ntfs_read_file_record(fs, record_number, record,
@@ -2571,11 +2569,9 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                                      0x0000FFFFFFFFFFFFull) ==
                                     (parent_node->record_number &
                                      0x0000FFFFFFFFFFFFull)) {
-                                    child_reference = record_number;
                                     name = data + 66u;
                                     name_bytes =
                                         (uint32_t)candidate_length * 2u;
-                                    namespace_id = candidate_namespace;
                                     data_size = le64(data + 48u);
                                     found_name = 1u;
                                     break;
@@ -2651,7 +2647,6 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                           PROS_VFS_NODE_DIRECTORY :
                           PROS_VFS_NODE_FILE;
             entry->size = data_size;
-            (void)namespace_id;
         }
         return 1;
     }
