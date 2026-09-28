@@ -115,6 +115,160 @@ int exfat_read_cluster(const struct pros_exfat *fs, uint32_t cluster,
         ? PROS_EXFAT_OK : PROS_EXFAT_EIO;
 }
 
+
+int exfat_read_fat_entry(const struct pros_exfat *fs, uint32_t cluster,
+                         uint32_t *value)
+{
+    uint64_t byte_offset, sector_offset, lba;
+    uint32_t in_sector;
+    uint8_t sector[4096];
+
+    if (!fs || !value || !fs->mount.active || cluster < 2u ||
+        (uint64_t)cluster > (uint64_t)fs->cluster_count + 1u ||
+        fs->bytes_per_sector > sizeof(sector))
+        return PROS_EXFAT_EINVAL;
+
+    byte_offset = (uint64_t)cluster * 4u;
+    sector_offset = byte_offset / fs->bytes_per_sector;
+    in_sector = (uint32_t)(byte_offset % fs->bytes_per_sector);
+    if (sector_offset >= fs->fat_length ||
+        in_sector + 4u > fs->bytes_per_sector)
+        return PROS_EXFAT_ECORRUPT;
+
+    lba = (uint64_t)fs->fat_offset + sector_offset;
+    if (lba >= fs->volume_length ||
+        lba >= fs->mount.device->sector_count)
+        return PROS_EXFAT_EIO;
+    if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+        PROS_BLOCK_OK)
+        return PROS_EXFAT_EIO;
+
+    *value = le32(sector + in_sector);
+    if (*value == 0xFFFFFFF7u)
+        return PROS_EXFAT_ECORRUPT;
+    if (*value == 0xFFFFFFFFu)
+        return PROS_EXFAT_OK;
+    if (*value < 2u ||
+        (uint64_t)*value > (uint64_t)fs->cluster_count + 1u)
+        return PROS_EXFAT_ECORRUPT;
+    return PROS_EXFAT_OK;
+}
+
+static int exfat_file_cluster(const struct pros_exfat *fs,
+                              uint32_t first_cluster, uint8_t no_fat_chain,
+                              uint64_t cluster_index, uint32_t *cluster)
+{
+    uint64_t max_clusters;
+    uint32_t current;
+
+    if (!fs || !cluster || first_cluster < 2u ||
+        (uint64_t)first_cluster > (uint64_t)fs->cluster_count + 1u)
+        return PROS_EXFAT_EINVAL;
+
+    max_clusters = (uint64_t)fs->cluster_count;
+    if (cluster_index >= max_clusters)
+        return PROS_EXFAT_ECORRUPT;
+
+    if (no_fat_chain) {
+        uint64_t contiguous = (uint64_t)first_cluster + cluster_index;
+        if (contiguous > (uint64_t)fs->cluster_count + 1u)
+            return PROS_EXFAT_ECORRUPT;
+        *cluster = (uint32_t)contiguous;
+        return PROS_EXFAT_OK;
+    }
+
+    current = first_cluster;
+    for (uint64_t i = 0u; i < cluster_index; ++i) {
+        uint32_t next;
+        int rc = exfat_read_fat_entry(fs, current, &next);
+        if (rc != PROS_EXFAT_OK)
+            return rc;
+        if (next == 0xFFFFFFFFu)
+            return PROS_EXFAT_ECORRUPT;
+        current = next;
+    }
+    *cluster = current;
+    return PROS_EXFAT_OK;
+}
+
+int exfat_file_read(const struct pros_exfat *fs, uint32_t first_cluster,
+                    uint8_t no_fat_chain, uint64_t data_length,
+                    uint64_t valid_data_length, uint64_t offset,
+                    void *buffer, uint32_t length, uint32_t *done)
+{
+    uint64_t cluster_bytes, clusters_required, position, remaining;
+    uint8_t sector[4096];
+
+    if (!fs || !buffer || !done || !fs->mount.active ||
+        fs->bytes_per_sector > sizeof(sector) ||
+        fs->sectors_per_cluster == 0u ||
+        valid_data_length > data_length)
+        return PROS_EXFAT_EINVAL;
+
+    *done = 0u;
+    if (offset >= data_length || length == 0u)
+        return PROS_EXFAT_OK;
+    if (first_cluster < 2u)
+        return PROS_EXFAT_ECORRUPT;
+
+    cluster_bytes = (uint64_t)fs->bytes_per_sector *
+                    fs->sectors_per_cluster;
+    if (data_length > 0u &&
+        data_length > 0xFFFFFFFFFFFFFFFFull - cluster_bytes + 1u)
+        return PROS_EXFAT_ECORRUPT;
+    clusters_required = (data_length + cluster_bytes - 1u) / cluster_bytes;
+    if (clusters_required == 0u ||
+        clusters_required > (uint64_t)fs->cluster_count)
+        return PROS_EXFAT_ECORRUPT;
+
+    remaining = data_length - offset;
+    if (remaining > length)
+        remaining = length;
+    position = offset;
+
+    while (remaining != 0u) {
+        uint64_t cluster_index = position / cluster_bytes;
+        uint64_t cluster_offset = position % cluster_bytes;
+        uint32_t cluster;
+        uint32_t sector_index;
+        uint32_t in_sector;
+        uint32_t take;
+        uint64_t lba;
+
+        if (exfat_file_cluster(fs, first_cluster, no_fat_chain,
+                               cluster_index, &cluster) != PROS_EXFAT_OK)
+            return PROS_EXFAT_ECORRUPT;
+        if (exfat_cluster_lba(fs, cluster, &lba) != PROS_EXFAT_OK)
+            return PROS_EXFAT_EIO;
+
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        take = fs->bytes_per_sector - in_sector;
+        if (take > remaining)
+            take = (uint32_t)remaining;
+
+        if (sector_index >= fs->sectors_per_cluster)
+            return PROS_EXFAT_ECORRUPT;
+        lba += sector_index;
+        if (lba >= fs->volume_length ||
+            block_device_read(fs->mount.device, lba, 1u, sector) !=
+                PROS_BLOCK_OK)
+            return PROS_EXFAT_EIO;
+
+        for (uint32_t i = 0u; i < take; ++i) {
+            uint64_t absolute = position + i;
+            ((uint8_t *)buffer)[*done + i] =
+                absolute < valid_data_length ? sector[in_sector + i] : 0u;
+        }
+
+        *done += take;
+        position += take;
+        remaining -= take;
+    }
+
+    return PROS_EXFAT_OK;
+}
+
 struct exfat_test_disk { uint8_t boot[512]; };
 
 static int exfat_test_read(struct pros_block_device *device, uint64_t lba,
