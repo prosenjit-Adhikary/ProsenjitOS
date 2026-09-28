@@ -816,18 +816,3 @@ static int fat32_vfs_close(struct pros_vfs_file *file)
     return PROS_VFS_OK;
 }
 
-int fat32_open_83(struct pros_fat32 *fs, uint32_t directory_cluster,
-                  const char *name, struct pros_vfs_file *file,
-                  struct pros_fat32_dirent *entry)
-{
-    if (!fs || !file || !entry || !name || !fs->mount.active)
-        return PROS_FAT32_EINVAL;
-    if (fat32_find(fs, directory_cluster, name, entry) != PROS_FAT32_OK)
-        return PROS_FAT32_ENOENT;
-    if ((entry->attributes & 0x10u) != 0u)
-        return PROS_FAT32_EINVAL;
-    if (vfs_file_init(file, &fs->mount, &fat32_vfs_ops, entry, 0u) !=
-        PROS_VFS_OK)
-        return PROS_FAT32_EINVAL;
-    return PROS_FAT32_OK;
-}
