@@ -56,6 +56,8 @@
   - [ ] Kernel-mediated cross-process transfer syscall
   - [x] Kernel receiver wait queue and scheduler wakeup primitive
   - [x] Blocking receive syscall scheduler handoff
+  - [x] IPC channel queue/waiter concurrency lock
+  - [ ] SMP-safe scheduler/run-queue locking
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
