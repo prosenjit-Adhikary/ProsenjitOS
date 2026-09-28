@@ -38,6 +38,16 @@ isr128:
     lea rdi, [rsp + 8]
     lea rsi, [rsp + 128]
     call syscall_dispatch
+    cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF01
+    jne .syscall_return
+    lea rdi, [rsp + 8]
+    call thread_schedule_interrupt
+    test rax, rax
+    jz .syscall_return
+    mov rsp, rax
+    jmp .syscall_restore_switched
+
+.syscall_return:
     add rsp, 8
     pop rax
     pop rbx
@@ -54,6 +64,26 @@ isr128:
     pop r13
     pop r14
     pop r15
+    jmp .syscall_check_exit
+
+.syscall_restore_switched:
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+
+.syscall_check_exit:
     cmp rax, 0xFFFFFFFFFFFFFF00
     je .exit_to_kernel
     iretq
