@@ -397,28 +397,61 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
 int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
-    struct pros_vfs_vnode *vnode;
+    struct pros_vfs_vnode *vnode = 0;
     int rc;
     if (!file || (flags & ~(PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                            PROS_VFS_O_DIRECTORY)) != 0u ||
+                            PROS_VFS_O_DIRECTORY | PROS_VFS_O_CREATE)) != 0u ||
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
         (flags & PROS_VFS_O_DIRECTORY) != 0u)
         return PROS_VFS_EINVAL;
+
     rc = vfs_path_lookup(mount, path, &vnode);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    if (vnode->type != PROS_VFS_NODE_FILE) {
+    if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
+        char parent_path[PROS_VFS_PATH_MAX + 1u];
+        char name[PROS_VFS_NAME_MAX + 1u];
+        uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
+        while (path[length] != '\\0' && length < PROS_VFS_PATH_MAX) {
+            if (path[length] == '/') last_slash = length;
+            ++length;
+        }
+        if (path[length] != '\\0' || length == 0u ||
+            last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
+            return PROS_VFS_EINVAL;
+        uint32_t name_length = length - last_slash - 1u;
+        if (name_length > PROS_VFS_NAME_MAX)
+            return PROS_VFS_EOVERFLOW;
+        for (uint32_t i = 0u; i < name_length; ++i)
+            name[i] = path[last_slash + 1u + i];
+        name[name_length] = '\\0';
+        if (last_slash == 0u) {
+            parent_path[0] = '/'; parent_path[1] = '\\0';
+        } else {
+            for (uint32_t i = 0u; i < last_slash; ++i)
+                parent_path[i] = path[i];
+            parent_path[last_slash] = '\\0';
+        }
+        rc = vfs_path_lookup(mount, parent_path, &vnode);
+        if (rc != PROS_VFS_OK) return rc;
+        if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops->create) {
+            vfs_vnode_put(vnode); return PROS_VFS_ENOSYS;
+        }
+        struct pros_vfs_vnode *created = 0;
+        rc = vnode->ops->create(vnode, name, &created);
         vfs_vnode_put(vnode);
-        return PROS_VFS_EISDIR;
+        if (rc != PROS_VFS_OK) return rc;
+        vnode = created;
+    } else if (rc != PROS_VFS_OK) {
+        return rc;
+    }
+    if (vnode->type != PROS_VFS_NODE_FILE) {
+        vfs_vnode_put(vnode); return PROS_VFS_EISDIR;
     }
     if ((flags & PROS_VFS_O_WRITE) != 0u && mount->read_only) {
-        vfs_vnode_put(vnode);
-        return PROS_VFS_EPERM;
+        vfs_vnode_put(vnode); return PROS_VFS_EPERM;
     }
     if (vfs_file_init(file, mount, vnode->file_ops, vnode->private_data,
                       flags) != PROS_VFS_OK) {
-        vfs_vnode_put(vnode);
-        return PROS_VFS_EINVAL;
+        vfs_vnode_put(vnode); return PROS_VFS_EINVAL;
     }
     file->vnode = vnode;
     return PROS_VFS_OK;
