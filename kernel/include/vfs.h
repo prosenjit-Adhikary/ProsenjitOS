@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "block.h"
+#include "security_admission.h"
 
 #define PROS_VFS_OK       0
 #define PROS_VFS_EINVAL  -1
@@ -30,5 +31,21 @@ int vfs_mount_init(struct pros_vfs_mount *, enum pros_filesystem_type,
 int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
 int vfs_mount_is_read_only(const struct pros_vfs_mount *);
+
+/*
+ * Filesystem-neutral security boundary.
+ *
+ * A filesystem driver supplies the bytes and evidence it has established;
+ * the VFS routes them through the kernel admission broker. This keeps the
+ * security policy independent of FAT32/exFAT/NTFS/native filesystem code
+ * without inventing filesystem-specific file APIs before those drivers exist.
+ */
+int vfs_file_admit(const struct pros_vfs_mount *,
+                   const uint8_t *data,
+                   uint64_t length,
+                   const struct pros_file_security_metadata *,
+                   struct pros_file_admission_record *);
+
+int vfs_security_selftest(void);
 
 #endif
