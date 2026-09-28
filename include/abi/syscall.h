@@ -31,5 +31,6 @@ enum pros_syscall_number {
  * path after INT 0x80 has already switched CPL3 -> CPL0.
  */
 #define PROSENJIT_SYSCALL_INTERNAL_EXIT 0xFFFFFFFFFFFFFF00ULL
+#define PROSENJIT_SYSCALL_INTERNAL_BLOCK 0xFFFFFFFFFFFFFF01ULL
 
 #endif
