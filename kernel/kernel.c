@@ -704,21 +704,38 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: capability move-transfer test passed\n");
 
-    /* Inactive-process regression: capability movement must not operate on
-     * zombie/dead participants, even if their object reference is still live. */
+    /* Inactive-process regression: use a fresh valid source capability so
+     * rejection is proven by the zombie target state, not by a stale source. */
     struct pros_process inactive_transfer_target;
-    if (process_create(&init_process, &inactive_transfer_target, 7,
+    struct pros_object inactive_move_object;
+    uint64_t inactive_move_source;
+    object_init(&inactive_move_object, PROS_OBJECT_FILE);
+    if (process_grant_handle(&init_process, &inactive_move_object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_TRANSFER,
+                             &inactive_move_source) != 0 ||
+        process_create(&init_process, &inactive_transfer_target, 7,
                        PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&inactive_transfer_target, 99) != 0 ||
         process_transfer_handle_move(&init_process, &inactive_transfer_target,
-                                     move_source_handle,
-                                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID) {
+                                     inactive_move_source,
+                                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        process_check_handle(&init_process, inactive_move_source,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0) {
         serial_write("ProsenjitOS: ERROR inactive capability move regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (process_wait(&init_process, inactive_transfer_target.pid, &waited_exit) != 0 ||
         waited_exit != 99) {
         serial_write("ProsenjitOS: ERROR inactive transfer target reap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_check_handle(&init_process, inactive_move_source,
+                             PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0) {
+        serial_write("ProsenjitOS: ERROR inactive move unexpectedly consumed source\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_close_handle(&init_process, inactive_move_source) != 0) {
+        serial_write("ProsenjitOS: ERROR inactive move source cleanup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: inactive capability move regression passed\n");
