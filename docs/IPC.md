@@ -37,6 +37,7 @@ The current kernel API is now exposed to CPL3 through capability-mediated send/r
 
 The kernel now has a bounded receiver wait queue. A receiver can associate its
 thread with a channel and enter `PROS_THREAD_BLOCKED`; a later send wakes one
-waiting receiver and returns it to the scheduler run queue. The actual CPL3
-blocking syscall handoff is intentionally separate so an interrupt-return frame
-is never resumed incorrectly.
+waiting receiver and returns it to the scheduler run queue. The CPL3 receive syscall now uses an internal block sentinel, switches to a runnable
+thread through the interrupt-frame scheduler path, and retries the receive syscall
+when a receiver is woken. Until an idle thread exists, receive refuses to block if
+there is no runnable successor.
