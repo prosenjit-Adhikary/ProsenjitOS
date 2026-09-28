@@ -4572,10 +4572,13 @@ int ntfs_selftest(void)
          * APIs below.
          */
         static const uint8_t path_name[] = {
-            'T', 0u, 'e', 0u, 's', 0u, 't', 0u
+            'T', 0u, 'e', 0u, 'S', 0u, 't', 0u
+        };
+        static const uint8_t folded_path_name[] = {
+            't', 0u, 'e', 0u, 's', 0u, 't', 0u
         };
         uint8_t path_key[74] = {0};
-        const uint8_t *components[] = { path_name };
+        const uint8_t *components[] = { folded_path_name };
         path_key[64u] = 4u;
         path_key[65u] = 1u;
         path_key[66u] = 'T'; path_key[67u] = 0u;
