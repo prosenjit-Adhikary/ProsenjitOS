@@ -58,7 +58,8 @@
   - [x] Blocking receive syscall scheduler handoff
   - [x] IPC channel queue/waiter concurrency lock
   - [x] Validated kernel user-copy primitives for IPC
-  - [ ] Fault-recoverable user-copy with page-fault fixup
+  - [x] Fault-recoverable user-copy with page-fault fixup
+  - [ ] Per-CPU usercopy fault state for SMP
   - [ ] SMP-safe scheduler/run-queue locking
 
 ## Phase 4 — Security foundation
