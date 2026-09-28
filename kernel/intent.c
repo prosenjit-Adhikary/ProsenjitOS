@@ -58,7 +58,6 @@ int security_manager_init(void) {
     if (fat32_selftest() != 0) return -5;
     if (exfat_selftest() != 0) return -6;
     if (ntfs_selftest() != 0) return -7;
-    serial_write("ProsenjitOS: NTFS FILE_NAME/INDEX_ROOT parsing test passed\n");
     if (partition_selftest() != 0) return -8;
     if (pros_security_quarantine_selftest() != 0) return -9;
     if (pros_security_exec_selftest() != 0) return -10;
