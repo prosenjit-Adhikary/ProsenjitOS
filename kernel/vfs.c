@@ -804,6 +804,10 @@ static int vfs_probe_selftest(void)
     const char exfat_oem[8] = {'E','X','F','A','T',' ',' ',' '};
     for (uint32_t i = 0u; i < 8u; ++i)
         vfs_probe_test_sector[3u + i] = (uint8_t)exfat_oem[i];
+    /* exFAT geometry lives in the shift fields, not BPB byte 13. */
+    vfs_probe_test_sector[72] = 3u;
+    vfs_probe_test_sector[108] = 9u;  /* 512-byte sectors */
+    vfs_probe_test_sector[109] = 0u;  /* one sector per cluster */
     for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
         vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
     if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
