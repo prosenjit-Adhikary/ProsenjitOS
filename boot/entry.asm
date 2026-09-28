@@ -112,7 +112,9 @@ enter_user_mode:
     push qword 0x23
     push rdx
     pushfq
-    or qword [rsp], 0x200
+    ; User-mode timer preemption is not yet scheduler-safe. Keep IF clear
+    ; until user interrupt-frame/address-space switching is implemented.
+    and qword [rsp], ~0x200
     push qword 0x1B
     push rax
     mov rdi, r8
