@@ -979,7 +979,7 @@ int ntfs_bootstrap_mft(struct pros_ntfs *fs)
     return PROS_NTFS_OK;
 }
 
-struct ntfs_test_disk { uint8_t boot[512]; uint8_t mft_record[1024]; uint8_t index_record[4096]; };
+struct ntfs_test_disk { uint8_t boot[512]; uint8_t mft_record[1024]; uint8_t index_record[4096]; uint8_t root_record[1024]; };
 
 static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
                           uint32_t count, void *buffer)
@@ -999,6 +999,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s >= 40u && lba + s < 48u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->index_record[(lba + s - 40u) * 512u + i];
+        else if (lba + s == 37u || lba + s == 38u)
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->root_record[(lba + s - 37u) * 512u + i];
     }
     return PROS_BLOCK_OK;
 }
@@ -1485,6 +1488,63 @@ int ntfs_selftest(void)
                                      sizeof(disk.index_record), 512u, 0u,
                                      &index_info) != PROS_NTFS_ECORRUPT)
             return -120;
+    }
+
+    /*
+     * Directory/path regression: MFT record 5 ($Root) contains a resident
+     * $INDEX_ROOT entry, so the public path API must begin at record 5 and
+     * return the entry's MFT reference.
+     */
+    {
+        static const uint8_t path_name[] = {
+            't', 0u, 'e', 0u, 's', 0u, 't', 0u
+        };
+        const uint8_t *components[] = { path_name };
+        const uint8_t lengths[] = { 4u };
+        uint64_t path_reference = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(disk.root_record); ++i)
+            disk.root_record[i] = 0u;
+        disk.root_record[0] = 'F'; disk.root_record[1] = 'I';
+        disk.root_record[2] = 'L'; disk.root_record[3] = 'E';
+        disk.root_record[4] = 8u; disk.root_record[6] = 3u;
+        disk.root_record[20] = 24u;
+        disk.root_record[24u] = 0x90u;
+        disk.root_record[28u] = 168u;
+        disk.root_record[40u] = 144u;
+        disk.root_record[44u] = 24u;
+        disk.root_record[48u] = 0x30u;
+        disk.root_record[52u] = 1u;
+        disk.root_record[56u] = 0x00u;
+        disk.root_record[57u] = 0x10u;
+        disk.root_record[60u] = 1u;
+        disk.root_record[64u] = 32u;
+        disk.root_record[68u] = 144u;
+        disk.root_record[72u] = 144u;
+        disk.root_record[80u] = 0x00u;
+        disk.root_record[81u] = 0x20u;
+        disk.root_record[88u] = 96u;
+        disk.root_record[90u] = 74u;
+        disk.root_record[92u] = 0u;
+        for (uint32_t i = 0u; i < 74u; ++i)
+            disk.root_record[96u + i] = file_name_key[i];
+        disk.root_record[192u] = 16u;
+        disk.root_record[194u] = 0u;
+        disk.root_record[196u] = 2u;
+        disk.root_record[510u] = 0x34u; disk.root_record[511u] = 0x12u;
+        disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
+
+        if (ntfs_directory_lookup(&fs, 5u, path_name, 4u,
+                                  &path_reference) != PROS_NTFS_OK ||
+            path_reference != 0x2000u ||
+            ntfs_path_lookup(&fs, components, lengths, 1u,
+                             &path_reference) != PROS_NTFS_OK ||
+            path_reference != 0x2000u)
+            return -121;
+
+        if (ntfs_path_lookup(&fs, components, lengths, 0u,
+                             &path_reference) != PROS_NTFS_EINVAL)
+            return -122;
     }
 
     return 0;
