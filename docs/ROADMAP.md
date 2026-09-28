@@ -57,6 +57,8 @@
   - [x] Kernel receiver wait queue and scheduler wakeup primitive
   - [x] Blocking receive syscall scheduler handoff
   - [x] IPC channel queue/waiter concurrency lock
+  - [x] Validated kernel user-copy primitives for IPC
+  - [ ] Fault-recoverable user-copy with page-fault fixup
   - [ ] SMP-safe scheduler/run-queue locking
 
 ## Phase 4 — Security foundation
