@@ -165,7 +165,8 @@ int ntfs_read_file_record(const struct pros_ntfs *fs, uint64_t record_number,
         } else {
             for (uint32_t r = 0u; r < fs->mft_run_count; ++r) {
                 const struct pros_ntfs_run *run = &fs->mft_runs[r];
-                if (logical_cluster < cumulative + run->clusters) {
+                if (logical_cluster >= cumulative &&
+                    logical_cluster - cumulative < run->clusters) {
                     physical_lcn = run->lcn + (logical_cluster - cumulative);
                     if (physical_lcn < run->lcn)
                         return PROS_NTFS_EOVERFLOW;
@@ -452,7 +453,8 @@ int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
             uint8_t sector[4096];
 
             for (uint32_t r = 0u; r < run_count; ++r) {
-                if (logical_cluster < cumulative + runs[r].clusters) {
+                if (logical_cluster >= cumulative &&
+                    logical_cluster - cumulative < runs[r].clusters) {
                     physical_lcn = runs[r].lcn +
                                    (logical_cluster - cumulative);
                     if (physical_lcn < runs[r].lcn)
