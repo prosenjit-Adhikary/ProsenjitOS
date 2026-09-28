@@ -119,45 +119,89 @@ int ntfs_file_record_fixup(void *record, uint32_t record_size,
 int ntfs_read_file_record(const struct pros_ntfs *fs, uint64_t record_number,
                           void *buffer, uint32_t buffer_size)
 {
-    uint64_t byte_offset, lcn, cluster_offset, lba;
-    uint32_t count, offset, first;
+    uint64_t byte_offset;
+    uint64_t cluster_bytes;
+    uint32_t remaining;
+    uint32_t copied = 0u;
+    uint8_t sector[4096];
+
     if (!fs || !buffer || buffer_size < fs->bytes_per_file_record ||
-        fs->bytes_per_file_record == 0u)
+        fs->bytes_per_file_record == 0u || fs->sectors_per_cluster == 0u ||
+        fs->bytes_per_sector > sizeof(sector))
         return PROS_NTFS_EINVAL;
     if (record_number > 0x0000FFFFFFFFFFFFull)
         return PROS_NTFS_EINVAL;
+    if (record_number >
+        (0xFFFFFFFFFFFFFFFFull / fs->bytes_per_file_record))
+        return PROS_NTFS_EOVERFLOW;
+
     byte_offset = record_number * (uint64_t)fs->bytes_per_file_record;
-    lcn = fs->mft_lcn + byte_offset / ((uint64_t)fs->bytes_per_sector *
-                                       fs->sectors_per_cluster);
-    cluster_offset = byte_offset % ((uint64_t)fs->bytes_per_sector *
-                                    fs->sectors_per_cluster);
-    if (ntfs_cluster_lba(fs, lcn, &lba) != PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
-    offset = (uint32_t)cluster_offset;
-    count = fs->bytes_per_file_record;
-    first = fs->sectors_per_cluster - (offset / fs->bytes_per_sector);
-    if (count + offset > first * fs->bytes_per_sector) {
-        uint8_t sector[4096];
-        uint32_t copied = 0u;
-        while (copied < count) {
-            uint64_t current_lba = lba + (offset + copied) / fs->bytes_per_sector;
-            uint32_t in_sector = (offset + copied) % fs->bytes_per_sector;
-            uint32_t take = fs->bytes_per_sector - in_sector;
-            if (take > count - copied) take = count - copied;
-            if (block_device_read(fs->mount.device, current_lba, 1u, sector) != PROS_BLOCK_OK)
-                return PROS_NTFS_EIO;
-            for (uint32_t i=0;i<take;++i) ((uint8_t *)buffer)[copied+i]=sector[in_sector+i];
-            copied += take;
+    cluster_bytes = (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
+    remaining = fs->bytes_per_file_record;
+
+    while (remaining != 0u) {
+        uint64_t logical_cluster = byte_offset / cluster_bytes;
+        uint64_t cluster_offset = byte_offset % cluster_bytes;
+        uint64_t cumulative = 0u;
+        uint64_t physical_lcn = 0u;
+        uint8_t sparse = 0u;
+        uint8_t found = 0u;
+
+        if (fs->mft_run_count == 0u) {
+            physical_lcn = fs->mft_lcn + logical_cluster;
+            if (physical_lcn < fs->mft_lcn)
+                return PROS_NTFS_EOVERFLOW;
+            found = 1u;
+        } else {
+            for (uint32_t r = 0u; r < fs->mft_run_count; ++r) {
+                const struct pros_ntfs_run *run = &fs->mft_runs[r];
+                if (logical_cluster < cumulative + run->clusters) {
+                    physical_lcn = run->lcn + (logical_cluster - cumulative);
+                    if (physical_lcn < run->lcn)
+                        return PROS_NTFS_EOVERFLOW;
+                    sparse = run->sparse;
+                    found = 1u;
+                    break;
+                }
+                if (run->clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
+                    return PROS_NTFS_EOVERFLOW;
+                cumulative += run->clusters;
+            }
         }
-    } else {
-        uint32_t sectors = (count + offset + fs->bytes_per_sector - 1u) /
-                           fs->bytes_per_sector;
-        uint8_t sector[4096];
-        if (sectors > 8u) return PROS_NTFS_EINVAL;
-        if (block_device_read(fs->mount.device, lba, sectors, sector) != PROS_BLOCK_OK)
+
+        if (!found)
             return PROS_NTFS_EIO;
-        for (uint32_t i=0;i<count;++i) ((uint8_t *)buffer)[i]=sector[offset+i];
+
+        {
+            uint32_t sector_index =
+                (uint32_t)(cluster_offset / fs->bytes_per_sector);
+            uint32_t in_sector =
+                (uint32_t)(cluster_offset % fs->bytes_per_sector);
+            uint32_t take = fs->bytes_per_sector - in_sector;
+            uint64_t lba;
+
+            if (take > remaining)
+                take = remaining;
+            if (sparse) {
+                for (uint32_t i = 0u; i < take; ++i)
+                    ((uint8_t *)buffer)[copied + i] = 0u;
+            } else {
+                if (sector_index >= fs->sectors_per_cluster ||
+                    ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+                    return PROS_NTFS_EIO;
+                lba += sector_index;
+                if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                    PROS_BLOCK_OK)
+                    return PROS_NTFS_EIO;
+                for (uint32_t i = 0u; i < take; ++i)
+                    ((uint8_t *)buffer)[copied + i] = sector[in_sector + i];
+            }
+            copied += take;
+            remaining -= take;
+            byte_offset += take;
+        }
     }
+
     return ntfs_file_record_fixup(buffer, fs->bytes_per_file_record,
                                    fs->bytes_per_sector);
 }
