@@ -36,8 +36,10 @@ SECTIONS
 
     .bss : ALIGN(4K)
     {
+        __kernel_bss_start = .;
         *(COMMON)
         *(.bss*)
+        __kernel_bss_end = ALIGN(4K);
     }
 
     . = ALIGN(4K);
