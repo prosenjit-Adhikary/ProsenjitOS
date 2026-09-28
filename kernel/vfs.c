@@ -164,8 +164,18 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->read || !buffer || !bytes_read ||
-        file->position > 0xFFFFFFFFULL)
+        !file->vnode || file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EINVAL;
+
+    /*
+     * VFS read semantics must make EOF a successful zero-byte read. Do not
+     * delegate a zero-length request to filesystem drivers that may reject
+     * size == 0 as an invalid internal operation.
+     */
+    *bytes_read = 0u;
+    if (length == 0u || file->position >= file->vnode->size)
+        return PROS_VFS_OK;
+
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) return rc;
     if ((uint32_t)rc > length)
