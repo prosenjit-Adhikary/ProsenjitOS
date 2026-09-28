@@ -631,6 +631,8 @@ static int vfs_vnode_api_selftest(void)
 int vfs_security_selftest(void)
 {
     if (vfs_security_admission_selftest() != 0)
-        return -1;
-    return vfs_vnode_api_selftest();
+        return -41;
+    if (vfs_vnode_api_selftest() != 0)
+        return -42;
+    return 0;
 }
