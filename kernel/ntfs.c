@@ -2154,7 +2154,7 @@ int ntfs_selftest(void)
 
         if (ntfs_file_write(&fs, 11u, 0u, replacement,
                             sizeof(replacement), &written) != PROS_NTFS_OK ||
-            ntfs_file_write(&fs, 11u, 2u, replacement, 2u, &written) !=
+            ntfs_file_write(&fs, 11u, 4u, replacement, 2u, &written) !=
                 PROS_NTFS_EOVERFLOW)
             return -121;
     }
