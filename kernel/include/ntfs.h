@@ -73,6 +73,16 @@ int ntfs_index_root_entry(const void *record, uint32_t record_size,
                           const uint8_t **key, uint16_t *key_size,
                           uint8_t *entry_flags, uint32_t *next_entry_offset);
 
+/*
+ * Read-only directory lookup over a resident $INDEX_ROOT. The lookup is
+ * deliberately exact UTF-16LE for now; NTFS case-folding via $UpCase is a
+ * later compatibility milestone.
+ */
+int ntfs_index_root_lookup(const void *record, uint32_t record_size,
+                           uint32_t attr_offset,
+                           const uint8_t *name_utf16le, uint8_t name_length,
+                           uint64_t *file_reference);
+
 int ntfs_selftest(void);
 
 #endif
