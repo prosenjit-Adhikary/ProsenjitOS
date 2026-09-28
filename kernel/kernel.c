@@ -636,6 +636,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process capability authorization test passed\n");
+    /* Per-process syscall sandbox regression. */
+    {
+        uint64_t saved_policy = process_allowed_syscalls(&init_process);
+        uint64_t sandbox_regs[16] = {0};
+        uint64_t sandbox_frame[7] = {0};
+        uint64_t restricted_policy = saved_policy &
+            ~PROSENJIT_SYSCALL_POLICY(PROSENJIT_SYS_GET_VERSION);
+        if (process_set_syscall_policy(&init_process, restricted_policy) != 0) {
+            serial_write("ProsenjitOS: ERROR syscall sandbox policy setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        process_set_current(&init_process);
+        sandbox_regs[0] = PROSENJIT_SYS_GET_VERSION;
+        syscall_dispatch(sandbox_regs, sandbox_frame);
+        if (sandbox_regs[0] != PROSENJIT_SYSCALL_EPERM ||
+            process_set_syscall_policy(&init_process, saved_policy) != 0) {
+            serial_write("ProsenjitOS: ERROR syscall sandbox enforcement test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: syscall sandbox enforcement test passed\n");
+    }
 
     /* Cross-process copy-transfer: the source remains valid and the target
      * receives only the explicitly requested subset of rights. */
