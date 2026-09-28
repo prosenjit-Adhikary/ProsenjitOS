@@ -1259,7 +1259,7 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             }
             cumulative += runs[r].clusters;
         }
-        if (!found || sparse)
+        if (!found || sparse) {
             write_status = PROS_NTFS_EIO;
             goto write_fail;
         }
@@ -1270,7 +1270,7 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         if (take > offset - file_offset)
             take = (uint32_t)(offset - file_offset);
         if (sector_index >= fs->sectors_per_cluster ||
-            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK) {
             write_status = PROS_NTFS_EIO;
             goto write_fail;
         }
