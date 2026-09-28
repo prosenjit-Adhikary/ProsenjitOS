@@ -803,7 +803,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR kernel address-space restore failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: user address-space isolation foundation test passed\n");    {
+    serial_write("ProsenjitOS: user address-space isolation foundation test passed\n");
+
+    /* Direct fault-fixup regression: the assembly backend must recover from
+     * an unexpected supervisor-side page fault and return an error. */
+    {
         uint8_t fault_copy_probe = 0;
         extern int copy_from_user_asm(void *destination, const void *source, uint64_t size);
         if (copy_from_user_asm(&fault_copy_probe,
@@ -813,7 +817,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         serial_write("ProsenjitOS: usercopy page-fault recovery test passed\n");
     }
-
 
     uint64_t user_text_size = (uint64_t)(uintptr_t)__user_text_end -
                               (uint64_t)(uintptr_t)__user_text_start;
