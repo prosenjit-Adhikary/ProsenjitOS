@@ -2099,6 +2099,76 @@ int ntfs_selftest(void)
             if (ntfs_file_read(&fs, 11u, 99u, file_data, 1u,
                                &file_bytes) != PROS_NTFS_EINVAL)
                 return -185;
+
+        /*
+         * End-to-end VFS regression: expose the synthetic root entry as
+         * record 11 and give that record a resident $FILE_NAME. The VFS
+         * must resolve /test through NTFS and stream the same "Hello" data.
+         */
+        disk.root_record[80u] = 11u;
+        disk.root_record[81u] = 0u;
+        disk.root_record[82u] = 0u;
+        disk.root_record[83u] = 0u;
+        disk.root_record[84u] = 0u;
+        disk.root_record[85u] = 0u;
+        disk.root_record[86u] = 0u;
+        disk.root_record[87u] = 0u;
+
+        disk.file_record[120u] = 0u;
+        disk.file_record[121u] = 0u;
+        disk.file_record[122u] = 0u;
+        disk.file_record[123u] = 0u;
+        {
+            uint32_t fn = 128u;
+            uint32_t value = fn + 24u;
+            disk.file_record[fn + 0u] = 0x30u;
+            disk.file_record[fn + 4u] = 128u;
+            disk.file_record[fn + 16u] = 74u;
+            disk.file_record[fn + 20u] = 24u;
+            disk.file_record[value + 0u] = 5u;
+            disk.file_record[value + 56u] = 0u;
+            disk.file_record[value + 64u] = 4u;
+            disk.file_record[value + 65u] = 1u;
+            disk.file_record[value + 66u] = 't';
+            disk.file_record[value + 68u] = 'e';
+            disk.file_record[value + 70u] = 's';
+            disk.file_record[value + 72u] = 't';
+        }
+        disk.file_record[256u] = 0xFFu;
+        disk.file_record[257u] = 0xFFu;
+        disk.file_record[258u] = 0xFFu;
+        disk.file_record[259u] = 0xFFu;
+
+        {
+            struct pros_vfs_vnode *node = 0;
+            struct pros_vfs_file file = {0};
+            uint8_t data[8] = {0};
+            uint32_t got = 0u;
+
+            if (vfs_path_lookup(&fs.mount, "/test", &node) != PROS_VFS_OK ||
+                !node || node->type != PROS_VFS_NODE_FILE ||
+                node->size != 5u)
+                return -186;
+            if (vfs_file_open(&fs.mount, "/test", PROS_VFS_O_READ, &file) !=
+                    PROS_VFS_OK)
+                return -187;
+            if (vfs_file_read(&file, data, 5u, &got) != PROS_VFS_OK ||
+                got != 5u || data[0] != 'H' || data[1] != 'e' ||
+                data[2] != 'l' || data[3] != 'l' || data[4] != 'o')
+                return -188;
+            if (vfs_file_read(&file, data, 1u, &got) != PROS_VFS_OK ||
+                got != 0u)
+                return -189;
+            if (vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
+                vfs_file_read(&file, data, 3u, &got) != PROS_VFS_OK ||
+                got != 3u || data[0] != 'e' || data[1] != 'l' ||
+                data[2] != 'l')
+                return -190;
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/test",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_EPERM ||
+                vfs_vnode_put(node) != PROS_VFS_OK)
+                return -191;
         }
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
