@@ -1,0 +1,60 @@
+#include "security_admission.h"
+
+#include <stdint.h>
+#include "security_provider.h"
+
+int pros_file_admission_evaluate(
+    const struct pros_file_admission_input *input,
+    struct pros_file_admission_record *record) {
+    struct pros_file_security_metadata metadata;
+
+    if (!input || !record || (input->length != 0 && !input->data))
+        return -1;
+
+    metadata = input->metadata;
+    pros_sha256(input->data, input->length, record->sha256);
+
+    /*
+     * The caller may provide trusted/local/repository evidence directly.
+     * When reputation is absent, ask the replaceable provider layer using
+     * the digest only. No provider receives the file bytes here.
+     */
+    if (metadata.reputation == PROS_FILE_REPUTATION_UNAVAILABLE)
+        metadata.reputation =
+            pros_security_provider_reputation(record->sha256);
+
+    return pros_file_admit(&metadata, &record->security);
+}
+
+int pros_file_admission_selftest(void) {
+    static const uint8_t data[] = { 'a','b','c' };
+    struct pros_file_admission_input input = {
+        .data = data,
+        .length = 3,
+        .metadata = {
+            .format_valid = 1,
+            .signature_valid = 1,
+            .signature_present = 1,
+            .local_trusted = 0,
+            .local_denied = 0,
+            .reputation = PROS_FILE_REPUTATION_UNAVAILABLE,
+            .provenance_known = 1
+        }
+    };
+    struct pros_file_admission_record record;
+
+    if (pros_file_admission_evaluate(&input, &record) != 0)
+        return -1;
+    if (record.security.state != PROS_FILE_VERIFIED ||
+        record.security.action != PROS_FILE_ALLOW)
+        return -1;
+
+    input.metadata.local_denied = 1;
+    if (pros_file_admission_evaluate(&input, &record) != 0)
+        return -1;
+    if (record.security.state != PROS_FILE_MALICIOUS ||
+        record.security.action != PROS_FILE_BLOCK)
+        return -1;
+
+    return 0;
+}
