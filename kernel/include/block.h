@@ -1,0 +1,27 @@
+#ifndef PROSENJIT_BLOCK_H
+#define PROSENJIT_BLOCK_H
+
+#include <stdint.h>
+
+#define PROS_BLOCK_OK       0
+#define PROS_BLOCK_EINVAL  -1
+#define PROS_BLOCK_EIO     -2
+
+struct pros_block_device;
+typedef int (*pros_block_read_fn)(struct pros_block_device *, uint64_t, uint32_t, void *);
+typedef int (*pros_block_write_fn)(struct pros_block_device *, uint64_t, uint32_t, const void *);
+
+struct pros_block_device {
+    uint32_t sector_size;
+    uint64_t sector_count;
+    pros_block_read_fn read;
+    pros_block_write_fn write;
+    void *private_data;
+};
+
+int block_device_init(struct pros_block_device *, uint32_t, uint64_t,
+                      pros_block_read_fn, pros_block_write_fn, void *);
+int block_device_read(struct pros_block_device *, uint64_t, uint32_t, void *);
+int block_device_write(struct pros_block_device *, uint64_t, uint32_t, const void *);
+
+#endif
