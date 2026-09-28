@@ -197,7 +197,7 @@ void exception_dispatch(uint64_t *frame) {
         }
         serial_write("ProsenjitOS: CPL3 syscall returned to kernel successfully\n");
         if (paging_switch_kernel() != 0) {
-            serial_write("ProsenjitOS: ERROR kernel address-space restore failed\\n");
+            serial_write("ProsenjitOS: ERROR kernel address-space restore failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         frame[2] = (uint64_t)(uintptr_t)user_mode_exit_trampoline;
@@ -234,10 +234,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     cpu_load_tss();
     serial_write("ProsenjitOS: TSS loaded successfully\n");
     if (timer_init(100) != 0) {
-        serial_write("ProsenjitOS: ERROR PIT timer initialization failed\\n");
+        serial_write("ProsenjitOS: ERROR PIT timer initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: PIT timer initialized at 100 Hz\\n");
+    serial_write("ProsenjitOS: PIT timer initialized at 100 Hz\n");
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");
@@ -309,7 +309,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     object_init(&user_test_object, PROS_OBJECT_FILE);
     if (process_grant_handle(&init_process, &user_test_object,
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER, &user_test_handle) != 0) {
-        serial_write("ProsenjitOS: ERROR initial process handle grant failed\\n");
+        serial_write("ProsenjitOS: ERROR initial process handle grant failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
@@ -482,7 +482,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
         worker_thread.interrupt_frame == &scheduler_init_frame) {
-        serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\\n");
+        serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -498,14 +498,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
         scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
         worker_thread.interrupt_frame != &scheduler_worker_frame) {
-        serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\\n");
+        serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\\n");
+    serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
 
-    serial_write("ProsenjitOS: initial limited process and capability context online\\n");
+    serial_write("ProsenjitOS: initial limited process and capability context online\n");
     if (security_manager_init() != 0) {
-        serial_write("ProsenjitOS: ERROR security manager initialization failed\\n");
+        serial_write("ProsenjitOS: ERROR security manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -522,7 +522,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                              PROSENJIT_CAP_READ) != 0 ||
         security_authorize(&init_process, &duplicate_intent, 1,
                            &duplicate_reason) != PROS_DECISION_ALLOW) {
-        serial_write("ProsenjitOS: ERROR duplicate READ authorization regression\\n");
+        serial_write("ProsenjitOS: ERROR duplicate READ authorization regression\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (security_make_intent(&duplicate_intent, PROS_INTENT_DUPLICATE,
@@ -530,10 +530,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                              PROSENJIT_CAP_WRITE) != 0 ||
         security_authorize(&init_process, &duplicate_intent, 1,
                            &duplicate_reason) != PROS_DECISION_DENY) {
-        serial_write("ProsenjitOS: ERROR duplicate WRITE attenuation regression\\n");
+        serial_write("ProsenjitOS: ERROR duplicate WRITE attenuation regression\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: duplicate authorization attenuation test passed\\n");
+    serial_write("ProsenjitOS: duplicate authorization attenuation test passed\n");
 
     struct pros_intent security_intent;
     uint64_t security_reason;
@@ -542,7 +542,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                              PROSENJIT_CAP_READ) != 0 ||
         security_authorize(&init_process, &security_intent, 1,
                            &security_reason) != PROS_DECISION_ALLOW) {
-        serial_write("ProsenjitOS: ERROR intent/capability/policy allow test failed\\n");
+        serial_write("ProsenjitOS: ERROR intent/capability/policy allow test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (security_make_intent(&security_intent, PROS_INTENT_WRITE,
@@ -550,7 +550,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                              PROSENJIT_CAP_WRITE) != 0 ||
         security_authorize(&init_process, &security_intent, 1,
                            &security_reason) != PROS_DECISION_DENY) {
-        serial_write("ProsenjitOS: ERROR capability-deny policy test failed\\n");
+        serial_write("ProsenjitOS: ERROR capability-deny policy test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (security_make_intent(&security_intent, PROS_INTENT_ADMIN,
@@ -559,27 +559,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         security_authorize(&init_process, &security_intent, 1,
                            &security_reason) != PROS_DECISION_QUARANTINE ||
         !security_is_quarantined(&init_process)) {
-        serial_write("ProsenjitOS: ERROR quarantine decision test failed\\n");
+        serial_write("ProsenjitOS: ERROR quarantine decision test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (security_clear_quarantine(&init_process) != 0 ||
         security_is_quarantined(&init_process) ||
         security_ledger_count() < 3) {
-        serial_write("ProsenjitOS: ERROR quarantine/ledger recovery test failed\\n");
+        serial_write("ProsenjitOS: ERROR quarantine/ledger recovery test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     struct pros_reason_record latest_reason;
     if (security_ledger_latest(&latest_reason) != 0 ||
         latest_reason.decision != PROS_DECISION_QUARANTINE ||
         latest_reason.reason != PROS_REASON_QUARANTINE_REQUEST) {
-        serial_write("ProsenjitOS: ERROR reason ledger verification failed\\n");
+        serial_write("ProsenjitOS: ERROR reason ledger verification failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed\\n");
+    serial_write("ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed\n");
 
     if ((process_allowed_capabilities(&init_process) & PROSENJIT_CAP_ADMIN) != 0 ||
         (process_allowed_capabilities(&init_process) & PROSENJIT_CAP_READ) == 0) {
-        serial_write("ProsenjitOS: ERROR limited-process capability policy test failed\\n");
+        serial_write("ProsenjitOS: ERROR limited-process capability policy test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     struct pros_object admin_test_object;
@@ -587,10 +587,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     object_init(&admin_test_object, PROS_OBJECT_DEVICE);
     if (process_grant_handle(&init_process, &admin_test_object,
                              PROSENJIT_CAP_ADMIN, &admin_test_handle) == 0) {
-        serial_write("ProsenjitOS: ERROR limited process received ADMIN capability\\n");
+        serial_write("ProsenjitOS: ERROR limited process received ADMIN capability\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: limited-process capability policy test passed\\n");
+    serial_write("ProsenjitOS: limited-process capability policy test passed\n");
 
     /*
      * Capability foundation test:
@@ -808,10 +808,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         extern int copy_from_user_asm(void *destination, const void *source, uint64_t size);
         if (copy_from_user_asm(&fault_copy_probe,
                                (const void *)(uintptr_t)0x0000700000000000ULL, 1) == 0) {
-            serial_write("ProsenjitOS: ERROR usercopy page-fault recovery test failed\\n");
+            serial_write("ProsenjitOS: ERROR usercopy page-fault recovery test failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
-        serial_write("ProsenjitOS: usercopy page-fault recovery test passed\\n");
+        serial_write("ProsenjitOS: usercopy page-fault recovery test passed\n");
     }
 
 
@@ -875,7 +875,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             (pde & 0x7ULL) != 0x7ULL ||
             (pte & 0x7ULL) != 0x5ULL ||
             (pte & (1ULL << 63)) != 0) {
-            serial_write("ProsenjitOS: ERROR user code page walk validation failed\\n");
+            serial_write("ProsenjitOS: ERROR user code page walk validation failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
