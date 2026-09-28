@@ -80,6 +80,27 @@ See [docs/SECURITY-MALWARE.md](docs/SECURITY-MALWARE.md) for the detailed design
 
 No operating system can honestly promise perfect protection against every future attack. The engineering goal is to make compromise harder, limit blast radius, detect abuse, and provide reliable recovery.
 
+## Storage and filesystem strategy
+
+ProsenjitOS is being designed to access common removable and internal storage without depending on a single filesystem. The storage stack separates hardware, block I/O, partitions, VFS, and filesystem drivers.
+
+Target filesystem set:
+
+- **FAT32** — broad legacy/removable-media compatibility
+- **exFAT** — modern flash/removable-media compatibility
+- **NTFS** — Windows data-volume and removable-storage compatibility
+- **ProsenjitFS** — native filesystem for ProsenjitOS
+
+NTFS is a mandatory compatibility target. The first NTFS implementation will be read-only so an incomplete parser cannot accidentally modify a Windows volume. Later stages will add safe write support and journal/recovery handling.
+
+The planned removable-media path is:
+
+`USB mass storage -> block device -> MBR/GPT -> filesystem probe -> FAT32/exFAT/NTFS -> VFS`
+
+Filesystem implementations are isolated behind the VFS and block-device contracts. This allows the same filesystem code to work with USB, SATA and NVMe storage drivers. Filesystem metadata is also subject to the ProsenjitOS security/admission model.
+
+See [docs/FILESYSTEM.md](docs/FILESYSTEM.md) for the detailed filesystem architecture and implementation order.
+
 ## Compatibility strategy
 
 ProsenjitOS will have three application paths:
