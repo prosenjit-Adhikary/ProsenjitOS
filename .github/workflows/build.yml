@@ -72,6 +72,7 @@ jobs:
           require_log "ProsenjitOS: NTFS directory path traversal test passed"
           require_log "ProsenjitOS: NTFS UpCase case-folding test passed"
           require_log "ProsenjitOS: NTFS file-data read test passed"
+          require_log "ProsenjitOS: NTFS file-data write test passed"
           require_log "ProsenjitOS: NTFS VFS read test passed"
           require_log "ProsenjitOS: capability copy-transfer test passed"
           require_log "ProsenjitOS: capability move-transfer test passed"
