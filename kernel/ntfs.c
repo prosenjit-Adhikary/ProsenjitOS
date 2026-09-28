@@ -1405,6 +1405,7 @@ int ntfs_selftest(void)
                 return -120 + index_status;
             if (child_reference != 0x3000u)
                 return -130;
+            }
         }
 
         /* USA corruption must reject the child node rather than guess. */
