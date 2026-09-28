@@ -336,22 +336,32 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - kernel-mediated cross-process capability copy/move transfer with authority attenuation
 - per-process syscall sandbox allowlist enforced at the syscall boundary
 
-### In progress / next engineering milestones
+### Current engineering status — 2026-09-28
 
-- syscall and capability model
-- security policy and permission broker
-- user/session and Limited User / Super User model
-- storage and filesystem
-- drivers and device broker
-- CUI/CLI
-- GUI
-- Linux/POSIX compatibility runtime
-- Windows API compatibility runtime
-- package manager and signed packages
-- malware containment/security service
-- AI API and system-action broker
-- natural-language administrative workflows
-- hardening, testing, recovery, and release engineering
+The kernel/security foundation is substantially beyond the initial boot milestone. The current priority has shifted to storage integration, filesystem-backed security admission, device/driver foundations, and user-mode startup.
+
+Completed or substantially implemented:
+- process lifecycle, scheduler, interrupt-frame context switching and syscall boundary
+- capability handles, rights validation, transfer/attenuation, and per-process policy
+- syscall sandbox enforcement and user/kernel address-space isolation foundation
+- IPC channels, blocking receive/wakeup, validated user-copy and SMP-safe scheduler/run-queue locking
+- security intent/policy decision pipeline, Reason Ledger and quarantine metadata foundation
+- SHA-256 verification and filesystem-neutral security admission boundary
+- VFS contracts, partition/block-device foundations and filesystem probing
+- FAT32 read-only mount/directory/file support with expanded geometry regression coverage
+- PCI configuration/enumeration foundation
+- NTFS directory traversal, case folding, file-data read, safe overwrite and allocated/non-contiguous growth
+- exFAT geometry/mount regression foundation
+
+Next, in order:
+1. real partition/filesystem integration and FAT32 end-to-end storage flow
+2. read-only exFAT directory/file support
+3. NTFS directory-index mutation, broader allocation, and journal/recovery
+4. filesystem-backed security admission plus replaceable reputation adapters
+5. driver model/device broker and keyboard/display/network device abstractions
+6. ELF loader, process startup, init/service manager and basic CUI
+7. package/signature infrastructure, compatibility runtimes, GUI and AI service layers
+8. hardening, fuzzing, recovery and release engineering
 
 > **Status note:** The project has reached the point where a bootable x86-64 image can be built and boot-tested in QEMU. This is an early kernel foundation, not a complete operating system.
 
