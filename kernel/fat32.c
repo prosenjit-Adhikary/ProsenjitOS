@@ -208,3 +208,110 @@ int fat32_selftest(void)
 
     return 0;
 }
+
+int fat32_next_cluster(const struct pros_fat32 *fs, uint32_t cluster,
+                       uint32_t *next)
+{
+    uint8_t sector[4096];
+    uint64_t fat_offset;
+    uint64_t lba;
+    uint32_t offset;
+    uint32_t value;
+
+    if (!fs || !next || !fs->mount.active || cluster < 2u ||
+        (uint64_t)cluster >= (uint64_t)fs->cluster_count + 2u)
+        return PROS_FAT32_EINVAL;
+
+    fat_offset = (uint64_t)cluster * 4u;
+    lba = fs->fat_lba + fat_offset / fs->bytes_per_sector;
+    offset = (uint32_t)(fat_offset % fs->bytes_per_sector);
+    if (offset + 4u > fs->bytes_per_sector)
+        return PROS_FAT32_EIO;
+    if (block_device_read(fs->mount.device, lba, 1, sector) != PROS_BLOCK_OK)
+        return PROS_FAT32_EIO;
+
+    value = le32(&sector[offset]) & 0x0FFFFFFFu;
+    if (value >= 0x0FFFFFF8u) {
+        *next = 0x0FFFFFFFu;
+        return PROS_FAT32_OK;
+    }
+    if (value < 2u || value >= (uint32_t)fs->cluster_count + 2u)
+        return PROS_FAT32_ECORRUPT;
+
+    *next = value;
+    return PROS_FAT32_OK;
+}
+
+static void fat32_name83(const uint8_t *entry, char *name)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < 8u && entry[i] != ' '; ++i)
+        name[n++] = (char)entry[i];
+    if (entry[8] != ' ') {
+        name[n++] = '.';
+        for (uint32_t i = 8u; i < 11u && entry[i] != ' '; ++i)
+            name[n++] = (char)entry[i];
+    }
+    name[n] = 0;
+}
+
+int fat32_find_83(const struct pros_fat32 *fs, uint32_t directory_cluster,
+                  const char *name, struct pros_fat32_dirent *result)
+{
+    uint8_t cluster[32768];
+    uint32_t cluster_size;
+    uint32_t current;
+    uint32_t guard = 0;
+
+    if (!fs || !name || !result || !fs->mount.active ||
+        fs->bytes_per_sector * fs->sectors_per_cluster > sizeof(cluster))
+        return PROS_FAT32_EINVAL;
+
+    cluster_size = fs->bytes_per_sector * fs->sectors_per_cluster;
+    current = directory_cluster;
+    while (current >= 2u && current < fs->cluster_count + 2u &&
+           guard++ <= fs->cluster_count) {
+        if (fat32_read_cluster(fs, current, cluster) != PROS_FAT32_OK)
+            return PROS_FAT32_EIO;
+
+        for (uint32_t off = 0; off + 32u <= cluster_size; off += 32u) {
+            const uint8_t *entry = &cluster[off];
+            char parsed[12];
+
+            if (entry[0] == 0x00)
+                return PROS_FAT32_ENOENT;
+            if (entry[0] == 0xE5 || entry[11] == 0x0Fu)
+                continue;
+            if ((entry[11] & 0x08u) != 0u)
+                continue;
+
+            fat32_name83(entry, parsed);
+            uint32_t i = 0;
+            while (parsed[i] && name[i] && parsed[i] == name[i]) ++i;
+            if (parsed[i] != name[i])
+                continue;
+
+            for (i = 0; i < sizeof(result->name); ++i)
+                result->name[i] = 0;
+            for (i = 0; i < sizeof(result->name) - 1u && parsed[i]; ++i)
+                result->name[i] = parsed[i];
+            result->attributes = entry[11];
+            result->first_cluster = ((uint32_t)le16(&entry[20]) << 16) |
+                                    le16(&entry[26]);
+            result->size = le32(&entry[28]);
+            if (result->first_cluster < 2u ||
+                (uint64_t)result->first_cluster >=
+                    (uint64_t)fs->cluster_count + 2u)
+                return PROS_FAT32_ECORRUPT;
+            return PROS_FAT32_OK;
+        }
+
+        uint32_t next;
+        if (fat32_next_cluster(fs, current, &next) != PROS_FAT32_OK)
+            return PROS_FAT32_EIO;
+        if (next >= 0x0FFFFFF8u)
+            return PROS_FAT32_ENOENT;
+        current = next;
+    }
+    return PROS_FAT32_ECORRUPT;
+}
