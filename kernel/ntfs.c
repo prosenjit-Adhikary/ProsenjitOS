@@ -1112,7 +1112,6 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             PROS_NTFS_OK)
             return PROS_NTFS_EIO;
         growth_clusters = required_clusters;
-        growth_allocated = 1u;
 
         if (ntfs_extend_last_run(record, fs->bytes_per_file_record,
                                  attr_offset, required_clusters,
