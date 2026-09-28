@@ -359,7 +359,7 @@ int ntfs_file_name_attribute(const void *record, uint32_t record_size,
 
     name_bytes = (uint32_t)data[0x40u] * 2u;
     if (data[0x41u] > 3u || data[0x40u] == 0u ||
-        data[0x40u] > 255u || 66u + name_bytes > data_size)
+        66u + name_bytes > data_size)
         return PROS_NTFS_ECORRUPT;
 
     info->parent_reference = le64(data + 0x00u);
