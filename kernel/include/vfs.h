@@ -53,6 +53,8 @@ struct pros_vfs_vnode_ops {
                   struct pros_vfs_vnode **);
     int (*readdir)(struct pros_vfs_vnode *, uint64_t *,
                    struct pros_vfs_dirent *);
+    int (*create)(struct pros_vfs_vnode *, const char *,
+                  struct pros_vfs_vnode **);
 };
 
 struct pros_vfs_file_ops {
