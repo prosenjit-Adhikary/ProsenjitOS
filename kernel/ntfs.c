@@ -3721,17 +3721,11 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EIO;
     {
         uint32_t attr_offset = 0u;
-        status = ntfs_find_attribute(record, fs->bytes_per_file_record,
-                                     0x30u, &attr_offset);
-        if (status != PROS_NTFS_OK)
-            return status == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOENT :
-                   (status == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
-                    PROS_VFS_EIO);
-        status = ntfs_file_name_attribute(record, fs->bytes_per_file_record,
-                                           attr_offset, &info);
-        if (status != PROS_NTFS_OK)
-            return status == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
-                   PROS_VFS_EIO;
+        if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x30u,
+                                &attr_offset) != PROS_NTFS_OK ||
+            ntfs_file_name_attribute(record, fs->bytes_per_file_record,
+                                     attr_offset, &info) != PROS_NTFS_OK)
+            return PROS_VFS_EIO;
     }
 
     for (uint32_t i = 1u; i < PROS_NTFS_VFS_NODE_MAX; ++i) {
@@ -4722,10 +4716,6 @@ int ntfs_selftest(void)
         disk.root_record[86u] = 0u;
         disk.root_record[87u] = 0u;
 
-        disk.file_record[120u] = 0xFFu;
-        disk.file_record[121u] = 0xFFu;
-        disk.file_record[122u] = 0xFFu;
-        disk.file_record[123u] = 0xFFu;
         /*
          * The resident $DATA attribute occupies 48..119, so the following
          * $FILE_NAME attribute must begin at 120.  A 0xFFFFFFFF attribute
@@ -4737,7 +4727,13 @@ int ntfs_selftest(void)
             uint32_t fn = 120u;
             uint32_t value = fn + 24u;
             disk.file_record[fn + 0u] = 0x30u;
+            disk.file_record[fn + 1u] = 0u;
+            disk.file_record[fn + 2u] = 0u;
+            disk.file_record[fn + 3u] = 0u;
             disk.file_record[fn + 4u] = 128u;
+            disk.file_record[fn + 5u] = 0u;
+            disk.file_record[fn + 6u] = 0u;
+            disk.file_record[fn + 7u] = 0u;
             disk.file_record[fn + 14u] = 1u;
             disk.file_record[fn + 15u] = 0u;
             disk.file_record[fn + 16u] = 74u;
@@ -4800,17 +4796,10 @@ int ntfs_selftest(void)
             uint8_t data[8] = {0};
             uint32_t got = 0u;
 
-            {
-                int lookup_rc = vfs_path_lookup(&fs.mount, "/test", &node);
-                if (lookup_rc != PROS_VFS_OK)
-                    return -1860 + lookup_rc;
-                if (!node)
-                    return -1861;
-                if (node->type != PROS_VFS_NODE_FILE)
-                    return -1862;
-                if (node->size != 5u)
-                    return -1863;
-            }
+            if (vfs_path_lookup(&fs.mount, "/test", &node) != PROS_VFS_OK ||
+                !node || node->type != PROS_VFS_NODE_FILE ||
+                node->size != 5u)
+                return -186;
             if (vfs_file_open(&fs.mount, "/test", PROS_VFS_O_READ, &file) !=
                     PROS_VFS_OK)
                 return -187;
