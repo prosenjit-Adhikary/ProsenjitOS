@@ -1,6 +1,8 @@
 #include "vfs.h"
 #include "partition.h"
 
+#define PROS_VFS_PROBE_SECTOR_MAX 4096u
+
 static int vfs_selftest_read(struct pros_block_device *device,
                              uint64_t lba, uint32_t count, void *buffer)
 {
@@ -45,8 +47,9 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
 int vfs_probe_filesystem(struct pros_block_device *device,
                          enum pros_filesystem_type *type)
 {
-    uint8_t sector[512];
-    if (!device || !type || device->sector_size < 512u)
+    uint8_t sector[PROS_VFS_PROBE_SECTOR_MAX];
+    if (!device || !type || device->sector_size < 512u ||
+        device->sector_size > PROS_VFS_PROBE_SECTOR_MAX)
         return PROS_VFS_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_VFS_EIO;
