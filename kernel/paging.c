@@ -166,6 +166,9 @@ int paging_init(void) {
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, test_page,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) return -1;
 
+    if (paging_translate((uint64_t)(uintptr_t)(stack_top - 1)) == 0)
+        return -1;
+
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)kernel_pml4) : "memory");
     return 0;
 }
