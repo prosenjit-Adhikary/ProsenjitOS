@@ -3,6 +3,7 @@
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
 
 static int ntfs_vfs_mount(struct pros_ntfs *fs);
+static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops;
 
 static uint16_t le16(const uint8_t *p)
 {
@@ -88,8 +89,11 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
         return PROS_NTFS_EINVAL;
-    if (ntfs_bootstrap_mft(fs) != PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+    {
+        int status = ntfs_bootstrap_mft(fs);
+        if (status != PROS_NTFS_OK)
+            return status;
+    }
     return ntfs_vfs_mount(fs);
 }
 
@@ -1484,11 +1488,6 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
     status = ntfs_read_file_record(fs, record_number, record, sizeof(record));
     if (status != PROS_NTFS_OK)
         return PROS_VFS_EIO;
-    status = ntfs_find_attribute(record, fs->bytes_per_file_record,
-                                 0x30u, &status);
-    if (status != PROS_NTFS_OK)
-        return PROS_VFS_EIO;
-
     {
         uint32_t attr_offset = 0u;
         if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x30u,
@@ -1510,11 +1509,8 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
                 &node->vnode, &fs->mount, parent,
                 (info.flags & 0x10000000u) != 0u ?
                     PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE,
-                &(const struct pros_vfs_vnode_ops){
-                    .lookup = ntfs_vfs_lookup,
-                    .readdir = ntfs_vfs_readdir
-                },
-                &ntfs_vfs_file_ops, node, info.data_size) != PROS_VFS_OK) {
+                &ntfs_vfs_vnode_ops, &ntfs_vfs_file_ops,
+                node, info.data_size) != PROS_VFS_OK) {
             node->used = 0u;
             return PROS_VFS_EIO;
         }
