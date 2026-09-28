@@ -707,8 +707,97 @@ static int vfs_vnode_api_selftest(void)
     return 0;
 }
 
+static uint8_t vfs_probe_test_sector[512];
+
+static int vfs_probe_test_read(struct pros_block_device *device,
+                               uint64_t lba, uint32_t count, void *buffer)
+{
+    (void)device;
+    if (!buffer || lba != 0u || count != 1u)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        ((uint8_t *)buffer)[i] = vfs_probe_test_sector[i];
+    return PROS_BLOCK_OK;
+}
+
+static int vfs_probe_selftest(void)
+{
+    struct pros_block_device device;
+    enum pros_filesystem_type type;
+
+    if (block_device_init(&device, 512u, 1u, vfs_probe_test_read, 0, 0) !=
+        PROS_BLOCK_OK)
+        return -1;
+
+    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
+        vfs_probe_test_sector[i] = 0u;
+    vfs_probe_test_sector[510] = 0x55u;
+    vfs_probe_test_sector[511] = 0xAAu;
+    vfs_probe_test_sector[11] = 0x00u;
+    vfs_probe_test_sector[12] = 0x02u;
+    vfs_probe_test_sector[13] = 0x01u;
+    vfs_probe_test_sector[3] = 'N';
+    vfs_probe_test_sector[4] = 'T';
+    vfs_probe_test_sector[5] = 'F';
+    vfs_probe_test_sector[6] = 'S';
+    vfs_probe_test_sector[7] = ' ';
+    vfs_probe_test_sector[8] = ' ';
+    vfs_probe_test_sector[9] = ' ';
+    vfs_probe_test_sector[10] = ' ';
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
+        type != PROS_FS_NTFS)
+        return -2;
+
+    vfs_probe_test_sector[3] = 'E';
+    vfs_probe_test_sector[4] = 'X';
+    vfs_probe_test_sector[5] = 'F';
+    vfs_probe_test_sector[6] = 'A';
+    vfs_probe_test_sector[7] = 'T';
+    vfs_probe_test_sector[8] = ' ';
+    vfs_probe_test_sector[9] = ' ';
+    vfs_probe_test_sector[10] = ' ';
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
+        type != PROS_FS_EXFAT)
+        return -3;
+
+    vfs_probe_test_sector[3] = 0u;
+    vfs_probe_test_sector[4] = 0u;
+    vfs_probe_test_sector[5] = 0u;
+    vfs_probe_test_sector[6] = 0u;
+    vfs_probe_test_sector[7] = 0u;
+    vfs_probe_test_sector[8] = 0u;
+    vfs_probe_test_sector[9] = 0u;
+    vfs_probe_test_sector[10] = 0u;
+    vfs_probe_test_sector[82] = 'F';
+    vfs_probe_test_sector[83] = 'A';
+    vfs_probe_test_sector[84] = 'T';
+    vfs_probe_test_sector[85] = '3';
+    vfs_probe_test_sector[86] = '2';
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
+        type != PROS_FS_FAT32)
+        return -4;
+
+    vfs_probe_test_sector[11] = 0x00u;
+    vfs_probe_test_sector[12] = 0x04u;
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
+        type != PROS_FS_UNKNOWN)
+        return -5;
+
+    vfs_probe_test_sector[11] = 0x00u;
+    vfs_probe_test_sector[12] = 0x02u;
+    vfs_probe_test_sector[13] = 0u;
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
+        type != PROS_FS_UNKNOWN)
+        return -6;
+
+    return 0;
+}
+
+
 int vfs_security_selftest(void)
 {
+    if (vfs_probe_selftest() != 0)
+        return -40;
     if (vfs_security_admission_selftest() != 0)
         return -41;
     if (vfs_vnode_api_selftest() != 0)
