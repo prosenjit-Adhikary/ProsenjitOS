@@ -55,6 +55,9 @@ uint32_t process_state(const struct pros_process *process);
 uint64_t process_allowed_capabilities(const struct pros_process *process);
 uint64_t process_allowed_syscalls(const struct pros_process *process);
 int process_set_syscall_policy(struct pros_process *process, uint64_t policy);
+int process_apply_syscall_policy(struct pros_process *actor,
+                                 struct pros_process *target,
+                                 uint64_t policy);
 
 int process_grant_handle(struct pros_process *process,
                          struct pros_object *object,
