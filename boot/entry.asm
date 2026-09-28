@@ -357,7 +357,9 @@ align 16
 global stack_bottom
 global stack_top
 stack_bottom:
-    resb 16384
+    ; kernel_main has a large test/regression frame; keep the bootstrap stack
+    ; large enough that compiler stack probing never underflows into .rodata.
+    resb 65536
 stack_top:
 
 align 16
