@@ -64,6 +64,8 @@ int ntfs_mft_initialize_record(struct pros_ntfs *fs,
 int ntfs_mft_add_standard_information(struct pros_ntfs *fs,
                                        uint64_t record_number,
                                        uint32_t file_attributes);
+int ntfs_mft_add_empty_data(struct pros_ntfs *fs,
+                            uint64_t record_number);
 int ntfs_mft_add_file_name(struct pros_ntfs *fs,
                            uint64_t record_number,
                            uint64_t parent_reference,
