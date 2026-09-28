@@ -58,7 +58,7 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
         return PROS_EXFAT_ECORRUPT;
 
     bytes_per_sector = 1u << sector_shift;
-    if (cluster_shift >= 32u - sector_shift)
+    if ((uint32_t)sector_shift + cluster_shift > 25u)
         return PROS_EXFAT_ENOTSUP;
     sectors_per_cluster = 1u << cluster_shift;
     if (!power_of_two(sectors_per_cluster))
@@ -105,6 +105,19 @@ int exfat_cluster_lba(const struct pros_exfat *fs, uint32_t cluster,
         return PROS_EXFAT_EIO;
     *lba = (uint64_t)fs->cluster_heap_offset + offset;
     return PROS_EXFAT_OK;
+}
+
+int exfat_read_cluster(const struct pros_exfat *fs, uint32_t cluster,
+                       void *buffer)
+{
+    uint64_t lba;
+    if (!fs || !buffer || !fs->mount.active)
+        return PROS_EXFAT_EINVAL;
+    if (exfat_cluster_lba(fs, cluster, &lba) != PROS_EXFAT_OK)
+        return PROS_EXFAT_EINVAL;
+    return block_device_read(fs->mount.device, lba, fs->sectors_per_cluster,
+                             buffer) == PROS_BLOCK_OK
+        ? PROS_EXFAT_OK : PROS_EXFAT_EIO;
 }
 
 struct exfat_test_disk { uint8_t boot[512]; };
