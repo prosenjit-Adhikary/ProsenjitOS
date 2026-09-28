@@ -829,6 +829,78 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
                                    uint64_t record_number,
                                    uint8_t *record);
 
+int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
+{
+    uint8_t value;
+    uint32_t written;
+
+    if (!fs || record_number < 24u || record_number > 0x0000FFFFFFFFFFFFull)
+        return PROS_NTFS_EINVAL;
+    if (record_number > 0xFFFFFFFFFFFFFFFFull / 8u)
+        return PROS_NTFS_EOVERFLOW;
+    if (ntfs_file_read(fs, 0u, record_number / 8u, &value, 1u,
+                       &written) != PROS_NTFS_OK || written != 1u)
+        return PROS_NTFS_EIO;
+    if ((value & (uint8_t)(1u << (record_number & 7u))) == 0u)
+        return PROS_NTFS_OK;
+    value &= (uint8_t)~(1u << (record_number & 7u));
+    if (ntfs_file_write(fs, 0u, record_number / 8u, &value, 1u,
+                        &written) != PROS_NTFS_OK || written != 1u)
+        return PROS_NTFS_EIO;
+    return PROS_NTFS_OK;
+}
+
+int ntfs_create_file(struct pros_ntfs *fs,
+                     uint64_t parent_record_number,
+                     uint64_t *record_number,
+                     const uint16_t *name_utf16le,
+                     uint8_t name_length)
+{
+    uint64_t allocated_record = 0u;
+    uint64_t parent_reference;
+    uint8_t parent_record[PROS_NTFS_RECORD_WORK_MAX];
+    int rc;
+
+    if (!fs || !record_number || !name_utf16le || name_length == 0u ||
+        fs->bytes_per_file_record > sizeof(parent_record))
+        return PROS_NTFS_EINVAL;
+    *record_number = 0u;
+
+    if (ntfs_read_file_record(fs, parent_record_number, parent_record,
+                              sizeof(parent_record)) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if ((le16(parent_record + 22u) & 0x03u) != 0x03u)
+        return PROS_NTFS_ENOTSUP;
+
+    parent_reference = (parent_record_number & 0x0000FFFFFFFFFFFFull) |
+                       ((uint64_t)le16(parent_record + 16u) << 48);
+
+    rc = ntfs_mft_allocate_record(fs, &allocated_record);
+    if (rc != PROS_NTFS_OK)
+        return rc;
+
+    rc = ntfs_mft_initialize_record(fs, allocated_record, 0u);
+    if (rc == PROS_NTFS_OK)
+        rc = ntfs_mft_add_standard_information(fs, allocated_record, 0x80u);
+    if (rc == PROS_NTFS_OK)
+        rc = ntfs_mft_add_file_name(fs, allocated_record, parent_reference,
+                                    name_utf16le, name_length, 1u);
+    if (rc == PROS_NTFS_OK)
+        rc = ntfs_mft_add_empty_data(fs, allocated_record);
+    if (rc == PROS_NTFS_OK)
+        rc = ntfs_index_root_insert(fs, parent_record_number,
+                                    allocated_record);
+
+    if (rc != PROS_NTFS_OK) {
+        if (ntfs_mft_free_record(fs, allocated_record) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        return rc;
+    }
+
+    *record_number = allocated_record;
+    return PROS_NTFS_OK;
+}
+
 int ntfs_mft_initialize_record(struct pros_ntfs *fs,
                                             uint64_t record_number,
                                             uint8_t directory)
