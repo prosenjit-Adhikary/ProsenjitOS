@@ -2141,7 +2141,7 @@ struct ntfs_test_disk {
     uint8_t mft_record[1024];
     uint8_t file_record[1024];
     uint8_t nonresident_record[1024];
-    uint8_t nonresident_data[8192];
+    uint8_t nonresident_data[16384];
     uint8_t upcase_record[1024];
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
     uint8_t index_record[4096];
@@ -2215,7 +2215,7 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 56u || sector == 57u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_record[(sector - 56u) * 512u + i] = src[i];
-        } else if (sector >= 336u && sector < 360u) {
+        } else if (sector >= 336u && sector < 368u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->nonresident_data[(sector - 336u) * 512u + i] = src[i];
         } else if (sector == 44u || sector == 45u) {
@@ -2819,6 +2819,32 @@ int ntfs_selftest(void)
             le64(disk.nonresident_record + 96u) != 1032u ||
             le64(disk.nonresident_record + 104u) != 1032u)
             return -126;
+    }
+
+    /*
+     * Fragmented-growth regression: the final existing run ends at LCN 44.
+     * Make LCN 44 busy so the preferred contiguous allocation fails; the
+     * allocator must select LCN 45 and append a mapping-pairs run.
+     */
+    {
+        static const uint8_t fragmented[] = { 'F', 'R', 'A', 'G' };
+        uint32_t written = 0u;
+
+        disk.bitmap_data[44u / 8u] |= (uint8_t)(1u << (44u % 8u));
+        if (ntfs_file_write(&fs, 12u, 8192u, fragmented,
+                            sizeof(fragmented), &written) != PROS_NTFS_OK ||
+            written != sizeof(fragmented) ||
+            le64(disk.nonresident_record + 88u) != 12288u ||
+            le64(disk.nonresident_record + 96u) != 8196u ||
+            le64(disk.nonresident_record + 104u) != 8196u ||
+            disk.nonresident_record[112u] != 0x11u ||
+            disk.nonresident_record[113u] != 2u ||
+            disk.nonresident_record[114u] != 42u ||
+            disk.nonresident_record[115u] != 0x11u ||
+            disk.nonresident_record[116u] != 1u ||
+            disk.nonresident_record[117u] != 3u ||
+            disk.bitmap_data[45u / 8u] == 0u)
+            return -127;
     }
 
 
