@@ -1003,6 +1003,87 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
     return PROS_BLOCK_OK;
 }
 
+
+int ntfs_directory_lookup(const struct pros_ntfs *fs,
+                          uint64_t directory_record_number,
+                          const uint8_t *name_utf16le, uint8_t name_length,
+                          uint64_t *file_reference)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t index_root_offset;
+    uint32_t index_allocation_offset;
+    int status;
+
+    if (!fs || !name_utf16le || name_length == 0u || !file_reference ||
+        fs->bytes_per_file_record > sizeof(record))
+        return PROS_NTFS_EINVAL;
+
+    status = ntfs_read_file_record(fs, directory_record_number,
+                                   record, sizeof(record));
+    if (status != PROS_NTFS_OK)
+        return status;
+
+    status = ntfs_find_attribute(record, fs->bytes_per_file_record,
+                                 0x90u, &index_root_offset);
+    if (status != PROS_NTFS_OK)
+        return status;
+
+    /*
+     * Search the resident root first. This permits small directories that
+     * have no $INDEX_ALLOCATION stream.
+     */
+    status = ntfs_index_root_lookup(record, fs->bytes_per_file_record,
+                                     index_root_offset, name_utf16le,
+                                     name_length, file_reference);
+    if (status == PROS_NTFS_OK)
+        return PROS_NTFS_OK;
+    if (status != PROS_NTFS_ENOTSUP)
+        return status;
+
+    status = ntfs_find_attribute(record, fs->bytes_per_file_record,
+                                 0xA0u, &index_allocation_offset);
+    if (status != PROS_NTFS_OK)
+        return status;
+
+    return ntfs_index_allocation_lookup(fs, record,
+                                         fs->bytes_per_file_record,
+                                         index_root_offset,
+                                         index_allocation_offset,
+                                         name_utf16le, name_length,
+                                         file_reference);
+}
+
+int ntfs_path_lookup(const struct pros_ntfs *fs,
+                     const uint8_t *const *components,
+                     const uint8_t *component_lengths,
+                     uint32_t component_count,
+                     uint64_t *file_reference)
+{
+    uint64_t current = 5u; /* NTFS $Root directory MFT record. */
+
+    if (!fs || !components || !component_lengths || !file_reference ||
+        component_count == 0u)
+        return PROS_NTFS_EINVAL;
+    if (component_count > 256u)
+        return PROS_NTFS_EOVERFLOW;
+
+    for (uint32_t i = 0u; i < component_count; ++i) {
+        uint64_t next;
+        if (!components[i] || component_lengths[i] == 0u)
+            return PROS_NTFS_EINVAL;
+
+        if (ntfs_directory_lookup(fs, current, components[i],
+                                   component_lengths[i], &next) !=
+            PROS_NTFS_OK)
+            return PROS_NTFS_ENOTSUP;
+
+        current = next;
+    }
+
+    *file_reference = current;
+    return PROS_NTFS_OK;
+}
+
 int ntfs_selftest(void)
 {
     static struct ntfs_test_disk disk;
