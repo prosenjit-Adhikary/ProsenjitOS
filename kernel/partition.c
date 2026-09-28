@@ -72,7 +72,7 @@ int partition_read_gpt(struct pros_block_device *device,
                        uint32_t capacity, uint32_t *count)
 {
     uint8_t header[512];
-    uint8_t entry[128];
+    uint8_t entry[1024];
     uint64_t entries_lba;
     uint32_t entry_count;
     uint32_t entry_size;
@@ -87,7 +87,8 @@ int partition_read_gpt(struct pros_block_device *device,
     entries_lba = le64(header + 72);
     entry_count = le32(header + 80);
     entry_size = le32(header + 84);
-    if (entry_size < 128 || entry_size > device->sector_size || entries_lba >= device->sector_count)
+    if (entry_size < 128 || entry_size > device->sector_size ||
+        entry_size > 1024u || entries_lba >= device->sector_count)
         return PROS_PARTITION_EINVAL;
     for (uint32_t i = 0; i < entry_count && found < capacity; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
@@ -95,17 +96,23 @@ int partition_read_gpt(struct pros_block_device *device,
         uint32_t offset = (uint32_t)(byte_offset % device->sector_size);
         if (lba >= device->sector_count)
             return PROS_PARTITION_EINVAL;
-        if (offset + entry_size > device->sector_size)
-            continue;
-        if (block_device_read(device, lba, 1, entry) != PROS_BLOCK_OK)
+        uint32_t sectors_to_read =
+            (offset + entry_size > device->sector_size) ? 2u : 1u;
+        if (sectors_to_read == 2u && lba + 1u >= device->sector_count)
+            return PROS_PARTITION_EINVAL;
+        if (block_device_read(device, lba, sectors_to_read, entry) != PROS_BLOCK_OK)
             return PROS_PARTITION_EIO;
         uint8_t empty = 1;
         for (uint32_t b = 0; b < 16; ++b)
             if (entry[offset + b] != 0) { empty = 0; break; }
         if (empty)
             continue;
-        partitions[found].first_lba = le64(entry + offset + 32);
-        partitions[found].sector_count = le64(entry + offset + 40) - partitions[found].first_lba + 1;
+        uint64_t first_lba = le64(entry + offset + 32);
+        uint64_t last_lba = le64(entry + offset + 40);
+        if (last_lba < first_lba || last_lba >= device->sector_count)
+            return PROS_PARTITION_EINVAL;
+        partitions[found].first_lba = first_lba;
+        partitions[found].sector_count = last_lba - first_lba + 1u;
         partitions[found].mbr_type = 0;
         partitions[found].table_type = PROS_PARTITION_GPT;
         for (uint32_t b = 0; b < 16; ++b)
