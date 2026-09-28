@@ -4112,7 +4112,8 @@ int ntfs_selftest(void)
     /*
      * Fragmented-growth regression: the final existing run ends at LCN 44.
      * Make LCN 44 busy so the preferred contiguous allocation fails; the
-     * allocator must select LCN 45 and append a mapping-pairs run.
+     * allocator must select LCN 45 and append a mapping-pairs run. The mapping-pairs
+     * LCN delta is 43 because the existing run starts at LCN 2.
      */
     {
         static const uint8_t fragmented[] = { 'F', 'R', 'A', 'G' };
