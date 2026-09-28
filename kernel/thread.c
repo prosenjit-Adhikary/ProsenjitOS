@@ -148,6 +148,13 @@ int thread_wake(struct pros_thread *thread) {
     if (!thread || thread->state != PROS_THREAD_BLOCKED ||
         !thread_process_runnable(thread))
         return -1;
+    /*
+     * Put the thread back on the run queue before mutating its saved syscall
+     * frame.  If queue insertion fails, the blocked state and retry metadata
+     * remain intact so the IPC waiter cannot be lost.
+     */
+    if (thread_enqueue(thread) != 0)
+        return -1;
     if (thread->blocked_syscall != 0 && thread->interrupt_frame) {
         thread->interrupt_frame->rax = thread->blocked_syscall;
         /* INT 0x80 is two bytes: CD 80. Resume by retrying the syscall. */
@@ -155,7 +162,7 @@ int thread_wake(struct pros_thread *thread) {
         thread->blocked_syscall = 0;
     }
     thread->wait_channel = 0;
-    return thread_enqueue(thread);
+    return 0;
 }
 
 int thread_has_runnable(void) {
