@@ -381,8 +381,7 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
     struct pros_vfs_vnode *vnode;
     int rc;
     if (!file || (flags & ~(PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                            PROS_VFS_O_DIRECTORY)) !=
-                           (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) ||
+                            PROS_VFS_O_DIRECTORY)) != 0u ||
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
         (flags & PROS_VFS_O_DIRECTORY) != 0u)
         return PROS_VFS_EINVAL;
