@@ -204,7 +204,7 @@ void exception_dispatch(uint64_t *frame) {
 }
 
 void user_mode_test_complete(void) {
-    serial_write("ProsenjitOS: CPL3 user-mode execution test passed\n");
+    serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
     for (;;) __asm__ volatile ("cli; hlt");
 }
