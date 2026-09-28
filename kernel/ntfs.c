@@ -4564,8 +4564,15 @@ int ntfs_selftest(void)
      * return the entry's MFT reference.
      */
     {
+        /*
+         * ntfs_index_root_lookup() is the low-level record-only primitive;
+         * case folding is supplied by ntfs_directory_lookup(), which loads
+         * the volume UpCase table. Keep this direct probe case-exact, then
+         * exercise case-insensitive lookup through the public directory/path
+         * APIs below.
+         */
         static const uint8_t path_name[] = {
-            't', 0u, 'e', 0u, 's', 0u, 't', 0u
+            'T', 0u, 'e', 0u, 's', 0u, 't', 0u
         };
         uint8_t path_key[74] = {0};
         const uint8_t *components[] = { path_name };
