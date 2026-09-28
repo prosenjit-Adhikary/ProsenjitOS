@@ -2,6 +2,8 @@
 
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
 
+static int ntfs_vfs_mount(struct pros_ntfs *fs);
+
 static uint16_t le16(const uint8_t *p)
 {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
@@ -86,7 +88,9 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
         return PROS_NTFS_EINVAL;
-    return ntfs_bootstrap_mft(fs);
+    if (ntfs_bootstrap_mft(fs) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    return ntfs_vfs_mount(fs);
 }
 
 int ntfs_file_record_fixup(void *record, uint32_t record_size,
@@ -1380,6 +1384,173 @@ int ntfs_path_lookup(const struct pros_ntfs *fs,
 
     *file_reference = current;
     return PROS_NTFS_OK;
+}
+
+
+static int ntfs_vfs_close(struct pros_vfs_file *file)
+{
+    (void)file;
+    return PROS_VFS_OK;
+}
+
+static int ntfs_vfs_read(struct pros_vfs_file *file, uint32_t offset,
+                         uint32_t length, void *buffer)
+{
+    struct pros_ntfs_vfs_node *node;
+    uint32_t available;
+    uint32_t got = 0u;
+    int rc;
+
+    if (!file || !file->mount || !buffer)
+        return PROS_VFS_EINVAL;
+    node = (struct pros_ntfs_vfs_node *)file->private_data;
+    if (!node || node->vnode.type != PROS_VFS_NODE_FILE ||
+        (uint64_t)offset > node->data_size)
+        return PROS_VFS_EINVAL;
+
+    available = (uint32_t)(node->data_size - (uint64_t)offset);
+    if (length > available)
+        length = available;
+    rc = ntfs_file_read((const struct pros_ntfs *)file->mount->private_data,
+                        node->record_number, offset, buffer, length, &got);
+    if (rc != PROS_NTFS_OK)
+        return rc == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL : PROS_VFS_EIO;
+    return (int)got;
+}
+
+static const struct pros_vfs_file_ops ntfs_vfs_file_ops = {
+    .read = ntfs_vfs_read,
+    .close = ntfs_vfs_close
+};
+
+static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
+                            struct pros_vfs_dirent *entry)
+{
+    (void)vnode;
+    (void)cookie;
+    (void)entry;
+    return PROS_VFS_ENOSYS;
+}
+
+static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
+                           struct pros_vfs_vnode **result)
+{
+    struct pros_ntfs_vfs_node *parent_node;
+    struct pros_ntfs *fs;
+    uint8_t name_utf16le[PROS_VFS_NAME_MAX * 2u];
+    uint32_t name_length = 0u;
+    uint64_t record_number = 0u;
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    struct pros_ntfs_file_name info;
+    int status;
+
+    if (!parent || !name || !result ||
+        parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+
+    parent_node = (struct pros_ntfs_vfs_node *)parent->private_data;
+    fs = parent_node ? (struct pros_ntfs *)parent->mount->private_data : 0;
+    if (!fs)
+        return PROS_VFS_EINVAL;
+
+    while (name[name_length] != '\0') {
+        unsigned char ch = (unsigned char)name[name_length];
+        if (name_length >= PROS_VFS_NAME_MAX || ch > 0x7Fu)
+            return PROS_VFS_ENOTSUP;
+        name_utf16le[name_length * 2u] = ch;
+        name_utf16le[name_length * 2u + 1u] = 0u;
+        ++name_length;
+    }
+    if (name_length == 0u)
+        return PROS_VFS_EINVAL;
+
+    status = ntfs_directory_lookup(fs, parent_node->record_number,
+                                    name_utf16le, (uint8_t)name_length,
+                                    &record_number);
+    if (status != PROS_NTFS_OK)
+        return status == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOENT :
+               (status == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
+                PROS_VFS_EIO);
+
+    for (uint32_t i = 0u; i < PROS_NTFS_VFS_NODE_MAX; ++i) {
+        struct pros_ntfs_vfs_node *node = &fs->vfs_nodes[i];
+        if (node->used && node->vnode.parent == parent &&
+            node->record_number == record_number) {
+            *result = &node->vnode;
+            return PROS_VFS_OK;
+        }
+    }
+
+    status = ntfs_read_file_record(fs, record_number, record, sizeof(record));
+    if (status != PROS_NTFS_OK)
+        return PROS_VFS_EIO;
+    status = ntfs_find_attribute(record, fs->bytes_per_file_record,
+                                 0x30u, &status);
+    if (status != PROS_NTFS_OK)
+        return PROS_VFS_EIO;
+
+    {
+        uint32_t attr_offset = 0u;
+        if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x30u,
+                                &attr_offset) != PROS_NTFS_OK ||
+            ntfs_file_name_attribute(record, fs->bytes_per_file_record,
+                                     attr_offset, &info) != PROS_NTFS_OK)
+            return PROS_VFS_EIO;
+    }
+
+    for (uint32_t i = 1u; i < PROS_NTFS_VFS_NODE_MAX; ++i) {
+        struct pros_ntfs_vfs_node *node = &fs->vfs_nodes[i];
+        if (node->used)
+            continue;
+
+        node->used = 1u;
+        node->record_number = record_number;
+        node->data_size = info.data_size;
+        if (vfs_vnode_init(
+                &node->vnode, &fs->mount, parent,
+                (info.flags & 0x10000000u) != 0u ?
+                    PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE,
+                &(const struct pros_vfs_vnode_ops){
+                    .lookup = ntfs_vfs_lookup,
+                    .readdir = ntfs_vfs_readdir
+                },
+                &ntfs_vfs_file_ops, node, info.data_size) != PROS_VFS_OK) {
+            node->used = 0u;
+            return PROS_VFS_EIO;
+        }
+        *result = &node->vnode;
+        return PROS_VFS_OK;
+    }
+    return PROS_VFS_EBUSY;
+}
+
+static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops = {
+    .lookup = ntfs_vfs_lookup,
+    .readdir = ntfs_vfs_readdir
+};
+
+static int ntfs_vfs_mount(struct pros_ntfs *fs)
+{
+    struct pros_ntfs_vfs_node *root;
+
+    if (!fs || !fs->mount.active)
+        return PROS_NTFS_EINVAL;
+
+    for (uint32_t i = 0u; i < PROS_NTFS_VFS_NODE_MAX; ++i)
+        fs->vfs_nodes[i].used = 0u;
+
+    root = &fs->vfs_nodes[0];
+    root->used = 1u;
+    root->record_number = 5u;
+    root->data_size = 0u;
+    if (vfs_vnode_init(&root->vnode, &fs->mount, 0,
+                       PROS_VFS_NODE_DIRECTORY, &ntfs_vfs_vnode_ops,
+                       0, root, 0u) != PROS_VFS_OK) {
+        root->used = 0u;
+        return PROS_NTFS_EINVAL;
+    }
+    return vfs_mount_set_root(&fs->mount, &root->vnode) == PROS_VFS_OK ?
+        PROS_NTFS_OK : PROS_NTFS_EINVAL;
 }
 
 int ntfs_selftest(void)
