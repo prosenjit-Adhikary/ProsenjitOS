@@ -95,7 +95,7 @@ A USB pendrive must not be assumed to be FAT32.
           -> unknown
       -> VFS mount
 
-The probe layer must use non-destructive signatures and bounds checks before accepting a filesystem.
+The partition layer performs explicit LBA bounds checks and non-destructive metadata validation before filesystem probing.
 
 ## Security integration
 
