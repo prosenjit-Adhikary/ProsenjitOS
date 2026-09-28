@@ -201,9 +201,51 @@ static int ntfs_name_key_matches_upcase(const struct pros_ntfs *fs,
             if (folded_stored != folded_wanted)
                 return 0;
         }
-            return 0;
     }
     return 1;
+}
+
+static int ntfs_index_root_lookup_upcase(const struct pros_ntfs *fs,
+                                         const void *record, uint32_t record_size,
+                                         uint32_t attr_offset,
+                                         const uint8_t *name_utf16le,
+                                         uint8_t name_length,
+                                         uint64_t *file_reference,
+                                         struct pros_ntfs_upcase *upcase)
+{
+    struct pros_ntfs_index_root root;
+    uint32_t offset;
+    if (!fs || !record || !name_utf16le || !file_reference || !upcase ||
+        name_length == 0u)
+        return PROS_NTFS_EINVAL;
+    if (ntfs_index_root_header(record, record_size, attr_offset, &root) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    offset = root.first_entry_offset;
+    while (offset < root.entries_size) {
+        uint64_t reference;
+        const uint8_t *key;
+        uint16_t key_size;
+        uint8_t flags;
+        uint32_t next;
+        if (ntfs_index_root_entry(record, record_size, attr_offset, offset,
+                                  &reference, &key, &key_size, &flags,
+                                  &next) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        if ((flags & 2u) != 0u)
+            return PROS_NTFS_ENOTSUP;
+        if (ntfs_name_key_matches_upcase(fs, key, key_size, name_utf16le,
+                                         name_length, upcase)) {
+            *file_reference = reference & 0x0000FFFFFFFFFFFFull;
+            return PROS_NTFS_OK;
+        }
+        if (next == 0u)
+            break;
+        if (next <= offset || next >= root.entries_size)
+            return PROS_NTFS_ECORRUPT;
+        offset = next;
+    }
+    return PROS_NTFS_ENOTSUP;
 }
 
 static uint8_t ntfs_name_key_matches(const uint8_t *key, uint16_t key_size,
