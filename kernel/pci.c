@@ -113,7 +113,7 @@ int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
 
 int pci_selftest(void)
 {
-    if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021314u)
+    if (pci_config_address(2u, 3u, 1u, 0x14u) != 0x80021914u)
         return -1;
     if (pci_config_address(255u, 31u, 7u, 0xFCu) != 0x80FFFFFCu)
         return -1;
