@@ -12,6 +12,9 @@
 #include "ipc.h"
 #include "usercopy.h"
 #include "pci.h"
+#include "partition.h"
+#include "fat32.h"
+#include "exfat.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -1089,6 +1092,25 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: user-mode capability prepared\n");
+
+    /* Storage-stack regression suite: partition discovery and filesystem
+     * geometry/mount contracts must remain boot-testable before drivers depend
+     * on them. */
+    if (partition_selftest() != PROS_PARTITION_OK) {
+        serial_write("ProsenjitOS: ERROR partition discovery self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: partition discovery self-test passed\n");
+    if (fat32_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR FAT32 self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: FAT32 self-test passed\n");
+    if (exfat_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR exFAT self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: exFAT self-test passed\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
