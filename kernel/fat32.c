@@ -313,7 +313,7 @@ static void fat32_name83(const uint8_t *entry, char *name)
 int fat32_find_83(const struct pros_fat32 *fs, uint32_t directory_cluster,
                   const char *name, struct pros_fat32_dirent *result)
 {
-    uint8_t cluster[32768];
+    static uint8_t cluster[32768];
     uint32_t cluster_size;
     uint32_t current;
     uint32_t guard = 0;
@@ -453,7 +453,7 @@ static int fat32_lfn_build(const uint8_t *entries, uint32_t count,
 int fat32_find(const struct pros_fat32 *fs, uint32_t directory_cluster,
                const char *name, struct pros_fat32_dirent *result)
 {
-    uint8_t cluster[32768];
+    static uint8_t cluster[32768];
     uint8_t lfn[20u * 32u];
     char parsed[261];
     uint32_t cluster_size;
@@ -563,7 +563,7 @@ int fat32_read_file(const struct pros_fat32 *fs,
                     const struct pros_fat32_dirent *file,
                     uint32_t offset, uint32_t length, void *buffer)
 {
-    uint8_t cluster[32768];
+    static uint8_t cluster[32768];
     uint32_t cluster_size;
     uint32_t current;
     uint32_t skip;
@@ -681,7 +681,7 @@ static int fat32_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie, str
 {
     struct pros_fat32_vfs_node *dir;
     struct pros_fat32 *fs;
-    uint8_t cluster[32768];
+    static uint8_t cluster[32768];
     uint8_t lfn[20u * 32u];
     uint32_t cluster_size, current, guard = 0;
     uint64_t index = 0;
