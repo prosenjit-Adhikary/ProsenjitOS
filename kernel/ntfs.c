@@ -3004,6 +3004,10 @@ int ntfs_selftest(void)
                             &written) != PROS_NTFS_OK ||
             written != 2u)
             return -1222;
+        if (ntfs_read_file_record(&fs, 12u, verify, 1024u) != PROS_NTFS_OK)
+            return -1236;
+        if (le64(verify + 48u + 48u) != 1024u)
+            return -1237;
         if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK)
             return -1223;
