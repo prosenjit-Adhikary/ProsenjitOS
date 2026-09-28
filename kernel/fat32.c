@@ -795,8 +795,9 @@ int fat32_vfs_mount(struct pros_fat32 *fs)
 static int fat32_vfs_read(struct pros_vfs_file *file, uint32_t offset,
                           uint32_t length, void *buffer)
 {
-    struct pros_fat32_dirent *entry =
-        (struct pros_fat32_dirent *)file->private_data;
+    struct pros_fat32_vfs_node *node =
+        (struct pros_fat32_vfs_node *)file->private_data;
+    struct pros_fat32_dirent *entry = node ? &node->entry : 0;
     uint32_t available;
     if (!entry || offset > entry->size)
         return PROS_VFS_EINVAL;
