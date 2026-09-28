@@ -57,6 +57,8 @@ int vfs_file_admit(const struct pros_vfs_mount *mount,
                    const struct pros_file_security_metadata *metadata,
                    struct pros_file_admission_record *record)
 {
+    struct pros_file_admission_input input;
+
     if (!mount || !mount->device || !mount->active ||
         !data || length == 0 || !metadata || !record)
         return PROS_VFS_EINVAL;
@@ -66,7 +68,11 @@ int vfs_file_admit(const struct pros_vfs_mount *mount,
      * formats here. The filesystem driver owns format/provenance/signature
      * evidence; the security admission broker owns hashing and policy.
      */
-    return pros_file_admission_evaluate(data, length, metadata, record);
+    input.data = data;
+    input.length = length;
+    input.metadata = *metadata;
+
+    return pros_file_admission_evaluate(&input, record);
 }
 
 int vfs_security_selftest(void)
@@ -98,7 +104,7 @@ int vfs_security_selftest(void)
 
     if (vfs_mount_activate(&mount) != PROS_VFS_OK ||
         vfs_file_admit(&mount, data, sizeof(data), &metadata, &record) != 0 ||
-        record.security.trust != PROS_FILE_VERIFIED ||
+        record.security.state != PROS_FILE_VERIFIED ||
         record.security.action != PROS_FILE_ALLOW)
         return -1;
 
