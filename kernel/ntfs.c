@@ -2958,7 +2958,6 @@ int ntfs_selftest(void)
     {
         static const uint8_t replacement[] = { 'B', 'y', 'e' };
         static uint8_t verify[8];
-        static uint8_t record_verify[1024];
         uint32_t written = 0u;
         uint32_t read_back = 0u;
 
@@ -2994,6 +2993,7 @@ int ntfs_selftest(void)
     {
         static const uint8_t replacement[] = { 'X', 'Y', 'Z', '!' };
         static uint8_t verify[8];
+        static uint8_t record_verify[1024];
         uint32_t written = 0u;
         uint32_t read_back = 0u;
 
