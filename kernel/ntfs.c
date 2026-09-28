@@ -2456,10 +2456,13 @@ int ntfs_selftest(void)
         uint32_t written = 0u;
         uint32_t read_back = 0u;
 
-        if (ntfs_file_write(&fs, 12u, 510u, replacement,
-                            sizeof(replacement), &written) != PROS_NTFS_OK)
+        if (ntfs_file_write(&fs, 12u, 510u, replacement, 2u,
+                            &written) != PROS_NTFS_OK ||
+            written != 2u)
             return -1221;
-        if (written != sizeof(replacement))
+        if (ntfs_file_write(&fs, 12u, 512u, replacement + 2u, 2u,
+                            &written) != PROS_NTFS_OK ||
+            written != 2u)
             return -1222;
         if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK)
