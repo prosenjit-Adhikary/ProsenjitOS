@@ -1067,7 +1067,6 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
                              fs->sectors_per_cluster;
     uint64_t growth_lcn = 0u;
     uint64_t growth_clusters = 0u;
-    uint8_t growth_allocated = 0u;
     if (cluster_bytes == 0u || fs->bytes_per_sector > 4096u)
         return PROS_NTFS_EINVAL;
 
