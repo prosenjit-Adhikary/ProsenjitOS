@@ -115,8 +115,9 @@ The read-only NTFS driver now includes:
 - resident $INDEX_ROOT header and entry validation, including terminal/sub-node flags
 - exact UTF-16LE resident directory-name lookup returning the target MFT reference
 - read-only `$INDEX_ALLOCATION` child-node traversal with INDX USA/VCN validation and bounded cycle protection
+- NTFS `$Root` (MFT record 5) directory lookup and component-by-component path traversal
 
-The MFT and directory-index paths remain intentionally read-only. `$INDEX_ROOT` and `$INDEX_ALLOCATION` traversal now reach child INDX nodes, while NTFS case-folding, full path traversal, `$FILE_NAME` namespace expansion, general file-data streaming, and NTFS write/journal support remain later milestones.
+The MFT and directory-index paths remain intentionally read-only. `$INDEX_ROOT` and `$INDEX_ALLOCATION` traversal now reach child INDX nodes, while NTFS `$UpCase` case-folding, alternate `$FILE_NAME` namespaces, general file-data streaming, and NTFS write/journal support remain later milestones.
 
 See [docs/FILESYSTEM.md](docs/FILESYSTEM.md) for the detailed filesystem architecture and implementation order.
 
