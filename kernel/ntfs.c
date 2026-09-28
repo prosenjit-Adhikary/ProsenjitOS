@@ -387,7 +387,7 @@ int ntfs_selftest(void)
     disk.mft_record[12]=0u; disk.mft_record[13]=0u;
     disk.mft_record[510]=0x34u; disk.mft_record[511]=0x12u;
     disk.mft_record[1022]=0x34u; disk.mft_record[1023]=0x12u;
-    disk.mft_record[20]=24u;
+    disk.mft_record[20]=48u;
     disk.mft_record[48]=0x80u;
     disk.mft_record[52]=72u;
     disk.mft_record[56]=1u;
