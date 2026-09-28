@@ -1843,6 +1843,16 @@ static int ntfs_vfs_write(struct pros_vfs_file *file, uint32_t offset,
                (rc == PROS_NTFS_EOVERFLOW ? PROS_VFS_EOVERFLOW :
                 rc == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOSYS :
                 PROS_VFS_EIO);
+
+    /*
+     * NTFS growth is committed to the on-disk DATA/FILE_NAME metadata by
+     * ntfs_file_write(). Keep the cached VFS vnode size synchronized after a
+     * successful write that extends EOF.
+     */
+    if ((uint64_t)offset + written > node->data_size) {
+        node->data_size = (uint64_t)offset + written;
+        node->vnode.size = node->data_size;
+    }
     return (int)written;
 }
 
