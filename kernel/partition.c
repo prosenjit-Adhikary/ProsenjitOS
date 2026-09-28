@@ -84,6 +84,10 @@ int partition_read_gpt(struct pros_block_device *device,
     uint32_t entry_count;
     uint32_t entry_size;
     uint32_t found = 0;
+    uint64_t current_lba;
+    uint64_t backup_lba;
+    uint64_t first_usable_lba;
+    uint64_t last_usable_lba;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
@@ -92,10 +96,17 @@ int partition_read_gpt(struct pros_block_device *device,
         header[4] != 'P' || header[5] != 'A' || header[6] != 'R' || header[7] != 'T')
         return PROS_PARTITION_ENOTSUP;
     header_size = le32(header + 12);
+    current_lba = le64(header + 24);
+    backup_lba = le64(header + 32);
+    first_usable_lba = le64(header + 40);
+    last_usable_lba = le64(header + 48);
     entries_lba = le64(header + 72);
     entry_count = le32(header + 80);
     entry_size = le32(header + 84);
     if (header_size < 92u || header_size > device->sector_size ||
+        current_lba != 1u || backup_lba >= device->sector_count ||
+        backup_lba == current_lba || first_usable_lba > last_usable_lba ||
+        last_usable_lba >= device->sector_count ||
         entry_count == 0u || entry_size < 128u ||
         entry_size > device->sector_size || entry_size > 1024u ||
         entries_lba >= device->sector_count)
@@ -267,6 +278,10 @@ int partition_selftest(void)
     gpt_media[510u] = 0x55u;
     gpt_media[511u] = 0xAAu;
     gpt_media[512u + 12u] = 92u;
+    gpt_media[512u + 24u] = 1u;
+    gpt_media[512u + 32u] = 3u;
+    gpt_media[512u + 40u] = 2u;
+    gpt_media[512u + 48u] = 3u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
     gpt_media[512u + 84u] = 300u;
