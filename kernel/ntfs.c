@@ -4131,7 +4131,7 @@ int ntfs_selftest(void)
             disk.nonresident_record[114u] != 42u ||
             disk.nonresident_record[115u] != 0x11u ||
             disk.nonresident_record[116u] != 1u ||
-            disk.nonresident_record[117u] != 3u ||
+            disk.nonresident_record[117u] != 43u ||
             disk.bitmap_data[45u / 8u] == 0u)
             return -127;
     }
