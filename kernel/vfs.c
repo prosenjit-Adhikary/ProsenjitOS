@@ -410,11 +410,11 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         char parent_path[PROS_VFS_PATH_MAX + 1u];
         char name[PROS_VFS_NAME_MAX + 1u];
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
-        while (path[length] != '\\0' && length < PROS_VFS_PATH_MAX) {
+        while (path[length] != '\0' && length < PROS_VFS_PATH_MAX) {
             if (path[length] == '/') last_slash = length;
             ++length;
         }
-        if (path[length] != '\\0' || length == 0u ||
+        if (path[length] != '\0' || length == 0u ||
             last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
             return PROS_VFS_EINVAL;
         uint32_t name_length = length - last_slash - 1u;
@@ -422,13 +422,13 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
             return PROS_VFS_EOVERFLOW;
         for (uint32_t i = 0u; i < name_length; ++i)
             name[i] = path[last_slash + 1u + i];
-        name[name_length] = '\\0';
+        name[name_length] = '\0';
         if (last_slash == 0u) {
-            parent_path[0] = '/'; parent_path[1] = '\\0';
+            parent_path[0] = '/'; parent_path[1] = '\0';
         } else {
             for (uint32_t i = 0u; i < last_slash; ++i)
                 parent_path[i] = path[i];
-            parent_path[last_slash] = '\\0';
+            parent_path[last_slash] = '\0';
         }
         rc = vfs_path_lookup(mount, parent_path, &vnode);
         if (rc != PROS_VFS_OK) return rc;
