@@ -831,23 +831,32 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
 
 int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
 {
-    uint8_t value;
-    uint32_t written;
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t attr_offset;
+    const uint8_t *data;
+    uint32_t data_size;
+    uint8_t *bitmap;
+    uint32_t byte;
 
-    if (!fs || record_number < 24u || record_number > 0x0000FFFFFFFFFFFFull)
+    if (!fs || record_number < 24u ||
+        record_number > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record > sizeof(record))
         return PROS_NTFS_EINVAL;
-    if (record_number > 0xFFFFFFFFFFFFFFFFull / 8u)
+    if (ntfs_read_file_record(fs, 0u, record, sizeof(record)) != PROS_NTFS_OK ||
+        ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
+                            &attr_offset) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (record[attr_offset + 9u] != 0u || record[attr_offset + 8u] != 0u)
+        return PROS_NTFS_ENOTSUP;
+    if (ntfs_attribute_data(record, fs->bytes_per_file_record, attr_offset,
+                            &data, &data_size) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    byte = (uint32_t)(record_number / 8u);
+    if (byte >= data_size)
         return PROS_NTFS_EOVERFLOW;
-    if (ntfs_file_read(fs, 0u, record_number / 8u, &value, 1u,
-                       &written) != PROS_NTFS_OK || written != 1u)
-        return PROS_NTFS_EIO;
-    if ((value & (uint8_t)(1u << (record_number & 7u))) == 0u)
-        return PROS_NTFS_OK;
-    value &= (uint8_t)~(1u << (record_number & 7u));
-    if (ntfs_file_write(fs, 0u, record_number / 8u, &value, 1u,
-                        &written) != PROS_NTFS_OK || written != 1u)
-        return PROS_NTFS_EIO;
-    return PROS_NTFS_OK;
+    bitmap = (uint8_t *)data;
+    bitmap[byte] &= (uint8_t)~(1u << (record_number & 7u));
+    return ntfs_write_file_record(fs, 0u, record);
 }
 
 int ntfs_create_file(struct pros_ntfs *fs,
