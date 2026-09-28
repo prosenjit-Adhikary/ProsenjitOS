@@ -564,7 +564,7 @@ static int vfs_selftest_readdir(struct pros_vfs_vnode *vnode,
     entry->type = child->type;
     entry->size = child->size;
     ++(*cookie);
-    return 1;
+    return PROS_VFS_OK;
 }
 
 static int vfs_selftest_close_file(struct pros_vfs_file *file)
