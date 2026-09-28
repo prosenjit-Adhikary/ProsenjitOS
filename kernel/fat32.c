@@ -179,7 +179,7 @@ static int fat32_test_read(struct pros_block_device *device,
 
 int fat32_selftest(void)
 {
-    struct fat32_test_disk disk = { {0}, {0} };
+    struct fat32_test_disk disk = { {0}, {0}, {0}, {0} };
     struct pros_block_device device;
     struct pros_fat32 fs;
     uint8_t root[512];
