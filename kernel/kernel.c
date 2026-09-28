@@ -704,6 +704,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: capability move-transfer test passed\n");
 
+    /* Inactive-process regression: capability movement must not operate on
+     * zombie/dead participants, even if their object reference is still live. */
+    struct pros_process inactive_transfer_target;
+    if (process_create(&init_process, &inactive_transfer_target, 7,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_exit(&inactive_transfer_target, 99) != 0 ||
+        process_transfer_handle_move(&init_process, &inactive_transfer_target,
+                                     move_source_handle,
+                                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID) {
+        serial_write("ProsenjitOS: ERROR inactive capability move regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_wait(&init_process, inactive_transfer_target.pid, &waited_exit) != 0 ||
+        waited_exit != 99) {
+        serial_write("ProsenjitOS: ERROR inactive transfer target reap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: inactive capability move regression passed\n");
+
+
     /*
      * IPC foundation regression:
      * - channel is a first-class capability object
