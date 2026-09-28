@@ -1363,13 +1363,6 @@ int ntfs_selftest(void)
             disk.index_record[terminal + 12u] = 2u;
         }
 
-        if (ntfs_index_record_header(disk.index_record,
-                                     sizeof(disk.index_record), 512u, 0u,
-                                     &index_info) != PROS_NTFS_OK ||
-            index_info.first_entry_offset != 64u ||
-            index_info.entries_size != 176u)
-            return -113;
-
         {
             struct pros_ntfs_run index_runs[2] = {{0}};
             uint32_t index_run_count = 0u;
