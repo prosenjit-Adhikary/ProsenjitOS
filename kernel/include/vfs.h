@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "block.h"
 #include "security_admission.h"
+#include "partition.h"
 
 #define PROS_VFS_OK       0
 #define PROS_VFS_EINVAL  -1
@@ -91,6 +92,11 @@ struct pros_vfs_mount {
 
 int vfs_mount_init(struct pros_vfs_mount *, enum pros_filesystem_type,
                    struct pros_block_device *, void *, uint8_t);
+int vfs_mount_partition(struct pros_vfs_mount *, enum pros_filesystem_type,
+                        struct pros_partition_device *,
+                        struct pros_block_device *,
+                        const struct pros_partition *, void *, uint8_t);
+int vfs_probe_filesystem(struct pros_block_device *, enum pros_filesystem_type *);
 int vfs_mount_set_root(struct pros_vfs_mount *, struct pros_vfs_vnode *);
 int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
