@@ -83,6 +83,27 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
                            const uint8_t *name_utf16le, uint8_t name_length,
                            uint64_t *file_reference);
 
+struct pros_ntfs_index_record {
+    uint64_t vcn;
+    uint32_t first_entry_offset;
+    uint32_t entries_size;
+    uint32_t allocated_size;
+    uint8_t flags;
+};
+
+int ntfs_index_record_fixup(void *record, uint32_t record_size,
+                            uint32_t bytes_per_sector);
+int ntfs_index_record_header(const void *record, uint32_t record_size,
+                             uint32_t bytes_per_sector, uint64_t expected_vcn,
+                             struct pros_ntfs_index_record *info);
+int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
+                                 const void *record, uint32_t record_size,
+                                 uint32_t index_root_attr_offset,
+                                 uint32_t index_allocation_attr_offset,
+                                 const uint8_t *name_utf16le,
+                                 uint8_t name_length,
+                                 uint64_t *file_reference);
+
 int ntfs_selftest(void);
 
 #endif
