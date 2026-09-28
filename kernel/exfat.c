@@ -269,21 +269,28 @@ int exfat_file_read(const struct pros_exfat *fs, uint32_t first_cluster,
     return PROS_EXFAT_OK;
 }
 
-struct exfat_test_disk { uint8_t boot[512]; };
+struct exfat_test_disk {
+    uint8_t sectors[6u * 512u];
+};
+
+static void exfat_test_le32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
 
 static int exfat_test_read(struct pros_block_device *device, uint64_t lba,
                             uint32_t count, void *buffer)
 {
     struct exfat_test_disk *disk =
         (struct exfat_test_disk *)device->private_data;
-    if (!disk || !buffer || count == 0u)
+    if (!disk || !buffer || count == 0u ||
+        lba >= 6u || count > 6u - lba)
         return PROS_BLOCK_EIO;
-    for (uint32_t s = 0; s < count; ++s) {
-        uint8_t *dst = (uint8_t *)buffer + s * 512u;
-        for (uint32_t i = 0; i < 512u; ++i) dst[i] = 0;
-        if (lba + s == 0u)
-            for (uint32_t i = 0; i < 512u; ++i) dst[i] = disk->boot[i];
-    }
+    for (uint32_t i = 0u; i < count * 512u; ++i)
+        ((uint8_t *)buffer)[i] = disk->sectors[lba * 512u + i];
     return PROS_BLOCK_OK;
 }
 
@@ -293,41 +300,88 @@ int exfat_selftest(void)
     struct pros_block_device device;
     struct pros_exfat fs;
     uint64_t lba;
+    uint8_t output[800];
+    uint32_t done;
 
-    disk.boot[3]='E'; disk.boot[4]='X'; disk.boot[5]='F'; disk.boot[6]='A';
-    disk.boot[7]='T'; disk.boot[8]=' '; disk.boot[9]=' '; disk.boot[10]=' ';
-    disk.boot[72]=0x00; disk.boot[73]=0x10; /* 4096 sectors */
-    disk.boot[80]=24; disk.boot[84]=8; disk.boot[88]=32;
-    disk.boot[92]=64; disk.boot[96]=2; disk.boot[108]=9; disk.boot[109]=0;
-    disk.boot[110]=1; disk.boot[510]=0x55; disk.boot[511]=0xAA;
+    uint8_t *boot = disk.sectors;
+    boot[3]='E'; boot[4]='X'; boot[5]='F'; boot[6]='A';
+    boot[7]='T'; boot[8]=' '; boot[9]=' '; boot[10]=' ';
+    exfat_test_le32(boot + 72, 6u);   /* volume length */
+    exfat_test_le32(boot + 80, 1u);   /* FAT starts at sector 1 */
+    exfat_test_le32(boot + 84, 1u);   /* one FAT sector */
+    exfat_test_le32(boot + 88, 2u);   /* cluster heap starts at 2 */
+    exfat_test_le32(boot + 92, 4u);   /* clusters 2..5 */
+    exfat_test_le32(boot + 96, 2u);   /* root cluster */
+    boot[108]=9u; boot[109]=0u; boot[110]=1u;
+    boot[510]=0x55u; boot[511]=0xAAu;
 
-    if (block_device_init(&device,512,4096,exfat_test_read,0,&disk) != PROS_BLOCK_OK ||
+    /* FAT[2] -> 3, FAT[3] -> EOC. */
+    exfat_test_le32(disk.sectors + 512u + 8u, 3u);
+    exfat_test_le32(disk.sectors + 512u + 12u, 0xFFFFFFFFu);
+
+    for (uint32_t i = 0u; i < 512u; ++i) {
+        disk.sectors[2u * 512u + i] = (uint8_t)('A' + (i % 26u));
+        disk.sectors[3u * 512u + i] = (uint8_t)('a' + (i % 26u));
+        disk.sectors[4u * 512u + i] = (uint8_t)('0' + (i % 10u));
+    }
+
+    if (block_device_init(&device,512,6,exfat_test_read,0,&disk) != PROS_BLOCK_OK ||
         exfat_mount(&fs,&device) != PROS_EXFAT_OK ||
-        exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 32u)
+        exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 2u)
         return -1;
 
-    /* Reject geometry that extends beyond the physical device. */
-    disk.boot[72] = 0x00; disk.boot[73] = 0x20; /* 8192 sectors */
-    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+    if (exfat_read_fat_entry(&fs, 2u, &done) != PROS_EXFAT_OK ||
+        done != 3u ||
+        exfat_read_fat_entry(&fs, 3u, &done) != PROS_EXFAT_OK ||
+        done != 0xFFFFFFFFu)
         return -2;
 
-    /* Restore a valid volume and reject an overlapping cluster heap. */
-    disk.boot[72] = 0x00; disk.boot[73] = 0x10; /* 4096 sectors */
-    disk.boot[88] = 31u; /* heap starts before FAT end (24 + 8). */
-    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+    if (exfat_file_read(&fs, 2u, 0u, 700u, 700u, 0u,
+                        output, sizeof(output), &done) != PROS_EXFAT_OK ||
+        done != 700u ||
+        output[0] != 'A' ||
+        output[511] != 'R' ||
+        output[512] != 'a' ||
+        output[699] != 'p')
         return -3;
 
-    /* Restore heap layout and reject a root cluster outside the heap. */
-    disk.boot[88] = 32u;
-    disk.boot[96] = 66u; /* cluster_count is 64; valid max is 65. */
-    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+    /* NoFatChain must read a contiguous allocation without consulting FAT. */
+    if (exfat_file_read(&fs, 4u, 1u, 100u, 50u, 0u,
+                        output, sizeof(output), &done) != PROS_EXFAT_OK ||
+        done != 100u ||
+        output[0] != '0' ||
+        output[49] != '9' ||
+        output[50] != 0u ||
+        output[99] != 0u)
         return -4;
 
-    /* Restore root cluster and reject an impossible cluster size. */
-    disk.boot[96] = 2u;
-    disk.boot[109] = 17u; /* 512-byte sectors would yield 128 KiB clusters. */
-    if (exfat_mount(&fs, &device) != PROS_EXFAT_ENOTSUP)
+    /* Reject a malformed FAT chain that terminates before DataLength. */
+    if (exfat_file_read(&fs, 3u, 0u, 600u, 600u, 0u,
+                        output, sizeof(output), &done) != PROS_EXFAT_ECORRUPT)
         return -5;
+
+    /* Reject geometry that extends beyond the physical device. */
+    exfat_test_le32(boot + 72, 7u);
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+        return -6;
+
+    /* Restore a valid volume and reject an overlapping cluster heap. */
+    exfat_test_le32(boot + 72, 6u);
+    exfat_test_le32(boot + 88, 1u);
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+        return -7;
+
+    /* Restore heap layout and reject a root cluster outside the heap. */
+    exfat_test_le32(boot + 88, 2u);
+    exfat_test_le32(boot + 96, 6u);
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
+        return -8;
+
+    /* Restore root cluster and reject an impossible cluster size. */
+    exfat_test_le32(boot + 96, 2u);
+    boot[109] = 17u;
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_ENOTSUP)
+        return -9;
 
     return 0;
 }
