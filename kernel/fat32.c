@@ -234,8 +234,8 @@ int fat32_selftest(void)
         fat32_cluster_lba(&fs, 2u, &lba) != PROS_FAT32_OK ||
         lba != 16032u ||
         fat32_read_cluster(&fs, 2u, root) != PROS_FAT32_OK ||
-        root[0] != 'P' || root[1] != 'R' ||
-        root[2] != 'O' || root[3] != 'S')
+        root[0] != 0x41u || root[1] != 0x52u ||
+        root[11] != 0x0Fu || root[32] != 'R' || root[33] != 'E')
         return -1;
 
     if (fat32_cluster_lba(&fs, 0u, &lba) == PROS_FAT32_OK ||
