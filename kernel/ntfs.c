@@ -3505,10 +3505,10 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                           PROS_VFS_NODE_FILE;
             entry->size = data_size;
         }
-        return 1;
+        return PROS_VFS_OK;
     }
 
-    return 0;
+    return PROS_VFS_ENOENT;
 }
 
 static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
