@@ -4755,10 +4755,17 @@ int ntfs_selftest(void)
             uint8_t data[8] = {0};
             uint32_t got = 0u;
 
-            if (vfs_path_lookup(&fs.mount, "/test", &node) != PROS_VFS_OK ||
-                !node || node->type != PROS_VFS_NODE_FILE ||
-                node->size != 5u)
-                return -186;
+            {
+                int lookup_rc = vfs_path_lookup(&fs.mount, "/test", &node);
+                if (lookup_rc != PROS_VFS_OK)
+                    return -1860 + lookup_rc;
+                if (!node)
+                    return -1861;
+                if (node->type != PROS_VFS_NODE_FILE)
+                    return -1862;
+                if (node->size != 5u)
+                    return -1863;
+            }
             if (vfs_file_open(&fs.mount, "/test", PROS_VFS_O_READ, &file) !=
                     PROS_VFS_OK)
                 return -187;
