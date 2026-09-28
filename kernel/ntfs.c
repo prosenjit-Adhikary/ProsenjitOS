@@ -4033,6 +4033,8 @@ int ntfs_selftest(void)
     disk.upcase_record[28]=88u; disk.upcase_record[32]=1u;
     disk.upcase_record[48]=31u; disk.upcase_record[56]=64u;
     disk.upcase_record[64]=0x00u; disk.upcase_record[66]=0x02u;
+    disk.upcase_record[72]=0x00u; disk.upcase_record[74]=0x02u;
+    disk.upcase_record[80]=0x00u; disk.upcase_record[82]=0x02u;
     disk.upcase_record[88]=0x11u; disk.upcase_record[89]=32u;
     disk.upcase_record[90]=10u; disk.upcase_record[92]=0u;
     disk.upcase_record[510]=0x34u; disk.upcase_record[511]=0x12u;
