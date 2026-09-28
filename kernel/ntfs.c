@@ -1,9 +1,5 @@
 #include "ntfs.h"
 
-/* Shared NTFS UpCase table state used by index name comparison/insertion. */
-static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
-static const uint8_t *ntfs_active_upcase = 0;
-
 #define PROS_NTFS_RECORD_WORK_MAX 65536u
 static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
@@ -572,6 +568,7 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
     uint64_t bitmap_size, total_clusters;
     uint64_t start_byte, end_byte;
+    uint32_t got;
 
     if (!fs || cluster_count == 0u ||
         first_lcn > 0xFFFFFFFFFFFFFFFFull - (cluster_count - 1u) ||
@@ -1371,7 +1368,6 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
     uint64_t start_record = 24u;
     uint64_t record_count;
     uint64_t byte_offset;
-    uint32_t got;
 
     if (!fs || !record_number || fs->bytes_per_file_record == 0u ||
         fs->bytes_per_file_record > sizeof(record) ||
@@ -1427,7 +1423,6 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
         uint32_t want = (uint32_t)(bitmap_size - byte_offset);
         if (want > sizeof(bitmap))
             want = sizeof(bitmap);
-        got = 0u;
         {
             const uint8_t *bitmap_data;
             uint32_t bitmap_data_size;
@@ -2471,6 +2466,10 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
 #define PROS_NTFS_INDEX_NODE_MAX 128u
 #define PROS_NTFS_UPCASE_RECORD 10u
 #define PROS_NTFS_UPCASE_BYTES 131072u
+
+/* Shared NTFS UpCase table state used by index name comparison/insertion. */
+static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
+static const uint8_t *ntfs_active_upcase = 0;
 
 
 static int ntfs_upcase_load(const struct pros_ntfs *fs)
