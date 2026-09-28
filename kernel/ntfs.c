@@ -3411,6 +3411,18 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
             cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu))
             return PROS_VFS_EINVAL;
 
+        /*
+         * NTFS filename components follow the Windows filename character
+         * restrictions. Reject controls and the reserved punctuation here
+         * before converting the scalar to UTF-16.
+         */
+        if (cp < 0x20u || cp == (uint32_t)'"' ||
+            cp == (uint32_t)'/' || cp == (uint32_t)'\\' ||
+            cp == (uint32_t)':' || cp == (uint32_t)'|' ||
+            cp == (uint32_t)'<' || cp == (uint32_t)'>' ||
+            cp == (uint32_t)'*' || cp == (uint32_t)'?')
+            return PROS_VFS_EINVAL;
+
         if (cp <= 0xFFFFu) {
             if (name_length >= PROS_VFS_NAME_MAX)
                 return PROS_VFS_EOVERFLOW;
