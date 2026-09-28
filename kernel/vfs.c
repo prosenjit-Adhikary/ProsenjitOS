@@ -410,7 +410,7 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         char parent_path[PROS_VFS_PATH_MAX + 1u];
         char name[PROS_VFS_NAME_MAX + 1u];
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
-        while (path[length] != '\0' && length < PROS_VFS_PATH_MAX) {
+        while (length < PROS_VFS_PATH_MAX && path[length] != '\0') {
             if (path[length] == '/') last_slash = length;
             ++length;
         }
