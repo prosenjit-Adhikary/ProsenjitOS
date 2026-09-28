@@ -1575,6 +1575,7 @@ int ntfs_selftest(void)
                 if (path_reference != 0x2000u)
                     return -170;
             }
+            }
         }
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
