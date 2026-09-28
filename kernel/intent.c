@@ -2,6 +2,7 @@
 #include "process.h"
 #include "timer.h"
 #include "security_file.h"
+#include "security_provider.h"
 
 static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
@@ -43,6 +44,8 @@ static void ledger_record(const struct pros_process *process,
 
 int security_manager_init(void) {
     if (pros_file_security_selftest() != 0)
+        return -1;
+    if (pros_security_provider_selftest() != 0)
         return -1;
     next_intent_id = 1;
     ledger_sequence = 0;
@@ -127,17 +130,8 @@ enum pros_security_decision security_authorize(
         uint64_t required = intent_required_rights(intent->operation);
         uint64_t check_rights = intent->requested_rights;
 
-        /*
-         * DUPLICATE is special: requested_rights describes the attenuated
-         * rights of the new handle, while DUPLICATE is the authority needed
-         * to perform the operation. The source handle must therefore carry
-         * both DUPLICATE and every right requested for the new handle.
-         */
         if (intent->operation == PROS_INTENT_DUPLICATE ||
             intent->operation == PROS_INTENT_TRANSFER) {
-            /* DUPLICATE and TRANSFER are operation authorities. The
-             * requested rights are the attenuated rights of the new handle;
-             * the source capability must also carry the operation right. */
             if (required == 0) {
                 reason = PROS_REASON_POLICY_RESTRICTED;
                 goto record;
