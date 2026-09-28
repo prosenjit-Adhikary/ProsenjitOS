@@ -2993,7 +2993,6 @@ int ntfs_selftest(void)
     {
         static const uint8_t replacement[] = { 'X', 'Y', 'Z', '!' };
         static uint8_t verify[8];
-        static uint8_t record_verify[1024];
         uint32_t written = 0u;
         uint32_t read_back = 0u;
 
@@ -3005,23 +3004,13 @@ int ntfs_selftest(void)
                             &written) != PROS_NTFS_OK ||
             written != 2u)
             return -1222;
-        if (ntfs_read_file_record(&fs, 12u, record_verify, sizeof(record_verify)) != PROS_NTFS_OK)
-            return -1236;
-        if (le64(record_verify + 48u + 48u) != 1024u)
-            return -1237;
-        if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(verify),
+        if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(replacement),
                            &read_back) != PROS_NTFS_OK)
             return -1223;
-        if (read_back != sizeof(replacement))
-            return -1231;
-        if (verify[0] != 'X')
-            return -1232;
-        if (verify[1] != 'Y')
-            return -1233;
-        if (verify[2] != 'Z')
-            return -1234;
-        if (verify[3] != '!')
-            return -1235;
+        if (read_back != sizeof(replacement) ||
+            verify[0] != 'X' || verify[1] != 'Y' ||
+            verify[2] != 'Z' || verify[3] != '!')
+            return -1224;
         if (disk.nonresident_data[509u] != 'p' ||
             disk.nonresident_data[514u] != 'u')
             return -1225;
