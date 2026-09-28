@@ -315,6 +315,39 @@ int ntfs_find_attribute(const void *record, uint32_t record_size,
     return PROS_NTFS_ENOTSUP;
 }
 
+static int ntfs_find_unnamed_attribute(const void *record,
+                                           uint32_t record_size,
+                                           uint32_t type,
+                                           uint32_t *offset)
+{
+    const uint8_t *p = (const uint8_t *)record;
+    uint16_t first;
+    uint32_t pos;
+
+    if (!p || !offset || record_size < 24u)
+        return PROS_NTFS_EINVAL;
+    if (p[0] != 'F' || p[1] != 'I' || p[2] != 'L' || p[3] != 'E')
+        return PROS_NTFS_ECORRUPT;
+    first = le16(p + 20u);
+    if (first < 24u || first >= record_size)
+        return PROS_NTFS_ECORRUPT;
+    pos = first;
+    while (pos + 8u <= record_size) {
+        uint32_t atype = le32(p + pos);
+        uint32_t len = le32(p + pos + 4u);
+        if (atype == 0xFFFFFFFFu)
+            return PROS_NTFS_ENOTSUP;
+        if (len < 16u || pos + len > record_size)
+            return PROS_NTFS_ECORRUPT;
+        if (atype == type && p[pos + 9u] == 0u) {
+            *offset = pos;
+            return PROS_NTFS_OK;
+        }
+        pos += len;
+    }
+    return PROS_NTFS_ENOTSUP;
+}
+
 int ntfs_attribute_data(const void *record, uint32_t record_size,
                         uint32_t attr_offset, const uint8_t **data,
                         uint32_t *data_size)
@@ -388,8 +421,8 @@ int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
     if (ntfs_read_file_record(fs, record_number, record, sizeof(record)) !=
         PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
-                            &attr_offset) != PROS_NTFS_OK)
+    if (ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
+                                    0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
 
     attr_length = le32(record + attr_offset + 4u);
@@ -553,8 +586,8 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
     if (ntfs_read_file_record(fs, 6u, record, sizeof(record)) !=
         PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
-                            &attr_offset) != PROS_NTFS_OK)
+    if (ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
+                                    0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
     if (record[attr_offset + 9u] != 0u)
         return PROS_NTFS_ENOTSUP;
@@ -657,8 +690,8 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
     if (ntfs_read_file_record(fs, 6u, record, sizeof(record)) !=
         PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
-                            &attr_offset) != PROS_NTFS_OK)
+    if (ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
+                                    0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
     if (record[attr_offset + 9u] != 0u)
         return PROS_NTFS_ENOTSUP;
@@ -763,8 +796,8 @@ static int ntfs_bitmap_allocate_clusters_exact(struct pros_ntfs *fs,
 
     if (ntfs_read_file_record(fs, 6u, record, sizeof(record)) !=
         PROS_NTFS_OK ||
-        ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
-                            &attr_offset) != PROS_NTFS_OK)
+        ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
+                                    0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
     if (record[attr_offset + 9u] != 0u)
         return PROS_NTFS_ENOTSUP;
@@ -1728,8 +1761,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
     if (ntfs_read_file_record(fs, record_number, record, sizeof(record)) !=
         PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
-                            &attr_offset) != PROS_NTFS_OK)
+    if (ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
+                                    0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
 
     attr_length = le32(record + attr_offset + 4u);
@@ -2457,8 +2490,8 @@ static int ntfs_upcase_load(const struct pros_ntfs *fs)
     if (ntfs_read_file_record(fs, PROS_NTFS_UPCASE_RECORD, record,
                               sizeof(record)) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x80u,
-                            &attr_offset) != PROS_NTFS_OK)
+    if (ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
+                                    0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
     attr_length = le32(record + attr_offset + 4u);
     if (attr_length < 64u ||
