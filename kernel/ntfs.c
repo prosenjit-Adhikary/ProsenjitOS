@@ -3121,8 +3121,10 @@ int ntfs_directory_lookup(const struct pros_ntfs *fs,
 
     status = ntfs_find_attribute(record, fs->bytes_per_file_record,
                                  0x90u, &index_root_offset);
-    if (status != PROS_NTFS_OK)
+    if (status != PROS_NTFS_OK) {
+        ntfs_active_upcase = 0;
         return status;
+    }
 
     /*
      * Search the resident root first. This permits small directories that
