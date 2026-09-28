@@ -821,7 +821,11 @@ static int ntfs_bitmap_free_clusters(struct pros_ntfs *fs,
     return ntfs_bitmap_update_clusters(fs, first_lcn, cluster_count, 0u);
 }
 
-static int ntfs_mft_initialize_record(struct pros_ntfs *fs,
+static int ntfs_write_file_record(struct pros_ntfs *fs,
+                                   uint64_t record_number,
+                                   uint8_t *record);
+
+int ntfs_mft_initialize_record(struct pros_ntfs *fs,
                                             uint64_t record_number,
                                             uint8_t directory)
 {
