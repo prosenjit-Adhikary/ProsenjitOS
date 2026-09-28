@@ -112,6 +112,10 @@ int ntfs_index_root_entry(const void *record, uint32_t record_size,
  * helper intentionally retains exact UTF-16LE semantics; filesystem-level
  * directory/path lookup applies the NTFS $UpCase table.
  */
+int ntfs_index_root_insert(struct pros_ntfs *fs,
+                           uint64_t directory_record_number,
+                           uint64_t child_record_number);
+
 int ntfs_index_root_lookup(const void *record, uint32_t record_size,
                            uint32_t attr_offset,
                            const uint8_t *name_utf16le, uint8_t name_length,
