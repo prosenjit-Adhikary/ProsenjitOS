@@ -4620,9 +4620,21 @@ int ntfs_selftest(void)
         disk.root_record[92u] = 0u;
         for (uint32_t i = 0u; i < 74u; ++i)
             disk.root_record[96u + i] = path_key[i];
+        /*
+         * The index END entry starts at the first-entry offset (80) plus
+         * the first entry's 96-byte length: absolute record offset 176.
+         * Keep its header fields at +8/+10/+12.  The MFT attribute list then
+         * ends at offset 192 with the mandatory 0xFFFFFFFF terminator;
+         * without that terminator, a later INDEX_ALLOCATION probe treats
+         * the zero-filled bytes as a malformed attribute.
+         */
         disk.root_record[184u] = 16u;
         disk.root_record[186u] = 0u;
         disk.root_record[188u] = 2u;
+        disk.root_record[192u] = 0xFFu;
+        disk.root_record[193u] = 0xFFu;
+        disk.root_record[194u] = 0xFFu;
+        disk.root_record[195u] = 0xFFu;
         disk.root_record[510u] = 0x34u; disk.root_record[511u] = 0x12u;
         disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
 
