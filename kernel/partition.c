@@ -285,7 +285,8 @@ int partition_selftest(void)
     gpt_media[512u + 48u] = 3u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
-    gpt_media[512u + 84u] = 300u;
+    gpt_media[512u + 84u] = 44u;
+    gpt_media[512u + 85u] = 1u;
     gpt_media[2u * 512u + 300u] = 0x11u;
     gpt_media[2u * 512u + 332u] = 3u;
     gpt_media[2u * 512u + 340u] = 4u;
