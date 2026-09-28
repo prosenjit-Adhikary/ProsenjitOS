@@ -7,6 +7,7 @@
 #include "security_quarantine.h"
 #include "security_exec.h"
 #include "vfs.h"
+#include "fat32.h"
 
 static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
@@ -54,6 +55,8 @@ int security_manager_init(void) {
     if (pros_file_admission_selftest() != 0)
         return -1;
     if (vfs_security_selftest() != 0)
+        return -1;
+    if (fat32_selftest() != 0)
         return -1;
     if (pros_security_quarantine_selftest() != 0)
         return -1;
