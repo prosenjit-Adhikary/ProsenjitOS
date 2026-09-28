@@ -108,7 +108,7 @@
   - [ ] Filesystem probe and partition integration
 - [ ] FAT32 filesystem support
   - [x] Read-only FAT32 BPB mount/parser foundation
-  - [ ] Read-only FAT32 directory/file reader
+  - [x] Read-only FAT32 directory/file reader
   - [ ] FAT32 write support
 - [ ] exFAT filesystem support
   - [ ] Read-only exFAT mount/parser
