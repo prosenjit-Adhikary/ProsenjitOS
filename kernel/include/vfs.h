@@ -9,6 +9,8 @@
 #define PROS_VFS_EINVAL  -1
 #define PROS_VFS_ENOSYS  -2
 #define PROS_VFS_EBUSY   -3
+#define PROS_VFS_ENOENT  -4
+#define PROS_VFS_EIO     -5
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
@@ -16,6 +18,22 @@ enum pros_filesystem_type {
     PROS_FS_EXFAT,
     PROS_FS_NTFS,
     PROS_FS_PROSENJIT
+};
+
+struct pros_vfs_file;
+
+struct pros_vfs_file_ops {
+    int (*read)(struct pros_vfs_file *, uint32_t, uint32_t, void *);
+    int (*close)(struct pros_vfs_file *);
+};
+
+struct pros_vfs_file {
+    struct pros_vfs_mount *mount;
+    const struct pros_vfs_file_ops *ops;
+    void *private_data;
+    uint64_t position;
+    uint32_t flags;
+    uint8_t open;
 };
 
 struct pros_vfs_mount {
@@ -31,6 +49,10 @@ int vfs_mount_init(struct pros_vfs_mount *, enum pros_filesystem_type,
 int vfs_mount_activate(struct pros_vfs_mount *);
 int vfs_mount_deactivate(struct pros_vfs_mount *);
 int vfs_mount_is_read_only(const struct pros_vfs_mount *);
+int vfs_file_init(struct pros_vfs_file *, struct pros_vfs_mount *,
+                  const struct pros_vfs_file_ops *, void *, uint32_t);
+int vfs_file_read(struct pros_vfs_file *, void *, uint32_t, uint32_t *);
+int vfs_file_close(struct pros_vfs_file *);
 
 /*
  * Filesystem-neutral security boundary.
