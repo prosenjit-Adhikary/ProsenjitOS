@@ -2016,17 +2016,22 @@ int ntfs_selftest(void)
         uint32_t read_back = 0u;
 
         if (ntfs_file_write(&fs, 11u, 0u, replacement,
-                            sizeof(replacement), &written) != PROS_NTFS_OK ||
-            written != sizeof(replacement) ||
-            ntfs_file_read(&fs, 11u, 0u, verify, sizeof(verify),
-                           &read_back) != PROS_NTFS_OK ||
-            read_back != 3u ||
-            verify[0] != 'B' || verify[1] != 'y' || verify[2] != 'e' ||
-            disk.file_record[510u] != disk.file_record[8u] ||
-            disk.file_record[511u] != disk.file_record[9u] ||
-            disk.file_record[1022u] != disk.file_record[8u] ||
+                            sizeof(replacement), &written) != PROS_NTFS_OK)
+            return -1131;
+        if (written != sizeof(replacement))
+            return -1132;
+        if (ntfs_file_read(&fs, 11u, 0u, verify, sizeof(verify),
+                           &read_back) != PROS_NTFS_OK)
+            return -1133;
+        if (read_back != 3u ||
+            verify[0] != 'B' || verify[1] != 'y' || verify[2] != 'e')
+            return -1134;
+        if (disk.file_record[510u] != disk.file_record[8u] ||
+            disk.file_record[511u] != disk.file_record[9u])
+            return -1135;
+        if (disk.file_record[1022u] != disk.file_record[8u] ||
             disk.file_record[1023u] != disk.file_record[9u])
-            return -113;
+            return -1136;
 
         if (ntfs_file_write(&fs, 11u, 0u, replacement,
                             sizeof(replacement), &written) != PROS_NTFS_OK ||
