@@ -1517,6 +1517,7 @@ int ntfs_selftest(void)
         disk.root_record[0] = 'F'; disk.root_record[1] = 'I';
         disk.root_record[2] = 'L'; disk.root_record[3] = 'E';
         disk.root_record[4] = 8u; disk.root_record[6] = 3u;
+        disk.root_record[8] = 0x34u; disk.root_record[9] = 0x12u;
         disk.root_record[20] = 24u;
         disk.root_record[24u] = 0x90u;
         disk.root_record[28u] = 168u;
