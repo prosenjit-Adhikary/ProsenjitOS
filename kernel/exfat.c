@@ -347,7 +347,7 @@ int exfat_selftest(void)
         return -3;
 
     /* NoFatChain must read a contiguous allocation without consulting FAT. */
-    if (exfat_file_read(&fs, 4u, 1u, 100u, 50u, 0u,
+    if (exfat_file_read(&fs, 5u, 1u, 100u, 50u, 0u,
                         output, sizeof(output), &done) != PROS_EXFAT_OK ||
         done != 100u ||
         output[0] != '0' ||
@@ -370,13 +370,13 @@ int exfat_selftest(void)
     exfat_test_le32(boot + 72, 6u);
     exfat_test_le32(boot + 88, 1u);
     if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
-        return -7;
+        return -11;
 
     /* Restore heap layout and reject a root cluster outside the heap. */
     exfat_test_le32(boot + 88, 2u);
     exfat_test_le32(boot + 96, 6u);
     if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
-        return -8;
+        return -10;
 
     /* Restore root cluster and reject an impossible cluster size. */
     exfat_test_le32(boot + 96, 2u);
