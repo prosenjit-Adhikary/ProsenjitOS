@@ -1374,12 +1374,15 @@ int ntfs_selftest(void)
             struct pros_ntfs_run index_runs[2] = {{0}};
             uint32_t index_run_count = 0u;
             static uint8_t read_index_record[4096];
+            const uint8_t *index_runlist_data = 0;
+            uint32_t index_runlist_size = 0u;
 
             if (ntfs_attribute_runlist(lookup_record, sizeof(lookup_record),
-                                        200u, &data, &data_size) !=
+                                        200u, &index_runlist_data,
+                                        &index_runlist_size) !=
                     PROS_NTFS_OK)
                 return -116;
-            if (ntfs_decode_runlist(data, data_size, index_runs, 2u,
+            if (ntfs_decode_runlist(index_runlist_data, index_runlist_size, index_runs, 2u,
                                     &index_run_count) != PROS_NTFS_OK ||
                 index_run_count != 1u || index_runs[0].lcn != 5u ||
                 index_runs[0].clusters != 1u)
