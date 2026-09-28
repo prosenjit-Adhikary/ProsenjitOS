@@ -117,7 +117,7 @@ The read-only NTFS driver now includes:
 - read-only `$INDEX_ALLOCATION` child-node traversal with INDX USA/VCN validation and bounded cycle protection
 - NTFS `$Root` (MFT record 5) directory lookup and component-by-component path traversal
 
-The MFT and directory-index paths remain metadata-read-only. `$INDEX_ROOT` and `$INDEX_ALLOCATION` traversal now reach child INDX nodes, while NTFS `$UpCase` case-folding, alternate `$FILE_NAME` namespaces, and general file-data streaming are supported. Writable NTFS mounts now support safe overwrite of existing unnamed `$DATA` within the current file size; cluster allocation, file growth, metadata mutation and journal/recovery writes remain later milestones.
+The MFT and directory-index paths remain metadata-read-only. `$INDEX_ROOT` and `$INDEX_ALLOCATION` traversal now reach child INDX nodes, while NTFS `$UpCase` case-folding, alternate `$FILE_NAME` namespaces, and general file-data streaming are supported. Writable NTFS mounts now support safe overwrite of existing unnamed `$DATA` and growth inside already allocated non-sparse space. Growth zero-fills gaps and updates the nonresident `$DATA` real/initialized sizes plus MFT `$FILE_NAME` data-size copies. Cluster allocation, directory-index metadata updates and journal/recovery writes remain later milestones.
 
 See [docs/FILESYSTEM.md](docs/FILESYSTEM.md) for the detailed filesystem architecture and implementation order.
 
