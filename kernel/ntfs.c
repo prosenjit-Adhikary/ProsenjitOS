@@ -1297,6 +1297,11 @@ int ntfs_selftest(void)
             for (uint32_t i = 0u; i < 74u; ++i)
                 root_attr[entry + 16u + i] =
                     file_name_key[i];
+            /* Root separator key differs from the child target name. */
+            root_attr[entry + 16u + 66u] = 'r';
+            root_attr[entry + 16u + 68u] = 'o';
+            root_attr[entry + 16u + 70u] = 'o';
+            root_attr[entry + 16u + 72u] = 't';
             /* Child VCN 0 occupies the final eight bytes. */
             root_attr[entry + 104u - 8u] = 0u;
 
