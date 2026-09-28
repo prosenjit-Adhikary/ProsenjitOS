@@ -10,6 +10,15 @@
 #define PROS_EXFAT_ENOTSUP  -3
 #define PROS_EXFAT_ECORRUPT -4
 
+struct pros_exfat_dirent {
+    char name[256];
+    uint8_t attributes;
+    uint8_t no_fat_chain;
+    uint32_t first_cluster;
+    uint64_t valid_data_length;
+    uint64_t size;
+};
+
 struct pros_exfat {
     struct pros_vfs_mount mount;
     uint32_t bytes_per_sector;
@@ -42,6 +51,8 @@ int exfat_file_read(const struct pros_exfat *, uint32_t first_cluster,
                     uint64_t valid_data_length, uint64_t offset,
                     void *buffer, uint32_t length, uint32_t *done);
 
+int exfat_find(const struct pros_exfat *, uint32_t, const char *,
+               struct pros_exfat_dirent *);
 int exfat_selftest(void);
 
 #endif
