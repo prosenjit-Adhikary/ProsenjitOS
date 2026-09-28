@@ -119,7 +119,8 @@
   - [x] NTFS safe overwrite of existing unnamed $DATA (no allocation)
   - [x] NTFS file growth inside already allocated non-sparse $DATA
   - [x] NTFS `$Bitmap` contiguous free-cluster allocation primitive
-  - [ ] NTFS full write support (runlist growth, directory metadata updates, journal/recovery)
+  - [x] NTFS file growth with exact contiguous `$Bitmap` allocation and runlist extension
+  - [ ] NTFS full write support (non-contiguous runlist growth, directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
 - [ ] Ethernet
