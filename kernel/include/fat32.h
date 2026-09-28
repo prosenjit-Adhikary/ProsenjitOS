@@ -40,6 +40,8 @@ int fat32_find(const struct pros_fat32 *, uint32_t, const char *,
                struct pros_fat32_dirent *);
 int fat32_read_file(const struct pros_fat32 *, const struct pros_fat32_dirent *,
                     uint32_t, uint32_t, void *);
+int fat32_open_83(struct pros_fat32 *, uint32_t, const char *, struct pros_vfs_file *,
+                  struct pros_fat32_dirent *);
 int fat32_selftest(void);
 
 #endif
