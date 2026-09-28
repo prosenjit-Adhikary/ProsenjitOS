@@ -48,8 +48,11 @@
   - [x] Kernel-thread timer preemption validated under QEMU
 - [x] System-call boundary
 - [ ] IPC
-  - [ ] Kernel message/channel objects
+  - [x] Kernel message/channel objects
+  - [x] IPC object represented by capability handles
   - [ ] Capability-mediated endpoint transfer
+  - [ ] Kernel-mediated cross-process transfer syscall
+  - [ ] Blocking receive and scheduler wakeups
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
