@@ -1,7 +1,16 @@
 #include "paging.h"
 #include "memory.h"
 
+extern char __kernel_text_start[];
+extern char __kernel_text_end[];
+extern char __kernel_rodata_start[];
+extern char __kernel_rodata_end[];
+extern char stack_bottom[];
 extern char stack_top[];
+extern char ist1_stack_bottom[];
+extern char ist1_stack_top[];
+extern char ist2_stack_bottom[];
+extern char ist2_stack_top[];
 
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
