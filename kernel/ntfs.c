@@ -4764,6 +4764,9 @@ int ntfs_selftest(void)
         {
             static uint8_t vfs_child_record[1024];
             uint32_t vfs_fn_offset = 0u;
+            if (le32(disk.file_record + 120u) != 0x30u ||
+                le32(disk.file_record + 124u) != 128u)
+                return -1839;
             struct pros_ntfs_file_name vfs_fn_info;
             if (ntfs_read_file_record(&fs, 11u, vfs_child_record,
                                       sizeof(vfs_child_record)) != PROS_NTFS_OK)
