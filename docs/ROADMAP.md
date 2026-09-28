@@ -107,7 +107,8 @@
   - [ ] Path, vnode/inode, file and directory APIs
   - [ ] Filesystem probe and partition integration
 - [ ] FAT32 filesystem support
-  - [ ] Read-only FAT32 mount/parser
+  - [x] Read-only FAT32 BPB mount/parser foundation
+  - [ ] Read-only FAT32 directory/file reader
   - [ ] FAT32 write support
 - [ ] exFAT filesystem support
   - [ ] Read-only exFAT mount/parser
