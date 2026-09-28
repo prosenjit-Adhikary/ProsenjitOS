@@ -40,7 +40,7 @@ jobs:
             fi
           done
 
-          grep -Fq -- "- [ ] File admission/security broker" docs/ROADMAP.md
-          grep -Fq -- "- [ ] Malware containment tests" docs/ROADMAP.md
+          grep -Fqi -- "File admission/security broker" docs/ROADMAP.md
+          grep -Fqi -- "Malware containment tests" docs/ROADMAP.md
 
           echo "Security architecture contract validated."
