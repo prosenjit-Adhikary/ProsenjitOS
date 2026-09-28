@@ -61,6 +61,12 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
 int ntfs_mft_initialize_record(struct pros_ntfs *fs,
                                 uint64_t record_number,
                                 uint8_t directory);
+int ntfs_mft_add_file_name(struct pros_ntfs *fs,
+                           uint64_t record_number,
+                           uint64_t parent_reference,
+                           const uint16_t *name_utf16le,
+                           uint8_t name_length,
+                           uint8_t namespace_id);
 int ntfs_bootstrap_mft(struct pros_ntfs *fs);
 int ntfs_file_record_fixup(void *record, uint32_t record_size, uint32_t bytes_per_sector);
 
