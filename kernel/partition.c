@@ -20,7 +20,7 @@ int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
     uint8_t sector[512];
-    if (!device || !table_type || device->sector_size < sizeof(sector))
+    if (!device || !table_type || device->sector_size != sizeof(sector))
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
@@ -49,7 +49,7 @@ int partition_read_mbr(struct pros_block_device *device,
 {
     uint8_t sector[512];
     uint32_t found = 0;
-    if (!device || !partitions || !count || capacity == 0 || device->sector_size < 512)
+    if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
@@ -80,21 +80,32 @@ int partition_read_gpt(struct pros_block_device *device,
     uint8_t header[512];
     uint8_t entry[1024];
     uint64_t entries_lba;
+    uint32_t header_size;
     uint32_t entry_count;
     uint32_t entry_size;
     uint32_t found = 0;
-    if (!device || !partitions || !count || capacity == 0 || device->sector_size < 512)
+    if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
         header[4] != 'P' || header[5] != 'A' || header[6] != 'R' || header[7] != 'T')
         return PROS_PARTITION_ENOTSUP;
+    header_size = le32(header + 12);
     entries_lba = le64(header + 72);
     entry_count = le32(header + 80);
     entry_size = le32(header + 84);
-    if (entry_size < 128 || entry_size > device->sector_size ||
-        entry_size > 1024u || entries_lba >= device->sector_count)
+    if (header_size < 92u || header_size > device->sector_size ||
+        entry_count == 0u || entry_size < 128u ||
+        entry_size > device->sector_size || entry_size > 1024u ||
+        entries_lba >= device->sector_count)
+        return PROS_PARTITION_EINVAL;
+    uint64_t entry_bytes = (uint64_t)entry_count * entry_size;
+    uint64_t entry_sectors = entry_bytes / device->sector_size;
+    if (entry_bytes % device->sector_size != 0u)
+        ++entry_sectors;
+    if (entry_sectors == 0u ||
+        entry_sectors > device->sector_count - entries_lba)
         return PROS_PARTITION_EINVAL;
     for (uint32_t i = 0; i < entry_count && found < capacity; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
@@ -255,6 +266,7 @@ int partition_selftest(void)
     gpt_media[446u + 4u] = 0xEEu;
     gpt_media[510u] = 0x55u;
     gpt_media[511u] = 0xAAu;
+    gpt_media[512u + 12u] = 92u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
     gpt_media[512u + 84u] = 300u;
@@ -291,6 +303,18 @@ int partition_selftest(void)
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
+
+    /* Reject a partition-entry array that extends beyond the device. */
+    partition_test_media[512u + 80u] = 0xFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+        PROS_PARTITION_EINVAL)
+        return -5;
+
+    /* Restore a valid entry count, then reject an empty entry array. */
+    partition_test_media[512u + 80u] = 0u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+        PROS_PARTITION_EINVAL)
+        return -6;
 
     return PROS_PARTITION_OK;
 }
