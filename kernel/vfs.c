@@ -147,6 +147,25 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     return PROS_VFS_OK;
 }
 
+int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
+                   uint32_t length, uint32_t *bytes_written)
+{
+    int rc;
+    if (!file || !file->open || !file->mount || !file->mount->active ||
+        !file->ops || !file->ops->write || !buffer || !bytes_written ||
+        (file->flags & PROS_VFS_O_WRITE) == 0u ||
+        file->mount->read_only || file->position > 0xFFFFFFFFULL)
+        return PROS_VFS_EPERM;
+    rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
+    if (rc < 0)
+        return rc;
+    if ((uint32_t)rc > length)
+        return PROS_VFS_EIO;
+    file->position += (uint32_t)rc;
+    *bytes_written = (uint32_t)rc;
+    return PROS_VFS_OK;
+}
+
 int vfs_file_close(struct pros_vfs_file *file)
 {
     int rc;
