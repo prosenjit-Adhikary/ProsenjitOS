@@ -1544,13 +1544,22 @@ int ntfs_selftest(void)
         disk.root_record[510u] = 0x34u; disk.root_record[511u] = 0x12u;
         disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
 
-        if (ntfs_directory_lookup(&fs, 5u, path_name, 4u,
-                                  &path_reference) != PROS_NTFS_OK ||
-            path_reference != 0x2000u ||
-            ntfs_path_lookup(&fs, components, lengths, 1u,
-                             &path_reference) != PROS_NTFS_OK ||
-            path_reference != 0x2000u)
-            return -121;
+        {
+            int directory_status = ntfs_directory_lookup(
+                &fs, 5u, path_name, 4u, &path_reference);
+            if (directory_status != PROS_NTFS_OK)
+                return -140 + directory_status;
+            if (path_reference != 0x2000u)
+                return -150;
+            {
+                int path_status = ntfs_path_lookup(
+                    &fs, components, lengths, 1u, &path_reference);
+                if (path_status != PROS_NTFS_OK)
+                    return -160 + path_status;
+                if (path_reference != 0x2000u)
+                    return -170;
+            }
+        }
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
                              &path_reference) != PROS_NTFS_EINVAL)
