@@ -75,3 +75,10 @@ The current path does not yet write:
 - `$LogFile` journal transactions
 
 These should be added only with corresponding metadata validation and regression tests.
+
+### Latest safety hardening
+
+- MFT record reuse now advances the record sequence number so stale file references are not silently revived.
+- Directory creation checks for an existing case-insensitive name before allocating a new MFT record.
+- Directory index insertion preserves NTFS $UpCase ordering and rejects case-insensitive duplicates.
+- VFS directory lookup clears temporary $UpCase comparison state on all early failures.
