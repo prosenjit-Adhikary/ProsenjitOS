@@ -3558,10 +3558,10 @@ int ntfs_selftest(void)
         disk.root_record[86u] = 0u;
         disk.root_record[87u] = 0u;
 
-        disk.file_record[120u] = 0u;
-        disk.file_record[121u] = 0u;
-        disk.file_record[122u] = 0u;
-        disk.file_record[123u] = 0u;
+        disk.file_record[120u] = 0xFFu;
+        disk.file_record[121u] = 0xFFu;
+        disk.file_record[122u] = 0xFFu;
+        disk.file_record[123u] = 0xFFu;
         {
             uint32_t fn = 128u;
             uint32_t value = fn + 24u;
