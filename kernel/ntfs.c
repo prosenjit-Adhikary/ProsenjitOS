@@ -978,12 +978,13 @@ static int ntfs_extend_last_run(uint8_t *record, uint32_t record_size,
 }
 static uint32_t ntfs_signed_width(int64_t value)
 {
-    for (uint32_t n = 1u; n < 8u; ++n) {
-        int64_t min = -(1ll << (n * 8u - 1u));
-        int64_t max = (1ll << (n * 8u - 1u)) - 1ll;
-        if (value >= min && value <= max)
-            return n;
-    }
+    if (value >= -128ll && value <= 127ll) return 1u;
+    if (value >= -32768ll && value <= 32767ll) return 2u;
+    if (value >= -8388608ll && value <= 8388607ll) return 3u;
+    if (value >= -2147483648ll && value <= 2147483647ll) return 4u;
+    if (value >= -549755813888ll && value <= 549755813887ll) return 5u;
+    if (value >= -140737488355328ll && value <= 140737488355327ll) return 6u;
+    if (value >= -36028797018963968ll && value <= 36028797018963967ll) return 7u;
     return 8u;
 }
 
