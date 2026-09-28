@@ -517,9 +517,9 @@ static int vfs_selftest_readdir(struct pros_vfs_vnode *vnode,
     else if (*cookie == 1u)
         child = dir->child1;
     else
-        return 0;
+        return PROS_VFS_ENOENT;
     if (!child)
-        return 0;
+        return PROS_VFS_ENOENT;
     struct vfs_selftest_node *node =
         (struct vfs_selftest_node *)child->private_data;
     uint32_t i = 0;
@@ -629,10 +629,10 @@ static int vfs_vnode_api_selftest(void)
         return -1;
 
     if (vfs_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
-        vfs_dir_read(&dir, &entry) != 1 ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
         entry.type != PROS_VFS_NODE_FILE ||
         entry.name[0] != 'c' ||
-        vfs_dir_read(&dir, &entry) != 0 ||
+        vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
         vfs_dir_close(&dir) != PROS_VFS_OK)
         return -1;
 
