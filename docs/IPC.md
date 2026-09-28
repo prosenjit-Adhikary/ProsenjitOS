@@ -51,3 +51,12 @@ so scheduler/run-queue operations are not performed while the IPC channel lock i
 This is a foundation for SMP-safe IPC, not a complete kernel-wide locking scheme.
 User-buffer copying still depends on the existing address-range validation and does not
 yet provide a fault-safe copy-from/to-user primitive.
+
+
+## Validated user-copy layer
+
+IPC syscall payloads now pass through shared `copy_from_user` and `copy_to_user`
+helpers. Each helper validates the complete user range and required permissions before
+performing the copy, and IPC queue locks are not held during user-memory access.
+This reduces duplicated raw user-pointer dereferences. It is not yet fault-recoverable:
+a concurrent unmap or page fault after validation still requires a page-fault fixup path.
