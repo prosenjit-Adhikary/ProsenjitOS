@@ -5,6 +5,7 @@
 #include "process.h"
 #include "thread.h"
 #include "intent.h"
+#include "ipc.h"
 #include "../include/abi/syscall.h"
 
 #define COM1_PORT 0x3F8u
@@ -142,6 +143,103 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 return;
             }
             registers[0] = PROSENJIT_SYSCALL_OK;
+            return;
+        }
+
+        case PROSENJIT_SYS_IPC_SEND: {
+            struct pros_process *process = process_current();
+            uint64_t handle = registers[5];
+            uint64_t buffer = registers[4];
+            uint64_t length = registers[3];
+            struct pros_thread *current = thread_current();
+            uint64_t tid = current ? current->tid : 0;
+            uint16_t object_type = PROS_OBJECT_NONE;
+            struct pros_intent intent;
+            uint64_t reason = PROS_REASON_NONE;
+
+            if (!process || length > PROSENJIT_IPC_MESSAGE_MAX ||
+                address_space_validate_user_range(&process->address_space,
+                                                  buffer, length ? length : 1, 0) != 0 ||
+                process_handle_type(process, handle, &object_type) != 0 ||
+                object_type != PROS_OBJECT_IPC ||
+                security_make_intent(&intent, PROS_INTENT_WRITE,
+                                     PROS_OBJECT_IPC, handle,
+                                     PROSENJIT_CAP_WRITE) != 0 ||
+                security_authorize(process, &intent, tid, &reason) != PROS_DECISION_ALLOW) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
+            uint32_t slot = (uint32_t)(handle & 0xFFULL);
+            uint16_t generation = (uint16_t)(handle >> 8);
+            struct pros_handle_entry *entry = &process->handles.entries[slot];
+            if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX ||
+                generation == 0 || !entry->object ||
+                entry->generation != generation) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+
+            int rc = ipc_channel_send((struct pros_ipc_channel *)entry->object,
+                                      (const void *)(uintptr_t)buffer,
+                                      (uint32_t)length);
+            registers[0] = (rc == PROSENJIT_IPC_OK) ? PROSENJIT_SYSCALL_OK :
+                           (rc == PROSENJIT_IPC_EFULL ? PROSENJIT_SYSCALL_EPERM :
+                            PROSENJIT_SYSCALL_EBADF);
+            return;
+        }
+
+        case PROSENJIT_SYS_IPC_RECEIVE: {
+            struct pros_process *process = process_current();
+            uint64_t handle = registers[5];
+            uint64_t buffer = registers[4];
+            uint64_t capacity = registers[3];
+            uint64_t length_out = registers[2];
+            struct pros_thread *current = thread_current();
+            uint64_t tid = current ? current->tid : 0;
+            uint16_t object_type = PROS_OBJECT_NONE;
+            struct pros_intent intent;
+            uint64_t reason = PROS_REASON_NONE;
+
+            if (!process || capacity > PROSENJIT_IPC_MESSAGE_MAX ||
+                capacity == 0 ||
+                address_space_validate_user_range(&process->address_space,
+                                                  buffer, capacity, 1) != 0 ||
+                address_space_validate_user_range(&process->address_space,
+                                                  length_out, sizeof(uint32_t), 1) != 0 ||
+                process_handle_type(process, handle, &object_type) != 0 ||
+                object_type != PROS_OBJECT_IPC ||
+                security_make_intent(&intent, PROS_INTENT_READ,
+                                     PROS_OBJECT_IPC, handle,
+                                     PROSENJIT_CAP_READ) != 0 ||
+                security_authorize(process, &intent, tid, &reason) != PROS_DECISION_ALLOW) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
+            uint32_t slot = (uint32_t)(handle & 0xFFULL);
+            uint16_t generation = (uint16_t)(handle >> 8);
+            struct pros_handle_entry *entry = &process->handles.entries[slot];
+            if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX ||
+                generation == 0 || !entry->object ||
+                entry->generation != generation) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+
+            uint32_t received = 0;
+            int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
+                                          (void *)(uintptr_t)buffer,
+                                          (uint32_t)capacity, &received);
+            if (rc != PROSENJIT_IPC_OK) {
+                registers[0] = (rc == PROSENJIT_IPC_EEMPTY ||
+                                rc == PROSENJIT_IPC_EMSGSIZE)
+                               ? PROSENJIT_SYSCALL_EPERM
+                               : PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            *(volatile uint32_t *)(uintptr_t)length_out = received;
+            registers[0] = received;
             return;
         }
 
