@@ -6,6 +6,7 @@
 #include "thread.h"
 #include "intent.h"
 #include "ipc.h"
+#include "usercopy.h"
 #include "../include/abi/syscall.h"
 
 #define COM1_PORT 0x3F8u
@@ -180,9 +181,14 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 return;
             }
 
+            uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
+            if (length != 0 && copy_from_user(&process->address_space, message,
+                                              buffer, length) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
             int rc = ipc_channel_send((struct pros_ipc_channel *)entry->object,
-                                      (const void *)(uintptr_t)buffer,
-                                      (uint32_t)length);
+                                      message, (uint32_t)length);
             registers[0] = (rc == PROSENJIT_IPC_OK) ? PROSENJIT_SYSCALL_OK :
                            (rc == PROSENJIT_IPC_EFULL ? PROSENJIT_SYSCALL_EPERM :
                             PROSENJIT_SYSCALL_EBADF);
@@ -227,10 +233,10 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 return;
             }
 
+            uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
             int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
-                                          (void *)(uintptr_t)buffer,
-                                          (uint32_t)capacity, &received);
+                                          message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
                 /*
                  * Do not block if there is no runnable successor. Until the
@@ -256,7 +262,16 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                                : PROSENJIT_SYSCALL_EBADF;
                 return;
             }
-            *(volatile uint32_t *)(uintptr_t)length_out = received;
+            if (received != 0 && copy_to_user(&process->address_space,
+                                               buffer, message, received) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            if (copy_to_user(&process->address_space, length_out,
+                             &received, sizeof(received)) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
             registers[0] = received;
             return;
         }
