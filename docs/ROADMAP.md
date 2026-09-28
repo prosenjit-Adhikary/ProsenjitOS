@@ -2,11 +2,11 @@
 
 ## Current status — 2026-09-28
 
-The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, and documented the firewall-inspired unknown-threat handling model. The repository is private.
+The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, added an exFAT FAT-chain/file-stream read foundation, and documented the firewall-inspired unknown-threat handling model. The repository is private.
 
 ### Current engineering focus
 1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
-2. **exFAT:** turn the current geometry/mount foundation and regression coverage into a read-only filesystem implementation, then add directory/file reads.
+2. **exFAT:** continue the new read-only FAT-chain/file-stream foundation with directory-entry parsing and VFS vnode integration.
 3. **NTFS:** continue from the current safe file-data write path toward directory-index mutation, cluster allocation, and journal/recovery; keep destructive metadata writes out until each stage is regression-tested.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing admission/quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** build the driver model and block-device/device broker around the completed PCI enumeration layer, then add keyboard/display/network device abstractions.
@@ -17,6 +17,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - PCI configuration/enumeration foundation implemented and marked complete.
 - FAT32 geometry regression coverage expanded.
 - exFAT geometry regression coverage expanded.
+- exFAT FAT-entry validation and bounded file-stream reads implemented, including NoFatChain and ValidDataLength handling.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
 - NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
 - No open pull requests are currently present.
@@ -135,7 +136,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Read-only FAT32 directory/file reader
   - [ ] FAT32 write support
 - [ ] exFAT filesystem support
-  - [ ] Read-only exFAT mount/parser
+  - [x] Read-only exFAT mount/parser and FAT-chain/file-stream read foundation
+  - [ ] exFAT directory/file VFS integration
   - [ ] exFAT write support
 - [ ] NTFS filesystem support
   - [x] NTFS compatibility architecture documented
