@@ -1460,7 +1460,7 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
     while (name[name_length] != '\0') {
         unsigned char ch = (unsigned char)name[name_length];
         if (name_length >= PROS_VFS_NAME_MAX || ch > 0x7Fu)
-            return PROS_VFS_ENOTSUP;
+            return PROS_VFS_EINVAL;
         name_utf16le[name_length * 2u] = ch;
         name_utf16le[name_length * 2u + 1u] = 0u;
         ++name_length;
