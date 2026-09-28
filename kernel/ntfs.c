@@ -859,7 +859,8 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
     if (record[attr_offset + 8u] == 0u) {
         uint32_t size;
         if (ntfs_attribute_data(record, fs->bytes_per_file_record,
-                                attr_offset, 0, &size) != PROS_NTFS_OK)
+                                attr_offset, (const uint8_t **)&record,
+                                &size) != PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
         bitmap_size = size;
     } else {
@@ -882,12 +883,15 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
             return PROS_NTFS_ECORRUPT;
     }
 
-    total_records = fs->total_sectors / fs->sectors_per_cluster;
     if (fs->bytes_per_file_record == 0u ||
+        fs->bytes_per_sector == 0u ||
         fs->sectors_per_cluster == 0u ||
-        total_records == 0u)
+        fs->total_sectors == 0u)
         return PROS_NTFS_ECORRUPT;
-    total_records = (total_records * (uint64_t)fs->sectors_per_cluster) /
+    if (fs->total_sectors >
+        0xFFFFFFFFFFFFFFFFull / fs->bytes_per_sector)
+        return PROS_NTFS_EOVERFLOW;
+    total_records = (fs->total_sectors * (uint64_t)fs->bytes_per_sector) /
                     fs->bytes_per_file_record;
     record_count = bitmap_size * 8u;
     if (record_count > total_records)
