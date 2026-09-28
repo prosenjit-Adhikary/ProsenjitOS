@@ -144,7 +144,8 @@ int thread_block(void *wait_channel) {
 }
 
 int thread_wake(struct pros_thread *thread) {
-    if (!thread || thread->state != PROS_THREAD_BLOCKED)
+    if (!thread || thread->state != PROS_THREAD_BLOCKED ||
+        !thread_process_runnable(thread))
         return -1;
     thread->wait_channel = 0;
     return thread_enqueue(thread);
