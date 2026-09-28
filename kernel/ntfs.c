@@ -1157,9 +1157,9 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         return PROS_NTFS_ECORRUPT;
     if (offset > 0xFFFFFFFFFFFFFFFFull - (uint64_t)size)
         return PROS_NTFS_EOVERFLOW;
-    new_real_size = offset + (uint64_t)size;
-    if (new_real_size > 0xFFFFFFFFFFFFFFFFull)
+    if (offset > 0xFFFFFFFFFFFFFFFFull - (uint64_t)size)
         return PROS_NTFS_EOVERFLOW;
+    new_real_size = offset + (uint64_t)size;
 
     if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
                                attr_offset, &runlist, &runlist_size) !=
