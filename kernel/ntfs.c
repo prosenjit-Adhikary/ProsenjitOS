@@ -1945,9 +1945,10 @@ int ntfs_selftest(void)
     disk.nonresident_record[56]=1u;
     disk.nonresident_record[64]=0u;
     disk.nonresident_record[65]=0u;
-    disk.nonresident_record[72]=0x00u; disk.nonresident_record[73]=0x10u;
-    disk.nonresident_record[80]=0x00u; disk.nonresident_record[81]=0x10u;
+    disk.nonresident_record[80]=0x40u;
     disk.nonresident_record[88]=0x00u; disk.nonresident_record[89]=0x10u;
+    disk.nonresident_record[96]=0x00u; disk.nonresident_record[97]=0x04u;
+    disk.nonresident_record[104]=0x00u; disk.nonresident_record[105]=0x04u;
     disk.nonresident_record[112]=0x11u;
     disk.nonresident_record[113]=1u;
     disk.nonresident_record[114]=42u;
@@ -2052,8 +2053,8 @@ int ntfs_selftest(void)
             read_back != sizeof(replacement) ||
             verify[0] != 'X' || verify[1] != 'Y' ||
             verify[2] != 'Z' || verify[3] != '!' ||
-            disk.nonresident_data[509u] != 'z' ||
-            disk.nonresident_data[514u] != 'o')
+            disk.nonresident_data[509u] != 'p' ||
+            disk.nonresident_data[514u] != 'u')
             return -122;
     }
 
