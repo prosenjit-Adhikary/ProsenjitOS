@@ -172,12 +172,37 @@ int paging_init(void) {
     if (map_identity_range(rodata_start, rodata_end, PROSENJIT_PAGE_NX) != 0)
         return -1;
 
+    /*
+     * The bootstrap and IST stacks must remain mapped after CR3 switches.
+     * Map them explicitly as supervisor RW + NX. Keep the linker symbols as
+     * integer addresses before doing end-1 arithmetic so -Warray-bounds does
+     * not treat stack_top as an actual C array object.
+     */
+    uint64_t stack_start = (uint64_t)(uintptr_t)stack_bottom;
+    uint64_t stack_end = (uint64_t)(uintptr_t)stack_top;
+    uint64_t ist1_start = (uint64_t)(uintptr_t)ist1_stack_bottom;
+    uint64_t ist1_end = (uint64_t)(uintptr_t)ist1_stack_top;
+    uint64_t ist2_start = (uint64_t)(uintptr_t)ist2_stack_bottom;
+    uint64_t ist2_end = (uint64_t)(uintptr_t)ist2_stack_top;
+
+    if (map_identity_range(stack_start, stack_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        map_identity_range(ist1_start, ist1_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        map_identity_range(ist2_start, ist2_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+        return -1;
+
     uint64_t test_page = physical_page_alloc();
     if (!test_page) return -1;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, test_page,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) return -1;
 
-    if (paging_translate((uint64_t)(uintptr_t)(stack_top - 1)) == 0)
+    if (stack_end <= stack_start || ist1_end <= ist1_start ||
+        ist2_end <= ist2_start ||
+        paging_translate(stack_end - 1u) == 0 ||
+        paging_translate(ist1_end - 1u) == 0 ||
+        paging_translate(ist2_end - 1u) == 0)
         return -1;
 
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)kernel_pml4) : "memory");
