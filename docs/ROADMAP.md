@@ -118,7 +118,8 @@
   - [ ] Read-only NTFS mount/parser
   - [x] NTFS safe overwrite of existing unnamed $DATA (no allocation)
   - [x] NTFS file growth inside already allocated non-sparse $DATA
-  - [ ] NTFS full write support (cluster allocation, runlist growth, directory metadata updates)
+  - [x] NTFS `$Bitmap` contiguous free-cluster allocation primitive
+  - [ ] NTFS full write support (runlist growth, directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
 - [ ] Ethernet
