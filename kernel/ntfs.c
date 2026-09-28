@@ -342,7 +342,9 @@ int ntfs_attribute_runlist(const void *record, uint32_t record_size,
     if (!a || !runlist || !runlist_size || attr_offset + 64u > record_size)
         return PROS_NTFS_EINVAL;
     attr_len = le32(a + attr_offset + 4u);
-    if (attr_len < 64u || attr_offset + attr_len > record_size)
+    if (attr_len < 64u ||
+        attr_offset > record_size ||
+        attr_len > record_size - attr_offset)
         return PROS_NTFS_ECORRUPT;
     if (a[attr_offset + 8u] == 0u)
         return PROS_NTFS_ENOTSUP;
@@ -1048,11 +1050,18 @@ static int ntfs_append_run(uint8_t *record, uint32_t record_size,
         uint32_t vbytes = ntfs_signed_width((int64_t)clusters);
         uint32_t lbytes = ntfs_signed_width(lcn_delta);
         required = 1u + vbytes + lbytes + 1u;
-        if (attr_offset + le32(record + attr_offset + 4u) >
-                record_size ||
-            pos + required > le32(record + attr_offset + 4u) -
-                              le16(record + attr_offset + 32u))
-            return PROS_NTFS_ENOTSUP;
+        {
+            uint32_t attr_len = le32(record + attr_offset + 4u);
+            uint16_t run_offset = le16(record + attr_offset + 32u);
+            if (attr_offset > record_size ||
+                attr_len < 64u ||
+                attr_len > record_size - attr_offset ||
+                run_offset < 64u ||
+                run_offset >= attr_len ||
+                pos > attr_len - run_offset ||
+                required > attr_len - run_offset - pos)
+                return PROS_NTFS_ENOTSUP;
+        }
 
         uint8_t *dst = record + attr_offset +
                        le16(record + attr_offset + 32u) + pos;
