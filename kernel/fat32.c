@@ -633,7 +633,8 @@ static int fat32_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie, str
             }
 
             if (raw_index < *cookie) {
-                lfn_count = 0;
+                /* A skipped short entry still belongs to any preceding LFN
+                 * sequence, so do not discard the sequence before advancing. */
                 continue;
             }
 
