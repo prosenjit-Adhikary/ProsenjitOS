@@ -343,7 +343,8 @@ int ntfs_attribute_runlist(const void *record, uint32_t record_size,
         return PROS_NTFS_ENOTSUP;
     run_offset = le16(a + attr_offset + 32u);
     allocated = le64(a + attr_offset + 40u);
-    if ((uint32_t)run_offset >= attr_len || allocated == 0u)
+    if ((uint32_t)run_offset >= attr_len || allocated == 0u ||
+        run_offset < 64u)
         return PROS_NTFS_ECORRUPT;
     *runlist = a + attr_offset + run_offset;
     *runlist_size = attr_len - run_offset;
@@ -523,8 +524,10 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
         fs->bytes_per_file_record > sizeof(record))
         return PROS_NTFS_EINVAL;
 
+    if (fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
     total_clusters = fs->total_sectors / fs->sectors_per_cluster;
-    if (fs->sectors_per_cluster == 0u || total_clusters == 0u ||
+    if (total_clusters == 0u ||
         first_lcn >= total_clusters ||
         cluster_count > total_clusters - first_lcn)
         return PROS_NTFS_EOVERFLOW;
@@ -666,7 +669,9 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
     scan_lcn = start_lcn;
     while (scan_lcn < total_clusters) {
         uint64_t byte_offset = scan_lcn / 8u;
-        uint32_t want = (uint32_t)(bitmap_size - byte_offset);
+        uint64_t bitmap_remaining = bitmap_size - byte_offset;
+        uint32_t want = bitmap_remaining > 0xFFFFFFFFull ?
+                        0xFFFFFFFFu : (uint32_t)bitmap_remaining;
         if (want > sizeof(bitmap_chunk))
             want = sizeof(bitmap_chunk);
         if (want == 0u)
@@ -1003,7 +1008,8 @@ static int ntfs_append_run(uint8_t *record, uint32_t record_size,
 
     if (!record || !last_run || clusters == 0u ||
         vcn > 0x7FFFFFFFFFFFFFFFull ||
-        clusters > 0x7FFFFFFFFFFFFFFFull)
+        clusters > 0x7FFFFFFFFFFFFFFFull ||
+        clusters > 0xFFFFFFFFFFFFFFFFull - vcn)
         return PROS_NTFS_EINVAL;
     if (ntfs_attribute_runlist(record, record_size, attr_offset,
                                &runlist, &runlist_size) != PROS_NTFS_OK)
