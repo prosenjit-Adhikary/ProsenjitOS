@@ -821,6 +821,76 @@ static int ntfs_bitmap_free_clusters(struct pros_ntfs *fs,
     return ntfs_bitmap_update_clusters(fs, first_lcn, cluster_count, 0u);
 }
 
+static int ntfs_mft_initialize_record(struct pros_ntfs *fs,
+                                            uint64_t record_number,
+                                            uint8_t directory)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t first_attr;
+    uint32_t used_size;
+    uint32_t usa_count;
+
+    if (!fs || fs->bytes_per_file_record < 512u ||
+        fs->bytes_per_file_record > sizeof(record) ||
+        fs->bytes_per_sector < 512u ||
+        fs->bytes_per_file_record % fs->bytes_per_sector != 0u ||
+        record_number > 0x0000FFFFFFFFFFFFull)
+        return PROS_NTFS_EINVAL;
+
+    usa_count = fs->bytes_per_file_record / fs->bytes_per_sector + 1u;
+    first_attr = 56u;
+    if ((uint32_t)first_attr + 8u > fs->bytes_per_file_record ||
+        usa_count < 2u ||
+        (uint32_t)48u + usa_count * 2u > first_attr)
+        return PROS_NTFS_ECORRUPT;
+
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        record[i] = 0u;
+
+    record[0] = 'F';
+    record[1] = 'I';
+    record[2] = 'L';
+    record[3] = 'E';
+
+    record[4] = 48u;
+    record[5] = 0u;
+    record[6] = (uint8_t)usa_count;
+    record[7] = (uint8_t)(usa_count >> 8);
+
+    /* Sequence starts at zero; ntfs_write_file_record advances it to 1. */
+    record[40] = 0u;
+    record[41] = 0u;
+
+    /* One hard-link/name reference is expected once $FILE_NAME is added. */
+    record[44] = 1u;
+    record[45] = 0u;
+
+    record[20] = (uint8_t)first_attr;
+    record[21] = (uint8_t)(first_attr >> 8);
+
+    record[22] = (uint8_t)(directory ? 0x03u : 0x01u);
+    record[23] = 0u;
+
+    used_size = first_attr + 8u;
+    record[24] = (uint8_t)used_size;
+    record[25] = (uint8_t)(used_size >> 8);
+    record[26] = (uint8_t)(used_size >> 16);
+    record[27] = (uint8_t)(used_size >> 24);
+
+    record[28] = (uint8_t)fs->bytes_per_file_record;
+    record[29] = (uint8_t)(fs->bytes_per_file_record >> 8);
+    record[30] = (uint8_t)(fs->bytes_per_file_record >> 16);
+    record[31] = (uint8_t)(fs->bytes_per_file_record >> 24);
+
+    /* No base record and no next attribute identifier yet. */
+    record[first_attr] = 0xFFu;
+    record[first_attr + 1u] = 0xFFu;
+    record[first_attr + 2u] = 0xFFu;
+    record[first_attr + 3u] = 0xFFu;
+
+    return ntfs_write_file_record(fs, record_number, record);
+}
+
 int ntfs_mft_allocate_record(struct pros_ntfs *fs,
                                  uint64_t *record_number)
 {
