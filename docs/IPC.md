@@ -41,3 +41,13 @@ waiting receiver and returns it to the scheduler run queue. The CPL3 receive sys
 thread through the interrupt-frame scheduler path, and retries the receive syscall
 when a receiver is woken. Until an idle thread exists, receive refuses to block if
 there is no runnable successor.
+
+
+## Concurrency protection
+
+Channel queue indices, message count, and receiver wait-list mutations are protected
+by a small atomic lock. The send path releases the queue lock before waking a receiver,
+so scheduler/run-queue operations are not performed while the IPC channel lock is held.
+This is a foundation for SMP-safe IPC, not a complete kernel-wide locking scheme.
+User-buffer copying still depends on the existing address-range validation and does not
+yet provide a fault-safe copy-from/to-user primitive.
