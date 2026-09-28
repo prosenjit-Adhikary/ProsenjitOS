@@ -3,6 +3,7 @@
 #include "timer.h"
 #include "security_file.h"
 #include "security_provider.h"
+#include "security_admission.h"
 
 static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
@@ -46,6 +47,8 @@ int security_manager_init(void) {
     if (pros_file_security_selftest() != 0)
         return -1;
     if (pros_security_provider_selftest() != 0)
+        return -1;
+    if (pros_file_admission_selftest() != 0)
         return -1;
     next_intent_id = 1;
     ledger_sequence = 0;
