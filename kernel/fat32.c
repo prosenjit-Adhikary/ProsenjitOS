@@ -265,6 +265,36 @@ int fat32_selftest(void)
             return -111;
     }
 
+    /* Reject a BPB whose advertised volume exceeds the device. */
+    disk.boot[32] = 0x80; disk.boot[33] = 0x84;
+    disk.boot[34] = 0x0F; disk.boot[35] = 0x00; /* 1,000,000 + 1,000,000? */
+    if (fat32_mount(&fs, &device) != PROS_FAT32_ECORRUPT)
+        return -112;
+
+    /* Restore total sectors and reject a FAT too small for the data area. */
+    disk.boot[32] = 0x40; disk.boot[33] = 0x42;
+    disk.boot[34] = 0x0F; disk.boot[35] = 0x00;
+    disk.boot[36] = 0x01; disk.boot[37] = 0x00;
+    if (fat32_mount(&fs, &device) != PROS_FAT32_ECORRUPT)
+        return -113;
+
+    /* Restore FAT size and reject a root cluster outside the FAT32 range. */
+    disk.boot[36] = 0x40; disk.boot[37] = 0x1F;
+    disk.boot[44] = 0xFF; disk.boot[45] = 0xFF;
+    disk.boot[46] = 0xFF; disk.boot[47] = 0x0F;
+    if (fat32_mount(&fs, &device) != PROS_FAT32_ENOTSUP)
+        return -114;
+
+    /* Restore root cluster and reject overlapping reserved/FAT geometry. */
+    disk.boot[44] = 0x02; disk.boot[45] = 0x00;
+    disk.boot[14] = 0x20; disk.boot[15] = 0x00;
+    disk.boot[16] = 0x02;
+    disk.boot[36] = 0x40; disk.boot[37] = 0x1F;
+    disk.boot[32] = 0x20; disk.boot[33] = 0x00;
+    disk.boot[34] = 0x00; disk.boot[35] = 0x00;
+    if (fat32_mount(&fs, &device) != PROS_FAT32_ECORRUPT)
+        return -115;
+
     return 0;
 }
 
