@@ -4739,5 +4739,47 @@ int ntfs_selftest(void)
             return -122;
     }
 
+    /*
+     * Attribute-order regression: an ADS may precede the unnamed/default
+     * $DATA stream. Default file I/O must select the unnamed stream rather
+     * than treating the first named stream as the file contents.
+     */
+    {
+        uint8_t stream_record[128] = {0};
+        uint32_t stream_attr = 0u;
+        const uint8_t *stream_data = 0;
+        uint32_t stream_size = 0u;
+
+        stream_record[0] = 'F'; stream_record[1] = 'I';
+        stream_record[2] = 'L'; stream_record[3] = 'E';
+        stream_record[20] = 24u;
+
+        /* Named DATA stream: name length 3, no resident value. */
+        stream_record[24u] = 0x80u;
+        stream_record[28u] = 40u;
+        stream_record[33u] = 3u;
+        stream_record[34u] = 24u;
+        stream_record[64u] = 0x80u;
+        stream_record[68u] = 32u;
+        stream_record[80u] = 3u;
+        stream_record[84u] = 24u;
+        stream_record[88u] = 'O';
+        stream_record[89u] = 'K';
+        stream_record[92u] = 0xFFu;
+        stream_record[93u] = 0xFFu;
+        stream_record[94u] = 0xFFu;
+        stream_record[95u] = 0xFFu;
+
+        if (ntfs_find_unnamed_attribute(stream_record, sizeof(stream_record),
+                                        0x80u, &stream_attr) !=
+                PROS_NTFS_OK || stream_attr != 64u ||
+            ntfs_attribute_data(stream_record, sizeof(stream_record),
+                                stream_attr, &stream_data,
+                                &stream_size) != PROS_NTFS_OK ||
+            stream_size != 3u || stream_data[0] != 'O' ||
+            stream_data[1] != 'K' || stream_data[2] != 0u)
+            return -201;
+    }
+
     return 0;
 }
