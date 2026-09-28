@@ -66,7 +66,9 @@
 - [x] Per-process security identity
 - [x] Capability/permission model
   - [x] Kernel capability-handle foundation
-  - [x] Per-process capability policy\n  - [x] Capability transfer rules\n  - [ ] Kernel-mediated cross-process transfer syscall
+  - [x] Per-process capability policy
+  - [x] Capability transfer rules
+  - [ ] Kernel-mediated cross-process transfer syscall
   - [x] Intent-aware authorization pipeline
   - [x] Policy decision and bounded Reason Ledger
   - [x] Process quarantine containment state
