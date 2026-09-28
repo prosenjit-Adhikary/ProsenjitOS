@@ -1304,10 +1304,11 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
                             &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
 
-    if (record[attr_offset + 9u] != 0u)
+    if (record[attr_offset + 9u] != 0u ||
+        record[attr_offset + 8u] != 0u)
         return PROS_NTFS_ENOTSUP;
 
-    if (record[attr_offset + 8u] == 0u) {
+    {
         const uint8_t *bitmap_data;
         uint32_t size;
         if (ntfs_attribute_data(record, fs->bytes_per_file_record,
@@ -1315,24 +1316,6 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
                                 &size) != PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
         bitmap_size = size;
-    } else {
-        const uint8_t *runlist;
-        uint32_t runlist_size;
-        uint32_t run_count;
-        struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
-
-        if (record[attr_offset + 8u] != 1u ||
-            le64(record + attr_offset + 16u) != 0u ||
-            le16(record + attr_offset + 12u) != 0u)
-            return PROS_NTFS_ENOTSUP;
-        bitmap_size = le64(record + attr_offset + 48u);
-        if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
-                                    attr_offset, &runlist,
-                                    &runlist_size) != PROS_NTFS_OK ||
-            ntfs_decode_runlist(runlist, runlist_size, runs,
-                                PROS_NTFS_MFT_RUN_MAX, &run_count) !=
-                PROS_NTFS_OK)
-            return PROS_NTFS_ECORRUPT;
     }
 
     if (fs->bytes_per_file_record == 0u ||
@@ -1357,9 +1340,19 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
         if (want > sizeof(bitmap))
             want = sizeof(bitmap);
         got = 0u;
-        if (ntfs_file_read(fs, 0u, byte_offset, bitmap, want, &got) !=
-                PROS_NTFS_OK || got != want)
-            return PROS_NTFS_EIO;
+        {
+            const uint8_t *bitmap_data;
+            uint32_t bitmap_data_size;
+            if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                    attr_offset, &bitmap_data,
+                                    &bitmap_data_size) != PROS_NTFS_OK ||
+                byte_offset > bitmap_data_size ||
+                want > bitmap_data_size - byte_offset)
+                return PROS_NTFS_ECORRUPT;
+            for (uint32_t i = 0u; i < want; ++i)
+                bitmap[i] = bitmap_data[byte_offset + i];
+            got = want;
+        }
 
         for (uint32_t byte = 0u; byte < want; ++byte) {
             uint64_t base = (byte_offset + byte) * 8u;
@@ -1374,11 +1367,17 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
 
                 {
                     uint8_t updated = (uint8_t)(value | (uint8_t)(1u << bit));
-                    uint32_t written = 0u;
-                    if (ntfs_file_write(fs, 0u,
-                                        (byte_offset + byte), &updated, 1u,
-                                        &written) != PROS_NTFS_OK ||
-                        written != 1u)
+                    uint32_t bitmap_byte = (uint32_t)(byte_offset + byte);
+                    const uint8_t *bitmap_data;
+                    uint32_t bitmap_data_size;
+                    if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                            attr_offset, &bitmap_data,
+                                            &bitmap_data_size) != PROS_NTFS_OK ||
+                        bitmap_byte >= bitmap_data_size)
+                        return PROS_NTFS_ECORRUPT;
+                    ((uint8_t *)bitmap_data)[bitmap_byte] = updated;
+                    if (ntfs_write_file_record(fs, 0u, record) !=
+                        PROS_NTFS_OK)
                         return PROS_NTFS_EIO;
                 }
                 *record_number = candidate;
@@ -3518,7 +3517,10 @@ static int ntfs_vfs_create(struct pros_vfs_vnode *parent, const char *name,
         else return PROS_VFS_EINVAL;
 
         for (uint32_t i = 0u; i < extra; ++i) {
-            unsigned char tail = (unsigned char)name[pos++];
+            unsigned char tail;
+            if (name[pos] == '\0')
+                return PROS_VFS_EINVAL;
+            tail = (unsigned char)name[pos++];
             if ((tail & 0xC0u) != 0x80u)
                 return PROS_VFS_EINVAL;
             cp = (cp << 6u) | (tail & 0x3Fu);
@@ -3549,6 +3551,17 @@ static int ntfs_vfs_create(struct pros_vfs_vnode *parent, const char *name,
     if (units == 0u)
         return PROS_VFS_EINVAL;
 
+    struct pros_ntfs_vfs_node *node = 0;
+
+    for (uint32_t i = 1u; i < PROS_NTFS_VFS_NODE_MAX; ++i) {
+        if (!fs->vfs_nodes[i].used) {
+            node = &fs->vfs_nodes[i];
+            break;
+        }
+    }
+    if (!node)
+        return PROS_VFS_EBUSY;
+
     rc = ntfs_create_file(fs, parent_node->record_number, &record_number,
                           (const uint16_t *)utf16le, (uint8_t)units);
     if (rc != PROS_NTFS_OK)
@@ -3557,23 +3570,17 @@ static int ntfs_vfs_create(struct pros_vfs_vnode *parent, const char *name,
                 rc == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
                 rc == PROS_NTFS_EIO ? PROS_VFS_EIO : PROS_VFS_EIO);
 
-    for (uint32_t i = 1u; i < PROS_NTFS_VFS_NODE_MAX; ++i) {
-        struct pros_ntfs_vfs_node *node = &fs->vfs_nodes[i];
-        if (node->used)
-            continue;
-        node->used = 1u;
-        node->record_number = record_number;
-        node->data_size = 0u;
-        if (vfs_vnode_init(&node->vnode, &fs->mount, parent,
-                           PROS_VFS_NODE_FILE, &ntfs_vfs_vnode_ops,
-                           &ntfs_vfs_file_ops, node, 0u) != PROS_VFS_OK) {
-            node->used = 0u;
-            return PROS_VFS_EIO;
-        }
-        *result = &node->vnode;
-        return PROS_VFS_OK;
+    node->used = 1u;
+    node->record_number = record_number;
+    node->data_size = 0u;
+    if (vfs_vnode_init(&node->vnode, &fs->mount, parent,
+                       PROS_VFS_NODE_FILE, &ntfs_vfs_vnode_ops,
+                       &ntfs_vfs_file_ops, node, 0u) != PROS_VFS_OK) {
+        node->used = 0u;
+        return PROS_VFS_EIO;
     }
-    return PROS_VFS_EBUSY;
+    *result = &node->vnode;
+    return PROS_VFS_OK;
 }
 
 static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops = {
