@@ -510,9 +510,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
 
     serial_write("ProsenjitOS: initial limited process and capability context online\n");
-    if (security_manager_init() != 0) {
-        serial_write("ProsenjitOS: ERROR security manager initialization failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int security_init_status = security_manager_init();
+        if (security_init_status != 0) {
+            serial_write("ProsenjitOS: ERROR security manager initialization failed, stage = ");
+            serial_hex64((uint64_t)(int64_t)security_init_status);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
 
     /*
