@@ -626,8 +626,10 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
         return PROS_NTFS_EINVAL;
     *first_lcn = 0u;
 
+    if (fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_ECORRUPT;
     total_clusters = fs->total_sectors / fs->sectors_per_cluster;
-    if (fs->sectors_per_cluster == 0u || total_clusters == 0u)
+    if (total_clusters == 0u)
         return PROS_NTFS_ECORRUPT;
     if (start_lcn >= total_clusters ||
         cluster_count > total_clusters - start_lcn)
@@ -732,9 +734,10 @@ static int ntfs_bitmap_allocate_clusters_exact(struct pros_ntfs *fs,
         fs->bytes_per_file_record > sizeof(record))
         return PROS_NTFS_EINVAL;
 
+    if (fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_ECORRUPT;
     total_clusters = fs->total_sectors / fs->sectors_per_cluster;
-    if (fs->sectors_per_cluster == 0u || total_clusters == 0u ||
-        first_lcn >= total_clusters ||
+    if (total_clusters == 0u || first_lcn >= total_clusters ||
         cluster_count > total_clusters - first_lcn)
         return PROS_NTFS_EOVERFLOW;
 
@@ -895,9 +898,7 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
 
         if (ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK ||
             sector_index >= fs->sectors_per_cluster)
-            write_status = PROS_NTFS_EIO;
-            goto write_fail;
-        }
+            return PROS_NTFS_EIO;
         lba += sector_index;
         if (block_device_write(fs->mount.device, lba, 1u,
                                record + written) != PROS_BLOCK_OK)
