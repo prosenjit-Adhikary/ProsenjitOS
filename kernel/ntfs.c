@@ -663,8 +663,8 @@ int ntfs_selftest(void)
         directory_record[file_name_offset + 24u + 1u] = 0u;
         directory_record[file_name_offset + 24u + 40u] = 0x00u;
         directory_record[file_name_offset + 24u + 41u] = 0x10u;
-        directory_record[file_name_offset + 24u + 48u] = 0x20u;
-        directory_record[file_name_offset + 24u + 49u] = 0x00u;
+        directory_record[file_name_offset + 24u + 48u] = 0x00u;
+        directory_record[file_name_offset + 24u + 49u] = 0x10u;
         directory_record[file_name_offset + 24u + 56u] = 0x00u;
         directory_record[file_name_offset + 24u + 57u] = 0x10u;
         directory_record[file_name_offset + 24u + 64u] = 4u;
