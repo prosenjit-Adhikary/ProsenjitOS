@@ -999,9 +999,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s >= 40u && lba + s < 48u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->index_record[(lba + s - 40u) * 512u + i];
-        else if (lba + s == 37u || lba + s == 38u)
+        else if (lba + s == 42u || lba + s == 43u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->root_record[(lba + s - 37u) * 512u + i];
+                dst[i] = disk->root_record[(lba + s - 42u) * 512u + i];
     }
     return PROS_BLOCK_OK;
 }
