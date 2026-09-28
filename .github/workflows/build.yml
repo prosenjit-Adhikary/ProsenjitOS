@@ -71,6 +71,7 @@ jobs:
           require_log "ProsenjitOS: limited-process syscall sandbox test passed"
           require_log "ProsenjitOS: NTFS directory path traversal test passed"
           require_log "ProsenjitOS: NTFS UpCase case-folding test passed"
+          require_log "ProsenjitOS: NTFS file-data read test passed"
           require_log "ProsenjitOS: capability copy-transfer test passed"
           require_log "ProsenjitOS: capability move-transfer test passed"
           require_log "ProsenjitOS: inactive capability move regression passed"
