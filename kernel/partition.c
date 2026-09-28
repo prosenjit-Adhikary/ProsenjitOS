@@ -137,7 +137,8 @@ int partition_read_gpt(struct pros_block_device *device,
             continue;
         uint64_t first_lba = le64(entry + offset + 32);
         uint64_t last_lba = le64(entry + offset + 40);
-        if (last_lba < first_lba || last_lba >= device->sector_count)
+        if (last_lba < first_lba || first_lba < first_usable_lba ||
+            last_lba > last_usable_lba || last_lba >= device->sector_count)
             return PROS_PARTITION_EINVAL;
         partitions[found].first_lba = first_lba;
         partitions[found].sector_count = last_lba - first_lba + 1u;
@@ -319,17 +320,24 @@ int partition_selftest(void)
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
+    /* Reject a partition extent outside the GPT usable-LBA range. */
+    partition_test_media[2u * 512u + 332u] = 1u;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+        PROS_PARTITION_EINVAL)
+        return -5;
+    partition_test_media[2u * 512u + 332u] = 3u;
+
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
-        return -5;
+        return -6;
 
     /* Restore a valid entry count, then reject an empty entry array. */
     partition_test_media[512u + 80u] = 0u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
-        return -6;
+        return -7;
 
     return PROS_PARTITION_OK;
 }
