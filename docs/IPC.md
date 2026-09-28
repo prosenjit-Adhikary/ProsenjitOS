@@ -28,6 +28,15 @@ The current kernel API is now exposed to CPL3 through capability-mediated send/r
 ## Next IPC milestones
 
 1. Add user-space IPC channel creation and lifecycle ownership.
-2. Add blocking receive and sender wakeups using the scheduler.
+2. Expose blocking receive through the syscall scheduler handoff.
 3. Add explicit cross-process endpoint transfer syscall semantics.
 4. Add stronger fault-safe user-copy primitives and concurrency locking.
+
+
+## Blocking foundation
+
+The kernel now has a bounded receiver wait queue. A receiver can associate its
+thread with a channel and enter `PROS_THREAD_BLOCKED`; a later send wakes one
+waiting receiver and returns it to the scheduler run queue. The actual CPL3
+blocking syscall handoff is intentionally separate so an interrupt-return frame
+is never resumed incorrectly.
