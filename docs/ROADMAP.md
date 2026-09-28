@@ -47,7 +47,7 @@
   - [x] Interrupt-frame ABI and scheduler hand-off foundation
   - [x] Kernel-thread timer preemption validated under QEMU
 - [x] System-call boundary
-- [ ] IPC
+- [x] IPC
   - [x] Kernel message/channel objects
   - [x] IPC object represented by capability handles
   - [x] Capability-mediated send/receive syscalls
