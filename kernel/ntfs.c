@@ -821,6 +821,119 @@ static int ntfs_bitmap_free_clusters(struct pros_ntfs *fs,
     return ntfs_bitmap_update_clusters(fs, first_lcn, cluster_count, 0u);
 }
 
+int ntfs_mft_allocate_record(struct pros_ntfs *fs,
+                                 uint64_t *record_number)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t bitmap[4096];
+    uint32_t attr_offset;
+    uint64_t bitmap_size;
+    uint64_t total_records;
+    uint64_t start_record = 24u;
+    uint64_t record_count;
+    uint64_t byte_offset;
+    uint32_t got;
+
+    if (!fs || !record_number || fs->bytes_per_file_record == 0u ||
+        fs->bytes_per_file_record > sizeof(record) ||
+        !fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_EINVAL;
+    *record_number = 0u;
+
+    /*
+     * $MFT (record 0) owns the $BITMAP attribute. Each bit describes one
+     * MFT record; unlike $Bitmap, this bitmap is indexed by record number.
+     * Records 0..23 are NTFS metadata/reserved records and are never
+     * returned by the allocator.
+     */
+    if (ntfs_read_file_record(fs, 0u, record, sizeof(record)) !=
+            PROS_NTFS_OK ||
+        ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
+                            &attr_offset) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    if (record[attr_offset + 9u] != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    if (record[attr_offset + 8u] == 0u) {
+        uint32_t size;
+        if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                attr_offset, 0, &size) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        bitmap_size = size;
+    } else {
+        const uint8_t *runlist;
+        uint32_t runlist_size;
+        uint32_t run_count;
+        struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+
+        if (record[attr_offset + 8u] != 1u ||
+            le64(record + attr_offset + 16u) != 0u ||
+            le16(record + attr_offset + 12u) != 0u)
+            return PROS_NTFS_ENOTSUP;
+        bitmap_size = le64(record + attr_offset + 48u);
+        if (ntfs_attribute_runlist(record, fs->bytes_per_file_record,
+                                    attr_offset, &runlist,
+                                    &runlist_size) != PROS_NTFS_OK ||
+            ntfs_decode_runlist(runlist, runlist_size, runs,
+                                PROS_NTFS_MFT_RUN_MAX, &run_count) !=
+                PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+    }
+
+    total_records = fs->total_sectors / fs->sectors_per_cluster;
+    if (fs->bytes_per_file_record == 0u ||
+        fs->sectors_per_cluster == 0u ||
+        total_records == 0u)
+        return PROS_NTFS_ECORRUPT;
+    total_records = (total_records * (uint64_t)fs->sectors_per_cluster) /
+                    fs->bytes_per_file_record;
+    record_count = bitmap_size * 8u;
+    if (record_count > total_records)
+        record_count = total_records;
+    if (record_count <= start_record)
+        return PROS_NTFS_EIO;
+
+    byte_offset = start_record / 8u;
+    while (byte_offset < bitmap_size) {
+        uint32_t want = (uint32_t)(bitmap_size - byte_offset);
+        if (want > sizeof(bitmap))
+            want = sizeof(bitmap);
+        got = 0u;
+        if (ntfs_file_read(fs, 0u, byte_offset, bitmap, want, &got) !=
+                PROS_NTFS_OK || got != want)
+            return PROS_NTFS_EIO;
+
+        for (uint32_t byte = 0u; byte < want; ++byte) {
+            uint64_t base = (byte_offset + byte) * 8u;
+            uint8_t value = bitmap[byte];
+
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                uint64_t candidate = base + bit;
+                if (candidate < start_record || candidate >= record_count)
+                    continue;
+                if ((value & (uint8_t)(1u << bit)) != 0u)
+                    continue;
+
+                {
+                    uint8_t updated = (uint8_t)(value | (uint8_t)(1u << bit));
+                    uint32_t written = 0u;
+                    if (ntfs_file_write(fs, 0u,
+                                        (byte_offset + byte), &updated, 1u,
+                                        &written) != PROS_NTFS_OK ||
+                        written != 1u)
+                        return PROS_NTFS_EIO;
+                }
+                *record_number = candidate;
+                return PROS_NTFS_OK;
+            }
+        }
+        byte_offset += want;
+    }
+    return PROS_NTFS_EIO;
+}
+
 static int ntfs_write_file_record(struct pros_ntfs *fs,
                                       uint64_t record_number,
                                       uint8_t *record)
