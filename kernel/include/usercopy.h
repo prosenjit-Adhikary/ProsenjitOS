@@ -20,4 +20,10 @@ int copy_to_user(const struct pros_address_space *space,
                  const void *kernel_source,
                  uint64_t size);
 
+/* Per-CPU state used by the fault-recovering assembly copy paths. */
+int percpu_init(void);
+uint64_t usercopy_fault_active(void);
+uint64_t usercopy_fault_rip(void);
+void usercopy_fault_clear(void);
+
 #endif
