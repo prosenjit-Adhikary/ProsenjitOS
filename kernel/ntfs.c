@@ -2099,6 +2099,7 @@ int ntfs_selftest(void)
             if (ntfs_file_read(&fs, 11u, 99u, file_data, 1u,
                                &file_bytes) != PROS_NTFS_EINVAL)
                 return -185;
+        }
 
         /*
          * End-to-end VFS regression: expose the synthetic root entry as
