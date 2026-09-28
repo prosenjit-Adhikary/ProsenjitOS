@@ -989,6 +989,8 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
     uint64_t allocated_size;
     uint64_t new_real_size;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+    static uint8_t growth_sector[4096];
+    static uint8_t data_sector[4096];
 
     if (!fs || !buffer || !bytes_written || size == 0u ||
         fs->bytes_per_file_record > sizeof(record) ||
@@ -1142,8 +1144,6 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         uint8_t found = 0u, sparse = 0u;
         uint32_t sector_index, in_sector, take;
         uint64_t lba;
-        uint8_t sector[4096];
-
         for (uint32_t r = 0u; r < run_count; ++r) {
             if (logical_cluster < cumulative + runs[r].clusters) {
                 physical_lcn = runs[r].lcn +
@@ -1171,12 +1171,12 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             return PROS_NTFS_EIO;
         lba += sector_index;
 
-        if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+        if (block_device_read(fs->mount.device, lba, 1u, growth_sector) !=
             PROS_BLOCK_OK)
             return PROS_NTFS_EIO;
         for (uint32_t i = 0u; i < take; ++i)
-            sector[in_sector + i] = 0u;
-        if (block_device_write(fs->mount.device, lba, 1u, sector) !=
+            growth_sector[in_sector + i] = 0u;
+        if (block_device_write(fs->mount.device, lba, 1u, growth_sector) !=
             PROS_BLOCK_OK)
             return PROS_NTFS_EIO;
 
@@ -1192,7 +1192,6 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         uint8_t found = 0u, sparse = 0u;
         uint32_t sector_index, in_sector, take;
         uint64_t lba;
-        uint8_t sector[4096];
 
         for (uint32_t r = 0u; r < run_count; ++r) {
             if (logical_cluster < cumulative + runs[r].clusters) {
@@ -1222,14 +1221,14 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
         lba += sector_index;
 
         if (in_sector != 0u || take != fs->bytes_per_sector) {
-            if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+            if (block_device_read(fs->mount.device, lba, 1u, data_sector) !=
                 PROS_BLOCK_OK)
                 return PROS_NTFS_EIO;
         }
         for (uint32_t i = 0u; i < take; ++i)
-            sector[in_sector + i] = input[copied + i];
+            data_sector[in_sector + i] = input[copied + i];
 
-        if (block_device_write(fs->mount.device, lba, 1u, sector) !=
+        if (block_device_write(fs->mount.device, lba, 1u, data_sector) !=
             PROS_BLOCK_OK)
             return PROS_NTFS_EIO;
 
