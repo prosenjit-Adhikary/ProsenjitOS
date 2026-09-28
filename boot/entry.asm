@@ -210,7 +210,7 @@ user_test_entry:
     ; Unknown syscall numbers must fail closed with ENOSYS.
     mov rax, 0x7FFF
     int 0x80
-    cmp rax, 0xFFFFFFFFFFFFFFDA ; PROSENJIT_SYSCALL_ENOSYS
+    cmp rax, -38                  ; PROSENJIT_SYSCALL_ENOSYS
     jne .user_halt
 
     ; Zero requested rights must never manufacture a capability.
@@ -218,7 +218,7 @@ user_test_entry:
     mov rdi, r12
     xor rsi, rsi
     int 0x80
-    cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
+    cmp rax, -13                  ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
 
     ; Invalid/unknown capability rights must be rejected before authorization.
@@ -249,7 +249,7 @@ user_test_entry:
     int 0x80
     ; Handles are bounded generation/slot values. Any non-zero upper
     ; 32 bits means the syscall returned an ABI error, not a handle.
-    ; TEST r64, imm64 is not encodable; inspect the upper half explicitly.
+    ; Check the upper 32 bits separately because TEST has no imm64 form.
     mov rcx, rax
     shr rcx, 32
     test ecx, ecx
@@ -321,7 +321,7 @@ user_test_entry:
     mov rdi, r12
     mov rax, 3
     int 0x80
-    cmp rax, 0xFFFFFFFFFFFFFFF6 ; PROSENJIT_SYSCALL_EBADF
+    cmp rax, -10                  ; PROSENJIT_SYSCALL_EBADF
     jne .user_halt
 
     ; Ask the kernel to finish the CPL3 test. The kernel validates the
