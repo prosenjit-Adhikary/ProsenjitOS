@@ -3211,8 +3211,11 @@ int prosenjitfs_selftest(void)
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return -3;
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -4;
+    {
+        int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+        if (mount_rc != PROSENJITFS_OK)
+            return -100 + mount_rc;
+    }
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
