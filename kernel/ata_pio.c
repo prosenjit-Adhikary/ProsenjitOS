@@ -261,7 +261,15 @@ static int ata_flush(struct pros_block_device *device)
         return PROS_BLOCK_EINVAL;
     ata_out8(ata->io_base + ATA_REG_COMMAND,
              ata->lba48 ? ATA_CMD_CACHE_FLUSH_EXT : ATA_CMD_CACHE_FLUSH);
-    return ata_wait_not_busy(ata) == PROS_ATA_OK ? PROS_BLOCK_OK : PROS_BLOCK_EIO;
+    if (ata_wait_not_busy(ata) != PROS_ATA_OK)
+        return PROS_BLOCK_EIO;
+    /* A flush can complete with BSY clear but still report device failure. */
+    {
+        uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+        if (status & (ATA_SR_ERR | ATA_SR_DF))
+            return PROS_BLOCK_EIO;
+    }
+    return PROS_BLOCK_OK;
 }
 
 int pros_ata_pio_probe(struct pros_ata_pio *ata)
