@@ -6,7 +6,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 
 ### Current engineering focus
 1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
-2. **exFAT:** harden the new read-only VFS integration; the isolated Up-case parser now accepts/validates both compressed and uncompressed table formats, while VFS Unicode lookup integration remains a later step.
+2. **exFAT:** harden the read-only VFS integration; Up-case table discovery, checksum validation, compressed/uncompressed parsing, UTF-16 filename decoding, UTF-8 lookup, and Unicode case-folded VFS lookup are now integrated, with broader real-volume regression coverage remaining.
 3. **NTFS:** continue from the current safe file-data write path toward directory-index mutation, cluster allocation, and journal/recovery; keep destructive metadata writes out until each stage is regression-tested.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing admission/quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** build the driver model and block-device/device broker around the completed PCI enumeration layer, then add keyboard/display/network device abstractions.
@@ -143,7 +143,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Read-only exFAT mount/parser and FAT-chain/file-stream read foundation
   - [x] exFAT read-only directory/file VFS integration (root vnode, lookup, read, readdir, vnode lifetime)
   - [x] isolated exFAT Up-case table parser + compressed/uncompressed regression coverage
-  - [ ] exFAT VFS lookup integration with parsed Up-case table
+  - [x] exFAT Up-case table discovery/checksum validation during mount
+  - [x] exFAT UTF-16 filename decoding and UTF-8 VFS lookup using the parsed Up-case table
   - [ ] exFAT write support
 - [ ] NTFS filesystem support
   - [x] NTFS compatibility architecture documented
