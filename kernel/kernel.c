@@ -13,6 +13,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "partition.h"
+#include "ata_pio.h"
 #include "storage.h"
 #include "fat32.h"
 #include "exfat.h"
