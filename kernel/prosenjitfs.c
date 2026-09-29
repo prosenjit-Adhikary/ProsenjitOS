@@ -1456,16 +1456,25 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                            ? last - bitmap_base : bits_per_block - 1u;
         uint32_t slot;
 
-        if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK)
-            return PROSENJITFS_EIO;
-        if (pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
-
+        /*
+         * Reuse an already-staged bitmap image when multiple allocations in
+         * the same bitmap block belong to one transaction. Reading the home
+         * block again here would discard earlier staged bit changes.
+         */
         slot = 0u;
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
-        if (slot == fs->tx.count)
-            return PROSENJITFS_EINVAL;
+        if (slot == fs->tx.count) {
+            if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            if (pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EOVERFLOW;
+            slot = 0u;
+            while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
+                ++slot;
+            if (slot == fs->tx.count)
+                return PROSENJITFS_EINVAL;
+        }
 
         for (uint64_t bit = range_start; bit <= range_end; ++bit) {
             uint8_t *tx_image =
