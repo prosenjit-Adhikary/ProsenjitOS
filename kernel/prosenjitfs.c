@@ -2256,7 +2256,7 @@ int prosenjitfs_selftest(void)
     {
         static const char message[] = "ProsenjitFS persistent file I/O";
         static const char suffix[] = "!";
-        char readback[sizeof(message) + sizeof(suffix) - 1u];
+        char readback[sizeof(message) + sizeof(suffix)];
         struct pros_vfs_file file;
         uint32_t count = 0u;
 
