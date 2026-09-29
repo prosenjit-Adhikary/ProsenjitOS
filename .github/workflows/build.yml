@@ -1,4 +1,5 @@
 name: Build and boot-test ProsenjitOS
+# CI validation: push/PR runs are intentionally enabled for isolated branches.
 
 on:
   push:
