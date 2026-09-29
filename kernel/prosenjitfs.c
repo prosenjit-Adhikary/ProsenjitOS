@@ -456,11 +456,38 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .release = pfs_vnode_release
 };
 
+static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
+static int pfs_file_close(struct pros_vfs_file *);
+
 static const struct pros_vfs_file_ops pfs_file_ops = {
-    .read = 0,
+    .read = pfs_file_read,
     .write = 0,
-    .close = 0
+    .close = pfs_file_close
 };
+
+static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
+                        uint32_t length, void *buffer)
+{
+    if (!file || !file->vnode || !buffer)
+        return PROS_VFS_EINVAL;
+    if (offset > file->vnode->size)
+        return PROS_VFS_EOVERFLOW;
+    /*
+     * Extent-backed data reads are intentionally not exposed yet: V1 file
+     * data allocation/extent persistence is the next storage milestone.
+     * Empty files are nevertheless valid VFS file objects and must return
+     * EOF rather than pretending that data exists.
+     */
+    if (file->vnode->size == 0u || offset == file->vnode->size ||
+        length == 0u)
+        return 0;
+    return PROS_VFS_ENOSYS;
+}
+
+static int pfs_file_close(struct pros_vfs_file *file)
+{
+    return file && file->vnode ? PROS_VFS_OK : PROS_VFS_EINVAL;
+}
 
 static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
                           struct pros_vfs_vnode *parent,
