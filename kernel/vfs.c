@@ -515,6 +515,67 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
     return PROS_VFS_OK;
 }
 
+int vfs_path_mkdir(struct pros_vfs_mount *mount, const char *path,
+                   struct pros_vfs_vnode **result)
+{
+    struct pros_vfs_vnode *parent = 0;
+    struct pros_vfs_vnode *created = 0;
+    char parent_path[PROS_VFS_PATH_MAX + 1u];
+    char name[PROS_VFS_NAME_MAX + 1u];
+    uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
+    uint32_t name_length;
+    int rc;
+
+    if (!mount || !path || !result || !mount->active || path[0] == ' ')
+        return PROS_VFS_EINVAL;
+    *result = 0;
+
+    while (length < PROS_VFS_PATH_MAX && path[length] != ' ') {
+        if (path[length] == '/')
+            last_slash = length;
+        ++length;
+    }
+    if (path[length] != ' ' || length == 0u ||
+        last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
+        return PROS_VFS_EINVAL;
+
+    name_length = length - last_slash - 1u;
+    if (name_length > PROS_VFS_NAME_MAX)
+        return PROS_VFS_EOVERFLOW;
+    for (uint32_t i = 0u; i < name_length; ++i)
+        name[i] = path[last_slash + 1u + i];
+    name[name_length] = ' ';
+
+    if (last_slash == 0u) {
+        parent_path[0] = '/';
+        parent_path[1] = ' ';
+    } else {
+        for (uint32_t i = 0u; i < last_slash; ++i)
+            parent_path[i] = path[i];
+        parent_path[last_slash] = ' ';
+    }
+
+    rc = vfs_path_lookup(mount, parent_path, &parent);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (parent->type != PROS_VFS_NODE_DIRECTORY || !parent->ops->mkdir) {
+        vfs_vnode_put(parent);
+        return PROS_VFS_ENOSYS;
+    }
+
+    rc = parent->ops->mkdir(parent, name, &created);
+    vfs_vnode_put(parent);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!created || created->type != PROS_VFS_NODE_DIRECTORY) {
+        if (created)
+            vfs_vnode_put(created);
+        return PROS_VFS_EIO;
+    }
+    *result = created;
+    return PROS_VFS_OK;
+}
+
 int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
                  struct pros_vfs_dir *dir)
 {
