@@ -411,25 +411,25 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
 
             uint16_t stored = exfat_le16(set + 2u);
             if (exfat_directory_checksum(set, entry_count) != stored)
-                return PROS_EXFAT_ECORRUPT;
+                return -220;
 
             const uint8_t *stream = 0;
             for (uint32_t i = 1u; i <= secondary_count; ++i) {
                 const uint8_t *secondary = set + i * 32u;
                 if (secondary[0] == 0xC0u) {
-                    if (stream) return PROS_EXFAT_ECORRUPT;
+                    if (stream) return -221;
                     stream = secondary;
                 } else if (secondary[0] != 0xC1u) {
-                    return PROS_EXFAT_ECORRUPT;
+                    return -222;
                 }
             }
             if (!stream)
-                return PROS_EXFAT_ECORRUPT;
+                return -223;
 
             char parsed[256];
             if (exfat_directory_name(set, secondary_count, stream[3],
                                      parsed, sizeof(parsed)) != PROS_EXFAT_OK)
-                return PROS_EXFAT_ENOTSUP;
+                return -224;
 
             if (exfat_name_equal_ci(parsed, name)) {
                 result->attributes = set[4];
