@@ -1407,6 +1407,10 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     new_bucket = pfs_name_hash((const uint8_t *)new_name, new_length) %
                  PROSENJITFS_DIR_BUCKETS;
 
+    entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    if (!entry_block)
+        return PROS_VFS_EIO;
+
     current = dir_index.heads[old_bucket];
     while (current != 0u) {
         if (++steps > data->fs->sb.total_blocks) {
@@ -1454,8 +1458,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!dir_block || !prev_block || !entry_block) {
+    if (!dir_block || !prev_block) {
         rc = PROSENJITFS_EIO;
         goto out;
     }
@@ -1486,20 +1489,10 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         if (rc != PROSENJITFS_OK)
             goto out_reset;
     } else {
+        uint64_t destination_head = dir_index.heads[new_bucket];
+
         if (previous == 0u) {
             dir_index.heads[old_bucket] = entry.next;
-            dir_index.heads[new_bucket] = target_lba;
-            pfs_zero(dir_block, data->fs->sb.block_size);
-            pfs_copy(dir_block, &dir_index, sizeof(dir_index));
-            pfs_put32(dir_block + offsetof(
-                          struct pros_prosenjitfs_dir_index, checksum),
-                      pfs_crc_with_zero32(
-                          dir_block, sizeof(dir_index),
-                          (uint32_t)offsetof(
-                              struct pros_prosenjitfs_dir_index, checksum)));
-            rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
         } else {
             if (pfs_read_block(data->fs->mount.device, previous,
                                prev_block) != PROSENJITFS_OK) {
@@ -1526,38 +1519,22 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             rc = pfs_tx_add(data->fs, previous, prev_block);
             if (rc != PROSENJITFS_OK)
                 goto out_reset;
-
-            dir_index.heads[new_bucket] = target_lba;
-            pfs_zero(dir_block, data->fs->sb.block_size);
-            pfs_copy(dir_block, &dir_index, sizeof(dir_index));
-            pfs_put32(dir_block + offsetof(
-                          struct pros_prosenjitfs_dir_index, checksum),
-                      pfs_crc_with_zero32(
-                          dir_block, sizeof(dir_index),
-                          (uint32_t)offsetof(
-                              struct pros_prosenjitfs_dir_index, checksum)));
-            rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
         }
 
-        entry.next = dir_index.heads[new_bucket] == target_lba
-                   ? entry.next : dir_index.heads[new_bucket];
-        /* The new bucket head is the renamed entry; its next is the old
-         * destination head, not the removed old-bucket successor. */
-        if (dir_index.heads[new_bucket] == target_lba) {
-            /* Recover the pre-update destination head from the staged image
-             * or the on-disk directory index before changing the head. */
-            uint64_t destination_head = 0u;
-            struct pros_prosenjitfs_dir_index original_index;
-            if (pfs_read_dir_index(data->fs, &parent_inode,
-                                   &original_index) != PROSENJITFS_OK) {
-                rc = PROSENJITFS_EIO;
-                goto out_reset;
-            }
-            destination_head = original_index.heads[new_bucket];
-            entry.next = destination_head;
-        }
+        dir_index.heads[new_bucket] = target_lba;
+        pfs_zero(dir_block, data->fs->sb.block_size);
+        pfs_copy(dir_block, &dir_index, sizeof(dir_index));
+        pfs_put32(dir_block + offsetof(
+                      struct pros_prosenjitfs_dir_index, checksum),
+                  pfs_crc_with_zero32(
+                      dir_block, sizeof(dir_index),
+                      (uint32_t)offsetof(
+                          struct pros_prosenjitfs_dir_index, checksum)));
+        rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
+        if (rc != PROSENJITFS_OK)
+            goto out_reset;
+
+        entry.next = destination_head;
         entry.magic = PROSENJITFS_ENTRY_MAGIC;
         entry.name_hash = pfs_name_hash((const uint8_t *)new_name,
                                         new_length);
