@@ -533,13 +533,19 @@ int exfat_selftest(void)
         }
         {
             struct pros_exfat_dirent found;
-            if (exfat_find(&fs, 2u, "hello.txt", &found) != PROS_EXFAT_OK ||
-                found.size != 700u ||
-                found.valid_data_length != 700u ||
-                found.first_cluster != 2u ||
-                found.no_fat_chain != 0u ||
-                !exfat_name_equal_ci(found.name, filename))
-                return -12;
+            int find_status = exfat_find(&fs, 2u, "hello.txt", &found);
+            if (find_status != PROS_EXFAT_OK)
+                return -120 + find_status;
+            if (found.size != 700u)
+                return -121;
+            if (found.valid_data_length != 700u)
+                return -122;
+            if (found.first_cluster != 2u)
+                return -123;
+            if (found.no_fat_chain != 0u)
+                return -124;
+            if (!exfat_name_equal_ci(found.name, filename))
+                return -125;
         }
         set[2] ^= 1u;
         {
