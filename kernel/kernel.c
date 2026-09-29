@@ -107,6 +107,15 @@ static int ata_qemu_prosenjitfs_test(void)
         return PROS_ATA_ENODEV;
     if (rc != PROS_ATA_OK)
         return -100;
+    {
+        uint8_t sector[512];
+        if (block_device_read(&ata.device, 0u, 1u, sector) != PROS_BLOCK_OK)
+            return -110;
+        if (sector[0] != 'P' || sector[1] != 'J' || sector[2] != 'S' ||
+            sector[3] != 'F' || sector[4] != 'S' || sector[5] != '0' ||
+            sector[6] != '1')
+            return -111;
+    }
     if (prosenjitfs_probe(&ata.device) != PROSENJITFS_OK)
         return -101;
     if (prosenjitfs_mount(&fs, &ata.device, 0u) != PROSENJITFS_OK)
