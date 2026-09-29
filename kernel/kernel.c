@@ -13,6 +13,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "ata_pio.h"
+#include "driver_manager.h"
 #include "partition.h"
 #include "storage.h"
 #include "fat32.h"
