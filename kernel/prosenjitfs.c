@@ -2850,6 +2850,14 @@ int prosenjitfs_selftest(void)
         }
 
 
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -12;
+
         for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
             uint8_t expected = i < 37u
                 ? (uint8_t)(0xA0u + i)
