@@ -43,10 +43,10 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Stable ProsenjitOS Boot Protocol
   - [ ] Native UEFI loader
   - [x] Native legacy BIOS loader hardening
-  - [x] Boot-device discovery
-  - [x] Kernel/module validation
+  - [ ] Boot-device discovery
+  - [ ] Kernel/module validation
   - [x] Native loader QEMU/CI regression
-  - [x] Optional traditional-bootloader adapter (GRUB/other)
+  - [ ] Optional traditional-bootloader adapter (GRUB/other)
 - [x] 32-bit protected mode
 - [x] Long-mode transition
 - [x] x86-64 kernel entry
