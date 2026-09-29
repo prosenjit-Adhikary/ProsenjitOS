@@ -3252,12 +3252,16 @@ int prosenjitfs_selftest(void)
             return -200 - pfs_mount_debug_stage;
         }
     }
-    if (fs.sb.root_inode != 0u ||
-        prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
-        inode.type != PROSENJITFS_INODE_DIR ||
-        inode.dir_index == 0u ||
-        !fs.mount.root)
-        return -5;
+    if (fs.sb.root_inode != 0u)
+        return -501;
+    if (prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK)
+        return -502;
+    if (inode.type != PROSENJITFS_INODE_DIR)
+        return -503;
+    if (inode.dir_index == 0u)
+        return -504;
+    if (!fs.mount.root)
+        return -505;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
