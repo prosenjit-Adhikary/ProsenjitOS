@@ -2353,21 +2353,10 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             fs->sb.block_size > 188u &&
             fs->tx.targets[i] >= fs->sb.data_start &&
             tx_image[188u] == 0xD6u) {
-            uint8_t verify[4096];
             pfs_diag.found = 1u;
             pfs_diag.tx_byte = tx_image[188u];
             pfs_diag.physical_lba = fs->tx.targets[i];
-            if (pfs_write_block(fs->mount.device, fs->tx.targets[i],
-                                tx_image) != PROSENJITFS_OK)
-                return PROSENJITFS_EIO;
-            if (pfs_read_block(fs->mount.device, fs->tx.targets[i],
-                               verify) != PROSENJITFS_OK)
-                return PROSENJITFS_EIO;
-            pfs_diag.post_commit_byte = verify[188u];
             pfs_diag.enabled = 0u;
-            if (pfs_diag.post_commit_byte != 0xD6u)
-                return PROSENJITFS_EIO;
-            continue;
         }
         if (pfs_write_block(fs->mount.device, fs->tx.targets[i], tx_image) !=
             PROSENJITFS_OK)
@@ -2375,6 +2364,15 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     }
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+    if (pfs_diag.found) {
+        uint8_t verify[4096];
+        if (pfs_read_block(fs->mount.device, pfs_diag.physical_lba,
+                           verify) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        pfs_diag.post_commit_byte = verify[188u];
+        if (pfs_diag.post_commit_byte != 0xD6u)
+            return PROSENJITFS_EIO;
+    }
 
     return pfs_journal_clear(fs);
 }
