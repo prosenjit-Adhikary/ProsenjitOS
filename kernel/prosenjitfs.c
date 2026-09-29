@@ -3348,6 +3348,55 @@ int prosenjitfs_selftest(void)
             original[0] != 0xA5u)
             return -15;
     }
+    {
+        uint64_t journal_target = fs.sb.data_start;
+        uint8_t *header = fs.scratch;
+        uint8_t *image = fs.tx.images;
+        uint8_t *commit = fs.tx.images +
+                          (uint64_t)PROSENJITFS_MAX_TX_BLOCKS *
+                          fs.sb.block_size;
+        struct pros_prosenjitfs_journal_header h;
+        struct pros_prosenjitfs_journal_commit c;
+
+        pfs_zero(header, fs.sb.block_size);
+        pfs_zero(image, fs.sb.block_size);
+        pfs_zero(commit, fs.sb.block_size);
+        image[0] = 0xA5u;
+        image[1] = 0x5Au;
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = fs.sb.transaction_sequence + 1u;
+        h.targets[0] = journal_target;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(
+            header, fs.sb.block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header,
+                               checksum));
+        pfs_copy(header, &h, sizeof(h));
+
+        pfs_zero(&c, sizeof(c));
+        c.magic = PROSENJITFS_JOURNAL_COMMIT;
+        c.record_count = 1u;
+        c.transaction_id = h.transaction_id;
+        pfs_copy(commit, &c, sizeof(c));
+        c.checksum = pfs_journal_checksum(header, image,
+                                          fs.sb.block_size, 1u, commit);
+        pfs_copy(commit, &c, sizeof(c));
+
+        if (pfs_write_block(fs.mount.device, fs.sb.journal_start,
+                            header) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, fs.sb.journal_start + 1u,
+                            image) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, fs.sb.journal_start + 2u,
+                            commit) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            disk.data[journal_target * 512u] != 0xA5u ||
+            disk.data[journal_target * 512u + 1u] != 0x5Au)
+            return -9;
+    }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
     if (first_block < fs.sb.data_start ||
