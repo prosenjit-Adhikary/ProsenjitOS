@@ -1104,11 +1104,20 @@ int prosenjitfs_selftest(void)
     if (first < fs.sb.data_start ||
         first + 4u > fs.sb.total_blocks)
         return -6;
-    if (first < pfs_data_start(&fs.sb) ||
-        prosenjitfs_free_blocks(&fs, first, 4u) != PROSENJITFS_OK)
+    if (prosenjitfs_alloc_inode(&fs, &first) != PROSENJITFS_OK ||
+        first == fs.sb.root_inode ||
+        first >= fs.sb.inode_count)
         return -7;
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+    if (prosenjitfs_read_inode(&fs, first, &inode) != PROSENJITFS_ENOENT)
         return -8;
+    if (prosenjitfs_free_blocks(&fs, first + 4u, 1u) != PROSENJITFS_EINVAL)
+        return -9;
+    if (prosenjitfs_free_blocks(&fs, pfs_data_start(&fs.sb), 1u) != PROSENJITFS_OK)
+        return -10;
+    if (prosenjitfs_free_blocks(&fs, first, 4u) != PROSENJITFS_OK)
+        return -11;
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
 
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
