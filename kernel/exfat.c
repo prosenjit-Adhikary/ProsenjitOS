@@ -290,8 +290,12 @@ static int exfat_test_read(struct pros_block_device *device, uint64_t lba,
     if (!disk || !buffer || count == 0u ||
         lba >= 32u || count > 32u - lba)
         return PROS_BLOCK_EIO;
-    for (uint32_t i = 0u; i < count * 512u; ++i)
-        ((uint8_t *)buffer)[i] = disk->sectors[lba * 512u + i];
+    {
+        volatile uint8_t *dst = (volatile uint8_t *)buffer;
+        volatile const uint8_t *src = disk->sectors + lba * 512u;
+        for (uint32_t i = 0u; i < count * 512u; ++i)
+            dst[i] = src[i];
+    }
     return PROS_BLOCK_OK;
 }
 
