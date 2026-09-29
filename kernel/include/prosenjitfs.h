@@ -34,6 +34,7 @@ struct pros_prosenjitfs {
 
 uint32_t prosenjitfs_crc32c(const void *, uint32_t);
 int prosenjitfs_format(struct pros_block_device *);
+int prosenjitfs_probe(struct pros_block_device *);
 int prosenjitfs_mount(struct pros_prosenjitfs *, struct pros_block_device *,
                       uint8_t read_only);
 int prosenjitfs_unmount(struct pros_prosenjitfs *);
