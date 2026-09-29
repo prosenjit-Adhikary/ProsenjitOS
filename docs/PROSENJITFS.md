@@ -3,6 +3,12 @@
 ## Status
 This document is the implementation contract for the native ProsenjitFS filesystem. It is intentionally separate from the compatibility FAT32, exFAT and NTFS drivers.
 
+## Current verified scope — 2026-09-29
+
+The integrated provider is CI-verified for its current memory-backed scope: format/mount validation, persistent allocation metadata, inode/extent metadata, redo journaling, VFS root/path and directory operations, and filesystem probing/storage discovery. ProsenjitFS file vnodes now also provide the VFS lifecycle callbacks required for safe open/close integration. Empty-file reads return EOF; non-empty file data I/O remains deliberately gated until extent-backed data reads/writes are implemented.
+
+This distinction is important: VFS file-object lifecycle support is present, but full persistent file data I/O is **not** yet complete. A real QEMU disk-device test also remains pending until an ATA/AHCI/NVMe/USB-visible block-device path exists.
+
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
 FAT32, exFAT and NTFS remain compatibility filesystem providers. Filesystem parsing stays in the kernel filesystem layer; the bootloader does not parse ProsenjitFS.
