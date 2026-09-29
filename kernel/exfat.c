@@ -561,7 +561,7 @@ int exfat_selftest(void)
     }
 
     /* NoFatChain must read a contiguous allocation without consulting FAT. */
-    if (exfat_file_read(&fs, 5u, 1u, 100u, 50u, 0u,
+    if (exfat_file_read(&fs, 4u, 1u, 100u, 50u, 0u,
                         output, sizeof(output), &done) != PROS_EXFAT_OK ||
         done != 100u ||
         output[0] != '0' ||
