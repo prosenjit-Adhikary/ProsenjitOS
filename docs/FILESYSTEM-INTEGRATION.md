@@ -28,7 +28,24 @@ ProsenjitFS therefore attaches to the existing VFS rather than replacing it.
 
 ## Real block-device progress
 
-The kernel now contains a polling ATA PIO block-device provider for the legacy primary IDE channel. It supports IDENTIFY, LBA28/LBA48 read/write, and cache flush through the existing `pros_block_device` contract. The normal ISO boot tolerates an absent disk; the native BIOS QEMU regression supplies a real IDE disk and requires the successful ATA block-path marker. This validates the hardware-facing block layer, but it does not yet claim real ProsenjitFS mount/write durability on QEMU because the native disk image still uses the fixed-LBA boot layout and no filesystem partition is attached to that test path.
+The native BIOS QEMU path now exercises the real storage chain rather than only
+the synthetic filesystem tests:
+
+- the native image contains a deterministic MBR entry for a reserved
+  ProsenjitFS partition at LBA 2048 (512 sectors);
+- the kernel probes the IDE primary channel through the polling ATA PIO driver,
+  including IDENTIFY, LBA28/LBA48 reads/writes, and cache flush;
+- the partition layer creates a bounded block-device view of that partition;
+- the first boot formats the reserved partition when no ProsenjitFS superblock
+  exists;
+- the kernel then probes, mounts, journal-recovers, unmounts, and rediscoveries
+  the persistent ProsenjitFS volume through the normal storage layer.
+
+This is intentionally separate from the fixed-LBA native boot layout: the
+bootloader still loads stage 2 and the kernel from its reserved LBAs, while
+filesystem storage begins at LBA 2048. The native QEMU CI gate requires the
+persistent ATA -> MBR -> ProsenjitFS milestone.
+
 
 ## ProsenjitFS branch integration notes
 
