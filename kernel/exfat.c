@@ -451,6 +451,8 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                     result->name[i] = parsed[i];
                 return PROS_EXFAT_OK;
             }
+            if (parsed[0] != 0)
+                return -300 - (int)(unsigned char)parsed[0];
             off += set_bytes - 32u;
         }
 
