@@ -58,6 +58,7 @@ struct pros_vfs_vnode_ops {
                   struct pros_vfs_vnode **);
     int (*mkdir)(struct pros_vfs_vnode *, const char *,
                  struct pros_vfs_vnode **);
+    int (*truncate)(struct pros_vfs_vnode *, uint64_t);
     void (*release)(struct pros_vfs_vnode *);
 };
 
@@ -134,6 +135,7 @@ int vfs_file_init(struct pros_vfs_file *, struct pros_vfs_mount *,
 int vfs_file_read(struct pros_vfs_file *, void *, uint32_t, uint32_t *);
 int vfs_file_write(struct pros_vfs_file *, const void *, uint32_t, uint32_t *);
 int vfs_file_seek(struct pros_vfs_file *, uint64_t);
+int vfs_file_truncate(struct pros_vfs_file *, uint64_t);
 int vfs_file_close(struct pros_vfs_file *);
 
 /*
