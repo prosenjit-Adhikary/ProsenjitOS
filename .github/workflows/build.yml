@@ -53,6 +53,7 @@ jobs:
         run: |
           set +e
           timeout 20s qemu-system-x86_64 \
+            -boot order=d \
             -cdrom build/prosenjitOS.iso \
             -drive file=build/prosenjitfs-qemu.img,format=raw,if=ide,index=0,media=disk \
             -display none \
