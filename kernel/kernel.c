@@ -12,6 +12,7 @@
 #include "ipc.h"
 #include "usercopy.h"
 #include "pci.h"
+#include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
 #include "fat32.h"
@@ -1107,6 +1108,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: user-mode capability prepared\n");
+
+    /* Real QEMU IDE storage probe. The generic ISO boot may have no hard
+     * disk, so absence is not a failure; when an ATA disk is present, validate
+     * the real block-device path before filesystem probing. */
+    {
+        int ata_rc = pros_ata_pio_selftest();
+        if (ata_rc == PROS_ATA_OK) {
+            serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+        } else if (ata_rc == PROS_ATA_ENODEV || ata_rc == PROS_ATA_ENOTSUP) {
+            serial_write("ProsenjitOS: ATA PIO disk not present/unsupported; continuing with synthetic storage tests\n");
+        } else {
+            serial_write("ProsenjitOS: ERROR ATA PIO block path self-test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
 
     /* Storage-stack regression suite: partition discovery and filesystem
      * geometry/mount contracts must remain boot-testable before drivers depend
