@@ -110,6 +110,7 @@ static int ata_qemu_prosenjitfs_test(void)
         return PROS_ATA_ENODEV;
     if (rc != PROS_ATA_OK)
         return PROS_ATA_EIO;
+    serial_write("ProsenjitOS: ATA PIO disk initialized\\n");
 
     {
         enum pros_partition_type table_type = PROS_PARTITION_NONE;
@@ -127,6 +128,7 @@ static int ata_qemu_prosenjitfs_test(void)
             fs_device = &ata.device;
         }
     }
+    serial_write("ProsenjitOS: partition view selected\\n");
 
     if (prosenjitfs_probe(fs_device) != PROSENJITFS_OK ||
         prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
