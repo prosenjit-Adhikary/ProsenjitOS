@@ -55,3 +55,39 @@ cp "$ROOT/boot/grub.cfg" "$BUILD/isodir/boot/grub/grub.cfg"
 grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
 
 echo "Built: $ISO"
+
+# Native BIOS boot artifact. This path deliberately does not depend on GRUB,
+# MBR partition parsing, or a filesystem: the stage-1/2 loader reads the
+# kernel from a fixed LBA layout. Partition/filesystem discovery remains a
+# later storage concern.
+NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
+NATIVE_STAGE2_SECTORS=32
+NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
+objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
+KERNEL_BYTES="$(stat -c%s "$BUILD/prosenjit.bin")"
+NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
+if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
+    echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
+    exit 1
+fi
+
+nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS"     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
+nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS"     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
+
+if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
+    echo "Native stage-1 is not exactly one boot sector" >&2
+    exit 1
+fi
+if (( $(stat -c%s "$BUILD/native_stage2.bin") > NATIVE_STAGE2_SECTORS * 512 )); then
+    echo "Native stage-2 exceeds its reserved boot area" >&2
+    exit 1
+fi
+
+NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
+truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
+dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
+dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
+dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
+
+echo "Built native BIOS disk: $NATIVE_DISK"
+echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
