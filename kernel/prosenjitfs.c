@@ -394,6 +394,15 @@ int prosenjitfs_format(struct pros_block_device *device)
         }
     }
 
+    /* A re-format must clear the entire inode table, not just inode 0. */
+    for (uint32_t i = 0u; i < inode_table_blocks; ++i) {
+        pfs_zero(block, block_size);
+        if (pfs_write_block(device, sb.inode_table_start + i, block) != PROSENJITFS_OK) {
+            kfree(block);
+            return PROSENJITFS_EIO;
+        }
+    }
+
     pfs_zero(block, block_size);
     pfs_mark_bit(block, 0u);
     if (pfs_write_block(device, sb.inode_bitmap_start, block) != PROSENJITFS_OK) {
@@ -458,7 +467,6 @@ int prosenjitfs_format(struct pros_block_device *device)
 }
 
 static volatile int pfs_last_mount_failure_stage;
-static volatile int pfs_last_metadata_failure_stage;
 
 struct pfs_vnode_data {
     struct pros_prosenjitfs *fs;
@@ -3031,15 +3039,12 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
 
 static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
 {
-    pfs_last_metadata_failure_stage = 0;
     uint64_t bits_per_block;
     uint64_t root_bitmap_index;
     uint8_t inode_bitmap[4096];
 
-    if (!fs || fs->sb.block_size > sizeof(inode_bitmap)) {
-        pfs_last_metadata_failure_stage = 1;
+    if (!fs || fs->sb.block_size > sizeof(inode_bitmap))
         return PROSENJITFS_ECORRUPT;
-    }
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     root_bitmap_index = fs->sb.root_inode / bits_per_block;
     if (root_bitmap_index >= fs->sb.inode_bitmap_blocks ||
@@ -3047,7 +3052,7 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                        fs->sb.inode_bitmap_start + root_bitmap_index,
                        inode_bitmap) != PROSENJITFS_OK ||
         !pfs_bitmap_bit(inode_bitmap, fs->sb.root_inode % bits_per_block))
-        { pfs_last_metadata_failure_stage = 2; return PROSENJITFS_ECORRUPT; }
+        return PROSENJITFS_ECORRUPT;
 
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
@@ -3059,18 +3064,14 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
         if (bitmap_index >= fs->sb.inode_bitmap_blocks ||
             pfs_read_block(fs->mount.device,
                            fs->sb.inode_bitmap_start + bitmap_index,
-                           inode_bitmap) != PROSENJITFS_OK) {
-            pfs_last_metadata_failure_stage = 14;
+                           inode_bitmap) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
-        }
         allocated = pfs_bitmap_bit(inode_bitmap,
                                     inode_number % bits_per_block);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (allocated) {
-            if (rc != PROSENJITFS_OK) {
-                pfs_last_metadata_failure_stage = 3;
+            if (rc != PROSENJITFS_OK)
                 return PROSENJITFS_ECORRUPT;
-            }
 
             /*
              * V1 has no hard-link operation and does not materialize "." or
@@ -3079,17 +3080,15 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
              * consistent with that contract so a forged zero/multi-link
              * inode cannot survive mount-time metadata validation.
              */
-            if (inode.links != 1u) {
-                pfs_last_metadata_failure_stage = 4;
+            if (inode.links != 1u)
                 return PROSENJITFS_ECORRUPT;
-            }
 
             if (inode_number == fs->sb.root_inode &&
                 inode.type != PROSENJITFS_INODE_DIR)
-                { pfs_last_metadata_failure_stage = 5; return PROSENJITFS_ECORRUPT; }
+                return PROSENJITFS_ECORRUPT;
             if (inode_number == fs->sb.root_inode &&
                 inode.parent_inode != fs->sb.root_inode)
-                { pfs_last_metadata_failure_stage = 6; return PROSENJITFS_ECORRUPT; }
+                return PROSENJITFS_ECORRUPT;
 
             /*
              * Every non-root inode must reach the root through directory
@@ -3099,10 +3098,8 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
             if (inode_number != fs->sb.root_inode) {
                 uint64_t current = inode.parent_inode;
                 uint64_t guard = 0u;
-                if (current >= fs->sb.inode_count) {
-                    pfs_last_metadata_failure_stage = 7;
+                if (current >= fs->sb.inode_count)
                     return PROSENJITFS_ECORRUPT;
-                }
                 while (current != fs->sb.root_inode &&
                        guard++ < fs->sb.inode_count) {
                     struct pros_prosenjitfs_inode parent_inode;
@@ -3111,29 +3108,27 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                         parent_inode.type != PROSENJITFS_INODE_DIR ||
                         parent_inode.parent_inode == current ||
                         parent_inode.parent_inode >= fs->sb.inode_count)
-                        { pfs_last_metadata_failure_stage = 8; return PROSENJITFS_ECORRUPT; }
+                        return PROSENJITFS_ECORRUPT;
                     current = parent_inode.parent_inode;
                 }
                 if (current != fs->sb.root_inode)
-                    { pfs_last_metadata_failure_stage = 9; return PROSENJITFS_ECORRUPT; }
+                    return PROSENJITFS_ECORRUPT;
             }
 
             if (inode.type == PROSENJITFS_INODE_FILE) {
                 if (pfs_validate_extent_chain(fs, &inode) !=
                     PROSENJITFS_OK)
-                    { pfs_last_metadata_failure_stage = 10; return PROSENJITFS_ECORRUPT; }
+                    return PROSENJITFS_ECORRUPT;
             } else if (inode.type == PROSENJITFS_INODE_DIR) {
                 if (pfs_validate_directory(fs, inode_number, &inode) !=
                     PROSENJITFS_OK)
-                    { pfs_last_metadata_failure_stage = 11; return PROSENJITFS_ECORRUPT; }
+                    return PROSENJITFS_ECORRUPT;
             } else {
                 /* Symlinks are reserved in the on-disk ABI but have no V1
                  * VFS implementation; never expose one as a valid inode. */
-                pfs_last_metadata_failure_stage = 12;
                 return PROSENJITFS_ECORRUPT;
             }
         } else if (rc != PROSENJITFS_ENOENT) {
-            pfs_last_metadata_failure_stage = 13;
             return PROSENJITFS_ECORRUPT;
         }
     }
