@@ -3708,18 +3708,22 @@ int prosenjitfs_selftest(void)
                                           fs.sb.block_size, 1u, commit);
         pfs_copy(commit, &c, sizeof(c));
 
-        if (pfs_write_block(fs.mount.device, fs.sb.journal_start,
-                            header) != PROSENJITFS_OK ||
-            pfs_write_block(fs.mount.device, fs.sb.journal_start + 1u,
-                            image) != PROSENJITFS_OK ||
-            pfs_write_block(fs.mount.device, fs.sb.journal_start + 2u,
-                            commit) != PROSENJITFS_OK ||
-            pfs_flush(fs.mount.device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            disk.data[journal_target * 512u] != 0xA5u ||
-            disk.data[journal_target * 512u + 1u] != 0x5Au)
-            return -901;
+        if (pfs_write_block(fs.mount.device, fs.sb.journal_start, header) != PROSENJITFS_OK)
+            return -911;
+        if (pfs_write_block(fs.mount.device, fs.sb.journal_start + 1u, image) != PROSENJITFS_OK)
+            return -912;
+        if (pfs_write_block(fs.mount.device, fs.sb.journal_start + 2u, commit) != PROSENJITFS_OK)
+            return -913;
+        if (pfs_flush(fs.mount.device) != PROSENJITFS_OK)
+            return -914;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return -915;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -916;
+        if (disk.data[journal_target * 512u] != 0xA5u)
+            return -917;
+        if (disk.data[journal_target * 512u + 1u] != 0x5Au)
+            return -918;
     }
     {
         uint64_t journal_target = fs.sb.data_start + 1u;
