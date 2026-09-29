@@ -1519,7 +1519,9 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
          * smaller than the old size, another extent should follow the kept
          * range; reaching here means the on-disk extent chain is inconsistent.
          */
-        return -17413;
+        return -20000 -
+               (int)(required_blocks * 100u + last.logical_block * 10u +
+                     last.block_count);
     }
 }
 
