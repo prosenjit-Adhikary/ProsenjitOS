@@ -3463,6 +3463,47 @@ int prosenjitfs_selftest(void)
         inode.dir_index == 0u ||
         !fs.mount.root)
         return -2001;
+    /*
+     * Link-count integrity regression: V1 has exactly one namespace link
+     * per live inode. Corrupt a valid root inode while preserving its
+     * checksum; mount validation must reject the semantic inconsistency.
+     */
+    {
+        uint8_t saved_root[4096];
+        uint8_t corrupt_root[4096];
+        if (fs.sb.block_size > sizeof(saved_root) ||
+            pfs_read_block(fs.mount.device, fs.sb.inode_table_start,
+                           saved_root) != PROSENJITFS_OK)
+            return -2002;
+        pfs_copy(corrupt_root, saved_root, fs.sb.block_size);
+        pfs_put32(corrupt_root + offsetof(struct pros_prosenjitfs_inode, links),
+                  2u);
+        pfs_put32(corrupt_root + offsetof(struct pros_prosenjitfs_inode,
+                                          checksum), 0u);
+        pfs_put32(corrupt_root + offsetof(struct pros_prosenjitfs_inode,
+                                          checksum),
+                  pfs_crc_with_zero32(
+                      corrupt_root, sizeof(struct pros_prosenjitfs_inode),
+                      (uint32_t)offsetof(struct pros_prosenjitfs_inode,
+                                         checksum)));
+        if (pfs_write_block(fs.mount.device, fs.sb.inode_table_start,
+                            corrupt_root) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROS_BLOCK_OK) {
+            return -2003;
+        }
+        vfs_mount_deactivate(&fs.mount);
+        if (fs.tx.images) kfree(fs.tx.images);
+        if (fs.scratch) kfree(fs.scratch);
+        fs.tx.images = 0;
+        fs.scratch = 0;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -2004;
+        if (pfs_write_block(&device,  fs.sb.inode_table_start,
+                            saved_root) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROS_BLOCK_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -2005;
+    }
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
