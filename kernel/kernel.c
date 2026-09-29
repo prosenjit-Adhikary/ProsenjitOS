@@ -1200,9 +1200,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     {
         int pfs_test_rc = prosenjitfs_selftest();
         if (pfs_test_rc != PROSENJITFS_OK) {
-            serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
+                    serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
             serial_write("ProsenjitOS: ProsenjitFS self-test return code = ");
-            serial_write_dec((uint64_t)(int64_t)pfs_test_rc);
+            serial_hex64((uint64_t)(int64_t)pfs_test_rc);
             serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
