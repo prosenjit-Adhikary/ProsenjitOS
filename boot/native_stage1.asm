@@ -15,6 +15,20 @@ start:
 
     mov [boot_drive], dl
 
+    ; Require BIOS Enhanced Disk Drive services before using INT 13h AH=42h.
+    ; This makes the native loader fail deterministically on legacy BIOSes
+    ; that cannot provide LBA packet reads.
+    mov si, edd_packet
+    mov ah, 0x41
+    mov bx, 0x55AA
+    mov dl, [boot_drive]
+    int 0x13
+    jc edd_error
+    cmp bx, 0xAA55
+    jne edd_error
+    test cx, 1
+    jz edd_error
+
     ; Load our native second stage from LBA 1 into 0x8000.
     mov si, dap
     mov word [dap_count], STAGE2_SECTORS
@@ -29,8 +43,13 @@ start:
 
     jmp 0x0000:0x8000
 
+edd_error:
+    mov si, edd_error_msg
+    jmp .print_error
+
 disk_error:
     mov si, error_msg
+.print_error:
 .print:
     lodsb
     test al, al
@@ -46,6 +65,8 @@ disk_error:
 
 boot_drive db 0
 error_msg db 'ProsenjitOS bootloader disk read error', 0
+edd_error_msg db 'ProsenjitOS BIOS EDD unsupported', 0
+edd_packet times 16 db 0
 
 align 4
 dap:
