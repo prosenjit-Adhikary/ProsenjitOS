@@ -53,8 +53,6 @@ int pros_storage_discover(struct pros_block_device *device,
         struct pros_partition_device view;
         enum pros_filesystem_type filesystem;
 
-        if (vfs_probe_filesystem == 0)
-            return PROS_STORAGE_EINVAL;
 
         rc = partition_device_init(&view, device, &partitions[i]);
         if (rc != PROS_PARTITION_OK)
