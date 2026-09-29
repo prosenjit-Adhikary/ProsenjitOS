@@ -257,7 +257,7 @@ int main(int argc, char **argv)
 
     zero_bytes(block, block_size);
     if (write_bitmap_region(fd, sb.block_bitmap_start,
-                            sb.block_bitmap_blocks, 0u, sb.data_start,
+                            sb.block_bitmap_blocks, 0u, sb.data_start + 1u,
                             block_size, total_blocks) != 0)
         goto fail;
 
@@ -280,7 +280,7 @@ int main(int argc, char **argv)
     root.links = 1u;
     root.generation = 1u;
     root.parent_inode = 0u;
-    root.dir_index = sb.data_start - 1u;
+    root.dir_index = sb.data_start;
     {
         uint8_t *inode_block = calloc(1u, block_size);
         if (!inode_block)
@@ -313,7 +313,7 @@ int main(int argc, char **argv)
             index_block, sizeof(root_index),
             offsetof(struct pros_prosenjitfs_dir_index, checksum));
         memcpy(index_block, &root_index, sizeof(root_index));
-        if (write_block(fd, sb.data_start - 1u, block_size,
+        if (write_block(fd, sb.data_start, block_size,
                         index_block) != 0) {
             free(index_block);
             goto fail;
