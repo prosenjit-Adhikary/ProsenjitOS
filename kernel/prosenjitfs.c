@@ -429,20 +429,21 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result);
 static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t size);
-static struct pros_vfs_vnode *pfs_make_vnode(struct pros_prosenjitfs *fs,
-                                              uint64_t inode_number,
-                                              struct pros_vfs_vnode *parent);
+static int pfs_make_vnode(struct pros_prosenjitfs *fs,
+                          uint64_t inode_number,
+                          struct pros_vfs_vnode *parent,
+                          struct pros_vfs_vnode **result);
 static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
                               uint64_t entry_lba,
                               struct pros_prosenjitfs_dir_entry *entry);
 static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
                                     const struct pros_prosenjitfs_inode *dir_inode,
                                     uint64_t ordinal,
-                                    struct pros_prosenjitfs_dir_entry *entry,
-                                    uint64_t *entry_lba);
+                                    struct pros_prosenjitfs_dir_entry *entry);
 static int pfs_find_dir_entry_location(const struct pros_prosenjitfs *fs,
                                        const struct pros_prosenjitfs_inode *dir_inode,
                                        const char *name,
+                                       struct pros_prosenjitfs_dir_index *index,
                                        struct pros_prosenjitfs_dir_entry *found,
                                        uint64_t *entry_lba,
                                        uint64_t *previous_lba);
@@ -3191,6 +3192,7 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
+    struct pros_vfs_vnode *parent = 0;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return -1;
@@ -3215,7 +3217,6 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_vnode *looked_up = 0;
         struct pros_vfs_vnode *subdir = 0;
         struct pros_vfs_vnode *nested = 0;
-        struct pros_vfs_vnode *parent = 0;
         if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
             root != fs.mount.root ||
             root->ops->create(root, "hello", &created) != PROS_VFS_OK ||
