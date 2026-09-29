@@ -3552,6 +3552,11 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(moved) != PROS_VFS_OK ||
             vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
+            !moved ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
             vfs_file_open(&fs.mount, "/collision", PROS_VFS_O_WRITE |
                           PROS_VFS_O_CREATE, (struct pros_vfs_file *)&file) !=
                 PROS_VFS_OK ||
