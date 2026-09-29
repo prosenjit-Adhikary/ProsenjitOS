@@ -840,6 +840,43 @@ int exfat_selftest(void)
         set[2] ^= 1u;
     }
 
+    /* Directory entry sets may legally cross a cluster boundary. */
+    {
+        uint8_t boundary_set[96];
+        struct pros_exfat_dirent found;
+        const char *filename = "CROSS.TXT";
+        for (uint32_t i = 0u; i < sizeof(boundary_set); ++i)
+            boundary_set[i] = 0u;
+        boundary_set[0] = 0x85u;
+        boundary_set[1] = 2u;
+        boundary_set[4] = 0x20u;
+        boundary_set[32] = 0xC0u;
+        boundary_set[33] = 1u;
+        boundary_set[35] = 9u;
+        exfat_test_le64(boundary_set + 40u, 700u);
+        exfat_test_le32(boundary_set + 52u, 4u);
+        exfat_test_le64(boundary_set + 56u, 700u);
+        boundary_set[64] = 0xC1u;
+        for (uint32_t i = 0u; i < 9u; ++i) {
+            boundary_set[66u + i * 2u] = (uint8_t)filename[i];
+            boundary_set[67u + i * 2u] = 0u;
+        }
+        {
+            uint16_t checksum = exfat_directory_checksum(boundary_set, 3u);
+            boundary_set[2] = (uint8_t)checksum;
+            boundary_set[3] = (uint8_t)(checksum >> 8);
+        }
+        for (uint32_t i = 0u; i < 32u; ++i)
+            disk.sectors[25u * 512u + 480u + i] = boundary_set[i];
+        for (uint32_t i = 0u; i < 64u; ++i)
+            disk.sectors[26u * 512u + i] = boundary_set[32u + i];
+
+        if (exfat_find(&fs, 2u, "cross.txt", &found) != PROS_EXFAT_OK ||
+            found.size != 700u || found.first_cluster != 4u ||
+            !exfat_name_equal_ci(found.name, filename))
+            return -18;
+    }
+
     /* NoFatChain must read a contiguous allocation without consulting FAT. */
     if (exfat_file_read(&fs, 4u, 1u, 100u, 50u, 0u,
                         output, sizeof(output), &done) != PROS_EXFAT_OK ||
