@@ -12,12 +12,8 @@ start:
     mov es, ax
     mov ss, ax
     mov sp, 0x7C00
-
     mov [boot_drive], dl
 
-    ; Require BIOS Enhanced Disk Drive services before using INT 13h AH=42h.
-    ; This makes the native loader fail deterministically on legacy BIOSes
-    ; that cannot provide LBA packet reads.
     mov ah, 0x41
     mov bx, 0x55AA
     mov dl, [boot_drive]
@@ -28,7 +24,6 @@ start:
     test cx, 1
     jz edd_error
 
-    ; Load our native second stage from LBA 1 into 0x8000.
     mov si, dap
     mov word [dap_count], STAGE2_SECTORS
     mov word [dap_offset], 0x8000
@@ -84,15 +79,13 @@ dap_lba_high dd 0
 %define PFS_SECTORS 512
 %endif
 
-; Keep a conventional MBR partition entry while the native loader itself
-; continues to use its fixed-LBA boot layout. The OS can therefore discover
-; the reserved ProsenjitFS data volume through the normal partition layer.
-times 446-($-$) db 0
+; Conventional MBR partition entry for the reserved ProsenjitFS volume.
+times 446-($-$$) db 0
 db 0x80
 db 0x00, 0x02, 0x00
 db 0xDA
 db 0x00, 0x02, 0x00
 dd PFS_START_LBA
 dd PFS_SECTORS
-times 510-($-$) db 0
+times 510-($-$$) db 0
 dw 0xAA55
