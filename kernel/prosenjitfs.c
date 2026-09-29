@@ -815,7 +815,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
-    uint64_t old_size, old_blocks, keep_blocks;
+    uint64_t old_size, keep_blocks;
     uint64_t current, previous = 0u;
     uint64_t steps = 0u;
 
@@ -941,8 +941,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
             inode = new_inode;
             current = next;
-            if (previous != 0u)
-                current = next;
             continue;
         }
 
