@@ -562,3 +562,40 @@ ProsenjitFS is now integrated as the native ProsenjitOS filesystem through the e
 The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata and a redo journal. Its deterministic memory-backed format/mount/allocation/journal regression is now part of the boot-test workflow. Full directory mutation, complete file I/O, corruption/crash-point coverage and real QEMU storage-device integration remain subsequent milestones.
 
 See docs/PROSENJITFS.md and docs/FILESYSTEM-INTEGRATION.md for the format contract and integration boundary.
+
+
+## AI-built OS / agent-native architecture research
+
+**Research captured: 2026-09-29.** A recent public project, **Ember**, is a useful reference for ProsenjitOS's AI-directed development model. Its public repository describes an operating system written from scratch by Claude through Claude Code, with its own boot sector, a FAT12/FAT16 filesystem, DOS-compatible INT 21h services, a 32-bit runtime, graphical desktop, audio, hardware-specific drivers, DOS compatibility including Doom, and a UEFI-oriented Ember 2.0 path. The repository explicitly says the underlying system has a **16-bit NASM assembly kernel of about 46 KB**. So the news claim that Claude created an OS with "no kernel" is not accurate if it refers to Ember; the interesting point is that Claude wrote most of the OS implementation, including the kernel.
+
+The documented workflow was iterative rather than one-shot: define a feature -> let Claude implement -> build -> boot on QEMU/real hardware -> capture what failed -> feed concrete observations back -> patch -> repeat. This is directly relevant to the ProsenjitOS workflow.
+
+### Design lessons to preserve
+
+- Keep a small, explicit hardware/security boundary: firmware -> boot protocol -> kernel -> drivers/device broker -> VFS -> services -> applications -> AI service.
+- Treat AI as a first-class **control-plane/service**, not as an unrestricted kernel actor.
+- Use an intent -> capability request -> policy decision -> validated action -> audit/Reason Ledger pipeline.
+- Prioritize observability: deterministic builds, serial markers, structured logs, crash reports, QEMU automation, filesystem self-tests, hardware-test capture, and machine-readable results.
+- Keep real-hardware validation separate from QEMU validation.
+- Keep compatibility layers above the independent kernel and inside the ProsenjitOS security/capability model.
+
+### Important architectural conclusion
+
+Do **not** make "no kernel" a ProsenjitOS goal. A conventional computer still needs a privileged control substrate for memory isolation, CPU privilege transitions, interrupt handling, device access, process isolation, storage, and security policy. The more useful future direction is an **AI-native operating environment**: the AI becomes a first-class system service/control plane while the kernel and policy engine remain the final security authority.
+
+This also aligns with current research on agent operating systems and trust-native agentic operating systems, which explores agent identity, perception, memory governance, execution control, prompt-injection isolation, information-flow controls, and non-bypassable tool/security boundaries.
+
+### Future ProsenjitOS AI research backlog
+
+1. AI Service/Agent ABI.
+2. Intent -> capability request -> policy -> execution record format.
+3. Machine-readable system-state snapshots for AI diagnosis.
+4. Structured crash/boot diagnostics.
+5. AI-driven QEMU regression loop.
+6. Hardware-test result ingestion.
+7. Capability-scoped autonomous maintenance.
+8. Provider-neutral local/remote AI integration.
+9. Agent-memory and prompt-injection isolation.
+10. Kernel remains the final security authority.
+
+Primary references: Ember repository (https://github.com/Made-In-Basement/ember), Ember project discussion (https://www.reddit.com/r/ClaudeAI/comments/1wfpydl/i_asked_claude_to_build_an_operating_system_from/), AgentKernel (https://arxiv.org/abs/2609.29647), and Towards an Agent Operating System (https://arxiv.org/abs/2607.25076).
