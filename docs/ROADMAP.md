@@ -37,7 +37,15 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [x] First bootable image
 
 ## Phase 1 — 64-bit boot and kernel foundation
-- [x] BIOS boot path
+- [x] BIOS boot path foundation
+- [ ] Native ProsenjitOS bootloader
+  - [ ] Stable ProsenjitOS Boot Protocol
+  - [ ] Native UEFI loader
+  - [ ] Native legacy BIOS loader hardening
+  - [ ] Boot-device discovery
+  - [ ] Kernel/module validation
+  - [ ] Native loader QEMU/CI regression
+  - [ ] Optional traditional-bootloader adapter (GRUB/other)
 - [x] 32-bit protected mode
 - [x] Long-mode transition
 - [x] x86-64 kernel entry
@@ -214,6 +222,9 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Compiler/linker and memory-safety hardening
 - [ ] Kernel control-flow and integrity protections
 - [ ] Secure/verified boot
+- [ ] Boot-component signing and integrity verification
+- [ ] Measured boot
+- [ ] Boot rollback/recovery protection
 - [ ] Kernel self-protection
 - [ ] Driver signing policy
 - [ ] Signed kernel/system-component update policy
@@ -235,6 +246,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - **Security:** do not depend on source-code secrecy as the primary defense. Assume an attacker may reverse-engineer release binaries; security must remain based on isolation, least privilege, capabilities, integrity, authentication and layered hardening.
 - **Release hardening:** reduce unnecessary production information exposure (debug symbols, internal metadata and unnecessary exports) without sacrificing auditability or maintainability.
 - **Desktop:** use mature existing desktop/window-system technology first; a new ProsenjitOS windowing stack is not an immediate development target.
+- **Boot:** prefer an original ProsenjitOS bootloader and stable boot protocol; MBR/GPT remain partition-layer concerns, and GRUB/other traditional loaders are optional adapters rather than kernel dependencies.
 - **Filesystem extensibility:** future filesystem providers should attach through the VFS/provider boundary without requiring kernel-core redesign; existing FAT32/exFAT/NTFS/ProsenjitFS implementations remain protected from unnecessary architectural churn.
 - **Compatibility:** Windows Office and OneDrive support are engineering targets to be validated incrementally, not current guarantees.
 
