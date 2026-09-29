@@ -3775,7 +3775,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -10;
-        disk.data[fs.sb.journal_start * 512u] = 0u;
+        pfs_zero(disk.data + fs.sb.journal_start * 512u, 512u);
         if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -1001;
