@@ -271,7 +271,7 @@ int exfat_file_read(const struct pros_exfat *fs, uint32_t first_cluster,
 }
 
 struct exfat_test_disk {
-    uint8_t sectors[6u * 512u];
+    uint8_t sectors[32u * 512u];
 };
 
 static void exfat_test_le32(uint8_t *p, uint32_t value)
@@ -288,7 +288,7 @@ static int exfat_test_read(struct pros_block_device *device, uint64_t lba,
     struct exfat_test_disk *disk =
         (struct exfat_test_disk *)device->private_data;
     if (!disk || !buffer || count == 0u ||
-        lba >= 6u || count > 6u - lba)
+        lba >= 32u || count > 32u - lba)
         return PROS_BLOCK_EIO;
     for (uint32_t i = 0u; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = disk->sectors[lba * 512u + i];
@@ -459,32 +459,29 @@ int exfat_selftest(void)
     uint8_t *boot = disk.sectors;
     boot[3]='E'; boot[4]='X'; boot[5]='F'; boot[6]='A';
     boot[7]='T'; boot[8]=' '; boot[9]=' '; boot[10]=' ';
-    exfat_test_le32(boot + 72, 6u);   /* volume length */
-    exfat_test_le32(boot + 80, 1u);   /* FAT starts at sector 1 */
+    exfat_test_le32(boot + 72, 29u);  /* volume length */
+    exfat_test_le32(boot + 80, 24u);  /* FAT starts at sector 24 */
     exfat_test_le32(boot + 84, 1u);   /* one FAT sector */
-    exfat_test_le32(boot + 88, 2u);   /* cluster heap starts at 2 */
+    exfat_test_le32(boot + 88, 25u);  /* cluster heap starts at 25 */
     exfat_test_le32(boot + 92, 4u);   /* clusters 2..5 */
     exfat_test_le32(boot + 96, 2u);   /* root cluster */
     boot[108]=9u; boot[109]=0u; boot[110]=1u;
     boot[510]=0x55u; boot[511]=0xAAu;
 
     /* FAT[2] -> 3, FAT[3] -> EOC. */
-    exfat_test_le32(disk.sectors + 512u + 8u, 3u);
-    exfat_test_le32(disk.sectors + 512u + 12u, 0xFFFFFFFFu);
+    exfat_test_le32(disk.sectors + 24u * 512u + 8u, 3u);
+    exfat_test_le32(disk.sectors + 24u * 512u + 12u, 0xFFFFFFFFu);
 
     for (uint32_t i = 0u; i < 512u; ++i) {
-        disk.sectors[2u * 512u + i] = (uint8_t)('A' + (i % 26u));
-        disk.sectors[3u * 512u + i] = (uint8_t)('a' + (i % 26u));
-        disk.sectors[4u * 512u + i] = (uint8_t)('0' + (i % 10u));
+        disk.sectors[25u * 512u + i] = (uint8_t)('A' + (i % 26u));
+        disk.sectors[26u * 512u + i] = (uint8_t)('a' + (i % 26u));
+        disk.sectors[27u * 512u + i] = (uint8_t)('0' + (i % 10u));
     }
 
-    if (block_device_init(&device,512,6,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
+    if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
-    {
-        int initial_mount_status = exfat_mount(&fs, &device);
-        if (initial_mount_status != PROS_EXFAT_OK)
-            return -100 + initial_mount_status;
-    }
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_OK)
+        return -1;
     if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 2u)
         return -102;
 
@@ -505,7 +502,7 @@ int exfat_selftest(void)
 
     /* Validate a complete file directory-entry set and case-insensitive lookup. */
     {
-        uint8_t *set = disk.sectors + 2u * 512u;
+        uint8_t *set = disk.sectors + 25u * 512u;
         const char *filename = "HELLO.TXT";
         set[0] = 0x85u;
         set[1] = 2u;
@@ -560,14 +557,14 @@ int exfat_selftest(void)
         return -5;
 
     /* Reject a volume whose declared length exceeds the physical device. */
-    exfat_test_le32(boot + 72, 7u);
-    device.sector_count = 6u;
+    exfat_test_le32(boot + 72, 33u);
+    device.sector_count = 32u;
     {
         int physical_volume_status = exfat_mount(&fs, &device);
         if (physical_volume_status != PROS_EXFAT_ECORRUPT)
-            return -61;
+            return -6;
     }
-    exfat_test_le32(boot + 72, 6u);
+    exfat_test_le32(boot + 72, 29u);
 
     /* Restore a valid volume and reject an overlapping cluster heap. */
     exfat_test_le32(boot + 88, 1u);
