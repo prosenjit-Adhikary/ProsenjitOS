@@ -866,6 +866,10 @@ int exfat_selftest(void)
             boundary_set[2] = (uint8_t)checksum;
             boundary_set[3] = (uint8_t)(checksum >> 8);
         }
+        /* Keep the unused slots before the boundary entry non-zero so
+         * the directory end marker does not terminate the scan early. */
+        for (uint32_t off = 96u; off < 480u; off += 32u)
+            disk.sectors[25u * 512u + off] = 0x01u;
         for (uint32_t i = 0u; i < 32u; ++i)
             disk.sectors[25u * 512u + 480u + i] = boundary_set[i];
         for (uint32_t i = 0u; i < 64u; ++i)
