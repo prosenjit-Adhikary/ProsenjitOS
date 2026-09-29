@@ -588,6 +588,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         if (pfs_read_block(data->fs->mount.device, physical, block) !=
             PROSENJITFS_OK)
             return PROS_VFS_EIO;
+        (void)extent_lba;
         pfs_copy(out + done, block + within, take);
         done += take;
     }
@@ -751,8 +752,6 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     pfs_zero(dbuf, block_size);
                     uint64_t write_pos = ((uint64_t)logical_start + bi) *
                                          block_size;
-                    uint64_t source_offset = write_pos < pos ? 0u :
-                                             write_pos - pos;
                     uint32_t copy_len = 0u;
                     if (write_pos < required_end && write_pos + block_size > pos) {
                         uint64_t begin = write_pos > pos ? write_pos : pos;
