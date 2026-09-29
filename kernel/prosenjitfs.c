@@ -1974,6 +1974,36 @@ int prosenjitfs_selftest(void)
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return -5;
     }
+    {
+        struct pros_vfs_file file;
+        uint8_t write_data[700];
+        uint8_t read_data[700];
+        uint32_t done = 0u;
+        for (uint32_t i = 0u; i < sizeof(write_data); ++i)
+            write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(write_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -6;
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data))
+            return -6;
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != write_data[i])
+                return -6;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -6;
+    }
+
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
     if (first_block < fs.sb.data_start ||
