@@ -113,11 +113,17 @@ int partition_read_gpt(struct pros_block_device *device,
         entries_lba >= device->sector_count)
         return PROS_PARTITION_EINVAL;
     uint64_t entry_bytes = (uint64_t)entry_count * entry_size;
+    if (entry_bytes == 0u ||
+        entry_bytes > UINT64_MAX - (device->sector_size - 1u))
+        return PROS_PARTITION_EINVAL;
     uint64_t entry_sectors = entry_bytes / device->sector_size;
     if (entry_bytes % device->sector_size != 0u)
         ++entry_sectors;
     if (entry_sectors == 0u ||
         entry_sectors > device->sector_count - entries_lba)
+        return PROS_PARTITION_EINVAL;
+    uint64_t entries_end = entries_lba + entry_sectors;
+    if (entries_end > first_usable_lba || backup_lba <= last_usable_lba)
         return PROS_PARTITION_EINVAL;
     for (uint32_t i = 0; i < entry_count && found < capacity; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
