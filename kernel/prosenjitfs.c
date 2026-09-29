@@ -3288,7 +3288,7 @@ static int pfs_test_flush(struct pros_block_device *device)
 
 int prosenjitfs_selftest(void)
 {
-    int pfs_selftest_stage = 0;
+    volatile int pfs_selftest_stage = 0;
     struct pros_vfs_vnode *parent = 0;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
