@@ -3437,77 +3437,131 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_vnode *moved = 0;
 
         pfs_zero(&file, sizeof(file));
-        if (vfs_file_open(&fs.mount, "/old", PROS_VFS_O_WRITE |
-                          PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/old", "/new") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/old", &moved) != PROS_VFS_ENOENT ||
-            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -7;
+        if (vfs_file_open(&fs.mount, "/old", PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK)
+            return -801;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -802;
+        if (vfs_path_rename(&fs.mount, "/old", "/new") != PROS_VFS_OK)
+            return -803;
+        if (vfs_path_lookup(&fs.mount, "/old", &moved) != PROS_VFS_ENOENT)
+            return -804;
+        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK)
+            return -805;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -806;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -807;
 
-        if (vfs_path_mkdir(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
-            !moved ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/sub", "/dst/sub") !=
-                PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dst/sub/renamed", &moved) !=
-                PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/dst/sub", "/dst/sub/moved") !=
-                PROS_VFS_ELOOP ||
-            vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_ENOTEMPTY ||
-            vfs_path_unlink(&fs.mount, "/dst/sub/renamed") != PROS_VFS_OK ||
-            vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dst/sub", &moved) != PROS_VFS_ENOENT ||
-            vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_DIRECTORY ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
-            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
-            !moved ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
-            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
-            !moved ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
-            vfs_file_open(&fs.mount, "/collision", PROS_VFS_O_WRITE |
-                          PROS_VFS_O_CREATE, (struct pros_vfs_file *)&file) !=
-                PROS_VFS_OK ||
-            vfs_file_close((struct pros_vfs_file *)&file) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/new", "/collision") != PROS_VFS_EEXIST ||
-            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/collision", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/new", "/dst/new") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT ||
-            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/dst/new", "/new") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -8;
+        if (vfs_path_mkdir(&fs.mount, "/dst", &moved) != PROS_VFS_OK)
+            return -808;
+        if (!moved)
+            return -809;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -810;
+        if (vfs_path_rename(&fs.mount, "/sub", "/dst/sub") != PROS_VFS_OK)
+            return -811;
+        if (vfs_path_lookup(&fs.mount, "/dst/sub/renamed", &moved) != PROS_VFS_OK)
+            return -812;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -813;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -814;
+        if (vfs_path_rename(&fs.mount, "/dst/sub", "/dst/sub/moved") != PROS_VFS_ELOOP)
+            return -815;
+        if (vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_ENOTEMPTY)
+            return -816;
+        if (vfs_path_unlink(&fs.mount, "/dst/sub/renamed") != PROS_VFS_OK)
+            return -817;
+        if (vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_OK)
+            return -818;
+        if (vfs_path_lookup(&fs.mount, "/dst/sub", &moved) != PROS_VFS_ENOENT)
+            return -819;
+        if (vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK)
+            return -820;
+        if (moved->type != PROS_VFS_NODE_DIRECTORY)
+            return -821;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -822;
+        if (vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK)
+            return -823;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -824;
+        if (vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK)
+            return -825;
+        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
+            return -826;
+        if (vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK)
+            return -827;
+        if (!moved)
+            return -828;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -829;
+        if (vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK)
+            return -830;
+        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
+            return -831;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return -832;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -833;
+        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
+            return -834;
+        if (vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK)
+            return -835;
+        if (!moved)
+            return -836;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -837;
+        if (vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK)
+            return -838;
+        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
+            return -839;
+        if (vfs_file_open(&fs.mount, "/collision", PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK)
+            return -840;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -841;
+        if (vfs_path_rename(&fs.mount, "/new", "/collision") != PROS_VFS_EEXIST)
+            return -842;
+        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK)
+            return -843;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -844;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -845;
+        if (vfs_path_lookup(&fs.mount, "/collision", &moved) != PROS_VFS_OK)
+            return -846;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -847;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -848;
+        if (vfs_path_rename(&fs.mount, "/new", "/dst/new") != PROS_VFS_OK)
+            return -849;
+        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT)
+            return -850;
+        if (vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK)
+            return -851;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -852;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -853;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return -854;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -855;
+        if (vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK)
+            return -856;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -857;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -858;
+        if (vfs_path_rename(&fs.mount, "/dst/new", "/new") != PROS_VFS_OK)
+            return -859;
+        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK)
+            return -860;
+        if (moved->type != PROS_VFS_NODE_FILE)
+            return -861;
+        if (vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -862;
     }
     {
         static uint8_t payload[8704];
