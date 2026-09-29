@@ -496,10 +496,10 @@ static int exfat_utf8_next(const char **input, uint16_t *units,
     }
 
     if (cp <= 0xFFFFu) {
-        if (*count + 1u >= capacity) return PROS_EXFAT_EOVERFLOW;
+        if (*count >= capacity) return PROS_EXFAT_EOVERFLOW;
         units[(*count)++] = (uint16_t)cp;
     } else {
-        if (*count + 2u >= capacity) return PROS_EXFAT_EOVERFLOW;
+        if (*count + 2u > capacity) return PROS_EXFAT_EOVERFLOW;
         cp -= 0x10000u;
         units[(*count)++] = (uint16_t)(0xD800u + (cp >> 10));
         units[(*count)++] = (uint16_t)(0xDC00u + (cp & 0x3FFu));
