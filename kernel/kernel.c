@@ -1156,6 +1156,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -106: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ENOENT\n"); break;
             case -107: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EEXIST\n"); break;
             case -108: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EOVERFLOW\n"); break;
+            case -310: serial_write("ProsenjitOS: ProsenjitFS journal start LBA is outside device\n"); break;
+            case -311: serial_write("ProsenjitOS: ProsenjitFS journal block read returned I/O error\n"); break;
             case -301: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed after journal read\n"); break;
             case -302: serial_write("ProsenjitOS: ProsenjitFS journal recovery found non-empty invalid header\n"); break;
             case -303: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed reading images\n"); break;
