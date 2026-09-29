@@ -497,30 +497,7 @@ static int vfs_split_parent_path(const char *path, char *parent_path,
     return PROS_VFS_OK;
 }
 
-int vfs_path_unlink(struct pros_vfs_mount *mount, const char *path)
-{
-    struct pros_vfs_vnode *parent = 0;
-    char parent_path[PROS_VFS_PATH_MAX + 1u];
-    char name[PROS_VFS_NAME_MAX + 1u];
-    int rc;
 
-    if (!mount || !mount->active || !path)
-        return PROS_VFS_EINVAL;
-    rc = vfs_split_parent_path(path, parent_path, name);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    rc = vfs_path_lookup(mount, parent_path, &parent);
-    if (rc != PROS_VFS_OK)
-        return rc;
-    if (parent->type != PROS_VFS_NODE_DIRECTORY ||
-        !parent->ops || !parent->ops->unlink) {
-        vfs_vnode_put(parent);
-        return PROS_VFS_ENOSYS;
-    }
-    rc = parent->ops->unlink(parent, name);
-    vfs_vnode_put(parent);
-    return rc;
-}
 
 int vfs_path_rename(struct pros_vfs_mount *mount, const char *old_path,
                     const char *new_path)
