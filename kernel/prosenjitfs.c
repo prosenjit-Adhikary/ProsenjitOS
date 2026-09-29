@@ -3791,6 +3791,8 @@ int prosenjitfs_selftest(void)
         return -7;
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return -8;
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return -1004;
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
