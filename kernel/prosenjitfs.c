@@ -1233,7 +1233,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
     if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
             PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_FILE)
-        return PROS_VFS_EIO;
+        return -1710;
     if (new_size == inode.size)
         return PROS_VFS_OK;
 
@@ -1314,7 +1314,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             cursor = current.next;
         }
         if (cursor != 0u || last_lba == 0u)
-            return PROS_VFS_EIO;
+            return -1711;
 
         if (last.logical_block + last.block_count == required_blocks &&
             new_size < inode.size) {
@@ -1364,19 +1364,19 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             uint64_t old_allocated = inode.allocated_bytes;
 
             if (released > old_allocated / block_size)
-                return PROS_VFS_EIO;
+                return -1712;
             last_image = (uint8_t *)kmalloc(block_size);
             inode_image = (uint8_t *)kmalloc(block_size);
             if (!last_image || !inode_image) {
                 if (last_image) kfree(last_image);
                 if (inode_image) kfree(inode_image);
-                return PROS_VFS_EIO;
+                return -1713;
             }
             if (previous_lba != 0u) {
                 previous_image = (uint8_t *)kmalloc(block_size);
                 if (!previous_image) {
                     kfree(last_image); kfree(inode_image);
-                    return PROS_VFS_EIO;
+                    return -1714;
                 }
             }
             if (pfs_read_block(data->fs->mount.device, last_lba, last_image) !=
@@ -1386,7 +1386,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                 previous_image) != PROSENJITFS_OK)) {
                 if (previous_image) kfree(previous_image);
                 kfree(last_image); kfree(inode_image);
-                return PROS_VFS_EIO;
+                return -1714;
             }
 
             if (previous_image) {
@@ -1440,7 +1440,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             kfree(last_image);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return -1800 + rc;
+                return -1720 + rc;
             continue;
         }
 
@@ -1458,7 +1458,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                 !extent_image || !inode_image) {
                 if (extent_image) kfree(extent_image);
                 if (inode_image) kfree(inode_image);
-                return released == 0u ? PROS_VFS_EIO : PROS_VFS_EIO;
+                return -1811;
             }
             if (pfs_read_block(data->fs->mount.device, last_lba,
                                extent_image) != PROSENJITFS_OK ||
@@ -1468,7 +1468,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                block_size,
                                inode_image) != PROSENJITFS_OK) {
                 kfree(extent_image); kfree(inode_image);
-                return PROS_VFS_EIO;
+                return -1812;
             }
             {
                 struct pros_prosenjitfs_extent *extent =
@@ -1509,7 +1509,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             kfree(extent_image);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return -1810 + rc;
+                return -1830 + rc;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
