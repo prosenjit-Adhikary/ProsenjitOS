@@ -1180,7 +1180,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (ata_rc == PROS_ATA_ENODEV) {
             serial_write("ProsenjitOS: ATA PIO disk not present; QEMU disk integration skipped\n");
         } else if (ata_rc != PROS_ATA_OK) {
-            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed\n");
+            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed, code = ");
+            serial_hex64((uint64_t)(int64_t)ata_rc);
+            serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         } else {
             serial_write("ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed\n");
