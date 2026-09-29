@@ -247,7 +247,7 @@ static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
 {
     (void)device;
-    if (!buffer || lba > 4u || count > 4u - lba)
+    if (!buffer || lba >= 4u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
     for (uint32_t i = 0; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
