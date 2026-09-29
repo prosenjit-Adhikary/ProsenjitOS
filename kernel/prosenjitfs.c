@@ -3076,6 +3076,32 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
             if (inode_number == fs->sb.root_inode &&
                 inode.parent_inode != fs->sb.root_inode)
                 return PROSENJITFS_ECORRUPT;
+
+            /*
+             * Every non-root inode must reach the root through directory
+             * parents. This catches orphaned subtrees and parent cycles that
+             * can otherwise satisfy local directory-entry checks.
+             */
+            if (inode_number != fs->sb.root_inode) {
+                uint64_t current = inode.parent_inode;
+                uint64_t guard = 0u;
+                if (current >= fs->sb.inode_count)
+                    return PROSENJITFS_ECORRUPT;
+                while (current != fs->sb.root_inode &&
+                       guard++ < fs->sb.inode_count) {
+                    struct pros_prosenjitfs_inode parent_inode;
+                    if (prosenjitfs_read_inode(fs, current, &parent_inode) !=
+                            PROSENJITFS_OK ||
+                        parent_inode.type != PROSENJITFS_INODE_DIR ||
+                        parent_inode.parent_inode == current ||
+                        parent_inode.parent_inode >= fs->sb.inode_count)
+                        return PROSENJITFS_ECORRUPT;
+                    current = parent_inode.parent_inode;
+                }
+                if (current != fs->sb.root_inode)
+                    return PROSENJITFS_ECORRUPT;
+            }
+
             if (inode.type == PROSENJITFS_INODE_FILE) {
                 if (pfs_validate_extent_chain(fs, &inode) !=
                     PROSENJITFS_OK)
