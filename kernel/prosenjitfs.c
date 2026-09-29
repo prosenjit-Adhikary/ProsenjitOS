@@ -2053,11 +2053,15 @@ int prosenjitfs_selftest(void)
         }
 
 
-        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
-            if (read_data[i] != (uint8_t)((i * 13u) ^ 0x5Au)) {
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            uint8_t expected = i < 37u
+                ? (uint8_t)(0xA0u + i)
+                : (uint8_t)((i * 13u) ^ 0x5Au);
+            if (read_data[i] != expected) {
                 prosenjitfs_unmount(&fs);
                 return -12;
             }
+        }
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
