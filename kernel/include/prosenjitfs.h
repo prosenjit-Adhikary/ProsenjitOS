@@ -16,6 +16,7 @@
 #define PROSENJITFS_EOVERFLOW -8
 #define PROSENJITFS_ENOTDIR  -9
 #define PROSENJITFS_ENOTEMPTY -10
+#define PROSENJITFS_EPERM     -11
 
 struct pros_prosenjitfs_tx {
     uint32_t count;
