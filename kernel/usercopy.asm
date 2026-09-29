@@ -3,17 +3,17 @@ BITS 64
 section .text
 global copy_from_user_asm
 global copy_to_user_asm
+extern usercopy_fault_active_state
+extern usercopy_fault_rip_state
 
-; GS base is initialized per logical CPU by percpu_init().
-; GS:0 = usercopy_fault_active, GS:8 = usercopy_fault_rip.
 copy_from_user_asm:
     test rdx, rdx
     jz .from_success
     pushfq
     cli
-    mov qword [gs:0], 1
+    mov qword [rel usercopy_fault_active_state], 1
     lea rax, [rel .from_fault]
-    mov [gs:8], rax
+    mov [rel usercopy_fault_rip_state], rax
 .from_loop:
     mov al, [rsi]
     mov [rdi], al
@@ -21,7 +21,7 @@ copy_from_user_asm:
     inc rdi
     dec rdx
     jnz .from_loop
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active_state], 0
     popfq
     xor eax, eax
     ret
@@ -29,7 +29,7 @@ copy_from_user_asm:
     xor eax, eax
     ret
 .from_fault:
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active_state], 0
     popfq
     mov rax, -1
     ret
@@ -39,9 +39,9 @@ copy_to_user_asm:
     jz .to_success
     pushfq
     cli
-    mov qword [gs:0], 1
+    mov qword [rel usercopy_fault_active_state], 1
     lea rax, [rel .to_fault]
-    mov [gs:8], rax
+    mov [rel usercopy_fault_rip_state], rax
 .to_loop:
     mov al, [rsi]
     mov [rdi], al
@@ -49,7 +49,7 @@ copy_to_user_asm:
     inc rdi
     dec rdx
     jnz .to_loop
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active_state], 0
     popfq
     xor eax, eax
     ret
@@ -57,7 +57,7 @@ copy_to_user_asm:
     xor eax, eax
     ret
 .to_fault:
-    mov qword [gs:0], 0
+    mov qword [rel usercopy_fault_active_state], 0
     popfq
     mov rax, -1
     ret
