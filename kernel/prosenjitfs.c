@@ -3511,8 +3511,11 @@ int prosenjitfs_selftest(void)
             return -6118;
         if (vfs_vnode_put(parent) != PROS_VFS_OK)
             return -6119;
-        if (vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK)
-            return -6120;
+        {
+            int unlink_rc = vfs_path_unlink(&fs.mount, "/hello");
+            if (unlink_rc != PROS_VFS_OK)
+                return -6300 + unlink_rc;
+        }
         if (vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
             return -6121;
     }
