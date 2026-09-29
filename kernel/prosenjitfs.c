@@ -2022,6 +2022,27 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -11;
 
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12;
+    {
+        struct pros_vfs_file file;
+        uint8_t read_data[700];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            read_data[0] != 0x5Au ||
+            read_data[699] != (uint8_t)((699u * 13u) ^ 0x5Au) ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            prosenjitfs_unmount(&fs);
+            return -12;
+        }
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
