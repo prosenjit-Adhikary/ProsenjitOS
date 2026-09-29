@@ -3888,15 +3888,16 @@ int prosenjitfs_selftest(void)
         struct pros_prosenjitfs_extent first_extent;
         struct pros_prosenjitfs_extent second_extent;
         uint8_t block[4096];
+        uint32_t gap_count = 0u;
         static const uint8_t byte = 0x5Au;
 
         pfs_zero(&gap_file, sizeof(gap_file));
         if (vfs_file_open(&fs.mount, "/gap", PROS_VFS_O_WRITE |
                           PROS_VFS_O_CREATE, &gap_file) != PROS_VFS_OK ||
-            vfs_file_write(&gap_file, &byte, 512u, &count) != PROS_VFS_OK ||
-            count != 512u ||
-            vfs_file_write(&gap_file, &byte, 512u, &count) != PROS_VFS_OK ||
-            count != 512u ||
+            vfs_file_write(&gap_file, &byte, 512u, &gap_count) != PROS_VFS_OK ||
+            gap_count != 512u ||
+            vfs_file_write(&gap_file, &byte, 512u, &gap_count) != PROS_VFS_OK ||
+            gap_count != 512u ||
             vfs_file_close(&gap_file) != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/gap", &gap_vnode) != PROS_VFS_OK)
             return -12001;
