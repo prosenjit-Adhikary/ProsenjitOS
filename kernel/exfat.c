@@ -1133,7 +1133,7 @@ int exfat_selftest(void)
             if (exfat_upcase_lookup(&fs.upcase_table, 0x00E9u, &mapped) !=
                     PROS_EXFAT_UPCASE_OK)
                 return -195;
-            if (mapped != 0x00E9u)
+            if (mapped != 0x00C9u)
                 return -196;
         }
 
