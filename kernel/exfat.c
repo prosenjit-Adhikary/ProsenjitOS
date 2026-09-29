@@ -498,6 +498,47 @@ int exfat_selftest(void)
         output[699] != 'f')
         return -3;
 
+    /* Validate a complete file directory-entry set and case-insensitive lookup. */
+    {
+        uint8_t *set = disk.sectors + 2u * 512u;
+        const char *filename = "HELLO.TXT";
+        set[0] = 0x85u;
+        set[1] = 2u;
+        set[4] = 0x20u;
+        set[32] = 0xC0u;
+        set[33] = 0u;
+        set[35] = 9u;
+        exfat_test_le32(set + 52u, 2u);
+        exfat_test_le32(set + 56u, 700u);
+        set[64] = 0xC1u;
+        for (uint32_t i = 0u; i < 9u; ++i) {
+            set[66u + i * 2u] = (uint8_t)filename[i];
+            set[67u + i * 2u] = 0u;
+        }
+        {
+            uint16_t checksum = exfat_directory_checksum(set, 3u);
+            set[2] = (uint8_t)checksum;
+            set[3] = (uint8_t)(checksum >> 8);
+        }
+        {
+            struct pros_exfat_dirent found;
+            if (exfat_find(&fs, 2u, "hello.txt", &found) != PROS_EXFAT_OK ||
+                found.size != 700u ||
+                found.valid_data_length != 700u ||
+                found.first_cluster != 2u ||
+                found.no_fat_chain != 0u ||
+                !exfat_name_equal_ci(found.name, filename))
+                return -12;
+        }
+        set[2] ^= 1u;
+        {
+            struct pros_exfat_dirent found;
+            if (exfat_find(&fs, 2u, filename, &found) != PROS_EXFAT_ECORRUPT)
+                return -13;
+        }
+        set[2] ^= 1u;
+    }
+
     /* NoFatChain must read a contiguous allocation without consulting FAT. */
     if (exfat_file_read(&fs, 5u, 1u, 100u, 50u, 0u,
                         output, sizeof(output), &done) != PROS_EXFAT_OK ||
