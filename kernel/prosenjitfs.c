@@ -2802,6 +2802,52 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -12;
     }
+    {
+        struct pros_prosenjitfs_inode before;
+        struct pros_prosenjitfs_inode after;
+        struct pros_vfs_vnode *hidden = 0;
+
+        if (prosenjitfs_read_inode(&fs, 1u, &before) != PROSENJITFS_OK ||
+            vfs_rename(&fs.mount, "/hello.bin", "/.hello.bin") !=
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
+                PROS_VFS_ENOENT ||
+            hidden != 0)
+            return -12;
+        if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
+                PROS_VFS_OK ||
+            !hidden ||
+            vfs_vnode_put(hidden) != PROS_VFS_OK ||
+            prosenjitfs_read_inode(&fs, 1u, &after) != PROSENJITFS_OK ||
+            after.type != before.type ||
+            after.mode != before.mode ||
+            after.uid != before.uid ||
+            after.gid != before.gid ||
+            after.links != before.links ||
+            after.generation != before.generation ||
+            after.size != before.size ||
+            after.allocated_bytes != before.allocated_bytes ||
+            after.parent_inode != before.parent_inode ||
+            after.extent_head != before.extent_head ||
+            after.dir_index != before.dir_index ||
+            after.atime != before.atime ||
+            after.mtime != before.mtime ||
+            after.ctime != before.ctime)
+            return -12;
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
+                PROS_VFS_ENOENT ||
+            hidden != 0 ||
+            vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
+                PROS_VFS_OK ||
+            !hidden ||
+            vfs_vnode_put(hidden) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin") !=
+                PROS_VFS_OK)
+            return -12;
+    }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
 
