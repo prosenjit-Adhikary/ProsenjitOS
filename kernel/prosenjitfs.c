@@ -1599,12 +1599,25 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
         struct pros_vfs_dirent entry;
+        struct pros_vfs_vnode *created = 0;
+        struct pros_vfs_vnode *looked_up = 0;
         if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
             root != fs.mount.root ||
+            root->ops->create(root, "hello", &created) != PROS_VFS_OK ||
+            !created ||
+            vfs_path_lookup(&fs.mount, "/hello", &looked_up) != PROS_VFS_OK ||
+            !looked_up ||
+            looked_up->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
+            vfs_vnode_put(created) != PROS_VFS_OK ||
             vfs_vnode_put(root) != PROS_VFS_OK ||
             vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != '.' ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != '.' ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != 'h' ||
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return -5;
     }
