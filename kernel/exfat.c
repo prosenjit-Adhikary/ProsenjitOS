@@ -1122,11 +1122,15 @@ int exfat_selftest(void)
             unicode_set[3] = (uint8_t)(checksum >> 8);
         }
 
-        if (exfat_find(&fs, 2u, "CAF\xC3\x89.TXT", &found) !=
-                PROS_EXFAT_OK ||
-            found.name_length != 8u ||
-            found.unicode_name[3] != 0x00E9u)
-            return -19;
+        {
+            int unicode_rc = exfat_find(&fs, 2u, "CAF\xC3\x89.TXT", &found);
+            if (unicode_rc != PROS_EXFAT_OK)
+                return -191;
+            if (found.name_length != 8u)
+                return -192;
+            if (found.unicode_name[3] != 0x00E9u)
+                return -193;
+        }
     }
 
     /* Directory entry sets may legally cross a cluster boundary. */
