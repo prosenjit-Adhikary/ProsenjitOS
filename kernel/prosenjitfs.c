@@ -866,7 +866,6 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (old_extent_image) kfree(old_extent_image);
             kfree(extent_image);
             kfree(inode_image);
-            pfs_metadata_debug_stage = 4;
             if (rc != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
             done += take;
@@ -3314,7 +3313,7 @@ int prosenjitfs_selftest(void)
             vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
                           &count) != PROS_VFS_OK ||
             count != sizeof(message) ||
-            __builtin_memcmp(readback, message, sizeof(message)) != 0 ||
+            pfs_mem_equal(readback, message, sizeof(message)) != 0 ||
             vfs_file_seek(&file, sizeof(message)) != PROS_VFS_OK ||
             vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
                            &count) != PROS_VFS_OK ||
@@ -3323,7 +3322,7 @@ int prosenjitfs_selftest(void)
             vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
             vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
             count != 5u ||
-            __builtin_memcmp(readback, "Prose", 5u) != 0 ||
+            pfs_mem_equal(readback, "Prose", 5u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
@@ -3437,7 +3436,7 @@ int prosenjitfs_selftest(void)
             vfs_file_read(&file, verify, (uint32_t)sizeof(verify),
                           &count) != PROS_VFS_OK ||
             count != sizeof(verify) ||
-            __builtin_memcmp(verify, payload, sizeof(payload)) != 0 ||
+            pfs_mem_equal(verify, payload, sizeof(payload)) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
@@ -3449,7 +3448,7 @@ int prosenjitfs_selftest(void)
             vfs_file_seek(&file, 8192u) != PROS_VFS_OK ||
             vfs_file_read(&file, verify, 512u, &count) != PROS_VFS_OK ||
             count != 512u ||
-            __builtin_memcmp(verify, payload + 8192u, 512u) != 0 ||
+            pfs_mem_equal(verify, payload + 8192u, 512u) != 0 ||
             vfs_file_truncate(&file, 700u) != PROS_VFS_OK ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
@@ -3461,7 +3460,7 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK ||
             vfs_file_read(&file, verify, 8704u, &count) != PROS_VFS_OK ||
             count != 700u ||
-            __builtin_memcmp(verify, payload, 700u) != 0 ||
+            pfs_mem_equal(verify, payload, 700u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             vfs_path_unlink(&fs.mount, "/new") != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/new", &removed) != PROS_VFS_ENOENT)
