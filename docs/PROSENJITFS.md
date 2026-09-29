@@ -5,9 +5,9 @@ This document is the implementation contract for the native ProsenjitFS filesyst
 
 ## Current verified scope — 2026-09-29
 
-The integrated provider is CI-verified for its current memory-backed scope: format/mount validation, persistent allocation metadata, inode/extent metadata, redo journaling, VFS root/path and directory operations, and filesystem probing/storage discovery. ProsenjitFS file vnodes now also provide the VFS lifecycle callbacks required for safe open/close integration. Empty-file reads return EOF; non-empty file data I/O remains deliberately gated until extent-backed data reads/writes are implemented.
+The integrated provider now covers persistent file data I/O, transactional unlink/rename, redo-journal replay, torn-transaction discard, journal checksum corruption rejection, and mount-time metadata corruption checks in the deterministic memory-backed self-test. Cross-directory moves update directory metadata atomically and protect against directory-parent cycles.
 
-This distinction is important: VFS file-object lifecycle support is present, but full persistent file data I/O is **not** yet complete. A real QEMU disk-device test also remains pending until an ATA/AHCI/NVMe/USB-visible block-device path exists.
+This is still not a claim of physical power-loss validation: a real QEMU disk-device test remains pending until an ATA/AHCI/NVMe/USB-visible block-device path exists. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
 
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
@@ -38,7 +38,7 @@ Mount validates bitmap bounds and every inode/extent reference is range checked 
 
 ## Journal and crash consistency
 Version 1 uses a redo journal. A transaction stores complete target-block images followed by a CRC-protected commit record.
-Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction.
+Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction. Mount recovery now explicitly tests committed replay, torn transactions, and corrupt commit checksums.
 Recovery replays only CRC-valid committed transactions. Replays are idempotent because records are complete replacement images.
 The block-device layer gets an optional flush primitive. Existing initializers remain source-compatible; devices without a flush callback are treated as lacking a durability barrier, so ProsenjitFS will not claim power-loss durability on such a device.
 Metadata is journaled. File data is written before the metadata transaction that publishes newly allocated blocks, with a flush barrier before publishing metadata.
