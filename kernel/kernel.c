@@ -16,6 +16,7 @@
 #include "storage.h"
 #include "fat32.h"
 #include "exfat.h"
+#include "prosenjitfs.h"
 #include "exfat_upcase.h"
 #include "../include/abi/syscall.h"
 
@@ -1131,6 +1132,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: exFAT Up-case parser self-test passed\n");
     serial_write("ProsenjitOS: exFAT VFS self-test passed\n");
+    if (prosenjitfs_selftest() != PROSENJITFS_OK) {
+        serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration

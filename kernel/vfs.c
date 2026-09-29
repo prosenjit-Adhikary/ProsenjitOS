@@ -1,5 +1,6 @@
 #include "vfs.h"
 #include "partition.h"
+#include "prosenjitfs.h"
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
@@ -68,6 +69,14 @@ int vfs_probe_filesystem(struct pros_block_device *device,
         return PROS_VFS_EIO;
 
     *type = PROS_FS_UNKNOWN;
+
+    /* ProsenjitFS has its own versioned/checksummed superblock format and
+     * must be validated independently of legacy BPB signatures. */
+    if (prosenjitfs_probe(device) == PROSENJITFS_OK) {
+        *type = PROS_FS_PROSENJIT;
+        return PROS_VFS_OK;
+    }
+
     if (sector[510] != 0x55u || sector[511] != 0xAAu)
         return PROS_VFS_ENOSYS;
 
