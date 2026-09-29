@@ -3355,7 +3355,7 @@ int prosenjitfs_selftest(void)
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != 'h' ||
             vfs_dir_close(&dir) != PROS_VFS_OK)
-            return -5;
+            return -2002;
 
         {
             static const char unicode_name[] = "বাংলা";
