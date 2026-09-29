@@ -36,6 +36,13 @@ start:
     call load_kernel
     jc fatal
 
+    ; Enable A20 before any protected-mode copy crosses the 1 MiB boundary.
+    ; Fast A20 (port 0x92) is supported by the QEMU/PC BIOS targets used here.
+    in al, 0x92
+    or al, 0x02
+    and al, 0xFE
+    out 0x92, al
+
     ; Enter 32-bit protected mode. The kernel's own entry point will then
     ; build its final x86-64 page tables and enter long mode.
     cli
