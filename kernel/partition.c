@@ -109,6 +109,7 @@ int partition_read_gpt(struct pros_block_device *device,
         last_usable_lba >= device->sector_count ||
         entry_count == 0u || entry_size < 128u ||
         entry_size > device->sector_size || entry_size > 1024u ||
+        (entry_size & (entry_size - 1u)) != 0u ||
         entries_lba >= device->sector_count)
         return PROS_PARTITION_EINVAL;
     uint64_t entry_bytes = (uint64_t)entry_count * entry_size;
@@ -263,8 +264,8 @@ int partition_selftest(void)
 
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
-     * A 300-byte entry starts at offset 300, so its tail is in the next
-     * sector and must be read as a two-sector span.
+     * A 256-byte entry starts at offset 256 for the second entry, so its
+     * tail crosses a sector boundary and must be read as a two-sector span.
      */
     static uint8_t gpt_media[4u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
@@ -287,7 +288,7 @@ int partition_selftest(void)
     gpt_media[512u + 48u] = 3u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
-    gpt_media[512u + 84u] = 44u;
+    gpt_media[512u + 84u] = 0u;
     gpt_media[512u + 85u] = 1u;
     gpt_media[2u * 512u + 300u] = 0x11u;
     /* With a 4-sector device, usable LBAs 2..3 form the valid span. */
