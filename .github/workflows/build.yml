@@ -23,6 +23,7 @@ jobs:
           mkdir -p build
           gcc -std=c11 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Werror -O2 -Iinclude tools/mkprosenjitfs.c -o build/mkprosenjitfs
           ./build/mkprosenjitfs build/prosenjitfs-test.img 1 512
+          ./build/mkprosenjitfs build/prosenjitfs-qemu.img 32 512
           test "$(od -An -tx1 -N8 build/prosenjitfs-test.img | tr -d ' \\n')" = "504a534653303100"
           cmp <(dd if=build/prosenjitfs-test.img bs=512 count=1 status=none) <(dd if=build/prosenjitfs-test.img bs=512 skip=1 count=1 status=none)
 
@@ -36,6 +37,7 @@ jobs:
           set +e
           timeout 20s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
+            -drive file=build/prosenjitfs-qemu.img,format=raw,if=ide,index=0,media=disk \
             -display none \
             -serial file:build/qemu-serial.log \
             -no-reboot \
@@ -84,6 +86,7 @@ jobs:
           require_log "ProsenjitOS: exFAT self-test passed"
           require_log "ProsenjitOS: exFAT Up-case parser self-test passed"
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed"
+          require_log "ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed"
           require_log "ProsenjitOS: exFAT Up-case/Unicode VFS self-test passed"
           require_log "ProsenjitOS: NTFS directory path traversal test passed"
           require_log "ProsenjitOS: NTFS UpCase case-folding test passed"
