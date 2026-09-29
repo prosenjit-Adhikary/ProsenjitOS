@@ -32,8 +32,8 @@ static int pfs_mem_equal(const void *a, const void *b, uint32_t size)
     const uint8_t *pb = (const uint8_t *)b;
     for (uint32_t i = 0u; i < size; ++i)
         if (pa[i] != pb[i])
-            return 0;
-    return 1;
+            return (pa[i] < pb[i]) ? -1 : 1;
+    return 0;
 }
 
 static void pfs_copy(void *dst, const void *src, uint32_t size)
