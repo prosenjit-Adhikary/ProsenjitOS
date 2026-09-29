@@ -2,6 +2,8 @@ name: Build and boot-test ProsenjitOS
 
 on:
   push:
+    branches:
+      - feature/prosenjitfs
   pull_request:
 
 jobs:
