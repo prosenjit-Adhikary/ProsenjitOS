@@ -2,7 +2,7 @@
 
 ## Current status — 2026-09-28
 
-The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, added an exFAT FAT-chain/file-stream read foundation, and documented the firewall-inspired unknown-threat handling model. The repository is private.
+The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, added an exFAT FAT-chain/file-stream read foundation, completed exFAT read-only directory entry-set parsing/lookup (including UTF-16 ASCII-subset decoding, NameLength handling, checksum validation, and case-insensitive lookup), and documented the firewall-inspired unknown-threat handling model. The repository is private.
 
 ### Current engineering focus
 1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
@@ -25,7 +25,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - No open pull requests are currently present.
 
 ### CI note
-The repository contains build/boot and security-architecture GitHub Actions workflows. The latest commit currently has no published combined status entries through the connected GitHub status interface, so this status check cannot independently claim that the latest push passed CI. The next execution priority is therefore to verify the current Actions run/logs before treating the new storage/security changes as CI-validated.
+The repository contains build/boot and security-architecture GitHub Actions workflows. The latest verified storage/security implementation passed both repository GitHub Actions workflows: build/boot and security-architecture CI. Future storage changes must preserve both gates.
 
 ## Phase 0 — Repository bootstrap
 - [x] Repository created
@@ -139,7 +139,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] FAT32 write support
 - [ ] exFAT filesystem support
   - [x] Read-only exFAT mount/parser and FAT-chain/file-stream read foundation
-  - [ ] exFAT directory/file VFS integration
+  - [ ] exFAT directory/file VFS integration (next implementation target)
   - [ ] exFAT write support
 - [ ] NTFS filesystem support
   - [x] NTFS compatibility architecture documented
