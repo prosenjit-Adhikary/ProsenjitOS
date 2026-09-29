@@ -20,7 +20,8 @@ int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
     uint8_t sector[512];
-    if (!device || !table_type || device->sector_size != sizeof(sector))
+    if (!device || !table_type || device->sector_size != sizeof(sector) ||
+        device->sector_count < 2u)
         return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
