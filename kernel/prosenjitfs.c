@@ -2830,6 +2830,12 @@ static int pfs_validate_extent_chain(const struct pros_prosenjitfs *fs,
         if (pfs_read_extent((struct pros_prosenjitfs *)fs, current,
                             &extent) != PROSENJITFS_OK)
             return PROSENJITFS_ECORRUPT;
+        /* Non-sparse extents must form one contiguous logical stream. A
+         * forward jump would otherwise make the metadata appear valid while
+         * reads hit an unbacked logical block. */
+        if ((inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) == 0u &&
+            extent.logical_block != logical_end)
+            return PROSENJITFS_ECORRUPT;
         if (extent.logical_block < logical_end)
             return PROSENJITFS_ECORRUPT;
         if ((uint64_t)extent.block_count >
@@ -3865,6 +3871,72 @@ int prosenjitfs_selftest(void)
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -11;
+
+    /* Corruption regression: a non-sparse extent chain with a logical gap
+     * must not be accepted at mount. Two growth writes create two extents;
+     * move only the second extent forward by one logical block while keeping
+     * its checksum valid. Older validation checked only overlap and final
+     * EOF, so this hole could survive mount and fail later during reads. */
+    if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12000;
+    {
+        struct pros_vfs_file gap_file;
+        struct pros_vfs_vnode *gap_vnode = 0;
+        struct pfs_vnode_data *gap_data;
+        struct pros_prosenjitfs_inode gap_inode;
+        struct pros_prosenjitfs_extent first_extent;
+        struct pros_prosenjitfs_extent second_extent;
+        uint8_t block[4096];
+        static const uint8_t byte = 0x5Au;
+
+        pfs_zero(&gap_file, sizeof(gap_file));
+        if (vfs_file_open(&fs.mount, "/gap", PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, &gap_file) != PROS_VFS_OK ||
+            vfs_file_write(&gap_file, &byte, 512u, &count) != PROS_VFS_OK ||
+            count != 512u ||
+            vfs_file_write(&gap_file, &byte, 512u, &count) != PROS_VFS_OK ||
+            count != 512u ||
+            vfs_file_close(&gap_file) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/gap", &gap_vnode) != PROS_VFS_OK)
+            return -12001;
+        gap_data = (struct pfs_vnode_data *)gap_vnode->private_data;
+        if (!gap_data ||
+            prosenjitfs_read_inode(&fs, gap_data->inode_number, &gap_inode) !=
+                PROSENJITFS_OK ||
+            gap_inode.extent_head == 0u ||
+            pfs_read_extent(&fs, gap_inode.extent_head, &first_extent) !=
+                PROSENJITFS_OK ||
+            first_extent.next == 0u ||
+            pfs_read_extent(&fs, first_extent.next, &second_extent) !=
+                PROSENJITFS_OK)
+            return -12002;
+        if (second_extent.logical_block != 1u)
+            return -12003;
+        if (pfs_read_block(fs.mount.device, first_extent.next, block) !=
+                PROSENJITFS_OK)
+            return -12004;
+        ((struct pros_prosenjitfs_extent *)block)->logical_block = 2u;
+        ((struct pros_prosenjitfs_extent *)block)->checksum = 0u;
+        ((struct pros_prosenjitfs_extent *)block)->checksum =
+            pfs_crc_with_zero32(
+                block, sizeof(struct pros_prosenjitfs_extent),
+                (uint32_t)offsetof(struct pros_prosenjitfs_extent, checksum));
+        if (pfs_write_block(fs.mount.device, first_extent.next, block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK ||
+            vfs_vnode_put(gap_vnode) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return -12005;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -12006;
+    }
+
+    if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12007;
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12008;
 
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
