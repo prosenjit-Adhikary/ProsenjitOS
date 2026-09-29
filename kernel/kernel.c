@@ -21,6 +21,7 @@
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
+#define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
 #define VGA_ADDRESS 0xB8000u
 #define VGA_COLUMNS 80u
 #define VGA_ROWS 25u
@@ -233,12 +234,17 @@ void user_mode_test_complete(void) {
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
-    serial_write("ProsenjitOS: Multiboot2 magic = "); serial_hex64(boot_magic); serial_write("\n");
+    serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
     vga_clear();
-    if (boot_magic != MULTIBOOT2_BOOT_MAGIC) {
+    if (boot_magic != MULTIBOOT2_BOOT_MAGIC && boot_magic != PROSENJIT_NATIVE_BOOT_MAGIC) {
         vga_write("ProsenjitOS: invalid boot handoff", 0x4F);
-        serial_write("ProsenjitOS: ERROR invalid Multiboot2 handoff\n");
+        serial_write("ProsenjitOS: ERROR invalid boot handoff\n");
         for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        serial_write("ProsenjitOS: native bootloader handoff accepted\n");
+    } else {
+        serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
     idt_init();
     __asm__ volatile ("cli");

@@ -4,10 +4,9 @@ LD := ld
 AS := nasm
 
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
-HOST_CFLAGS := -std=c11 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run mkprosenjitfs
+.PHONY: all iso clean run
 
 all: iso
 
@@ -20,7 +19,3 @@ clean:
 
 run: iso
 	qemu-system-x86_64 -cdrom $(BUILD_DIR)/prosenjitOS.iso
-
-mkprosenjitfs:
-	mkdir -p $(BUILD_DIR)
-	$(CC) $(HOST_CFLAGS) -Iinclude tools/mkprosenjitfs.c -o $(BUILD_DIR)/mkprosenjitfs
