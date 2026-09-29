@@ -3216,6 +3216,7 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
+    struct pros_vfs_vnode *parent = 0;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return -1;
