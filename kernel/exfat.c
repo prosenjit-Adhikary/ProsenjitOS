@@ -323,8 +323,7 @@ static int exfat_directory_name(const uint8_t *set, uint32_t secondary_count,
     uint32_t out = 0u;
     uint32_t name_entries = 0u;
 
-    if (name_length == 0u || name_length > 255u ||
-        capacity <= (uint32_t)name_length)
+    if (name_length == 0u || capacity <= (uint32_t)name_length)
         return PROS_EXFAT_EINVAL;
 
     for (uint32_t i = 1u; i <= secondary_count; ++i) {
@@ -430,12 +429,7 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                 result->attributes = set[4];
                 result->no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
                 result->valid_data_length = le64(stream + 8u);
-                {
-                    uint32_t parsed_first_cluster = le32(stream + 20u);
-                    if (parsed_first_cluster != 2u)
-                        return -200 - (int)parsed_first_cluster;
-                    result->first_cluster = parsed_first_cluster;
-                }
+                result->first_cluster = le32(stream + 20u);
                 result->size = le64(stream + 24u);
                 if (result->valid_data_length > result->size)
                     return PROS_EXFAT_ECORRUPT;
@@ -543,21 +537,13 @@ int exfat_selftest(void)
         }
         {
             struct pros_exfat_dirent found;
-            if (le32(set + 52u) != 2u)
-                return -126;
-            int find_status = exfat_find(&fs, 2u, "hello.txt", &found);
-            if (find_status != PROS_EXFAT_OK)
-                return -120 + find_status;
-            if (found.size != 700u)
-                return -121;
-            if (found.valid_data_length != 700u)
-                return -122;
-            if (found.first_cluster != 2u)
-                return -300 - (int)found.first_cluster;
-            if (found.no_fat_chain != 0u)
-                return -124;
-            if (!exfat_name_equal_ci(found.name, filename))
-                return -125;
+            if (exfat_find(&fs, 2u, "hello.txt", &found) != PROS_EXFAT_OK ||
+                found.size != 700u ||
+                found.valid_data_length != 700u ||
+                found.first_cluster != 2u ||
+                found.no_fat_chain != 0u ||
+                !exfat_name_equal_ci(found.name, filename))
+                return -12;
         }
         set[2] ^= 1u;
         {
