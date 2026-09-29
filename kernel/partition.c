@@ -241,7 +241,7 @@ int partition_device_init(struct pros_partition_device *view,
     return PROS_PARTITION_OK;
 }
 
-static uint8_t partition_test_media[5 * 512];
+static uint8_t partition_test_media[6 * 512];
 
 static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
@@ -306,7 +306,7 @@ int partition_selftest(void)
      * A 256-byte entry starts at offset 256 for the second entry, so its
      * tail crosses a sector boundary and must be read as a two-sector span.
      */
-    static uint8_t gpt_media[5u * 512u];
+    static uint8_t gpt_media[6u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
         gpt_media[i] = 0u;
     gpt_media[512u + 0u] = 'E';
@@ -322,21 +322,21 @@ int partition_selftest(void)
     gpt_media[511u] = 0xAAu;
     gpt_media[512u + 12u] = 92u;
     gpt_media[512u + 24u] = 1u;
-    gpt_media[512u + 32u] = 4u;
-    gpt_media[512u + 40u] = 2u;
-    gpt_media[512u + 48u] = 3u;
+    gpt_media[512u + 32u] = 5u;
+    gpt_media[512u + 40u] = 4u;
+    gpt_media[512u + 48u] = 4u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 1u;
     gpt_media[512u + 84u] = 0u;
     gpt_media[512u + 85u] = 1u;
     gpt_media[2u * 512u + 500u] = 0x11u;
     /* A 256-byte entry beginning at offset 500 spans three sectors. */
-    gpt_media[2u * 512u + 532u] = 2u;
-    gpt_media[2u * 512u + 540u] = 3u;
+    gpt_media[2u * 512u + 532u] = 4u;
+    gpt_media[2u * 512u + 540u] = 4u;
     
 
     struct pros_block_device gpt_parent;
-    if (block_device_init(&gpt_parent, 512u, 5u, partition_test_read, 0, 0) !=
+    if (block_device_init(&gpt_parent, 512u, 6u, partition_test_read, 0, 0) !=
         PROS_BLOCK_OK)
         return -2;
     /*
@@ -353,13 +353,13 @@ int partition_selftest(void)
         return -3;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
-        count != 1u || partitions[0].first_lba != 2u ||
-        partitions[0].sector_count != 2u ||
+        count != 1u || partitions[0].first_lba != 4u ||
+        partitions[0].sector_count != 1u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
-    partition_test_media[2u * 512u + 532u] = 1u;
+    partition_test_media[2u * 512u + 532u] = 4u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
         return -5;
