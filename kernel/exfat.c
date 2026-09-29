@@ -117,13 +117,14 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
         vfs_mount_set_root(&fs->mount, &fs->root_vnode) != PROS_VFS_OK)
         return PROS_EXFAT_EINVAL;
 
+    if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
+        return PROS_EXFAT_EINVAL;
     if (exfat_load_upcase(fs) != PROS_EXFAT_OK) {
         vfs_mount_deactivate(&fs->mount);
         return PROS_EXFAT_ECORRUPT;
     }
 
-    return vfs_mount_activate(&fs->mount) == PROS_VFS_OK
-        ? PROS_EXFAT_OK : PROS_EXFAT_EINVAL;
+    return PROS_EXFAT_OK;
 }
 
 int exfat_cluster_lba(const struct pros_exfat *fs, uint32_t cluster,
@@ -466,6 +467,75 @@ static int exfat_directory_read(const struct pros_exfat *fs,
         offset += take;
         length -= take;
     }
+    return PROS_EXFAT_OK;
+}
+
+static int exfat_load_upcase(struct pros_exfat *fs)
+{
+    uint8_t entry[32];
+    uint64_t offset = 0u;
+    uint8_t *data = 0;
+    uint32_t length = 0u;
+    uint32_t first_cluster = 0u;
+    uint32_t expected_checksum = 0u;
+    uint8_t compressed;
+
+    if (!fs || !fs->mount.active)
+        return PROS_EXFAT_EINVAL;
+
+    for (;;) {
+        if (exfat_directory_read(fs, fs->root_cluster, offset,
+                                 entry, sizeof(entry)) != PROS_EXFAT_OK)
+            return PROS_EXFAT_EIO;
+        if (entry[0] == 0x00u)
+            return PROS_EXFAT_ECORRUPT;
+        if (entry[0] == 0x82u) {
+            first_cluster = le32(entry + 20u);
+            if (le64(entry + 24u) > 0xFFFFFFFFu)
+                return PROS_EXFAT_ECORRUPT;
+            length = (uint32_t)le64(entry + 24u);
+            expected_checksum = (uint32_t)exfat_le16(entry + 2u);
+            break;
+        }
+        if (offset > UINT64_MAX - 32u)
+            return PROS_EXFAT_ECORRUPT;
+        offset += 32u;
+    }
+
+    if (length == 0u || length > 0x00020000u ||
+        first_cluster < 2u ||
+        (uint64_t)first_cluster > (uint64_t)fs->cluster_count + 1u)
+        return PROS_EXFAT_ECORRUPT;
+
+    compressed = (uint8_t)(length != 0x00020000u);
+    data = (uint8_t *)kmalloc(length);
+    if (!data)
+        return PROS_EXFAT_EIO;
+
+    {
+        uint32_t done = 0u;
+        int rc = exfat_file_read(fs, first_cluster, 0u, length, length,
+                                 0u, data, length, &done);
+        if (rc != PROS_EXFAT_OK || done != length) {
+            kfree(data);
+            return rc == PROS_EXFAT_EIO ? PROS_EXFAT_EIO :
+                   PROS_EXFAT_ECORRUPT;
+        }
+    }
+
+    if (exfat_upcase_checksum(data, length) != expected_checksum) {
+        kfree(data);
+        return PROS_EXFAT_ECORRUPT;
+    }
+
+    if (exfat_upcase_parse(data, length, compressed,
+                           &fs->upcase_table) != PROS_EXFAT_OK) {
+        kfree(data);
+        return PROS_EXFAT_ECORRUPT;
+    }
+
+    fs->upcase_data = data;
+    fs->upcase_length = length;
     return PROS_EXFAT_OK;
 }
 
