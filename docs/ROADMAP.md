@@ -134,6 +134,16 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Driver model
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
   - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
+  - [ ] Driver Manager / package-management architecture
+  - [ ] Hardware-ID database and device/driver matching
+  - [ ] Signed driver-package verification and trust policy
+  - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
+  - [ ] Windows INF parsing and compatible package metadata extraction
+  - [ ] Windows-driver compatibility layer / adapter API
+  - [ ] Native-vs-compatibility driver selection and fallback flow
+  - [ ] Offline driver installation from removable/local media
+  - [ ] Driver rollback, removal, versioning, and dependency handling
+  - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
@@ -270,6 +280,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - **Boot:** prefer an original ProsenjitOS bootloader and stable boot protocol; MBR/GPT remain partition-layer concerns, and GRUB/other traditional loaders are optional adapters rather than kernel dependencies.
 - **Filesystem extensibility:** future filesystem providers should attach through the VFS/provider boundary without requiring kernel-core redesign; existing FAT32/exFAT/NTFS/ProsenjitFS implementations remain protected from unnecessary architectural churn.
 - **Compatibility:** Windows Office and OneDrive support are engineering targets to be validated incrementally, not current guarantees.
+- **Driver compatibility:** maximize practical hardware coverage without attempting to author every vendor driver natively. Native ProsenjitOS drivers remain the primary path; a controlled Windows-driver import/compatibility subsystem is a critical long-term feature. Vendor `.exe` installers should be treated as packages to extract and inspect (when technically possible), not executed blindly. The importer should recognize common package forms such as `.exe`, `.zip`, `.cab`, and `.inf`, inspect hardware IDs and metadata, verify package trust/signatures where available, and install only through the ProsenjitOS driver model/compatibility layer. Windows `.sys` binaries must not be assumed to be directly loadable by the ProsenjitOS kernel.
 
 ## Long-term
 - [ ] USB
