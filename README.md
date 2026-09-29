@@ -206,6 +206,38 @@ The security roadmap will progressively add:
 
 This model extends the existing kernel-enforced security + user-space PSS architecture and is now a standing security requirement for future implementation work.
 
+## Native bootloader and boot protocol strategy
+
+ProsenjitOS will use an **original ProsenjitOS bootloader/boot protocol** as the preferred boot path rather than making GRUB or another traditional bootloader a mandatory dependency.
+
+This does not remove MBR/GPT support. MBR and GPT remain partition/storage metadata formats and will be handled at the appropriate partition/storage layer when needed. The kernel will not depend directly on either partition format or on one specific bootloader.
+
+The preferred architecture is:
+
+```text
+Firmware
+  |
+  +-- BIOS --> ProsenjitOS legacy boot path
+  |
+  +-- UEFI --> ProsenjitOS UEFI loader
+                    |
+                    +--> boot-device/partition discovery
+                    +--> kernel/component integrity validation
+                    +--> boot information preparation
+                    +--> ProsenjitOS Boot Protocol
+                              |
+                              v
+                       ProsenjitOS Kernel
+```
+
+The kernel and bootloader will communicate through a stable **ProsenjitOS Boot Protocol**. A future GRUB or other traditional-loader path may be supported through an adapter that translates its boot information into this protocol. This keeps the kernel independent from any specific bootloader.
+
+The boot path will be implemented incrementally: protocol definition and validation first, native loader next, MBR/GPT-aware storage discovery where required, then signed components, Secure/verified boot, measured boot and rollback/recovery protection.
+
+**Important:** the native bootloader is an engineering target; it is not being claimed as fully implemented merely because the architecture is documented.
+
+See [docs/BOOT-ARCHITECTURE.md](docs/BOOT-ARCHITECTURE.md) for the complete boot architecture, security requirements and implementation order.
+
 ## Storage and filesystem strategy
 
 ProsenjitOS is being designed to access common removable and internal storage without depending on a single filesystem. The storage stack separates hardware, block I/O, partitions, VFS, and filesystem drivers.
