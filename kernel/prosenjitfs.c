@@ -3141,12 +3141,13 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
     }
     pfs_mount_debug_stage = 2;
+    pfs_mount_debug_stage = 3;
     if (pfs_validate_metadata(fs) != PROSENJITFS_OK) {
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
-    pfs_mount_debug_stage = 3;
+    pfs_mount_debug_stage = 4;
     struct pros_vfs_vnode *root_vnode = 0;
     if (pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, root_vnode) != PROS_VFS_OK) {
@@ -3162,7 +3163,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     /* vfs_mount_set_root() acquired the mount's ownership reference. */
     vfs_vnode_put(root_vnode);
 
-    pfs_mount_debug_stage = 4;
+    pfs_mount_debug_stage = 5;
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
