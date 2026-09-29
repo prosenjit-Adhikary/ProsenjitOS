@@ -705,6 +705,10 @@ static int fat32_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
             node->used = 0u;
             return PROS_VFS_EIO;
         }
+        if (vfs_vnode_get(&node->vnode) != PROS_VFS_OK) {
+            node->used = 0u;
+            return PROS_VFS_EIO;
+        }
         *result = &node->vnode;
         return PROS_VFS_OK;
     }
