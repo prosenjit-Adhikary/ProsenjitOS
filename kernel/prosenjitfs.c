@@ -1604,15 +1604,47 @@ int prosenjitfs_selftest(void)
         return -5;
     {
         struct pros_vfs_vnode *root = 0;
+        struct pros_vfs_vnode *created = 0;
+        struct pros_vfs_vnode *found = 0;
         struct pros_vfs_dir dir;
         struct pros_vfs_dirent entry;
         if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
             root != fs.mount.root ||
             vfs_vnode_put(root) != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-            entry.name[0] != '.' ||
-            vfs_dir_close(&dir) != PROS_VFS_OK)
+            vfs_file_open(&fs.mount, "/hello.txt",
+                          PROS_VFS_O_READ | PROS_VFS_O_CREATE, &(struct pros_vfs_file){0}) !=
+                PROS_VFS_OK)
+            return -5;
+        /* Creation is exercised through the VFS API; verify lookup and
+         * directory enumeration see the durable directory entry. */
+        if (vfs_path_lookup(&fs.mount, "/hello.txt", &found) != PROS_VFS_OK ||
+            !found || found->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(found) != PROS_VFS_OK ||
+            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
+            return -5;
+        {
+            uint8_t seen = 0u;
+            while (vfs_dir_read(&dir, &entry) == PROS_VFS_OK) {
+                if (entry.name[0] == 'h' && entry.name[1] == 'e' &&
+                    entry.name[2] == 'l' && entry.name[3] == 'l' &&
+                    entry.name[4] == 'o' && entry.name[5] == '.' &&
+                    entry.name[6] == 't' && entry.name[7] == 'x' &&
+                    entry.name[8] == 't' && entry.name[9] == '\0')
+                    seen = 1u;
+            }
+            if (!seen || vfs_dir_close(&dir) != PROS_VFS_OK)
+                return -5;
+        }
+        if (vfs_path_lookup(&fs.mount, "/hello.txt", &found) != PROS_VFS_OK ||
+            !found || vfs_vnode_put(found) != PROS_VFS_OK)
+            return -5;
+        if (vfs_file_open(&fs.mount, "/hello.txt",
+                          PROS_VFS_O_READ | PROS_VFS_O_CREATE,
+                          &(struct pros_vfs_file){0}) != PROS_VFS_OK)
+            return -5;
+        if (vfs_file_open(&fs.mount, "/hello.txt",
+                          PROS_VFS_O_READ | PROS_VFS_O_CREATE,
+                          &(struct pros_vfs_file){0}) != PROS_VFS_OK)
             return -5;
     }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
