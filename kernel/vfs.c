@@ -111,6 +111,8 @@ int vfs_mount_set_root(struct pros_vfs_mount *mount,
     if (!mount || !root || !root->initialized || root->mount != mount ||
         root->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
+    if (vfs_vnode_get(root) != PROS_VFS_OK)
+        return PROS_VFS_EINVAL;
     mount->root = root;
     return PROS_VFS_OK;
 }
@@ -129,7 +131,12 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
 {
     if (!mount)
         return PROS_VFS_EINVAL;
-    mount->active = 0;
+    if (mount->active)
+        mount->active = 0;
+    if (mount->root) {
+        vfs_vnode_put(mount->root);
+        mount->root = 0;
+    }
     return PROS_VFS_OK;
 }
 
