@@ -2,7 +2,7 @@
 
 ## Status — 2026-09-29
 
-The native BIOS bootloader is integrated on main and CI-verified. The next storage milestone is integration of ProsenjitFS without coupling the bootloader to partitions or filesystems.
+The native BIOS bootloader and the initial ProsenjitFS provider are now integrated on main and CI-verified. The native bootloader remains independent of partitions/filesystems.
 
 ## Frozen dependency direction
 
@@ -28,9 +28,7 @@ ProsenjitFS therefore attaches to the existing VFS rather than replacing it.
 
 ## ProsenjitFS branch integration notes
 
-The current feature/prosenjitfs branch adds the expected provider-side pieces: versioned on-disk format definitions; ProsenjitFS implementation and self-test; optional block-device flush support; VFS probing for PROS_FS_PROSENJIT; storage discovery recognition for PROS_FS_PROSENJIT; and one CI marker for the ProsenjitFS self-test.
-
-The branch changes to block.c, block.h, vfs.c, storage.c, kernel.c, and scripts/build.sh are integration points, not replacements for the architecture. Before merging, the branch must be rebased/updated onto the current main so the native bootloader commit is retained.
+The feature/prosenjitfs branch supplied the initial provider implementation. Its work was integrated through a separate integration branch so the running branch itself was not modified. The provider now lives on main behind the frozen block/VFS boundary.
 
 ## Regression contract
 
@@ -56,4 +54,4 @@ Do not remove or bypass FAT32/exFAT/NTFS providers to make ProsenjitFS work.
 
 ## Merge gate
 
-The ProsenjitFS implementation is not considered integrated merely because the branch compiles. Merge requires: branch based on current main; clean CI; native BIOS boot regression still green; existing FAT32/exFAT/NTFS regression green; ProsenjitFS self-test green; no bootloader/filesystem coupling; and documentation that distinguishes memory-backed filesystem validation from real physical/QEMU disk integration.
+The ProsenjitFS integration is considered CI-verified for its current scope: build/link, memory-backed format/mount/allocation/journal self-test, native BIOS boot, GRUB boot, and FAT32/exFAT/NTFS regressions are green on main. Full filesystem completion still requires broader directory/file mutation, corruption/crash-point coverage, and a real QEMU-visible storage-device path.
