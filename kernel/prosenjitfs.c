@@ -1290,7 +1290,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             }
             src->next = ni->heads[new_bucket];
             ni->heads[new_bucket] = source_lba;
-            if (child.type == PROSENJITFS_INODE_DIR) {
+            if (child.type == PROSENJITFS_INODE_DIR ||
+                child.type == PROSENJITFS_INODE_FILE) {
                 child.parent_inode = new_data->inode_number;
                 inode_lba = old_data->fs->sb.inode_table_start +
                             (source.inode * PROSENJITFS_INODE_SIZE) /
