@@ -1156,6 +1156,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -106: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ENOENT\n"); break;
             case -107: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EEXIST\n"); break;
             case -108: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EOVERFLOW\n"); break;
+            case -301: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed after journal read\n"); break;
+            case -302: serial_write("ProsenjitOS: ProsenjitFS journal recovery found non-empty invalid header\n"); break;
+            case -303: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed reading images\n"); break;
+            case -304: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed reading commit\n"); break;
+            case -305: serial_write("ProsenjitOS: ProsenjitFS journal recovery found invalid commit\n"); break;
+            case -306: serial_write("ProsenjitOS: ProsenjitFS journal recovery checksum mismatch\n"); break;
             case -201: serial_write("ProsenjitOS: ProsenjitFS mount failed during superblock/VFS init\n"); break;
             case -202: serial_write("ProsenjitOS: ProsenjitFS mount failed during journal recovery\n"); break;
             case -203: serial_write("ProsenjitOS: ProsenjitFS mount failed during metadata validation\n"); break;
