@@ -1024,9 +1024,9 @@ int exfat_selftest(void)
      * root cluster's backing sectors with test payload data. */
     disk.sectors[25u * 512u + 0u] = 0x82u;
     exfat_test_le32(disk.sectors + 25u * 512u + 4u,
-                    exfat_upcase_checksum(table, p));
+                    exfat_upcase_checksum(disk.sectors + 28u * 512u, 60u));
     exfat_test_le32(disk.sectors + 25u * 512u + 20u, 5u);
-    exfat_test_le64(disk.sectors + 25u * 512u + 24u, p);
+    exfat_test_le64(disk.sectors + 25u * 512u + 24u, 60u);
 
     if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
