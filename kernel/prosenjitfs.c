@@ -2390,7 +2390,6 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         struct pros_prosenjitfs_inode dir_inode;
         if (prosenjitfs_read_inode(data->fs, data->inode_number,
                                    &dir_inode) != PROSENJITFS_OK ||
-            dir_inode.type != PROSENJITFS_INODE_DIR ||
             dir_inode.parent_inode >= data->fs->sb.inode_count)
             return PROS_VFS_EIO;
         return pfs_make_vnode(data->fs, dir_inode.parent_inode, 0, result);
