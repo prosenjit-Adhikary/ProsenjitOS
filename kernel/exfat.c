@@ -1007,11 +1007,11 @@ int exfat_selftest(void)
         table[p++] = 0xFFu; table[p++] = 0xFFu;
         table[p++] = 0x85u; table[p++] = 0xFFu;
 
-        disk.sectors[25u * 512u + 0u] = 0x82u;
-        exfat_test_le32(disk.sectors + 25u * 512u + 4u,
+        disk.sectors[25u * 512u + 192u] = 0x82u;
+        exfat_test_le32(disk.sectors + 25u * 512u + 196u,
                         exfat_upcase_checksum(table, p));
-        exfat_test_le32(disk.sectors + 25u * 512u + 20u, 5u);
-        exfat_test_le64(disk.sectors + 25u * 512u + 24u, p);
+        exfat_test_le32(disk.sectors + 25u * 512u + 212u, 5u);
+        exfat_test_le64(disk.sectors + 25u * 512u + 216u, p);
     }
 
     for (uint32_t i = 0u; i < 512u; ++i) {
@@ -1022,11 +1022,11 @@ int exfat_selftest(void)
 
     /* Restore the root-directory Up-case entry after initializing the
      * root cluster's backing sectors with test payload data. */
-    disk.sectors[25u * 512u + 0u] = 0x82u;
-    exfat_test_le32(disk.sectors + 25u * 512u + 4u,
+    disk.sectors[25u * 512u + 192u] = 0x82u;
+    exfat_test_le32(disk.sectors + 25u * 512u + 196u,
                     exfat_upcase_checksum(disk.sectors + 28u * 512u, 60u));
-    exfat_test_le32(disk.sectors + 25u * 512u + 20u, 5u);
-    exfat_test_le64(disk.sectors + 25u * 512u + 24u, 60u);
+    exfat_test_le32(disk.sectors + 25u * 512u + 212u, 5u);
+    exfat_test_le64(disk.sectors + 25u * 512u + 216u, 60u);
 
     if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
