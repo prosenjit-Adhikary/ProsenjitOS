@@ -1068,7 +1068,8 @@ int prosenjitfs_selftest(void)
     struct pros_block_device device;
     struct pros_prosenjitfs fs;
     struct pros_prosenjitfs_inode inode;
-    uint64_t first;
+    uint64_t first_block;
+    uint64_t inode_number;
     uint8_t saved;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
@@ -1099,22 +1100,22 @@ int prosenjitfs_selftest(void)
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return -5;
     }
-    if (prosenjitfs_alloc_blocks(&fs, 4u, &first) != PROSENJITFS_OK)
+    if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
-    if (first < fs.sb.data_start ||
-        first + 4u > fs.sb.total_blocks)
+    if (first_block < fs.sb.data_start ||
+        first_block + 4u > fs.sb.total_blocks)
         return -6;
-    if (prosenjitfs_alloc_inode(&fs, &first) != PROSENJITFS_OK ||
-        first == fs.sb.root_inode ||
-        first >= fs.sb.inode_count)
+    if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
+        inode_number == fs.sb.root_inode ||
+        inode_number >= fs.sb.inode_count)
         return -7;
-    if (prosenjitfs_read_inode(&fs, first, &inode) != PROSENJITFS_ENOENT)
+    if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return -8;
-    if (prosenjitfs_free_blocks(&fs, first + 4u, 1u) != PROSENJITFS_EINVAL)
+    if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, pfs_data_start(&fs.sb), 1u) != PROSENJITFS_OK)
         return -10;
-    if (prosenjitfs_free_blocks(&fs, first, 4u) != PROSENJITFS_OK)
+    if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
         return -11;
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
