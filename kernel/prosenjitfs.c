@@ -1233,7 +1233,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
     if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
             PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_FILE)
-        return -1740;
+        return PROS_VFS_EIO;
     if (new_size == inode.size)
         return PROS_VFS_OK;
 
@@ -1264,7 +1264,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             written = (uint32_t)pfs_file_write(&file, (uint32_t)offset,
                                                chunk, zeroes);
             if (written != chunk)
-                return -1741;
+                return PROS_VFS_EIO;
             offset += written;
         }
         vnode->size = new_size;
@@ -1296,7 +1296,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             inode.allocated_bytes = 0u;
             if (prosenjitfs_write_inode(data->fs, data->inode_number,
                                         &inode) != PROSENJITFS_OK)
-                return -1742;
+                return PROS_VFS_EIO;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
@@ -1305,7 +1305,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             struct pros_prosenjitfs_extent current;
             rc = pfs_read_extent(data->fs, cursor, &current);
             if (rc != PROSENJITFS_OK)
-                return -1743;
+                return PROS_VFS_EIO;
             previous_lba = last_lba;
             if (last_lba != 0u)
                 pfs_copy(&previous, &last, sizeof(previous));
@@ -1314,10 +1314,9 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             cursor = current.next;
         }
         if (cursor != 0u || last_lba == 0u)
-            return -1744;
+            return PROS_VFS_EIO;
 
-        if (last.logical_block + last.block_count == required_blocks &&
-            new_size < inode.size) {
+        if (last.logical_block + last.block_count == required_blocks) {
             uint8_t *inode_image = (uint8_t *)kmalloc(block_size);
             uint64_t inode_byte_offset =
                 data->inode_number * PROSENJITFS_INODE_SIZE;
@@ -1331,7 +1330,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                inode_image) != PROSENJITFS_OK) {
                 if (inode_image)
                     kfree(inode_image);
-                return -1745;
+                return PROS_VFS_EIO;
             }
             inode.size = new_size;
             pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
@@ -1348,7 +1347,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                 rc = pfs_tx_commit(data->fs);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return -1746;
+                return PROS_VFS_EIO;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
@@ -1364,19 +1363,19 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             uint64_t old_allocated = inode.allocated_bytes;
 
             if (released > old_allocated / block_size)
-                return -1747;
+                return PROS_VFS_EIO;
             last_image = (uint8_t *)kmalloc(block_size);
             inode_image = (uint8_t *)kmalloc(block_size);
             if (!last_image || !inode_image) {
                 if (last_image) kfree(last_image);
                 if (inode_image) kfree(inode_image);
-                return -1748;
+                return PROS_VFS_EIO;
             }
             if (previous_lba != 0u) {
                 previous_image = (uint8_t *)kmalloc(block_size);
                 if (!previous_image) {
                     kfree(last_image); kfree(inode_image);
-                    return -1749;
+                    return PROS_VFS_EIO;
                 }
             }
             if (pfs_read_block(data->fs->mount.device, last_lba, last_image) !=
@@ -1386,7 +1385,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                 previous_image) != PROSENJITFS_OK)) {
                 if (previous_image) kfree(previous_image);
                 kfree(last_image); kfree(inode_image);
-                return -17410;
+                return PROS_VFS_EIO;
             }
 
             if (previous_image) {
@@ -1413,7 +1412,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                inode_image) != PROSENJITFS_OK) {
                 if (previous_image) kfree(previous_image);
                 kfree(last_image); kfree(inode_image);
-                return -17411;
+                return PROS_VFS_EIO;
             }
             pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
             pfs_put32(inode_image + inode_offset +
@@ -1468,7 +1467,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                block_size,
                                inode_image) != PROSENJITFS_OK) {
                 kfree(extent_image); kfree(inode_image);
-                return -17412;
+                return PROS_VFS_EIO;
             }
             {
                 struct pros_prosenjitfs_extent *extent =
@@ -1519,9 +1518,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
          * smaller than the old size, another extent should follow the kept
          * range; reaching here means the on-disk extent chain is inconsistent.
          */
-        return -20000 -
-               (int)(required_blocks * 100u + last.logical_block * 10u +
-                     last.block_count);
+        return PROS_VFS_EIO;
     }
 }
 
