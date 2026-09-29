@@ -55,11 +55,17 @@ int partition_read_mbr(struct pros_block_device *device,
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
-    for (uint32_t i = 0; i < 4 && found < capacity; ++i) {
+    for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
-        uint32_t first = le32(entry + 8);
-        uint32_t sectors = le32(entry + 12);
+        uint64_t first = le32(entry + 8);
+        uint64_t sectors = le32(entry + 12);
         if (entry[4] == 0 || sectors == 0)
+            continue;
+        /* Never expose an MBR extent that wraps or exceeds the device. */
+        if (first >= device->sector_count ||
+            sectors > device->sector_count - first)
+            return PROS_PARTITION_EINVAL;
+        if (found >= capacity)
             continue;
         partitions[found].first_lba = first;
         partitions[found].sector_count = sectors;
