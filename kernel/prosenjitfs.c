@@ -3838,6 +3838,9 @@ int prosenjitfs_selftest(void)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
         return -10;
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -11;
     {
         uint64_t reused_block = 0u;
         if (prosenjitfs_alloc_blocks(&fs, 4u, &reused_block) !=
