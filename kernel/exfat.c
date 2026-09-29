@@ -113,7 +113,7 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
                        PROS_VFS_NODE_DIRECTORY, &exfat_vfs_vnode_ops, 0,
                        fs, 0) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, &fs->root_vnode) != PROS_VFS_OK)
-        return PROS_EXFAT_EINVAL;
+        return -102;
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
         return -103;
