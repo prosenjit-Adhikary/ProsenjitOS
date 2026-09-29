@@ -1170,16 +1170,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Storage-stack regression suite: partition discovery and filesystem
      * geometry/mount contracts must remain boot-testable before drivers depend
      * on them. */
-    if (partition_selftest() != PROS_PARTITION_OK) {
-        serial_write("ProsenjitOS: ERROR partition discovery self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    serial_write("ProsenjitOS: partition discovery self-test passed\n");
-    if (pros_storage_selftest() != PROS_STORAGE_OK) {
-        serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    serial_write("ProsenjitOS: storage volume discovery self-test passed\n");
     {
         int pfs_early_rc = prosenjitfs_selftest();
         if (pfs_early_rc != PROSENJITFS_OK) {
@@ -1191,6 +1181,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: early ProsenjitFS self-test passed\n");
 
+    if (partition_selftest() != PROS_PARTITION_OK) {
+        serial_write("ProsenjitOS: ERROR partition discovery self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: partition discovery self-test passed\n");
+    if (pros_storage_selftest() != PROS_STORAGE_OK) {
+        serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: storage volume discovery self-test passed\n");
     if (fat32_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR FAT32 self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
