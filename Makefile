@@ -12,7 +12,7 @@ all: iso
 
 mkprosenjitfs:
 	mkdir -p $(BUILD_DIR)
-	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tools/mkprosenjitfs.c -o $(BUILD_DIR)/mkprosenjitfs
+	$(CC) -D_XOPEN_SOURCE=700 -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tools/mkprosenjitfs.c -o $(BUILD_DIR)/mkprosenjitfs
 
 iso:
 	chmod +x scripts/build.sh
