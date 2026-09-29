@@ -2387,11 +2387,13 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
     }
 
     if (name[0] == '.' && name[1] == '.' && name[2] == '\0') {
-        struct pros_vfs_vnode *p = parent->parent ? parent->parent : parent;
-        if (vfs_vnode_get(p) != PROS_VFS_OK)
-            return PROS_VFS_EINVAL;
-        *result = p;
-        return PROS_VFS_OK;
+        struct pros_prosenjitfs_inode dir_inode;
+        if (prosenjitfs_read_inode(data->fs, data->inode_number,
+                                   &dir_inode) != PROSENJITFS_OK ||
+            dir_inode.type != PROSENJITFS_INODE_DIR ||
+            dir_inode.parent_inode >= data->fs->sb.inode_count)
+            return PROS_VFS_EIO;
+        return pfs_make_vnode(data->fs, dir_inode.parent_inode, 0, result);
     }
 
     {
