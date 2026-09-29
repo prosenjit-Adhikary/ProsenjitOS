@@ -72,9 +72,16 @@ int vfs_probe_filesystem(struct pros_block_device *device,
 
     /* ProsenjitFS has its own versioned/checksummed superblock format and
      * must be validated independently of legacy BPB signatures. */
-    if (prosenjitfs_probe(device) == PROSENJITFS_OK) {
-        *type = PROS_FS_PROSENJIT;
-        return PROS_VFS_OK;
+    {
+        int pfs_rc = prosenjitfs_probe(device);
+        if (pfs_rc == PROSENJITFS_OK) {
+            *type = PROS_FS_PROSENJIT;
+            return PROS_VFS_OK;
+        }
+        /* A failed secondary superblock read is an I/O failure, not an
+         * unknown filesystem. Do not hide media errors behind ENOSYS. */
+        if (pfs_rc == PROSENJITFS_EIO)
+            return PROS_VFS_EIO;
     }
 
     if (sector[510] != 0x55u || sector[511] != 0xAAu)
