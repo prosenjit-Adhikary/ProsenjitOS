@@ -533,6 +533,8 @@ int exfat_selftest(void)
         }
         {
             struct pros_exfat_dirent found;
+            if (le32(set + 52u) != 2u)
+                return -126;
             int find_status = exfat_find(&fs, 2u, "hello.txt", &found);
             if (find_status != PROS_EXFAT_OK)
                 return -120 + find_status;
