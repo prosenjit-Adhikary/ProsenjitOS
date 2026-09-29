@@ -1186,6 +1186,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -626: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at second dirent\n"); break;
             case -627: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at hello dirent\n"); break;
             case -628: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at root dir close\n"); break;
+            case -911: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal header write\n"); break;
+            case -912: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal image write\n"); break;
+            case -913: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal commit write\n"); break;
+            case -914: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal flush\n"); break;
+            case -915: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal unmount\n"); break;
+            case -916: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal remount\n"); break;
+            case -917: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal replay first byte\n"); break;
+            case -918: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal replay second byte\n"); break;
             case -901: serial_write("ProsenjitOS: ProsenjitFS journal replay self-test failed\n"); break;
             case -865: serial_write("ProsenjitOS: ProsenjitFS remount lookup /dst/new returned EIO\n"); break;
             case -866: serial_write("ProsenjitOS: ProsenjitFS remount lookup /dst/new returned ENOENT\n"); break;
