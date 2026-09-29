@@ -498,11 +498,13 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         length - name_start > PROS_VFS_NAME_MAX)
         return PROS_VFS_EINVAL;
 
-    for (i = 0u; i < length - name_start; ++i) {
-        if (path[name_start + i] == '/' ||
-            (i == 0u && path[name_start] == '.'))
+    for (i = 0u; i < length - name_start; ++i)
+        if (path[name_start + i] == '/')
             return PROS_VFS_EINVAL;
-    }
+    if ((length - name_start == 1u && path[name_start] == '.') ||
+        (length - name_start == 2u && path[name_start] == '.' &&
+         path[name_start + 1u] == '.'))
+        return PROS_VFS_EINVAL;
 
     if (last_slash == 0u) {
         parent_path[0] = '/';
