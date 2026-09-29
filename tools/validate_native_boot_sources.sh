@@ -5,7 +5,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BUILD=${BUILD_DIR:-"$ROOT/build/native-source-check"}
 STAGE2_SECTORS=32
 KERNEL_LBA=33
-MAX_KERNEL_SECTORS=1536\nSTAGE2_LOAD_BASE=0x8000\nSTAGE2_LOAD_BYTES=$((STAGE2_SECTORS * 512))\nSTAGE2_LOAD_END=$((STAGE2_LOAD_BASE + STAGE2_LOAD_BYTES))\nSTACK_POINTER=0xF000
+MAX_KERNEL_SECTORS=1536
+STAGE2_LOAD_BASE=0x8000
+STAGE2_LOAD_BYTES=$((STAGE2_SECTORS * 512))
+STAGE2_LOAD_END=$((STAGE2_LOAD_BASE + STAGE2_LOAD_BYTES))
+STACK_POINTER=0xF000
 
 mkdir -p "$BUILD"
 
@@ -30,7 +34,8 @@ stage2_size=$(wc -c < "$BUILD/stage2-max.bin")
     exit 1
 }
 
-signature=$(od -An -tx1 -j 510 -N 2 "$BUILD/stage1.bin" | tr -d ' \n')
+signature=$(od -An -tx1 -j 510 -N 2 "$BUILD/stage1.bin" | tr -d ' 
+')
 [ "$signature" = "55aa" ] || {
     echo "stage-1 source is missing BIOS signature 0xAA55" >&2
     exit 1
@@ -42,8 +47,14 @@ signature=$(od -An -tx1 -j 510 -N 2 "$BUILD/stage1.bin" | tr -d ' \n')
     exit 1
 }
 
-[ "$STACK_POINTER" -ge "$STAGE2_LOAD_END" ] || {\n    echo "native stack overlaps the stage-2 load area" >&2\n    exit 1\n}\n\necho "Native boot source validation passed"
+[ "$STACK_POINTER" -ge "$STAGE2_LOAD_END" ] || {
+    echo "native stack overlaps the stage-2 load area" >&2
+    exit 1
+}
+
+echo "Native boot source validation passed"
 echo "  stage-1 bytes: $stage1_size"
 echo "  stage-2 bytes: $stage2_size"
 echo "  kernel LBA:    $KERNEL_LBA"
-echo "  max sectors:   $MAX_KERNEL_SECTORS"\necho "  stack pointer: 0x$(printf "%X" "$STACK_POINTER")"
+echo "  max sectors:   $MAX_KERNEL_SECTORS"
+echo "  stack pointer: 0x$(printf "%X" "$STACK_POINTER")"
