@@ -85,6 +85,43 @@ jobs:
           require_log "ProsenjitOS: user address-space isolation foundation test passed"
           require_log "ProsenjitOS: usercopy page-fault recovery test passed"
 
+      - name: Boot-test native BIOS image in QEMU
+        run: |
+          set +e
+          timeout 20s qemu-system-x86_64 \
+            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
+            -display none \
+            -serial file:build/native-qemu-serial.log \
+            -no-reboot \
+            -no-shutdown \
+            -d int \
+            -D build/native-qemu-debug.log
+          qemu_status=$?
+          set -e
+
+          echo "Native QEMU exit status: $qemu_status"
+          cat build/native-qemu-serial.log
+          echo "===== Native QEMU interrupt trace (exceptions) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
+          echo "===== Native QEMU exception diagnostics (tail) ====="
+          tail -n 200 build/native-qemu-debug.log || true
+
+          require_native_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/native-qemu-serial.log; then
+              echo "::error::Missing native BIOS milestone: $marker"
+              return 1
+            fi
+          }
+
+          require_native_log "ProsenjitOS: native bootloader handoff accepted"
+          require_native_log "ProsenjitOS: x86-64 long mode active"
+          require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_native_log "ProsenjitOS: partition discovery self-test passed"
+          require_native_log "ProsenjitOS: FAT32 self-test passed"
+          require_native_log "ProsenjitOS: exFAT self-test passed"
+          require_native_log "ProsenjitOS: NTFS VFS read test passed"
+
       - name: Upload ISO and boot diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,5 +129,8 @@ jobs:
           name: prosenjitOS-boot-test
           path: |
             build/prosenjitOS.iso
+            build/prosenjit-native-bios.img
             build/qemu-serial.log
             build/qemu-debug.log
+            build/native-qemu-serial.log
+            build/native-qemu-debug.log

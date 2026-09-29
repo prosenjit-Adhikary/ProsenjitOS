@@ -238,6 +238,16 @@ The boot path will be implemented incrementally: protocol definition and validat
 
 See [docs/BOOT-ARCHITECTURE.md](docs/BOOT-ARCHITECTURE.md) for the complete boot architecture, security requirements and implementation order.
 
+## Native boot implementation status
+
+The native BIOS boot path is now implemented and CI-verified in QEMU. The current implementation is intentionally a fixed-LBA bootstrap path:
+
+`BIOS -> native stage-1 -> native stage-2 -> common kernel handoff`
+
+The existing GRUB/Multiboot2 path remains available as a compatibility/development path. MBR/GPT and filesystem discovery remain storage-layer responsibilities rather than prerequisites for the kernel boot contract.
+
+See [docs/BOOT.md](docs/BOOT.md) for the current native loader layout, handoff boundary, limitations, and future storage/UEFI integration direction.
+
 ## Storage and filesystem strategy
 
 ProsenjitOS is being designed to access common removable and internal storage without depending on a single filesystem. The storage stack separates hardware, block I/O, partitions, VFS, and filesystem drivers.
