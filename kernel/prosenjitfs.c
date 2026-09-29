@@ -2979,22 +2979,19 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
                 while (prior != 0u) {
                     struct pros_prosenjitfs_dir_entry prior_entry;
 
-                    if (prior == current)
-                        break;
+                    if (prior == current) {
+                        if (prior_bucket == bucket)
+                            break;
+                        return PROSENJITFS_ECORRUPT;
+                    }
                     if (++prior_guard > fs->sb.total_blocks ||
                         pfs_read_dir_entry(fs, prior, &prior_entry) !=
                             PROSENJITFS_OK)
                         return PROSENJITFS_ECORRUPT;
-
-                    if (prior_bucket < bucket ||
-                        prior != current) {
-                        if (prior == current)
-                            return PROSENJITFS_ECORRUPT;
-                        if (prior_entry.name_length == entry.name_length &&
-                            pfs_memcmp(prior_entry.name, entry.name,
-                                       entry.name_length) == 0)
-                            return PROSENJITFS_ECORRUPT;
-                    }
+                    if (prior_entry.name_length == entry.name_length &&
+                        pfs_memcmp(prior_entry.name, entry.name,
+                                   entry.name_length) == 0)
+                        return PROSENJITFS_ECORRUPT;
                     prior = prior_entry.next;
                 }
             }
