@@ -472,6 +472,7 @@ static int pfs_read_extent(struct pros_prosenjitfs *fs, uint64_t lba,
     pfs_copy(extent, block, sizeof(*extent));
     if (extent->magic != PROSENJITFS_EXTENT_MAGIC ||
         extent->block_count == 0u ||
+        extent->logical_block > UINT64_MAX - extent->block_count ||
         extent->physical_block < fs->sb.data_start ||
         extent->physical_block >= fs->sb.total_blocks ||
         extent->block_count > fs->sb.total_blocks - extent->physical_block ||
@@ -2298,6 +2299,10 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     pfs_copy(inode, block + offset, sizeof(*inode));
     if (inode->type == PROSENJITFS_INODE_FREE)
         return PROSENJITFS_ENOENT;
+    if (inode->type != PROSENJITFS_INODE_FILE &&
+        inode->type != PROSENJITFS_INODE_DIR &&
+        inode->type != PROSENJITFS_INODE_SYMLINK)
+        return PROSENJITFS_ECORRUPT;
     if (pfs_crc_with_zero32(block + offset, sizeof(*inode),
                             (uint32_t)offsetof(
                                 struct pros_prosenjitfs_inode, checksum)) !=
@@ -2316,6 +2321,10 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
     uint8_t block[4096];
     if (!fs || !inode || fs->read_only || inode_number >= fs->sb.inode_count ||
         fs->sb.block_size > sizeof(block))
+        return PROSENJITFS_EINVAL;
+    if (inode->type != PROSENJITFS_INODE_FILE &&
+        inode->type != PROSENJITFS_INODE_DIR &&
+        inode->type != PROSENJITFS_INODE_SYMLINK)
         return PROSENJITFS_EINVAL;
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
     block_lba = fs->sb.inode_table_start + byte_offset / fs->sb.block_size;
