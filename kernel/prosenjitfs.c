@@ -3494,7 +3494,7 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(moved) != PROS_VFS_OK ||
             vfs_path_rename(&fs.mount, "/sub", "/dst/sub") !=
                 PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dst/sub/nested", &moved) !=
+            vfs_path_lookup(&fs.mount, "/dst/sub/renamed", &moved) !=
                 PROS_VFS_OK ||
             moved->type != PROS_VFS_NODE_FILE ||
             vfs_vnode_put(moved) != PROS_VFS_OK ||
