@@ -3452,7 +3452,7 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(parent) != PROS_VFS_OK ||
             vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
-            return -6;
+            return -6001;
     }
     {
         struct pros_vfs_file file;
