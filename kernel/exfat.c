@@ -985,9 +985,34 @@ int exfat_selftest(void)
     boot[108]=9u; boot[109]=0u; boot[110]=1u;
     boot[510]=0x55u; boot[511]=0xAAu;
 
-    /* FAT[2] -> 3, FAT[3] -> EOC. */
+    /* FAT[2] -> 3, FAT[3] -> EOC, FAT[4]/[5] -> EOC. */
     exfat_test_le32(disk.sectors + 24u * 512u + 8u, 3u);
     exfat_test_le32(disk.sectors + 24u * 512u + 12u, 0xFFFFFFFFu);
+    exfat_test_le32(disk.sectors + 24u * 512u + 16u, 0xFFFFFFFFu);
+    exfat_test_le32(disk.sectors + 24u * 512u + 20u, 0xFFFFFFFFu);
+
+    /* A compact, complete Unicode-range Up-case table:
+     * identity 0000..0060, A-Z mappings for 0061..007A,
+     * identity 007B..FFFF. */
+    {
+        uint8_t *table = disk.sectors + 28u * 512u;
+        uint32_t p = 0u;
+        table[p++] = 0xFFu; table[p++] = 0xFFu;
+        table[p++] = 0x61u; table[p++] = 0x00u;
+        for (uint16_t ch = 0x61u; ch <= 0x7Au; ++ch) {
+            uint16_t mapped = (uint16_t)(ch - 0x20u);
+            table[p++] = (uint8_t)mapped;
+            table[p++] = (uint8_t)(mapped >> 8);
+        }
+        table[p++] = 0xFFu; table[p++] = 0xFFu;
+        table[p++] = 0x85u; table[p++] = 0xFFu;
+
+        disk.sectors[25u * 512u + 0u] = 0x82u;
+        exfat_test_le32(disk.sectors + 25u * 512u + 4u,
+                        exfat_upcase_checksum(table, p));
+        exfat_test_le32(disk.sectors + 25u * 512u + 20u, 5u);
+        exfat_test_le64(disk.sectors + 25u * 512u + 24u, p);
+    }
 
     for (uint32_t i = 0u; i < 512u; ++i) {
         disk.sectors[25u * 512u + i] = (uint8_t)('A' + (i % 26u));
@@ -1019,7 +1044,7 @@ int exfat_selftest(void)
 
     /* Validate a complete file directory-entry set and case-insensitive lookup. */
     {
-        uint8_t *set = disk.sectors + 25u * 512u;
+        uint8_t *set = disk.sectors + 25u * 512u + 32u;
         const char *filename = "HELLO.TXT";
         set[0] = 0x85u;
         set[1] = 2u;
@@ -1087,7 +1112,7 @@ int exfat_selftest(void)
         }
         /* Keep the unused slots before the boundary entry non-zero so
          * the directory end marker does not terminate the scan early. */
-        for (uint32_t off = 96u; off < 480u; off += 32u)
+        for (uint32_t off = 128u; off < 480u; off += 32u)
             disk.sectors[25u * 512u + off] = 0x01u;
         for (uint32_t i = 0u; i < 32u; ++i)
             disk.sectors[25u * 512u + 480u + i] = boundary_set[i];
