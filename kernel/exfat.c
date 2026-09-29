@@ -386,6 +386,8 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
     while (guard++ <= fs->cluster_count) {
         if (exfat_read_cluster(fs, current, cluster) != PROS_EXFAT_OK)
             return PROS_EXFAT_EIO;
+        if (current == directory_cluster && cluster[0] != 0x85u)
+            return -225;
 
         for (uint32_t off = 0u; off + 32u <= cluster_bytes; off += 32u) {
             const uint8_t *entry = cluster + off;
