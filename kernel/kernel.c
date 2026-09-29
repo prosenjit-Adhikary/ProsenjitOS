@@ -118,8 +118,9 @@ static int ata_qemu_prosenjitfs_test(void)
     }
     if (prosenjitfs_probe(&ata.device) != PROSENJITFS_OK)
         return -101;
-    if (prosenjitfs_mount(&fs, &ata.device, 1u) != PROSENJITFS_OK)
-        return -102;
+    rc = prosenjitfs_mount(&fs, &ata.device, 1u);
+    if (rc != PROSENJITFS_OK)
+        return -200 + rc;
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -103;
     if (prosenjitfs_mount(&fs, &ata.device, 0u) != PROSENJITFS_OK)
