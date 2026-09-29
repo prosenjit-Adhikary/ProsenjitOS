@@ -30,7 +30,7 @@ start:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    ; Keep the real-mode stack above the 16 KiB stage-2 load area (0x8000-0xC000).\n    mov sp, 0xF000
+    ; Keep the real-mode stack above the 16 KiB stage-2 load area (0x8000-0xC000).\n    mov sp, 0xF0000
     mov [boot_drive], dl
 
     ; Gather the firmware E820 memory map before entering protected mode.
@@ -204,7 +204,7 @@ protected_entry:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    ; Keep the protected-mode stack outside the stage-2 image as well.\n    mov esp, 0xF000
+    ; Keep the protected-mode stack outside the stage-2 image as well.\n    mov esp, 0xF0000
 
     ; Copy the BIOS-loaded flat kernel from 0x10000 to its linked address 1 MiB.
     cld
