@@ -936,6 +936,7 @@ int exfat_selftest(void)
         if (dirent.type != PROS_VFS_NODE_FILE || !exfat_name_equal_ci(dirent.name, "HELLO.TXT") || dirent.size != 700u) return -163;
         if (vfs_dir_read(&dir, &dirent) != PROS_VFS_OK) return -164;
         if (!exfat_name_equal_ci(dirent.name, "CROSS.TXT") || dirent.size != 700u) return -165;
+        if (dir.cookie != 576u) return -168;
         if (vfs_dir_read(&dir, &dirent) != PROS_VFS_ENOENT) return -166;
         if (vfs_dir_close(&dir) != PROS_VFS_OK) return -167;
 
