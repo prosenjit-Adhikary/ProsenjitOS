@@ -47,7 +47,7 @@ signature=$(od -An -tx1 -j 510 -N 2 "$BUILD/stage1.bin" | tr -d '
     exit 1
 }
 
-[ "$STACK_POINTER" -ge "$STAGE2_LOAD_END" ] || {
+[ "$((STACK_POINTER))" -ge "$STAGE2_LOAD_END" ] || {
     echo "native stack overlaps the stage-2 load area" >&2
     exit 1
 }
