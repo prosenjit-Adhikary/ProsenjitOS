@@ -1263,6 +1263,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             pfs_copy(ni, oi, sizeof(*ni));
             src->next = ni->heads[new_bucket];
             ni->heads[new_bucket] = source_lba;
+            pfs_copy(oi, ni, sizeof(*oi));
         } else if (old_data->inode_number != new_data->inode_number) {
             if (source_prev == 0u)
                 oi->heads[old_bucket] = source.next;
