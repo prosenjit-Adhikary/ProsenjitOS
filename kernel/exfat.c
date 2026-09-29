@@ -117,9 +117,11 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
         return -103;
-    if (exfat_load_upcase_table(fs) != PROS_EXFAT_OK) {
-        vfs_mount_deactivate(&fs->mount);
-        return -104;
+    { int upcase_status = exfat_load_upcase_table(fs);
+      if (upcase_status != PROS_EXFAT_OK) {
+          vfs_mount_deactivate(&fs->mount);
+          return upcase_status;
+      }
     }
     return PROS_EXFAT_OK;
 }
