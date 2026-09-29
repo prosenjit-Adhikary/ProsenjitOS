@@ -72,9 +72,23 @@ Mount validates magic/version, feature flags, block size and volume bounds, all 
 13. Add ProsenjitFS filesystem probing/storage discovery.
 14. Add QEMU regression using a real ProsenjitFS disk image once a QEMU-visible block-device path exists.
 15. Run complete existing CI regression and preserve FAT32/exFAT/NTFS behavior.
+16. Add ProsenjitFS self-healing hooks: integrity scan, journal-first recovery, conservative orphan reclamation, degraded-metadata handling, and post-repair verification.
+17. Add fault-injection tests for torn writes, corrupted metadata, interrupted recovery, and rollback; automatic destructive repair must remain disabled outside explicit recovery mode.
 
 ## Current dependency boundary
 The repository does not yet expose a real ATA/AHCI/NVMe block device to the kernel/QEMU boot test. Therefore physical QEMU disk detection cannot honestly be claimed until that dependency exists. Deterministic memory-backed block-device self-tests will exercise the real filesystem code now; they supplement rather than replace the eventual QEMU disk test.
 
 ## Completion rule
 ProsenjitFS is not complete until format/mount/validation, persistent allocation, directories, Unicode names, file I/O, rename/delete, journal recovery, corruption handling, VFS/security integration, QEMU disk integration, complete CI regression and accurate documentation are verified.
+
+## Self-healing design requirements
+Self-healing is a planned reliability layer, not an excuse to hide corruption. Recovery must be conservative and observable:
+
+- **Detect:** identify checksum, range, allocation, journal, inode, extent, and directory inconsistencies.
+- **Verify:** distinguish recoverable corruption from ambiguous damage before modifying persistent state.
+- **Repair:** prefer journal replay, redundant metadata, and orphan reclamation; never silently overwrite uncertain user data.
+- **Verify again:** re-run integrity checks after every repair transaction.
+- **Rollback:** if post-repair validation fails, stop writable exposure and enter degraded/recovery mode.
+- Destructive repair is disabled by default and requires an explicit recovery-mode decision.
+- Every recovery action must be recorded in the system recovery/security log.
+- A future system health manager may consume these filesystem health signals, but filesystem recovery must remain safe when the rest of the OS is unavailable.
