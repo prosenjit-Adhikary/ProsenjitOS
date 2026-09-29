@@ -478,10 +478,15 @@ int exfat_selftest(void)
         disk.sectors[4u * 512u + i] = (uint8_t)('0' + (i % 10u));
     }
 
-    if (block_device_init(&device,512,6,exfat_test_read,0,&disk) != PROS_BLOCK_OK ||
-        exfat_mount(&fs,&device) != PROS_EXFAT_OK ||
-        exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 2u)
-        return -1;
+    if (block_device_init(&device,512,6,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
+        return -101;
+    {
+        int initial_mount_status = exfat_mount(&fs, &device);
+        if (initial_mount_status != PROS_EXFAT_OK)
+            return -100 + initial_mount_status;
+    }
+    if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 2u)
+        return -102;
 
     if (exfat_read_fat_entry(&fs, 2u, &done) != PROS_EXFAT_OK ||
         done != 3u ||
