@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "../include/prosenjitfs_format.h"
 
 #include <errno.h>
@@ -33,10 +34,6 @@ static uint32_t crc32c_update(uint32_t crc, const uint8_t *data, size_t len)
     return crc;
 }
 
-static uint32_t crc32c(const void *data, size_t len)
-{
-    return ~crc32c_update(0xFFFFFFFFu, (const uint8_t *)data, len);
-}
 
 static uint32_t crc32c_zero32(const void *data, size_t len, size_t off)
 {
