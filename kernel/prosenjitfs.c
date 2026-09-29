@@ -3288,6 +3288,7 @@ static int pfs_test_flush(struct pros_block_device *device)
 
 int prosenjitfs_selftest(void)
 {
+    int pfs_selftest_stage = 0;
     struct pros_vfs_vnode *parent = 0;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
@@ -3324,37 +3325,37 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_vnode *subdir = 0;
         struct pros_vfs_vnode *nested = 0;
         struct pros_vfs_vnode *parent = 0;
-        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
+        if (((pfs_selftest_stage = 1), vfs_path_lookup(&fs.mount, "/", &root)) != PROS_VFS_OK ||
             root != fs.mount.root ||
-            root->ops->create(root, "hello", &created) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 2), root->ops->create(root, "hello", &created)) != PROS_VFS_OK ||
             !created ||
-            vfs_path_lookup(&fs.mount, "/hello", &looked_up) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 3), vfs_path_lookup(&fs.mount, "/hello", &looked_up)) != PROS_VFS_OK ||
             !looked_up ||
             looked_up->type != PROS_VFS_NODE_FILE ||
-            vfs_path_mkdir(&fs.mount, "/sub", &subdir) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 4), vfs_path_mkdir(&fs.mount, "/sub", &subdir)) != PROS_VFS_OK ||
             !subdir ||
             subdir->type != PROS_VFS_NODE_DIRECTORY ||
-            subdir->ops->create(subdir, "nested", &nested) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 5), subdir->ops->create(subdir, "nested", &nested)) != PROS_VFS_OK ||
             !nested ||
             vfs_vnode_put(looked_up) != PROS_VFS_OK ||
-            vfs_vnode_put(subdir) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 7), vfs_vnode_put(subdir)) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 8), vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up)) != PROS_VFS_OK ||
             looked_up->type != PROS_VFS_NODE_FILE ||
-            looked_up->ops->lookup(looked_up, "..", &parent) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 9), looked_up->ops->lookup(looked_up, "..", &parent)) != PROS_VFS_OK ||
             !parent ||
             parent->type != PROS_VFS_NODE_DIRECTORY ||
-            vfs_vnode_put(parent) != PROS_VFS_OK ||
-            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
-            vfs_vnode_put(nested) != PROS_VFS_OK ||
-            vfs_vnode_put(created) != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 10), vfs_vnode_put(parent)) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 11), ((pfs_selftest_stage = 6), vfs_vnode_put(looked_up))) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 12), vfs_vnode_put(nested)) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 13), vfs_vnode_put(created)) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 14), vfs_dir_open(&fs.mount, "/", &dir)) != PROS_VFS_OK ||
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != '.' ||
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != '.' ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            ((pfs_selftest_stage = 17), ((pfs_selftest_stage = 16), ((pfs_selftest_stage = 15), vfs_dir_read(&dir, &entry)))) != PROS_VFS_OK ||
             entry.name[0] != 'h' ||
-            vfs_dir_close(&dir) != PROS_VFS_OK)
+            ((pfs_selftest_stage = 18), vfs_dir_close(&dir)) != PROS_VFS_OK)
             return -2002;
 
         {
