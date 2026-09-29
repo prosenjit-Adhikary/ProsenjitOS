@@ -28,6 +28,7 @@ static void pfs_put32(uint8_t *p, uint32_t v)
 
 static int pfs_mount_debug_stage;
 static int pfs_journal_debug_stage;
+static int pfs_metadata_debug_stage;
 
 static int pfs_mem_equal(const void *a, const void *b, uint32_t size)
 {
@@ -565,6 +566,7 @@ static int pfs_find_free_run(const struct pros_prosenjitfs *fs,
     if (!fs || !start || count == 0u || fs->sb.block_size > sizeof(bitmap))
         return PROSENJITFS_EINVAL;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    pfs_metadata_debug_stage = 1;
     for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
         uint64_t bi = b / bits_per_block;
         if (bi >= fs->sb.block_bitmap_blocks)
@@ -868,6 +870,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (old_extent_image) kfree(old_extent_image);
             kfree(extent_image);
             kfree(inode_image);
+            pfs_metadata_debug_stage = 4;
             if (rc != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
             done += take;
@@ -2818,6 +2821,7 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
 
 static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
 {
+    pfs_metadata_debug_stage = 0;
     uint64_t bits_per_block;
     uint64_t root_bitmap_index;
     uint8_t inode_bitmap[4096];
@@ -2833,6 +2837,7 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
         !pfs_bitmap_bit(inode_bitmap, fs->sb.root_inode % bits_per_block))
         return PROSENJITFS_ECORRUPT;
 
+    pfs_metadata_debug_stage = 2;
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
         uint64_t bitmap_index = inode_number / bits_per_block;
@@ -2845,12 +2850,14 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                            fs->sb.inode_bitmap_start + bitmap_index,
                            inode_bitmap) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
+        pfs_metadata_debug_stage = 3;
         allocated = pfs_bitmap_bit(inode_bitmap,
                                     inode_number % bits_per_block);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (allocated) {
             if (rc != PROSENJITFS_OK)
                 return PROSENJITFS_ECORRUPT;
+            pfs_metadata_debug_stage = 5;
             if (inode_number == fs->sb.root_inode &&
                 inode.type != PROSENJITFS_INODE_DIR)
                 return PROSENJITFS_ECORRUPT;
@@ -2859,11 +2866,13 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                     PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
             } else if (inode.type == PROSENJITFS_INODE_DIR) {
+                pfs_metadata_debug_stage = 6;
                 if (pfs_validate_directory(fs, inode_number, &inode) !=
                     PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
             }
         } else if (rc != PROSENJITFS_ENOENT) {
+            pfs_metadata_debug_stage = 7;
             return PROSENJITFS_ECORRUPT;
         }
     }
@@ -3238,6 +3247,8 @@ int prosenjitfs_selftest(void)
         if (mount_rc != PROSENJITFS_OK) {
             if (pfs_mount_debug_stage == 2)
                 return -300 - pfs_journal_debug_stage;
+            if (pfs_mount_debug_stage == 3)
+                return -400 - pfs_metadata_debug_stage;
             return -200 - pfs_mount_debug_stage;
         }
     }
