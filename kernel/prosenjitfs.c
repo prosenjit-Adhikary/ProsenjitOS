@@ -187,6 +187,14 @@ static int pfs_superblock_valid(const uint8_t *block,
     if ((uint64_t)sb->inode_table_blocks * sb->block_size <
         (uint64_t)sb->inode_count * PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_ECORRUPT;
+    /* Bitmap geometry is part of the on-disk contract. Without these
+     * capacity checks a forged but checksummed superblock could make the
+     * allocator index past the declared bitmap regions. */
+    if ((uint64_t)sb->block_bitmap_blocks * sb->block_size * 8u <
+            sb->total_blocks ||
+        (uint64_t)sb->inode_bitmap_blocks * sb->block_size * 8u <
+            sb->inode_count)
+        return PROSENJITFS_ECORRUPT;
     return PROSENJITFS_OK;
 }
 
