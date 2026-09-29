@@ -1216,6 +1216,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed\n");
 
+    {
+        int ata_rc = ata_qemu_prosenjitfs_test();
+        if (ata_rc == PROS_ATA_ENODEV) {
+            serial_write("ProsenjitOS: ATA PIO disk not present; QEMU ProsenjitFS integration skipped\n");
+        } else if (ata_rc != PROS_ATA_OK) {
+            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        } else {
+            serial_write("ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed\n");
+        }
+    }
+
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
      * mechanism before entering CPL3. The scanner is deliberately read-only;
