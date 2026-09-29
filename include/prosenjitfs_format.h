@@ -29,7 +29,7 @@
 #define PROSENJITFS_ENTRY_MAGIC 0x5053454Eu
 #define PROSENJITFS_EXTENT_MAGIC 0x50534558u
 
-struct pros_prosenjitfs_superblock {
+struct __attribute__((packed)) pros_prosenjitfs_superblock {
     uint8_t magic[8];
     uint16_t version;
     uint16_t header_size;
@@ -54,7 +54,7 @@ struct pros_prosenjitfs_superblock {
     uint32_t checksum;
 };
 
-struct pros_prosenjitfs_inode {
+struct __attribute__((packed)) pros_prosenjitfs_inode {
     uint8_t type;
     uint8_t flags;
     uint16_t mode;
@@ -74,7 +74,7 @@ struct pros_prosenjitfs_inode {
     uint8_t reserved[164];
 };
 
-struct pros_prosenjitfs_extent {
+struct __attribute__((packed)) pros_prosenjitfs_extent {
     uint32_t magic;
     uint32_t reserved;
     uint64_t logical_block;
@@ -84,7 +84,7 @@ struct pros_prosenjitfs_extent {
     uint32_t checksum;
 };
 
-struct pros_prosenjitfs_dir_index {
+struct __attribute__((packed)) pros_prosenjitfs_dir_index {
     uint32_t magic;
     uint16_t version;
     uint16_t bucket_count;
@@ -94,7 +94,7 @@ struct pros_prosenjitfs_dir_index {
     uint32_t checksum;
 };
 
-struct pros_prosenjitfs_dir_entry {
+struct __attribute__((packed)) pros_prosenjitfs_dir_entry {
     uint32_t magic;
     uint64_t next;
     uint64_t inode;
@@ -106,7 +106,7 @@ struct pros_prosenjitfs_dir_entry {
     uint8_t name[PROSENJITFS_MAX_NAME + 1u];
 };
 
-struct pros_prosenjitfs_journal_header {
+struct __attribute__((packed)) pros_prosenjitfs_journal_header {
     uint32_t magic;
     uint32_t record_count;
     uint64_t transaction_id;
@@ -114,7 +114,7 @@ struct pros_prosenjitfs_journal_header {
     uint32_t checksum;
 };
 
-struct pros_prosenjitfs_journal_commit {
+struct __attribute__((packed)) pros_prosenjitfs_journal_commit {
     uint32_t magic;
     uint32_t record_count;
     uint64_t transaction_id;
