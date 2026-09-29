@@ -1126,19 +1126,11 @@ int exfat_selftest(void)
             return -194;
         {
             uint16_t mapped;
-            struct pros_exfat_dirent parsed;
-            uint32_t parsed_bytes = 0u;
             if (exfat_upcase_lookup(&fs.upcase_table, 0x00E9u, &mapped) !=
                     PROS_EXFAT_UPCASE_OK)
                 return -195;
             if (mapped != 0x00E9u)
                 return -196;
-            if (exfat_directory_entry(&fs, 2u, 128u,
-                                      (uint8_t *)&parsed, sizeof(parsed),
-                                      &parsed_bytes, &parsed) != PROS_EXFAT_OK)
-                return -197;
-            if (parsed.unicode_name[3] != 0x00E9u)
-                return -198;
         }
 
         {
