@@ -1585,8 +1585,7 @@ static int pfs_tx_reset(struct pros_prosenjitfs *fs)
 static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
                       const void *image)
 {
-    if (!fs || !image || target >= fs->sb.total_blocks ||
-        fs->tx.count >= PROSENJITFS_MAX_TX_BLOCKS)
+    if (!fs || !image || target >= fs->sb.total_blocks)
         return PROSENJITFS_EINVAL;
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         if (fs->tx.targets[i] == target) {
@@ -1594,6 +1593,8 @@ static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
                      image, fs->sb.block_size);
             return PROSENJITFS_OK;
         }
+    if (fs->tx.count >= PROSENJITFS_MAX_TX_BLOCKS)
+        return PROSENJITFS_EOVERFLOW;
     fs->tx.targets[fs->tx.count] = target;
     pfs_copy(fs->tx.images + (uint64_t)fs->tx.count * fs->sb.block_size,
              image, fs->sb.block_size);
