@@ -312,6 +312,12 @@ struct exfat_test_disk {
     uint8_t sectors[32u * 512u];
 };
 
+static void exfat_test_le16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+}
+
 static void exfat_test_le32(uint8_t *p, uint32_t value)
 {
     p[0] = (uint8_t)value;
@@ -862,7 +868,7 @@ int exfat_selftest(void)
         uint8_t *table = disk.sectors + 28u * 512u;
         uint32_t checksum = 0u;
         for (uint32_t i = 0u; i < 128u; ++i) {
-            exfat_test_le32(table + i * 2u, i);
+            exfat_test_le16(table + i * 2u, (uint16_t)i);
         }
         for (uint32_t i = 0u; i < 256u; ++i)
             checksum = ((checksum & 1u) ? 0x80000000u : 0u) +
