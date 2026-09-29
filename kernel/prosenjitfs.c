@@ -645,8 +645,19 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (pfs_write_block(data->fs->mount.device, physical, block) !=
                 PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
-            if (required_end > inode.size)
+            if (required_end > inode.size) {
+                /*
+                 * The extent already exists, so only EOF metadata changes.
+                 * Flush file data before publishing the new size; otherwise
+                 * a crash could expose a committed EOF before its data.
+                 */
+                if (pfs_flush(data->fs->mount.device) != PROSENJITFS_OK)
+                    return done ? (int)done : PROS_VFS_EIO;
                 inode.size = required_end;
+                if (prosenjitfs_write_inode(data->fs, data->inode_number,
+                                            &inode) != PROSENJITFS_OK)
+                    return done ? (int)done : PROS_VFS_EIO;
+            }
             done += take;
             continue;
         }
