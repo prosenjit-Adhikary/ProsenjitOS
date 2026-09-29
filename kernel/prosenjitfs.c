@@ -885,9 +885,11 @@ int prosenjitfs_selftest(void)
 
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
+    disk.data[512u] ^= 0x01u;
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
         return -9;
     disk.data[0] = saved;
+    disk.data[512u] ^= 0x01u;
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return -10;
