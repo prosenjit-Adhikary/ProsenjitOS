@@ -9,6 +9,28 @@
 #define PFS_MIN_INODES 64u
 #define PFS_UUID_SEED 0x50524F53454E4A49ULL
 
+/* Forward declarations for VFS callbacks and helpers used before their
+ * definitions. Keep the provider in one translation unit without relying on
+ * legacy implicit function declarations. */
+static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
+                            struct pros_vfs_vnode **);
+static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
+static int pfs_utf8_name_valid(const char *, uint32_t *);
+static int pfs_read_dir_index(const struct pros_prosenjitfs *,
+                              const struct pros_prosenjitfs_inode *,
+                              struct pros_prosenjitfs_dir_index *);
+static int pfs_find_dir_entry(const struct pros_prosenjitfs *,
+                              const struct pros_prosenjitfs_inode *,
+                              const char *,
+                              struct pros_prosenjitfs_dir_entry *);
+static int pfs_tx_reset(struct pros_prosenjitfs *);
+static int pfs_tx_add(struct pros_prosenjitfs *, uint64_t, const void *);
+static int pfs_tx_commit(struct pros_prosenjitfs *);
+static int pfs_bitmap_bit(const uint8_t *, uint64_t);
+static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
+                               uint8_t);
+static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
+
 static void pfs_zero(void *buffer, uint32_t size)
 {
     uint8_t *p = (uint8_t *)buffer;
@@ -549,7 +571,6 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     uint32_t inode_offset;
     uint32_t name_length;
     uint32_t dir_bucket;
-    uint32_t slot;
     int rc;
 
     if (!parent || !name || !result || !parent->private_data ||
