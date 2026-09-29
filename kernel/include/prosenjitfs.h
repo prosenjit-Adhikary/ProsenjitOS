@@ -39,6 +39,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *, struct pros_block_device *,
                       uint8_t read_only);
 int prosenjitfs_unmount(struct pros_prosenjitfs *);
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *, uint32_t, uint64_t *);
+int prosenjitfs_alloc_inode(struct pros_prosenjitfs *, uint64_t *);
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *, uint64_t, uint32_t);
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *,
                            uint64_t, struct pros_prosenjitfs_inode *);
