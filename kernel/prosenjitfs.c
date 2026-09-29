@@ -2802,10 +2802,10 @@ int prosenjitfs_selftest(void)
     }
 
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
-        return -6;
+        return -65;
     if (first_block < fs.sb.data_start ||
         first_block + 4u > fs.sb.total_blocks)
-        return -6;
+        return -66;
     if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
         inode_number == fs.sb.root_inode ||
         inode_number >= fs.sb.inode_count)
