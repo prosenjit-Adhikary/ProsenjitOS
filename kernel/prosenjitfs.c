@@ -310,7 +310,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     sb.block_bitmap_start = cursor; sb.block_bitmap_blocks = bitmap_blocks; cursor += bitmap_blocks;
     sb.inode_bitmap_start = cursor; sb.inode_bitmap_blocks = inode_bitmap_blocks; cursor += inode_bitmap_blocks;
     sb.inode_table_start = cursor; sb.inode_table_blocks = inode_table_blocks; cursor += inode_table_blocks;
-    sb.data_start = cursor + 1u;
+    sb.data_start = cursor;
     pfs_copy(sb.magic, PROSENJITFS_MAGIC, PROSENJITFS_MAGIC_LEN);
     sb.version = PROSENJITFS_VERSION;
     sb.header_size = sizeof(sb);
@@ -358,6 +358,12 @@ int prosenjitfs_format(struct pros_block_device *device)
                                     0u, (uint32_t)sb.data_start, i, block_size) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EOVERFLOW;
+        }
+        {
+            uint64_t bitmap_base = (uint64_t)i * (uint64_t)block_size * 8u;
+            if (sb.data_start >= bitmap_base &&
+                sb.data_start < bitmap_base + (uint64_t)block_size * 8u)
+                pfs_mark_bit(block, sb.data_start - bitmap_base);
         }
         if (pfs_write_block(device, sb.block_bitmap_start + i, block) != PROSENJITFS_OK) {
             kfree(block);
