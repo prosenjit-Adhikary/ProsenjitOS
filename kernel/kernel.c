@@ -105,10 +105,12 @@ static int ata_qemu_prosenjitfs_test(void)
 
     if (rc == PROS_ATA_ENODEV)
         return PROS_ATA_ENODEV;
-    if (rc != PROS_ATA_OK ||
-        prosenjitfs_probe(&ata.device) != PROSENJITFS_OK ||
-        prosenjitfs_mount(&fs, &ata.device, 0u) != PROSENJITFS_OK)
-        return PROS_ATA_EIO;
+    if (rc != PROS_ATA_OK)
+        return -100;
+    if (prosenjitfs_probe(&ata.device) != PROSENJITFS_OK)
+        return -101;
+    if (prosenjitfs_mount(&fs, &ata.device, 0u) != PROSENJITFS_OK)
+        return -102;
 
     for (uint32_t i = 0u; i < sizeof(file); ++i)
         ((uint8_t *)&file)[i] = 0u;
