@@ -3548,8 +3548,11 @@ int prosenjitfs_selftest(void)
             return -854;
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -855;
-        if (vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK)
-            return -856;
+        {
+            int lookup_rc = vfs_path_lookup(&fs.mount, "/dst/new", &moved);
+            if (lookup_rc != PROS_VFS_OK)
+                return -870 - lookup_rc;
+        }
         if (moved->type != PROS_VFS_NODE_FILE)
             return -857;
         if (vfs_vnode_put(moved) != PROS_VFS_OK)
