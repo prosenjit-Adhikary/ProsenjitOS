@@ -458,6 +458,7 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
 
 static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
 static int pfs_file_write(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
+static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
 static int pfs_file_close(struct pros_vfs_file *);
 
 static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
@@ -810,6 +811,208 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
     return (int)done;
 }
 
+static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode inode;
+    uint64_t old_size, old_blocks, keep_blocks;
+    uint64_t current, previous = 0u;
+    uint64_t steps = 0u;
+
+    if (!file || !file->vnode || !file->mount ||
+        size > UINT32_MAX)
+        return PROS_VFS_EINVAL;
+    if (file->mount->read_only || !file->mount->active)
+        return PROS_VFS_EPERM;
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    if (!data || !data->fs)
+        return PROS_VFS_EIO;
+    if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
+        PROSENJITFS_OK)
+        return PROS_VFS_EIO;
+
+    old_size = inode.size;
+    if (size == old_size)
+        return PROS_VFS_OK;
+
+    /*
+     * Growing a file is deliberately implemented as zero-filled writes.
+     * This preserves the existing extent allocator and guarantees that
+     * bytes in the newly visible range read back as zero after remount.
+     */
+    if (size > old_size) {
+        static const uint8_t zeros[512] = { 0 };
+        uint64_t left = size - old_size;
+        uint64_t position = old_size;
+        while (left != 0u) {
+            uint32_t chunk = left > sizeof(zeros) ? sizeof(zeros) : (uint32_t)left;
+            int rc = pfs_file_write(file, (uint32_t)position, chunk, zeros);
+            if (rc != (int)chunk)
+                return rc < 0 ? rc : PROS_VFS_EIO;
+            position += chunk;
+            left -= chunk;
+        }
+        return PROS_VFS_OK;
+    }
+
+    old_blocks = (old_size + data->fs->sb.block_size - 1u) /
+                 data->fs->sb.block_size;
+    keep_blocks = (size + data->fs->sb.block_size - 1u) /
+                  data->fs->sb.block_size;
+
+    current = inode.extent_head;
+    while (current != 0u) {
+        struct pros_prosenjitfs_extent extent;
+        uint64_t next;
+        if (++steps > data->fs->sb.total_blocks)
+            return PROS_VFS_EIO;
+        if (pfs_read_extent(data->fs, current, &extent) != PROSENJITFS_OK)
+            return PROS_VFS_EIO;
+        next = extent.next;
+
+        if (extent.logical_block >= keep_blocks) {
+            uint8_t inode_image[4096];
+            uint8_t prev_image[4096];
+            uint64_t inode_lba = 0u, prev_lba = 0u;
+            uint32_t inode_offset = 0u;
+            struct pros_prosenjitfs_inode new_inode = inode;
+            int rc;
+
+            if (pfs_inode_block_location(data->fs, data->inode_number,
+                                         &inode_lba, &inode_offset) !=
+                PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+
+            if (pfs_tx_reset(data->fs) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+
+            if (previous != 0u) {
+                struct pros_prosenjitfs_extent prev_extent;
+                if (pfs_read_block(data->fs->mount.device, previous,
+                                   prev_image) != PROSENJITFS_OK)
+                    return PROS_VFS_EIO;
+                pfs_copy(&prev_extent, prev_image, sizeof(prev_extent));
+                if (prev_extent.magic != PROSENJITFS_EXTENT_MAGIC)
+                    return PROS_VFS_EIO;
+                prev_extent.next = next;
+                pfs_copy(prev_image, &prev_extent, sizeof(prev_extent));
+                pfs_put32(prev_image +
+                          offsetof(struct pros_prosenjitfs_extent, checksum),
+                          pfs_crc_with_zero32(prev_image, sizeof(prev_extent),
+                                              (uint32_t)offsetof(
+                                                  struct pros_prosenjitfs_extent,
+                                                  checksum)));
+                prev_lba = previous;
+            } else {
+                new_inode.extent_head = next;
+            }
+
+            if (extent.block_count > 0u) {
+                rc = pfs_allocator_stage(data->fs, extent.physical_block,
+                                         extent.block_count, 0u);
+                if (rc != PROSENJITFS_OK)
+                    return PROS_VFS_EIO;
+            }
+            rc = pfs_allocator_stage(data->fs, current, 1u, 0u);
+            if (rc != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+
+            if (previous != 0u) {
+                if (pfs_tx_add(data->fs, prev_lba, prev_image) != PROSENJITFS_OK)
+                    return PROS_VFS_EIO;
+            } else {
+                if (pfs_read_block(data->fs->mount.device, inode_lba,
+                                   inode_image) != PROSENJITFS_OK)
+                    return PROS_VFS_EIO;
+                pfs_copy(inode_image + inode_offset, &new_inode, sizeof(new_inode));
+                pfs_put32(inode_image + inode_offset +
+                          offsetof(struct pros_prosenjitfs_inode, checksum),
+                          pfs_crc_with_zero32(inode_image + inode_offset,
+                                              sizeof(new_inode),
+                                              (uint32_t)offsetof(
+                                                  struct pros_prosenjitfs_inode,
+                                                  checksum)));
+                if (pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK)
+                    return PROS_VFS_EIO;
+            }
+
+            if (pfs_tx_commit(data->fs) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+
+            inode = new_inode;
+            current = next;
+            if (previous != 0u)
+                current = next;
+            continue;
+        }
+
+        if (extent.logical_block < keep_blocks &&
+            extent.logical_block + extent.block_count > keep_blocks) {
+            /*
+             * Current writers create one-block extents. Keep this branch
+             * defensive for future multi-block extents by shrinking the
+             * tail extent and releasing its unused physical suffix.
+             */
+            uint64_t keep_in_extent = keep_blocks - extent.logical_block;
+            uint64_t free_start = extent.physical_block + keep_in_extent;
+            uint32_t free_count = extent.block_count - (uint32_t)keep_in_extent;
+            uint8_t extent_image[4096];
+            struct pros_prosenjitfs_extent shortened = extent;
+            if (free_count == 0u)
+                return PROS_VFS_EIO;
+            shortened.block_count = (uint32_t)keep_in_extent;
+            if (pfs_read_block(data->fs->mount.device, current,
+                               extent_image) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+            pfs_copy(extent_image, &shortened, sizeof(shortened));
+            pfs_put32(extent_image +
+                      offsetof(struct pros_prosenjitfs_extent, checksum),
+                      pfs_crc_with_zero32(extent_image, sizeof(shortened),
+                                          (uint32_t)offsetof(
+                                              struct pros_prosenjitfs_extent,
+                                              checksum)));
+            if (pfs_tx_reset(data->fs) != PROSENJITFS_OK ||
+                pfs_allocator_stage(data->fs, free_start, free_count, 0u) !=
+                    PROSENJITFS_OK ||
+                pfs_tx_add(data->fs, current, extent_image) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+            if (pfs_tx_commit(data->fs) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+            break;
+        }
+
+        previous = current;
+        current = next;
+    }
+
+    {
+        uint8_t inode_image[4096];
+        uint64_t inode_lba;
+        uint32_t inode_offset;
+        if (pfs_inode_block_location(data->fs, data->inode_number,
+                                     &inode_lba, &inode_offset) != PROSENJITFS_OK ||
+            pfs_read_block(data->fs->mount.device, inode_lba, inode_image) !=
+                PROSENJITFS_OK)
+            return PROS_VFS_EIO;
+        inode.size = size;
+        inode.allocated_bytes = keep_blocks * data->fs->sb.block_size;
+        pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
+        pfs_put32(inode_image + inode_offset +
+                  offsetof(struct pros_prosenjitfs_inode, checksum),
+                  pfs_crc_with_zero32(inode_image + inode_offset,
+                                      sizeof(inode),
+                                      (uint32_t)offsetof(
+                                          struct pros_prosenjitfs_inode,
+                                          checksum)));
+        if (pfs_tx_reset(data->fs) != PROSENJITFS_OK ||
+            pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK ||
+            pfs_tx_commit(data->fs) != PROSENJITFS_OK)
+            return PROS_VFS_EIO;
+    }
+    file->vnode->size = size;
+    return PROS_VFS_OK;
+}
+
 static int pfs_file_close(struct pros_vfs_file *file)
 {
     return file && file->vnode ? PROS_VFS_OK : PROS_VFS_EINVAL;
@@ -818,6 +1021,7 @@ static int pfs_file_close(struct pros_vfs_file *file)
 static const struct pros_vfs_file_ops pfs_file_ops = {
     .read = pfs_file_read,
     .write = pfs_file_write,
+    .truncate = pfs_file_truncate,
     .close = pfs_file_close
 };
 
@@ -2062,6 +2266,12 @@ int prosenjitfs_selftest(void)
                 return -12;
             }
         }
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -12;
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
