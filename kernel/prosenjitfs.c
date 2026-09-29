@@ -3428,6 +3428,25 @@ int prosenjitfs_selftest(void)
             entry.name[0] != 'h' ||
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return -5;
+
+        {
+            static const char unicode_name[] = "বাংলা";
+            static const char invalid_utf8[] = "\xC0\xAF";
+            struct pros_vfs_vnode *unicode = 0;
+            if (root->ops->create(root, unicode_name, &unicode) !=
+                    PROS_VFS_OK ||
+                !unicode ||
+                vfs_vnode_put(unicode) != PROS_VFS_OK ||
+                root->ops->create(root, invalid_utf8, &unicode) !=
+                    PROS_VFS_EINVAL ||
+                unicode != 0)
+                return -5;
+            if (vfs_path_lookup(&fs.mount, "/বাংলা", &unicode) !=
+                    PROS_VFS_OK ||
+                !unicode ||
+                vfs_vnode_put(unicode) != PROS_VFS_OK)
+                return -5;
+        }
     }
     {
         static const char message[] = "ProsenjitFS persistent file I/O";
