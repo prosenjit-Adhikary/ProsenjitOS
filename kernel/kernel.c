@@ -15,6 +15,7 @@
 #include "partition.h"
 #include "fat32.h"
 #include "exfat.h"
+#include "exfat_upcase.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -1111,6 +1112,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: exFAT self-test passed\n");
+    serial_write("ProsenjitOS: exFAT Up-case/Unicode VFS self-test passed\n");
+    if (exfat_upcase_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR exFAT Up-case parser self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: exFAT Up-case parser self-test passed\n");
     serial_write("ProsenjitOS: exFAT VFS self-test passed\n");
 
     /*

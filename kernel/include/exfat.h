@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "vfs.h"
+#include "exfat_upcase.h"
 
 #define PROS_EXFAT_OK        0
 #define PROS_EXFAT_EINVAL   -1
@@ -10,9 +11,12 @@
 #define PROS_EXFAT_ENOTSUP  -3
 #define PROS_EXFAT_ECORRUPT -4
 #define PROS_EXFAT_ENOENT   -5
+#define PROS_EXFAT_EOVERFLOW -6
 
 struct pros_exfat_dirent {
     char name[256];
+    uint16_t unicode_name[256];
+    uint16_t name_length;
     uint8_t attributes;
     uint8_t no_fat_chain;
     uint32_t first_cluster;
@@ -30,6 +34,9 @@ struct pros_exfat {
     uint32_t cluster_count;
     uint32_t root_cluster;
     uint64_t volume_length;
+    uint8_t *upcase_data;
+    uint32_t upcase_length;
+    struct pros_exfat_upcase upcase_table;
     struct pros_vfs_vnode root_vnode;
 };
 
