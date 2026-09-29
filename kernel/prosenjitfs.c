@@ -3499,7 +3499,19 @@ int prosenjitfs_selftest(void)
             moved->type != PROS_VFS_NODE_FILE ||
             vfs_vnode_put(moved) != PROS_VFS_OK ||
             vfs_path_rename(&fs.mount, "/dst/sub", "/dst/sub/moved") !=
-                PROS_VFS_ELOOP)
+                PROS_VFS_ELOOP ||
+            vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_ENOTEMPTY ||
+            vfs_path_unlink(&fs.mount, "/dst/sub/renamed") != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dst/sub", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_DIRECTORY ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_DIRECTORY ||
+            vfs_vnode_put(moved) != PROS_VFS_OK)
             return -8;
     }
     {
