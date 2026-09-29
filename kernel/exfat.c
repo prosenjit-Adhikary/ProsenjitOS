@@ -554,6 +554,11 @@ int exfat_selftest(void)
                 return -132;
         }
         {
+            if (exfat_read_cluster(&fs, 2u, output) != PROS_EXFAT_OK ||
+                output[0] != 0x85u ||
+                output[32] != 0xC0u ||
+                output[64] != 0xC1u)
+                return -133;
             struct pros_exfat_dirent found;
             int find_status = exfat_find(&fs, 2u, "hello.txt", &found);
             if (find_status != PROS_EXFAT_OK)
