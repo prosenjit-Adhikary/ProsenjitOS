@@ -20,10 +20,11 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - FAT32 geometry regression coverage expanded.
 - exFAT geometry regression coverage expanded.
 - exFAT FAT-entry validation and bounded file-stream reads implemented, including NoFatChain and ValidDataLength handling.
-- exFAT read-only VFS integration implemented: root vnode, case-insensitive path lookup, file read, directory enumeration, and final vnode release lifecycle are covered by the boot regression.
+- exFAT read-only VFS integration implemented: root vnode, case-insensitive path lookup, file read, directory enumeration, and vnode lifetime handling are covered by the boot regression.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
 - NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
-- No open pull requests are currently present.
+- VFS vnode lookup/reference semantics now explicitly transfer an owned lookup reference; cached FAT32/NTFS nodes retain their cache references, while dynamically allocated exFAT child vnodes release cleanly at final put.
+- Both repository GitHub Actions workflows are green on the latest storage/VFS implementation commit.
 
 ### CI note
 The repository contains build/boot and security-architecture GitHub Actions workflows. The latest verified storage/security implementation passed both repository GitHub Actions workflows: build/boot and security-architecture CI. Future storage changes must preserve both gates.
