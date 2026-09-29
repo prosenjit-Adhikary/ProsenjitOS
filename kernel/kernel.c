@@ -1126,9 +1126,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: exFAT Up-case parser self-test passed\n");
     serial_write("ProsenjitOS: exFAT VFS self-test passed\n");
-    if (prosenjitfs_selftest() != PROSENJITFS_OK) {
-        serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int pfs_selftest_rc = prosenjitfs_selftest();
+        if (pfs_selftest_rc != PROSENJITFS_OK) {
+            switch (pfs_selftest_rc) {
+            case -1: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -1\n"); break;
+            case -2: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -2\n"); break;
+            case -3: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -3\n"); break;
+            case -4: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -4\n"); break;
+            case -5: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -5\n"); break;
+            case -6: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -6\n"); break;
+            case -7: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -7\n"); break;
+            case -8: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -8\n"); break;
+            case -9: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -9\n"); break;
+            case -10: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -10\n"); break;
+            case -11: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -11\n"); break;
+            case -12: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -12\n"); break;
+            case -13: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -13\n"); break;
+            case -14: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -14\n"); break;
+            case -15: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -15\n"); break;
+            case -16: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -16\n"); break;
+            case -17: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -17\n"); break;
+            case -18: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -18\n"); break;
+            default: serial_write("ProsenjitOS: ProsenjitFS self-test failure unknown stage\n"); break;
+            }
+            serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed\n");
 
