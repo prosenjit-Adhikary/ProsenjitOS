@@ -3673,7 +3673,7 @@ int prosenjitfs_selftest(void)
             return -15;
     }
     {
-        uint64_t journal_target = fs.sb.data_start;
+        uint64_t journal_target = 0u;
         uint8_t *header = fs.scratch;
         uint8_t *image = fs.tx.images;
         uint8_t *commit = fs.tx.images +
@@ -3682,6 +3682,8 @@ int prosenjitfs_selftest(void)
         struct pros_prosenjitfs_journal_header h;
         struct pros_prosenjitfs_journal_commit c;
 
+        if (pfs_find_free_data_block(&fs, &journal_target) != PROSENJITFS_OK)
+            return -12;
         pfs_zero(header, fs.sb.block_size);
         pfs_zero(image, fs.sb.block_size);
         pfs_zero(commit, fs.sb.block_size);
