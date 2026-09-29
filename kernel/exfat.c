@@ -636,8 +636,7 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
     struct pros_exfat *fs = exfat_vfs_get_fs(vnode);
     static uint8_t set[32u * 32u];
     uint32_t directory_cluster;
-    uint64_t offset = 0u;
-    uint64_t index = 0u;
+    uint64_t offset;
 
     if (!fs || !cookie || !entry || vnode->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
@@ -648,28 +647,7 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         (uint64_t)directory_cluster > (uint64_t)fs->cluster_count + 1u)
         return PROS_VFS_EIO;
 
-    while (index < *cookie) {
-        uint8_t first;
-        uint32_t consumed = 32u;
-        struct pros_exfat_dirent ignored;
-        int rc;
-
-        if (exfat_directory_read(fs, directory_cluster, offset,
-                                 &first, 1u) != PROS_EXFAT_OK)
-            return PROS_VFS_EIO;
-        if (first == 0x00u)
-            return PROS_VFS_ENOENT;
-        rc = exfat_directory_entry(fs, directory_cluster, offset, set,
-                                    sizeof(set), &consumed, &ignored);
-        if (rc == PROS_EXFAT_ENOTSUP)
-            consumed = 32u;
-        else if (rc != PROS_EXFAT_OK)
-            return rc == PROS_EXFAT_ENOTSUP ? PROS_VFS_ENOSYS :
-                   PROS_VFS_EIO;
-        offset += consumed;
-        ++index;
-    }
-
+    offset = *cookie;
     for (;;) {
         uint8_t first;
         uint32_t consumed = 32u;
@@ -685,6 +663,8 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         rc = exfat_directory_entry(fs, directory_cluster, offset, set,
                                     sizeof(set), &consumed, &parsed);
         if (rc == PROS_EXFAT_ENOTSUP) {
+            if (offset > UINT64_MAX - 32u)
+                return PROS_VFS_EIO;
             offset += 32u;
             continue;
         }
@@ -700,7 +680,9 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         entry->type = (parsed.attributes & 0x10u) != 0u ?
             PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
         entry->size = parsed.size;
-        *cookie = index + 1u;
+        if (offset > UINT64_MAX - consumed)
+            return PROS_VFS_EIO;
+        *cookie = offset + consumed;
         return PROS_VFS_OK;
     }
 }
@@ -949,23 +931,17 @@ int exfat_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -15;
 
-        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
-            return -161;
-        if (vfs_dir_read(&dir, &dirent) != PROS_VFS_OK)
-            return -162;
-        if (dirent.type != PROS_VFS_NODE_FILE ||
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
+            dirent.type != PROS_VFS_NODE_FILE ||
             !exfat_name_equal_ci(dirent.name, "HELLO.TXT") ||
-            dirent.size != 700u)
-            return -163;
-        if (vfs_dir_read(&dir, &dirent) != PROS_VFS_OK)
-            return -164;
-        if (!exfat_name_equal_ci(dirent.name, "CROSS.TXT") ||
-            dirent.size != 700u)
-            return -165;
-        if (vfs_dir_read(&dir, &dirent) != PROS_VFS_ENOENT)
-            return -166;
-        if (vfs_dir_close(&dir) != PROS_VFS_OK)
-            return -167;
+            dirent.size != 700u ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
+            !exfat_name_equal_ci(dirent.name, "CROSS.TXT") ||
+            dirent.size != 700u ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_ENOENT ||
+            vfs_dir_close(&dir) != PROS_VFS_OK)
+            return -16;
 
         if (vfs_mount_deactivate(&fs.mount) != PROS_VFS_OK)
             return -17;
