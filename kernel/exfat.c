@@ -119,12 +119,6 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
         return -103;
-    { int upcase_status = exfat_load_upcase_table(fs);
-      if (upcase_status != PROS_EXFAT_OK) {
-          vfs_mount_deactivate(&fs->mount);
-          return upcase_status;
-      }
-    }
     return PROS_EXFAT_OK;
 }
 
@@ -847,6 +841,8 @@ int exfat_selftest(void)
       if (mount_status != PROS_EXFAT_OK)
           return -1000 + mount_status;
     }
+    { int upcase_status = exfat_load_upcase_table(&fs);
+      if (upcase_status != PROS_EXFAT_OK) return -1200 + upcase_status; }
     if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 25u)
         return -102;
 
