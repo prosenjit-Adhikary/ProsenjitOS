@@ -1186,6 +1186,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -626: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at second dirent\n"); break;
             case -627: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at hello dirent\n"); break;
             case -628: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at root dir close\n"); break;
+            case -1004: serial_write("ProsenjitOS: ProsenjitFS allocated test inode cleanup failed\n"); break;
             case -1001: serial_write("ProsenjitOS: ProsenjitFS corrupt-journal recovery cleanup remount failed\n"); break;
             case -1002: serial_write("ProsenjitOS: ProsenjitFS allocator free-blocks self-test failed\n"); break;
             case -1003: serial_write("ProsenjitOS: ProsenjitFS final remount after allocator test failed\n"); break;
