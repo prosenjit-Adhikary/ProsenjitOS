@@ -96,6 +96,9 @@ static void serial_write(const char *text) {
 static int ata_qemu_prosenjitfs_test(void)
 {
     struct pros_ata_pio ata;
+    struct pros_partition_device partition;
+    struct pros_partition partitions[4];
+    struct pros_block_device *fs_device;
     struct pros_prosenjitfs fs;
     struct pros_vfs_file file;
     static const char message[] = "QEMU ATA ProsenjitFS persistence";
@@ -105,9 +108,28 @@ static int ata_qemu_prosenjitfs_test(void)
 
     if (rc == PROS_ATA_ENODEV)
         return PROS_ATA_ENODEV;
-    if (rc != PROS_ATA_OK ||
-        prosenjitfs_probe(&ata.device) != PROSENJITFS_OK ||
-        prosenjitfs_mount(&fs, &ata.device, 0u) != PROSENJITFS_OK)
+    if (rc != PROS_ATA_OK)
+        return PROS_ATA_EIO;
+
+    {
+        enum pros_partition_type table_type = PROS_PARTITION_NONE;
+        uint32_t partition_count = 0u;
+        if (partition_probe(&ata.device, &table_type) == PROS_PARTITION_OK &&
+            table_type == PROS_PARTITION_MBR &&
+            partition_read_mbr(&ata.device, partitions, 4u,
+                               &partition_count) == PROS_PARTITION_OK &&
+            partition_count > 0u) {
+            if (partition_device_init(&partition, &ata.device,
+                                      &partitions[0]) != PROS_PARTITION_OK)
+                return PROS_ATA_EIO;
+            fs_device = &partition.device;
+        } else {
+            fs_device = &ata.device;
+        }
+    }
+
+    if (prosenjitfs_probe(fs_device) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
         return PROS_ATA_EIO;
 
     for (uint32_t i = 0u; i < sizeof(file); ++i)
