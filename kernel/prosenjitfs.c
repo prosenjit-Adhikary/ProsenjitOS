@@ -2796,13 +2796,6 @@ int prosenjitfs_selftest(void)
             return -62;
         for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
             if (read_data[i] != write_data[i]) {
-                serial_write("ProsenjitOS: ProsenjitFS data mismatch index = 0x");
-                serial_hex64(i);
-                serial_write(" expected = 0x");
-                serial_hex64(write_data[i]);
-                serial_write(" actual = 0x");
-                serial_hex64(read_data[i]);
-                serial_write("\\n");
                 return -63;
             }
         }
