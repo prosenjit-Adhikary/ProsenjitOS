@@ -1457,6 +1457,15 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
         if (cursor != 0u || last_lba == 0u)
             return PROS_VFS_EIO;
 
+        if (last.logical_block + last.block_count == required_blocks) {
+            inode.size = new_size;
+            if (prosenjitfs_write_inode(data->fs, data->inode_number,
+                                        &inode) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+            vnode->size = new_size;
+            return PROS_VFS_OK;
+        }
+
         if (last.logical_block >= required_blocks) {
             uint8_t *last_image;
             uint8_t *previous_image = 0;
