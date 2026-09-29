@@ -78,7 +78,7 @@ int partition_read_gpt(struct pros_block_device *device,
                        uint32_t capacity, uint32_t *count)
 {
     uint8_t header[512];
-    uint8_t entry[1024];
+    uint8_t entry[1536];
     uint64_t entries_lba;
     uint32_t header_size;
     uint32_t entry_count;
@@ -125,8 +125,10 @@ int partition_read_gpt(struct pros_block_device *device,
         if (lba >= device->sector_count)
             return PROS_PARTITION_EINVAL;
         uint32_t sectors_to_read =
-            (offset + entry_size > device->sector_size) ? 2u : 1u;
-        if (sectors_to_read == 2u && lba + 1u >= device->sector_count)
+            (offset + entry_size + device->sector_size - 1u) /
+            device->sector_size;
+        if (sectors_to_read == 0u || sectors_to_read > 3u ||
+            sectors_to_read > device->sector_count - lba)
             return PROS_PARTITION_EINVAL;
         if (block_device_read(device, lba, sectors_to_read, entry) != PROS_BLOCK_OK)
             return PROS_PARTITION_EIO;
