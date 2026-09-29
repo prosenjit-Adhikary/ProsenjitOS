@@ -3711,6 +3711,8 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
         struct pros_ntfs_vfs_node *node = &fs->vfs_nodes[i];
         if (node->used && node->vnode.parent == parent &&
             node->record_number == record_number) {
+            if (vfs_vnode_get(&node->vnode) != PROS_VFS_OK)
+                return PROS_VFS_EIO;
             *result = &node->vnode;
             return PROS_VFS_OK;
         }
