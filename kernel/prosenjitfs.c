@@ -588,7 +588,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EIO;
     rc = pfs_find_dir_entry(data->fs, &parent_inode, name, 0);
     if (rc == PROSENJITFS_OK)
-        return PROS_VFS_EBUSY;
+        return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
         return PROS_VFS_EIO;
     if (pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
