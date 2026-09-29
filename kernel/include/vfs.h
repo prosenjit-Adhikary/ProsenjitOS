@@ -55,6 +55,7 @@ struct pros_vfs_vnode_ops {
                    struct pros_vfs_dirent *);
     int (*create)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode **);
+    void (*release)(struct pros_vfs_vnode *);
 };
 
 struct pros_vfs_file_ops {
