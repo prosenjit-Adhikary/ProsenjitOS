@@ -764,6 +764,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 return done ? (int)done : PROS_VFS_EIO;
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
+            uint8_t inode_changed = 0u;
             physical = extent.physical_block + delta;
             if (physical >= data->fs->sb.total_blocks)
                 return done ? (int)done : PROS_VFS_EIO;
@@ -776,6 +777,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 
             if ((uint64_t)offset + done + want > inode.size) {
                 inode.size = (uint64_t)offset + done + want;
+                inode_changed = 1u;
                 if (pfs_inode_block_location(data->fs, data->inode_number,
                                              &inode_lba, &inode_offset) !=
                     PROSENJITFS_OK ||
@@ -794,8 +796,8 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 
             if (pfs_tx_reset(data->fs) != PROSENJITFS_OK ||
                 pfs_tx_add(data->fs, physical, data_image) != PROSENJITFS_OK ||
-                ((uint64_t)offset + done + want > inode.size) &&
-                pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK ||
+                (inode_changed &&
+                 pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK) ||
                 pfs_tx_commit(data->fs) != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
         } else {
