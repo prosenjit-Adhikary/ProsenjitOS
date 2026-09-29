@@ -422,6 +422,16 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+    /* Enforce the documented total path limit before walking components.
+     * Component-count limits alone still allowed a very large aggregate
+     * path to reach filesystem providers. */
+    {
+        uint32_t length = 0u;
+        while (length <= PROS_VFS_PATH_MAX && path[length] != '\0')
+            ++length;
+        if (length > PROS_VFS_PATH_MAX)
+            return PROS_VFS_EOVERFLOW;
+    }
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
