@@ -3053,8 +3053,22 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
         if (allocated) {
             if (rc != PROSENJITFS_OK)
                 return PROSENJITFS_ECORRUPT;
+
+            /*
+             * V1 has no hard-link operation and does not materialize "." or
+             * ".." as directory entries. Every live inode therefore has
+             * exactly one namespace link. Keep the persisted link count
+             * consistent with that contract so a forged zero/multi-link
+             * inode cannot survive mount-time metadata validation.
+             */
+            if (inode.links != 1u)
+                return PROSENJITFS_ECORRUPT;
+
             if (inode_number == fs->sb.root_inode &&
                 inode.type != PROSENJITFS_INODE_DIR)
+                return PROSENJITFS_ECORRUPT;
+            if (inode_number == fs->sb.root_inode &&
+                inode.parent_inode != fs->sb.root_inode)
                 return PROSENJITFS_ECORRUPT;
             if (inode.type == PROSENJITFS_INODE_FILE) {
                 if (pfs_validate_extent_chain(fs, &inode) !=
