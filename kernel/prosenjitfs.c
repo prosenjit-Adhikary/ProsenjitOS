@@ -1480,48 +1480,40 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         goto out;
     }
 
-    /* A directory move must update the child's parent inode atomically. */
-    if (entry.type == PROS_VFS_NODE_DIRECTORY ||
-        entry.type == PROSENJITFS_INODE_DIR) {
-        if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
-            PROSENJITFS_OK)
-            goto out;
-        if (child_inode.type != PROSENJITFS_INODE_DIR) {
-            rc = PROSENJITFS_ECORRUPT;
-            goto out;
-        }
-        if (child_inode.parent_inode != data->inode_number &&
-            data->inode_number != new_data->inode_number) {
-            rc = PROSENJITFS_ECORRUPT;
-            goto out;
-        }
-        if (child_inode.type == PROSENJITFS_INODE_DIR &&
-            data->inode_number != new_data->inode_number) {
-            uint64_t ancestor = new_data->inode_number;
-            uint64_t depth = 0u;
-            while (ancestor != data->inode_number && ancestor != data->fs->sb.root_inode) {
-                struct pros_prosenjitfs_inode ancestor_inode;
-                if (++depth > data->fs->sb.inode_count ||
-                    prosenjitfs_read_inode(data->fs, ancestor,
-                                            &ancestor_inode) != PROSENJITFS_OK ||
-                    ancestor_inode.type != PROSENJITFS_INODE_DIR) {
-                    rc = PROSENJITFS_ECORRUPT;
-                    goto out;
-                }
-                if (ancestor_inode.parent_inode == ancestor) {
-                    rc = PROSENJITFS_ECORRUPT;
-                    goto out;
-                }
-                ancestor = ancestor_inode.parent_inode;
-            }
-            if (ancestor == data->inode_number) {
-                rc = PROS_VFS_EINVAL;
+    /*
+     * Read the child inode before staging either parent. For directories,
+     * moving across parents changes only parent_inode; regular files keep
+     * their inode metadata unchanged.
+     */
+    if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
+        PROSENJITFS_OK) {
+        rc = PROS_VFS_EIO;
+        goto out;
+    }
+    if (child_inode.type == PROSENJITFS_INODE_DIR &&
+        data->inode_number != new_data->inode_number) {
+        uint64_t ancestor = new_data->inode_number;
+        uint64_t depth = 0u;
+        while (ancestor != data->inode_number &&
+               ancestor != data->fs->sb.root_inode) {
+            struct pros_prosenjitfs_inode ancestor_inode;
+            if (++depth > data->fs->sb.inode_count ||
+                prosenjitfs_read_inode(data->fs, ancestor,
+                                        &ancestor_inode) != PROSENJITFS_OK ||
+                ancestor_inode.type != PROSENJITFS_INODE_DIR) {
+                rc = PROSENJITFS_ECORRUPT;
                 goto out;
             }
+            if (ancestor_inode.parent_inode == ancestor) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto out;
+            }
+            ancestor = ancestor_inode.parent_inode;
         }
-    } else if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
-               PROSENJITFS_OK) {
-        goto out;
+        if (ancestor == data->inode_number) {
+            rc = PROS_VFS_EINVAL;
+            goto out;
+        }
     }
 
     prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
