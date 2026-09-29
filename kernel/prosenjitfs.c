@@ -669,7 +669,6 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         struct pros_prosenjitfs_extent extent;
         uint64_t extent_lba = 0u, tail_lba = 0u;
         uint64_t physical = 0u, new_extent_lba = 0u;
-        uint64_t bitmap_bits;
         uint64_t inode_lba;
         uint32_t inode_offset;
         int rc;
@@ -860,7 +859,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
     }
 
-    old_blocks = (old_size + data->fs->sb.block_size - 1u) /
+    uint64_t old_blocks = (old_size + data->fs->sb.block_size - 1u) /
                  data->fs->sb.block_size;
     keep_blocks = (size + data->fs->sb.block_size - 1u) /
                   data->fs->sb.block_size;
