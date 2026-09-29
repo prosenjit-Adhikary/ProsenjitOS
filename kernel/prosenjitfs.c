@@ -434,6 +434,8 @@ int prosenjitfs_format(struct pros_block_device *device)
     return PROSENJITFS_OK;
 }
 
+static volatile int pfs_last_mount_failure_stage;
+
 struct pfs_vnode_data {
     struct pros_prosenjitfs *fs;
     uint64_t inode_number;
@@ -3157,6 +3159,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
                       struct pros_block_device *device,
                       uint8_t read_only)
 {
+    pfs_last_mount_failure_stage = 0;
     uint8_t *block;
     struct pros_prosenjitfs_superblock primary;
     struct pros_prosenjitfs_superblock backup;
@@ -3189,12 +3192,14 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK;
     if (!primary_ok && !backup_ok) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        pfs_last_mount_failure_stage = 1;
         return PROSENJITFS_ECORRUPT;
     }
     fs->sb = primary_ok ? primary : backup;
     fs->degraded_superblock = primary_ok ? 0u : 1u;
     if (fs->sb.total_blocks > device->sector_count) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        pfs_last_mount_failure_stage = 2;
         return PROSENJITFS_ECORRUPT;
     }
     fs->read_only = read_only || fs->degraded_superblock;
@@ -3206,11 +3211,13 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     if (pfs_journal_recover(fs) != PROSENJITFS_OK) {
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        pfs_last_mount_failure_stage = 4;
         return PROSENJITFS_ECORRUPT;
     }
     if (pfs_validate_metadata(fs) != PROSENJITFS_OK) {
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        pfs_last_mount_failure_stage = 5;
         return PROSENJITFS_ECORRUPT;
     }
     struct pros_vfs_vnode *root_vnode = 0;
@@ -3300,7 +3307,7 @@ int prosenjitfs_selftest(void)
     {
         int initial_mount_rc = prosenjitfs_mount(&fs, &device, 0u);
         if (initial_mount_rc != PROSENJITFS_OK)
-            return -1000 + initial_mount_rc;
+            return -1100 - pfs_last_mount_failure_stage;
     }
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
