@@ -559,6 +559,6 @@ MIT
 
 ProsenjitFS is now integrated as the native ProsenjitOS filesystem through the existing block-device, partition and VFS layers. FAT32, exFAT and NTFS remain compatibility filesystems.
 
-The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata and a redo journal. Its deterministic memory-backed format/mount/allocation/journal regression is now part of the boot-test workflow. Full directory mutation, complete file I/O, corruption/crash-point coverage and real QEMU storage-device integration remain subsequent milestones.
+The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata, persistent extent-backed file I/O, transactional directory mutation, and a redo journal. Deterministic memory-backed regression now covers committed replay, torn transactions, journal checksum corruption, and metadata corruption rejection. Physical power-loss validation and real QEMU storage-device integration remain subsequent milestones.
 
 See docs/PROSENJITFS.md and docs/FILESYSTEM-INTEGRATION.md for the format contract and integration boundary.
