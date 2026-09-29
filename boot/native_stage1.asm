@@ -18,7 +18,6 @@ start:
     ; Require BIOS Enhanced Disk Drive services before using INT 13h AH=42h.
     ; This makes the native loader fail deterministically on legacy BIOSes
     ; that cannot provide LBA packet reads.
-    mov si, edd_packet
     mov ah, 0x41
     mov bx, 0x55AA
     mov dl, [boot_drive]
@@ -45,11 +44,13 @@ start:
 
 edd_error:
     mov si, edd_error_msg
-    jmp .print_error
+    jmp print_error
 
 disk_error:
     mov si, error_msg
-.print_error:
+    jmp print_error
+
+print_error:
 .print:
     lodsb
     test al, al
