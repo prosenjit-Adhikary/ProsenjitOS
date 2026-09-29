@@ -96,8 +96,13 @@ static void serial_write(const char *text) {
 static int ata_qemu_prosenjitfs_test(void)
 {
     struct pros_ata_pio ata;
+    struct pros_partition partitions[PROS_STORAGE_MAX_VOLUMES];
+    struct pros_partition_device partition_view;
     struct pros_prosenjitfs fs;
     struct pros_vfs_file file;
+    struct pros_block_device *fs_device = 0;
+    uint32_t partition_count = 0u;
+    enum pros_partition_type table_type = PROS_PARTITION_NONE;
     static const char message[] = "QEMU ATA ProsenjitFS persistence";
     char readback[sizeof(message)];
     uint32_t count = 0u;
@@ -108,7 +113,39 @@ static int ata_qemu_prosenjitfs_test(void)
     if (rc != PROS_ATA_OK)
         return PROS_ATA_EIO;
 
-    struct pros_block_device *fs_device = &ata.device;
+    /*
+     * Prefer a real partition view when the QEMU disk carries an MBR/GPT
+     * table. Keep the raw-disk fallback for the original unpartitioned
+     * regression image.
+     */
+    if (partition_probe(&ata.device, &table_type) == PROS_PARTITION_OK) {
+        rc = table_type == PROS_PARTITION_GPT
+                 ? partition_read_gpt(&ata.device, partitions,
+                                      PROS_STORAGE_MAX_VOLUMES, &partition_count)
+                 : partition_read_mbr(&ata.device, partitions,
+                                      PROS_STORAGE_MAX_VOLUMES, &partition_count);
+        if (rc != PROS_PARTITION_OK)
+            return PROS_ATA_EIO;
+
+        for (uint32_t i = 0u; i < partition_count; ++i) {
+            struct pros_partition_device candidate;
+            enum pros_filesystem_type filesystem = PROS_FS_UNKNOWN;
+            if (partition_device_init(&candidate, &ata.device, &partitions[i]) !=
+                PROS_PARTITION_OK)
+                return PROS_ATA_EIO;
+            if (vfs_probe_filesystem(&candidate.device, &filesystem) != PROS_VFS_OK)
+                continue;
+            if (filesystem != PROS_FS_PROSENJIT)
+                continue;
+            partition_view = candidate;
+            fs_device = &partition_view.device;
+            break;
+        }
+        if (!fs_device)
+            return PROS_ATA_EIO;
+    } else {
+        fs_device = &ata.device;
+    }
 
     if (prosenjitfs_probe(fs_device) != PROSENJITFS_OK)
         return -120;
@@ -132,7 +169,7 @@ static int ata_qemu_prosenjitfs_test(void)
         if (readback[i] != message[i])
             goto fail_file;
     if (vfs_file_close(&file) != PROS_VFS_OK ||
-        prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        prosenjitfs_unmount(&fs) != PROS_VFS_OK)
         return PROS_ATA_EIO;
 
     if (prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
@@ -149,7 +186,7 @@ static int ata_qemu_prosenjitfs_test(void)
             goto fail_remount_file;
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_path_unlink(&fs.mount, "/qemu-ata-test") != PROS_VFS_OK ||
-        prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        prosenjitfs_unmount(&fs) != PROS_VFS_OK)
         return PROS_ATA_EIO;
     return PROS_ATA_OK;
 
@@ -164,7 +201,6 @@ fail_mount:
     prosenjitfs_unmount(&fs);
     return PROS_ATA_EIO;
 }
-
 
 static void serial_hex64(uint64_t value) {
     static const char hex[] = "0123456789ABCDEF";
