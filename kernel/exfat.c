@@ -26,9 +26,6 @@ struct exfat_vfs_node {
 
 static int exfat_vfs_lookup(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **);
-static int exfat_load_upcase_table(struct pros_exfat *);
-static int exfat_directory_read(const struct pros_exfat *, uint32_t,
-                                uint64_t, void *, uint32_t);
 static int exfat_vfs_readdir(struct pros_vfs_vnode *, uint64_t *,
                              struct pros_vfs_dirent *);
 static int exfat_vfs_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
@@ -100,7 +97,7 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
 
     if (vfs_mount_init(&fs->mount, PROS_FS_EXFAT, device, fs, 1u) !=
         PROS_VFS_OK)
-        return -101;
+        return PROS_EXFAT_EINVAL;
 
     fs->bytes_per_sector = bytes_per_sector;
     fs->sectors_per_cluster = sectors_per_cluster;
@@ -115,11 +112,10 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
                        PROS_VFS_NODE_DIRECTORY, &exfat_vfs_vnode_ops, 0,
                        fs, 0) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, &fs->root_vnode) != PROS_VFS_OK)
-        return -102;
+        return PROS_EXFAT_EINVAL;
 
-    if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
-        return -103;
-    return PROS_EXFAT_OK;
+    return vfs_mount_activate(&fs->mount) == PROS_VFS_OK
+        ? PROS_EXFAT_OK : PROS_EXFAT_EINVAL;
 }
 
 int exfat_cluster_lba(const struct pros_exfat *fs, uint32_t cluster,
@@ -310,12 +306,6 @@ struct exfat_test_disk {
     uint8_t sectors[32u * 512u];
 };
 
-static void exfat_test_le16(uint8_t *p, uint16_t value)
-{
-    p[0] = (uint8_t)value;
-    p[1] = (uint8_t)(value >> 8);
-}
-
 static void exfat_test_le32(uint8_t *p, uint32_t value)
 {
     p[0] = (uint8_t)value;
@@ -463,72 +453,6 @@ static int exfat_directory_read(const struct pros_exfat *fs,
         length -= take;
     }
     return PROS_EXFAT_OK;
-}
-
-static int exfat_load_upcase_table(struct pros_exfat *fs)
-{
-    uint8_t entry[32];
-    uint8_t table[512];
-    uint64_t offset = 0u;
-    uint64_t max_bytes;
-    uint32_t found = 0u;
-
-    if (!fs || !fs->mount.active)
-        return PROS_EXFAT_EINVAL;
-    fs->upcase_table_cluster = 0u;
-    fs->upcase_table_length = 0u;
-    fs->upcase_table_checksum = 0u;
-    fs->upcase_table_valid = 0u;
-
-    max_bytes = (uint64_t)fs->cluster_count * fs->sectors_per_cluster *
-                fs->bytes_per_sector;
-    while (offset + sizeof(entry) <= max_bytes) {
-        if (exfat_directory_read(fs, fs->root_cluster, offset,
-                                 entry, sizeof(entry)) != PROS_EXFAT_OK)
-            return -201;
-        if (entry[0] == 0x00u)
-            break;
-        if (entry[0] == 0x82u) {
-            uint32_t cluster = le32(entry + 20u);
-            uint64_t length = le64(entry + 24u);
-            uint32_t checksum = le32(entry + 4u);
-            uint64_t max_table = (uint64_t)fs->cluster_count *
-                                 fs->sectors_per_cluster * fs->bytes_per_sector;
-            uint32_t computed = 0u;
-            uint64_t position = 0u;
-
-            if (++found != 1u || length == 0u || (length & 1u) != 0u ||
-                cluster < 2u || (uint64_t)cluster >
-                    (uint64_t)fs->cluster_count + 1u || length > max_table)
-                return -202;
-
-            /* Compute the exFAT rotate-right checksum in bounded chunks. */
-            computed = 0u;
-            position = 0u;
-            while (position < length) {
-                uint32_t chunk = (uint32_t)((length - position) > sizeof(table)
-                    ? sizeof(table) : (length - position));
-                uint32_t done = 0u;
-                if (exfat_file_read(fs, cluster, 0u, length, length,
-                                    position, table, chunk, &done) !=
-                        PROS_EXFAT_OK || done != chunk)
-                    return -203;
-                for (uint32_t i = 0u; i < chunk; ++i)
-                    computed = ((computed & 1u) ? 0x80000000u : 0u) +
-                               (computed >> 1) + (uint32_t)table[i];
-                position += chunk;
-            }
-            if (computed != checksum)
-                return -204;
-            fs->upcase_table_cluster = cluster;
-            fs->upcase_table_length = length;
-            fs->upcase_table_checksum = checksum;
-            fs->upcase_table_valid = 1u;
-            return PROS_EXFAT_OK;
-        }
-        offset += 32u;
-    }
-    return PROS_EXFAT_ECORRUPT;
 }
 
 static int exfat_directory_entry(const struct pros_exfat *fs,
@@ -827,7 +751,6 @@ int exfat_selftest(void)
     /* FAT[2] -> 3, FAT[3] -> EOC. */
     exfat_test_le32(disk.sectors + 24u * 512u + 8u, 3u);
     exfat_test_le32(disk.sectors + 24u * 512u + 12u, 0xFFFFFFFFu);
-    exfat_test_le32(disk.sectors + 24u * 512u + 20u, 0xFFFFFFFFu);
 
     for (uint32_t i = 0u; i < 512u; ++i) {
         disk.sectors[25u * 512u + i] = (uint8_t)('A' + (i % 26u));
@@ -837,12 +760,8 @@ int exfat_selftest(void)
 
     if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
-    { int mount_status = exfat_mount(&fs, &device);
-      if (mount_status != PROS_EXFAT_OK)
-          return -1000 + mount_status;
-    }
-    { int upcase_status = exfat_load_upcase_table(&fs);
-      if (upcase_status != PROS_EXFAT_OK) return -1200 + upcase_status; }
+    if (exfat_mount(&fs, &device) != PROS_EXFAT_OK)
+        return -1;
     if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 25u)
         return -102;
 
@@ -861,29 +780,9 @@ int exfat_selftest(void)
         output[699] != 'f')
         return -3;
 
-    /* Root directory contains the mandatory Up-case Table entry. The
-     * fixture uses an identity table for the first 128 code points; the
-     * production parser will consume the same metadata before full Unicode
-     * comparison is enabled. */
-    {
-        uint8_t *up = disk.sectors + 25u * 512u;
-        uint8_t *table = disk.sectors + 28u * 512u;
-        uint32_t checksum = 0u;
-        for (uint32_t i = 0u; i < 128u; ++i) {
-            exfat_test_le16(table + i * 2u, (uint16_t)i);
-        }
-        for (uint32_t i = 0u; i < 256u; ++i)
-            checksum = ((checksum & 1u) ? 0x80000000u : 0u) +
-                       (checksum >> 1) + (uint32_t)table[i];
-        up[0] = 0x82u;
-        exfat_test_le32(up + 4u, checksum);
-        exfat_test_le32(up + 20u, 5u);
-        exfat_test_le64(up + 24u, 256u);
-    }
-
     /* Validate a complete file directory-entry set and case-insensitive lookup. */
     {
-        uint8_t *set = disk.sectors + 25u * 512u + 32u;
+        uint8_t *set = disk.sectors + 25u * 512u;
         const char *filename = "HELLO.TXT";
         set[0] = 0x85u;
         set[1] = 2u;
@@ -951,7 +850,7 @@ int exfat_selftest(void)
         }
         /* Keep the unused slots before the boundary entry non-zero so
          * the directory end marker does not terminate the scan early. */
-        for (uint32_t off = 128u; off < 480u; off += 32u)
+        for (uint32_t off = 96u; off < 480u; off += 32u)
             disk.sectors[25u * 512u + off] = 0x01u;
         for (uint32_t i = 0u; i < 32u; ++i)
             disk.sectors[25u * 512u + 480u + i] = boundary_set[i];
