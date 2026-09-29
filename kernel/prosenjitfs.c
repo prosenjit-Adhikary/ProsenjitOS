@@ -3241,7 +3241,9 @@ int prosenjitfs_selftest(void)
             vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
             count != 5u ||
             __builtin_memcmp(readback, "Prose", 5u) != 0 ||
-            vfs_file_close(&file) != PROS_VFS_OK)
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
             return -6;
     }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
