@@ -1454,7 +1454,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!dir_block || !prev_block) {
+    entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    if (!dir_block || !prev_block || !entry_block) {
         rc = PROSENJITFS_EIO;
         goto out;
     }
