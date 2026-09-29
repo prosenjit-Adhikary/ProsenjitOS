@@ -34,7 +34,20 @@ jobs:
       - name: Prepare QEMU ProsenjitFS disk
         run: |
           gcc -std=c11 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Werror -O2 -Iinclude tools/mkprosenjitfs.c -o build/mkprosenjitfs
-          ./build/mkprosenjitfs build/prosenjitfs-qemu.img 32 512
+          ./build/mkprosenjitfs build/prosenjitfs-partition.img 32 512
+          truncate -s 40M build/prosenjitfs-qemu.img
+          dd if=/dev/zero of=build/prosenjitfs-qemu.img bs=512 seek=0 count=1 conv=notrunc status=none
+          dd if=build/prosenjitfs-partition.img of=build/prosenjitfs-qemu.img bs=512 seek=2048 conv=notrunc status=none
+          python3 - <<'PY'
+          import struct
+          p = "build/prosenjitfs-qemu.img"
+          with open(p, "r+b") as f:
+              mbr = bytearray(512)
+              mbr[446:462] = bytes([0,0,2,0,0xDA,0xFF,0xFF,0xFF]) + struct.pack("<II", 2048, 65536)
+              mbr[510:512] = b"\x55\xAA"
+              f.seek(0)
+              f.write(mbr)
+          PY
 
       - name: Boot-test ISO in QEMU
         run: |
