@@ -1871,6 +1871,7 @@ int prosenjitfs_selftest(void)
             subdir->type != PROS_VFS_NODE_DIRECTORY ||
             subdir->ops->create(subdir, "nested", &nested) != PROS_VFS_OK ||
             !nested ||
+            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
             vfs_vnode_put(subdir) != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up) != PROS_VFS_OK ||
             looked_up->type != PROS_VFS_NODE_FILE ||
