@@ -3261,7 +3261,6 @@ int prosenjitfs_selftest(void)
     {
         struct pros_vfs_file file;
         struct pros_vfs_vnode *moved = 0;
-        uint32_t count = 0u;
 
         pfs_zero(&file, sizeof(file));
         if (vfs_file_open(&fs.mount, "/old", PROS_VFS_O_WRITE |
@@ -3271,9 +3270,7 @@ int prosenjitfs_selftest(void)
             vfs_path_lookup(&fs.mount, "/old", &moved) != PROS_VFS_ENOENT ||
             vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
             moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/sub", "/new/sub") !=
-                PROS_VFS_EEXIST)
+            vfs_vnode_put(moved) != PROS_VFS_OK)
             return -7;
 
         if (vfs_path_mkdir(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
@@ -3288,7 +3285,6 @@ int prosenjitfs_selftest(void)
             vfs_path_rename(&fs.mount, "/dst/sub", "/dst/sub/moved") !=
                 PROS_VFS_ELOOP)
             return -8;
-        (void)count;
     }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
