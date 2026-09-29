@@ -2050,6 +2050,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     struct pros_prosenjitfs_dir_index parent_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint64_t entry_lba = 0u;
+    uint64_t child_dir_index = 0u;
+    uint8_t child_is_dir = 0u;
     uint64_t byte_offset;
     uint64_t inode_lba;
     uint32_t inode_offset;
@@ -2082,10 +2084,25 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
             PROSENJITFS_OK)
         return PROS_VFS_EIO;
-    if (child_inode.type == PROSENJITFS_INODE_DIR)
-        return PROS_VFS_EISDIR;
-    if (child_inode.type != PROSENJITFS_INODE_FILE)
+    if (child_inode.type == PROSENJITFS_INODE_DIR) {
+        struct pros_prosenjitfs_dir_index child_index;
+        uint8_t empty = 1u;
+        if (pfs_read_dir_index(data->fs, &child_inode, &child_index) !=
+            PROSENJITFS_OK)
+            return PROS_VFS_EIO;
+        for (uint32_t i = 0u; i < PROSENJITFS_DIR_BUCKETS; ++i) {
+            if (child_index.heads[i] != 0u) {
+                empty = 0u;
+                break;
+            }
+        }
+        if (!empty)
+            return PROS_VFS_ENOTEMPTY;
+        child_is_dir = 1u;
+        child_dir_index = child_inode.dir_index;
+    } else if (child_inode.type != PROSENJITFS_INODE_FILE) {
         return PROS_VFS_EIO;
+    }
 
     /* First make the file empty. This keeps the unlink transaction bounded. */
     if (child_inode.size != 0u || child_inode.extent_head != 0u) {
@@ -2171,6 +2188,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
             rc = pfs_tx_reset(data->fs);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_inode_bitmap_stage(data->fs, entry.inode, 0u);
+            if (rc == PROSENJITFS_OK && child_is_dir)
+                rc = pfs_allocator_stage(data->fs, child_dir_index, 1u, 0u);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_allocator_stage(data->fs, entry_lba, 1u, 0u);
             if (rc == PROSENJITFS_OK)
@@ -2222,6 +2241,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     rc = pfs_tx_reset(data->fs);
     if (rc == PROSENJITFS_OK)
         rc = pfs_inode_bitmap_stage(data->fs, entry.inode, 0u);
+    if (rc == PROSENJITFS_OK && child_is_dir)
+        rc = pfs_allocator_stage(data->fs, child_dir_index, 1u, 0u);
     if (rc == PROSENJITFS_OK)
         rc = pfs_allocator_stage(data->fs, entry_lba, 1u, 0u);
     if (rc == PROSENJITFS_OK)
