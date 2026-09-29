@@ -3515,6 +3515,54 @@ int prosenjitfs_selftest(void)
             return -8;
     }
     {
+        static uint8_t payload[8704];
+        static uint8_t verify[8704];
+        struct pros_vfs_file file;
+        uint32_t count = 0u;
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)((i * 37u) ^ (i >> 3));
+        pfs_zero(&file, sizeof(file));
+        if (vfs_file_open(&fs.mount, "/new", PROS_VFS_O_READ |
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_write(&file, payload, (uint32_t)sizeof(payload),
+                           &count) != PROS_VFS_OK ||
+            count != sizeof(payload) ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_read(&file, verify, (uint32_t)sizeof(verify),
+                          &count) != PROS_VFS_OK ||
+            count != sizeof(verify) ||
+            __builtin_memcmp(verify, payload, sizeof(payload)) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -16;
+
+        pfs_zero(&file, sizeof(file));
+        if (vfs_file_open(&fs.mount, "/new", PROS_VFS_O_READ |
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 8192u) != PROS_VFS_OK ||
+            vfs_file_read(&file, verify, 512u, &count) != PROS_VFS_OK ||
+            count != 512u ||
+            __builtin_memcmp(verify, payload + 8192u, 512u) != 0 ||
+            vfs_file_truncate(&file, 700u) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -17;
+
+        pfs_zero(&file, sizeof(file));
+        if (vfs_file_open(&fs.mount, "/new", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_read(&file, verify, 8704u, &count) != PROS_VFS_OK ||
+            count != 700u ||
+            __builtin_memcmp(verify, payload, 700u) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/new") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT)
+            return -18;
+    }
+    {
         uint8_t *header = fs.scratch;
         uint8_t *image = fs.tx.images;
         uint8_t *commit = fs.tx.images +
