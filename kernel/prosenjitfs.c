@@ -26,6 +26,8 @@ static void pfs_put32(uint8_t *p, uint32_t v)
 }
 
 
+static int pfs_mount_debug_stage;
+
 static int pfs_mem_equal(const void *a, const void *b, uint32_t size)
 {
     const uint8_t *pa = (const uint8_t *)a;
@@ -3079,6 +3081,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         device->sector_size > 4096u ||
         (device->sector_size & (device->sector_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
+    pfs_mount_debug_stage = 0;
     pfs_zero(fs, sizeof(*fs));
     block = (uint8_t *)kmalloc(device->sector_size);
     if (!block)
@@ -3112,6 +3115,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
     }
     fs->read_only = read_only || fs->degraded_superblock;
+    pfs_mount_debug_stage = 1;
     if (vfs_mount_init(&fs->mount, PROS_FS_PROSENJIT, device, fs,
                        fs->read_only) != PROS_VFS_OK) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
@@ -3122,11 +3126,13 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
+    pfs_mount_debug_stage = 2;
     if (pfs_validate_metadata(fs) != PROSENJITFS_OK) {
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
+    pfs_mount_debug_stage = 3;
     struct pros_vfs_vnode *root_vnode = 0;
     if (pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, root_vnode) != PROS_VFS_OK) {
@@ -3142,6 +3148,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     /* vfs_mount_set_root() acquired the mount's ownership reference. */
     vfs_vnode_put(root_vnode);
 
+    pfs_mount_debug_stage = 4;
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
@@ -3214,7 +3221,7 @@ int prosenjitfs_selftest(void)
     {
         int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
         if (mount_rc != PROSENJITFS_OK)
-            return -100 + mount_rc;
+            return -200 - pfs_mount_debug_stage;
     }
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
