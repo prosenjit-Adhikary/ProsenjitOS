@@ -118,6 +118,8 @@ int vfs_vnode_get(struct pros_vfs_vnode *);
 int vfs_vnode_put(struct pros_vfs_vnode *);
 int vfs_path_lookup(struct pros_vfs_mount *, const char *,
                     struct pros_vfs_vnode **);
+int vfs_path_mkdir(struct pros_vfs_mount *, const char *,
+                   struct pros_vfs_vnode **);
 int vfs_file_open(struct pros_vfs_mount *, const char *, uint32_t,
                   struct pros_vfs_file *);
 int vfs_dir_open(struct pros_vfs_mount *, const char *, struct pros_vfs_dir *);
