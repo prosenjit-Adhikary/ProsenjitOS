@@ -99,11 +99,13 @@ jobs:
           require_log "ProsenjitOS: usercopy page-fault recovery test passed"
 
       - name: Validate native BIOS image layout
+        if: always()
         run: |
           chmod +x tools/validate_native_bios_image.sh
           ./tools/validate_native_bios_image.sh
 
       - name: Boot-test native BIOS image in QEMU
+        if: always()
         run: |
           set +e
           timeout 20s qemu-system-x86_64 \
