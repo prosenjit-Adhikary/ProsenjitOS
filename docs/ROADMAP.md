@@ -14,6 +14,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone.
 8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
 9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
+10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -239,6 +240,18 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Recovery environment
 - [ ] Security auditing
 - [ ] Fuzzing and regression tests
+- [ ] Self-healing and recovery architecture
+  - [ ] Boot health/failure detection and known-good boot fallback
+  - [ ] ProsenjitFS integrity checker and safe repair engine
+  - [ ] Journal-first crash recovery and recovery verification
+  - [ ] Orphan inode/block detection and conservative reclamation
+  - [ ] Filesystem metadata redundancy/degraded-mode handling
+  - [ ] Service/process watchdog with bounded restart policy
+  - [ ] Configuration transaction + health-check rollback
+  - [ ] System health manager and recovery-state logging
+  - [ ] Recovery environment and manual recovery override
+  - [ ] Non-destructive recovery by default; destructive repair requires explicit recovery mode
+  - [ ] Self-healing fault-injection, corruption, and rollback regression tests
 - [ ] Malware containment tests
   - [ ] File admission and quarantine regression tests
   - [ ] Critical-file protection and recovery tests
