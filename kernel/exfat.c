@@ -1,5 +1,6 @@
 #include "exfat.h"
 #include "block.h"
+#include "heap.h"
 
 static uint32_t le32(const uint8_t *p)
 {
@@ -16,6 +17,31 @@ static int power_of_two(uint32_t value)
 {
     return value != 0u && (value & (value - 1u)) == 0u;
 }
+
+struct exfat_vfs_node {
+    struct pros_vfs_vnode vnode;
+    struct pros_exfat *fs;
+    struct pros_exfat_dirent entry;
+};
+
+static int exfat_vfs_lookup(struct pros_vfs_vnode *, const char *,
+                            struct pros_vfs_vnode **);
+static int exfat_vfs_readdir(struct pros_vfs_vnode *, uint64_t *,
+                             struct pros_vfs_dirent *);
+static int exfat_vfs_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
+static int exfat_vfs_close(struct pros_vfs_file *);
+static void exfat_vfs_release(struct pros_vfs_vnode *);
+
+static const struct pros_vfs_vnode_ops exfat_vfs_vnode_ops = {
+    .lookup = exfat_vfs_lookup,
+    .readdir = exfat_vfs_readdir,
+    .release = exfat_vfs_release
+};
+
+static const struct pros_vfs_file_ops exfat_vfs_file_ops = {
+    .read = exfat_vfs_read,
+    .close = exfat_vfs_close
+};
 
 int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
 {
@@ -81,6 +107,12 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
     fs->cluster_count = cluster_count;
     fs->root_cluster = root_cluster;
     fs->volume_length = volume_length;
+
+    if (vfs_vnode_init(&fs->root_vnode, &fs->mount, 0,
+                       PROS_VFS_NODE_DIRECTORY, &exfat_vfs_vnode_ops, 0,
+                       fs, 0) != PROS_VFS_OK ||
+        vfs_mount_set_root(&fs->mount, &fs->root_vnode) != PROS_VFS_OK)
+        return PROS_EXFAT_EINVAL;
 
     return vfs_mount_activate(&fs->mount) == PROS_VFS_OK
         ? PROS_EXFAT_OK : PROS_EXFAT_EINVAL;
@@ -463,6 +495,208 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
         }
     }
     return PROS_EXFAT_ECORRUPT;
+}
+
+static struct pros_exfat *exfat_vfs_get_fs(struct pros_vfs_vnode *vnode)
+{
+    if (!vnode || !vnode->mount || vnode->mount->type != PROS_FS_EXFAT)
+        return 0;
+    if (vnode->private_data == vnode->mount->private_data)
+        return (struct pros_exfat *)vnode->private_data;
+    {
+        struct exfat_vfs_node *node =
+            (struct exfat_vfs_node *)vnode->private_data;
+        return node ? node->fs : 0;
+    }
+}
+
+static int exfat_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result)
+{
+    struct pros_exfat *fs = exfat_vfs_get_fs(parent);
+    struct pros_exfat_dirent entry;
+    struct exfat_vfs_node *node;
+    int rc;
+
+    if (!fs || !name || !result || parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    rc = exfat_find(fs,
+                    parent == &fs->root_vnode ? fs->root_cluster :
+                    ((struct exfat_vfs_node *)parent->private_data)->entry.first_cluster,
+                    name, &entry);
+    if (rc == PROS_EXFAT_ENOENT)
+        return PROS_VFS_ENOENT;
+    if (rc != PROS_EXFAT_OK)
+        return rc == PROS_EXFAT_ENOTSUP ? PROS_VFS_ENOSYS : PROS_VFS_EIO;
+
+    node = (struct exfat_vfs_node *)kmalloc(sizeof(*node));
+    if (!node)
+        return PROS_VFS_EIO;
+    if (vfs_vnode_get(parent) != PROS_VFS_OK) {
+        kfree(node);
+        return PROS_VFS_EINVAL;
+    }
+    node->fs = fs;
+    node->entry = entry;
+    rc = vfs_vnode_init(&node->vnode, &fs->mount, parent,
+                        (entry.attributes & 0x10u) != 0u
+                            ? PROS_VFS_NODE_DIRECTORY
+                            : PROS_VFS_NODE_FILE,
+                        &exfat_vfs_vnode_ops,
+                        (entry.attributes & 0x10u) != 0u
+                            ? 0 : &exfat_vfs_file_ops,
+                        node, entry.size);
+    if (rc != PROS_VFS_OK) {
+        vfs_vnode_put(parent);
+        kfree(node);
+        return rc;
+    }
+    *result = &node->vnode;
+    return PROS_VFS_OK;
+}
+
+static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
+                             struct pros_vfs_dirent *entry)
+{
+    struct pros_exfat *fs = exfat_vfs_get_fs(vnode);
+    uint8_t cluster[32768];
+    uint8_t set[32u * 32u];
+    uint32_t cluster_bytes, current, guard = 0u;
+    uint64_t index = 0u;
+
+    if (!fs || !cookie || !entry || vnode->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
+    if (cluster_bytes == 0u || cluster_bytes > sizeof(cluster))
+        return PROS_VFS_ENOTSUP;
+    current = vnode == &fs->root_vnode ? fs->root_cluster :
+              ((struct exfat_vfs_node *)vnode->private_data)->entry.first_cluster;
+    if (current < 2u || (uint64_t)current > (uint64_t)fs->cluster_count + 1u)
+        return PROS_VFS_EIO;
+
+    while (guard++ <= fs->cluster_count) {
+        if (exfat_read_cluster(fs, current, cluster) != PROS_EXFAT_OK)
+            return PROS_VFS_EIO;
+        for (uint32_t off = 0u; off + 32u <= cluster_bytes; off += 32u) {
+            const uint8_t *raw = cluster + off;
+            uint32_t secondary_count, entry_count, set_bytes;
+            struct pros_exfat_dirent parsed;
+            int rc;
+            if (raw[0] == 0x00u)
+                return PROS_VFS_ENOENT;
+            if (raw[0] != 0x85u)
+                continue;
+            secondary_count = raw[1];
+            entry_count = secondary_count + 1u;
+            set_bytes = entry_count * 32u;
+            if (secondary_count == 0u || secondary_count > 31u)
+                return PROS_VFS_EIO;
+            if (off + set_bytes > cluster_bytes)
+                return PROS_VFS_ENOSYS;
+            for (uint32_t i = 0u; i < set_bytes; ++i)
+                set[i] = cluster[off + i];
+            {
+                uint16_t stored = exfat_le16(set + 2u);
+                if (exfat_directory_checksum(set, entry_count) != stored)
+                    return PROS_VFS_EIO;
+            }
+            rc = PROS_EXFAT_ECORRUPT;
+            {
+                const uint8_t *stream = 0;
+                for (uint32_t i = 1u; i <= secondary_count; ++i) {
+                    const uint8_t *secondary = set + i * 32u;
+                    if (secondary[0] == 0xC0u) {
+                        if (stream) { rc = PROS_EXFAT_ECORRUPT; break; }
+                        stream = secondary;
+                    } else if (secondary[0] != 0xC1u) {
+                        rc = PROS_EXFAT_ECORRUPT;
+                        break;
+                    }
+                }
+                if (stream)
+                    rc = exfat_directory_name(set, secondary_count, stream[3],
+                                               parsed.name, sizeof(parsed.name));
+                if (rc == PROS_EXFAT_OK && stream) {
+                    parsed.attributes = set[4];
+                    parsed.no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
+                    parsed.valid_data_length = le64(stream + 8u);
+                    parsed.first_cluster = le32(stream + 20u);
+                    parsed.size = le64(stream + 24u);
+                    if (parsed.valid_data_length > parsed.size)
+                        rc = PROS_EXFAT_ECORRUPT;
+                    if (parsed.size != 0u &&
+                        (parsed.first_cluster < 2u ||
+                         (uint64_t)parsed.first_cluster >
+                             (uint64_t)fs->cluster_count + 1u))
+                        rc = PROS_EXFAT_ECORRUPT;
+                }
+            }
+            if (rc == PROS_EXFAT_ENOTSUP)
+                return PROS_VFS_ENOSYS;
+            if (rc != PROS_EXFAT_OK)
+                return PROS_VFS_EIO;
+            off += set_bytes - 32u;
+            if (index++ < *cookie)
+                continue;
+            for (uint32_t i = 0u; i < sizeof(entry->name); ++i) {
+                entry->name[i] = parsed.name[i];
+                if (parsed.name[i] == 0) break;
+            }
+            entry->type = (parsed.attributes & 0x10u) != 0u
+                ? PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
+            entry->size = parsed.size;
+            *cookie = index;
+            return PROS_VFS_OK;
+        }
+        {
+            uint32_t next;
+            int rc = exfat_read_fat_entry(fs, current, &next);
+            if (rc != PROS_EXFAT_OK) return PROS_VFS_EIO;
+            if (next == 0xFFFFFFFFu) return PROS_VFS_ENOENT;
+            current = next;
+        }
+    }
+    return PROS_VFS_EIO;
+}
+
+static int exfat_vfs_read(struct pros_vfs_file *file, uint32_t offset,
+                          uint32_t length, void *buffer)
+{
+    struct exfat_vfs_node *node;
+    uint32_t done = 0u;
+    int rc;
+    if (!file || !file->private_data || !buffer)
+        return PROS_VFS_EINVAL;
+    node = (struct exfat_vfs_node *)file->private_data;
+    if (node->entry.attributes & 0x10u)
+        return PROS_VFS_EISDIR;
+    rc = exfat_file_read(node->fs, node->entry.first_cluster,
+                         node->entry.no_fat_chain, node->entry.size,
+                         node->entry.valid_data_length, offset,
+                         buffer, length, &done);
+    if (rc != PROS_EXFAT_OK)
+        return rc == PROS_EXFAT_EIO ? PROS_VFS_EIO : PROS_VFS_EINVAL;
+    return (int)done;
+}
+
+static int exfat_vfs_close(struct pros_vfs_file *file)
+{
+    (void)file;
+    return PROS_VFS_OK;
+}
+
+static void exfat_vfs_release(struct pros_vfs_vnode *vnode)
+{
+    struct exfat_vfs_node *node;
+    struct pros_vfs_vnode *parent;
+    if (!vnode || vnode->private_data == vnode->mount->private_data)
+        return;
+    node = (struct exfat_vfs_node *)vnode->private_data;
+    parent = vnode->parent;
+    vnode->initialized = 0u;
+    if (parent)
+        vfs_vnode_put(parent);
+    kfree(node);
 }
 
 int exfat_selftest(void)
