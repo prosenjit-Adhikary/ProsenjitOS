@@ -1047,6 +1047,9 @@ int prosenjitfs_selftest(void)
     }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first) != PROSENJITFS_OK)
         return -6;
+    if (first < fs.sb.data_start ||
+        first + 4u > fs.sb.total_blocks)
+        return -6;
     if (first < pfs_data_start(&fs.sb) ||
         prosenjitfs_free_blocks(&fs, first, 4u) != PROSENJITFS_OK)
         return -7;
