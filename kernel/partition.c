@@ -259,7 +259,7 @@ static int partition_test_write(struct pros_block_device *device,
                                 const void *buffer)
 {
     (void)device;
-    if (!buffer || lba >= 4u || count > 4u - lba)
+    if (!buffer || lba >= 6u || count > 6u - lba)
         return PROS_BLOCK_EINVAL;
     for (uint32_t i = 0; i < count * 512u; ++i)
         partition_test_media[lba * 512u + i] = ((const uint8_t *)buffer)[i];
@@ -301,10 +301,15 @@ int partition_selftest(void)
     if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
         return -1;
 
-    /* GPT regression: a 256-byte entry beginning at offset 500 spans 3 sectors. */
+    /* GPT regression: validate a real 256-byte entry array layout. */
     static uint8_t gpt_media[6u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
         gpt_media[i] = 0u;
+    gpt_media[446u + 4u] = 0xEEu;
+    gpt_media[446u + 8u] = 1u;
+    gpt_media[446u + 12u] = 5u;
+    gpt_media[510u] = 0x55u;
+    gpt_media[511u] = 0xAAu;
     gpt_media[512u + 0u] = 'E';
     gpt_media[512u + 1u] = 'F';
     gpt_media[512u + 2u] = 'I';
@@ -313,9 +318,6 @@ int partition_selftest(void)
     gpt_media[512u + 5u] = 'A';
     gpt_media[512u + 6u] = 'R';
     gpt_media[512u + 7u] = 'T';
-    gpt_media[446u + 4u] = 0xEEu;
-    gpt_media[510u] = 0x55u;
-    gpt_media[511u] = 0xAAu;
     gpt_media[512u + 12u] = 92u;
     gpt_media[512u + 24u] = 1u;
     gpt_media[512u + 32u] = 5u;
@@ -325,24 +327,17 @@ int partition_selftest(void)
     gpt_media[512u + 80u] = 1u;
     gpt_media[512u + 84u] = 0u;
     gpt_media[512u + 85u] = 1u;
-    gpt_media[2u * 512u + 500u] = 0x11u;
-    /* A 256-byte entry beginning at offset 500 spans three sectors. */
-    gpt_media[2u * 512u + 532u] = 4u;
-    gpt_media[2u * 512u + 540u] = 4u;
-    
+    gpt_media[2u * 512u + 0u] = 0x11u;
+    gpt_media[2u * 512u + 32u] = 4u;
+    gpt_media[2u * 512u + 40u] = 4u;
 
     struct pros_block_device gpt_parent;
     if (block_device_init(&gpt_parent, 512u, 6u, partition_test_read, 0, 0) !=
         PROS_BLOCK_OK)
         return -2;
-    /*
-     * Reuse the callback's media backing by copying the GPT image into the
-     * existing test medium before probing.
-     */
-    for (uint32_t i = 0u; i < sizeof(gpt_media); ++i) {
-        if (i < sizeof(partition_test_media))
-            partition_test_media[i] = gpt_media[i];
-    }
+    for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
+        partition_test_media[i] = gpt_media[i];
+
     enum pros_partition_type gpt_type = PROS_PARTITION_NONE;
     if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
         gpt_type != PROS_PARTITION_GPT)
@@ -355,11 +350,11 @@ int partition_selftest(void)
         return -4;
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
-    partition_test_media[2u * 512u + 532u] = 3u;
+    partition_test_media[2u * 512u + 32u] = 3u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
         return -5;
-    partition_test_media[2u * 512u + 532u] = 4u;
+    partition_test_media[2u * 512u + 32u] = 4u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
