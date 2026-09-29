@@ -423,6 +423,14 @@ struct pfs_vnode_data {
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
+static int pfs_utf8_name_valid(const char *name, uint32_t *length_out);
+static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
+                              const struct pros_prosenjitfs_inode *inode,
+                              struct pros_prosenjitfs_dir_index *index);
+static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
+                              const struct pros_prosenjitfs_inode *dir_inode,
+                              const char *name,
+                              struct pros_prosenjitfs_dir_entry *found);
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit);
 static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                                uint64_t first, uint32_t count,
