@@ -1148,6 +1148,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -16: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -16\n"); break;
             case -17: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -17\n"); break;
             case -18: serial_write("ProsenjitOS: ProsenjitFS self-test failure stage -18\n"); break;
+            case -101: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EINVAL\n"); break;
+            case -102: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EIO\n"); break;
+            case -103: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ENOTSUP\n"); break;
+            case -104: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ECORRUPT\n"); break;
+            case -105: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ENOSPC\n"); break;
+            case -106: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ENOENT\n"); break;
+            case -107: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EEXIST\n"); break;
+            case -108: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EOVERFLOW\n"); break;
             default: serial_write("ProsenjitOS: ProsenjitFS self-test failure unknown stage\n"); break;
             }
             serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
