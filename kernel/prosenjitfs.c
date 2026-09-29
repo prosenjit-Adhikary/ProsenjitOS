@@ -1074,6 +1074,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         (child.type != PROSENJITFS_INODE_FILE &&
          child.type != PROSENJITFS_INODE_DIR))
         return PROS_VFS_EIO;
+    if (child.links != 1u || child.parent_inode != old_data->inode_number)
+        return PROS_VFS_EIO;
     if (child.type == PROSENJITFS_INODE_DIR &&
         old_data->inode_number != new_data->inode_number) {
         rc = pfs_directory_would_cycle(old_data->fs, source.inode,
@@ -2035,6 +2037,10 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         return -6603;
     if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
             PROSENJITFS_OK)
+        return -6604;
+    /* V1 has no hard-link implementation: the directory entry and the
+     * inode parent/link metadata must agree before unlinking. */
+    if (child_inode.links != 1u || child_inode.parent_inode != data->inode_number)
         return -6604;
     if (child_inode.type == PROSENJITFS_INODE_DIR) {
         struct pros_prosenjitfs_dir_index child_index;
