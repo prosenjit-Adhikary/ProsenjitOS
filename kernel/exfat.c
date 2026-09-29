@@ -521,7 +521,7 @@ int exfat_selftest(void)
         set[1] = 2u;
         set[4] = 0x20u;
         set[32] = 0xC0u;
-        set[33] = 0u;
+        set[33] = 1u;
         set[35] = 9u;
         exfat_test_le32(set + 40u, 700u);
         exfat_test_le32(set + 52u, 2u);
