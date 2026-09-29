@@ -519,7 +519,7 @@ static int exfat_name_equal_ci(const struct pros_exfat *fs,
     if (!fs || !entry || !input)
         return PROS_EXFAT_EINVAL;
 
-    while (**input) {
+    while (*input) {
         int rc = exfat_utf8_next(&input, input_units,
                                  sizeof(input_units) / sizeof(input_units[0]),
                                  &input_count);
