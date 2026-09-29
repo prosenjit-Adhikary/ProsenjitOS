@@ -295,6 +295,158 @@ static int exfat_test_read(struct pros_block_device *device, uint64_t lba,
     return PROS_BLOCK_OK;
 }
 
+
+static uint16_t exfat_le16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint16_t exfat_directory_checksum(const uint8_t *set,
+                                         uint32_t entry_count)
+{
+    uint16_t sum = 0u;
+    for (uint32_t i = 0u; i < entry_count * 32u; ++i) {
+        uint8_t value = set[i];
+        if (i == 2u || i == 3u) value = 0u;
+        sum = (uint16_t)(((sum << 15) | (sum >> 1)) + value);
+    }
+    return sum;
+}
+
+static int exfat_directory_name(const uint8_t *set, uint32_t secondary_count,
+                                char *name, uint32_t capacity)
+{
+    uint32_t out = 0u;
+    uint32_t name_entries = 0u;
+
+    for (uint32_t i = 1u; i <= secondary_count; ++i) {
+        const uint8_t *entry = set + i * 32u;
+        if (entry[0] != 0xC1u) continue;
+        ++name_entries;
+        for (uint32_t j = 0u; j < 15u; ++j) {
+            uint16_t ch = exfat_le16(entry + 2u + j * 2u);
+            if (ch == 0u) break;
+            if (ch > 0x7Fu || out + 1u >= capacity)
+                return PROS_EXFAT_ENOTSUP;
+            name[out++] = (char)ch;
+        }
+    }
+
+    if (name_entries == 0u || out == 0u)
+        return PROS_EXFAT_ECORRUPT;
+    name[out] = 0;
+    return PROS_EXFAT_OK;
+}
+
+static int exfat_name_equal_ci(const char *a, const char *b)
+{
+    uint32_t i = 0u;
+    while (a[i] && b[i]) {
+        char ca = a[i], cb = b[i];
+        if (ca >= 'a' && ca <= 'z') ca = (char)(ca - 'a' + 'A');
+        if (cb >= 'a' && cb <= 'z') cb = (char)(cb - 'a' + 'A');
+        if (ca != cb) return 0;
+        ++i;
+    }
+    return a[i] == b[i];
+}
+
+int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
+               const char *name, struct pros_exfat_dirent *result)
+{
+    static uint8_t cluster[32768];
+    static uint8_t set[32u * 32u];
+    uint32_t cluster_bytes, current, guard = 0u;
+
+    if (!fs || !name || !result || !fs->mount.active ||
+        !fs->mount.device || !directory_cluster ||
+        directory_cluster < 2u ||
+        (uint64_t)directory_cluster > (uint64_t)fs->cluster_count + 1u)
+        return PROS_EXFAT_EINVAL;
+
+    cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
+    if (cluster_bytes == 0u || cluster_bytes > sizeof(cluster))
+        return PROS_EXFAT_ENOTSUP;
+
+    current = directory_cluster;
+    while (guard++ <= fs->cluster_count) {
+        if (exfat_read_cluster(fs, current, cluster) != PROS_EXFAT_OK)
+            return PROS_EXFAT_EIO;
+
+        for (uint32_t off = 0u; off + 32u <= cluster_bytes; off += 32u) {
+            const uint8_t *entry = cluster + off;
+            if (entry[0] == 0x00u)
+                return PROS_EXFAT_ENOTSUP;
+            if (entry[0] != 0x85u)
+                continue;
+
+            uint32_t secondary_count = entry[1];
+            uint32_t entry_count = secondary_count + 1u;
+            uint32_t set_bytes = entry_count * 32u;
+            if (secondary_count == 0u || secondary_count > 31u)
+                return PROS_EXFAT_ECORRUPT;
+            if (off + set_bytes > cluster_bytes)
+                return PROS_EXFAT_ENOTSUP;
+
+            for (uint32_t i = 0u; i < set_bytes; ++i)
+                set[i] = cluster[off + i];
+
+            uint16_t stored = exfat_le16(set + 2u);
+            if (exfat_directory_checksum(set, entry_count) != stored)
+                return PROS_EXFAT_ECORRUPT;
+
+            const uint8_t *stream = 0;
+            for (uint32_t i = 1u; i <= secondary_count; ++i) {
+                const uint8_t *secondary = set + i * 32u;
+                if (secondary[0] == 0xC0u) {
+                    if (stream) return PROS_EXFAT_ECORRUPT;
+                    stream = secondary;
+                } else if (secondary[0] != 0xC1u) {
+                    return PROS_EXFAT_ECORRUPT;
+                }
+            }
+            if (!stream)
+                return PROS_EXFAT_ECORRUPT;
+
+            char parsed[256];
+            if (exfat_directory_name(set, secondary_count,
+                                     parsed, sizeof(parsed)) != PROS_EXFAT_OK)
+                return PROS_EXFAT_ENOTSUP;
+
+            if (exfat_name_equal_ci(parsed, name)) {
+                result->attributes = set[4];
+                result->no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
+                result->valid_data_length = le64(stream + 8u);
+                result->first_cluster = le32(stream + 20u);
+                result->size = le64(stream + 24u);
+                if (result->valid_data_length > result->size)
+                    return PROS_EXFAT_ECORRUPT;
+                if (result->size != 0u &&
+                    (result->first_cluster < 2u ||
+                     (uint64_t)result->first_cluster >
+                         (uint64_t)fs->cluster_count + 1u))
+                    return PROS_EXFAT_ECORRUPT;
+                for (uint32_t i = 0u; i < sizeof(result->name); ++i)
+                    result->name[i] = 0u;
+                for (uint32_t i = 0u; i < sizeof(result->name) - 1u &&
+                                     parsed[i]; ++i)
+                    result->name[i] = parsed[i];
+                return PROS_EXFAT_OK;
+            }
+            off += set_bytes - 32u;
+        }
+
+        {
+            uint32_t next;
+            int rc = exfat_read_fat_entry(fs, current, &next);
+            if (rc != PROS_EXFAT_OK) return rc;
+            if (next == 0xFFFFFFFFu) return PROS_EXFAT_ENOENT;
+            current = next;
+        }
+    }
+    return PROS_EXFAT_ECORRUPT;
+}
+
 int exfat_selftest(void)
 {
     struct exfat_test_disk disk = {{0}};
