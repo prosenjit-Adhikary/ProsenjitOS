@@ -1,0 +1,7 @@
+#include "driver_manager.h"
+void driver_manager_init(struct pros_driver_manager *m){if(!m)return;m->driver_count=0;m->device_count=0;}
+int driver_manager_register_driver(struct pros_driver_manager *m,struct pros_driver *d){if(!m||!d||m->driver_count>=PROS_DRIVER_REGISTRY_MAX||d->registered)return -1;for(uint32_t i=0;i<m->driver_count;++i)if(m->drivers[i]==d)return -1;m->drivers[m->driver_count++]=d;d->registered=1;return 0;}
+int driver_manager_register_device(struct pros_driver_manager *m,struct pros_device *d){if(!m||!d||m->device_count>=PROS_DEVICE_REGISTRY_MAX)return -1;for(uint32_t i=0;i<m->device_count;++i)if(m->devices[i]==d)return -1;m->devices[m->device_count++]=d;return 0;}
+int driver_manager_probe_device(struct pros_driver_manager *m,struct pros_device *d){if(!m||!d)return -1;for(uint32_t i=0;i<m->driver_count;++i){struct pros_driver *drv=m->drivers[i];if(driver_supports_device(drv,d)&&driver_bind(drv,d)==0)return 0;}return -1;}
+int driver_manager_probe_all(struct pros_driver_manager *m){int failures=0;if(!m)return -1;for(uint32_t i=0;i<m->device_count;++i)if(!m->devices[i]->claimed&&driver_manager_probe_device(m,m->devices[i])!=0)++failures;return failures;}
+int driver_manager_remove_device(struct pros_driver_manager *m,struct pros_device *d){if(!m||!d||!d->claimed)return -1;for(uint32_t i=0;i<m->driver_count;++i)if(driver_supports_device(m->drivers[i],d))return driver_unbind(m->drivers[i],d);return -1;}
