@@ -442,6 +442,13 @@ static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
                               const struct pros_prosenjitfs_inode *dir_inode,
                               const char *name,
                               struct pros_prosenjitfs_dir_entry *found);
+static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
+                               uint64_t lba,
+                               struct pros_prosenjitfs_dir_entry *entry);
+static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
+                                    const struct pros_prosenjitfs_inode *inode,
+                                    uint32_t ordinal,
+                                    struct pros_prosenjitfs_dir_entry *entry);
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit);
 static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                                uint64_t first, uint32_t count,
@@ -3411,6 +3418,7 @@ static int pfs_test_flush(struct pros_block_device *device)
 
 int prosenjitfs_selftest(void)
 {
+    struct pros_vfs_vnode *parent = 0;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
     struct pros_prosenjitfs fs;
