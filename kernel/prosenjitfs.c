@@ -1495,6 +1495,30 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             rc = PROSENJITFS_ECORRUPT;
             goto out;
         }
+        if (child_inode.type == PROSENJITFS_INODE_DIR &&
+            data->inode_number != new_data->inode_number) {
+            uint64_t ancestor = new_data->inode_number;
+            uint64_t depth = 0u;
+            while (ancestor != data->inode_number && ancestor != fs->sb.root_inode) {
+                struct pros_prosenjitfs_inode ancestor_inode;
+                if (++depth > data->fs->sb.inode_count ||
+                    prosenjitfs_read_inode(data->fs, ancestor,
+                                            &ancestor_inode) != PROSENJITFS_OK ||
+                    ancestor_inode.type != PROSENJITFS_INODE_DIR) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto out;
+                }
+                if (ancestor_inode.parent_inode == ancestor) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto out;
+                }
+                ancestor = ancestor_inode.parent_inode;
+            }
+            if (ancestor == data->inode_number) {
+                rc = PROS_VFS_EINVAL;
+                goto out;
+            }
+        }
     } else if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
                PROSENJITFS_OK) {
         goto out;
