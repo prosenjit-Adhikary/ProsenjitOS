@@ -1,5 +1,6 @@
 #include "prosenjitfs.h"
 #include "heap.h"
+#include <stddef.h>
 
 #define PFS_MIN_BLOCKS 256u
 #define PFS_MIN_JOURNAL 16u
@@ -7,42 +8,6 @@
 #define PFS_MAX_INODES 1024u
 #define PFS_MIN_INODES 64u
 #define PFS_UUID_SEED 0x50524F53454E4A49ULL
-
-static uint16_t pfs_le16(const uint8_t *p)
-{
-    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-}
-
-static uint32_t pfs_le32(const uint8_t *p)
-{
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-static uint64_t pfs_le64(const uint8_t *p)
-{
-    return (uint64_t)pfs_le32(p) | ((uint64_t)pfs_le32(p + 4) << 32);
-}
-
-static void pfs_put16(uint8_t *p, uint16_t v)
-{
-    p[0] = (uint8_t)v;
-    p[1] = (uint8_t)(v >> 8);
-}
-
-static void pfs_put32(uint8_t *p, uint32_t v)
-{
-    p[0] = (uint8_t)v;
-    p[1] = (uint8_t)(v >> 8);
-    p[2] = (uint8_t)(v >> 16);
-    p[3] = (uint8_t)(v >> 24);
-}
-
-static void pfs_put64(uint8_t *p, uint64_t v)
-{
-    pfs_put32(p, (uint32_t)v);
-    pfs_put32(p + 4, (uint32_t)(v >> 32));
-}
 
 static void pfs_zero(void *buffer, uint32_t size)
 {
@@ -111,13 +76,7 @@ static int pfs_region_valid(const struct pros_prosenjitfs_superblock *sb,
 
 static uint64_t pfs_data_start(const struct pros_prosenjitfs_superblock *sb)
 {
-    uint64_t end = 2u;
-    uint64_t candidate;
-    if (pfs_region_end(sb->journal_start, sb->journal_blocks, &candidate) == PROSENJITFS_OK && candidate > end) end = candidate;
-    if (pfs_region_end(sb->block_bitmap_start, sb->block_bitmap_blocks, &candidate) == PROSENJITFS_OK && candidate > end) end = candidate;
-    if (pfs_region_end(sb->inode_bitmap_start, sb->inode_bitmap_blocks, &candidate) == PROSENJITFS_OK && candidate > end) end = candidate;
-    if (pfs_region_end(sb->inode_table_start, sb->inode_table_blocks, &candidate) == PROSENJITFS_OK && candidate > end) end = candidate;
-    return end;
+    return sb ? sb->data_start : UINT64_MAX;
 }
 
 static int pfs_read_block(struct pros_block_device *device, uint64_t block,
@@ -200,7 +159,9 @@ static int pfs_superblock_valid(const uint8_t *block,
         !pfs_region_valid(sb, sb->inode_bitmap_start, sb->inode_bitmap_blocks) ||
         !pfs_region_valid(sb, sb->inode_table_start, sb->inode_table_blocks))
         return PROSENJITFS_ECORRUPT;
-    if (pfs_data_start(sb) >= sb->total_blocks)
+    uint64_t inode_end;
+    if (pfs_region_end(sb->inode_table_start, sb->inode_table_blocks, &inode_end) != PROSENJITFS_OK ||
+        sb->data_start >= sb->total_blocks || sb->data_start != inode_end + 1u)
         return PROSENJITFS_ECORRUPT;
     if ((uint64_t)sb->inode_table_blocks * sb->block_size <
         (uint64_t)sb->inode_count * PROSENJITFS_INODE_SIZE)
@@ -228,15 +189,21 @@ static void pfs_mark_bit(uint8_t *bitmap, uint64_t bit)
 }
 
 static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
-                                   uint64_t region_start, uint32_t region_blocks)
+                                   uint64_t region_start, uint32_t region_blocks,
+                                   uint32_t bitmap_index, uint32_t block_size)
 {
     uint64_t end;
+    uint64_t bits_per_block = (uint64_t)block_size * 8u;
+    uint64_t bitmap_base = (uint64_t)bitmap_index * bits_per_block;
     if (!bitmap || pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
     for (uint64_t b = region_start; b < end; ++b) {
-        if ((b >> 3) >= bytes)
+        if (b < bitmap_base || b >= bitmap_base + bits_per_block)
+            continue;
+        uint64_t local = b - bitmap_base;
+        if ((local >> 3) >= bytes)
             return PROSENJITFS_EOVERFLOW;
-        pfs_mark_bit(bitmap, b);
+        pfs_mark_bit(bitmap, local);
     }
     return PROSENJITFS_OK;
 }
@@ -286,8 +253,9 @@ int prosenjitfs_format(struct pros_block_device *device)
     sb.block_bitmap_start = cursor; sb.block_bitmap_blocks = bitmap_blocks; cursor += bitmap_blocks;
     sb.inode_bitmap_start = cursor; sb.inode_bitmap_blocks = inode_bitmap_blocks; cursor += inode_bitmap_blocks;
     sb.inode_table_start = cursor; sb.inode_table_blocks = inode_table_blocks; cursor += inode_table_blocks;
-    if (cursor + 1u >= total)
+    if (cursor >= total - 1u)
         return PROSENJITFS_ENOSPC;
+    sb.data_start = cursor + 1u;
 
     pfs_zero(&sb, sizeof(sb));
     pfs_copy(sb.magic, PROSENJITFS_MAGIC, PROSENJITFS_MAGIC_LEN);
@@ -334,7 +302,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     for (uint32_t i = 0; i < bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
         if (pfs_bitmap_region_build(block, block_size,
-                                    0u, (uint32_t)cursor) != PROSENJITFS_OK) {
+                                    0u, (uint32_t)sb.data_start, i, block_size) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EOVERFLOW;
         }
@@ -381,7 +349,6 @@ int prosenjitfs_format(struct pros_block_device *device)
         return PROSENJITFS_EIO;
     }
 
-    cursor++;
     pfs_zero(&dir_index, sizeof(dir_index));
     dir_index.magic = PROSENJITFS_DIR_MAGIC;
     dir_index.version = PROSENJITFS_VERSION;
@@ -396,20 +363,6 @@ int prosenjitfs_format(struct pros_block_device *device)
                                                  checksum));
     pfs_copy(block, &dir_index, sizeof(dir_index));
     if (pfs_write_block(device, root.dir_index, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
-    }
-
-    /* The root index block is data/metadata and therefore must be allocated. */
-    uint64_t bitmap_lba = sb.block_bitmap_start +
-                          (root.dir_index / ((uint64_t)block_size * 8u));
-    uint64_t bit = root.dir_index % ((uint64_t)block_size * 8u);
-    if (pfs_read_block(device, bitmap_lba, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
-    }
-    pfs_mark_bit(block, bit);
-    if (pfs_write_block(device, bitmap_lba, block) != PROSENJITFS_OK) {
         kfree(block);
         return PROSENJITFS_EIO;
     }
