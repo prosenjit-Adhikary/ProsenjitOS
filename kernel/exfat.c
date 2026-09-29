@@ -470,7 +470,7 @@ static int exfat_directory_read(const struct pros_exfat *fs,
 static int exfat_load_upcase_table(struct pros_exfat *fs)
 {
     uint8_t entry[32];
-    uint8_t table[4096];
+    uint8_t table[512];
     uint64_t offset = 0u;
     uint64_t max_bytes;
     uint32_t found = 0u;
