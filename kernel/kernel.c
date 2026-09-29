@@ -1186,6 +1186,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -626: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at second dirent\n"); break;
             case -627: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at hello dirent\n"); break;
             case -628: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at root dir close\n"); break;
+            case -865: serial_write("ProsenjitOS: ProsenjitFS remount lookup /dst/new returned EIO\n"); break;
+            case -866: serial_write("ProsenjitOS: ProsenjitFS remount lookup /dst/new returned ENOENT\n"); break;
+            case -869: serial_write("ProsenjitOS: ProsenjitFS remount lookup /dst/new returned EINVAL\n"); break;
+            case -870: serial_write("ProsenjitOS: ProsenjitFS remount lookup /dst/new returned unexpected success code\n"); break;
             case -801: serial_write("ProsenjitOS: ProsenjitFS rename self-test failed at old open\n"); break;
             case -802: serial_write("ProsenjitOS: ProsenjitFS rename self-test failed at old close\n"); break;
             case -803: serial_write("ProsenjitOS: ProsenjitFS rename self-test failed at old->new rename\n"); break;
