@@ -1160,7 +1160,7 @@ int exfat_selftest(void)
 
         if (exfat_find(&fs, 2u, "cross.txt", &found) != PROS_EXFAT_OK ||
             found.size != 700u || found.first_cluster != 4u ||
-            !exfat_name_equal_ci(found.name, filename))
+            !exfat_name_equal_ci(&fs, &found, filename))
             return -18;
     }
 
