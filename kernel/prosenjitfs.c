@@ -2270,7 +2270,12 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
             vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
+            file.vnode->size != 100u ||
             vfs_file_close(&file) != PROS_VFS_OK)
+            return -12;
+
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) == PROSENJITFS_OK &&
+            inode.allocated_bytes != fs.sb.block_size)
             return -12;
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
