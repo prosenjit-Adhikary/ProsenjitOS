@@ -548,7 +548,7 @@ int exfat_selftest(void)
             if (found.valid_data_length != 700u)
                 return -122;
             if (found.first_cluster != 2u)
-                return -123;
+                return -300 - (int)found.first_cluster;
             if (found.no_fat_chain != 0u)
                 return -124;
             if (!exfat_name_equal_ci(found.name, filename))
