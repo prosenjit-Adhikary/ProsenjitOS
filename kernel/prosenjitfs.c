@@ -3518,6 +3518,7 @@ int prosenjitfs_selftest(void)
         static uint8_t payload[8704];
         static uint8_t verify[8704];
         struct pros_vfs_file file;
+        struct pros_vfs_vnode *removed = 0;
         uint32_t count = 0u;
         for (uint32_t i = 0u; i < sizeof(payload); ++i)
             payload[i] = (uint8_t)((i * 37u) ^ (i >> 3));
@@ -3559,7 +3560,7 @@ int prosenjitfs_selftest(void)
             __builtin_memcmp(verify, payload, 700u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             vfs_path_unlink(&fs.mount, "/new") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT)
+            vfs_path_lookup(&fs.mount, "/new", &removed) != PROS_VFS_ENOENT)
             return -18;
     }
     {
