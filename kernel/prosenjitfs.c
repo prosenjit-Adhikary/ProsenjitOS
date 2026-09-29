@@ -3359,8 +3359,11 @@ int prosenjitfs_selftest(void)
             return -2113;
         if (!looked_up || looked_up->type != PROS_VFS_NODE_FILE)
             return -2114;
-        if (looked_up->ops->lookup(looked_up, "..", &parent) != PROS_VFS_OK)
-            return -2115;
+        {
+            int parent_lookup_rc = looked_up->ops->lookup(looked_up, "..", &parent);
+            if (parent_lookup_rc != PROS_VFS_OK)
+                return -2300 + parent_lookup_rc;
+        }
         if (!parent || parent->type != PROS_VFS_NODE_DIRECTORY)
             return -2116;
         if (vfs_vnode_put(parent) != PROS_VFS_OK)
