@@ -20,10 +20,10 @@ int driver_manager_selftest(void)
         { PROS_DEVICE_BUS_PCI, 0x1234u, 0x5678u, 0xffffu, 0xffffu,
           0x01u, 0x06u, 0xffu }
     };
-    struct pros_driver driver;
-    struct pros_device device;
-    struct pros_device unsupported;
-    struct pros_driver_manager manager;
+    static struct pros_driver driver;
+    static struct pros_device device;
+    static struct pros_device unsupported;
+    static struct pros_driver_manager manager;
 
     if (driver_init(&driver, "selftest-pci-storage", PROS_DEVICE_BUS_PCI,
                     ids, 1u, test_probe, test_remove) != 0)
