@@ -2240,6 +2240,27 @@ int prosenjitfs_selftest(void)
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return -5;
     }
+    {
+        static const char message[] = "ProsenjitFS persistent file I/O";
+        char readback[sizeof(message)];
+        struct pros_vfs_file file;
+        uint32_t count = 0u;
+
+        pfs_zero(&file, sizeof(file));
+        if (vfs_file_open(&fs.mount, "/hello",
+                          PROS_VFS_O_READ | PROS_VFS_O_WRITE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, message, (uint32_t)sizeof(message),
+                           &count) != PROS_VFS_OK ||
+            count != sizeof(message) ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
+                          &count) != PROS_VFS_OK ||
+            count != sizeof(message) ||
+            __builtin_memcmp(readback, message, sizeof(message)) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -6;
+    }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
     if (first_block < fs.sb.data_start ||
