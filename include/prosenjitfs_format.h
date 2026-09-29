@@ -45,6 +45,7 @@ struct pros_prosenjitfs_superblock {
     uint32_t inode_bitmap_blocks;
     uint64_t inode_table_start;
     uint32_t inode_table_blocks;
+    uint64_t data_start;
     uint16_t inode_size;
     uint64_t root_inode;
     uint64_t inode_count;
