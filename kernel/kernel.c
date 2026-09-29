@@ -1136,7 +1136,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed\n");
+    serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
