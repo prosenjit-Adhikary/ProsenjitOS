@@ -3471,8 +3471,9 @@ int prosenjitfs_selftest(void)
     {
         uint8_t saved_root[4096];
         uint8_t corrupt_root[4096];
+        uint64_t root_inode_lba = fs.sb.inode_table_start;
         if (fs.sb.block_size > sizeof(saved_root) ||
-            pfs_read_block(fs.mount.device, fs.sb.inode_table_start,
+            pfs_read_block(fs.mount.device, root_inode_lba,
                            saved_root) != PROSENJITFS_OK)
             return -2002;
         pfs_copy(corrupt_root, saved_root, fs.sb.block_size);
@@ -3498,7 +3499,7 @@ int prosenjitfs_selftest(void)
         fs.scratch = 0;
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -2004;
-        if (pfs_write_block(&device,  fs.sb.inode_table_start,
+        if (pfs_write_block(&device, root_inode_lba,
                             saved_root) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROS_BLOCK_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
