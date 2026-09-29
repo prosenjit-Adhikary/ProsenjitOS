@@ -165,6 +165,11 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] NTFS full write support (directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
+  - [x] ProsenjitFS persistent file create/read/write/truncate
+  - [x] ProsenjitFS transactional unlink with inode/block reclamation
+  - [x] ProsenjitFS same-directory rename, including dot-prefixed hidden names
+  - [ ] ProsenjitFS cross-directory move/rename
+  - [ ] ProsenjitFS crash/corruption recovery coverage
 - [ ] Ethernet
 - [ ] ARP
 - [ ] IPv4
