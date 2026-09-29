@@ -2796,8 +2796,9 @@ int prosenjitfs_selftest(void)
             return -62;
         for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
             if (read_data[i] != write_data[i]) {
-                /* Encode the first mismatching byte for CI diagnostics. */
-                return -100 - (int)i;
+                /* Encode mismatch index and actual byte for CI diagnostics. */
+                return -0x10000 - (int)(((uint32_t)i << 8) |
+                                         (uint32_t)read_data[i]);
             }
         }
         if (vfs_file_close(&file) != PROS_VFS_OK)
