@@ -539,7 +539,7 @@ int exfat_selftest(void)
             struct pros_exfat_dirent found;
             int find_status = exfat_find(&fs, 2u, "hello.txt", &found);
             if (find_status != PROS_EXFAT_OK)
-                return -120 + find_status;
+                return -150 + find_status;
             if (found.size != 700u)
                 return -121;
             if (found.valid_data_length != 700u)
