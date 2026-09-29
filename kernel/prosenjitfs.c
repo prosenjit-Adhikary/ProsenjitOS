@@ -249,15 +249,15 @@ int prosenjitfs_format(struct pros_block_device *device)
                     block_size - 1u) / block_size);
 
     cursor = 2u;
+    if (cursor + journal_blocks + bitmap_blocks + inode_bitmap_blocks +
+        inode_table_blocks + 1u >= total)
+        return PROSENJITFS_ENOSPC;
+    pfs_zero(&sb, sizeof(sb));
     sb.journal_start = cursor; sb.journal_blocks = journal_blocks; cursor += journal_blocks;
     sb.block_bitmap_start = cursor; sb.block_bitmap_blocks = bitmap_blocks; cursor += bitmap_blocks;
     sb.inode_bitmap_start = cursor; sb.inode_bitmap_blocks = inode_bitmap_blocks; cursor += inode_bitmap_blocks;
     sb.inode_table_start = cursor; sb.inode_table_blocks = inode_table_blocks; cursor += inode_table_blocks;
-    if (cursor >= total - 1u)
-        return PROSENJITFS_ENOSPC;
     sb.data_start = cursor + 1u;
-
-    pfs_zero(&sb, sizeof(sb));
     pfs_copy(sb.magic, PROSENJITFS_MAGIC, PROSENJITFS_MAGIC_LEN);
     sb.version = PROSENJITFS_VERSION;
     sb.header_size = sizeof(sb);
