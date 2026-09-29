@@ -692,7 +692,10 @@ static int vfs_vnode_api_selftest(void)
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK ||
-        vfs_mount_activate(&mount) != PROS_VFS_OK)
+        vfs_mount_activate(&mount) != PROS_VFS_OK ||
+        vfs_vnode_get(&hello_node) != PROS_VFS_OK ||
+        vfs_vnode_get(&etc_node) != PROS_VFS_OK ||
+        vfs_vnode_get(&config_node) != PROS_VFS_OK)
         return -1;
 
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
