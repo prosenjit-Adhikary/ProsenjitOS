@@ -461,15 +461,6 @@ static int exfat_directory_read(const struct pros_exfat *fs,
     return PROS_EXFAT_OK;
 }
 
-static uint32_t exfat_upcase_checksum(const uint8_t *data, uint32_t length)
-{
-    uint32_t checksum = 0u;
-    for (uint32_t i = 0u; i < length; ++i)
-        checksum = ((checksum & 1u) ? 0x80000000u : 0u) +
-                   (checksum >> 1) + (uint32_t)data[i];
-    return checksum;
-}
-
 static int exfat_load_upcase_table(struct pros_exfat *fs)
 {
     uint8_t entry[32];
@@ -832,6 +823,7 @@ int exfat_selftest(void)
     /* FAT[2] -> 3, FAT[3] -> EOC. */
     exfat_test_le32(disk.sectors + 24u * 512u + 8u, 3u);
     exfat_test_le32(disk.sectors + 24u * 512u + 12u, 0xFFFFFFFFu);
+    exfat_test_le32(disk.sectors + 24u * 512u + 20u, 0xFFFFFFFFu);
 
     for (uint32_t i = 0u; i < 512u; ++i) {
         disk.sectors[25u * 512u + i] = (uint8_t)('A' + (i % 26u));
@@ -861,9 +853,29 @@ int exfat_selftest(void)
         output[699] != 'f')
         return -3;
 
+    /* Root directory contains the mandatory Up-case Table entry. The
+     * fixture uses an identity table for the first 128 code points; the
+     * production parser will consume the same metadata before full Unicode
+     * comparison is enabled. */
+    {
+        uint8_t *up = disk.sectors + 25u * 512u;
+        uint8_t *table = disk.sectors + 28u * 512u;
+        uint32_t checksum = 0u;
+        for (uint32_t i = 0u; i < 128u; ++i) {
+            exfat_test_le32(table + i * 2u, i);
+        }
+        for (uint32_t i = 0u; i < 256u; ++i)
+            checksum = ((checksum & 1u) ? 0x80000000u : 0u) +
+                       (checksum >> 1) + (uint32_t)table[i];
+        up[0] = 0x82u;
+        exfat_test_le32(up + 4u, checksum);
+        exfat_test_le32(up + 20u, 5u);
+        exfat_test_le64(up + 24u, 256u);
+    }
+
     /* Validate a complete file directory-entry set and case-insensitive lookup. */
     {
-        uint8_t *set = disk.sectors + 25u * 512u;
+        uint8_t *set = disk.sectors + 25u * 512u + 32u;
         const char *filename = "HELLO.TXT";
         set[0] = 0x85u;
         set[1] = 2u;
