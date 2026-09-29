@@ -23,6 +23,11 @@ jobs:
           test "$(od -An -tx1 -N8 build/prosenjitfs-test.img | tr -d ' \\n')" = "504a534653303100"
           cmp <(dd if=build/prosenjitfs-test.img bs=512 count=1 status=none) <(dd if=build/prosenjitfs-test.img bs=512 skip=1 count=1 status=none)
 
+      - name: Validate native boot sources
+        run: |
+          chmod +x tools/validate_native_boot_sources.sh
+          ./tools/validate_native_boot_sources.sh
+
       - name: Build ISO
         run: |
           chmod +x scripts/build.sh
