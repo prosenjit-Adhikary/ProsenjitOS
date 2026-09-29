@@ -3250,6 +3250,10 @@ int prosenjitfs_selftest(void)
             count != 5u ||
             __builtin_memcmp(readback, "Prose", 5u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/sub/nested", "/sub/renamed") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/sub/nested", &parent) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/sub/renamed", &parent) != PROS_VFS_OK ||
+            vfs_vnode_put(parent) != PROS_VFS_OK ||
             vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
             return -6;
