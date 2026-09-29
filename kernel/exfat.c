@@ -425,7 +425,12 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                 result->attributes = set[4];
                 result->no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
                 result->valid_data_length = le64(stream + 8u);
-                result->first_cluster = le32(stream + 20u);
+                {
+                    uint32_t parsed_first_cluster = le32(stream + 20u);
+                    if (parsed_first_cluster != 2u)
+                        return PROS_EXFAT_ECORRUPT;
+                    result->first_cluster = parsed_first_cluster;
+                }
                 result->size = le64(stream + 24u);
                 if (result->valid_data_length > result->size)
                     return PROS_EXFAT_ECORRUPT;
