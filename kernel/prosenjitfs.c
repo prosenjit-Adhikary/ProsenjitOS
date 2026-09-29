@@ -3735,8 +3735,11 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -10;
     }
-    if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
-        return -6;
+    {
+        int alloc_rc = prosenjitfs_alloc_blocks(&fs, 4u, &first_block);
+        if (alloc_rc != PROSENJITFS_OK)
+            return -6000 + alloc_rc;
+    }
     if (first_block < fs.sb.data_start ||
         first_block + 4u > fs.sb.total_blocks)
         return -6;
