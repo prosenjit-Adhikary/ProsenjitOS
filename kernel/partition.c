@@ -241,7 +241,7 @@ int partition_device_init(struct pros_partition_device *view,
     return PROS_PARTITION_OK;
 }
 
-static uint8_t partition_test_media[4 * 512];
+static uint8_t partition_test_media[5 * 512];
 
 static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
@@ -259,7 +259,7 @@ static int partition_test_write(struct pros_block_device *device,
                                 const void *buffer)
 {
     (void)device;
-    if (!buffer || lba > 4u || count > 4u - lba)
+    if (!buffer || lba >= 4u || count > 4u - lba)
         return PROS_BLOCK_EINVAL;
     for (uint32_t i = 0; i < count * 512u; ++i)
         partition_test_media[lba * 512u + i] = ((const uint8_t *)buffer)[i];
@@ -306,7 +306,7 @@ int partition_selftest(void)
      * A 256-byte entry starts at offset 256 for the second entry, so its
      * tail crosses a sector boundary and must be read as a two-sector span.
      */
-    static uint8_t gpt_media[4u * 512u];
+    static uint8_t gpt_media[5u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
         gpt_media[i] = 0u;
     gpt_media[512u + 0u] = 'E';
@@ -322,27 +322,21 @@ int partition_selftest(void)
     gpt_media[511u] = 0xAAu;
     gpt_media[512u + 12u] = 92u;
     gpt_media[512u + 24u] = 1u;
-    gpt_media[512u + 32u] = 3u;
+    gpt_media[512u + 32u] = 4u;
     gpt_media[512u + 40u] = 2u;
     gpt_media[512u + 48u] = 3u;
     gpt_media[512u + 72u] = 2u;
-    gpt_media[512u + 80u] = 2u;
+    gpt_media[512u + 80u] = 1u;
     gpt_media[512u + 84u] = 0u;
     gpt_media[512u + 85u] = 1u;
-    gpt_media[2u * 512u + 300u] = 0x11u;
-    /* With a 4-sector device, usable LBAs 2..3 form the valid span. */
-    gpt_media[2u * 512u + 332u] = 2u;
-    gpt_media[2u * 512u + 340u] = 3u;
-    gpt_media[2u * 512u + 341u] = 0u;
-    gpt_media[2u * 512u + 342u] = 0u;
-    gpt_media[2u * 512u + 343u] = 0u;
-    gpt_media[2u * 512u + 344u] = 0u;
-    gpt_media[2u * 512u + 345u] = 0u;
-    gpt_media[2u * 512u + 346u] = 0u;
-    gpt_media[2u * 512u + 347u] = 0u;
+    gpt_media[2u * 512u + 500u] = 0x11u;
+    /* A 256-byte entry beginning at offset 500 spans three sectors. */
+    gpt_media[2u * 512u + 532u] = 2u;
+    gpt_media[2u * 512u + 540u] = 3u;
+    
 
     struct pros_block_device gpt_parent;
-    if (block_device_init(&gpt_parent, 512u, 4u, partition_test_read, 0, 0) !=
+    if (block_device_init(&gpt_parent, 512u, 5u, partition_test_read, 0, 0) !=
         PROS_BLOCK_OK)
         return -2;
     /*
@@ -365,11 +359,11 @@ int partition_selftest(void)
         return -4;
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
-    partition_test_media[2u * 512u + 332u] = 1u;
+    partition_test_media[2u * 512u + 532u] = 1u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
         return -5;
-    partition_test_media[2u * 512u + 332u] = 3u;
+    partition_test_media[2u * 512u + 532u] = 3u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
