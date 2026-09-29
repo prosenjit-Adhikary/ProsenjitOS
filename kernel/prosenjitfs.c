@@ -3288,6 +3288,62 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_ELOOP)
             return -8;
     }
+    {
+        uint8_t *header = fs.scratch;
+        uint8_t *image = fs.tx.images;
+        uint8_t *commit = fs.tx.images +
+                          (uint64_t)PROSENJITFS_MAX_TX_BLOCKS * fs.sb.block_size;
+        struct pros_prosenjitfs_journal_header h;
+        struct pros_prosenjitfs_journal_commit j;
+        uint64_t replay_lba = fs.sb.data_start + 20u;
+        uint8_t original[4096];
+        uint32_t checksum;
+
+        if (replay_lba >= fs.sb.total_blocks || fs.sb.block_size > sizeof(original) ||
+            pfs_read_block(fs.mount.device, replay_lba, original) != PROSENJITFS_OK)
+            return -12;
+        pfs_zero(header, fs.sb.block_size);
+        pfs_zero(image, fs.sb.block_size);
+        pfs_zero(commit, fs.sb.block_size);
+        pfs_copy(image, original, fs.sb.block_size);
+        image[0] = 0xA5u;
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = fs.sb.transaction_sequence++;
+        h.targets[0] = replay_lba;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(
+            header, fs.sb.block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        pfs_zero(&j, sizeof(j));
+        j.magic = PROSENJITFS_JOURNAL_COMMIT;
+        j.record_count = 1u;
+        j.transaction_id = h.transaction_id;
+        pfs_copy(commit, &j, sizeof(j));
+        checksum = pfs_journal_checksum(header, image, fs.sb.block_size, 1u, commit);
+        j.checksum = checksum;
+        pfs_copy(commit, &j, sizeof(j));
+        if (pfs_write_block(fs.mount.device, fs.sb.journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, fs.sb.journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, fs.sb.journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK)
+            return -13;
+        pfs_zero(image, fs.sb.block_size);
+        if (pfs_write_block(fs.mount.device, replay_lba, image) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK)
+            return -14;
+        vfs_mount_deactivate(&fs.mount);
+        if (fs.tx.images) kfree(fs.tx.images);
+        if (fs.scratch) kfree(fs.scratch);
+        fs.tx.images = 0;
+        fs.scratch = 0;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(fs.mount.device, replay_lba, original) != PROSENJITFS_OK ||
+            original[0] != 0xA5u)
+            return -15;
+    }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
     if (first_block < fs.sb.data_start ||
