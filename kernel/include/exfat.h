@@ -30,6 +30,7 @@ struct pros_exfat {
     uint32_t cluster_count;
     uint32_t root_cluster;
     uint64_t volume_length;
+    struct pros_vfs_vnode root_vnode;
 };
 
 int exfat_mount(struct pros_exfat *, struct pros_block_device *);
