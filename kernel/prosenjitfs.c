@@ -1024,8 +1024,22 @@ int prosenjitfs_selftest(void)
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
-        inode.dir_index == 0u)
+        inode.dir_index == 0u ||
+        !fs.mount.root)
         return -5;
+    {
+        struct pros_vfs_vnode *root = 0;
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent entry;
+        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
+            root != fs.mount.root ||
+            vfs_vnode_put(root) != PROS_VFS_OK ||
+            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != '.' ||
+            vfs_dir_close(&dir) != PROS_VFS_OK)
+            return -5;
+    }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first) != PROSENJITFS_OK)
         return -6;
     if (first < pfs_data_start(&fs.sb) ||
