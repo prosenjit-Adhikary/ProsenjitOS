@@ -2033,12 +2033,15 @@ int prosenjitfs_selftest(void)
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data) ||
-            read_data[0] != 0x5Au ||
-            read_data[699] != (uint8_t)((699u * 13u) ^ 0x5Au) ||
             vfs_file_close(&file) != PROS_VFS_OK) {
             prosenjitfs_unmount(&fs);
             return -12;
         }
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != (uint8_t)((i * 13u) ^ 0x5Au)) {
+                prosenjitfs_unmount(&fs);
+                return -12;
+            }
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
