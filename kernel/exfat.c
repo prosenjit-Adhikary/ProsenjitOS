@@ -636,8 +636,10 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
             if (rc != PROS_EXFAT_OK)
                 return PROS_VFS_EIO;
             off += set_bytes - 32u;
-            if (index++ < *cookie)
+            if (index != *cookie) {
+                ++index;
                 continue;
+            }
             for (uint32_t i = 0u; i < sizeof(entry->name); ++i) {
                 entry->name[i] = parsed.name[i];
                 if (parsed.name[i] == 0) break;
@@ -645,7 +647,7 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
             entry->type = (parsed.attributes & 0x10u) != 0u
                 ? PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
             entry->size = parsed.size;
-            *cookie = index;
+            *cookie = index + 1u;
             return PROS_VFS_OK;
         }
         {
@@ -763,7 +765,7 @@ int exfat_selftest(void)
         set[33] = 1u;
         set[35] = 9u;
         exfat_test_le64(set + 40u, 700u);
-        exfat_test_le32(set + 52u, 2u);
+        exfat_test_le32(set + 52u, 4u);
         exfat_test_le64(set + 56u, 700u);
         set[64] = 0xC1u;
         for (uint32_t i = 0u; i < 9u; ++i) {
@@ -780,7 +782,7 @@ int exfat_selftest(void)
             if (exfat_find(&fs, 2u, "hello.txt", &found) != PROS_EXFAT_OK ||
                 found.size != 700u ||
                 found.valid_data_length != 700u ||
-                found.first_cluster != 2u ||
+                found.first_cluster != 4u ||
                 found.no_fat_chain != 0u ||
                 !exfat_name_equal_ci(found.name, filename))
                 return -12;
@@ -835,6 +837,45 @@ int exfat_selftest(void)
     boot[109] = 17u;
     if (exfat_mount(&fs, &device) != PROS_EXFAT_ENOTSUP)
         return -9;
+
+    /* VFS integration: root lookup, case-insensitive file open/read,
+     * directory enumeration, and vnode lifetime must all work on the same
+     * read-only exFAT mount. */
+    {
+        struct pros_vfs_vnode *found_vnode = 0;
+        struct pros_vfs_file file;
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent dirent;
+        uint32_t bytes_read = 0u;
+        uint8_t file_data[8];
+
+        if (vfs_path_lookup(&fs.mount, "/hello.txt", &found_vnode) !=
+                PROS_VFS_OK || !found_vnode ||
+            found_vnode->type != PROS_VFS_NODE_FILE ||
+            found_vnode->size != 700u)
+            return -14;
+        vfs_vnode_put(found_vnode);
+
+        if (vfs_file_open(&fs.mount, "/HELLO.TXT", PROS_VFS_O_READ,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, file_data, sizeof(file_data), &bytes_read) !=
+                PROS_VFS_OK || bytes_read != sizeof(file_data) ||
+            file_data[0] != '0' || file_data[7] != '7' ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -15;
+
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
+            dirent.type != PROS_VFS_NODE_FILE ||
+            !exfat_name_equal_ci(dirent.name, "HELLO.TXT") ||
+            dirent.size != 700u ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_ENOENT ||
+            vfs_dir_close(&dir) != PROS_VFS_OK)
+            return -16;
+
+        if (vfs_mount_deactivate(&fs.mount) != PROS_VFS_OK)
+            return -17;
+    }
 
     return 0;
 }
