@@ -3645,16 +3645,24 @@ int prosenjitfs_selftest(void)
 
         pfs_zero(&file, sizeof(file));
         if (vfs_file_open(&fs.mount, "/new", PROS_VFS_O_READ |
-                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
-            vfs_file_seek(&file, 8192u) != PROS_VFS_OK ||
-            vfs_file_read(&file, verify, 512u, &count) != PROS_VFS_OK ||
-            count != 512u ||
-            pfs_memcmp(verify, payload + 8192u, 512u) != 0 ||
-            vfs_file_truncate(&file, 700u) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -17;
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return -1701;
+        if (vfs_file_seek(&file, 8192u) != PROS_VFS_OK)
+            return -1702;
+        if (vfs_file_read(&file, verify, 512u, &count) != PROS_VFS_OK)
+            return -1703;
+        if (count != 512u)
+            return -1704;
+        if (pfs_memcmp(verify, payload + 8192u, 512u) != 0)
+            return -1705;
+        if (vfs_file_truncate(&file, 700u) != PROS_VFS_OK)
+            return -1706;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -1707;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return -1708;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -1709;
 
         pfs_zero(&file, sizeof(file));
         if (vfs_file_open(&fs.mount, "/new", PROS_VFS_O_READ, &file) !=
