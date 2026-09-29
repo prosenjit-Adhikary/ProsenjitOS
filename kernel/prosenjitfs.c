@@ -2848,9 +2848,6 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK)
             return -12;
     }
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -12;
-
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return -12;
     {
