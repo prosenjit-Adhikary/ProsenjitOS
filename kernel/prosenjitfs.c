@@ -428,6 +428,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result);
+static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t size);
 static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name);
 static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                             const char *old_name,
@@ -1954,7 +1955,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     if (pfs_read_dir_index(data->fs, &parent_inode, &parent_index) !=
             PROSENJITFS_OK)
         return PROS_VFS_EIO;
-    rc = pfs_find_dir_entry(data->fs, &parent_inode, name, &entry, &entry_lba);
+    rc = pfs_find_dir_entry_location(data->fs, &parent_inode, name,
+                                      &parent_index, &entry, &entry_lba, 0);
     if (rc == PROSENJITFS_ENOENT)
         return PROS_VFS_ENOENT;
     if (rc != PROSENJITFS_OK || entry.inode == data->inode_number)
