@@ -92,6 +92,79 @@ static void serial_write(const char *text) {
         serial_putc(text[i]);
     }
 }
+static int ata_qemu_prosenjitfs_test(void)
+{
+    struct pros_ata_pio ata;
+    struct pros_prosenjitfs fs;
+    struct pros_vfs_file file;
+    static const char message[] = "QEMU ATA ProsenjitFS persistence";
+    char readback[sizeof(message)];
+    uint32_t count = 0u;
+    int rc = ata_pio_init(&ata, 0u, 0u);
+
+    if (rc == PROS_ATA_ENODEV)
+        return PROS_ATA_ENODEV;
+    if (rc != PROS_ATA_OK)
+        return PROS_ATA_EIO;
+
+    struct pros_block_device *fs_device = &ata.device;
+
+    if (prosenjitfs_probe(fs_device) != PROSENJITFS_OK)
+        return -120;
+    if (prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
+        return -140;
+
+    for (uint32_t i = 0u; i < sizeof(file); ++i)
+        ((uint8_t *)&file)[i] = 0u;
+    if (vfs_file_open(&fs.mount, "/qemu-ata-test",
+                      PROS_VFS_O_READ | PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                      &file) != PROS_VFS_OK)
+        goto fail_mount;
+    if (vfs_file_truncate(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_write(&file, message, (uint32_t)sizeof(message), &count) != PROS_VFS_OK ||
+        count != sizeof(message) ||
+        vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+        vfs_file_read(&file, readback, (uint32_t)sizeof(readback), &count) != PROS_VFS_OK ||
+        count != sizeof(message))
+        goto fail_file;
+    for (uint32_t i = 0u; i < sizeof(message); ++i)
+        if (readback[i] != message[i])
+            goto fail_file;
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return PROS_ATA_EIO;
+
+    if (prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
+        return PROS_ATA_EIO;
+    for (uint32_t i = 0u; i < sizeof(file); ++i)
+        ((uint8_t *)&file)[i] = 0u;
+    if (vfs_file_open(&fs.mount, "/qemu-ata-test", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+        goto fail_remount;
+    if (vfs_file_read(&file, readback, (uint32_t)sizeof(readback), &count) != PROS_VFS_OK ||
+        count != sizeof(message))
+        goto fail_remount_file;
+    for (uint32_t i = 0u; i < sizeof(message); ++i)
+        if (readback[i] != message[i])
+            goto fail_remount_file;
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_path_unlink(&fs.mount, "/qemu-ata-test") != PROS_VFS_OK ||
+        prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return PROS_ATA_EIO;
+    return PROS_ATA_OK;
+
+fail_remount_file:
+    vfs_file_close(&file);
+fail_remount:
+    prosenjitfs_unmount(&fs);
+    return PROS_ATA_EIO;
+fail_file:
+    vfs_file_close(&file);
+fail_mount:
+    prosenjitfs_unmount(&fs);
+    return PROS_ATA_EIO;
+}
+
+
 static void serial_hex64(uint64_t value) {
     static const char hex[] = "0123456789ABCDEF";
     serial_write("0x");
