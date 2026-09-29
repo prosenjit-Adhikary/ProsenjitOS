@@ -3843,6 +3843,10 @@ int prosenjitfs_selftest(void)
         return -7;
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return -8;
+    /* Allocation reserves the inode; release the reservation after the
+     * allocator contract check so metadata validation sees no orphan inode. */
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return -8001;
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
