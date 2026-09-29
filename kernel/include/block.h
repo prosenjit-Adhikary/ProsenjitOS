@@ -10,12 +10,14 @@
 struct pros_block_device;
 typedef int (*pros_block_read_fn)(struct pros_block_device *, uint64_t, uint32_t, void *);
 typedef int (*pros_block_write_fn)(struct pros_block_device *, uint64_t, uint32_t, const void *);
+typedef int (*pros_block_flush_fn)(struct pros_block_device *);
 
 struct pros_block_device {
     uint32_t sector_size;
     uint64_t sector_count;
     pros_block_read_fn read;
     pros_block_write_fn write;
+    pros_block_flush_fn flush;
     void *private_data;
 };
 
@@ -23,5 +25,7 @@ int block_device_init(struct pros_block_device *, uint32_t, uint64_t,
                       pros_block_read_fn, pros_block_write_fn, void *);
 int block_device_read(struct pros_block_device *, uint64_t, uint32_t, void *);
 int block_device_write(struct pros_block_device *, uint64_t, uint32_t, const void *);
+int block_device_set_flush(struct pros_block_device *, pros_block_flush_fn);
+int block_device_flush(struct pros_block_device *);
 
 #endif
