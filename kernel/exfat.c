@@ -384,13 +384,34 @@ static int exfat_directory_name(const uint8_t *set, uint32_t secondary_count,
     return PROS_EXFAT_OK;
 }
 
+static uint16_t exfat_upcase_ascii(uint16_t ch)
+{
+    if (ch >= (uint16_t)'a' && ch <= (uint16_t)'z')
+        return (uint16_t)(ch - (uint16_t)'a' + (uint16_t)'A');
+    return ch;
+}
+
+static uint16_t exfat_name_hash_ascii(const char *name)
+{
+    uint16_t hash = 0u;
+    for (uint32_t i = 0u; name[i] != 0; ++i) {
+        uint16_t ch = exfat_upcase_ascii((uint16_t)(uint8_t)name[i]);
+        uint8_t bytes[2];
+        bytes[0] = (uint8_t)ch;
+        bytes[1] = (uint8_t)(ch >> 8);
+        for (uint32_t j = 0u; j < 2u; ++j)
+            hash = (uint16_t)(((hash & 1u) ? 0x8000u : 0u) +
+                              (hash >> 1) + bytes[j]);
+    }
+    return hash;
+}
+
 static int exfat_name_equal_ci(const char *a, const char *b)
 {
     uint32_t i = 0u;
     while (a[i] && b[i]) {
-        char ca = a[i], cb = b[i];
-        if (ca >= 'a' && ca <= 'z') ca = (char)(ca - 'a' + 'A');
-        if (cb >= 'a' && cb <= 'z') cb = (char)(cb - 'a' + 'A');
+        uint16_t ca = exfat_upcase_ascii((uint16_t)(uint8_t)a[i]);
+        uint16_t cb = exfat_upcase_ascii((uint16_t)(uint8_t)b[i]);
         if (ca != cb) return 0;
         ++i;
     }
