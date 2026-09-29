@@ -1362,8 +1362,12 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
 
     data = (struct pfs_vnode_data *)old_parent->private_data;
     new_data = (struct pfs_vnode_data *)new_parent->private_data;
-    if (!data->fs || data->fs != new_data->fs ||
-        data->inode_number != new_data->inode_number)
+    if (!data->fs || data->fs != new_data->fs)
+        return PROS_VFS_ENOSYS;
+    /* Cross-directory moves need a larger atomic transaction because both
+     * parent indexes (and, for directories, parent metadata) may change.
+     * Keep this first rename implementation strictly same-directory. */
+    if (data->inode_number != new_data->inode_number)
         return PROS_VFS_ENOSYS;
     if (old_parent->mount->read_only || !old_parent->mount->active)
         return PROS_VFS_EPERM;
