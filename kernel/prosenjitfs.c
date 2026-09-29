@@ -2995,6 +2995,132 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
 
+    /*
+     * Journal recovery regression:
+     *  1. A fully committed redo record must replay on the next mount.
+     *  2. A header/images without a commit record must be discarded.
+     *  3. A committed record with a bad checksum must fail closed.
+     */
+    {
+        uint64_t recovery_block;
+        uint64_t journal_start = fs.sb.journal_start;
+        uint32_t journal_blocks = fs.sb.journal_blocks;
+        uint8_t header[512], image[512], commit[512], verify[512];
+        struct pros_prosenjitfs_journal_header h;
+        struct pros_prosenjitfs_journal_commit jc;
+        uint32_t expected;
+
+        if (fs.sb.block_size != 512u ||
+            prosenjitfs_alloc_blocks(&fs, 1u, &recovery_block) != PROSENJITFS_OK)
+            return -12;
+
+        pfs_zero(header, sizeof(header));
+        pfs_zero(image, sizeof(image));
+        pfs_zero(commit, sizeof(commit));
+        for (uint32_t i = 0u; i < sizeof(image); ++i)
+            image[i] = (uint8_t)(0xC3u ^ (uint8_t)i);
+
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0x1122334455667788ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
+        expected = pfs_journal_checksum(header, image, 512u, 1u, commit);
+        jc.checksum = expected;
+        pfs_copy(commit, &jc, sizeof(jc));
+
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
+            return -12;
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != image[i])
+                return -12;
+
+        /* Torn transaction: header/images without a commit must not apply. */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0x8877665544332211ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        for (uint32_t i = 0u; i < sizeof(image); ++i)
+            image[i] = (uint8_t)(0x5Au ^ (uint8_t)i);
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
+            return -12;
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
+                return -12;
+
+        /* Corrupt commit checksum must fail closed. */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(commit, sizeof(commit));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0xCAFEBABE12345678ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        for (uint32_t i = 0u; i < sizeof(image); ++i)
+            image[i] = (uint8_t)(0xE1u ^ (uint8_t)i);
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
+        jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit) ^ 1u;
+        pfs_copy(commit, &jc, sizeof(jc));
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -12;
+
+        pfs_zero(header, sizeof(header));
+        for (uint32_t i = 0u; i < journal_blocks; ++i)
+            if (pfs_write_block(&device, journal_start + i, header) != PROSENJITFS_OK)
+                return -12;
+        if (pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
+            return -12;
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
+                return -12;
+        if (prosenjitfs_free_blocks(&fs, recovery_block, 1u) != PROSENJITFS_OK)
+            return -12;
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
