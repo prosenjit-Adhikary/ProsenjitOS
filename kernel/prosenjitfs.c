@@ -3601,15 +3601,21 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(moved) != PROS_VFS_OK)
             return -7009;
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_FILE ||
-            vfs_vnode_put(moved) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/dst/new", "/new") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -7010;
+        if (vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
             moved->type != PROS_VFS_NODE_FILE ||
             vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -7010;
+            return -7011;
+        {
+            int rename_rc = vfs_path_rename(&fs.mount, "/dst/new", "/new");
+            if (rename_rc != PROS_VFS_OK)
+                return -7100 + rename_rc;
+        }
+        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -7013;
     }
     {
         static uint8_t payload[8704];
