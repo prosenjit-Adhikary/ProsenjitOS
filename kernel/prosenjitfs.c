@@ -1217,7 +1217,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     if (prev_image) kfree(prev_image);
     kfree(source_image); kfree(old_index_image);
     kfree(new_index_image); kfree(inode_image);
-    return rc == PROSENJITFS_OK ? PROS_VFS_OK : PROS_VFS_EIO;
+    return rc == PROSENJITFS_OK ? PROS_VFS_OK : -6500 + rc;
 }
 
 static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
