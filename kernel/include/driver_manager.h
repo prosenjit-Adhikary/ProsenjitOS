@@ -11,4 +11,4 @@ int driver_manager_register_device(struct pros_driver_manager *,struct pros_devi
 int driver_manager_probe_device(struct pros_driver_manager *,struct pros_device *);
 int driver_manager_probe_all(struct pros_driver_manager *);
 int driver_manager_remove_device(struct pros_driver_manager *,struct pros_device *);
-#endif
+int driver_manager_selftest(void);\n#endif
