@@ -73,6 +73,7 @@ jobs:
           require_log "ProsenjitOS: FAT32 self-test passed"
           require_log "ProsenjitOS: exFAT self-test passed"
           require_log "ProsenjitOS: exFAT Up-case parser self-test passed"
+          require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed"
           require_log "ProsenjitOS: exFAT Up-case/Unicode VFS self-test passed"
           require_log "ProsenjitOS: NTFS directory path traversal test passed"
           require_log "ProsenjitOS: NTFS UpCase case-folding test passed"
