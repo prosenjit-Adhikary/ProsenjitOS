@@ -3602,8 +3602,11 @@ int prosenjitfs_selftest(void)
             return -7009;
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return -7010;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -7012;
+        {
+            int remount_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (remount_rc != PROSENJITFS_OK)
+                return -7200 - pfs_last_mount_failure_stage;
+        }
         if (vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
             moved->type != PROS_VFS_NODE_FILE ||
             vfs_vnode_put(moved) != PROS_VFS_OK)
