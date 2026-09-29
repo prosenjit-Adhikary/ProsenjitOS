@@ -3507,10 +3507,34 @@ int prosenjitfs_selftest(void)
             vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
             moved->type != PROS_VFS_NODE_DIRECTORY ||
             vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
+            vfs_file_open(&fs.mount, "/collision", PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, (struct pros_vfs_file *)&file) !=
+                PROS_VFS_OK ||
+            vfs_file_close((struct pros_vfs_file *)&file) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/new", "/collision") != PROS_VFS_EEXIST ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/collision", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/new", "/dst/new") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
-            moved->type != PROS_VFS_NODE_DIRECTORY ||
+            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/dst/new", "/new") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
             vfs_vnode_put(moved) != PROS_VFS_OK)
             return -8;
     }
