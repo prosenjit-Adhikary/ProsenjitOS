@@ -442,7 +442,7 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
                                   uint64_t inode_number, uint8_t allocate);
 static int pfs_tx_reset(struct pros_prosenjitfs *fs);
 static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
-                      const uint8_t *image);
+                      const void *image);
 static int pfs_tx_commit(struct pros_prosenjitfs *fs);
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
@@ -570,7 +570,6 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     uint32_t inode_offset;
     uint32_t name_length;
     uint32_t dir_bucket;
-    uint32_t slot;
     int rc;
 
     if (!parent || !name || !result || !parent->private_data ||
