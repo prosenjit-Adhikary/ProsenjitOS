@@ -486,7 +486,7 @@ static int exfat_directory_entry(const struct pros_exfat *fs,
     entry_count = secondary_count + 1u;
     bytes = entry_count * 32u;
     if (bytes > set_capacity)
-        return PROS_EXFAT_EOVERFLOW;
+        return PROS_EXFAT_EINVAL;
 
     if (exfat_directory_read(fs, directory_cluster, offset,
                              set, bytes) != PROS_EXFAT_OK)
