@@ -2006,25 +2006,25 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         return PROS_VFS_EINVAL;
     if (prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode) !=
             PROSENJITFS_OK || parent_inode.type != PROSENJITFS_INODE_DIR)
-        return PROS_VFS_EIO;
+        return -6601;
     if (pfs_read_dir_index(data->fs, &parent_inode, &parent_index) !=
             PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+        return -6602;
     rc = pfs_find_dir_entry_location(data->fs, &parent_inode, name,
                                       &parent_index, &entry, &entry_lba, 0);
     if (rc == PROSENJITFS_ENOENT)
         return PROS_VFS_ENOENT;
     if (rc != PROSENJITFS_OK || entry.inode == data->inode_number)
-        return PROS_VFS_EIO;
+        return -6603;
     if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
             PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+        return -6604;
     if (child_inode.type == PROSENJITFS_INODE_DIR) {
         struct pros_prosenjitfs_dir_index child_index;
         uint8_t empty = 1u;
         if (pfs_read_dir_index(data->fs, &child_inode, &child_index) !=
             PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+            return -6605;
         for (uint32_t i = 0u; i < PROSENJITFS_DIR_BUCKETS; ++i) {
             if (child_index.heads[i] != 0u) {
                 empty = 0u;
@@ -2036,7 +2036,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         child_is_dir = 1u;
         child_dir_index = child_inode.dir_index;
     } else if (child_inode.type != PROSENJITFS_INODE_FILE) {
-        return PROS_VFS_EIO;
+        return -6606;
     }
 
     /* First make the file empty. This keeps the unlink transaction bounded. */
@@ -2044,7 +2044,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         struct pros_vfs_vnode *child = 0;
         rc = pfs_make_vnode(data->fs, entry.inode, parent, &child);
         if (rc != PROS_VFS_OK || !child)
-            return PROS_VFS_EIO;
+            return -6607;
         rc = pfs_vnode_truncate(child, 0u);
         vfs_vnode_put(child);
         if (rc != PROS_VFS_OK)
@@ -2052,7 +2052,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
                 PROSENJITFS_OK || child_inode.size != 0u ||
                 child_inode.extent_head != 0u)
-            return PROS_VFS_EIO;
+            return -6608;
     }
 
     block_size = data->fs->sb.block_size;
@@ -2063,7 +2063,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         if (parent_image) kfree(parent_image);
         if (entry_image) kfree(entry_image);
         if (inode_image) kfree(inode_image);
-        return PROS_VFS_EIO;
+        return -6609;
     }
     if (pfs_read_block(data->fs->mount.device, parent_inode.dir_index,
                        parent_image) != PROSENJITFS_OK ||
@@ -2442,12 +2442,12 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         int rc;
         if (prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode) !=
             PROSENJITFS_OK || dir_inode.type != PROSENJITFS_INODE_DIR)
-            return PROS_VFS_EIO;
+            return -6610;
         rc = pfs_find_dir_entry(data->fs, &dir_inode, name, &disk_entry);
         if (rc == PROSENJITFS_ENOENT)
             return PROS_VFS_ENOENT;
         if (rc != PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+            return -6611;
         return pfs_make_vnode(data->fs, disk_entry.inode, parent, result);
     }
 }
@@ -2482,18 +2482,18 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         data = (struct pfs_vnode_data *)directory->private_data;
         if (prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode) !=
             PROSENJITFS_OK || dir_inode.type != PROSENJITFS_INODE_DIR)
-            return PROS_VFS_EIO;
+            return -6612;
         {
             int dir_rc = pfs_dir_entry_by_ordinal(data->fs, &dir_inode,
                                                   ordinal, &disk_entry);
             if (dir_rc == PROSENJITFS_ENOENT)
                 return PROS_VFS_ENOENT;
             if (dir_rc != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -6613;
         }
         if (prosenjitfs_read_inode(data->fs, disk_entry.inode, &child_inode) !=
             PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+            return -6614;
         for (uint32_t i = 0u; i < disk_entry.name_length; ++i)
             entry->name[i] = (char)disk_entry.name[i];
         entry->name[disk_entry.name_length] = '\0';
