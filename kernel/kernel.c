@@ -1197,9 +1197,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: exFAT Up-case parser self-test passed\n");
     serial_write("ProsenjitOS: exFAT VFS self-test passed\n");
-    if (prosenjitfs_selftest() != PROSENJITFS_OK) {
-        serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int pfs_selftest_rc = prosenjitfs_selftest();
+        if (pfs_selftest_rc != PROSENJITFS_OK) {
+            serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)pfs_selftest_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
 
