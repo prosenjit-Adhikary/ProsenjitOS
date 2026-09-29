@@ -2274,8 +2274,57 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -12;
 
-        if (prosenjitfs_read_inode(&fs, 1u, &inode) == PROSENJITFS_OK &&
-            inode.allocated_bytes != fs.sb.block_size)
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+            inode.size != 100u ||
+            inode.allocated_bytes != fs.sb.block_size ||
+            inode.extent_head == 0u)
+            return -12;
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
+
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12;
+    {
+        struct pros_vfs_file file;
+        uint8_t read_data[100];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -12;
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            uint8_t expected = i < 37u
+                ? (uint8_t)(0xA0u + i)
+                : (uint8_t)((i * 13u) ^ 0x5Au);
+            if (read_data[i] != expected) {
+                prosenjitfs_unmount(&fs);
+                return -12;
+            }
+        }
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_truncate(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return -12;
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12;
+    {
+        struct pros_vfs_file file;
+        uint8_t read_data[1];
+        uint32_t done = 99u;
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != 0u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
             return -12;
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
