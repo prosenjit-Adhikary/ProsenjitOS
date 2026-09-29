@@ -1121,6 +1121,9 @@ int exfat_selftest(void)
             unicode_set[2] = (uint8_t)checksum;
             unicode_set[3] = (uint8_t)(checksum >> 8);
         }
+        if (exfat_directory_checksum(unicode_set, 3u) !=
+                exfat_le16(unicode_set + 2u))
+            return -194;
 
         {
             int unicode_rc = exfat_find(&fs, 2u, "CAF\xC3\x89.TXT", &found);
