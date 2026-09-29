@@ -1984,6 +1984,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     struct pros_prosenjitfs_dir_index parent_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint64_t entry_lba = 0u;
+    uint64_t found_previous = 0u;
     uint64_t child_dir_index = 0u;
     uint8_t child_is_dir = 0u;
     uint64_t byte_offset;
@@ -2011,7 +2012,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
             PROSENJITFS_OK)
         return -6602;
     rc = pfs_find_dir_entry_location(data->fs, &parent_inode, name,
-                                      &parent_index, &entry, &entry_lba, 0);
+                                      &parent_index, &entry, &entry_lba,
+                                      &found_previous);
     if (rc == PROSENJITFS_ENOENT)
         return PROS_VFS_ENOENT;
     if (rc != PROSENJITFS_OK || entry.inode == data->inode_number)
