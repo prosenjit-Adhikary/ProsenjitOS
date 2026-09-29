@@ -839,8 +839,10 @@ int exfat_selftest(void)
 
     if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
-    if (exfat_mount(&fs, &device) != PROS_EXFAT_OK)
-        return -1;
+    { int mount_status = exfat_mount(&fs, &device);
+      if (mount_status != PROS_EXFAT_OK)
+          return -1000 + mount_status;
+    }
     if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 25u)
         return -102;
 
