@@ -247,7 +247,7 @@ static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
 {
     (void)device;
-    if (!buffer || lba >= 4u || count > 4u - lba)
+    if (!buffer || lba >= 6u || count > 6u - lba)
         return PROS_BLOCK_EINVAL;
     for (uint32_t i = 0; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
@@ -301,11 +301,7 @@ int partition_selftest(void)
     if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
         return -1;
 
-    /*
-     * GPT regression: exercise an entry that crosses a sector boundary.
-     * A 256-byte entry starts at offset 256 for the second entry, so its
-     * tail crosses a sector boundary and must be read as a two-sector span.
-     */
+    /* GPT regression: a 256-byte entry beginning at offset 500 spans 3 sectors. */
     static uint8_t gpt_media[6u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
         gpt_media[i] = 0u;
@@ -359,11 +355,11 @@ int partition_selftest(void)
         return -4;
 
     /* Reject a partition extent outside the GPT usable-LBA range. */
-    partition_test_media[2u * 512u + 532u] = 4u;
+    partition_test_media[2u * 512u + 532u] = 3u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
         return -5;
-    partition_test_media[2u * 512u + 532u] = 3u;
+    partition_test_media[2u * 512u + 532u] = 4u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
