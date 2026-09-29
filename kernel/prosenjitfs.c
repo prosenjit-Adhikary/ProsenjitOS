@@ -428,6 +428,11 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result);
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name);
+static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
+                            const char *old_name,
+                            struct pros_vfs_vnode *new_parent,
+                            const char *new_name);
 static uint32_t pfs_name_hash(const uint8_t *name, uint32_t length);
 static int pfs_utf8_name_valid(const char *name, uint32_t *length_out);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
@@ -457,6 +462,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .create = pfs_vnode_create,
     .mkdir = pfs_vnode_mkdir,
     .truncate = pfs_vnode_truncate,
+    .unlink = pfs_vnode_unlink,
+    .rename = pfs_vnode_rename,
     .release = pfs_vnode_release
 };
 
@@ -837,6 +844,469 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 
     file->vnode->size = inode.size;
     return (int)done;
+}
+
+static int pfs_find_dir_entry_location(
+    const struct pros_prosenjitfs *fs,
+    const struct pros_prosenjitfs_inode *dir_inode,
+    const char *name,
+    struct pros_prosenjitfs_dir_index *index,
+    struct pros_prosenjitfs_dir_entry *found,
+    uint64_t *entry_lba,
+    uint64_t *previous_lba)
+{
+    uint32_t name_length;
+    uint32_t hash;
+    uint64_t current;
+    uint64_t previous = 0u;
+    uint64_t steps = 0u;
+
+    if (!fs || !dir_inode || !name || !index || !found ||
+        !entry_lba || !previous_lba)
+        return PROSENJITFS_EINVAL;
+    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
+        return PROSENJITFS_EINVAL;
+    if (pfs_read_dir_index(fs, dir_inode, index) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+    hash = pfs_name_hash((const uint8_t *)name, name_length);
+    current = index->heads[hash % PROSENJITFS_DIR_BUCKETS];
+
+    while (current != 0u) {
+        struct pros_prosenjitfs_dir_entry entry;
+        uint32_t equal = 1u;
+        if (++steps > fs->sb.total_blocks)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        if (entry.name_hash == hash && entry.name_length == name_length) {
+            for (uint32_t i = 0u; i < name_length; ++i)
+                if (entry.name[i] != (uint8_t)name[i]) {
+                    equal = 0u;
+                    break;
+                }
+            if (equal) {
+                pfs_copy(found, &entry, sizeof(*found));
+                *entry_lba = current;
+                *previous_lba = previous;
+                return PROSENJITFS_OK;
+            }
+        }
+        previous = current;
+        current = entry.next;
+    }
+    return PROSENJITFS_ENOENT;
+}
+
+static int pfs_directory_would_cycle(const struct pros_prosenjitfs *fs,
+                                     uint64_t child_inode,
+                                     uint64_t new_parent_inode)
+{
+    uint64_t current = new_parent_inode;
+    uint64_t guard = 0u;
+
+    if (!fs || child_inode >= fs->sb.inode_count ||
+        new_parent_inode >= fs->sb.inode_count)
+        return PROSENJITFS_EINVAL;
+    while (guard++ < fs->sb.inode_count) {
+        struct pros_prosenjitfs_inode inode;
+        if (current == child_inode)
+            return PROSENJITFS_EEXIST;
+        if (current == fs->sb.root_inode)
+            return PROSENJITFS_OK;
+        if (prosenjitfs_read_inode(fs, current, &inode) != PROSENJITFS_OK ||
+            inode.type != PROSENJITFS_INODE_DIR ||
+            inode.parent_inode >= fs->sb.inode_count ||
+            inode.parent_inode == current)
+            return PROSENJITFS_ECORRUPT;
+        current = inode.parent_inode;
+    }
+    return PROSENJITFS_ECORRUPT;
+}
+
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode parent_inode;
+    struct pros_prosenjitfs_inode child_inode;
+    struct pros_prosenjitfs_dir_index index;
+    struct pros_prosenjitfs_dir_entry entry;
+    uint64_t entry_lba;
+    uint64_t previous_lba;
+    uint8_t *index_image = 0;
+    uint8_t *previous_image = 0;
+    uint8_t *inode_image = 0;
+    uint64_t inode_byte_offset;
+    uint64_t inode_lba;
+    uint32_t inode_offset;
+    int rc;
+
+    if (!parent || !name || !parent->private_data ||
+        parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)parent->private_data;
+    if (!data->fs || data->fs->read_only)
+        return PROS_VFS_EPERM;
+    if (prosenjitfs_read_inode(data->fs, data->inode_number,
+                               &parent_inode) != PROSENJITFS_OK ||
+        parent_inode.type != PROSENJITFS_INODE_DIR)
+        return PROS_VFS_EIO;
+    rc = pfs_find_dir_entry_location(data->fs, &parent_inode, name, &index,
+                                     &entry, &entry_lba, &previous_lba);
+    if (rc == PROSENJITFS_ENOENT)
+        return PROS_VFS_ENOENT;
+    if (rc != PROSENJITFS_OK)
+        return PROS_VFS_EIO;
+    if (entry.inode == data->inode_number)
+        return PROS_VFS_EPERM;
+    if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
+            PROSENJITFS_OK ||
+        child_inode.type == PROSENJITFS_INODE_FREE)
+        return PROS_VFS_EIO;
+
+    if (child_inode.type == PROSENJITFS_INODE_DIR) {
+        uint64_t ordinal = 0u;
+        struct pros_prosenjitfs_dir_entry child_entry;
+        if (pfs_dir_entry_by_ordinal(data->fs, &child_inode, ordinal,
+                                     &child_entry) == PROSENJITFS_OK)
+            return PROS_VFS_ENOTEMPTY;
+    } else if (child_inode.type == PROSENJITFS_INODE_FILE) {
+        if (child_inode.size != 0u || child_inode.extent_head != 0u) {
+            struct pros_vfs_vnode *child = 0;
+            if (pfs_make_vnode(data->fs, entry.inode, parent, &child) !=
+                    PROS_VFS_OK)
+                return PROS_VFS_EIO;
+            rc = pfs_vnode_truncate(child, 0u);
+            vfs_vnode_put(child);
+            if (rc != PROS_VFS_OK)
+                return rc;
+            if (prosenjitfs_read_inode(data->fs, entry.inode,
+                                        &child_inode) != PROSENJITFS_OK)
+                return PROS_VFS_EIO;
+        }
+    } else {
+        return PROS_VFS_ENOSYS;
+    }
+
+    index_image = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    inode_image = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    if (!index_image || !inode_image) {
+        if (index_image) kfree(index_image);
+        if (inode_image) kfree(inode_image);
+        return PROS_VFS_EIO;
+    }
+    if (pfs_read_block(data->fs->mount.device, parent_inode.dir_index,
+                       index_image) != PROSENJITFS_OK) {
+        kfree(index_image); kfree(inode_image);
+        return PROS_VFS_EIO;
+    }
+
+    if (previous_lba == 0u) {
+        struct pros_prosenjitfs_dir_index *idx =
+            (struct pros_prosenjitfs_dir_index *)index_image;
+        idx->heads[entry.name_hash % PROSENJITFS_DIR_BUCKETS] = entry.next;
+        idx->checksum = 0u;
+        idx->checksum = pfs_crc_with_zero32(
+            index_image, sizeof(*idx),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum));
+    } else {
+        previous_image = (uint8_t *)kmalloc(data->fs->sb.block_size);
+        if (!previous_image ||
+            pfs_read_block(data->fs->mount.device, previous_lba,
+                           previous_image) != PROSENJITFS_OK) {
+            if (previous_image) kfree(previous_image);
+            kfree(index_image); kfree(inode_image);
+            return PROS_VFS_EIO;
+        }
+        {
+            struct pros_prosenjitfs_dir_entry *prev =
+                (struct pros_prosenjitfs_dir_entry *)previous_image;
+            prev->next = entry.next;
+            prev->checksum = 0u;
+            prev->checksum = pfs_crc_with_zero32(
+                previous_image, sizeof(*prev),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                                   checksum));
+        }
+    }
+
+    pfs_zero(&child_inode, sizeof(child_inode));
+    inode_byte_offset = entry.inode * PROSENJITFS_INODE_SIZE;
+    inode_lba = data->fs->sb.inode_table_start +
+                inode_byte_offset / data->fs->sb.block_size;
+    inode_offset = (uint32_t)(inode_byte_offset % data->fs->sb.block_size);
+    if (pfs_read_block(data->fs->mount.device, inode_lba, inode_image) !=
+        PROSENJITFS_OK) {
+        if (previous_image) kfree(previous_image);
+        kfree(index_image); kfree(inode_image);
+        return PROS_VFS_EIO;
+    }
+    pfs_copy(inode_image + inode_offset, &child_inode, sizeof(child_inode));
+    pfs_put32(inode_image + inode_offset +
+              offsetof(struct pros_prosenjitfs_inode, checksum),
+              pfs_crc_with_zero32(
+                  inode_image + inode_offset, sizeof(child_inode),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_inode,
+                                     checksum)));
+
+    rc = pfs_tx_reset(data->fs);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_allocator_stage(data->fs, entry_lba, 1u, 0u);
+    if (rc == PROSENJITFS_OK && child_inode.type == PROSENJITFS_INODE_DIR)
+        rc = pfs_allocator_stage(data->fs, child_inode.dir_index, 1u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_inode_bitmap_stage(data->fs, entry.inode, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(data->fs, parent_inode.dir_index, index_image);
+    if (rc == PROSENJITFS_OK && previous_image)
+        rc = pfs_tx_add(data->fs, previous_lba, previous_image);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(data->fs, inode_lba, inode_image);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_commit(data->fs);
+
+    if (previous_image) kfree(previous_image);
+    kfree(index_image);
+    kfree(inode_image);
+    return rc == PROSENJITFS_OK ? PROS_VFS_OK : PROS_VFS_EIO;
+}
+
+static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
+                            const char *old_name,
+                            struct pros_vfs_vnode *new_parent,
+                            const char *new_name)
+{
+    struct pfs_vnode_data *old_data;
+    struct pfs_vnode_data *new_data;
+    struct pros_prosenjitfs_inode old_dir;
+    struct pros_prosenjitfs_inode new_dir;
+    struct pros_prosenjitfs_inode child;
+    struct pros_prosenjitfs_dir_index old_index;
+    struct pros_prosenjitfs_dir_index new_index;
+    struct pros_prosenjitfs_dir_entry source;
+    struct pros_prosenjitfs_dir_entry target;
+    uint64_t source_lba, source_prev;
+    uint64_t target_lba, target_prev;
+    uint32_t old_hash, new_hash, old_len, new_len;
+    uint8_t *source_image = 0;
+    uint8_t *old_index_image = 0;
+    uint8_t *new_index_image = 0;
+    uint8_t *prev_image = 0;
+    uint8_t *inode_image = 0;
+    uint64_t inode_lba = 0u;
+    uint32_t inode_offset = 0u;
+    int rc;
+
+    if (!old_parent || !new_parent || !old_name || !new_name ||
+        !old_parent->private_data || !new_parent->private_data ||
+        old_parent->type != PROS_VFS_NODE_DIRECTORY ||
+        new_parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    old_data = (struct pfs_vnode_data *)old_parent->private_data;
+    new_data = (struct pfs_vnode_data *)new_parent->private_data;
+    if (!old_data->fs || old_data->fs != new_data->fs ||
+        old_data->fs->read_only)
+        return PROS_VFS_EPERM;
+    if (pfs_utf8_name_valid(old_name, &old_len) != PROSENJITFS_OK ||
+        pfs_utf8_name_valid(new_name, &new_len) != PROSENJITFS_OK)
+        return PROS_VFS_EINVAL;
+    if (pfs_find_dir_entry_location(old_data->fs, &old_dir, old_name,
+                                    &old_index, &source, &source_lba,
+                                    &source_prev) != PROSENJITFS_OK) {
+        if (prosenjitfs_read_inode(old_data->fs, old_data->inode_number,
+                                   &old_dir) != PROSENJITFS_OK)
+            return PROS_VFS_EIO;
+        rc = pfs_find_dir_entry_location(old_data->fs, &old_dir, old_name,
+                                         &old_index, &source, &source_lba,
+                                         &source_prev);
+        if (rc != PROSENJITFS_OK)
+            return rc == PROSENJITFS_ENOENT ? PROS_VFS_ENOENT : PROS_VFS_EIO;
+    }
+    if (prosenjitfs_read_inode(old_data->fs, new_data->inode_number,
+                               &new_dir) != PROSENJITFS_OK)
+        return PROS_VFS_EIO;
+    rc = pfs_find_dir_entry_location(old_data->fs, &new_dir, new_name,
+                                     &new_index, &target, &target_lba,
+                                     &target_prev);
+    if (rc == PROSENJITFS_OK) {
+        if (target.inode == source.inode &&
+            old_data->inode_number == new_data->inode_number &&
+            old_len == new_len && old_hash == new_hash)
+            return PROS_VFS_OK;
+        return PROS_VFS_EEXIST;
+    }
+    if (rc != PROSENJITFS_ENOENT)
+        return PROS_VFS_EIO;
+
+    old_hash = pfs_name_hash((const uint8_t *)old_name, old_len);
+    new_hash = pfs_name_hash((const uint8_t *)new_name, new_len);
+    if (source.inode >= old_data->fs->sb.inode_count)
+        return PROS_VFS_EIO;
+    if (prosenjitfs_read_inode(old_data->fs, source.inode, &child) !=
+            PROSENJITFS_OK)
+        return PROS_VFS_EIO;
+    if (child.type == PROSENJITFS_INODE_DIR &&
+        old_data->inode_number != new_data->inode_number) {
+        rc = pfs_directory_would_cycle(old_data->fs, source.inode,
+                                       new_data->inode_number);
+        if (rc != PROSENJITFS_OK)
+            return rc == PROSENJITFS_EEXIST ? PROS_VFS_ELOOP :
+                                              PROS_VFS_EIO;
+    }
+
+    source_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
+    old_index_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
+    new_index_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
+    inode_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
+    if (!source_image || !old_index_image || !new_index_image || !inode_image) {
+        if (source_image) kfree(source_image);
+        if (old_index_image) kfree(old_index_image);
+        if (new_index_image) kfree(new_index_image);
+        if (inode_image) kfree(inode_image);
+        return PROS_VFS_EIO;
+    }
+    if (pfs_read_block(old_data->fs->mount.device, source_lba, source_image) !=
+            PROSENJITFS_OK ||
+        pfs_read_block(old_data->fs->mount.device, old_dir.dir_index,
+                       old_index_image) != PROSENJITFS_OK ||
+        pfs_read_block(old_data->fs->mount.device, new_dir.dir_index,
+                       new_index_image) != PROSENJITFS_OK) {
+        kfree(source_image); kfree(old_index_image);
+        kfree(new_index_image); kfree(inode_image);
+        return PROS_VFS_EIO;
+    }
+
+    {
+        struct pros_prosenjitfs_dir_entry *src =
+            (struct pros_prosenjitfs_dir_entry *)source_image;
+        struct pros_prosenjitfs_dir_index *oi =
+            (struct pros_prosenjitfs_dir_index *)old_index_image;
+        struct pros_prosenjitfs_dir_index *ni =
+            (struct pros_prosenjitfs_dir_index *)new_index_image;
+        src->name_hash = new_hash;
+        src->name_length = (uint16_t)new_len;
+        pfs_zero(src->name, sizeof(src->name));
+        pfs_copy(src->name, new_name, new_len);
+
+        if (old_data->inode_number == new_data->inode_number &&
+            old_hash != new_hash) {
+            if (source_prev == 0u)
+                oi->heads[old_hash % PROSENJITFS_DIR_BUCKETS] = source.next;
+            else {
+                prev_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
+                if (!prev_image ||
+                    pfs_read_block(old_data->fs->mount.device, source_prev,
+                                   prev_image) != PROSENJITFS_OK) {
+                    if (prev_image) kfree(prev_image);
+                    kfree(source_image); kfree(old_index_image);
+                    kfree(new_index_image); kfree(inode_image);
+                    return PROS_VFS_EIO;
+                }
+                {
+                    struct pros_prosenjitfs_dir_entry *prev =
+                        (struct pros_prosenjitfs_dir_entry *)prev_image;
+                    prev->next = source.next;
+                    prev->checksum = 0u;
+                    prev->checksum = pfs_crc_with_zero32(
+                        prev_image, sizeof(*prev),
+                        (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                                           checksum));
+                }
+            }
+            src->next = ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS];
+            ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS] = source_lba;
+        } else if (old_data->inode_number != new_data->inode_number) {
+            if (source_prev == 0u)
+                oi->heads[old_hash % PROSENJITFS_DIR_BUCKETS] = source.next;
+            else {
+                prev_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
+                if (!prev_image ||
+                    pfs_read_block(old_data->fs->mount.device, source_prev,
+                                   prev_image) != PROSENJITFS_OK) {
+                    if (prev_image) kfree(prev_image);
+                    kfree(source_image); kfree(old_index_image);
+                    kfree(new_index_image); kfree(inode_image);
+                    return PROS_VFS_EIO;
+                }
+                {
+                    struct pros_prosenjitfs_dir_entry *prev =
+                        (struct pros_prosenjitfs_dir_entry *)prev_image;
+                    prev->next = source.next;
+                    prev->checksum = 0u;
+                    prev->checksum = pfs_crc_with_zero32(
+                        prev_image, sizeof(*prev),
+                        (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                                           checksum));
+                }
+            }
+            src->next = ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS];
+            ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS] = source_lba;
+            if (child.type == PROSENJITFS_INODE_DIR) {
+                child.parent_inode = new_data->inode_number;
+                inode_lba = old_data->fs->sb.inode_table_start +
+                            (source.inode * PROSENJITFS_INODE_SIZE) /
+                            old_data->fs->sb.block_size;
+                inode_offset = (uint32_t)((source.inode *
+                                           PROSENJITFS_INODE_SIZE) %
+                                          old_data->fs->sb.block_size);
+                if (pfs_read_block(old_data->fs->mount.device, inode_lba,
+                                   inode_image) != PROSENJITFS_OK) {
+                    if (prev_image) kfree(prev_image);
+                    kfree(source_image); kfree(old_index_image);
+                    kfree(new_index_image); kfree(inode_image);
+                    return PROS_VFS_EIO;
+                }
+                pfs_copy(inode_image + inode_offset, &child,
+                         sizeof(child));
+                pfs_put32(inode_image + inode_offset +
+                          offsetof(struct pros_prosenjitfs_inode, checksum),
+                          pfs_crc_with_zero32(
+                              inode_image + inode_offset, sizeof(child),
+                              (uint32_t)offsetof(
+                                  struct pros_prosenjitfs_inode, checksum)));
+            }
+        }
+
+        oi->checksum = 0u;
+        oi->checksum = pfs_crc_with_zero32(
+            old_index_image, sizeof(*oi),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum));
+        if (old_data->inode_number == new_data->inode_number) {
+            ni->checksum = 0u;
+            ni->checksum = pfs_crc_with_zero32(
+                new_index_image, sizeof(*ni),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_index,
+                                   checksum));
+        } else {
+            ni->checksum = 0u;
+            ni->checksum = pfs_crc_with_zero32(
+                new_index_image, sizeof(*ni),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_index,
+                                   checksum));
+        }
+        src->checksum = 0u;
+        src->checksum = pfs_crc_with_zero32(
+            source_image, sizeof(*src),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
+    }
+
+    rc = pfs_tx_reset(old_data->fs);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(old_data->fs, old_dir.dir_index, old_index_image);
+    if (rc == PROSENJITFS_OK && old_data->inode_number != new_data->inode_number)
+        rc = pfs_tx_add(old_data->fs, new_dir.dir_index, new_index_image);
+    if (rc == PROSENJITFS_OK && prev_image)
+        rc = pfs_tx_add(old_data->fs, source_prev, prev_image);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(old_data->fs, source_lba, source_image);
+    if (rc == PROSENJITFS_OK && inode_lba != 0u)
+        rc = pfs_tx_add(old_data->fs, inode_lba, inode_image);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_commit(old_data->fs);
+
+    if (prev_image) kfree(prev_image);
+    kfree(source_image); kfree(old_index_image);
+    kfree(new_index_image); kfree(inode_image);
+    return rc == PROSENJITFS_OK ? PROS_VFS_OK : PROS_VFS_EIO;
 }
 
 static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
