@@ -323,6 +323,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
 
+    {
+        int pfs_bootstrap_rc = prosenjitfs_selftest();
+        if (pfs_bootstrap_rc != PROSENJITFS_OK) {
+            serial_write("ProsenjitOS: ERROR bootstrap ProsenjitFS self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)pfs_bootstrap_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: bootstrap ProsenjitFS self-test passed\n");
+
     struct pros_process init_process;
     if (process_manager_init() != 0 ||
         process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
