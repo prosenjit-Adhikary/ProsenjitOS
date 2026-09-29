@@ -3745,6 +3745,10 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
             node->used = 0u;
             return PROS_VFS_EIO;
         }
+        if (vfs_vnode_get(&node->vnode) != PROS_VFS_OK) {
+            node->used = 0u;
+            return PROS_VFS_EIO;
+        }
         *result = &node->vnode;
         return PROS_VFS_OK;
     }
@@ -3848,6 +3852,10 @@ static int ntfs_vfs_create(struct pros_vfs_vnode *parent, const char *name,
     if (vfs_vnode_init(&node->vnode, &fs->mount, parent,
                        PROS_VFS_NODE_FILE, &ntfs_vfs_vnode_ops,
                        &ntfs_vfs_file_ops, node, 0u) != PROS_VFS_OK) {
+        node->used = 0u;
+        return PROS_VFS_EIO;
+    }
+    if (vfs_vnode_get(&node->vnode) != PROS_VFS_OK) {
         node->used = 0u;
         return PROS_VFS_EIO;
     }
