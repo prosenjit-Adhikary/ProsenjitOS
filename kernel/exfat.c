@@ -365,31 +365,83 @@ static uint16_t exfat_directory_checksum(const uint8_t *set,
 }
 
 static int exfat_directory_name(const uint8_t *set, uint32_t secondary_count,
-                                uint8_t name_length, char *name, uint32_t capacity)
+                                uint8_t name_length, char *name,
+                                uint16_t *unicode_name, uint32_t capacity,
+                                uint16_t *unicode_length)
 {
     uint32_t out = 0u;
     uint32_t name_entries = 0u;
+    uint32_t units = 0u;
 
-    if (name_length == 0u || capacity <= (uint32_t)name_length)
+    if (name_length == 0u || capacity <= 1u || !unicode_name ||
+        !unicode_length)
         return PROS_EXFAT_EINVAL;
 
     for (uint32_t i = 1u; i <= secondary_count; ++i) {
         const uint8_t *entry = set + i * 32u;
-        if (entry[0] != 0xC1u) continue;
+        if (entry[0] != 0xC1u)
+            continue;
         ++name_entries;
-        for (uint32_t j = 0u; j < 15u && out < name_length; ++j) {
+        for (uint32_t j = 0u; j < 15u && units < name_length; ++j) {
             uint16_t ch = exfat_le16(entry + 2u + j * 2u);
             if (ch == 0u)
                 return PROS_EXFAT_ECORRUPT;
-            if (ch > 0x7Fu)
-                return PROS_EXFAT_ENOTSUP;
-            name[out++] = (char)ch;
+            if (units >= capacity - 1u)
+                return PROS_EXFAT_EOVERFLOW;
+            unicode_name[units++] = ch;
         }
     }
 
-    if (name_entries == 0u || out != name_length)
+    if (name_entries == 0u || units != name_length)
         return PROS_EXFAT_ECORRUPT;
-    name[out] = 0;
+
+    for (uint32_t i = 0u; i < units; ++i) {
+        uint16_t ch = unicode_name[i];
+        if (ch >= 0xD800u && ch <= 0xDBFFu) {
+            if (i + 1u >= units ||
+                unicode_name[i + 1u] < 0xDC00u ||
+                unicode_name[i + 1u] > 0xDFFFu)
+                return PROS_EXFAT_ECORRUPT;
+            ++i;
+        } else if (ch >= 0xDC00u && ch <= 0xDFFFu) {
+            return PROS_EXFAT_ECORRUPT;
+        }
+    }
+
+    if (name) {
+        uint32_t pos = 0u;
+        for (uint32_t i = 0u; i < units; ++i) {
+            uint32_t cp = unicode_name[i];
+            if (cp >= 0xD800u && cp <= 0xDBFFu) {
+                uint32_t low = unicode_name[++i];
+                cp = 0x10000u + ((cp - 0xD800u) << 10) + (low - 0xDC00u);
+            }
+            if (cp <= 0x7Fu) {
+                if (pos + 1u >= capacity) return PROS_EXFAT_EOVERFLOW;
+                name[pos++] = (char)cp;
+            } else if (cp <= 0x7FFu) {
+                if (pos + 2u >= capacity) return PROS_EXFAT_EOVERFLOW;
+                name[pos++] = (char)(0xC0u | (cp >> 6));
+                name[pos++] = (char)(0x80u | (cp & 0x3Fu));
+            } else if (cp <= 0xFFFFu) {
+                if (pos + 3u >= capacity) return PROS_EXFAT_EOVERFLOW;
+                name[pos++] = (char)(0xE0u | (cp >> 12));
+                name[pos++] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+                name[pos++] = (char)(0x80u | (cp & 0x3Fu));
+            } else {
+                if (pos + 4u >= capacity) return PROS_EXFAT_EOVERFLOW;
+                name[pos++] = (char)(0xF0u | (cp >> 18));
+                name[pos++] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+                name[pos++] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+                name[pos++] = (char)(0x80u | (cp & 0x3Fu));
+            }
+        }
+        name[pos] = 0;
+        out = pos;
+    }
+
+    (void)out;
+    *unicode_length = (uint16_t)units;
     return PROS_EXFAT_OK;
 }
 
