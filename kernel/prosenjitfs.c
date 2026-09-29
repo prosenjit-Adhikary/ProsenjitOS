@@ -416,6 +416,134 @@ int prosenjitfs_format(struct pros_block_device *device)
     return PROSENJITFS_OK;
 }
 
+struct pfs_vnode_data {
+    struct pros_prosenjitfs *fs;
+    uint64_t inode_number;
+};
+
+static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result);
+static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
+                             struct pros_vfs_dirent *entry);
+static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
+
+static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
+    .lookup = pfs_vnode_lookup,
+    .readdir = pfs_vnode_readdir,
+    .create = 0,
+    .release = pfs_vnode_release
+};
+
+static const struct pros_vfs_file_ops pfs_file_ops = {
+    .read = 0,
+    .write = 0,
+    .close = 0
+};
+
+static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
+                          struct pros_vfs_vnode *parent,
+                          struct pros_vfs_vnode **result)
+{
+    struct pros_prosenjitfs_inode inode;
+    struct pfs_vnode_data *data;
+    enum pros_vfs_node_type type;
+
+    if (!fs || !result || inode_number >= fs->sb.inode_count)
+        return PROS_VFS_EINVAL;
+    if (prosenjitfs_read_inode(fs, inode_number, &inode) != PROSENJITFS_OK)
+        return PROS_VFS_ENOENT;
+    if (inode.type == PROSENJITFS_INODE_DIR)
+        type = PROS_VFS_NODE_DIRECTORY;
+    else if (inode.type == PROSENJITFS_INODE_FILE)
+        type = PROS_VFS_NODE_FILE;
+    else
+        return PROS_VFS_ENOSYS;
+
+    data = (struct pfs_vnode_data *)kmalloc(sizeof(*data));
+    if (!data)
+        return PROS_VFS_EIO;
+    data->fs = fs;
+    data->inode_number = inode_number;
+
+    *result = (struct pros_vfs_vnode *)kmalloc(sizeof(**result));
+    if (!*result) {
+        kfree(data);
+        return PROS_VFS_EIO;
+    }
+    if (vfs_vnode_init(*result, &fs->mount, parent, type,
+                       &pfs_vnode_ops,
+                       type == PROS_VFS_NODE_FILE ? &pfs_file_ops : 0,
+                       data, inode.size) != PROS_VFS_OK) {
+        kfree(data);
+        kfree(*result);
+        *result = 0;
+        return PROS_VFS_EINVAL;
+    }
+    return PROS_VFS_OK;
+}
+
+static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
+{
+    if (!vnode)
+        return;
+    if (vnode->private_data)
+        kfree(vnode->private_data);
+    vnode->private_data = 0;
+    kfree(vnode);
+}
+
+static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data;
+    if (!parent || !name || !result || !parent->private_data ||
+        parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    *result = 0;
+    data = (struct pfs_vnode_data *)parent->private_data;
+
+    if (name[0] == '.' && name[1] == '\0') {
+        if (vfs_vnode_get(parent) != PROS_VFS_OK)
+            return PROS_VFS_EINVAL;
+        *result = parent;
+        return PROS_VFS_OK;
+    }
+
+    /* Directory entries are not yet materialized by the native create path. */
+    if (name[0] == '.' && name[1] == '.' && name[2] == '\0') {
+        struct pros_vfs_vnode *p = parent->parent ? parent->parent : parent;
+        if (vfs_vnode_get(p) != PROS_VFS_OK)
+            return PROS_VFS_EINVAL;
+        *result = p;
+        return PROS_VFS_OK;
+    }
+
+    (void)data;
+    return PROS_VFS_ENOENT;
+}
+
+static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
+                             struct pros_vfs_dirent *entry)
+{
+    if (!directory || !cookie || !entry ||
+        directory->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    pfs_zero(entry, sizeof(*entry));
+    if (*cookie == 0u) {
+        pfs_copy(entry->name, ".", 2u);
+        entry->type = PROS_VFS_NODE_DIRECTORY;
+        ++*cookie;
+        return PROS_VFS_OK;
+    }
+    if (*cookie == 1u) {
+        pfs_copy(entry->name, "..", 3u);
+        entry->type = PROS_VFS_NODE_DIRECTORY;
+        ++*cookie;
+        return PROS_VFS_OK;
+    }
+    return PROS_VFS_ENOENT;
+}
+
 static int pfs_tx_reset(struct pros_prosenjitfs *fs)
 {
     if (!fs || !fs->scratch || !fs->tx.images)
@@ -809,6 +937,21 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
+    struct pros_vfs_vnode *root_vnode = 0;
+    if (pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode) != PROS_VFS_OK ||
+        vfs_mount_set_root(&fs->mount, root_vnode) != PROS_VFS_OK) {
+        if (root_vnode) {
+            vfs_vnode_put(root_vnode);
+            vfs_vnode_put(root_vnode);
+        }
+        vfs_mount_deactivate(&fs->mount);
+        kfree(fs->tx.images); kfree(fs->scratch);
+        fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_EIO;
+    }
+    /* vfs_mount_set_root() acquired the mount's ownership reference. */
+    vfs_vnode_put(root_vnode);
+
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
