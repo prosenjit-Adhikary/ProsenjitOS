@@ -651,20 +651,47 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
             pfs_copy(block + within, src + done, take);
-            if (pfs_write_block(data->fs->mount.device, physical, block) !=
-                PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
-            if (required_end > inode.size) {
-                /*
-                 * The extent already exists, so only EOF metadata changes.
-                 * Flush file data before publishing the new size; otherwise
-                 * a crash could expose a committed EOF before its data.
-                 */
-                if (pfs_flush(data->fs->mount.device) != PROSENJITFS_OK)
+
+            /*
+             * Existing-extent writes are journaled as well as extent growth.
+             * Directly writing the data block before the inode transaction
+             * would make a crash able to expose an uncommitted in-place data
+             * change. Stage the data image and, when EOF grows, the inode
+             * image in the same redo transaction.
+             */
+            {
+                uint64_t inode_byte_offset =
+                    data->inode_number * PROSENJITFS_INODE_SIZE;
+                uint64_t inode_lba =
+                    data->fs->sb.inode_table_start +
+                    inode_byte_offset / data->fs->sb.block_size;
+                uint32_t inode_offset =
+                    (uint32_t)(inode_byte_offset % data->fs->sb.block_size);
+                uint8_t inode_image[4096];
+
+                if (pfs_read_block(data->fs->mount.device, inode_lba,
+                                   inode_image) != PROSENJITFS_OK)
                     return done ? (int)done : PROS_VFS_EIO;
-                inode.size = required_end;
-                if (prosenjitfs_write_inode(data->fs, data->inode_number,
-                                            &inode) != PROSENJITFS_OK)
+                if (required_end > inode.size) {
+                    inode.size = required_end;
+                    pfs_copy(inode_image + inode_offset, &inode,
+                             sizeof(inode));
+                    pfs_put32(inode_image + inode_offset +
+                              offsetof(struct pros_prosenjitfs_inode,
+                                       checksum),
+                              pfs_crc_with_zero32(
+                                  inode_image + inode_offset, sizeof(inode),
+                                  (uint32_t)offsetof(
+                                      struct pros_prosenjitfs_inode,
+                                      checksum)));
+                }
+
+                if (pfs_tx_reset(data->fs) != PROSENJITFS_OK ||
+                    pfs_tx_add(data->fs, physical, block) != PROSENJITFS_OK ||
+                    (required_end > old_size &&
+                     pfs_tx_add(data->fs, inode_lba, inode_image) !=
+                         PROSENJITFS_OK) ||
+                    pfs_tx_commit(data->fs) != PROSENJITFS_OK)
                     return done ? (int)done : PROS_VFS_EIO;
             }
             done += take;
