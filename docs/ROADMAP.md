@@ -132,6 +132,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 5 — I/O and drivers
 - [ ] Driver model
+  - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
