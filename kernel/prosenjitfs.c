@@ -310,7 +310,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     sb.block_bitmap_start = cursor; sb.block_bitmap_blocks = bitmap_blocks; cursor += bitmap_blocks;
     sb.inode_bitmap_start = cursor; sb.inode_bitmap_blocks = inode_bitmap_blocks; cursor += inode_bitmap_blocks;
     sb.inode_table_start = cursor; sb.inode_table_blocks = inode_table_blocks; cursor += inode_table_blocks;
-    sb.data_start = cursor;
+    sb.data_start = cursor + 1u;
     pfs_copy(sb.magic, PROSENJITFS_MAGIC, PROSENJITFS_MAGIC_LEN);
     sb.version = PROSENJITFS_VERSION;
     sb.header_size = sizeof(sb);
@@ -393,7 +393,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     root.links = 1u;
     root.generation = 1u;
     root.parent_inode = 0u;
-    root.dir_index = cursor;
+    root.dir_index = sb.data_start;
     root.ctime = 0u; root.mtime = 0u; root.atime = 0u;
 
     pfs_zero(block, block_size);
