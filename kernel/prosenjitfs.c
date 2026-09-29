@@ -832,6 +832,60 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
     return pfs_allocator_update(fs, first_block, count, 0u);
 }
 
+static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
+                                      uint64_t inode_number, uint8_t allocate)
+{
+    uint64_t bits_per_block;
+    uint64_t bi;
+    uint64_t within;
+    uint8_t block[4096];
+
+    if (!fs || fs->read_only || inode_number >= fs->sb.inode_count ||
+        fs->sb.block_size > sizeof(block))
+        return PROSENJITFS_EINVAL;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    bi = inode_number / bits_per_block;
+    within = inode_number % bits_per_block;
+    if (bi >= fs->sb.inode_bitmap_blocks)
+        return PROSENJITFS_EOVERFLOW;
+    if (pfs_read_block(fs->mount.device,
+                       fs->sb.inode_bitmap_start + bi, block) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    if (allocate)
+        block[within >> 3] |= (uint8_t)(1u << (within & 7u));
+    else
+        block[within >> 3] &= (uint8_t)~(1u << (within & 7u));
+    if (pfs_tx_reset(fs) != PROSENJITFS_OK ||
+        pfs_tx_add(fs, fs->sb.inode_bitmap_start + bi, block) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    return pfs_tx_commit(fs);
+}
+
+int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs, uint64_t *inode_number)
+{
+    uint64_t bits_per_block;
+    uint8_t block[4096];
+
+    if (!fs || !inode_number || fs->read_only ||
+        fs->sb.block_size > sizeof(block))
+        return PROSENJITFS_EINVAL;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    for (uint64_t inode = 1u; inode < fs->sb.inode_count; ++inode) {
+        uint64_t bi = inode / bits_per_block;
+        uint64_t within = inode % bits_per_block;
+        if (bi >= fs->sb.inode_bitmap_blocks)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_read_block(fs->mount.device,
+                           fs->sb.inode_bitmap_start + bi, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (!pfs_bitmap_bit(block, within)) {
+            *inode_number = inode;
+            return pfs_inode_bitmap_update(fs, inode, 1u);
+        }
+    }
+    return PROSENJITFS_ENOSPC;
+}
+
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                            uint64_t inode_number,
                            struct pros_prosenjitfs_inode *inode)
