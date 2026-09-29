@@ -856,6 +856,8 @@ int exfat_selftest(void)
             disk.sectors[25u * 512u + 480u + i] = boundary_set[i];
         for (uint32_t i = 0u; i < 64u; ++i)
             disk.sectors[26u * 512u + i] = boundary_set[32u + i];
+        for (uint32_t i = 64u; i < 512u; ++i)
+            disk.sectors[26u * 512u + i] = 0u;
 
         if (exfat_find(&fs, 2u, "cross.txt", &found) != PROS_EXFAT_OK ||
             found.size != 700u || found.first_cluster != 4u ||
