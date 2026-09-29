@@ -53,13 +53,13 @@ dd if="$IMAGE" of="$tmpdir/kernel.bin" bs="$SECTOR_SIZE" skip="$KERNEL_LBA" coun
 cmp "$STAGE1" "$tmpdir/stage1.bin"
 
 # The reserved stage-2 area is padded with zeroes after the assembled image.
-if ! cmp "$STAGE2" "$tmpdir/stage2.bin" >/dev/null 2>&1; then
+if ! cmp -n "$stage2_size" "$STAGE2" "$tmpdir/stage2.bin" >/dev/null 2>&1; then
     echo "stage-2 payload does not match native image" >&2
     exit 1
 fi
 
 # The final sector may contain zero padding when the kernel is not 512-byte aligned.
-if ! cmp "$KERNEL" "$tmpdir/kernel.bin" >/dev/null 2>&1; then
+if ! cmp -n "$kernel_size" "$KERNEL" "$tmpdir/kernel.bin" >/dev/null 2>&1; then
     echo "kernel payload does not match native image" >&2
     exit 1
 fi
