@@ -16,6 +16,14 @@ ORG 0x8000
 %define NATIVE_MAGIC 0x534F5250
 %define STAGE2_MAX_SECTORS 32
 
+; The BIOS staging buffer must never exceed its explicitly reserved window.
+%if KERNEL_SECTORS < 1
+    %error "KERNEL_SECTORS must be at least 1"
+%endif
+%if KERNEL_SECTORS > ((LOAD_LIMIT - LOAD_BUFFER) / 512)
+    %error "KERNEL_SECTORS exceeds native staging buffer"
+%endif
+
 start:
     cli
     xor ax, ax
