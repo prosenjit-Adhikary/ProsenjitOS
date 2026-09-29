@@ -463,6 +463,105 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     return PROS_VFS_OK;
 }
 
+static int vfs_split_parent_path(const char *path, char *parent_path,
+                                  char *name)
+{
+    uint32_t length = 0u;
+    uint32_t last_slash = 0xFFFFFFFFu;
+    uint32_t name_length;
+
+    if (!path || !parent_path || !name || path[0] == '\0')
+        return PROS_VFS_EINVAL;
+    while (length < PROS_VFS_PATH_MAX && path[length] != '\0') {
+        if (path[length] == '/')
+            last_slash = length;
+        ++length;
+    }
+    if (path[length] != '\0' || length == 0u ||
+        last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
+        return PROS_VFS_EINVAL;
+    name_length = length - last_slash - 1u;
+    if (name_length > PROS_VFS_NAME_MAX)
+        return PROS_VFS_EOVERFLOW;
+    for (uint32_t i = 0u; i < name_length; ++i)
+        name[i] = path[last_slash + 1u + i];
+    name[name_length] = '\0';
+    if (last_slash == 0u) {
+        parent_path[0] = '/';
+        parent_path[1] = '\0';
+    } else {
+        for (uint32_t i = 0u; i < last_slash; ++i)
+            parent_path[i] = path[i];
+        parent_path[last_slash] = '\0';
+    }
+    return PROS_VFS_OK;
+}
+
+int vfs_path_unlink(struct pros_vfs_mount *mount, const char *path)
+{
+    struct pros_vfs_vnode *parent = 0;
+    char parent_path[PROS_VFS_PATH_MAX + 1u];
+    char name[PROS_VFS_NAME_MAX + 1u];
+    int rc;
+
+    if (!mount || !mount->active || !path)
+        return PROS_VFS_EINVAL;
+    rc = vfs_split_parent_path(path, parent_path, name);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup(mount, parent_path, &parent);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (parent->type != PROS_VFS_NODE_DIRECTORY ||
+        !parent->ops || !parent->ops->unlink) {
+        vfs_vnode_put(parent);
+        return PROS_VFS_ENOSYS;
+    }
+    rc = parent->ops->unlink(parent, name);
+    vfs_vnode_put(parent);
+    return rc;
+}
+
+int vfs_path_rename(struct pros_vfs_mount *mount, const char *old_path,
+                    const char *new_path)
+{
+    struct pros_vfs_vnode *old_parent = 0;
+    struct pros_vfs_vnode *new_parent = 0;
+    char old_parent_path[PROS_VFS_PATH_MAX + 1u];
+    char new_parent_path[PROS_VFS_PATH_MAX + 1u];
+    char old_name[PROS_VFS_NAME_MAX + 1u];
+    char new_name[PROS_VFS_NAME_MAX + 1u];
+    int rc;
+
+    if (!mount || !mount->active || !old_path || !new_path)
+        return PROS_VFS_EINVAL;
+    rc = vfs_split_parent_path(old_path, old_parent_path, old_name);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_split_parent_path(new_path, new_parent_path, new_name);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup(mount, old_parent_path, &old_parent);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup(mount, new_parent_path, &new_parent);
+    if (rc != PROS_VFS_OK) {
+        vfs_vnode_put(old_parent);
+        return rc;
+    }
+    if (old_parent->type != PROS_VFS_NODE_DIRECTORY ||
+        new_parent->type != PROS_VFS_NODE_DIRECTORY ||
+        !old_parent->ops || !old_parent->ops->rename) {
+        vfs_vnode_put(new_parent);
+        vfs_vnode_put(old_parent);
+        return PROS_VFS_ENOSYS;
+    }
+    rc = old_parent->ops->rename(old_parent, old_name, new_parent, new_name);
+    vfs_vnode_put(new_parent);
+    vfs_vnode_put(old_parent);
+    return rc;
+}
+
 int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
