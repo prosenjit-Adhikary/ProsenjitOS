@@ -282,6 +282,12 @@ static void exfat_test_le32(uint8_t *p, uint32_t value)
     p[3] = (uint8_t)(value >> 24);
 }
 
+static void exfat_test_le64(uint8_t *p, uint64_t value)
+{
+    exfat_test_le32(p, (uint32_t)value);
+    exfat_test_le32(p + 4u, (uint32_t)(value >> 32));
+}
+
 static int exfat_test_read(struct pros_block_device *device, uint64_t lba,
                             uint32_t count, void *buffer)
 {
@@ -432,12 +438,12 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                 result->first_cluster = le32(stream + 20u);
                 result->size = le64(stream + 24u);
                 if (result->valid_data_length > result->size)
-                    return -201;
+                    return PROS_EXFAT_ECORRUPT;
                 if (result->size != 0u &&
                     (result->first_cluster < 2u ||
                      (uint64_t)result->first_cluster >
                          (uint64_t)fs->cluster_count + 1u))
-                    return -202;
+                    return PROS_EXFAT_ECORRUPT;
                 for (uint32_t i = 0u; i < sizeof(result->name); ++i)
                     result->name[i] = 0u;
                 for (uint32_t i = 0u; i < sizeof(result->name) - 1u &&
@@ -522,9 +528,9 @@ int exfat_selftest(void)
         set[32] = 0xC0u;
         set[33] = 1u;
         set[35] = 9u;
-        exfat_test_le32(set + 40u, 700u);
+        exfat_test_le64(set + 40u, 700u);
         exfat_test_le32(set + 52u, 2u);
-        exfat_test_le32(set + 56u, 700u);
+        exfat_test_le64(set + 56u, 700u);
         set[64] = 0xC1u;
         for (uint32_t i = 0u; i < 9u; ++i) {
             set[66u + i * 2u] = (uint8_t)filename[i];
