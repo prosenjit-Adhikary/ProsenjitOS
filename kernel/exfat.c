@@ -1004,8 +1004,12 @@ int exfat_selftest(void)
             table[p++] = (uint8_t)mapped;
             table[p++] = (uint8_t)(mapped >> 8);
         }
+        /* Keep Unicode lookup genuinely case-insensitive: U+00E9 -> U+00C9. */
         table[p++] = 0xFFu; table[p++] = 0xFFu;
-        table[p++] = 0x85u; table[p++] = 0xFFu;
+        table[p++] = 0x6Eu; table[p++] = 0x00u;
+        table[p++] = 0xC9u; table[p++] = 0x00u;
+        table[p++] = 0xFFu; table[p++] = 0xFFu;
+        table[p++] = 0x16u; table[p++] = 0xFFu;
 
         disk.sectors[25u * 512u + 224u] = 0x82u;
         exfat_test_le32(disk.sectors + 25u * 512u + 228u,
@@ -1024,9 +1028,9 @@ int exfat_selftest(void)
      * root cluster's backing sectors with test payload data. */
     disk.sectors[25u * 512u + 224u] = 0x82u;
     exfat_test_le32(disk.sectors + 25u * 512u + 228u,
-                    exfat_upcase_checksum(disk.sectors + 28u * 512u, 60u));
+                    exfat_upcase_checksum(disk.sectors + 28u * 512u, 66u));
     exfat_test_le32(disk.sectors + 25u * 512u + 244u, 5u);
-    exfat_test_le64(disk.sectors + 25u * 512u + 248u, 60u);
+    exfat_test_le64(disk.sectors + 25u * 512u + 248u, 66u);
 
     if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
