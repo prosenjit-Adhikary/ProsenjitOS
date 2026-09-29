@@ -537,6 +537,123 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
     return rc;
 }
 
+
+int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
+               const char *new_path)
+{
+    char old_parent_path[PROS_VFS_PATH_MAX + 1u];
+    char new_parent_path[PROS_VFS_PATH_MAX + 1u];
+    char old_name[PROS_VFS_NAME_MAX + 1u];
+    char new_name[PROS_VFS_NAME_MAX + 1u];
+    uint32_t old_length = 0u, new_length = 0u;
+    uint32_t old_slash = 0xFFFFFFFFu, new_slash = 0xFFFFFFFFu;
+    uint32_t old_name_length, new_name_length, i;
+    struct pros_vfs_vnode *old_parent = 0;
+    struct pros_vfs_vnode *new_parent = 0;
+    int rc;
+
+    if (!mount || !mount->active || !old_path || !new_path ||
+        old_path[0] != '/' || new_path[0] != '/')
+        return PROS_VFS_EINVAL;
+
+    while (old_path[old_length] != '\0') {
+        if (old_length >= PROS_VFS_PATH_MAX)
+            return PROS_VFS_EOVERFLOW;
+        if (old_path[old_length] == '/')
+            old_slash = old_length;
+        ++old_length;
+    }
+    while (new_path[new_length] != '\0') {
+        if (new_length >= PROS_VFS_PATH_MAX)
+            return PROS_VFS_EOVERFLOW;
+        if (new_path[new_length] == '/')
+            new_slash = new_length;
+        ++new_length;
+    }
+
+    while (old_length > 1u && old_path[old_length - 1u] == '/')
+        --old_length;
+    while (new_length > 1u && new_path[new_length - 1u] == '/')
+        --new_length;
+
+    if (old_length <= 1u || new_length <= 1u ||
+        old_slash == 0xFFFFFFFFu || new_slash == 0xFFFFFFFFu ||
+        old_slash >= old_length - 1u || new_slash >= new_length - 1u)
+        return PROS_VFS_EINVAL;
+
+    old_name_length = old_length - old_slash - 1u;
+    new_name_length = new_length - new_slash - 1u;
+    if (old_name_length == 0u || new_name_length == 0u ||
+        old_name_length > PROS_VFS_NAME_MAX ||
+        new_name_length > PROS_VFS_NAME_MAX)
+        return PROS_VFS_EINVAL;
+
+    for (i = 0u; i < old_name_length; ++i) {
+        if (old_path[old_slash + 1u + i] == '/')
+            return PROS_VFS_EINVAL;
+        old_name[i] = old_path[old_slash + 1u + i];
+    }
+    for (i = 0u; i < new_name_length; ++i) {
+        if (new_path[new_slash + 1u + i] == '/')
+            return PROS_VFS_EINVAL;
+        new_name[i] = new_path[new_slash + 1u + i];
+    }
+    old_name[old_name_length] = '\0';
+    new_name[new_name_length] = '\0';
+
+    if ((old_name_length == 1u && old_name[0] == '.') ||
+        (old_name_length == 2u && old_name[0] == '.' && old_name[1] == '.') ||
+        (new_name_length == 1u && new_name[0] == '.') ||
+        (new_name_length == 2u && new_name[0] == '.' && new_name[1] == '.'))
+        return PROS_VFS_EINVAL;
+
+    if (old_slash == 0u) {
+        old_parent_path[0] = '/';
+        old_parent_path[1] = '\0';
+    } else {
+        for (i = 0u; i < old_slash; ++i)
+            old_parent_path[i] = old_path[i];
+        old_parent_path[old_slash] = '\0';
+    }
+    if (new_slash == 0u) {
+        new_parent_path[0] = '/';
+        new_parent_path[1] = '\0';
+    } else {
+        for (i = 0u; i < new_slash; ++i)
+            new_parent_path[i] = new_path[i];
+        new_parent_path[new_slash] = '\0';
+    }
+
+    rc = vfs_path_lookup(mount, old_parent_path, &old_parent);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_path_lookup(mount, new_parent_path, &new_parent);
+    if (rc != PROS_VFS_OK) {
+        vfs_vnode_put(old_parent);
+        return rc;
+    }
+
+    if (!old_parent || !new_parent ||
+        old_parent->type != PROS_VFS_NODE_DIRECTORY ||
+        new_parent->type != PROS_VFS_NODE_DIRECTORY) {
+        rc = PROS_VFS_ENOTDIR;
+        goto out;
+    }
+    if (!old_parent->ops || !old_parent->ops->rename) {
+        rc = PROS_VFS_ENOSYS;
+        goto out;
+    }
+
+    rc = old_parent->ops->rename(old_parent, old_name,
+                                 new_parent, new_name);
+out:
+    if (new_parent)
+        vfs_vnode_put(new_parent);
+    if (old_parent)
+        vfs_vnode_put(old_parent);
+    return rc;
+}
+
 int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                   uint32_t flags, struct pros_vfs_file *file)
 {
