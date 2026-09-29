@@ -3778,7 +3778,7 @@ int prosenjitfs_selftest(void)
         disk.data[fs.sb.journal_start * 512u] = 0u;
         if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -10;
+            return -1001;
     }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
@@ -3794,7 +3794,7 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
-        return -10;
+        return -1002;
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -11;
 
@@ -3807,7 +3807,7 @@ int prosenjitfs_selftest(void)
     disk.data[512u] ^= 0x01u;
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -10;
+        return -1003;
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -11;
     return PROSENJITFS_OK;
