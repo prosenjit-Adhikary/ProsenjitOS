@@ -3,7 +3,7 @@
 ## Status
 This document is the implementation contract for the native ProsenjitFS filesystem. It is intentionally separate from the compatibility FAT32, exFAT and NTFS drivers.
 
-Current kernel-side implementation covers format/mount validation, persistent allocation, inode/extents, journal replay, hash-indexed directories, create/mkdir, read/write/truncate, unlink/rename, VFS integration, and corruption/crash-point self-tests. The host formatter is available as tools/mkprosenjitfs.c and is smoke-tested in CI. Real QEMU disk mounting remains blocked by the repository's missing ATA/AHCI/NVMe block-device driver.
+Current kernel-side implementation covers format/mount validation, persistent allocation, inode/extents, journal replay, hash-indexed directories, create/mkdir, read/write/truncate, unlink/rename, VFS integration, and corruption/crash-point self-tests. The in-kernel self-test also exercises multi-extent file persistence across remounts, shrink/truncate reclamation, empty/non-empty directory unlink semantics, rename collision rejection, and cross-parent file rename persistence. The host formatter is available as tools/mkprosenjitfs.c and is smoke-tested in CI. Real QEMU disk mounting remains blocked by the repository's missing ATA/AHCI/NVMe block-device driver.
 
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
