@@ -388,8 +388,12 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
             if (off + set_bytes > cluster_bytes)
                 return PROS_EXFAT_ENOTSUP;
 
-            for (uint32_t i = 0u; i < set_bytes; ++i)
-                set[i] = cluster[off + i];
+            {
+                volatile uint8_t *dst = set;
+                volatile const uint8_t *src = cluster + off;
+                for (uint32_t i = 0u; i < set_bytes; ++i)
+                    dst[i] = src[i];
+            }
 
             uint16_t stored = exfat_le16(set + 2u);
             if (exfat_directory_checksum(set, entry_count) != stored)
