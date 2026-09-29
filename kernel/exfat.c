@@ -1084,6 +1084,43 @@ int exfat_selftest(void)
         set[2] ^= 1u;
     }
 
+    /* Exercise a non-ASCII UTF-16 filename through the real Up-case lookup
+     * path. U+00E9 is identity-mapped by this valid test table. */
+    {
+        uint8_t *unicode_set = disk.sectors + 25u * 512u + 128u;
+        static const uint16_t filename[] = {
+            0x0063u, 0x0061u, 0x0066u, 0x00E9u,
+            0x002Eu, 0x0074u, 0x0078u, 0x0074u
+        };
+        struct pros_exfat_dirent found;
+
+        unicode_set[0] = 0x85u;
+        unicode_set[1] = 2u;
+        unicode_set[4] = 0x20u;
+        unicode_set[32] = 0xC0u;
+        unicode_set[33] = 1u;
+        unicode_set[35] = 8u;
+        exfat_test_le64(unicode_set + 40u, 700u);
+        exfat_test_le32(unicode_set + 52u, 4u);
+        exfat_test_le64(unicode_set + 56u, 700u);
+        unicode_set[64] = 0xC1u;
+        for (uint32_t i = 0u; i < 8u; ++i) {
+            unicode_set[66u + i * 2u] = (uint8_t)filename[i];
+            unicode_set[67u + i * 2u] = (uint8_t)(filename[i] >> 8);
+        }
+        {
+            uint16_t checksum = exfat_directory_checksum(unicode_set, 3u);
+            unicode_set[2] = (uint8_t)checksum;
+            unicode_set[3] = (uint8_t)(checksum >> 8);
+        }
+
+        if (exfat_find(&fs, 2u, "CAF\xC3\x89.TXT", &found) !=
+                PROS_EXFAT_OK ||
+            found.name_length != 8u ||
+            found.unicode_name[3] != 0x00E9u)
+            return -19;
+    }
+
     /* Directory entry sets may legally cross a cluster boundary. */
     {
         uint8_t boundary_set[96];
@@ -1112,7 +1149,7 @@ int exfat_selftest(void)
         }
         /* Keep the unused slots before the boundary entry non-zero so
          * the directory end marker does not terminate the scan early. */
-        for (uint32_t off = 128u; off < 480u; off += 32u)
+        for (uint32_t off = 224u; off < 480u; off += 32u)
             disk.sectors[25u * 512u + off] = 0x01u;
         for (uint32_t i = 0u; i < 32u; ++i)
             disk.sectors[25u * 512u + 480u + i] = boundary_set[i];
