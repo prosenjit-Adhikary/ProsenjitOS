@@ -391,21 +391,6 @@ static uint16_t exfat_upcase_ascii(uint16_t ch)
     return ch;
 }
 
-static uint16_t exfat_name_hash_ascii(const char *name)
-{
-    uint16_t hash = 0u;
-    for (uint32_t i = 0u; name[i] != 0; ++i) {
-        uint16_t ch = exfat_upcase_ascii((uint16_t)(uint8_t)name[i]);
-        uint8_t bytes[2];
-        bytes[0] = (uint8_t)ch;
-        bytes[1] = (uint8_t)(ch >> 8);
-        for (uint32_t j = 0u; j < 2u; ++j)
-            hash = (uint16_t)(((hash & 1u) ? 0x8000u : 0u) +
-                              (hash >> 1) + bytes[j]);
-    }
-    return hash;
-}
-
 static int exfat_name_equal_ci(const char *a, const char *b)
 {
     uint32_t i = 0u;
