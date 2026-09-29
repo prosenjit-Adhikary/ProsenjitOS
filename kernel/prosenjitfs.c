@@ -3418,7 +3418,6 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(looked_up) != PROS_VFS_OK ||
             vfs_vnode_put(nested) != PROS_VFS_OK ||
             vfs_vnode_put(created) != PROS_VFS_OK ||
-            vfs_vnode_put(root) != PROS_VFS_OK ||
             vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != '.' ||
@@ -3447,6 +3446,8 @@ int prosenjitfs_selftest(void)
                 vfs_vnode_put(unicode) != PROS_VFS_OK)
                 return -5;
         }
+        if (vfs_vnode_put(root) != PROS_VFS_OK)
+            return -5;
     }
     {
         static const char message[] = "ProsenjitFS persistent file I/O";
