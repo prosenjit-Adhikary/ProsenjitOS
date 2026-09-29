@@ -3270,38 +3270,62 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_vnode *looked_up = 0;
         struct pros_vfs_vnode *subdir = 0;
         struct pros_vfs_vnode *nested = 0;
-        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
-            root != fs.mount.root ||
-            root->ops->create(root, "hello", &created) != PROS_VFS_OK ||
-            !created ||
-            vfs_path_lookup(&fs.mount, "/hello", &looked_up) != PROS_VFS_OK ||
-            !looked_up ||
-            looked_up->type != PROS_VFS_NODE_FILE ||
-            vfs_path_mkdir(&fs.mount, "/sub", &subdir) != PROS_VFS_OK ||
-            !subdir ||
-            subdir->type != PROS_VFS_NODE_DIRECTORY ||
-            subdir->ops->create(subdir, "nested", &nested) != PROS_VFS_OK ||
-            !nested ||
-            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
-            vfs_vnode_put(subdir) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up) != PROS_VFS_OK ||
-            looked_up->type != PROS_VFS_NODE_FILE ||
-            looked_up->ops->lookup(looked_up, "..", &parent) != PROS_VFS_OK ||
-            !parent ||
-            parent->type != PROS_VFS_NODE_DIRECTORY ||
-            vfs_vnode_put(parent) != PROS_VFS_OK ||
-            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
-            vfs_vnode_put(nested) != PROS_VFS_OK ||
-            vfs_vnode_put(created) != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-            entry.name[0] != '.' ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-            entry.name[0] != '.' ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-            entry.name[0] != 'h' ||
-            vfs_dir_close(&dir) != PROS_VFS_OK)
-            return -5;
+        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK)
+            return -601;
+        if (root != fs.mount.root)
+            return -602;
+        if (root->ops->create(root, "hello", &created) != PROS_VFS_OK)
+            return -603;
+        if (!created)
+            return -604;
+        if (vfs_path_lookup(&fs.mount, "/hello", &looked_up) != PROS_VFS_OK)
+            return -605;
+        if (!looked_up)
+            return -606;
+        if (looked_up->type != PROS_VFS_NODE_FILE)
+            return -607;
+        if (vfs_path_mkdir(&fs.mount, "/sub", &subdir) != PROS_VFS_OK)
+            return -608;
+        if (!subdir)
+            return -609;
+        if (subdir->type != PROS_VFS_NODE_DIRECTORY)
+            return -610;
+        if (subdir->ops->create(subdir, "nested", &nested) != PROS_VFS_OK)
+            return -611;
+        if (!nested)
+            return -612;
+        if (vfs_vnode_put(looked_up) != PROS_VFS_OK)
+            return -613;
+        if (vfs_vnode_put(subdir) != PROS_VFS_OK)
+            return -614;
+        if (vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up) != PROS_VFS_OK)
+            return -615;
+        if (looked_up->type != PROS_VFS_NODE_FILE)
+            return -616;
+        if (looked_up->ops->lookup(looked_up, "..", &parent) != PROS_VFS_OK)
+            return -617;
+        if (!parent)
+            return -618;
+        if (parent->type != PROS_VFS_NODE_DIRECTORY)
+            return -619;
+        if (vfs_vnode_put(parent) != PROS_VFS_OK)
+            return -620;
+        if (vfs_vnode_put(looked_up) != PROS_VFS_OK)
+            return -621;
+        if (vfs_vnode_put(nested) != PROS_VFS_OK)
+            return -622;
+        if (vfs_vnode_put(created) != PROS_VFS_OK)
+            return -623;
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
+            return -624;
+        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != '.')
+            return -625;
+        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != '.')
+            return -626;
+        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != 'h')
+            return -627;
+        if (vfs_dir_close(&dir) != PROS_VFS_OK)
+            return -628;
 
         {
             static const char unicode_name[] = "বাংলা";
