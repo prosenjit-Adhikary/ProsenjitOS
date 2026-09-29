@@ -596,9 +596,13 @@ int exfat_selftest(void)
         return -4;
 
     /* Reject a malformed FAT chain that terminates before DataLength. */
-    if (exfat_file_read(&fs, 3u, 0u, 600u, 600u, 0u,
-                        output, sizeof(output), &done) != PROS_EXFAT_ECORRUPT)
-        return -5;
+    {
+        int malformed_chain_status =
+            exfat_file_read(&fs, 3u, 0u, 600u, 600u, 0u,
+                            output, sizeof(output), &done);
+        if (malformed_chain_status != PROS_EXFAT_ECORRUPT)
+            return -50 + malformed_chain_status;
+    }
 
     /* Reject a volume whose declared length exceeds the physical device. */
     exfat_test_le32(boot + 72, 33u);
