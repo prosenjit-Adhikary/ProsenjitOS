@@ -386,8 +386,6 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
     while (guard++ <= fs->cluster_count) {
         if (exfat_read_cluster(fs, current, cluster) != PROS_EXFAT_OK)
             return PROS_EXFAT_EIO;
-        if (current == directory_cluster && cluster[0] != 0x85u)
-            return -225;
 
         for (uint32_t off = 0u; off + 32u <= cluster_bytes; off += 32u) {
             const uint8_t *entry = cluster + off;
@@ -413,25 +411,25 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
 
             uint16_t stored = exfat_le16(set + 2u);
             if (exfat_directory_checksum(set, entry_count) != stored)
-                return -220;
+                return PROS_EXFAT_ECORRUPT;
 
             const uint8_t *stream = 0;
             for (uint32_t i = 1u; i <= secondary_count; ++i) {
                 const uint8_t *secondary = set + i * 32u;
                 if (secondary[0] == 0xC0u) {
-                    if (stream) return -221;
+                    if (stream) return PROS_EXFAT_ECORRUPT;
                     stream = secondary;
                 } else if (secondary[0] != 0xC1u) {
-                    return -222;
+                    return PROS_EXFAT_ECORRUPT;
                 }
             }
             if (!stream)
-                return -223;
+                return PROS_EXFAT_ECORRUPT;
 
             char parsed[256];
             if (exfat_directory_name(set, secondary_count, stream[3],
                                      parsed, sizeof(parsed)) != PROS_EXFAT_OK)
-                return -224;
+                return PROS_EXFAT_ENOTSUP;
 
             if (exfat_name_equal_ci(parsed, name)) {
                 result->attributes = set[4];
@@ -440,12 +438,12 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                 result->first_cluster = le32(stream + 20u);
                 result->size = le64(stream + 24u);
                 if (result->valid_data_length > result->size)
-                    return -210;
+                    return PROS_EXFAT_ECORRUPT;
                 if (result->size != 0u &&
                     (result->first_cluster < 2u ||
                      (uint64_t)result->first_cluster >
                          (uint64_t)fs->cluster_count + 1u))
-                    return -211;
+                    return PROS_EXFAT_ECORRUPT;
                 for (uint32_t i = 0u; i < sizeof(result->name); ++i)
                     result->name[i] = 0u;
                 for (uint32_t i = 0u; i < sizeof(result->name) - 1u &&
@@ -453,8 +451,6 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                     result->name[i] = parsed[i];
                 return PROS_EXFAT_OK;
             }
-            if (parsed[0] != 0)
-                return -300 - (int)(unsigned char)parsed[0];
             off += set_bytes - 32u;
         }
 
@@ -544,37 +540,16 @@ int exfat_selftest(void)
             uint16_t checksum = exfat_directory_checksum(set, 3u);
             set[2] = (uint8_t)checksum;
             set[3] = (uint8_t)(checksum >> 8);
-            if (exfat_directory_checksum(set, 3u) != exfat_le16(set + 2u))
-                return -130;
         }
         {
-            char decoded_name[256];
-            if (exfat_directory_name(set, 2u, set[35], decoded_name,
-                                     sizeof(decoded_name)) != PROS_EXFAT_OK)
-                return -131;
-            if (!exfat_name_equal_ci(decoded_name, filename))
-                return -132;
-        }
-        {
-            if (exfat_read_cluster(&fs, 2u, output) != PROS_EXFAT_OK ||
-                output[0] != 0x85u ||
-                output[32] != 0xC0u ||
-                output[64] != 0xC1u)
-                return -133;
             struct pros_exfat_dirent found;
-            int find_status = exfat_find(&fs, 2u, "hello.txt", &found);
-            if (find_status != PROS_EXFAT_OK)
-                return -150 + find_status;
-            if (found.size != 700u)
-                return -121;
-            if (found.valid_data_length != 700u)
-                return -122;
-            if (found.first_cluster != 2u)
-                return -123;
-            if (found.no_fat_chain != 0u)
-                return -124;
-            if (!exfat_name_equal_ci(found.name, filename))
-                return -125;
+            if (exfat_find(&fs, 2u, "hello.txt", &found) != PROS_EXFAT_OK ||
+                found.size != 700u ||
+                found.valid_data_length != 700u ||
+                found.first_cluster != 2u ||
+                found.no_fat_chain != 0u ||
+                !exfat_name_equal_ci(found.name, filename))
+                return -12;
         }
         set[2] ^= 1u;
         {
@@ -596,13 +571,9 @@ int exfat_selftest(void)
         return -4;
 
     /* Reject a malformed FAT chain that terminates before DataLength. */
-    {
-        int malformed_chain_status =
-            exfat_file_read(&fs, 3u, 0u, 600u, 600u, 0u,
-                            output, sizeof(output), &done);
-        if (malformed_chain_status != PROS_EXFAT_ECORRUPT)
-            return -50 + malformed_chain_status;
-    }
+    if (exfat_file_read(&fs, 3u, 0u, 600u, 600u, 0u,
+                        output, sizeof(output), &done) != PROS_EXFAT_ECORRUPT)
+        return -5;
 
     /* Reject a volume whose declared length exceeds the physical device. */
     exfat_test_le32(boot + 72, 33u);
