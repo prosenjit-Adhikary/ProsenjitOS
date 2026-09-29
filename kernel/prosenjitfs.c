@@ -3438,8 +3438,11 @@ int prosenjitfs_selftest(void)
                            &count) != PROS_VFS_OK ||
             count != sizeof(suffix) - 1u)
             return -6106;
-        if (vfs_file_truncate(&file, 5u) != PROS_VFS_OK)
-            return -6107;
+        {
+            int truncate_rc = vfs_file_truncate(&file, 5u);
+            if (truncate_rc != PROS_VFS_OK)
+                return -6200 + truncate_rc;
+        }
         if (vfs_file_seek(&file, 0u) != PROS_VFS_OK)
             return -6108;
         if (vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
