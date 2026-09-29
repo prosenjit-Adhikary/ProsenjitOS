@@ -1,6 +1,25 @@
 #include "usercopy.h"
 #include "address_space.h"
 
+#define IA32_GS_BASE_MSR 0xC0000101u
+
+static uint64_t usercopy_state[2] __attribute__((aligned(16)));
+
+static void usercopy_load_gs_base(uint64_t base)
+{
+    uint32_t low = (uint32_t)base;
+    uint32_t high = (uint32_t)(base >> 32);
+    __asm__ volatile ("wrmsr" : : "c"(IA32_GS_BASE_MSR), "a"(low), "d"(high));
+}
+
+int percpu_init(void)
+{
+    usercopy_state[0] = 0;
+    usercopy_state[1] = 0;
+    usercopy_load_gs_base((uint64_t)(uintptr_t)usercopy_state);
+    return 0;
+}
+
 extern int copy_from_user_asm(void *destination, const void *source, uint64_t size);
 extern int copy_to_user_asm(void *destination, const void *source, uint64_t size);
 
