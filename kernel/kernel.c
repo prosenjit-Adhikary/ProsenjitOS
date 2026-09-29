@@ -1109,13 +1109,55 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: user-mode capability prepared\n");
 
-    /* Real QEMU IDE storage probe. The generic ISO boot may have no hard
-     * disk, so absence is not a failure; when an ATA disk is present, validate
-     * the real block-device path before filesystem probing. */
+    /* Real QEMU IDE storage path. The generic ISO boot may have no hard
+     * disk, so absence is not a failure. When the native BIOS disk is present,
+     * exercise the complete chain: ATA PIO -> MBR partition -> ProsenjitFS
+     * format/probe -> journal-aware mount/unmount -> storage rediscovery. */
     {
-        int ata_rc = pros_ata_pio_selftest();
+        struct pros_ata_pio native_ata;
+        int ata_rc = pros_ata_pio_probe(&native_ata);
         if (ata_rc == PROS_ATA_OK) {
-            serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+            struct pros_partition partitions[PROS_STORAGE_MAX_VOLUMES];
+            struct pros_partition_device pfs_device;
+            struct pros_prosenjitfs native_fs;
+            struct pros_storage_volume volumes[PROS_STORAGE_MAX_VOLUMES];
+            enum pros_partition_type table_type;
+            uint32_t partition_count = 0u;
+            uint32_t volume_count = 0u;
+            int pfs_rc;
+
+            if (partition_probe(&native_ata.block, &table_type) != PROS_PARTITION_OK ||
+                table_type != PROS_PARTITION_MBR ||
+                partition_read_mbr(&native_ata.block, partitions,
+                                   PROS_STORAGE_MAX_VOLUMES,
+                                   &partition_count) != PROS_PARTITION_OK ||
+                partition_count == 0u ||
+                partition_device_init(&pfs_device, &native_ata.block,
+                                       &partitions[0]) != PROS_PARTITION_OK) {
+                serial_write("ProsenjitOS: ERROR native ATA partition handoff failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            pfs_rc = prosenjitfs_probe(&pfs_device.device);
+            if (pfs_rc == PROSENJITFS_ENOTSUP) {
+                if (prosenjitfs_format(&pfs_device.device) != PROSENJITFS_OK)
+                    pfs_rc = PROSENJITFS_EIO;
+                else
+                    pfs_rc = prosenjitfs_probe(&pfs_device.device);
+            }
+            if (pfs_rc != PROSENJITFS_OK ||
+                prosenjitfs_mount(&native_fs, &pfs_device.device, 0u) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK ||
+                pros_storage_discover(&native_ata.block, volumes,
+                                       PROS_STORAGE_MAX_VOLUMES,
+                                       &volume_count) != PROS_STORAGE_OK ||
+                volume_count == 0u ||
+                volumes[0].filesystem != PROS_FS_PROSENJIT) {
+                serial_write("ProsenjitOS: ERROR native ProsenjitFS persistent storage test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            serial_write("ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed\n");
         } else if (ata_rc == PROS_ATA_ENODEV || ata_rc == PROS_ATA_ENOTSUP) {
             serial_write("ProsenjitOS: ATA PIO disk not present/unsupported; continuing with synthetic storage tests\n");
         } else {
