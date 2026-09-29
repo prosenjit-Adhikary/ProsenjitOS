@@ -19,6 +19,7 @@
 #define ATA_CMD_READ_PIO     0x20u
 #define ATA_CMD_WRITE_PIO    0x30u
 #define ATA_CMD_CACHE_FLUSH  0xE7u
+#define ATA_CMD_IDENTIFY     0xECu
 
 #define ATA_STATUS_ERR       0x01u
 #define ATA_STATUS_DRQ       0x08u
@@ -171,11 +172,34 @@ static int ata_pio_flush(struct pros_block_device *device)
     return ata_wait_not_busy(ata);
 }
 
+static int ata_identify_sector_count(struct pros_ata_pio *ata, uint64_t *sector_count)
+{
+    uint16_t identify[256];
+    if (!ata || !sector_count)
+        return PROS_ATA_EINVAL;
+    if (ata_select(ata, 0u) != PROS_ATA_OK)
+        return PROS_ATA_EIO;
+    ata_out8(ata->io_base + ATA_REG_FEATURES, 0u);
+    ata_out8(ata->io_base + ATA_REG_SECTOR_COUNT, 0u);
+    ata_out8(ata->io_base + ATA_REG_LBA_LOW, 0u);
+    ata_out8(ata->io_base + ATA_REG_LBA_MID, 0u);
+    ata_out8(ata->io_base + ATA_REG_LBA_HIGH, 0u);
+    ata_out8(ata->io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
+    if (ata_wait_drq(ata) != PROS_ATA_OK)
+        return PROS_ATA_EIO;
+    for (uint32_t i = 0u; i < 256u; ++i)
+        identify[i] = ata_in16(ata->io_base + ATA_REG_DATA);
+    *sector_count = (uint64_t)identify[60] |
+                    ((uint64_t)identify[61] << 16);
+    return *sector_count == 0u ? PROS_ATA_EIO : PROS_ATA_OK;
+}
+
 int ata_pio_init(struct pros_ata_pio *ata, uint8_t channel, uint8_t drive)
 {
     uint8_t status;
     uint16_t io_base;
     uint16_t control_base;
+    uint64_t sector_count;
 
     if (!ata || channel > 1u || drive > 1u)
         return PROS_ATA_EINVAL;
@@ -194,8 +218,11 @@ int ata_pio_init(struct pros_ata_pio *ata, uint8_t channel, uint8_t drive)
         return PROS_ATA_ENODEV;
     if (ata_wait_not_busy(ata) != PROS_ATA_OK)
         return PROS_ATA_EIO;
+    if (ata_identify_sector_count(ata, &sector_count) != PROS_ATA_OK ||
+        sector_count > (uint64_t)ATA_MAX_LBA + 1u)
+        return PROS_ATA_EIO;
 
-    if (block_device_init(&ata->device, 512u, ATA_MAX_LBA + 1u,
+    if (block_device_init(&ata->device, 512u, sector_count,
                           ata_pio_read, ata_pio_write, ata) != PROS_BLOCK_OK)
         return PROS_ATA_EINVAL;
     if (block_device_set_flush(&ata->device, ata_pio_flush) != PROS_BLOCK_OK)
