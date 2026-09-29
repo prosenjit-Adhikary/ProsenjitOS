@@ -548,6 +548,8 @@ int exfat_selftest(void)
             if (exfat_directory_name(set, 2u, set[35], decoded_name,
                                      sizeof(decoded_name)) != PROS_EXFAT_OK)
                 return -131;
+            if (!exfat_name_equal_ci(decoded_name, filename))
+                return -132;
         }
         {
             struct pros_exfat_dirent found;
