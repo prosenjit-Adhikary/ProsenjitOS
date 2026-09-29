@@ -136,8 +136,7 @@ load_kernel:
     cmp eax, 1536
     ja .fail
 
-    xor eax, eax
-    mov ax, KERNEL_LBA
+    mov eax, KERNEL_LBA
     mov [current_lba_low], eax
     mov dword [current_lba_high], 0
     mov word [remaining], KERNEL_SECTORS
