@@ -442,8 +442,7 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
 static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
                               const struct pros_prosenjitfs_inode *dir_inode,
                               const char *name,
-                              struct pros_prosenjitfs_dir_entry *found,
-                              uint64_t *found_lba);
+                              struct pros_prosenjitfs_dir_entry *found);
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit);
 static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                                uint64_t first, uint32_t count,
@@ -968,13 +967,18 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         return PROS_VFS_EIO;
 
     if (child_inode.type == PROSENJITFS_INODE_DIR) {
+        int empty_rc;
         child_was_dir = 1u;
         child_dir_index = child_inode.dir_index;
-        uint64_t ordinal = 0u;
-        struct pros_prosenjitfs_dir_entry child_entry;
-        if (pfs_dir_entry_by_ordinal(data->fs, &child_inode, ordinal,
-                                     &child_entry) == PROSENJITFS_OK)
+        {
+            struct pros_prosenjitfs_dir_entry child_entry;
+            empty_rc = pfs_dir_entry_by_ordinal(data->fs, &child_inode, 0u,
+                                                &child_entry);
+        }
+        if (empty_rc == PROSENJITFS_OK)
             return PROS_VFS_ENOTEMPTY;
+        if (empty_rc != PROSENJITFS_ENOENT)
+            return PROS_VFS_EIO;
     } else if (child_inode.type == PROSENJITFS_INODE_FILE) {
         if (child_inode.size != 0u || child_inode.extent_head != 0u) {
             struct pros_vfs_vnode *child = 0;
@@ -1142,11 +1146,15 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     }
     if (rc != PROSENJITFS_ENOENT)
         return PROS_VFS_EIO;
+    (void)target_lba;
+    (void)target_prev;
 
     if (source.inode >= old_data->fs->sb.inode_count)
         return PROS_VFS_EIO;
     if (prosenjitfs_read_inode(old_data->fs, source.inode, &child) !=
-            PROSENJITFS_OK)
+            PROSENJITFS_OK ||
+        (child.type != PROSENJITFS_INODE_FILE &&
+         child.type != PROSENJITFS_INODE_DIR))
         return PROS_VFS_EIO;
     if (child.type == PROSENJITFS_INODE_DIR &&
         old_data->inode_number != new_data->inode_number) {
