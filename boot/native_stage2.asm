@@ -29,8 +29,11 @@ start:
     xor ax, ax
     mov ds, ax
     mov es, ax
+    mov ax, 0xE000
     mov ss, ax
-    ; Keep the real-mode stack above the 16 KiB stage-2 load area (0x8000-0xC000).\n    mov sp, 0xF0000
+    ; Real-mode SP is 16-bit, so use a segment:offset stack above stage-2.
+    ; Physical stack top = 0xE0000 + 0xFFF0 = 0xEFFF0, below the 1 MiB load target.
+    mov sp, 0xFFF0
     mov [boot_drive], dl
 
     ; Gather the firmware E820 memory map before entering protected mode.
