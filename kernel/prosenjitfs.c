@@ -2543,6 +2543,10 @@ static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
 {
     if (!fs || !image || target >= fs->sb.total_blocks)
         return PROSENJITFS_EINVAL;
+    /* Home blocks must never overlap the redo journal itself. */
+    if (target >= fs->sb.journal_start &&
+        target < fs->sb.journal_start + fs->sb.journal_blocks)
+        return PROSENJITFS_EINVAL;
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         if (fs->tx.targets[i] == target) {
             pfs_copy(fs->tx.images + (uint64_t)i * fs->sb.block_size,
