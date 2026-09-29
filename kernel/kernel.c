@@ -130,10 +130,8 @@ static int ata_qemu_prosenjitfs_test(void)
 
     if (prosenjitfs_probe(fs_device) != PROSENJITFS_OK)
         return -120;
-    serial_write("ProsenjitOS: ATA partition probe passed\\n");
     if (prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
         return -140;
-    serial_write("ProsenjitOS: ATA partition mount passed\\n");
 
     for (uint32_t i = 0u; i < sizeof(file); ++i)
         ((uint8_t *)&file)[i] = 0u;
@@ -141,7 +139,6 @@ static int ata_qemu_prosenjitfs_test(void)
                       PROS_VFS_O_READ | PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
                       &file) != PROS_VFS_OK)
         goto fail_mount;
-    serial_write("ProsenjitOS: ATA partition file open passed\\n");
     if (vfs_file_truncate(&file, 0u) != PROS_VFS_OK ||
         vfs_file_write(&file, message, (uint32_t)sizeof(message), &count) != PROS_VFS_OK ||
         count != sizeof(message) ||
@@ -152,7 +149,6 @@ static int ata_qemu_prosenjitfs_test(void)
     for (uint32_t i = 0u; i < sizeof(message); ++i)
         if (readback[i] != message[i])
             goto fail_file;
-    serial_write("ProsenjitOS: ATA partition file I/O passed\\n");
     if (vfs_file_close(&file) != PROS_VFS_OK ||
         prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return PROS_ATA_EIO;
