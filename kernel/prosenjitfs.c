@@ -2820,6 +2820,208 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
+static int pfs_block_allocated(const struct pros_prosenjitfs *fs,
+                                  uint64_t block)
+{
+    uint64_t bits_per_block;
+    uint64_t bitmap_index;
+    uint8_t bitmap[4096];
+
+    if (!fs || block >= fs->sb.total_blocks ||
+        fs->sb.block_size > sizeof(bitmap))
+        return PROSENJITFS_ECORRUPT;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    bitmap_index = block / bits_per_block;
+    if (bitmap_index >= fs->sb.block_bitmap_blocks ||
+        pfs_read_block(fs->mount.device,
+                       fs->sb.block_bitmap_start + bitmap_index,
+                       bitmap) != PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+    return pfs_bitmap_bit(bitmap, block % bits_per_block) ?
+           1 : 0;
+}
+
+static int pfs_validate_extent_chain(const struct pros_prosenjitfs *fs,
+                                     const struct pros_prosenjitfs_inode *inode)
+{
+    uint64_t current;
+    uint64_t logical_end = 0u;
+    uint64_t block_sum = 0u;
+    uint64_t guard = 0u;
+    uint64_t required_blocks;
+
+    if (!fs || !inode || inode->type != PROSENJITFS_INODE_FILE)
+        return PROSENJITFS_ECORRUPT;
+    current = inode->extent_head;
+    required_blocks = (inode->size + fs->sb.block_size - 1u) /
+                      fs->sb.block_size;
+
+    while (current != 0u) {
+        struct pros_prosenjitfs_extent extent;
+        uint64_t previous = inode->extent_head;
+        uint64_t scan_guard = 0u;
+        int allocated;
+
+        if (++guard > fs->sb.total_blocks)
+            return PROSENJITFS_ECORRUPT;
+        allocated = pfs_block_allocated(fs, current);
+        if (allocated != 1)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_read_extent((struct pros_prosenjitfs *)fs, current,
+                            &extent) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        if (extent.logical_block < logical_end)
+            return PROSENJITFS_ECORRUPT;
+        if ((uint64_t)extent.block_count >
+            fs->sb.total_blocks - extent.physical_block)
+            return PROSENJITFS_ECORRUPT;
+        if (extent.physical_block <= current &&
+            current - extent.physical_block < extent.block_count)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_block_allocated(fs, extent.physical_block) != 1 ||
+            pfs_block_allocated(fs, extent.physical_block +
+                                extent.block_count - 1u) != 1)
+            return PROSENJITFS_ECORRUPT;
+        if (block_sum > UINT64_MAX - extent.block_count)
+            return PROSENJITFS_EOVERFLOW;
+        block_sum += extent.block_count;
+
+        /*
+         * Extent physical ranges must not overlap. The format is linked,
+         * so a bounded rescan gives deterministic corruption detection
+         * without allocating a bitmap proportional to the whole volume.
+         */
+        while (previous != current) {
+            struct pros_prosenjitfs_extent prior;
+            if (++scan_guard > fs->sb.total_blocks)
+                return PROSENJITFS_ECORRUPT;
+            if (pfs_read_extent((struct pros_prosenjitfs *)fs, previous,
+                                &prior) != PROSENJITFS_OK)
+                return PROSENJITFS_ECORRUPT;
+            if (prior.physical_block <= current &&
+                current - prior.physical_block < prior.block_count)
+                return PROSENJITFS_ECORRUPT;
+            if (extent.physical_block <= previous &&
+                previous - extent.physical_block < extent.block_count)
+                return PROSENJITFS_ECORRUPT;
+            previous = prior.next;
+        }
+
+        if (extent.logical_block >
+            UINT64_MAX - extent.block_count)
+            return PROSENJITFS_ECORRUPT;
+        logical_end = extent.logical_block + extent.block_count;
+        current = extent.next;
+    }
+
+    if (block_sum > UINT64_MAX / fs->sb.block_size ||
+        inode->allocated_bytes != block_sum * fs->sb.block_size)
+        return PROSENJITFS_ECORRUPT;
+    if (inode->size > inode->allocated_bytes)
+        return PROSENJITFS_ECORRUPT;
+    if ((inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) == 0u &&
+        logical_end != required_blocks)
+        return PROSENJITFS_ECORRUPT;
+    return PROSENJITFS_OK;
+}
+
+static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
+                                  uint64_t inode_number,
+                                  const struct pros_prosenjitfs_inode *inode)
+{
+    struct pros_prosenjitfs_dir_index index;
+
+    if (!fs || !inode || inode->type != PROSENJITFS_INODE_DIR ||
+        inode->dir_index < fs->sb.data_start ||
+        inode->dir_index >= fs->sb.total_blocks ||
+        pfs_block_allocated(fs, inode->dir_index) != 1 ||
+        pfs_read_dir_index(fs, inode, &index) != PROSENJITFS_OK ||
+        index.inode != inode_number)
+        return PROSENJITFS_ECORRUPT;
+
+    for (uint32_t bucket = 0u; bucket < PROSENJITFS_DIR_BUCKETS; ++bucket) {
+        uint64_t current = index.heads[bucket];
+        uint64_t guard = 0u;
+        while (current != 0u) {
+            struct pros_prosenjitfs_dir_entry entry;
+            struct pros_prosenjitfs_inode child;
+            uint32_t expected_hash;
+
+            if (++guard > fs->sb.total_blocks ||
+                pfs_block_allocated(fs, current) != 1 ||
+                pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
+                return PROSENJITFS_ECORRUPT;
+            expected_hash = pfs_name_hash(entry.name, entry.name_length);
+            if (entry.name_hash != expected_hash ||
+                prosenjitfs_read_inode(fs, entry.inode, &child) !=
+                    PROSENJITFS_OK ||
+                child.links == 0u ||
+                child.parent_inode != inode_number ||
+                ((entry.type == PROSENJITFS_INODE_FILE) &&
+                 child.type != PROSENJITFS_INODE_FILE) ||
+                ((entry.type == PROSENJITFS_INODE_DIR) &&
+                 child.type != PROSENJITFS_INODE_DIR))
+                return PROSENJITFS_ECORRUPT;
+            current = entry.next;
+        }
+    }
+    return PROSENJITFS_OK;
+}
+
+static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
+{
+    uint64_t bits_per_block;
+    uint64_t root_bitmap_index;
+    uint8_t inode_bitmap[4096];
+
+    if (!fs || fs->sb.block_size > sizeof(inode_bitmap))
+        return PROSENJITFS_ECORRUPT;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    root_bitmap_index = fs->sb.root_inode / bits_per_block;
+    if (root_bitmap_index >= fs->sb.inode_bitmap_blocks ||
+        pfs_read_block(fs->mount.device,
+                       fs->sb.inode_bitmap_start + root_bitmap_index,
+                       inode_bitmap) != PROSENJITFS_OK ||
+        !pfs_bitmap_bit(inode_bitmap, fs->sb.root_inode % bits_per_block))
+        return PROSENJITFS_ECORRUPT;
+
+    for (uint64_t inode_number = 0u;
+         inode_number < fs->sb.inode_count; ++inode_number) {
+        uint64_t bitmap_index = inode_number / bits_per_block;
+        int allocated;
+        struct pros_prosenjitfs_inode inode;
+        int rc;
+
+        if (bitmap_index >= fs->sb.inode_bitmap_blocks ||
+            pfs_read_block(fs->mount.device,
+                           fs->sb.inode_bitmap_start + bitmap_index,
+                           inode_bitmap) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        allocated = pfs_bitmap_bit(inode_bitmap,
+                                    inode_number % bits_per_block);
+        rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+        if (allocated) {
+            if (rc != PROSENJITFS_OK)
+                return PROSENJITFS_ECORRUPT;
+            if (inode_number == fs->sb.root_inode &&
+                inode.type != PROSENJITFS_INODE_DIR)
+                return PROSENJITFS_ECORRUPT;
+            if (inode.type == PROSENJITFS_INODE_FILE) {
+                if (pfs_validate_extent_chain(fs, &inode) !=
+                    PROSENJITFS_OK)
+                    return PROSENJITFS_ECORRUPT;
+            } else if (inode.type == PROSENJITFS_INODE_DIR) {
+                if (pfs_validate_directory(fs, inode_number, &inode) !=
+                    PROSENJITFS_OK)
+                    return PROSENJITFS_ECORRUPT;
+            }
+        } else if (rc != PROSENJITFS_ENOENT) {
+            return PROSENJITFS_ECORRUPT;
+        }
+    }
+    return PROSENJITFS_OK;
+}
+
 static int pfs_allocator_update(struct pros_prosenjitfs *fs,
                                 uint64_t first, uint32_t count,
                                 uint8_t allocate)
@@ -3084,6 +3286,11 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         return PROSENJITFS_EINVAL;
     }
     if (pfs_journal_recover(fs) != PROSENJITFS_OK) {
+        vfs_mount_deactivate(&fs->mount);
+        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_ECORRUPT;
+    }
+    if (pfs_validate_metadata(fs) != PROSENJITFS_OK) {
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
