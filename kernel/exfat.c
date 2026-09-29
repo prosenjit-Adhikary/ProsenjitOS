@@ -568,7 +568,7 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         return PROS_VFS_EINVAL;
     cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
     if (cluster_bytes == 0u || cluster_bytes > sizeof(cluster))
-        return PROS_VFS_ENOTSUP;
+        return PROS_VFS_ENOSYS;
     current = vnode == &fs->root_vnode ? fs->root_cluster :
               ((struct exfat_vfs_node *)vnode->private_data)->entry.first_cluster;
     if (current < 2u || (uint64_t)current > (uint64_t)fs->cluster_count + 1u)
