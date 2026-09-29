@@ -494,7 +494,7 @@ static int exfat_load_upcase(struct pros_exfat *fs)
             if (le64(entry + 24u) > 0xFFFFFFFFu)
                 return PROS_EXFAT_ECORRUPT;
             length = (uint32_t)le64(entry + 24u);
-            expected_checksum = (uint32_t)exfat_le16(entry + 2u);
+            expected_checksum = le32(entry + 4u);
             break;
         }
         if (offset > UINT64_MAX - 32u)
