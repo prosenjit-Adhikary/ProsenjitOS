@@ -2546,16 +2546,19 @@ int prosenjitfs_selftest(void)
             vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
                            &count) != PROS_VFS_OK ||
             count != sizeof(suffix) - 1u ||
+            vfs_file_truncate(&file, 5u) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
+            count != 5u ||
+            __builtin_memcmp(readback, "Prose", 5u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             vfs_file_open(&fs.mount, "/hello", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK ||
-            vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
-                          &count) != PROS_VFS_OK ||
-            count != sizeof(readback) ||
-            __builtin_memcmp(readback, message, sizeof(message)) != 0 ||
-            readback[sizeof(message)] != suffix[0] ||
+            vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
+            count != 5u ||
+            __builtin_memcmp(readback, "Prose", 5u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return -6;
     }
