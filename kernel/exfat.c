@@ -1245,7 +1245,7 @@ int exfat_selftest(void)
             !exfat_name_equal_ascii_ci(dirent.name, "HELLO.TXT") ||
             dirent.size != 700u ||
             vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
-            !exfat_name_equal_ascii_ci(dirent.name, "café.txt") ||
+            !exfat_name_equal_ascii_ci(dirent.name, "caf\xC3\xA9.txt") ||
             dirent.size != 700u ||
             vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
             !exfat_name_equal_ascii_ci(dirent.name, "CROSS.TXT") ||
