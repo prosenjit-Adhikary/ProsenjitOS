@@ -581,7 +581,7 @@ int exfat_selftest(void)
     {
         int physical_volume_status = exfat_mount(&fs, &device);
         if (physical_volume_status != PROS_EXFAT_ECORRUPT)
-            return -6;
+            return -60 + physical_volume_status;
     }
     exfat_test_le32(boot + 72, 29u);
 
