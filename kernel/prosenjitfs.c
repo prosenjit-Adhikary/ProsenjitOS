@@ -2932,9 +2932,19 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
         index.inode != inode_number)
         return PROSENJITFS_ECORRUPT;
 
+    /*
+     * Directory chains are independently rooted in hash buckets. A corrupt
+     * index can therefore reference the same entry block from two buckets
+     * without creating a cycle inside either individual chain. Likewise,
+     * duplicate names can be hidden in different buckets if the stored hash
+     * is forged consistently. Mount-time validation must reject both cases.
+     * The bounded rescans below keep the checker allocation-free and bound
+     * traversal by the volume size.
+     */
     for (uint32_t bucket = 0u; bucket < PROSENJITFS_DIR_BUCKETS; ++bucket) {
         uint64_t current = index.heads[bucket];
         uint64_t guard = 0u;
+
         while (current != 0u) {
             struct pros_prosenjitfs_dir_entry entry;
             struct pros_prosenjitfs_inode child;
@@ -2944,8 +2954,10 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
                 pfs_block_allocated(fs, current) != 1 ||
                 pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
                 return PROSENJITFS_ECORRUPT;
+
             expected_hash = pfs_name_hash(entry.name, entry.name_length);
             if (entry.name_hash != expected_hash ||
+                entry.inode >= fs->sb.inode_count ||
                 prosenjitfs_read_inode(fs, entry.inode, &child) !=
                     PROSENJITFS_OK ||
                 child.links == 0u ||
@@ -2953,8 +2965,40 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
                 ((entry.type == PROSENJITFS_INODE_FILE) &&
                  child.type != PROSENJITFS_INODE_FILE) ||
                 ((entry.type == PROSENJITFS_INODE_DIR) &&
-                 child.type != PROSENJITFS_INODE_DIR))
+                 child.type != PROSENJITFS_INODE_DIR) ||
+                (entry.type != PROSENJITFS_INODE_FILE &&
+                 entry.type != PROSENJITFS_INODE_DIR))
                 return PROSENJITFS_ECORRUPT;
+
+            /* Check this entry against every earlier bucket/chain entry. */
+            for (uint32_t prior_bucket = 0u;
+                 prior_bucket <= bucket; ++prior_bucket) {
+                uint64_t prior = index.heads[prior_bucket];
+                uint64_t prior_guard = 0u;
+
+                while (prior != 0u) {
+                    struct pros_prosenjitfs_dir_entry prior_entry;
+
+                    if (prior == current)
+                        break;
+                    if (++prior_guard > fs->sb.total_blocks ||
+                        pfs_read_dir_entry(fs, prior, &prior_entry) !=
+                            PROSENJITFS_OK)
+                        return PROSENJITFS_ECORRUPT;
+
+                    if (prior_bucket < bucket ||
+                        prior != current) {
+                        if (prior == current)
+                            return PROSENJITFS_ECORRUPT;
+                        if (prior_entry.name_length == entry.name_length &&
+                            pfs_memcmp(prior_entry.name, entry.name,
+                                       entry.name_length) == 0)
+                            return PROSENJITFS_ECORRUPT;
+                    }
+                    prior = prior_entry.next;
+                }
+            }
+
             current = entry.next;
         }
     }
