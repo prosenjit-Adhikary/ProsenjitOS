@@ -14,6 +14,8 @@
 
 struct pros_exfat_dirent {
     char name[256];
+    uint16_t unicode_name[256];
+    uint16_t name_length;
     uint8_t attributes;
     uint8_t no_fat_chain;
     uint32_t first_cluster;
