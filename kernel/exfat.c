@@ -397,104 +397,179 @@ static int exfat_name_equal_ci(const char *a, const char *b)
     return a[i] == b[i];
 }
 
+static int exfat_directory_read(const struct pros_exfat *fs,
+                                      uint32_t directory_cluster,
+                                      uint64_t offset, void *buffer,
+                                      uint32_t length)
+{
+    uint64_t cluster_bytes;
+    uint8_t sector[4096];
+
+    if (!fs || !buffer || !fs->mount.active ||
+        directory_cluster < 2u ||
+        (uint64_t)directory_cluster > (uint64_t)fs->cluster_count + 1u ||
+        fs->bytes_per_sector > sizeof(sector))
+        return PROS_EXFAT_EINVAL;
+
+    cluster_bytes = (uint64_t)fs->bytes_per_sector *
+                    fs->sectors_per_cluster;
+    if (cluster_bytes == 0u || offset > UINT64_MAX - length)
+        return PROS_EXFAT_ECORRUPT;
+
+    while (length != 0u) {
+        uint64_t cluster_index = offset / cluster_bytes;
+        uint64_t cluster_offset = offset % cluster_bytes;
+        uint32_t cluster;
+        uint32_t sector_index;
+        uint32_t in_sector;
+        uint32_t take;
+        uint64_t lba;
+
+        if (exfat_file_cluster(fs, directory_cluster, 0u,
+                               cluster_index, &cluster) != PROS_EXFAT_OK)
+            return PROS_EXFAT_EIO;
+        if (exfat_cluster_lba(fs, cluster, &lba) != PROS_EXFAT_OK)
+            return PROS_EXFAT_EIO;
+
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        if (sector_index >= fs->sectors_per_cluster)
+            return PROS_EXFAT_ECORRUPT;
+        take = fs->bytes_per_sector - in_sector;
+        if (take > length)
+            take = length;
+
+        lba += sector_index;
+        if (lba >= fs->volume_length ||
+            block_device_read(fs->mount.device, lba, 1u, sector) !=
+                PROS_BLOCK_OK)
+            return PROS_EXFAT_EIO;
+
+        for (uint32_t i = 0u; i < take; ++i)
+            ((uint8_t *)buffer)[i] = sector[in_sector + i];
+
+        buffer = (uint8_t *)buffer + take;
+        offset += take;
+        length -= take;
+    }
+    return PROS_EXFAT_OK;
+}
+
+static int exfat_directory_entry(const struct pros_exfat *fs,
+                                 uint32_t directory_cluster,
+                                 uint64_t offset,
+                                 uint8_t *set,
+                                 uint32_t set_capacity,
+                                 uint32_t *set_bytes,
+                                 struct pros_exfat_dirent *result)
+{
+    uint8_t primary[32];
+    uint32_t secondary_count, entry_count, bytes;
+    const uint8_t *stream = 0;
+    int rc;
+
+    if (!set || !set_bytes || !result)
+        return PROS_EXFAT_EINVAL;
+    if (exfat_directory_read(fs, directory_cluster, offset,
+                             primary, sizeof(primary)) != PROS_EXFAT_OK)
+        return PROS_EXFAT_EIO;
+    if (primary[0] == 0x00u)
+        return PROS_EXFAT_ENOENT;
+    if (primary[0] != 0x85u) {
+        *set_bytes = 32u;
+        return PROS_EXFAT_ENOTSUP;
+    }
+
+    secondary_count = primary[1];
+    if (secondary_count == 0u || secondary_count > 31u)
+        return PROS_EXFAT_ECORRUPT;
+    entry_count = secondary_count + 1u;
+    bytes = entry_count * 32u;
+    if (bytes > set_capacity)
+        return PROS_EXFAT_EOVERFLOW;
+
+    if (exfat_directory_read(fs, directory_cluster, offset,
+                             set, bytes) != PROS_EXFAT_OK)
+        return PROS_EXFAT_EIO;
+
+    if (exfat_directory_checksum(set, entry_count) != exfat_le16(set + 2u))
+        return PROS_EXFAT_ECORRUPT;
+
+    for (uint32_t i = 1u; i <= secondary_count; ++i) {
+        const uint8_t *secondary = set + i * 32u;
+        if (secondary[0] == 0xC0u) {
+            if (stream)
+                return PROS_EXFAT_ECORRUPT;
+            stream = secondary;
+        } else if (secondary[0] != 0xC1u) {
+            return PROS_EXFAT_ECORRUPT;
+        }
+    }
+    if (!stream)
+        return PROS_EXFAT_ECORRUPT;
+
+    rc = exfat_directory_name(set, secondary_count, stream[3],
+                              result->name, sizeof(result->name));
+    if (rc != PROS_EXFAT_OK)
+        return rc;
+
+    result->attributes = set[4];
+    result->no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
+    result->valid_data_length = le64(stream + 8u);
+    result->first_cluster = le32(stream + 20u);
+    result->size = le64(stream + 24u);
+    if (result->valid_data_length > result->size)
+        return PROS_EXFAT_ECORRUPT;
+    if (result->size != 0u &&
+        (result->first_cluster < 2u ||
+         (uint64_t)result->first_cluster >
+             (uint64_t)fs->cluster_count + 1u))
+        return PROS_EXFAT_ECORRUPT;
+
+    *set_bytes = bytes;
+    return PROS_EXFAT_OK;
+}
+
 int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
                const char *name, struct pros_exfat_dirent *result)
 {
-    static uint8_t cluster[32768];
     static uint8_t set[32u * 32u];
-    uint32_t cluster_bytes, current, guard = 0u;
+    uint64_t offset = 0u;
 
     if (!fs || !name || !result || !fs->mount.active ||
-        !fs->mount.device || !directory_cluster ||
-        directory_cluster < 2u ||
+        !fs->mount.device || directory_cluster < 2u ||
         (uint64_t)directory_cluster > (uint64_t)fs->cluster_count + 1u)
         return PROS_EXFAT_EINVAL;
 
-    cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
-    if (cluster_bytes == 0u || cluster_bytes > sizeof(cluster))
-        return PROS_EXFAT_ENOTSUP;
+    for (;;) {
+        uint8_t first;
+        uint32_t set_bytes = 32u;
+        struct pros_exfat_dirent parsed;
+        int rc;
 
-    current = directory_cluster;
-    while (guard++ <= fs->cluster_count) {
-        if (exfat_read_cluster(fs, current, cluster) != PROS_EXFAT_OK)
+        if (exfat_directory_read(fs, directory_cluster, offset,
+                                 &first, 1u) != PROS_EXFAT_OK)
             return PROS_EXFAT_EIO;
+        if (first == 0x00u)
+            return PROS_EXFAT_ENOENT;
 
-        for (uint32_t off = 0u; off + 32u <= cluster_bytes; off += 32u) {
-            const uint8_t *entry = cluster + off;
-            if (entry[0] == 0x00u)
-                return PROS_EXFAT_ENOENT;
-            if (entry[0] != 0x85u)
-                continue;
-
-            uint32_t secondary_count = entry[1];
-            uint32_t entry_count = secondary_count + 1u;
-            uint32_t set_bytes = entry_count * 32u;
-            if (secondary_count == 0u || secondary_count > 31u)
-                return PROS_EXFAT_ECORRUPT;
-            if (off + set_bytes > cluster_bytes)
-                return PROS_EXFAT_ENOTSUP;
-
-            {
-                volatile uint8_t *dst = set;
-                volatile const uint8_t *src = cluster + off;
-                for (uint32_t i = 0u; i < set_bytes; ++i)
-                    dst[i] = src[i];
-            }
-
-            uint16_t stored = exfat_le16(set + 2u);
-            if (exfat_directory_checksum(set, entry_count) != stored)
-                return PROS_EXFAT_ECORRUPT;
-
-            const uint8_t *stream = 0;
-            for (uint32_t i = 1u; i <= secondary_count; ++i) {
-                const uint8_t *secondary = set + i * 32u;
-                if (secondary[0] == 0xC0u) {
-                    if (stream) return PROS_EXFAT_ECORRUPT;
-                    stream = secondary;
-                } else if (secondary[0] != 0xC1u) {
-                    return PROS_EXFAT_ECORRUPT;
-                }
-            }
-            if (!stream)
-                return PROS_EXFAT_ECORRUPT;
-
-            char parsed[256];
-            if (exfat_directory_name(set, secondary_count, stream[3],
-                                     parsed, sizeof(parsed)) != PROS_EXFAT_OK)
-                return PROS_EXFAT_ENOTSUP;
-
-            if (exfat_name_equal_ci(parsed, name)) {
-                result->attributes = set[4];
-                result->no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
-                result->valid_data_length = le64(stream + 8u);
-                result->first_cluster = le32(stream + 20u);
-                result->size = le64(stream + 24u);
-                if (result->valid_data_length > result->size)
-                    return PROS_EXFAT_ECORRUPT;
-                if (result->size != 0u &&
-                    (result->first_cluster < 2u ||
-                     (uint64_t)result->first_cluster >
-                         (uint64_t)fs->cluster_count + 1u))
-                    return PROS_EXFAT_ECORRUPT;
-                for (uint32_t i = 0u; i < sizeof(result->name); ++i)
-                    result->name[i] = 0u;
-                for (uint32_t i = 0u; i < sizeof(result->name) - 1u &&
-                                     parsed[i]; ++i)
-                    result->name[i] = parsed[i];
-                return PROS_EXFAT_OK;
-            }
-            off += set_bytes - 32u;
+        rc = exfat_directory_entry(fs, directory_cluster, offset, set,
+                                    sizeof(set), &set_bytes, &parsed);
+        if (rc == PROS_EXFAT_ENOTSUP) {
+            offset += 32u;
+            continue;
         }
+        if (rc != PROS_EXFAT_OK)
+            return rc;
 
-        {
-            uint32_t next;
-            int rc = exfat_read_fat_entry(fs, current, &next);
-            if (rc != PROS_EXFAT_OK) return rc;
-            if (next == 0xFFFFFFFFu) return PROS_EXFAT_ENOENT;
-            current = next;
+        if (exfat_name_equal_ci(parsed.name, name)) {
+            *result = parsed;
+            return PROS_EXFAT_OK;
         }
+        if (offset > UINT64_MAX - set_bytes)
+            return PROS_EXFAT_ECORRUPT;
+        offset += set_bytes;
     }
-    return PROS_EXFAT_ECORRUPT;
 }
 
 static struct pros_exfat *exfat_vfs_get_fs(struct pros_vfs_vnode *vnode)
@@ -559,106 +634,75 @@ static int exfat_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
                              struct pros_vfs_dirent *entry)
 {
     struct pros_exfat *fs = exfat_vfs_get_fs(vnode);
-    uint8_t cluster[32768];
-    uint8_t set[32u * 32u];
-    uint32_t cluster_bytes, current, guard = 0u;
+    static uint8_t set[32u * 32u];
+    uint32_t directory_cluster;
+    uint64_t offset = 0u;
     uint64_t index = 0u;
 
     if (!fs || !cookie || !entry || vnode->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
-    cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
-    if (cluster_bytes == 0u || cluster_bytes > sizeof(cluster))
-        return PROS_VFS_ENOSYS;
-    current = vnode == &fs->root_vnode ? fs->root_cluster :
-              ((struct exfat_vfs_node *)vnode->private_data)->entry.first_cluster;
-    if (current < 2u || (uint64_t)current > (uint64_t)fs->cluster_count + 1u)
+
+    directory_cluster = vnode == &fs->root_vnode ? fs->root_cluster :
+        ((struct exfat_vfs_node *)vnode->private_data)->entry.first_cluster;
+    if (directory_cluster < 2u ||
+        (uint64_t)directory_cluster > (uint64_t)fs->cluster_count + 1u)
         return PROS_VFS_EIO;
 
-    while (guard++ <= fs->cluster_count) {
-        if (exfat_read_cluster(fs, current, cluster) != PROS_EXFAT_OK)
+    while (index < *cookie) {
+        uint8_t first;
+        uint32_t consumed = 32u;
+        struct pros_exfat_dirent ignored;
+        int rc;
+
+        if (exfat_directory_read(fs, directory_cluster, offset,
+                                 &first, 1u) != PROS_EXFAT_OK)
             return PROS_VFS_EIO;
-        for (uint32_t off = 0u; off + 32u <= cluster_bytes; off += 32u) {
-            const uint8_t *raw = cluster + off;
-            uint32_t secondary_count, entry_count, set_bytes;
-            struct pros_exfat_dirent parsed;
-            int rc;
-            if (raw[0] == 0x00u)
-                return PROS_VFS_ENOENT;
-            if (raw[0] != 0x85u)
-                continue;
-            secondary_count = raw[1];
-            entry_count = secondary_count + 1u;
-            set_bytes = entry_count * 32u;
-            if (secondary_count == 0u || secondary_count > 31u)
-                return PROS_VFS_EIO;
-            if (off + set_bytes > cluster_bytes)
-                return PROS_VFS_ENOSYS;
-            for (uint32_t i = 0u; i < set_bytes; ++i)
-                set[i] = cluster[off + i];
-            {
-                uint16_t stored = exfat_le16(set + 2u);
-                if (exfat_directory_checksum(set, entry_count) != stored)
-                    return PROS_VFS_EIO;
-            }
-            rc = PROS_EXFAT_ECORRUPT;
-            {
-                const uint8_t *stream = 0;
-                for (uint32_t i = 1u; i <= secondary_count; ++i) {
-                    const uint8_t *secondary = set + i * 32u;
-                    if (secondary[0] == 0xC0u) {
-                        if (stream) { rc = PROS_EXFAT_ECORRUPT; break; }
-                        stream = secondary;
-                    } else if (secondary[0] != 0xC1u) {
-                        rc = PROS_EXFAT_ECORRUPT;
-                        break;
-                    }
-                }
-                if (stream)
-                    rc = exfat_directory_name(set, secondary_count, stream[3],
-                                               parsed.name, sizeof(parsed.name));
-                if (rc == PROS_EXFAT_OK && stream) {
-                    parsed.attributes = set[4];
-                    parsed.no_fat_chain = (uint8_t)((stream[1] & 0x02u) != 0u);
-                    parsed.valid_data_length = le64(stream + 8u);
-                    parsed.first_cluster = le32(stream + 20u);
-                    parsed.size = le64(stream + 24u);
-                    if (parsed.valid_data_length > parsed.size)
-                        rc = PROS_EXFAT_ECORRUPT;
-                    if (parsed.size != 0u &&
-                        (parsed.first_cluster < 2u ||
-                         (uint64_t)parsed.first_cluster >
-                             (uint64_t)fs->cluster_count + 1u))
-                        rc = PROS_EXFAT_ECORRUPT;
-                }
-            }
-            if (rc == PROS_EXFAT_ENOTSUP)
-                return PROS_VFS_ENOSYS;
-            if (rc != PROS_EXFAT_OK)
-                return PROS_VFS_EIO;
-            off += set_bytes - 32u;
-            if (index != *cookie) {
-                ++index;
-                continue;
-            }
-            for (uint32_t i = 0u; i < sizeof(entry->name); ++i) {
-                entry->name[i] = parsed.name[i];
-                if (parsed.name[i] == 0) break;
-            }
-            entry->type = (parsed.attributes & 0x10u) != 0u
-                ? PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
-            entry->size = parsed.size;
-            *cookie = index + 1u;
-            return PROS_VFS_OK;
-        }
-        {
-            uint32_t next;
-            int rc = exfat_read_fat_entry(fs, current, &next);
-            if (rc != PROS_EXFAT_OK) return PROS_VFS_EIO;
-            if (next == 0xFFFFFFFFu) return PROS_VFS_ENOENT;
-            current = next;
-        }
+        if (first == 0x00u)
+            return PROS_VFS_ENOENT;
+        rc = exfat_directory_entry(fs, directory_cluster, offset, set,
+                                    sizeof(set), &consumed, &ignored);
+        if (rc == PROS_EXFAT_ENOTSUP)
+            consumed = 32u;
+        else if (rc != PROS_EXFAT_OK)
+            return rc == PROS_EXFAT_ENOTSUP ? PROS_VFS_ENOSYS :
+                   PROS_VFS_EIO;
+        offset += consumed;
+        ++index;
     }
-    return PROS_VFS_EIO;
+
+    for (;;) {
+        uint8_t first;
+        uint32_t consumed = 32u;
+        struct pros_exfat_dirent parsed;
+        int rc;
+
+        if (exfat_directory_read(fs, directory_cluster, offset,
+                                 &first, 1u) != PROS_EXFAT_OK)
+            return PROS_VFS_EIO;
+        if (first == 0x00u)
+            return PROS_VFS_ENOENT;
+
+        rc = exfat_directory_entry(fs, directory_cluster, offset, set,
+                                    sizeof(set), &consumed, &parsed);
+        if (rc == PROS_EXFAT_ENOTSUP) {
+            offset += 32u;
+            continue;
+        }
+        if (rc != PROS_EXFAT_OK)
+            return rc == PROS_EXFAT_ENOTSUP ? PROS_VFS_ENOSYS :
+                   PROS_VFS_EIO;
+
+        for (uint32_t i = 0u; i < sizeof(entry->name); ++i) {
+            entry->name[i] = parsed.name[i];
+            if (parsed.name[i] == 0)
+                break;
+        }
+        entry->type = (parsed.attributes & 0x10u) != 0u ?
+            PROS_VFS_NODE_DIRECTORY : PROS_VFS_NODE_FILE;
+        entry->size = parsed.size;
+        *cookie = index + 1u;
+        return PROS_VFS_OK;
+    }
 }
 
 static int exfat_vfs_read(struct pros_vfs_file *file, uint32_t offset,
