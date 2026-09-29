@@ -1316,8 +1316,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
         if (cursor != 0u || last_lba == 0u)
             return PROS_VFS_EIO;
 
-        if (last.logical_block + last.block_count == required_blocks &&
-            new_size < inode.size) {
+        if (last.logical_block + last.block_count == required_blocks) {
             uint8_t *inode_image = (uint8_t *)kmalloc(block_size);
             uint64_t inode_byte_offset =
                 data->inode_number * PROSENJITFS_INODE_SIZE;
@@ -1440,7 +1439,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             kfree(last_image);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -1800 + rc;
             continue;
         }
 
@@ -1509,7 +1508,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             kfree(extent_image);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -1810 + rc;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
@@ -3649,9 +3648,14 @@ int prosenjitfs_selftest(void)
             vfs_file_seek(&file, 8192u) != PROS_VFS_OK ||
             vfs_file_read(&file, verify, 512u, &count) != PROS_VFS_OK ||
             count != 512u ||
-            pfs_memcmp(verify, payload + 8192u, 512u) != 0 ||
-            vfs_file_truncate(&file, 700u) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
+            pfs_memcmp(verify, payload + 8192u, 512u) != 0)
+            return -17;
+        {
+            int truncate_rc = vfs_file_truncate(&file, 700u);
+            if (truncate_rc != PROS_VFS_OK)
+                return -1700 + truncate_rc;
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -17;
@@ -3724,7 +3728,9 @@ int prosenjitfs_selftest(void)
             return -15;
     }
     {
-        uint64_t journal_target = fs.sb.data_start;
+        uint64_t journal_target = 0u;
+        if (pfs_find_free_run(&fs, 1u, &journal_target) != PROSENJITFS_OK)
+            return -9001;
         uint8_t *header = fs.scratch;
         uint8_t *image = fs.tx.images;
         uint8_t *commit = fs.tx.images +
@@ -3817,7 +3823,8 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -10;
-        disk.data[fs.sb.journal_start * 512u] = 0u;
+        pfs_zero(disk.data + fs.sb.journal_start * 512u,
+                 fs.sb.block_size);
         if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -10;
@@ -3836,6 +3843,10 @@ int prosenjitfs_selftest(void)
         return -7;
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return -8;
+    /* Allocation reserves the inode; release the reservation after the
+     * allocator contract check so metadata validation sees no orphan inode. */
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return -8001;
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)

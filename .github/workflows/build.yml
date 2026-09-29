@@ -23,6 +23,11 @@ jobs:
           test "$(od -An -tx1 -N8 build/prosenjitfs-test.img | tr -d ' \\n')" = "504a534653303100"
           cmp <(dd if=build/prosenjitfs-test.img bs=512 count=1 status=none) <(dd if=build/prosenjitfs-test.img bs=512 skip=1 count=1 status=none)
 
+      - name: Validate native boot sources
+        run: |
+          chmod +x tools/validate_native_boot_sources.sh
+          ./tools/validate_native_boot_sources.sh
+
       - name: Build ISO
         run: |
           chmod +x scripts/build.sh
@@ -93,7 +98,14 @@ jobs:
           require_log "ProsenjitOS: user address-space isolation foundation test passed"
           require_log "ProsenjitOS: usercopy page-fault recovery test passed"
 
+      - name: Validate native BIOS image layout
+        if: always()
+        run: |
+          chmod +x tools/validate_native_bios_image.sh
+          ./tools/validate_native_bios_image.sh
+
       - name: Boot-test native BIOS image in QEMU
+        if: always()
         run: |
           set +e
           timeout 20s qemu-system-x86_64 \

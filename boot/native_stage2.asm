@@ -16,13 +16,21 @@ ORG 0x8000
 %define NATIVE_MAGIC 0x534F5250
 %define STAGE2_MAX_SECTORS 32
 
+; The BIOS staging buffer must never exceed its explicitly reserved window.
+%if KERNEL_SECTORS < 1
+    %error "KERNEL_SECTORS must be at least 1"
+%endif
+%if KERNEL_SECTORS > ((LOAD_LIMIT - LOAD_BUFFER) / 512)
+    %error "KERNEL_SECTORS exceeds native staging buffer"
+%endif
+
 start:
     cli
     xor ax, ax
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x9C00
+    ; Keep the real-mode stack above the 16 KiB stage-2 load area (0x8000-0xC000).\n    mov sp, 0xF000
     mov [boot_drive], dl
 
     ; Gather the firmware E820 memory map before entering protected mode.
@@ -128,8 +136,7 @@ load_kernel:
     cmp eax, 1536
     ja .fail
 
-    xor eax, eax
-    mov ax, KERNEL_LBA
+    mov eax, KERNEL_LBA
     mov [current_lba_low], eax
     mov dword [current_lba_high], 0
     mov word [remaining], KERNEL_SECTORS
@@ -197,7 +204,7 @@ protected_entry:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov esp, 0x9C00
+    ; Keep the protected-mode stack outside the stage-2 image as well.\n    mov esp, 0xF000
 
     ; Copy the BIOS-loaded flat kernel from 0x10000 to its linked address 1 MiB.
     cld
