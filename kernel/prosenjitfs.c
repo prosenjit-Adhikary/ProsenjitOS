@@ -2048,7 +2048,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         rc = pfs_vnode_truncate(child, 0u);
         vfs_vnode_put(child);
         if (rc != PROS_VFS_OK)
-            return rc;
+            return -6400 + rc;
         if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
                 PROSENJITFS_OK || child_inode.size != 0u ||
                 child_inode.extent_head != 0u)
