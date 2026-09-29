@@ -1156,6 +1156,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -106: serial_write("ProsenjitOS: ProsenjitFS initial mount rc ENOENT\n"); break;
             case -107: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EEXIST\n"); break;
             case -108: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EOVERFLOW\n"); break;
+            case -201: serial_write("ProsenjitOS: ProsenjitFS mount failed during superblock/VFS init\n"); break;
+            case -202: serial_write("ProsenjitOS: ProsenjitFS mount failed during journal recovery\n"); break;
+            case -203: serial_write("ProsenjitOS: ProsenjitFS mount failed during metadata validation\n"); break;
+            case -204: serial_write("ProsenjitOS: ProsenjitFS mount failed during root activation\n"); break;
             default: serial_write("ProsenjitOS: ProsenjitFS self-test failure unknown stage\n"); break;
             }
             serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
