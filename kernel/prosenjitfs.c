@@ -859,8 +859,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
     }
 
-    uint64_t old_blocks = (old_size + data->fs->sb.block_size - 1u) /
-                 data->fs->sb.block_size;
     keep_blocks = (size + data->fs->sb.block_size - 1u) /
                   data->fs->sb.block_size;
 
