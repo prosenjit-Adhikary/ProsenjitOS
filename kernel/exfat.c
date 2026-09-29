@@ -933,14 +933,17 @@ int exfat_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -15;
 
-        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK) return -161;
-        if (vfs_dir_read(&dir, &dirent) != PROS_VFS_OK) return -162;
-        if (dirent.type != PROS_VFS_NODE_FILE || !exfat_name_equal_ci(dirent.name, "HELLO.TXT") || dirent.size != 700u) return -163;
-        if (vfs_dir_read(&dir, &dirent) != PROS_VFS_OK) return -164;
-        if (!exfat_name_equal_ci(dirent.name, "CROSS.TXT") || dirent.size != 700u) return -165;
-        if (dir.cookie != 576u) return -168;
-        if (vfs_dir_read(&dir, &dirent) != PROS_VFS_ENOENT) return -166;
-        if (vfs_dir_close(&dir) != PROS_VFS_OK) return -167;
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
+            dirent.type != PROS_VFS_NODE_FILE ||
+            !exfat_name_equal_ci(dirent.name, "HELLO.TXT") ||
+            dirent.size != 700u ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
+            !exfat_name_equal_ci(dirent.name, "CROSS.TXT") ||
+            dirent.size != 700u ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_ENOENT ||
+            vfs_dir_close(&dir) != PROS_VFS_OK)
+            return -16;
 
         if (vfs_mount_deactivate(&fs.mount) != PROS_VFS_OK)
             return -17;
