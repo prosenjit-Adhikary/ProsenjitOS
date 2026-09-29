@@ -288,6 +288,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         vga_write("ProsenjitOS: paging initialization failed", 0x4F);
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (percpu_init() != 0) {
+        serial_write("ProsenjitOS: ERROR per-CPU usercopy fault state initialization failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: per-CPU usercopy fault state online\\n");
+
     uint64_t translated = paging_translate(PROSENJIT_KERNEL_TEST_VA);
     serial_write("ProsenjitOS: paging active; test VA -> ");
     serial_hex64(translated);
