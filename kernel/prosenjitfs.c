@@ -26,9 +26,6 @@ static void pfs_put32(uint8_t *p, uint32_t v)
 }
 
 
-static int pfs_mount_debug_stage;
-static int pfs_journal_debug_stage;
-static int pfs_metadata_debug_stage;
 
 static int pfs_mem_equal(const void *a, const void *b, uint32_t size)
 {
@@ -566,7 +563,6 @@ static int pfs_find_free_run(const struct pros_prosenjitfs *fs,
     if (!fs || !start || count == 0u || fs->sb.block_size > sizeof(bitmap))
         return PROSENJITFS_EINVAL;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
-    pfs_metadata_debug_stage = 1;
     for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
         uint64_t bi = b / bits_per_block;
         if (bi >= fs->sb.block_bitmap_blocks)
@@ -2467,7 +2463,6 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
 
 static int pfs_journal_recover(struct pros_prosenjitfs *fs)
 {
-    pfs_journal_debug_stage = 0;
     uint8_t *header = fs->scratch;
     uint8_t *images = fs->tx.images;
     uint8_t *commit = images + (uint64_t)PROSENJITFS_MAX_TX_BLOCKS *
@@ -2476,19 +2471,11 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_commit c;
     uint32_t expected;
 
-    if (fs->sb.journal_start >= fs->mount.device->sector_count) {
-        pfs_journal_debug_stage = 10;
+    if (pfs_read_block(fs->mount.device, fs->sb.journal_start, header) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
-    }
-    if (pfs_read_block(fs->mount.device, fs->sb.journal_start, header) != PROSENJITFS_OK) {
-        pfs_journal_debug_stage = 11;
-        return PROSENJITFS_EIO;
-    }
-    pfs_journal_debug_stage = 1;
     pfs_copy(&h, header, sizeof(h));
     if (h.magic == 0u)
         return PROSENJITFS_OK;
-    pfs_journal_debug_stage = 2;
     if (h.magic != PROSENJITFS_JOURNAL_MAGIC ||
         h.record_count == 0u || h.record_count > PROSENJITFS_MAX_TX_BLOCKS ||
         h.record_count + 2u > fs->sb.journal_blocks ||
@@ -2498,7 +2485,6 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
                                 checksum)) != h.checksum)
         return PROSENJITFS_ECORRUPT;
 
-    pfs_journal_debug_stage = 3;
     for (uint32_t i = 0; i < h.record_count; ++i) {
         if (h.targets[i] >= fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
@@ -2508,7 +2494,6 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
     }
-    pfs_journal_debug_stage = 4;
     if (pfs_read_block(fs->mount.device,
                        fs->sb.journal_start + 1u + h.record_count,
                        commit) != PROSENJITFS_OK)
@@ -2516,7 +2501,6 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     pfs_copy(&c, commit, sizeof(c));
     if (c.magic == 0u)
         return pfs_journal_clear(fs);
-    pfs_journal_debug_stage = 5;
     if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
         c.transaction_id != h.transaction_id ||
         c.record_count != h.record_count)
@@ -2525,7 +2509,6 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
                                     h.record_count, commit);
     if (expected != c.checksum)
         return PROSENJITFS_ECORRUPT;
-    pfs_journal_debug_stage = 6;
 
     for (uint32_t i = 0; i < h.record_count; ++i)
         if (pfs_write_block(fs->mount.device, h.targets[i],
@@ -2834,7 +2817,6 @@ static int pfs_validate_directory(const struct pros_prosenjitfs *fs,
 
 static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
 {
-    pfs_metadata_debug_stage = 0;
     uint64_t bits_per_block;
     uint64_t root_bitmap_index;
     uint8_t inode_bitmap[4096];
@@ -2850,7 +2832,6 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
         !pfs_bitmap_bit(inode_bitmap, fs->sb.root_inode % bits_per_block))
         return PROSENJITFS_ECORRUPT;
 
-    pfs_metadata_debug_stage = 2;
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
         uint64_t bitmap_index = inode_number / bits_per_block;
@@ -2863,14 +2844,12 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                            fs->sb.inode_bitmap_start + bitmap_index,
                            inode_bitmap) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
-        pfs_metadata_debug_stage = 3;
         allocated = pfs_bitmap_bit(inode_bitmap,
                                     inode_number % bits_per_block);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (allocated) {
             if (rc != PROSENJITFS_OK)
                 return PROSENJITFS_ECORRUPT;
-            pfs_metadata_debug_stage = 5;
             if (inode_number == fs->sb.root_inode &&
                 inode.type != PROSENJITFS_INODE_DIR)
                 return PROSENJITFS_ECORRUPT;
@@ -2879,13 +2858,11 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                     PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
             } else if (inode.type == PROSENJITFS_INODE_DIR) {
-                pfs_metadata_debug_stage = 6;
                 if (pfs_validate_directory(fs, inode_number, &inode) !=
                     PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
             }
         } else if (rc != PROSENJITFS_ENOENT) {
-            pfs_metadata_debug_stage = 7;
             return PROSENJITFS_ECORRUPT;
         }
     }
@@ -3117,7 +3094,6 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         device->sector_size > 4096u ||
         (device->sector_size & (device->sector_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
-    pfs_mount_debug_stage = 0;
     pfs_zero(fs, sizeof(*fs));
     block = (uint8_t *)kmalloc(device->sector_size);
     if (!block)
@@ -3151,7 +3127,6 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
     }
     fs->read_only = read_only || fs->degraded_superblock;
-    pfs_mount_debug_stage = 1;
     if (vfs_mount_init(&fs->mount, PROS_FS_PROSENJIT, device, fs,
                        fs->read_only) != PROS_VFS_OK) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
@@ -3162,14 +3137,11 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
-    pfs_mount_debug_stage = 2;
-    pfs_mount_debug_stage = 3;
     if (pfs_validate_metadata(fs) != PROSENJITFS_OK) {
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
-    pfs_mount_debug_stage = 4;
     struct pros_vfs_vnode *root_vnode = 0;
     if (pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, root_vnode) != PROS_VFS_OK) {
@@ -3185,7 +3157,6 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     /* vfs_mount_set_root() acquired the mount's ownership reference. */
     vfs_vnode_put(root_vnode);
 
-    pfs_mount_debug_stage = 5;
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
@@ -3246,7 +3217,6 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
-    struct pros_vfs_vnode *parent = 0;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return -1;
@@ -3255,26 +3225,14 @@ int prosenjitfs_selftest(void)
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return -3;
-    {
-        int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-        if (mount_rc != PROSENJITFS_OK) {
-            if (pfs_mount_debug_stage == 2)
-                return -300 - pfs_journal_debug_stage;
-            if (pfs_mount_debug_stage == 3)
-                return -400 - pfs_metadata_debug_stage;
-            return -200 - pfs_mount_debug_stage;
-        }
-    }
-    if (fs.sb.root_inode != 0u)
-        return -501;
-    if (prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK)
-        return -502;
-    if (inode.type != PROSENJITFS_INODE_DIR)
-        return -503;
-    if (inode.dir_index == 0u)
-        return -504;
-    if (!fs.mount.root)
-        return -505;
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -4;
+    if (fs.sb.root_inode != 0u ||
+        prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
+        inode.type != PROSENJITFS_INODE_DIR ||
+        inode.dir_index == 0u ||
+        !fs.mount.root)
+        return -5;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
@@ -3283,62 +3241,39 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_vnode *looked_up = 0;
         struct pros_vfs_vnode *subdir = 0;
         struct pros_vfs_vnode *nested = 0;
-        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK)
-            return -601;
-        if (root != fs.mount.root)
-            return -602;
-        if (root->ops->create(root, "hello", &created) != PROS_VFS_OK)
-            return -603;
-        if (!created)
-            return -604;
-        if (vfs_path_lookup(&fs.mount, "/hello", &looked_up) != PROS_VFS_OK)
-            return -605;
-        if (!looked_up)
-            return -606;
-        if (looked_up->type != PROS_VFS_NODE_FILE)
-            return -607;
-        if (vfs_path_mkdir(&fs.mount, "/sub", &subdir) != PROS_VFS_OK)
-            return -608;
-        if (!subdir)
-            return -609;
-        if (subdir->type != PROS_VFS_NODE_DIRECTORY)
-            return -610;
-        if (subdir->ops->create(subdir, "nested", &nested) != PROS_VFS_OK)
-            return -611;
-        if (!nested)
-            return -612;
-        if (vfs_vnode_put(looked_up) != PROS_VFS_OK)
-            return -613;
-        if (vfs_vnode_put(subdir) != PROS_VFS_OK)
-            return -614;
-        if (vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up) != PROS_VFS_OK)
-            return -615;
-        if (looked_up->type != PROS_VFS_NODE_FILE)
-            return -616;
-        if (looked_up->ops->lookup(looked_up, "..", &parent) != PROS_VFS_OK)
-            return -617;
-        if (!parent)
-            return -618;
-        if (parent->type != PROS_VFS_NODE_DIRECTORY)
-            return -619;
-        if (vfs_vnode_put(parent) != PROS_VFS_OK)
-            return -620;
-        if (vfs_vnode_put(looked_up) != PROS_VFS_OK)
-            return -621;
-        if (vfs_vnode_put(nested) != PROS_VFS_OK)
-            return -622;
-        if (vfs_vnode_put(created) != PROS_VFS_OK)
-            return -623;
-        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
-            return -624;
-        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != '.')
-            return -625;
-        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != '.')
-            return -626;
-        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != 'h')
-            return -627;
-        if (vfs_dir_close(&dir) != PROS_VFS_OK)
-            return -628;
+        struct pros_vfs_vnode *parent = 0;
+        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
+            root != fs.mount.root ||
+            root->ops->create(root, "hello", &created) != PROS_VFS_OK ||
+            !created ||
+            vfs_path_lookup(&fs.mount, "/hello", &looked_up) != PROS_VFS_OK ||
+            !looked_up ||
+            looked_up->type != PROS_VFS_NODE_FILE ||
+            vfs_path_mkdir(&fs.mount, "/sub", &subdir) != PROS_VFS_OK ||
+            !subdir ||
+            subdir->type != PROS_VFS_NODE_DIRECTORY ||
+            subdir->ops->create(subdir, "nested", &nested) != PROS_VFS_OK ||
+            !nested ||
+            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
+            vfs_vnode_put(subdir) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/sub/nested", &looked_up) != PROS_VFS_OK ||
+            looked_up->type != PROS_VFS_NODE_FILE ||
+            looked_up->ops->lookup(looked_up, "..", &parent) != PROS_VFS_OK ||
+            !parent ||
+            parent->type != PROS_VFS_NODE_DIRECTORY ||
+            vfs_vnode_put(parent) != PROS_VFS_OK ||
+            vfs_vnode_put(looked_up) != PROS_VFS_OK ||
+            vfs_vnode_put(nested) != PROS_VFS_OK ||
+            vfs_vnode_put(created) != PROS_VFS_OK ||
+            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != '.' ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != '.' ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != 'h' ||
+            vfs_dir_close(&dir) != PROS_VFS_OK)
+            return -5;
 
         {
             static const char unicode_name[] = "বাংলা";
@@ -3371,201 +3306,117 @@ int prosenjitfs_selftest(void)
         pfs_zero(&file, sizeof(file));
         if (vfs_file_open(&fs.mount, "/hello",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE,
-                          &file) != PROS_VFS_OK)
-            return -701;
-        if (vfs_file_write(&file, message, (uint32_t)sizeof(message),
-                           &count) != PROS_VFS_OK)
-            return -702;
-        if (count != sizeof(message))
-            return -703;
-        if (vfs_file_seek(&file, 0u) != PROS_VFS_OK)
-            return -704;
-        if (vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
-                          &count) != PROS_VFS_OK)
-            return -705;
-        if (count != sizeof(message))
-            return -706;
-        if (pfs_mem_equal(readback, message, sizeof(message)) != 0)
-            return -707;
-        if (vfs_file_seek(&file, sizeof(message)) != PROS_VFS_OK)
-            return -708;
-        if (vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
-                           &count) != PROS_VFS_OK)
-            return -709;
-        if (count != sizeof(suffix) - 1u)
-            return -710;
-        if (vfs_file_truncate(&file, 5u) != PROS_VFS_OK)
-            return -711;
-        if (vfs_file_seek(&file, 0u) != PROS_VFS_OK)
-            return -712;
-        if (vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK)
-            return -713;
-        if (count != 5u)
-            return -714;
-        if (pfs_mem_equal(readback, "Prose", 5u) != 0)
-            return -715;
-        if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -716;
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-            return -717;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -718;
-        if (vfs_file_open(&fs.mount, "/hello", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
-            return -719;
-        if (vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK)
-            return -720;
-        if (count != 5u)
-            return -721;
-        if (pfs_mem_equal(readback, "Prose", 5u) != 0)
-            return -722;
-        if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -723;
-        if (vfs_path_rename(&fs.mount, "/sub/nested", "/sub/renamed") != PROS_VFS_OK)
-            return -724;
-        if (vfs_path_lookup(&fs.mount, "/sub/nested", &parent) != PROS_VFS_ENOENT)
-            return -725;
-        if (vfs_path_lookup(&fs.mount, "/sub/renamed", &parent) != PROS_VFS_OK)
-            return -726;
-        if (vfs_vnode_put(parent) != PROS_VFS_OK)
-            return -727;
-        if (vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK)
-            return -728;
-        if (vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
-            return -729;
+                          &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, message, (uint32_t)sizeof(message),
+                           &count) != PROS_VFS_OK ||
+            count != sizeof(message) ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
+                          &count) != PROS_VFS_OK ||
+            count != sizeof(message) ||
+            __builtin_memcmp(readback, message, sizeof(message)) != 0 ||
+            vfs_file_seek(&file, sizeof(message)) != PROS_VFS_OK ||
+            vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
+                           &count) != PROS_VFS_OK ||
+            count != sizeof(suffix) - 1u ||
+            vfs_file_truncate(&file, 5u) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
+            count != 5u ||
+            __builtin_memcmp(readback, "Prose", 5u) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/hello", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
+            count != 5u ||
+            __builtin_memcmp(readback, "Prose", 5u) != 0 ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/sub/nested", "/sub/renamed") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/sub/nested", &parent) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/sub/renamed", &parent) != PROS_VFS_OK ||
+            vfs_vnode_put(parent) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
+            return -6;
     }
     {
         struct pros_vfs_file file;
         struct pros_vfs_vnode *moved = 0;
 
         pfs_zero(&file, sizeof(file));
-        if (vfs_file_open(&fs.mount, "/old", PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK)
-            return -801;
-        if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -802;
-        if (vfs_path_rename(&fs.mount, "/old", "/new") != PROS_VFS_OK)
-            return -803;
-        if (vfs_path_lookup(&fs.mount, "/old", &moved) != PROS_VFS_ENOENT)
-            return -804;
-        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK)
-            return -805;
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -806;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -807;
+        if (vfs_file_open(&fs.mount, "/old", PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/old", "/new") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/old", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -7;
 
-        if (vfs_path_mkdir(&fs.mount, "/dst", &moved) != PROS_VFS_OK)
-            return -808;
-        if (!moved)
-            return -809;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -810;
-        if (vfs_path_rename(&fs.mount, "/sub", "/dst/sub") != PROS_VFS_OK)
-            return -811;
-        if (vfs_path_lookup(&fs.mount, "/dst/sub/renamed", &moved) != PROS_VFS_OK)
-            return -812;
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -813;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -814;
-        if (vfs_path_rename(&fs.mount, "/dst/sub", "/dst/sub/moved") != PROS_VFS_ELOOP)
-            return -815;
-        if (vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_ENOTEMPTY)
-            return -816;
-        if (vfs_path_unlink(&fs.mount, "/dst/sub/renamed") != PROS_VFS_OK)
-            return -817;
-        if (vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_OK)
-            return -818;
-        if (vfs_path_lookup(&fs.mount, "/dst/sub", &moved) != PROS_VFS_ENOENT)
-            return -819;
-        if (vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK)
-            return -820;
-        if (moved->type != PROS_VFS_NODE_DIRECTORY)
-            return -821;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -822;
-        if (vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK)
-            return -823;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -824;
-        if (vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK)
-            return -825;
-        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
-            return -826;
-        if (vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK)
-            return -827;
-        if (!moved)
-            return -828;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -829;
-        if (vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK)
-            return -830;
-        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
-            return -831;
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-            return -832;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -833;
-        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
-            return -834;
-        if (vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK)
-            return -835;
-        if (!moved)
-            return -836;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -837;
-        if (vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK)
-            return -838;
-        if (vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT)
-            return -839;
-        if (vfs_file_open(&fs.mount, "/collision", PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK)
-            return -840;
-        if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -841;
-        if (vfs_path_rename(&fs.mount, "/new", "/collision") != PROS_VFS_EEXIST)
-            return -842;
-        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK)
-            return -843;
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -844;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -845;
-        if (vfs_path_lookup(&fs.mount, "/collision", &moved) != PROS_VFS_OK)
-            return -846;
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -847;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -848;
-        if (vfs_path_rename(&fs.mount, "/new", "/dst/new") != PROS_VFS_OK)
-            return -849;
-        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT)
-            return -850;
-        if (vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK)
-            return -851;
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -852;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -853;
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-            return -854;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -855;
-        {
-            int lookup_rc = vfs_path_lookup(&fs.mount, "/dst/new", &moved);
-            if (lookup_rc != PROS_VFS_OK)
-                return -870 - lookup_rc;
-        }
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -857;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -858;
-        if (vfs_path_rename(&fs.mount, "/dst/new", "/new") != PROS_VFS_OK)
-            return -859;
-        if (vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK)
-            return -860;
-        if (moved->type != PROS_VFS_NODE_FILE)
-            return -861;
-        if (vfs_vnode_put(moved) != PROS_VFS_OK)
-            return -862;
+        if (vfs_path_mkdir(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
+            !moved ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/sub", "/dst/sub") !=
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dst/sub/renamed", &moved) !=
+                PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/dst/sub", "/dst/sub/moved") !=
+                PROS_VFS_ELOOP ||
+            vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_ENOTEMPTY ||
+            vfs_path_unlink(&fs.mount, "/dst/sub/renamed") != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/dst/sub") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dst/sub", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/dst", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_DIRECTORY ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
+            !moved ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_mkdir(&fs.mount, "/empty", &moved) != PROS_VFS_OK ||
+            !moved ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_unlink(&fs.mount, "/empty") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/empty", &moved) != PROS_VFS_ENOENT ||
+            vfs_file_open(&fs.mount, "/collision", PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, (struct pros_vfs_file *)&file) !=
+                PROS_VFS_OK ||
+            vfs_file_close((struct pros_vfs_file *)&file) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/new", "/collision") != PROS_VFS_EEXIST ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/collision", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/new", "/dst/new") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_ENOENT ||
+            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dst/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK ||
+            vfs_path_rename(&fs.mount, "/dst/new", "/new") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/new", &moved) != PROS_VFS_OK ||
+            moved->type != PROS_VFS_NODE_FILE ||
+            vfs_vnode_put(moved) != PROS_VFS_OK)
+            return -8;
     }
     {
         static uint8_t payload[8704];
@@ -3586,7 +3437,7 @@ int prosenjitfs_selftest(void)
             vfs_file_read(&file, verify, (uint32_t)sizeof(verify),
                           &count) != PROS_VFS_OK ||
             count != sizeof(verify) ||
-            pfs_mem_equal(verify, payload, sizeof(payload)) != 0 ||
+            __builtin_memcmp(verify, payload, sizeof(payload)) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
@@ -3598,7 +3449,7 @@ int prosenjitfs_selftest(void)
             vfs_file_seek(&file, 8192u) != PROS_VFS_OK ||
             vfs_file_read(&file, verify, 512u, &count) != PROS_VFS_OK ||
             count != 512u ||
-            pfs_mem_equal(verify, payload + 8192u, 512u) != 0 ||
+            __builtin_memcmp(verify, payload + 8192u, 512u) != 0 ||
             vfs_file_truncate(&file, 700u) != PROS_VFS_OK ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
@@ -3610,7 +3461,7 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK ||
             vfs_file_read(&file, verify, 8704u, &count) != PROS_VFS_OK ||
             count != 700u ||
-            pfs_mem_equal(verify, payload, 700u) != 0 ||
+            __builtin_memcmp(verify, payload, 700u) != 0 ||
             vfs_file_close(&file) != PROS_VFS_OK ||
             vfs_path_unlink(&fs.mount, "/new") != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/new", &removed) != PROS_VFS_ENOENT)
@@ -3673,7 +3524,7 @@ int prosenjitfs_selftest(void)
             return -15;
     }
     {
-        uint64_t journal_target = 0u;
+        uint64_t journal_target = fs.sb.data_start;
         uint8_t *header = fs.scratch;
         uint8_t *image = fs.tx.images;
         uint8_t *commit = fs.tx.images +
@@ -3682,8 +3533,6 @@ int prosenjitfs_selftest(void)
         struct pros_prosenjitfs_journal_header h;
         struct pros_prosenjitfs_journal_commit c;
 
-        if (pfs_find_free_data_block(&fs, &journal_target) != PROSENJITFS_OK)
-            return -12;
         pfs_zero(header, fs.sb.block_size);
         pfs_zero(image, fs.sb.block_size);
         pfs_zero(commit, fs.sb.block_size);
@@ -3710,25 +3559,18 @@ int prosenjitfs_selftest(void)
                                           fs.sb.block_size, 1u, commit);
         pfs_copy(commit, &c, sizeof(c));
 
-        if (pfs_write_block(fs.mount.device, fs.sb.journal_start, header) != PROSENJITFS_OK)
-            return -911;
-        if (pfs_write_block(fs.mount.device, fs.sb.journal_start + 1u, image) != PROSENJITFS_OK)
-            return -912;
-        if (pfs_write_block(fs.mount.device, fs.sb.journal_start + 2u, commit) != PROSENJITFS_OK)
-            return -913;
-        if (pfs_flush(fs.mount.device) != PROSENJITFS_OK)
-            return -914;
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-            return -915;
-        {
-            int replay_mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-            if (replay_mount_rc != PROSENJITFS_OK)
-                return -920 - replay_mount_rc;
-        }
-        if (disk.data[journal_target * 512u] != 0xA5u)
-            return -917;
-        if (disk.data[journal_target * 512u + 1u] != 0x5Au)
-            return -918;
+        if (pfs_write_block(fs.mount.device, fs.sb.journal_start,
+                            header) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, fs.sb.journal_start + 1u,
+                            image) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, fs.sb.journal_start + 2u,
+                            commit) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            disk.data[journal_target * 512u] != 0xA5u ||
+            disk.data[journal_target * 512u + 1u] != 0x5Au)
+            return -9;
     }
     {
         uint64_t journal_target = fs.sb.data_start + 1u;
@@ -3775,10 +3617,10 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -10;
-        pfs_zero(disk.data + fs.sb.journal_start * 512u, 512u);
+        disk.data[fs.sb.journal_start * 512u] = 0u;
         if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -1001;
+            return -10;
     }
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
@@ -3791,12 +3633,10 @@ int prosenjitfs_selftest(void)
         return -7;
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return -8;
-    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
-        return -1004;
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
-        return -1002;
+        return -10;
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -11;
 
@@ -3809,7 +3649,7 @@ int prosenjitfs_selftest(void)
     disk.data[512u] ^= 0x01u;
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -1003;
+        return -10;
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -11;
     return PROSENJITFS_OK;
