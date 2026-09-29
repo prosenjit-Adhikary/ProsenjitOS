@@ -3728,7 +3728,9 @@ int prosenjitfs_selftest(void)
             return -15;
     }
     {
-        uint64_t journal_target = fs.sb.data_start;
+        /* Use a known free data block so recovery does not overwrite
+         * the live root directory index at data_start. */
+        uint64_t journal_target = fs.sb.data_start + 20u;
         uint8_t *header = fs.scratch;
         uint8_t *image = fs.tx.images;
         uint8_t *commit = fs.tx.images +
