@@ -180,9 +180,24 @@ static int pfs_superblock_valid(const uint8_t *block,
         !pfs_region_valid(sb, sb->inode_bitmap_start, sb->inode_bitmap_blocks) ||
         !pfs_region_valid(sb, sb->inode_table_start, sb->inode_table_blocks))
         return PROSENJITFS_ECORRUPT;
+    uint64_t journal_end;
+    uint64_t block_bitmap_end;
+    uint64_t inode_bitmap_end;
     uint64_t inode_end;
-    if (pfs_region_end(sb->inode_table_start, sb->inode_table_blocks, &inode_end) != PROSENJITFS_OK ||
-        sb->data_start >= sb->total_blocks || sb->data_start != inode_end + 1u)
+    if (pfs_region_end(sb->journal_start, sb->journal_blocks, &journal_end) !=
+            PROSENJITFS_OK ||
+        pfs_region_end(sb->block_bitmap_start, sb->block_bitmap_blocks,
+                       &block_bitmap_end) != PROSENJITFS_OK ||
+        pfs_region_end(sb->inode_bitmap_start, sb->inode_bitmap_blocks,
+                       &inode_bitmap_end) != PROSENJITFS_OK ||
+        pfs_region_end(sb->inode_table_start, sb->inode_table_blocks,
+                       &inode_end) != PROSENJITFS_OK ||
+        journal_end > sb->block_bitmap_start ||
+        block_bitmap_end > sb->inode_bitmap_start ||
+        inode_bitmap_end > sb->inode_table_start ||
+        sb->data_start >= sb->total_blocks ||
+        inode_end >= sb->total_blocks ||
+        sb->data_start != inode_end + 1u)
         return PROSENJITFS_ECORRUPT;
     if ((uint64_t)sb->inode_table_blocks * sb->block_size <
         (uint64_t)sb->inode_count * PROSENJITFS_INODE_SIZE)
