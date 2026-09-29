@@ -1124,8 +1124,10 @@ int exfat_selftest(void)
 
         {
             int unicode_rc = exfat_find(&fs, 2u, "CAF\xC3\x89.TXT", &found);
+            if (unicode_rc == PROS_EXFAT_ENOENT)
+                return -1911;
             if (unicode_rc != PROS_EXFAT_OK)
-                return -191;
+                return -1912;
             if (found.name_length != 8u)
                 return -192;
             if (found.unicode_name[3] != 0x00E9u)
