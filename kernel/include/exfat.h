@@ -11,6 +11,7 @@
 #define PROS_EXFAT_ENOTSUP  -3
 #define PROS_EXFAT_ECORRUPT -4
 #define PROS_EXFAT_ENOENT   -5
+#define PROS_EXFAT_EOVERFLOW -6
 
 struct pros_exfat_dirent {
     char name[256];
