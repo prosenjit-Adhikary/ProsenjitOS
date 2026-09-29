@@ -31,10 +31,29 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
-      - name: Prepare QEMU ProsenjitFS disk
+      - name: Prepare partitioned QEMU ProsenjitFS disk
         run: |
           gcc -std=c11 -D_FILE_OFFSET_BITS=64 -Wall -Wextra -Werror -O2 -Iinclude tools/mkprosenjitfs.c -o build/mkprosenjitfs
-          ./build/mkprosenjitfs build/prosenjitfs-qemu.img 32 512
+          ./build/mkprosenjitfs build/prosenjitfs-partition.img 64 512
+          python3 - <<'PY'
+          import struct
+          sector = 512
+          first_lba = 2048
+          fs = open("build/prosenjitfs-partition.img", "rb").read()
+          image_sectors = first_lba + len(fs) // sector
+          mbr = bytearray(sector)
+          entry = 446
+          mbr[entry + 4] = 0x83
+          struct.pack_into("<I", mbr, entry + 8, first_lba)
+          struct.pack_into("<I", mbr, entry + 12, len(fs) // sector)
+          mbr[510:512] = b"\x55\xAA"
+          with open("build/prosenjitfs-qemu.img", "wb") as out:
+              out.truncate(image_sectors * sector)
+              out.seek(0)
+              out.write(mbr)
+              out.seek(first_lba * sector)
+              out.write(fs)
+          PY
 
       - name: Boot-test ISO in QEMU
         run: |
