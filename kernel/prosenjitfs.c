@@ -2651,10 +2651,12 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
                        commit) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     pfs_copy(&c, commit, sizeof(c));
+    if (c.magic == 0u)
+        return pfs_journal_clear(fs);
     if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
         c.transaction_id != h.transaction_id ||
         c.record_count != h.record_count)
-        return pfs_journal_clear(fs);
+        return PROSENJITFS_ECORRUPT;
     expected = pfs_journal_checksum(header, images, fs->sb.block_size,
                                     h.record_count, commit);
     if (expected != c.checksum)
