@@ -1499,7 +1499,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             data->inode_number != new_data->inode_number) {
             uint64_t ancestor = new_data->inode_number;
             uint64_t depth = 0u;
-            while (ancestor != data->inode_number && ancestor != fs->sb.root_inode) {
+            while (ancestor != data->inode_number && ancestor != data->fs->sb.root_inode) {
                 struct pros_prosenjitfs_inode ancestor_inode;
                 if (++depth > data->fs->sb.inode_count ||
                     prosenjitfs_read_inode(data->fs, ancestor,
