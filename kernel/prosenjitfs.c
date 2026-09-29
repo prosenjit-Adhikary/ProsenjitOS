@@ -2544,6 +2544,32 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -12;
 
+    if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
+        return -12;
+    {
+        struct pros_vfs_vnode *deleted = 0;
+        if (vfs_path_lookup(&fs.mount, "/hello.bin", &deleted) !=
+                PROS_VFS_ENOENT)
+            return -12;
+        if (deleted)
+            vfs_vnode_put(deleted);
+    }
+    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
+        return -12;
+    if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
+        inode_number != 1u)
+        return -12;
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return -12;
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12;
+    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
+        return -12;
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -12;
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
