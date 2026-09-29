@@ -16,6 +16,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools gcc binutils qemu-system-x86
 
+      - name: Build and smoke-test host ProsenjitFS formatter
+        run: |
+          make mkprosenjitfs
+          ./build/mkprosenjitfs build/prosenjitfs-test.img 1 512
+          test "$(od -An -tx1 -N8 build/prosenjitfs-test.img | tr -d ' \\n')" = "504a534653303100"
+          cmp <(dd if=build/prosenjitfs-test.img bs=512 count=1 status=none) <(dd if=build/prosenjitfs-test.img bs=512 skip=1 count=1 status=none)
+
       - name: Build ISO
         run: |
           chmod +x scripts/build.sh
