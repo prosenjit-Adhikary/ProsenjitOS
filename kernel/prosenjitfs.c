@@ -1509,7 +1509,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             kfree(extent_image);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -1810 + rc;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
