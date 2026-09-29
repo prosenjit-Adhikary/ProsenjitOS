@@ -1343,16 +1343,21 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     struct pfs_vnode_data *data;
     struct pfs_vnode_data *new_data;
     struct pros_prosenjitfs_inode parent_inode;
+    struct pros_prosenjitfs_inode new_parent_inode;
+    struct pros_prosenjitfs_inode child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
+    struct pros_prosenjitfs_dir_index new_dir_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint8_t *dir_block = 0;
+    uint8_t *new_dir_block = 0;
     uint8_t *prev_block = 0;
     uint8_t *entry_block = 0;
+    uint8_t *inode_block = 0;
     uint64_t current, previous = 0u, target_lba = 0u;
     uint32_t old_length = 0u, new_length = 0u;
     uint32_t old_bucket, new_bucket;
     uint64_t steps = 0u;
-    int rc = PROSENJITFS_EIO;
+    int rc = PROS_VFS_EIO;
 
     if (!old_parent || !new_parent || !old_name || !new_name ||
         !old_parent->private_data || !new_parent->private_data ||
@@ -1363,11 +1368,6 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     data = (struct pfs_vnode_data *)old_parent->private_data;
     new_data = (struct pfs_vnode_data *)new_parent->private_data;
     if (!data->fs || data->fs != new_data->fs)
-        return PROS_VFS_ENOSYS;
-    /* Cross-directory moves need a larger atomic transaction because both
-     * parent indexes (and, for directories, parent metadata) may change.
-     * Keep this first rename implementation strictly same-directory. */
-    if (data->inode_number != new_data->inode_number)
         return PROS_VFS_ENOSYS;
     if (old_parent->mount->read_only || !old_parent->mount->active)
         return PROS_VFS_EPERM;
@@ -1383,12 +1383,15 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         (new_length == 2u && new_name[0] == '.' && new_name[1] == '.'))
         return PROS_VFS_EINVAL;
 
-    if (old_length == new_length) {
-        uint32_t i = 0u;
-        while (i < old_length && old_name[i] == new_name[i])
-            ++i;
-        if (i == old_length)
-            return PROS_VFS_OK;
+    if (old_parent == new_parent ||
+        data->inode_number == new_data->inode_number) {
+        if (old_length == new_length) {
+            uint32_t i = 0u;
+            while (i < old_length && old_name[i] == new_name[i])
+                ++i;
+            if (i == old_length)
+                return PROS_VFS_OK;
+        }
     }
 
     if (prosenjitfs_read_inode(data->fs, data->inode_number,
@@ -1399,8 +1402,20 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         PROSENJITFS_OK)
         return PROS_VFS_EIO;
 
-    /* Rename never overwrites an existing directory entry. */
-    rc = pfs_find_dir_entry(data->fs, &parent_inode, new_name, 0);
+    if (data->inode_number == new_data->inode_number) {
+        new_parent_inode = parent_inode;
+        new_dir_index = dir_index;
+    } else {
+        if (prosenjitfs_read_inode(data->fs, new_data->inode_number,
+                                   &new_parent_inode) != PROSENJITFS_OK ||
+            new_parent_inode.type != PROSENJITFS_INODE_DIR ||
+            pfs_read_dir_index(data->fs, &new_parent_inode, &new_dir_index) !=
+                PROSENJITFS_OK)
+            return PROS_VFS_ENOTDIR;
+    }
+
+    /* Rename/move never overwrites an existing directory entry. */
+    rc = pfs_find_dir_entry(data->fs, &new_parent_inode, new_name, 0);
     if (rc == PROSENJITFS_OK)
         return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
@@ -1412,8 +1427,9 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                  PROSENJITFS_DIR_BUCKETS;
 
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!entry_block)
-        return PROS_VFS_EIO;
+    dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    if (!entry_block || !dir_block)
+        goto out;
 
     current = dir_index.heads[old_bucket];
     while (current != 0u) {
@@ -1422,11 +1438,15 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             goto out;
         }
         if (current < data->fs->sb.data_start ||
-            current >= data->fs->sb.total_blocks)
-            { rc = PROSENJITFS_ECORRUPT; goto out; }
+            current >= data->fs->sb.total_blocks) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto out;
+        }
         if (pfs_read_block(data->fs->mount.device, current, entry_block) !=
-            PROSENJITFS_OK)
-            { rc = PROSENJITFS_EIO; goto out; }
+            PROSENJITFS_OK) {
+            rc = PROSENJITFS_EIO;
+            goto out;
+        }
         pfs_copy(&entry, entry_block, sizeof(entry));
         if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
             entry.name_length == 0u ||
@@ -1460,49 +1480,96 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         goto out;
     }
 
-    dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!dir_block || !prev_block) {
-        rc = PROSENJITFS_EIO;
+    /* A directory move must update the child's parent inode atomically. */
+    if (entry.type == PROS_VFS_NODE_DIRECTORY ||
+        entry.type == PROSENJITFS_INODE_DIR) {
+        if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
+            PROSENJITFS_OK)
+            goto out;
+        if (child_inode.type != PROSENJITFS_INODE_DIR) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto out;
+        }
+        if (child_inode.parent_inode != data->inode_number &&
+            data->inode_number != new_data->inode_number) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto out;
+        }
+    } else if (prosenjitfs_read_inode(data->fs, entry.inode, &child_inode) !=
+               PROSENJITFS_OK) {
         goto out;
     }
+
+    prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    new_dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    if (!prev_block || !new_dir_block)
+        goto out;
+
     if (pfs_tx_reset(data->fs) != PROSENJITFS_OK)
-        { rc = PROSENJITFS_EIO; goto out; }
+        goto out;
 
-    /*
-     * The directory entry block is retained, so the inode number, inode
-     * metadata, extents and file data never change. Only namespace metadata
-     * is updated. This is what makes hidden-name renames preserve attributes.
-     */
-    if (old_bucket == new_bucket) {
-        pfs_zero(entry_block, data->fs->sb.block_size);
-        entry.magic = PROSENJITFS_ENTRY_MAGIC;
-        entry.name_hash = pfs_name_hash((const uint8_t *)new_name,
-                                        new_length);
-        entry.name_length = (uint16_t)new_length;
-        pfs_zero(entry.name, sizeof(entry.name));
-        pfs_copy(entry.name, new_name, new_length);
-        pfs_copy(entry_block, &entry, sizeof(entry));
-        pfs_put32(entry_block + offsetof(struct pros_prosenjitfs_dir_entry,
-                                         checksum),
-                  pfs_crc_with_zero32(
-                      entry_block, sizeof(entry),
-                      (uint32_t)offsetof(
-                          struct pros_prosenjitfs_dir_entry, checksum)));
-        rc = pfs_tx_add(data->fs, target_lba, entry_block);
-        if (rc != PROSENJITFS_OK)
-            goto out_reset;
-    } else {
-        uint64_t destination_head = dir_index.heads[new_bucket];
-
-        if (previous == 0u) {
-            dir_index.heads[old_bucket] = entry.next;
+    if (data->inode_number == new_data->inode_number) {
+        /*
+         * Same-directory rename retains the existing directory entry block.
+         * The inode and all file attributes remain untouched.
+         */
+        if (old_bucket == new_bucket) {
+            entry.next = entry.next;
         } else {
-            if (pfs_read_block(data->fs->mount.device, previous,
-                               prev_block) != PROSENJITFS_OK) {
-                rc = PROSENJITFS_EIO;
-                goto out_reset;
+            uint64_t destination_head = dir_index.heads[new_bucket];
+            if (previous == 0u)
+                dir_index.heads[old_bucket] = entry.next;
+            else {
+                if (pfs_read_block(data->fs->mount.device, previous,
+                                   prev_block) != PROSENJITFS_OK)
+                    goto out_reset;
+                {
+                    struct pros_prosenjitfs_dir_entry prev;
+                    pfs_copy(&prev, prev_block, sizeof(prev));
+                    if (prev.magic != PROSENJITFS_ENTRY_MAGIC ||
+                        prev.next != target_lba) {
+                        rc = PROSENJITFS_ECORRUPT;
+                        goto out_reset;
+                    }
+                    prev.next = entry.next;
+                    pfs_copy(prev_block, &prev, sizeof(prev));
+                    pfs_put32(prev_block + offsetof(
+                                  struct pros_prosenjitfs_dir_entry, checksum),
+                              pfs_crc_with_zero32(
+                                  prev_block, sizeof(prev),
+                                  (uint32_t)offsetof(
+                                      struct pros_prosenjitfs_dir_entry,
+                                      checksum)));
+                }
+                if (pfs_tx_add(data->fs, previous, prev_block) !=
+                    PROSENJITFS_OK)
+                    goto out_reset;
             }
+            dir_index.heads[new_bucket] = target_lba;
+            entry.next = destination_head;
+            pfs_zero(dir_block, data->fs->sb.block_size);
+            pfs_copy(dir_block, &dir_index, sizeof(dir_index));
+            pfs_put32(dir_block + offsetof(
+                          struct pros_prosenjitfs_dir_index, checksum),
+                      pfs_crc_with_zero32(
+                          dir_block, sizeof(dir_index),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_dir_index, checksum)));
+            if (pfs_tx_add(data->fs, parent_inode.dir_index, dir_block) !=
+                PROSENJITFS_OK)
+                goto out_reset;
+        }
+    } else {
+        /*
+         * Cross-directory move: atomically remove the entry from the source
+         * bucket and insert the same entry block at the destination bucket.
+         */
+        if (previous == 0u)
+            dir_index.heads[old_bucket] = entry.next;
+        else {
+            if (pfs_read_block(data->fs->mount.device, previous,
+                               prev_block) != PROSENJITFS_OK)
+                goto out_reset;
             {
                 struct pros_prosenjitfs_dir_entry prev;
                 pfs_copy(&prev, prev_block, sizeof(prev));
@@ -1520,26 +1587,23 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                               (uint32_t)offsetof(
                                   struct pros_prosenjitfs_dir_entry, checksum)));
             }
-            rc = pfs_tx_add(data->fs, previous, prev_block);
-            if (rc != PROSENJITFS_OK)
+            if (pfs_tx_add(data->fs, previous, prev_block) != PROSENJITFS_OK)
                 goto out_reset;
         }
 
-        dir_index.heads[new_bucket] = target_lba;
         pfs_zero(dir_block, data->fs->sb.block_size);
         pfs_copy(dir_block, &dir_index, sizeof(dir_index));
-        pfs_put32(dir_block + offsetof(
-                      struct pros_prosenjitfs_dir_index, checksum),
+        pfs_put32(dir_block + offsetof(struct pros_prosenjitfs_dir_index,
+                                       checksum),
                   pfs_crc_with_zero32(
                       dir_block, sizeof(dir_index),
                       (uint32_t)offsetof(
                           struct pros_prosenjitfs_dir_index, checksum)));
-        rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
-        if (rc != PROSENJITFS_OK)
+        if (pfs_tx_add(data->fs, parent_inode.dir_index, dir_block) !=
+            PROSENJITFS_OK)
             goto out_reset;
 
-        entry.next = destination_head;
-        entry.magic = PROSENJITFS_ENTRY_MAGIC;
+        entry.next = new_dir_index.heads[new_bucket];
         entry.name_hash = pfs_name_hash((const uint8_t *)new_name,
                                         new_length);
         entry.name_length = (uint16_t)new_length;
@@ -1553,8 +1617,63 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                       entry_block, sizeof(entry),
                       (uint32_t)offsetof(
                           struct pros_prosenjitfs_dir_entry, checksum)));
-        rc = pfs_tx_add(data->fs, target_lba, entry_block);
-        if (rc != PROSENJITFS_OK)
+        if (pfs_tx_add(data->fs, target_lba, entry_block) !=
+            PROSENJITFS_OK)
+            goto out_reset;
+
+        new_dir_index.heads[new_bucket] = target_lba;
+        pfs_zero(new_dir_block, data->fs->sb.block_size);
+        pfs_copy(new_dir_block, &new_dir_index, sizeof(new_dir_index));
+        pfs_put32(new_dir_block + offsetof(
+                      struct pros_prosenjitfs_dir_index, checksum),
+                  pfs_crc_with_zero32(
+                      new_dir_block, sizeof(new_dir_index),
+                      (uint32_t)offsetof(
+                          struct pros_prosenjitfs_dir_index, checksum)));
+        if (pfs_tx_add(data->fs, new_parent_inode.dir_index, new_dir_block) !=
+            PROSENJITFS_OK)
+            goto out_reset;
+
+        if (child_inode.type == PROSENJITFS_INODE_DIR) {
+            uint64_t inode_lba;
+            uint32_t inode_offset;
+            if (pfs_inode_block_location(data->fs, entry.inode,
+                                         &inode_lba, &inode_offset) !=
+                PROSENJITFS_OK ||
+                pfs_read_block(data->fs->mount.device, inode_lba, inode_block) !=
+                PROSENJITFS_OK)
+                goto out_reset;
+            child_inode.parent_inode = new_data->inode_number;
+            pfs_copy(inode_block + inode_offset, &child_inode,
+                     sizeof(child_inode));
+            pfs_put32(inode_block + inode_offset +
+                      offsetof(struct pros_prosenjitfs_inode, checksum),
+                      pfs_crc_with_zero32(
+                          inode_block + inode_offset,
+                          sizeof(child_inode),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_inode, checksum)));
+            if (pfs_tx_add(data->fs, inode_lba, inode_block) !=
+                PROSENJITFS_OK)
+                goto out_reset;
+        }
+    }
+
+    if (data->inode_number == new_data->inode_number &&
+        old_bucket == new_bucket) {
+        entry.name_hash = pfs_name_hash((const uint8_t *)new_name, new_length);
+        entry.name_length = (uint16_t)new_length;
+        pfs_zero(entry.name, sizeof(entry.name));
+        pfs_copy(entry.name, new_name, new_length);
+        pfs_zero(entry_block, data->fs->sb.block_size);
+        pfs_copy(entry_block, &entry, sizeof(entry));
+        pfs_put32(entry_block + offsetof(struct pros_prosenjitfs_dir_entry,
+                                         checksum),
+                  pfs_crc_with_zero32(
+                      entry_block, sizeof(entry),
+                      (uint32_t)offsetof(
+                          struct pros_prosenjitfs_dir_entry, checksum)));
+        if (pfs_tx_add(data->fs, target_lba, entry_block) != PROSENJITFS_OK)
             goto out_reset;
     }
 
@@ -1567,10 +1686,13 @@ out_reset:
     pfs_tx_reset(data->fs);
 out:
     if (dir_block) kfree(dir_block);
+    if (new_dir_block) kfree(new_dir_block);
     if (prev_block) kfree(prev_block);
     if (entry_block) kfree(entry_block);
+    if (inode_block) kfree(inode_block);
     return rc;
 }
+
 
 static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result)
