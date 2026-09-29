@@ -42,11 +42,11 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Native ProsenjitOS bootloader
   - [ ] Stable ProsenjitOS Boot Protocol
   - [ ] Native UEFI loader
-  - [ ] Native legacy BIOS loader hardening
-  - [ ] Boot-device discovery
-  - [ ] Kernel/module validation
-  - [ ] Native loader QEMU/CI regression
-  - [ ] Optional traditional-bootloader adapter (GRUB/other)
+  - [x] Native legacy BIOS loader hardening
+  - [x] Boot-device discovery
+  - [x] Kernel/module validation
+  - [x] Native loader QEMU/CI regression
+  - [x] Optional traditional-bootloader adapter (GRUB/other)
 - [x] 32-bit protected mode
 - [x] Long-mode transition
 - [x] x86-64 kernel entry
@@ -133,6 +133,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 ## Phase 5 — I/O and drivers
 - [ ] Driver model
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
+  - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
@@ -144,7 +145,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] VFS mount object foundation
   - [x] Filesystem type contract for FAT32/exFAT/NTFS/ProsenjitFS
   - [x] Path, vnode/inode, file and directory APIs
-  - [ ] Filesystem probe and partition integration
+  - [x] Filesystem probe and partition integration
+  - [x] Native ATA -> MBR -> ProsenjitFS persistent mount regression
 - [ ] FAT32 filesystem support
   - [x] Read-only FAT32 BPB mount/parser foundation
   - [x] Read-only FAT32 directory/file reader
