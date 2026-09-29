@@ -30,10 +30,6 @@ struct pros_exfat {
     uint32_t cluster_count;
     uint32_t root_cluster;
     uint64_t volume_length;
-    uint32_t upcase_table_cluster;
-    uint64_t upcase_table_length;
-    uint32_t upcase_table_checksum;
-    uint8_t upcase_table_valid;
     struct pros_vfs_vnode root_vnode;
 };
 
