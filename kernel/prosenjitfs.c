@@ -2276,6 +2276,8 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
 {
     if (!fs || fs->read_only || pfs_tx_reset(fs) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
+    /* Staging must complete before commit; callers never receive a partially
+     * applied allocator transaction when the journal capacity is exceeded. */
     if (pfs_allocator_stage(fs, first, count, allocate) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
     return pfs_tx_commit(fs);
