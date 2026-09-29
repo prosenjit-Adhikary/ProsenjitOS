@@ -1158,6 +1158,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -108: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EOVERFLOW\n"); break;
             case -310: serial_write("ProsenjitOS: ProsenjitFS journal start LBA is outside device\n"); break;
             case -311: serial_write("ProsenjitOS: ProsenjitFS journal block read returned I/O error\n"); break;
+            case -401: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed at root bitmap\n"); break;
+            case -402: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed entering inode scan\n"); break;
+            case -403: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed reading inode bitmap\n"); break;
+            case -404: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed reading allocated inode\n"); break;
+            case -405: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed on inode type\n"); break;
+            case -406: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed on directory validation\n"); break;
+            case -407: serial_write("ProsenjitOS: ProsenjitFS metadata validation found unexpected free inode data\n"); break;
             case -301: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed after journal read\n"); break;
             case -302: serial_write("ProsenjitOS: ProsenjitFS journal recovery found non-empty invalid header\n"); break;
             case -303: serial_write("ProsenjitOS: ProsenjitFS journal recovery failed reading images\n"); break;
