@@ -457,7 +457,7 @@ int exfat_find(const struct pros_exfat *fs, uint32_t directory_cluster,
 
 int exfat_selftest(void)
 {
-    struct exfat_test_disk disk = {{0}};
+    static struct exfat_test_disk disk;
     struct pros_block_device device;
     struct pros_exfat fs;
     uint64_t lba;
