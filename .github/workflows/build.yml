@@ -28,11 +28,36 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
+      - name: Prepare partitioned QEMU ProsenjitFS disk
+        run: |
+          make mkprosenjitfs
+          ./build/mkprosenjitfs build/prosenjitfs-partition.img 64 512
+          python3 - <<'PY'
+          import struct
+          sector = 512
+          first_lba = 2048
+          fs = open("build/prosenjitfs-partition.img", "rb").read()
+          fs_sectors = len(fs) // sector
+          mbr = bytearray(sector)
+          entry = 446
+          mbr[entry + 4] = 0x83
+          struct.pack_into("<I", mbr, entry + 8, first_lba)
+          struct.pack_into("<I", mbr, entry + 12, fs_sectors)
+          mbr[510:512] = b"\x55\xAA"
+          with open("build/prosenjitfs-qemu.img", "wb") as out:
+              out.truncate((first_lba + fs_sectors) * sector)
+              out.seek(0)
+              out.write(mbr)
+              out.seek(first_lba * sector)
+              out.write(fs)
+          PY
+
       - name: Boot-test ISO in QEMU
         run: |
           set +e
           timeout 20s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
+            -drive file=build/prosenjitfs-qemu.img,format=raw,if=ide,index=0,media=disk \
             -display none \
             -serial file:build/qemu-serial.log \
             -no-reboot \
@@ -81,6 +106,7 @@ jobs:
           require_log "ProsenjitOS: exFAT self-test passed"
           require_log "ProsenjitOS: exFAT Up-case parser self-test passed"
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed"
+          require_log "ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed"
           require_log "ProsenjitOS: exFAT Up-case/Unicode VFS self-test passed"
           require_log "ProsenjitOS: NTFS directory path traversal test passed"
           require_log "ProsenjitOS: NTFS UpCase case-folding test passed"
