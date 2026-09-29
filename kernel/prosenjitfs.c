@@ -3209,16 +3209,26 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
         return PROSENJITFS_EOVERFLOW;
 
     lba = fs->sb.inode_bitmap_start + bi;
-    if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
-    if (pfs_tx_add(fs, lba, block) != PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
 
+    /*
+     * Reuse an already-staged inode-bitmap image. Re-reading the home block
+     * and replacing the staged image would silently discard an earlier inode
+     * allocation/free in the same transaction.
+     */
     slot = 0u;
     while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
         ++slot;
-    if (slot == fs->tx.count)
-        return PROSENJITFS_EINVAL;
+    if (slot == fs->tx.count) {
+        if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (pfs_tx_add(fs, lba, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+        slot = 0u;
+        while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
+            ++slot;
+        if (slot == fs->tx.count)
+            return PROSENJITFS_EINVAL;
+    }
 
     mask = (uint8_t)(1u << (within & 7u));
     {
