@@ -3419,40 +3419,63 @@ int prosenjitfs_selftest(void)
         pfs_zero(&file, sizeof(file));
         if (vfs_file_open(&fs.mount, "/hello",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE,
-                          &file) != PROS_VFS_OK ||
-            vfs_file_write(&file, message, (uint32_t)sizeof(message),
+                          &file) != PROS_VFS_OK)
+            return -6101;
+        if (vfs_file_write(&file, message, (uint32_t)sizeof(message),
                            &count) != PROS_VFS_OK ||
-            count != sizeof(message) ||
-            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
-            vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
+            count != sizeof(message))
+            return -6102;
+        if (vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+            return -6103;
+        if (vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
                           &count) != PROS_VFS_OK ||
             count != sizeof(message) ||
-            pfs_memcmp(readback, message, sizeof(message)) != 0 ||
-            vfs_file_seek(&file, sizeof(message)) != PROS_VFS_OK ||
-            vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
+            pfs_memcmp(readback, message, sizeof(message)) != 0)
+            return -6104;
+        if (vfs_file_seek(&file, sizeof(message)) != PROS_VFS_OK)
+            return -6105;
+        if (vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
                            &count) != PROS_VFS_OK ||
-            count != sizeof(suffix) - 1u ||
-            vfs_file_truncate(&file, 5u) != PROS_VFS_OK ||
-            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
-            vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
+            count != sizeof(suffix) - 1u)
+            return -6106;
+        if (vfs_file_truncate(&file, 5u) != PROS_VFS_OK)
+            return -6107;
+        if (vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+            return -6108;
+        if (vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
             count != 5u ||
-            pfs_memcmp(readback, "Prose", 5u) != 0 ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_file_open(&fs.mount, "/hello", PROS_VFS_O_READ, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
+            pfs_memcmp(readback, "Prose", 5u) != 0)
+            return -6109;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -6110;
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return -6111;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -6112;
+        pfs_zero(&file, sizeof(file));
+        if (vfs_file_open(&fs.mount, "/hello", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK)
+            return -6113;
+        if (vfs_file_read(&file, readback, 5u, &count) != PROS_VFS_OK ||
             count != 5u ||
-            pfs_memcmp(readback, "Prose", 5u) != 0 ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_path_rename(&fs.mount, "/sub/nested", "/sub/renamed") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/sub/nested", &parent) != PROS_VFS_ENOENT ||
-            vfs_path_lookup(&fs.mount, "/sub/renamed", &parent) != PROS_VFS_OK ||
-            vfs_vnode_put(parent) != PROS_VFS_OK ||
-            vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
-            return -6001;
+            pfs_memcmp(readback, "Prose", 5u) != 0)
+            return -6114;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -6115;
+        if (vfs_path_rename(&fs.mount, "/sub/nested", "/sub/renamed") !=
+                PROS_VFS_OK)
+            return -6116;
+        if (vfs_path_lookup(&fs.mount, "/sub/nested", &parent) !=
+                PROS_VFS_ENOENT)
+            return -6117;
+        if (vfs_path_lookup(&fs.mount, "/sub/renamed", &parent) != PROS_VFS_OK)
+            return -6118;
+        if (vfs_vnode_put(parent) != PROS_VFS_OK)
+            return -6119;
+        if (vfs_path_unlink(&fs.mount, "/hello") != PROS_VFS_OK)
+            return -6120;
+        if (vfs_path_lookup(&fs.mount, "/hello", &parent) != PROS_VFS_ENOENT)
+            return -6121;
     }
     {
         struct pros_vfs_file file;
