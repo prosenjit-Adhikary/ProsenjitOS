@@ -1225,6 +1225,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                            checksum));
                 }
             }
+            pfs_copy(ni, oi, sizeof(*ni));
             src->next = ni->heads[new_bucket];
             ni->heads[new_bucket] = source_lba;
         } else if (old_data->inode_number != new_data->inode_number) {
