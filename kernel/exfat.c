@@ -361,13 +361,13 @@ int exfat_selftest(void)
                         output, sizeof(output), &done) != PROS_EXFAT_ECORRUPT)
         return -5;
 
-    /* Reject geometry that extends beyond the physical device. */
-    exfat_test_le32(boot + 72, 7u);
+    /* Reject a volume whose declared length exceeds the physical device. */
+    device.sector_count = 5u;
     if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
         return -6;
+    device.sector_count = 6u;
 
     /* Restore a valid volume and reject an overlapping cluster heap. */
-    exfat_test_le32(boot + 72, 6u);
     exfat_test_le32(boot + 88, 1u);
     if (exfat_mount(&fs, &device) != PROS_EXFAT_ECORRUPT)
         return -11;
