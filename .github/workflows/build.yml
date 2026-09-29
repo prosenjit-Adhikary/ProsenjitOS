@@ -124,6 +124,7 @@ jobs:
           set +e
           timeout 20s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
+            -drive file=build/prosenjitfs-qemu.img,format=raw,if=ide,index=1,media=disk \
             -display none \
             -serial file:build/native-qemu-serial.log \
             -no-reboot \
@@ -155,6 +156,7 @@ jobs:
           require_native_log "ProsenjitOS: FAT32 self-test passed"
           require_native_log "ProsenjitOS: exFAT self-test passed"
           require_native_log "ProsenjitOS: NTFS VFS read test passed"
+          require_native_log "ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed"
 
       - name: Upload ISO and boot diagnostics
         if: always()
