@@ -487,7 +487,7 @@ static int exfat_load_upcase_table(struct pros_exfat *fs)
     while (offset + sizeof(entry) <= max_bytes) {
         if (exfat_directory_read(fs, fs->root_cluster, offset,
                                  entry, sizeof(entry)) != PROS_EXFAT_OK)
-            return PROS_EXFAT_EIO;
+            return -201;
         if (entry[0] == 0x00u)
             break;
         if (entry[0] == 0x82u) {
@@ -502,7 +502,7 @@ static int exfat_load_upcase_table(struct pros_exfat *fs)
             if (++found != 1u || length == 0u || (length & 1u) != 0u ||
                 cluster < 2u || (uint64_t)cluster >
                     (uint64_t)fs->cluster_count + 1u || length > max_table)
-                return PROS_EXFAT_ECORRUPT;
+                return -202;
 
             /* Compute the exFAT rotate-right checksum in bounded chunks. */
             computed = 0u;
@@ -514,14 +514,14 @@ static int exfat_load_upcase_table(struct pros_exfat *fs)
                 if (exfat_file_read(fs, cluster, 0u, length, length,
                                     position, table, chunk, &done) !=
                         PROS_EXFAT_OK || done != chunk)
-                    return PROS_EXFAT_EIO;
+                    return -203;
                 for (uint32_t i = 0u; i < chunk; ++i)
                     computed = ((computed & 1u) ? 0x80000000u : 0u) +
                                (computed >> 1) + (uint32_t)table[i];
                 position += chunk;
             }
             if (computed != checksum)
-                return PROS_EXFAT_ECORRUPT;
+                return -204;
             fs->upcase_table_cluster = cluster;
             fs->upcase_table_length = length;
             fs->upcase_table_checksum = checksum;
