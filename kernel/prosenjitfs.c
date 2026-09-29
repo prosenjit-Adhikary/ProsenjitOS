@@ -16,6 +16,15 @@ static void pfs_zero(void *buffer, uint32_t size)
         p[i] = 0;
 }
 
+static void pfs_put32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
+
 static void pfs_copy(void *dst, const void *src, uint32_t size)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -660,7 +669,6 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
     for (uint64_t b = data_start; b < fs->sb.total_blocks; ++b) {
         uint64_t bits_per_block = (uint64_t)fs->sb.block_size * 8u;
         uint64_t bitmap_lba = fs->sb.block_bitmap_start + b / bits_per_block;
-        uint64_t byte = (b % bits_per_block) >> 3;
         uint8_t bitbuf[4096];
         if (pfs_read_block(fs->mount.device, bitmap_lba, bitbuf) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
