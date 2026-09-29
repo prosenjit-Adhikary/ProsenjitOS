@@ -3314,7 +3314,7 @@ int prosenjitfs_selftest(void)
         inode.type != PROSENJITFS_INODE_DIR ||
         inode.dir_index == 0u ||
         !fs.mount.root)
-        return -5;
+        return -2001;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
