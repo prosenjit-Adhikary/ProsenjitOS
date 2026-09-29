@@ -1145,7 +1145,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         return PROS_VFS_EPERM;
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
         name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
-        name[0] == '.')
+        (name_length == 1u && name[0] == '.') ||
+        (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
     if (prosenjitfs_read_inode(parent_data->fs, parent_data->inode_number,
                                &parent_inode) != PROSENJITFS_OK ||
