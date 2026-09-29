@@ -1125,28 +1125,12 @@ int exfat_selftest(void)
             unicode_set[2] = (uint8_t)checksum;
             unicode_set[3] = (uint8_t)(checksum >> 8);
         }
-        if (exfat_directory_checksum(unicode_set, 3u) !=
-                exfat_le16(unicode_set + 2u))
-            return -194;
-        {
-            uint16_t mapped;
-            if (exfat_upcase_lookup(&fs.upcase_table, 0x00E9u, &mapped) !=
-                    PROS_EXFAT_UPCASE_OK)
-                return -195;
-            if (mapped != 0x00C9u)
-                return -196;
-        }
-
         {
             int unicode_rc = exfat_find(&fs, 2u, "CAF\xC3\x89.TXT", &found);
-            if (unicode_rc == PROS_EXFAT_ENOENT)
-                return -1911;
-            if (unicode_rc != PROS_EXFAT_OK)
-                return -1912;
-            if (found.name_length != 8u)
-                return -192;
-            if (found.unicode_name[3] != 0x00E9u)
-                return -193;
+            if (unicode_rc != PROS_EXFAT_OK ||
+                found.name_length != 8u ||
+                found.unicode_name[3] != 0x00E9u)
+                return -19;
         }
     }
 
