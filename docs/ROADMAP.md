@@ -168,7 +168,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] ProsenjitFS persistent file create/read/write/truncate
   - [x] ProsenjitFS transactional unlink with inode/block reclamation
   - [x] ProsenjitFS same-directory rename, including dot-prefixed hidden names
-  - [ ] ProsenjitFS cross-directory move/rename
+  - [x] ProsenjitFS cross-directory move/rename with directory-parent cycle protection
   - [ ] ProsenjitFS crash/corruption recovery coverage
 - [ ] Ethernet
 - [ ] ARP
