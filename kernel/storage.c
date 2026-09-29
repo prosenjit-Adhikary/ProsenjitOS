@@ -60,6 +60,8 @@ int pros_storage_discover(struct pros_block_device *device,
                    PROS_STORAGE_EINVAL;
 
         rc = vfs_probe_filesystem(&view.device, &filesystem);
+        if (rc == PROS_VFS_EIO)
+            return PROS_STORAGE_EIO;
         if (rc != PROS_VFS_OK)
             continue;
 
