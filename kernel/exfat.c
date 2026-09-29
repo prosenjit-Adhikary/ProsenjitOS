@@ -98,7 +98,7 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
 
     if (vfs_mount_init(&fs->mount, PROS_FS_EXFAT, device, fs, 1u) !=
         PROS_VFS_OK)
-        return PROS_EXFAT_EINVAL;
+        return -101;
 
     fs->bytes_per_sector = bytes_per_sector;
     fs->sectors_per_cluster = sectors_per_cluster;
@@ -116,10 +116,10 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
         return PROS_EXFAT_EINVAL;
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
-        return PROS_EXFAT_EINVAL;
+        return -103;
     if (exfat_load_upcase_table(fs) != PROS_EXFAT_OK) {
         vfs_mount_deactivate(&fs->mount);
-        return PROS_EXFAT_ECORRUPT;
+        return -104;
     }
     return PROS_EXFAT_OK;
 }
