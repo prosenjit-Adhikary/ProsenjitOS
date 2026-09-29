@@ -1180,6 +1180,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: storage volume discovery self-test passed\n");
+    {
+        int pfs_early_rc = prosenjitfs_selftest();
+        if (pfs_early_rc != PROSENJITFS_OK) {
+            serial_write("ProsenjitOS: ERROR early ProsenjitFS self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)pfs_early_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: early ProsenjitFS self-test passed\n");
+
     if (fat32_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR FAT32 self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
