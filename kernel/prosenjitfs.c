@@ -597,10 +597,10 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         return PROS_VFS_EINVAL;
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (!data->fs || data->fs->sb.block_size > sizeof(block))
-        return PROS_VFS_EIO;
+        return -1740;
     if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
         PROSENJITFS_OK || inode.type != PROSENJITFS_INODE_FILE)
-        return PROS_VFS_EIO;
+        return -1741;
     if ((uint64_t)offset > inode.size)
         return PROS_VFS_EOVERFLOW;
     if ((uint64_t)length > inode.size - offset)
@@ -620,11 +620,11 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
             take = length - done;
         if (pfs_find_extent(data->fs, &inode, logical, &extent, &extent_lba) !=
             PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+            return -1742;
         physical = extent.physical_block + (logical - extent.logical_block);
         if (pfs_read_block(data->fs->mount.device, physical, block) !=
             PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+            return -1743;
         (void)extent_lba;
         pfs_copy(out + done, block + within, take);
         done += take;
@@ -648,7 +648,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         return PROS_VFS_EPERM;
     if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
         PROSENJITFS_OK || inode.type != PROSENJITFS_INODE_FILE)
-        return PROS_VFS_EIO;
+        return -1744;
     if ((uint64_t)offset > inode.size ||
         (uint64_t)length > UINT32_MAX - offset)
         return PROS_VFS_EOVERFLOW;
@@ -1023,7 +1023,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     if (prosenjitfs_read_inode(old_data->fs, old_data->inode_number,
                                &old_dir) != PROSENJITFS_OK ||
         old_dir.type != PROSENJITFS_INODE_DIR)
-        return PROS_VFS_EIO;
+        return -1745;
     rc = pfs_find_dir_entry_location(old_data->fs, &old_dir, old_name,
                                      &old_index, &source, &source_lba,
                                      &source_prev);
@@ -1032,7 +1032,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     if (prosenjitfs_read_inode(old_data->fs, new_data->inode_number,
                                &new_dir) != PROSENJITFS_OK ||
         new_dir.type != PROSENJITFS_INODE_DIR)
-        return PROS_VFS_EIO;
+        return -1746;
     rc = pfs_find_dir_entry_location(old_data->fs, &new_dir, new_name,
                                      &new_index, &target, &target_lba,
                                      &target_prev);
@@ -1044,17 +1044,17 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         return PROS_VFS_EEXIST;
     }
     if (rc != PROSENJITFS_ENOENT)
-        return PROS_VFS_EIO;
+        return -1747;
     (void)target_lba;
     (void)target_prev;
 
     if (source.inode >= old_data->fs->sb.inode_count)
-        return PROS_VFS_EIO;
+        return -1748;
     if (prosenjitfs_read_inode(old_data->fs, source.inode, &child) !=
             PROSENJITFS_OK ||
         (child.type != PROSENJITFS_INODE_FILE &&
          child.type != PROSENJITFS_INODE_DIR))
-        return PROS_VFS_EIO;
+        return -1749;
     if (child.type == PROSENJITFS_INODE_DIR &&
         old_data->inode_number != new_data->inode_number) {
         rc = pfs_directory_would_cycle(old_data->fs, source.inode,
@@ -1073,7 +1073,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         if (old_index_image) kfree(old_index_image);
         if (new_index_image) kfree(new_index_image);
         if (inode_image) kfree(inode_image);
-        return PROS_VFS_EIO;
+        return -17410;
     }
     if (pfs_read_block(old_data->fs->mount.device, source_lba, source_image) !=
             PROSENJITFS_OK ||
@@ -1083,7 +1083,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                        new_index_image) != PROSENJITFS_OK) {
         kfree(source_image); kfree(old_index_image);
         kfree(new_index_image); kfree(inode_image);
-        return PROS_VFS_EIO;
+        return -17411;
     }
 
     {
@@ -1110,7 +1110,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                     if (prev_image) kfree(prev_image);
                     kfree(source_image); kfree(old_index_image);
                     kfree(new_index_image); kfree(inode_image);
-                    return PROS_VFS_EIO;
+                    return -17412;
                 }
                 {
                     struct pros_prosenjitfs_dir_entry *prev =
@@ -1136,7 +1136,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                     if (prev_image) kfree(prev_image);
                     kfree(source_image); kfree(old_index_image);
                     kfree(new_index_image); kfree(inode_image);
-                    return PROS_VFS_EIO;
+                    return -17413;
                 }
                 {
                     struct pros_prosenjitfs_dir_entry *prev =
@@ -1163,7 +1163,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                 if (prev_image) kfree(prev_image);
                 kfree(source_image); kfree(old_index_image);
                 kfree(new_index_image); kfree(inode_image);
-                return PROS_VFS_EIO;
+                return -17414;
             }
             pfs_copy(inode_image + inode_offset, &child, sizeof(child));
             pfs_put32(inode_image + inode_offset +
@@ -1264,7 +1264,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             written = (uint32_t)pfs_file_write(&file, (uint32_t)offset,
                                                chunk, zeroes);
             if (written != chunk)
-                return PROS_VFS_EIO;
+                return -17415;
             offset += written;
         }
         vnode->size = new_size;
@@ -1296,7 +1296,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             inode.allocated_bytes = 0u;
             if (prosenjitfs_write_inode(data->fs, data->inode_number,
                                         &inode) != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -17416;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
@@ -1305,7 +1305,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
             struct pros_prosenjitfs_extent current;
             rc = pfs_read_extent(data->fs, cursor, &current);
             if (rc != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -17417;
             previous_lba = last_lba;
             if (last_lba != 0u)
                 pfs_copy(&previous, &last, sizeof(previous));
@@ -1331,7 +1331,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                inode_image) != PROSENJITFS_OK) {
                 if (inode_image)
                     kfree(inode_image);
-                return PROS_VFS_EIO;
+                return -17418;
             }
             inode.size = new_size;
             pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
@@ -1348,7 +1348,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                 rc = pfs_tx_commit(data->fs);
             kfree(inode_image);
             if (rc != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+                return -17419;
             vnode->size = new_size;
             return PROS_VFS_OK;
         }
@@ -1413,7 +1413,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
                                inode_image) != PROSENJITFS_OK) {
                 if (previous_image) kfree(previous_image);
                 kfree(last_image); kfree(inode_image);
-                return PROS_VFS_EIO;
+                return -17420;
             }
             pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
             pfs_put32(inode_image + inode_offset +
@@ -1519,7 +1519,7 @@ static int pfs_vnode_truncate(struct pros_vfs_vnode *vnode, uint64_t new_size)
          * smaller than the old size, another extent should follow the kept
          * range; reaching here means the on-disk extent chain is inconsistent.
          */
-        return PROS_VFS_EIO;
+        return -17421;
     }
 }
 
