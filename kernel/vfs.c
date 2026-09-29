@@ -343,6 +343,13 @@ int vfs_vnode_put(struct pros_vfs_vnode *vnode)
     if (!vnode || !vnode->initialized || vnode->refcount == 0u)
         return PROS_VFS_EINVAL;
     --vnode->refcount;
+    if (vnode->refcount == 0u) {
+        void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
+        if (release)
+            release(vnode);
+        else
+            vnode->initialized = 0u;
+    }
     return PROS_VFS_OK;
 }
 
