@@ -26,6 +26,7 @@ struct exfat_vfs_node {
 
 static int exfat_vfs_lookup(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **);
+static int exfat_load_upcase(struct pros_exfat *fs);
 static int exfat_vfs_readdir(struct pros_vfs_vnode *, uint64_t *,
                              struct pros_vfs_dirent *);
 static int exfat_vfs_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
@@ -107,12 +108,19 @@ int exfat_mount(struct pros_exfat *fs, struct pros_block_device *device)
     fs->cluster_count = cluster_count;
     fs->root_cluster = root_cluster;
     fs->volume_length = volume_length;
+    fs->upcase_data = 0;
+    fs->upcase_length = 0u;
 
     if (vfs_vnode_init(&fs->root_vnode, &fs->mount, 0,
                        PROS_VFS_NODE_DIRECTORY, &exfat_vfs_vnode_ops, 0,
                        fs, 0) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, &fs->root_vnode) != PROS_VFS_OK)
         return PROS_EXFAT_EINVAL;
+
+    if (exfat_load_upcase(fs) != PROS_EXFAT_OK) {
+        vfs_mount_deactivate(&fs->mount);
+        return PROS_EXFAT_ECORRUPT;
+    }
 
     return vfs_mount_activate(&fs->mount) == PROS_VFS_OK
         ? PROS_EXFAT_OK : PROS_EXFAT_EINVAL;
