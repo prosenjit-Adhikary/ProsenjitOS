@@ -26,6 +26,10 @@ A filesystem provider owns on-disk format parsing, metadata validation, allocati
 
 ProsenjitFS therefore attaches to the existing VFS rather than replacing it.
 
+## Real block-device progress
+
+The kernel now contains a polling ATA PIO block-device provider for the legacy primary IDE channel. It supports IDENTIFY, LBA28/LBA48 read/write, and cache flush through the existing `pros_block_device` contract. The normal ISO boot tolerates an absent disk; the native BIOS QEMU regression supplies a real IDE disk and requires the successful ATA block-path marker. This validates the hardware-facing block layer, but it does not yet claim real ProsenjitFS mount/write durability on QEMU because the native disk image still uses the fixed-LBA boot layout and no filesystem partition is attached to that test path.
+
 ## ProsenjitFS branch integration notes
 
 The feature/prosenjitfs branch supplied the initial provider implementation. Its work was integrated through a separate integration branch so the running branch itself was not modified. The provider now lives on main behind the frozen block/VFS boundary.
