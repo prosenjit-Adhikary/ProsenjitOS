@@ -1111,6 +1111,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: exFAT self-test passed\n");
+    serial_write("ProsenjitOS: exFAT VFS self-test passed\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
