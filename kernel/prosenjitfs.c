@@ -455,10 +455,36 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .release = pfs_vnode_release
 };
 
+static int pfs_file_read_stub(struct pros_vfs_file *file, uint32_t offset,
+                             uint32_t length, void *buffer)
+{
+    (void)file;
+    (void)offset;
+    (void)length;
+    (void)buffer;
+    return PROS_VFS_ENOSYS;
+}
+
+static int pfs_file_write_stub(struct pros_vfs_file *file, uint32_t offset,
+                              uint32_t length, const void *buffer)
+{
+    (void)file;
+    (void)offset;
+    (void)length;
+    (void)buffer;
+    return PROS_VFS_ENOSYS;
+}
+
+static int pfs_file_close_stub(struct pros_vfs_file *file)
+{
+    (void)file;
+    return PROS_VFS_OK;
+}
+
 static const struct pros_vfs_file_ops pfs_file_ops = {
-    .read = 0,
-    .write = 0,
-    .close = 0
+    .read = pfs_file_read_stub,
+    .write = pfs_file_write_stub,
+    .close = pfs_file_close_stub
 };
 
 static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
