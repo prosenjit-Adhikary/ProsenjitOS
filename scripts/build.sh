@@ -36,6 +36,7 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/security_quarantine.c" -o "$BUILD/obj/securi
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/security_exec.c" -o "$BUILD/obj/security_exec.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pic.c" -o "$BUILD/obj/pic.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/block.c" -o "$BUILD/obj/block.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/vfs.c" -o "$BUILD/obj/vfs.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/fat32.c" -o "$BUILD/obj/fat32.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/exfat.c" -o "$BUILD/obj/exfat.o"
