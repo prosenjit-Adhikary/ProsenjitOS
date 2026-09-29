@@ -2460,8 +2460,14 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_commit c;
     uint32_t expected;
 
-    if (pfs_read_block(fs->mount.device, fs->sb.journal_start, header) != PROSENJITFS_OK)
+    if (fs->sb.journal_start >= fs->mount.device->sector_count) {
+        pfs_journal_debug_stage = 10;
         return PROSENJITFS_EIO;
+    }
+    if (pfs_read_block(fs->mount.device, fs->sb.journal_start, header) != PROSENJITFS_OK) {
+        pfs_journal_debug_stage = 11;
+        return PROSENJITFS_EIO;
+    }
     pfs_journal_debug_stage = 1;
     pfs_copy(&h, header, sizeof(h));
     if (h.magic == 0u)
