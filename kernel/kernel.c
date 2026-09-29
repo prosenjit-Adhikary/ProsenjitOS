@@ -12,7 +12,6 @@
 #include "ipc.h"
 #include "usercopy.h"
 #include "pci.h"
-#include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
 #include "fat32.h"
@@ -22,6 +21,7 @@
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
+#define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
 #define VGA_ADDRESS 0xB8000u
 #define VGA_COLUMNS 80u
 #define VGA_ROWS 25u
@@ -92,7 +92,6 @@ static void serial_write(const char *text) {
         serial_putc(text[i]);
     }
 }
-
 static int ata_qemu_prosenjitfs_test(void)
 {
     struct pros_ata_pio ata;
@@ -308,12 +307,17 @@ void user_mode_test_complete(void) {
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
-    serial_write("ProsenjitOS: Multiboot2 magic = "); serial_hex64(boot_magic); serial_write("\n");
+    serial_write("ProsenjitOS: boot magic = "); serial_hex64(boot_magic); serial_write("\n");
     vga_clear();
-    if (boot_magic != MULTIBOOT2_BOOT_MAGIC) {
+    if (boot_magic != MULTIBOOT2_BOOT_MAGIC && boot_magic != PROSENJIT_NATIVE_BOOT_MAGIC) {
         vga_write("ProsenjitOS: invalid boot handoff", 0x4F);
-        serial_write("ProsenjitOS: ERROR invalid Multiboot2 handoff\n");
+        serial_write("ProsenjitOS: ERROR invalid boot handoff\n");
         for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        serial_write("ProsenjitOS: native bootloader handoff accepted\n");
+    } else {
+        serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
     idt_init();
     __asm__ volatile ("cli");
@@ -1179,17 +1183,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: partition discovery self-test passed\n");
-    {
-        int ata_rc = ata_qemu_prosenjitfs_test();
-        if (ata_rc == PROS_ATA_ENODEV) {
-            serial_write("ProsenjitOS: ATA PIO disk not present; QEMU disk integration skipped\n");
-        } else if (ata_rc != PROS_ATA_OK) {
-            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        } else {
-            serial_write("ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed\n");
-        }
-    }
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1212,11 +1205,28 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: exFAT Up-case parser self-test passed\n");
     serial_write("ProsenjitOS: exFAT VFS self-test passed\n");
-    if (prosenjitfs_selftest() != PROSENJITFS_OK) {
-        serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int prosenjitfs_test_rc = prosenjitfs_selftest();
+        if (prosenjitfs_test_rc != PROSENJITFS_OK) {
+            serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)prosenjitfs_test_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal self-test passed\n");
+
+    {
+        int ata_rc = ata_qemu_prosenjitfs_test();
+        if (ata_rc == PROS_ATA_ENODEV) {
+            serial_write("ProsenjitOS: ATA PIO disk not present; QEMU ProsenjitFS integration skipped\n");
+        } else if (ata_rc != PROS_ATA_OK) {
+            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        } else {
+            serial_write("ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed\n");
+        }
+    }
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
