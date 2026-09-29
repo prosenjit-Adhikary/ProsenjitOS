@@ -3718,8 +3718,11 @@ int prosenjitfs_selftest(void)
             return -914;
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return -915;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -916;
+        {
+            int replay_mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (replay_mount_rc != PROSENJITFS_OK)
+                return -920 - replay_mount_rc;
+        }
         if (disk.data[journal_target * 512u] != 0xA5u)
             return -917;
         if (disk.data[journal_target * 512u + 1u] != 0x5Au)
