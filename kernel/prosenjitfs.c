@@ -2255,7 +2255,8 @@ int prosenjitfs_selftest(void)
     }
     {
         static const char message[] = "ProsenjitFS persistent file I/O";
-        char readback[sizeof(message)];
+        static const char suffix[] = "!";
+        char readback[sizeof(message) + sizeof(suffix) - 1u];
         struct pros_vfs_file file;
         uint32_t count = 0u;
 
@@ -2271,6 +2272,20 @@ int prosenjitfs_selftest(void)
                           &count) != PROS_VFS_OK ||
             count != sizeof(message) ||
             __builtin_memcmp(readback, message, sizeof(message)) != 0 ||
+            vfs_file_seek(&file, sizeof(message)) != PROS_VFS_OK ||
+            vfs_file_write(&file, suffix, (uint32_t)(sizeof(suffix) - 1u),
+                           &count) != PROS_VFS_OK ||
+            count != sizeof(suffix) - 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/hello", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_read(&file, readback, (uint32_t)sizeof(readback),
+                          &count) != PROS_VFS_OK ||
+            count != sizeof(readback) ||
+            __builtin_memcmp(readback, message, sizeof(message)) != 0 ||
+            readback[sizeof(message)] != suffix[0] ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return -6;
     }
