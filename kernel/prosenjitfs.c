@@ -423,6 +423,12 @@ struct pfs_vnode_data {
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
+static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit);
+static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
+                               uint64_t first, uint32_t count,
+                               uint8_t allocate);
+static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
+                                  uint64_t inode_number, uint8_t allocate);
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
