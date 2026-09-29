@@ -2812,6 +2812,10 @@ static int pfs_validate_extent_chain(const struct pros_prosenjitfs *fs,
 
     if (!fs || !inode || inode->type != PROSENJITFS_INODE_FILE)
         return PROSENJITFS_ECORRUPT;
+    /* V1 does not implement sparse-file holes. Reject the feature flag
+     * instead of mounting metadata that the read path cannot represent. */
+    if ((inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) != 0u)
+        return PROSENJITFS_ECORRUPT;
     current = inode->extent_head;
     required_blocks = (inode->size + fs->sb.block_size - 1u) /
                       fs->sb.block_size;
@@ -2980,6 +2984,10 @@ static int pfs_validate_metadata(struct pros_prosenjitfs *fs)
                 if (pfs_validate_directory(fs, inode_number, &inode) !=
                     PROSENJITFS_OK)
                     return PROSENJITFS_ECORRUPT;
+            } else {
+                /* Symlinks are reserved in the on-disk ABI but have no V1
+                 * VFS implementation; never expose one as a valid inode. */
+                return PROSENJITFS_ECORRUPT;
             }
         } else if (rc != PROSENJITFS_ENOENT) {
             return PROSENJITFS_ECORRUPT;
