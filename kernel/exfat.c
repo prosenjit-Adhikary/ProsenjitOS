@@ -1020,6 +1020,14 @@ int exfat_selftest(void)
         disk.sectors[27u * 512u + i] = (uint8_t)('0' + (i % 10u));
     }
 
+    /* Restore the root-directory Up-case entry after initializing the
+     * root cluster's backing sectors with test payload data. */
+    disk.sectors[25u * 512u + 0u] = 0x82u;
+    exfat_test_le32(disk.sectors + 25u * 512u + 4u,
+                    exfat_upcase_checksum(table, p));
+    exfat_test_le32(disk.sectors + 25u * 512u + 20u, 5u);
+    exfat_test_le64(disk.sectors + 25u * 512u + 24u, p);
+
     if (block_device_init(&device,512,32,exfat_test_read,0,&disk) != PROS_BLOCK_OK)
         return -101;
     if (exfat_mount(&fs, &device) != PROS_EXFAT_OK)
