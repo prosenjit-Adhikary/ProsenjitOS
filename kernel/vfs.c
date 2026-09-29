@@ -220,6 +220,17 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     return PROS_VFS_OK;
 }
 
+int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    if (!file || !file->open || !file->mount || !file->mount->active ||
+        !file->vnode || file->vnode->type != PROS_VFS_NODE_FILE ||
+        !file->vnode->ops || !file->vnode->ops->truncate ||
+        (file->flags & PROS_VFS_O_WRITE) == 0u ||
+        file->mount->read_only)
+        return PROS_VFS_EPERM;
+    return file->vnode->ops->truncate(file->vnode, size);
+}
+
 int vfs_file_close(struct pros_vfs_file *file)
 {
     int rc;
