@@ -63,6 +63,8 @@ echo "Built: $ISO"
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
 NATIVE_STAGE2_SECTORS=32
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
+NATIVE_PFS_START_LBA=2048
+NATIVE_PFS_SECTORS=512
 objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
 KERNEL_BYTES="$(stat -c%s "$BUILD/prosenjit.bin")"
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
@@ -72,6 +74,7 @@ if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
 fi
 
 nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
+    -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
     "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
 nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
     "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
@@ -85,7 +88,9 @@ if (( $(stat -c%s "$BUILD/native_stage2.bin") > NATIVE_STAGE2_SECTORS * 512 )); 
     exit 1
 fi
 
-NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
+NATIVE_KERNEL_END=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
+NATIVE_PFS_END=$((NATIVE_PFS_START_LBA + NATIVE_PFS_SECTORS))
+NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_END > NATIVE_PFS_END ? NATIVE_KERNEL_END : NATIVE_PFS_END))
 truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
 dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
@@ -93,3 +98,4 @@ dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" 
 
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
+echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
