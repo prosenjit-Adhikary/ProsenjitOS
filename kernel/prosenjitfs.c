@@ -4176,9 +4176,10 @@ int prosenjitfs_selftest(void)
      * move only the second extent forward by one logical block while keeping
      * its checksum valid. Older validation checked only overlap and final
      * EOF, so this hole could survive mount and fail later during reads. */
-    if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
-        prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+    if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return -12000;
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return -12010 - pfs_last_mount_failure_stage;
     {
         struct pros_vfs_file gap_file;
         struct pros_vfs_vnode *gap_vnode = 0;
