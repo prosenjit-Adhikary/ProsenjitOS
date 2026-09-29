@@ -23,16 +23,6 @@ static void zero_bytes(void *p, size_t n)
     memset(p, 0, n);
 }
 
-static uint32_t crc32c_update(uint32_t crc, const uint8_t *data, size_t len)
-{
-    for (size_t i = 0; i < len; ++i) {
-        crc ^= data[i];
-        for (unsigned bit = 0; bit < 8; ++bit)
-            crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
-    }
-    return crc;
-}
-
 static uint32_t crc32c_zero32(const void *data, size_t len, size_t off)
 {
     const uint8_t *p = (const uint8_t *)data;
