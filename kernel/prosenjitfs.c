@@ -3719,7 +3719,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             disk.data[journal_target * 512u] != 0xA5u ||
             disk.data[journal_target * 512u + 1u] != 0x5Au)
-            return -9;
+            return -901;
     }
     {
         uint64_t journal_target = fs.sb.data_start + 1u;
