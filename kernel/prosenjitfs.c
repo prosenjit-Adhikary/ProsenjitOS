@@ -1,4 +1,5 @@
 #include "prosenjitfs.h"
+#include "vfs.h"
 #include "heap.h"
 #include <stddef.h>
 
