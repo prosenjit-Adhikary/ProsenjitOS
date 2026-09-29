@@ -170,7 +170,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] ProsenjitFS transactional unlink with inode/block reclamation
   - [x] ProsenjitFS same-directory rename, including dot-prefixed hidden names
   - [x] ProsenjitFS cross-directory move/rename with directory-parent cycle protection
-  - [ ] ProsenjitFS crash/corruption recovery coverage
+  - [x] ProsenjitFS crash/corruption recovery coverage (deterministic journal replay, torn-transaction discard, checksum-corruption fail-closed, and mount metadata corruption rejection)
 - [ ] Ethernet
 - [ ] ARP
 - [ ] IPv4
