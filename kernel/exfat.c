@@ -534,6 +534,14 @@ int exfat_selftest(void)
             uint16_t checksum = exfat_directory_checksum(set, 3u);
             set[2] = (uint8_t)checksum;
             set[3] = (uint8_t)(checksum >> 8);
+            if (exfat_directory_checksum(set, 3u) != exfat_le16(set + 2u))
+                return -130;
+        }
+        {
+            char decoded_name[256];
+            if (exfat_directory_name(set, 2u, set[35], decoded_name,
+                                     sizeof(decoded_name)) != PROS_EXFAT_OK)
+                return -131;
         }
         {
             struct pros_exfat_dirent found;
