@@ -27,6 +27,7 @@ static void pfs_put32(uint8_t *p, uint32_t v)
 
 
 static int pfs_mount_debug_stage;
+static int pfs_journal_debug_stage;
 
 static int pfs_mem_equal(const void *a, const void *b, uint32_t size)
 {
@@ -2450,6 +2451,7 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
 
 static int pfs_journal_recover(struct pros_prosenjitfs *fs)
 {
+    pfs_journal_debug_stage = 0;
     uint8_t *header = fs->scratch;
     uint8_t *images = fs->tx.images;
     uint8_t *commit = images + (uint64_t)PROSENJITFS_MAX_TX_BLOCKS *
@@ -2460,9 +2462,11 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
 
     if (pfs_read_block(fs->mount.device, fs->sb.journal_start, header) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+    pfs_journal_debug_stage = 1;
     pfs_copy(&h, header, sizeof(h));
     if (h.magic == 0u)
         return PROSENJITFS_OK;
+    pfs_journal_debug_stage = 2;
     if (h.magic != PROSENJITFS_JOURNAL_MAGIC ||
         h.record_count == 0u || h.record_count > PROSENJITFS_MAX_TX_BLOCKS ||
         h.record_count + 2u > fs->sb.journal_blocks ||
@@ -2472,6 +2476,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
                                 checksum)) != h.checksum)
         return PROSENJITFS_ECORRUPT;
 
+    pfs_journal_debug_stage = 3;
     for (uint32_t i = 0; i < h.record_count; ++i) {
         if (h.targets[i] >= fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
@@ -2481,6 +2486,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
     }
+    pfs_journal_debug_stage = 4;
     if (pfs_read_block(fs->mount.device,
                        fs->sb.journal_start + 1u + h.record_count,
                        commit) != PROSENJITFS_OK)
@@ -2488,6 +2494,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     pfs_copy(&c, commit, sizeof(c));
     if (c.magic == 0u)
         return pfs_journal_clear(fs);
+    pfs_journal_debug_stage = 5;
     if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
         c.transaction_id != h.transaction_id ||
         c.record_count != h.record_count)
@@ -2496,6 +2503,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
                                     h.record_count, commit);
     if (expected != c.checksum)
         return PROSENJITFS_ECORRUPT;
+    pfs_journal_debug_stage = 6;
 
     for (uint32_t i = 0; i < h.record_count; ++i)
         if (pfs_write_block(fs->mount.device, h.targets[i],
@@ -3221,6 +3229,8 @@ int prosenjitfs_selftest(void)
     {
         int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
         if (mount_rc != PROSENJITFS_OK)
+            if (pfs_mount_debug_stage == 2)
+                return -300 - pfs_journal_debug_stage;
             return -200 - pfs_mount_debug_stage;
     }
     if (fs.sb.root_inode != 0u ||
