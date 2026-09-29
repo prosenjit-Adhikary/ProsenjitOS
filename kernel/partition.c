@@ -31,6 +31,13 @@ int partition_probe(struct pros_block_device *device,
         const uint8_t *entry = sector + 446 + i * 16;
         if (entry[4] == 0xEE) {
             uint8_t header[512];
+            uint32_t first = le32(entry + 8);
+            uint32_t sectors = le32(entry + 12);
+            /* A protective MBR entry must begin at LBA 1 and cover the disk
+             * (or use 0xFFFFFFFF for the legacy 2 TiB+ sentinel). */
+            if (first != 1u || sectors == 0u ||
+                (sectors != 0xFFFFFFFFu && sectors > device->sector_count - 1u))
+                return PROS_PARTITION_EINVAL;
             if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
                 return PROS_PARTITION_EIO;
             if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
