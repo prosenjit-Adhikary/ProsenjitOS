@@ -3823,14 +3823,11 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -10;
-        disk.data[fs.sb.journal_start * 512u] = 0u;
-        if (pfs_test_flush(&device) != PROS_BLOCK_OK)
-            return -12000;
-        {
-            int clean_mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-            if (clean_mount_rc != PROSENJITFS_OK)
-                return -12000 - pfs_last_mount_failure_stage;
-        }
+        pfs_zero(disk.data + fs.sb.journal_start * 512u,
+                 fs.sb.block_size);
+        if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -10;
     }
     {
         int alloc_rc = prosenjitfs_alloc_blocks(&fs, 4u, &first_block);
