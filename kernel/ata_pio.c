@@ -79,7 +79,7 @@ static int ata_wait_drq(struct pros_ata_pio *ata)
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
         if ((status & ATA_STATUS_BSY) != 0u)
             continue;
-        if ((status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u)
+        if (i >= 4u && (status & (ATA_STATUS_ERR | ATA_STATUS_DF)) != 0u)
             return PROS_ATA_EIO;
         if ((status & ATA_STATUS_DRQ) != 0u)
             return PROS_ATA_OK;
@@ -122,6 +122,7 @@ static int ata_pio_read(struct pros_block_device *device,
             return PROS_BLOCK_EIO;
         for (uint32_t word = 0u; word < 256u; ++word)
             ((uint16_t *)dst)[word] = ata_in16(ata->io_base + ATA_REG_DATA);
+        ata_delay_400ns(ata->control_base);
         dst += 512u;
     }
     return PROS_BLOCK_OK;
@@ -153,6 +154,7 @@ static int ata_pio_write(struct pros_block_device *device,
             return PROS_BLOCK_EIO;
         for (uint32_t word = 0u; word < 256u; ++word)
             ata_out16(ata->io_base + ATA_REG_DATA, ((const uint16_t *)src)[word]);
+        ata_delay_400ns(ata->control_base);
         if (ata_wait_not_busy(ata) != PROS_ATA_OK)
             return PROS_BLOCK_EIO;
         src += 512u;
