@@ -13,6 +13,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "partition.h"
+#include "storage.h"
 #include "fat32.h"
 #include "exfat.h"
 #include "exfat_upcase.h"
@@ -1102,6 +1103,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: partition discovery self-test passed\n");
+    if (pros_storage_selftest() != PROS_STORAGE_OK) {
+        serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: storage volume discovery self-test passed\n");
     if (fat32_selftest() != 0) {
         serial_write("ProsenjitOS: ERROR FAT32 self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
