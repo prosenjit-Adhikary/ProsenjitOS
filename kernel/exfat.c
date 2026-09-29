@@ -1224,6 +1224,13 @@ int exfat_selftest(void)
             return -14;
         vfs_vnode_put(found_vnode);
 
+        if (vfs_path_lookup(&fs.mount, "/CAF\xC3\x89.TXT", &found_vnode) !=
+                PROS_VFS_OK || !found_vnode ||
+            found_vnode->type != PROS_VFS_NODE_FILE ||
+            found_vnode->size != 700u)
+            return -20;
+        vfs_vnode_put(found_vnode);
+
         if (vfs_file_open(&fs.mount, "/HELLO.TXT", PROS_VFS_O_READ,
                           &file) != PROS_VFS_OK ||
             vfs_file_read(&file, file_data, sizeof(file_data), &bytes_read) !=
@@ -1236,6 +1243,9 @@ int exfat_selftest(void)
             vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
             dirent.type != PROS_VFS_NODE_FILE ||
             !exfat_name_equal_ascii_ci(dirent.name, "HELLO.TXT") ||
+            dirent.size != 700u ||
+            vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
+            !exfat_name_equal_ascii_ci(dirent.name, "café.txt") ||
             dirent.size != 700u ||
             vfs_dir_read(&dir, &dirent) != PROS_VFS_OK ||
             !exfat_name_equal_ascii_ci(dirent.name, "CROSS.TXT") ||
