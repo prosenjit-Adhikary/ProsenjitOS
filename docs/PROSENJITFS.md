@@ -3,6 +3,8 @@
 ## Status
 This document is the implementation contract for the native ProsenjitFS filesystem. It is intentionally separate from the compatibility FAT32, exFAT and NTFS drivers.
 
+Current kernel-side implementation covers format/mount validation, persistent allocation, inode/extents, journal replay, hash-indexed directories, create/mkdir, read/write/truncate, unlink/rename, VFS integration, and corruption/crash-point self-tests. The host formatter is available as tools/mkprosenjitfs.c and is smoke-tested in CI. Real QEMU disk mounting remains blocked by the repository's missing ATA/AHCI/NVMe block-device driver.
+
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
 FAT32, exFAT and NTFS remain compatibility filesystem providers. Filesystem parsing stays in the kernel filesystem layer; the bootloader does not parse ProsenjitFS.
@@ -45,10 +47,10 @@ ProsenjitFS does not create a second authorization system. VFS flags, process ca
 On-disk uid/gid/mode are metadata and cannot bypass kernel capability checks. Reserved fields allow future security metadata without changing the core inode ABI.
 
 ## Formatter
-The native formatter will be implemented as prosenjitfs_format() in the filesystem layer. A host-side mkprosenjitfs utility will use the same on-disk format definitions and will not depend on Linux mkfs implementations.
+The native formatter is implemented as prosenjitfs_format() in the filesystem layer. A host-side tools/mkprosenjitfs utility uses the same on-disk format definitions and does not depend on Linux mkfs implementations. The host formatter is built and smoke-tested in CI.
 
 ## Mount validation
-Mount validates magic/version, feature flags, block size and volume bounds, all metadata regions, bitmap sizes, inode-table bounds, root inode, inode/extent references, checksums and journal structure. Malformed metadata is rejected; recovery occurs before writable mount exposure.
+Mount validates magic/version, feature flags, block size and volume bounds, all metadata regions, bitmap sizes, inode-table bounds, root inode, persistent inode allocation, inode/extent references, extent accounting/overlap, directory indexes and entries, checksums and journal structure. Malformed metadata is rejected; journal recovery occurs before metadata validation and writable mount exposure.
 
 ## Implementation sequence
 1. Define versioned structures and CRC32C.
