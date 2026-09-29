@@ -75,6 +75,16 @@ int partition_read_mbr(struct pros_block_device *device,
             partitions[found].type_guid[b] = 0;
         ++found;
     }
+    /* MBR primary entries must not overlap one another. */
+    for (uint32_t i = 0; i < found; ++i) {
+        uint64_t a_end = partitions[i].first_lba + partitions[i].sector_count;
+        for (uint32_t j = i + 1u; j < found; ++j) {
+            uint64_t b_end = partitions[j].first_lba + partitions[j].sector_count;
+            if (partitions[i].first_lba < b_end &&
+                partitions[j].first_lba < a_end)
+                return PROS_PARTITION_EINVAL;
+        }
+    }
     *count = found;
     return PROS_PARTITION_OK;
 }
@@ -162,6 +172,16 @@ int partition_read_gpt(struct pros_block_device *device,
         for (uint32_t b = 0; b < 16; ++b)
             partitions[found].type_guid[b] = entry[offset + b];
         ++found;
+    }
+    /* GPT partition extents must not overlap. */
+    for (uint32_t i = 0; i < found; ++i) {
+        uint64_t a_end = partitions[i].first_lba + partitions[i].sector_count;
+        for (uint32_t j = i + 1u; j < found; ++j) {
+            uint64_t b_end = partitions[j].first_lba + partitions[j].sector_count;
+            if (partitions[i].first_lba < b_end &&
+                partitions[j].first_lba < a_end)
+                return PROS_PARTITION_EINVAL;
+        }
     }
     *count = found;
     return PROS_PARTITION_OK;
