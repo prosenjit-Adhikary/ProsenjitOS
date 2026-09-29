@@ -423,6 +423,9 @@ struct pfs_vnode_data {
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
+static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result);
+static uint32_t pfs_name_hash(const uint8_t *name, uint32_t length);
 static int pfs_utf8_name_valid(const char *name, uint32_t *length_out);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
                               const struct pros_prosenjitfs_inode *inode,
@@ -437,6 +440,10 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                                uint8_t allocate);
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
                                   uint64_t inode_number, uint8_t allocate);
+static int pfs_tx_reset(struct pros_prosenjitfs *fs);
+static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
+                      const uint8_t *image);
+static int pfs_tx_commit(struct pros_prosenjitfs *fs);
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
@@ -581,7 +588,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EIO;
     rc = pfs_find_dir_entry(data->fs, &parent_inode, name, 0);
     if (rc == PROSENJITFS_OK)
-        return PROS_VFS_EEXIST;
+        return PROS_VFS_EBUSY;
     if (rc != PROSENJITFS_ENOENT)
         return PROS_VFS_EIO;
     if (pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
