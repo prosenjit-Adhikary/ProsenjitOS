@@ -1151,30 +1151,27 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             }
             src->next = ni->heads[new_bucket];
             ni->heads[new_bucket] = source_lba;
-            if (child.type == PROSENJITFS_INODE_DIR) {
-                child.parent_inode = new_data->inode_number;
-                inode_lba = old_data->fs->sb.inode_table_start +
-                            (source.inode * PROSENJITFS_INODE_SIZE) /
-                            old_data->fs->sb.block_size;
-                inode_offset = (uint32_t)((source.inode *
-                                           PROSENJITFS_INODE_SIZE) %
-                                          old_data->fs->sb.block_size);
-                if (pfs_read_block(old_data->fs->mount.device, inode_lba,
-                                   inode_image) != PROSENJITFS_OK) {
-                    if (prev_image) kfree(prev_image);
-                    kfree(source_image); kfree(old_index_image);
-                    kfree(new_index_image); kfree(inode_image);
-                    return PROS_VFS_EIO;
-                }
-                pfs_copy(inode_image + inode_offset, &child,
-                         sizeof(child));
-                pfs_put32(inode_image + inode_offset +
-                          offsetof(struct pros_prosenjitfs_inode, checksum),
-                          pfs_crc_with_zero32(
-                              inode_image + inode_offset, sizeof(child),
-                              (uint32_t)offsetof(
-                                  struct pros_prosenjitfs_inode, checksum)));
+            child.parent_inode = new_data->inode_number;
+            inode_lba = old_data->fs->sb.inode_table_start +
+                        (source.inode * PROSENJITFS_INODE_SIZE) /
+                        old_data->fs->sb.block_size;
+            inode_offset = (uint32_t)((source.inode *
+                                       PROSENJITFS_INODE_SIZE) %
+                                      old_data->fs->sb.block_size);
+            if (pfs_read_block(old_data->fs->mount.device, inode_lba,
+                               inode_image) != PROSENJITFS_OK) {
+                if (prev_image) kfree(prev_image);
+                kfree(source_image); kfree(old_index_image);
+                kfree(new_index_image); kfree(inode_image);
+                return PROS_VFS_EIO;
             }
+            pfs_copy(inode_image + inode_offset, &child, sizeof(child));
+            pfs_put32(inode_image + inode_offset +
+                      offsetof(struct pros_prosenjitfs_inode, checksum),
+                      pfs_crc_with_zero32(
+                          inode_image + inode_offset, sizeof(child),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_inode, checksum)));
         }
 
         oi->checksum = 0u;
