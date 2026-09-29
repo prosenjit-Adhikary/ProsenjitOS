@@ -3228,10 +3228,11 @@ int prosenjitfs_selftest(void)
         return -3;
     {
         int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-        if (mount_rc != PROSENJITFS_OK)
+        if (mount_rc != PROSENJITFS_OK) {
             if (pfs_mount_debug_stage == 2)
                 return -300 - pfs_journal_debug_stage;
             return -200 - pfs_mount_debug_stage;
+        }
     }
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
