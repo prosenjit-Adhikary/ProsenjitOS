@@ -55,6 +55,30 @@ static void pfs_copy(void *dst, const void *src, uint32_t size)
         d[i] = s[i];
 }
 
+/*
+ * Isolated ProsenjitFS write-path diagnostic.
+ * The self-test enables this only for the first 512-byte file-data block.
+ * It records the transaction image byte, the immediate post-commit physical
+ * read, the extent-mapped physical LBA, and the later VFS read byte.
+ */
+struct pfs_write_diag {
+    uint8_t enabled;
+    uint8_t found;
+    uint8_t tx_byte;
+    uint8_t post_commit_byte;
+    uint8_t direct_byte;
+    uint8_t vfs_byte;
+    uint64_t physical_lba;
+};
+
+static struct pfs_write_diag pfs_diag;
+
+static void pfs_diag_reset(void)
+{
+    pfs_zero(&pfs_diag, sizeof(pfs_diag));
+    pfs_diag.enabled = 1u;
+}
+
 static uint32_t pfs_crc_update(uint32_t crc, const uint8_t *data,
                                uint32_t length)
 {
@@ -2322,11 +2346,33 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
-    for (uint32_t i = 0; i < fs->tx.count; ++i)
-        if (pfs_write_block(fs->mount.device, fs->tx.targets[i],
-                            fs->tx.images + (uint64_t)i * fs->sb.block_size) !=
+    for (uint32_t i = 0; i < fs->tx.count; ++i) {
+        uint8_t *tx_image =
+            fs->tx.images + (uint64_t)i * fs->sb.block_size;
+        if (pfs_diag.enabled && !pfs_diag.found &&
+            fs->sb.block_size > 188u &&
+            fs->tx.targets[i] >= fs->sb.data_start &&
+            tx_image[188u] == 0xD6u) {
+            uint8_t verify[4096];
+            pfs_diag.found = 1u;
+            pfs_diag.tx_byte = tx_image[188u];
+            pfs_diag.physical_lba = fs->tx.targets[i];
+            if (pfs_write_block(fs->mount.device, fs->tx.targets[i],
+                                tx_image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            if (pfs_read_block(fs->mount.device, fs->tx.targets[i],
+                               verify) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            pfs_diag.post_commit_byte = verify[188u];
+            pfs_diag.enabled = 0u;
+            if (pfs_diag.post_commit_byte != 0xD6u)
+                return PROSENJITFS_EIO;
+            continue;
+        }
+        if (pfs_write_block(fs->mount.device, fs->tx.targets[i], tx_image) !=
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
+    }
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
@@ -2779,6 +2825,7 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(write_data); ++i)
             write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
 
+        pfs_diag_reset();
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
@@ -2788,15 +2835,42 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -6;
 
+        if (!pfs_diag.found || pfs_diag.tx_byte != 0xD6u ||
+            pfs_diag.post_commit_byte != 0xD6u)
+            return -0x20000 - (int)pfs_diag.post_commit_byte;
+
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK)
+            return -0x21000;
+        {
+            struct pros_prosenjitfs_extent diag_extent;
+            uint64_t diag_extent_lba = 0u, diag_tail_lba = 0u;
+            uint8_t direct_block[4096];
+            int diag_rc = pfs_find_extent(&fs, &inode, 0u, &diag_extent,
+                                          &diag_extent_lba, &diag_tail_lba);
+            if (diag_rc != PROSENJITFS_OK ||
+                diag_extent_lba == 0u ||
+                diag_extent.physical_block != pfs_diag.physical_lba)
+                return -0x21000;
+            if (pfs_read_block(&device, pfs_diag.physical_lba,
+                               direct_block) != PROSENJITFS_OK)
+                return -0x22000;
+            pfs_diag.direct_byte = direct_block[188u];
+            if (pfs_diag.direct_byte != 0xD6u)
+                return -0x22000 - (int)pfs_diag.direct_byte;
+        }
+
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data))
             return -6;
+        pfs_diag.vfs_byte = read_data[188u];
+        if (pfs_diag.vfs_byte != 0xD6u)
+            return -0x23000 - (int)pfs_diag.vfs_byte;
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != write_data[i])
-                return -6;
+                return -0x24000 - (int)i;
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return -6;
     }
