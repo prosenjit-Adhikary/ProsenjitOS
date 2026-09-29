@@ -798,12 +798,17 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
         uint64_t bits_per_block = (uint64_t)fs->sb.block_size * 8u;
         uint64_t bitmap_lba = fs->sb.block_bitmap_start + b / bits_per_block;
         uint8_t bitbuf[4096];
+        if (fs->sb.block_size > sizeof(bitbuf))
+            return PROSENJITFS_EOVERFLOW;
         if (pfs_read_block(fs->mount.device, bitmap_lba, bitbuf) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
         if (!pfs_bitmap_bit(bitbuf, (b % bits_per_block))) {
             ++run;
             if (run == count) {
                 *first_block = b + 1u - count;
+                if (*first_block < data_start ||
+                    count > fs->sb.total_blocks - *first_block)
+                    return PROSENJITFS_EOVERFLOW;
                 return pfs_allocator_update(fs, *first_block, count, 1u);
             }
         } else {
