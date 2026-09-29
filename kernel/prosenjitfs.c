@@ -1096,7 +1096,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     struct pros_prosenjitfs_dir_entry target;
     uint64_t source_lba, source_prev;
     uint64_t target_lba, target_prev;
-    uint32_t old_hash, new_hash, old_len, new_len;
+    uint32_t old_hash, new_hash, old_bucket, new_bucket, old_len, new_len;
     uint8_t *source_image = 0;
     uint8_t *old_index_image = 0;
     uint8_t *new_index_image = 0;
@@ -1121,6 +1121,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         return PROS_VFS_EINVAL;
     old_hash = pfs_name_hash((const uint8_t *)old_name, old_len);
     new_hash = pfs_name_hash((const uint8_t *)new_name, new_len);
+    old_bucket = old_hash % PROSENJITFS_DIR_BUCKETS;
+    new_bucket = new_hash % PROSENJITFS_DIR_BUCKETS;
     if (prosenjitfs_read_inode(old_data->fs, old_data->inode_number,
                                &old_dir) != PROSENJITFS_OK ||
         old_dir.type != PROSENJITFS_INODE_DIR)
@@ -1200,9 +1202,9 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         pfs_copy(src->name, new_name, new_len);
 
         if (old_data->inode_number == new_data->inode_number &&
-            old_hash != new_hash) {
+            old_bucket != new_bucket) {
             if (source_prev == 0u)
-                oi->heads[old_hash % PROSENJITFS_DIR_BUCKETS] = source.next;
+                oi->heads[old_bucket] = source.next;
             else {
                 prev_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
                 if (!prev_image ||
@@ -1224,11 +1226,11 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                            checksum));
                 }
             }
-            src->next = ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS];
-            ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS] = source_lba;
+            src->next = ni->heads[new_bucket];
+            ni->heads[new_bucket] = source_lba;
         } else if (old_data->inode_number != new_data->inode_number) {
             if (source_prev == 0u)
-                oi->heads[old_hash % PROSENJITFS_DIR_BUCKETS] = source.next;
+                oi->heads[old_bucket] = source.next;
             else {
                 prev_image = (uint8_t *)kmalloc(old_data->fs->sb.block_size);
                 if (!prev_image ||
@@ -1250,8 +1252,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                            checksum));
                 }
             }
-            src->next = ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS];
-            ni->heads[new_hash % PROSENJITFS_DIR_BUCKETS] = source_lba;
+            src->next = ni->heads[new_bucket];
+            ni->heads[new_bucket] = source_lba;
             if (child.type == PROSENJITFS_INODE_DIR) {
                 child.parent_inode = new_data->inode_number;
                 inode_lba = old_data->fs->sb.inode_table_start +
