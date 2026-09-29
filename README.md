@@ -553,3 +553,12 @@ Where an existing open-source compatibility project is useful, it may be integra
 ## License
 
 MIT
+
+
+## Native ProsenjitFS
+
+ProsenjitFS is being integrated as the native ProsenjitOS filesystem through the existing block-device, partition and VFS layers. FAT32, exFAT and NTFS remain compatibility filesystems.
+
+The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata and a redo journal. Its deterministic memory-backed format/mount/allocation/journal regression is now part of the boot-test workflow. Full directory mutation, complete file I/O, corruption/crash-point coverage and real QEMU storage-device integration remain subsequent milestones.
+
+See docs/PROSENJITFS.md and docs/FILESYSTEM-INTEGRATION.md for the format contract and integration boundary.

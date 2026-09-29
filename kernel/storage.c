@@ -65,7 +65,8 @@ int pros_storage_discover(struct pros_block_device *device,
 
         if (filesystem != PROS_FS_FAT32 &&
             filesystem != PROS_FS_EXFAT &&
-            filesystem != PROS_FS_NTFS)
+            filesystem != PROS_FS_NTFS &&
+            filesystem != PROS_FS_PROSENJIT)
             continue;
 
         if (found >= capacity)

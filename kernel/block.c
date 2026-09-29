@@ -13,6 +13,7 @@ int block_device_init(struct pros_block_device *device,
     device->sector_count = sector_count;
     device->read = read;
     device->write = write;
+    device->flush = 0;
     device->private_data = private_data;
     return PROS_BLOCK_OK;
 }
@@ -37,4 +38,22 @@ int block_device_write(struct pros_block_device *device,
         (uint64_t)count > device->sector_count - lba)
         return PROS_BLOCK_EINVAL;
     return device->write(device, lba, count, buffer);
+}
+
+int block_device_set_flush(struct pros_block_device *device,
+                           pros_block_flush_fn flush)
+{
+    if (!device)
+        return PROS_BLOCK_EINVAL;
+    device->flush = flush;
+    return PROS_BLOCK_OK;
+}
+
+int block_device_flush(struct pros_block_device *device)
+{
+    if (!device)
+        return PROS_BLOCK_EINVAL;
+    if (!device->flush)
+        return PROS_BLOCK_OK;
+    return device->flush(device);
 }
