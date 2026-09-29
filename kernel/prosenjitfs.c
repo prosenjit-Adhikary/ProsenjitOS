@@ -2622,8 +2622,24 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         return PROSENJITFS_ECORRUPT;
 
     for (uint32_t i = 0; i < h.record_count; ++i) {
-        if (h.targets[i] >= fs->sb.total_blocks)
+        uint64_t target = h.targets[i];
+
+        /*
+         * A committed transaction may target normal filesystem metadata or
+         * data blocks, but never the journal itself. A forged target into the
+         * journal could overwrite the recovery record while replay is still
+         * consuming it and make crash recovery non-deterministic.
+         */
+        if (target >= fs->sb.total_blocks ||
+            (target >= fs->sb.journal_start &&
+             target < fs->sb.journal_start + fs->sb.journal_blocks))
             return PROSENJITFS_ECORRUPT;
+
+        /* Journal records are a set of unique home blocks. */
+        for (uint32_t prior = 0u; prior < i; ++prior)
+            if (h.targets[prior] == target)
+                return PROSENJITFS_ECORRUPT;
+
         if (pfs_read_block(fs->mount.device,
                            fs->sb.journal_start + 1u + i,
                            images + (uint64_t)i * fs->sb.block_size) !=
