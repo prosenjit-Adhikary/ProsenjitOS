@@ -27,6 +27,8 @@ struct exfat_vfs_node {
 static int exfat_vfs_lookup(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **);
 static int exfat_load_upcase_table(struct pros_exfat *);
+static int exfat_directory_read(const struct pros_exfat *, uint32_t,
+                                uint64_t, void *, uint32_t);
 static int exfat_vfs_readdir(struct pros_vfs_vnode *, uint64_t *,
                              struct pros_vfs_dirent *);
 static int exfat_vfs_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
