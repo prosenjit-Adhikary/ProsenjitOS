@@ -3524,7 +3524,7 @@ int prosenjitfs_selftest(void)
             return -15;
     }
     {
-        uint64_t journal_target = fs.sb.data_start;
+        uint64_t journal_target = 0u;
         uint8_t *header = fs.scratch;
         uint8_t *image = fs.tx.images;
         uint8_t *commit = fs.tx.images +
@@ -3533,6 +3533,8 @@ int prosenjitfs_selftest(void)
         struct pros_prosenjitfs_journal_header h;
         struct pros_prosenjitfs_journal_commit c;
 
+        if (pfs_find_free_data_block(&fs, &journal_target) != PROSENJITFS_OK)
+            return -12;
         pfs_zero(header, fs.sb.block_size);
         pfs_zero(image, fs.sb.block_size);
         pfs_zero(commit, fs.sb.block_size);
@@ -3617,7 +3619,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -10;
-        disk.data[fs.sb.journal_start * 512u] = 0u;
+        pfs_zero(disk.data + fs.sb.journal_start * 512u, 512u);
         if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -10;
@@ -3633,6 +3635,8 @@ int prosenjitfs_selftest(void)
         return -7;
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return -8;
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return -7;
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return -9;
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
