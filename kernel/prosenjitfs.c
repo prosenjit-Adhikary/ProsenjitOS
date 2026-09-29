@@ -2037,6 +2037,22 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs);
             return -12;
         }
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+                PROS_VFS_OK)
+            return -12;
+        {
+            uint8_t patch[37];
+            uint32_t wrote = 0u;
+            for (uint32_t i = 0u; i < sizeof(patch); ++i)
+                patch[i] = (uint8_t)(0xA0u + i);
+            if (vfs_file_write(&file, patch, sizeof(patch), &wrote) !=
+                    PROS_VFS_OK ||
+                wrote != sizeof(patch) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return -12;
+        }
+
+
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != (uint8_t)((i * 13u) ^ 0x5Au)) {
                 prosenjitfs_unmount(&fs);
