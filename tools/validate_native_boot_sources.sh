@@ -9,7 +9,8 @@ MAX_KERNEL_SECTORS=1536
 STAGE2_LOAD_BASE=0x8000
 STAGE2_LOAD_BYTES=$((STAGE2_SECTORS * 512))
 STAGE2_LOAD_END=$((STAGE2_LOAD_BASE + STAGE2_LOAD_BYTES))
-STACK_POINTER=0xF0000
+REALMODE_STACK_PHYS=0xEFFF0
+PROTECTED_STACK_POINTER=0xF0000
 
 mkdir -p "$BUILD"
 
@@ -47,7 +48,7 @@ signature=$(od -An -tx1 -j 510 -N 2 "$BUILD/stage1.bin" | tr -d '
     exit 1
 }
 
-[ "$((STACK_POINTER))" -ge "$STAGE2_LOAD_END" ] || {
+[ "$((REALMODE_STACK_PHYS))" -ge "$STAGE2_LOAD_END" ] || {
     echo "native stack overlaps the stage-2 load area" >&2
     exit 1
 }
@@ -57,4 +58,4 @@ echo "  stage-1 bytes: $stage1_size"
 echo "  stage-2 bytes: $stage2_size"
 echo "  kernel LBA:    $KERNEL_LBA"
 echo "  max sectors:   $MAX_KERNEL_SECTORS"
-echo "  stack pointer: 0x$(printf "%X" "$STACK_POINTER")"
+echo "  real-mode stack: 0x$(printf "%X" "$REALMODE_STACK_PHYS")"\necho "  protected stack: 0x$(printf "%X" "$PROTECTED_STACK_POINTER")"
