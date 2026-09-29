@@ -130,9 +130,12 @@ static int ata_qemu_prosenjitfs_test(void)
     }
     serial_write("ProsenjitOS: partition view selected\\n");
 
-    if (prosenjitfs_probe(fs_device) != PROSENJITFS_OK ||
-        prosenjitfs_mount(&fs, fs_device, 0u) != PROSENJITFS_OK)
-        return PROS_ATA_EIO;
+    rc = prosenjitfs_probe(fs_device);
+    if (rc != PROSENJITFS_OK)
+        return -120 + rc;
+    rc = prosenjitfs_mount(&fs, fs_device, 0u);
+    if (rc != PROSENJITFS_OK)
+        return -140 + rc;
 
     for (uint32_t i = 0u; i < sizeof(file); ++i)
         ((uint8_t *)&file)[i] = 0u;
@@ -1203,7 +1206,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (ata_rc == PROS_ATA_ENODEV) {
             serial_write("ProsenjitOS: ATA PIO disk not present; QEMU disk integration skipped\n");
         } else if (ata_rc != PROS_ATA_OK) {
-            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed\n");
+            serial_write("ProsenjitOS: ERROR ATA PIO ProsenjitFS integration failed, code = ");
+            serial_hex64((uint64_t)(int64_t)ata_rc);
+            serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         } else {
             serial_write("ProsenjitOS: QEMU ATA PIO ProsenjitFS persistence test passed\n");
