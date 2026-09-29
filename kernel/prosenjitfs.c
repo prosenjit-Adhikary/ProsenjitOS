@@ -2852,8 +2852,9 @@ static int pfs_validate_extent_chain(const struct pros_prosenjitfs *fs,
     if ((inode->flags & PROSENJITFS_INODE_FLAG_SPARSE) != 0u)
         return PROSENJITFS_ECORRUPT;
     current = inode->extent_head;
-    required_blocks = (inode->size + fs->sb.block_size - 1u) /
-                      fs->sb.block_size;
+    /* Avoid wrapping size + block_size - 1 for a forged inode size. */
+    required_blocks = inode->size == 0u ? 0u :
+                      1u + (inode->size - 1u) / fs->sb.block_size;
 
     while (current != 0u) {
         struct pros_prosenjitfs_extent extent;
@@ -2883,10 +2884,13 @@ static int pfs_validate_extent_chain(const struct pros_prosenjitfs *fs,
         if (extent.physical_block <= current &&
             current - extent.physical_block < extent.block_count)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_block_allocated(fs, extent.physical_block) != 1 ||
-            pfs_block_allocated(fs, extent.physical_block +
-                                extent.block_count - 1u) != 1)
-            return PROSENJITFS_ECORRUPT;
+        /* Every block in the extent must remain allocated. Checking only
+         * the endpoints lets a corrupted middle bitmap bit escape mount-time
+         * validation and later turn into an I/O failure. */
+        for (uint64_t bi = 0u; bi < extent.block_count; ++bi) {
+            if (pfs_block_allocated(fs, extent.physical_block + bi) != 1)
+                return PROSENJITFS_ECORRUPT;
+        }
         if (block_sum > UINT64_MAX - extent.block_count)
             return PROSENJITFS_EOVERFLOW;
         block_sum += extent.block_count;
