@@ -1158,6 +1158,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -108: serial_write("ProsenjitOS: ProsenjitFS initial mount rc EOVERFLOW\n"); break;
             case -310: serial_write("ProsenjitOS: ProsenjitFS journal start LBA is outside device\n"); break;
             case -311: serial_write("ProsenjitOS: ProsenjitFS journal block read returned I/O error\n"); break;
+            case -501: serial_write("ProsenjitOS: ProsenjitFS root self-test found wrong root inode\n"); break;
+            case -502: serial_write("ProsenjitOS: ProsenjitFS root self-test could not read root inode\n"); break;
+            case -503: serial_write("ProsenjitOS: ProsenjitFS root self-test found wrong inode type\n"); break;
+            case -504: serial_write("ProsenjitOS: ProsenjitFS root self-test found missing directory index\n"); break;
+            case -505: serial_write("ProsenjitOS: ProsenjitFS root self-test found missing VFS root\n"); break;
             case -401: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed at root bitmap\n"); break;
             case -402: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed entering inode scan\n"); break;
             case -403: serial_write("ProsenjitOS: ProsenjitFS metadata validation failed reading inode bitmap\n"); break;
