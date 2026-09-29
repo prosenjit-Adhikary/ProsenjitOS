@@ -6,7 +6,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 
 ### Current engineering focus
 1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
-2. **exFAT:** harden the new read-only VFS integration, including cross-cluster directory entry sets, full Unicode/up-case handling, and broader real-volume regression coverage.
+2. **exFAT:** harden the new read-only VFS integration, including full Unicode/up-case handling and broader real-volume regression coverage.
 3. **NTFS:** continue from the current safe file-data write path toward directory-index mutation, cluster allocation, and journal/recovery; keep destructive metadata writes out until each stage is regression-tested.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing admission/quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** build the driver model and block-device/device broker around the completed PCI enumeration layer, then add keyboard/display/network device abstractions.
@@ -20,7 +20,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - FAT32 geometry regression coverage expanded.
 - exFAT geometry regression coverage expanded.
 - exFAT FAT-entry validation and bounded file-stream reads implemented, including NoFatChain and ValidDataLength handling.
-- exFAT read-only VFS integration implemented: root vnode, case-insensitive path lookup, file read, directory enumeration, and vnode lifetime handling are covered by the boot regression.
+- exFAT read-only VFS integration implemented: root vnode, case-insensitive path lookup, file read, directory enumeration, vnode lifetime handling, and directory entry sets crossing cluster boundaries are covered by the boot regression.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
 - NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
 - VFS vnode lookup/reference semantics now explicitly transfer an owned lookup reference; cached FAT32/NTFS nodes retain their cache references, while dynamically allocated exFAT child vnodes release cleanly at final put.
