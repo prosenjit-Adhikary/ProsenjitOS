@@ -1186,6 +1186,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             case -626: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at second dirent\n"); break;
             case -627: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at hello dirent\n"); break;
             case -628: serial_write("ProsenjitOS: ProsenjitFS VFS self-test failed at root dir close\n"); break;
+            case -921: serial_write("ProsenjitOS: ProsenjitFS journal replay remount returned EINVAL\n"); break;
+            case -922: serial_write("ProsenjitOS: ProsenjitFS journal replay remount returned EIO\n"); break;
+            case -923: serial_write("ProsenjitOS: ProsenjitFS journal replay remount returned ENOTSUP\n"); break;
+            case -924: serial_write("ProsenjitOS: ProsenjitFS journal replay remount returned ECORRUPT\n"); break;
+            case -925: serial_write("ProsenjitOS: ProsenjitFS journal replay remount returned ENOSPC\n"); break;
             case -911: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal header write\n"); break;
             case -912: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal image write\n"); break;
             case -913: serial_write("ProsenjitOS: ProsenjitFS journal replay failed at journal commit write\n"); break;
