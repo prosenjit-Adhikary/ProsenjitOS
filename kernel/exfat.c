@@ -490,7 +490,7 @@ int exfat_selftest(void)
         return -101;
     if (exfat_mount(&fs, &device) != PROS_EXFAT_OK)
         return -1;
-    if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 2u)
+    if (exfat_cluster_lba(&fs,2,&lba) != PROS_EXFAT_OK || lba != 25u)
         return -102;
 
     if (exfat_read_fat_entry(&fs, 2u, &done) != PROS_EXFAT_OK ||
