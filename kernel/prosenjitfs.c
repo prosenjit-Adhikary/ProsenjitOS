@@ -4015,6 +4015,115 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -10;
     }
+    /* Journal-integrity regressions: reject forbidden home targets both
+     * at transaction construction time and during recovery of forged records. */
+    {
+        uint8_t tx_image[4096];
+        if (fs.sb.block_size > sizeof(tx_image) ||
+            pfs_tx_reset(&fs) != PROSENJITFS_OK)
+            return -9000;
+        pfs_zero(tx_image, fs.sb.block_size);
+        if (pfs_tx_add(&fs, fs.sb.journal_start, tx_image) !=
+                PROSENJITFS_EINVAL)
+            return -9001;
+    }
+    {
+        uint64_t replay_lba = fs.sb.data_start + 20u;
+        uint64_t journal_start = fs.sb.journal_start;
+        uint32_t journal_blocks = fs.sb.journal_blocks;
+        uint32_t block_size = fs.sb.block_size;
+        uint8_t *header = fs.scratch;
+        uint8_t *images = fs.tx.images;
+        uint8_t *commit = fs.tx.images +
+                          (uint64_t)PROSENJITFS_MAX_TX_BLOCKS * block_size;
+        struct pros_prosenjitfs_journal_header h;
+        struct pros_prosenjitfs_journal_commit c;
+
+        if (replay_lba >= fs.sb.total_blocks || block_size > 4096u)
+            return -9002;
+        pfs_zero(header, block_size);
+        pfs_zero(images, block_size * 2u);
+        pfs_zero(commit, block_size);
+        images[0] = 0xD1u;
+        images[block_size] = 0xD2u;
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 2u;
+        h.transaction_id = fs.sb.transaction_sequence + 10u;
+        h.targets[0] = replay_lba;
+        h.targets[1] = replay_lba;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(
+            header, block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        pfs_zero(&c, sizeof(c));
+        c.magic = PROSENJITFS_JOURNAL_COMMIT;
+        c.record_count = 2u;
+        c.transaction_id = h.transaction_id;
+        pfs_copy(commit, &c, sizeof(c));
+        c.checksum = pfs_journal_checksum(header, images, block_size, 2u, commit);
+        pfs_copy(commit, &c, sizeof(c));
+        if (pfs_write_block(fs.mount.device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, journal_start + 1u, images) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, journal_start + 2u, images + block_size) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, journal_start + 3u, commit) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -9003;
+        pfs_zero(disk.data + journal_start * 512u,
+                 journal_blocks * 512u);
+        if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -9004;
+    }
+    {
+        uint64_t journal_target = fs.sb.journal_start + 1u;
+        uint64_t journal_start = fs.sb.journal_start;
+        uint32_t journal_blocks = fs.sb.journal_blocks;
+        uint32_t block_size = fs.sb.block_size;
+        uint8_t *header = fs.scratch;
+        uint8_t *image = fs.tx.images;
+        uint8_t *commit = fs.tx.images +
+                          (uint64_t)PROSENJITFS_MAX_TX_BLOCKS * block_size;
+        struct pros_prosenjitfs_journal_header h;
+        struct pros_prosenjitfs_journal_commit c;
+
+        pfs_zero(header, block_size);
+        pfs_zero(image, block_size);
+        pfs_zero(commit, block_size);
+        image[0] = 0xE1u;
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = fs.sb.transaction_sequence + 11u;
+        h.targets[0] = journal_target;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(
+            header, block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        pfs_zero(&c, sizeof(c));
+        c.magic = PROSENJITFS_JOURNAL_COMMIT;
+        c.record_count = 1u;
+        c.transaction_id = h.transaction_id;
+        pfs_copy(commit, &c, sizeof(c));
+        c.checksum = pfs_journal_checksum(header, image, block_size, 1u, commit);
+        pfs_copy(commit, &c, sizeof(c));
+        if (pfs_write_block(fs.mount.device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_block(fs.mount.device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(fs.mount.device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -9005;
+        pfs_zero(disk.data + journal_start * 512u,
+                 journal_blocks * 512u);
+        if (pfs_test_flush(&device) != PROS_BLOCK_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -9006;
+    }
     {
         int alloc_rc = prosenjitfs_alloc_blocks(&fs, 4u, &first_block);
         if (alloc_rc != PROSENJITFS_OK)
