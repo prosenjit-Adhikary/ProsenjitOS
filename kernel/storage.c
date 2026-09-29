@@ -92,7 +92,7 @@ static int storage_test_read(struct pros_block_device *device,
     struct storage_test_disk *disk =
         (struct storage_test_disk *)device->private_data;
 
-    if (!disk || !buffer || lba > 6u || count > 6u - lba)
+    if (!disk || !buffer || lba >= 6u || count > 6u - lba)
         return PROS_BLOCK_EINVAL;
 
     for (uint32_t i = 0u; i < count * 512u; ++i)
