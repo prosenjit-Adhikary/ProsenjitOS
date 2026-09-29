@@ -77,5 +77,22 @@ dap_segment dw 0
 dap_lba_low dd 0
 dap_lba_high dd 0
 
-times 510-($-$$) db 0
+%ifndef PFS_START_LBA
+%define PFS_START_LBA 2048
+%endif
+%ifndef PFS_SECTORS
+%define PFS_SECTORS 512
+%endif
+
+; Keep a conventional MBR partition entry while the native loader itself
+; continues to use its fixed-LBA boot layout. The OS can therefore discover
+; the reserved ProsenjitFS data volume through the normal partition layer.
+times 446-($-$) db 0
+db 0x80
+db 0x00, 0x02, 0x00
+db 0xDA
+db 0x00, 0x02, 0x00
+dd PFS_START_LBA
+dd PFS_SECTORS
+times 510-($-$) db 0
 dw 0xAA55
