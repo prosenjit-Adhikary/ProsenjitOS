@@ -66,7 +66,6 @@ disk_error:
 boot_drive db 0
 error_msg db 'ProsenjitOS bootloader disk read error', 0
 edd_error_msg db 'ProsenjitOS BIOS EDD unsupported', 0
-edd_packet times 16 db 0
 
 align 4
 dap:
