@@ -1604,7 +1604,6 @@ int prosenjitfs_selftest(void)
         return -5;
     {
         struct pros_vfs_vnode *root = 0;
-        struct pros_vfs_vnode *created = 0;
         struct pros_vfs_vnode *found = 0;
         struct pros_vfs_dir dir;
         struct pros_vfs_dirent entry;
