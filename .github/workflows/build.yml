@@ -80,6 +80,7 @@ jobs:
           require_log "ProsenjitOS: NTFS file-data read test passed"
           require_log "ProsenjitOS: NTFS file-data write test passed"
           require_log "ProsenjitOS: NTFS VFS read test passed"
+          require_log "ProsenjitOS: NTFS VFS directory enumeration test passed"
           require_log "ProsenjitOS: capability copy-transfer test passed"
           require_log "ProsenjitOS: capability move-transfer test passed"
           require_log "ProsenjitOS: inactive capability move regression passed"
