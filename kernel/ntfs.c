@@ -3669,8 +3669,8 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             root_data[i] = 0u;
         /* Preserve the INDEX_ROOT type/collation/index-block geometry. */
         root_data[16u] = 0x10u;
-        root_data[20u] = 0x20u;
-        root_data[24u] = 0x20u;
+        root_data[20u] = 0x28u;
+        root_data[24u] = 0x28u;
         root_data[28u] = 1u;
         for (uint32_t i = 0u; i < 8u; ++i)
             root_data[32u + 8u + i] = (uint8_t)((uint64_t)0u >> (8u * i));
@@ -3690,7 +3690,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
      * Keep the original root attribute record length but reduce its logical
      * value size to the new 0x30-byte root. The old payload remains padding.
      */
-    root_value_size = 48u;
+    root_value_size = 56u;
     record[root_attr + 16u] = (uint8_t)root_value_size;
     record[root_attr + 17u] = (uint8_t)(root_value_size >> 8);
     record[root_attr + 18u] = (uint8_t)(root_value_size >> 16);
