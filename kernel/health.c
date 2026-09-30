@@ -3,6 +3,7 @@
 #include "memory.h"
 #include "timer.h"
 #include "thread.h"
+#include "block.h"
 
 static struct pros_health_event events[PROS_HEALTH_EVENT_MAX];
 static uint32_t event_head;
@@ -67,6 +68,11 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
         .physical_total_pages = physical_memory_total_pages(),
         .physical_free_pages = physical_memory_free_pages(),
         .physical_failed_allocations = physical_memory_failed_allocations(),
+        .block_read_count = block_read_count(),
+        .block_write_count = block_write_count(),
+        .block_error_count = block_error_count(),
+        .block_flush_count = block_flush_count(),
+        .block_flush_error_count = block_flush_error_count(),
         .memory_pressure = (physical_memory_total_pages() != 0 &&
                             physical_memory_free_pages() * 100ULL <
                             physical_memory_total_pages() * 10ULL) ? 2u :
@@ -87,7 +93,7 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
         out->last_severity = events[last].severity;
         out->last_category = events[last].category;
     }
-    return PROS_DRIVER_OK;
+    return PROS_HEALTH_OK;
 }
 
 int pros_health_get_event(uint32_t offset, struct pros_health_event *out) {
@@ -95,7 +101,7 @@ int pros_health_get_event(uint32_t offset, struct pros_health_event *out) {
     uint32_t index;
 
     if (!initialized || !out || offset >= event_count)
-        return PROS_DRIVER_EINVAL;
+        return PROS_HEALTH_EINVAL;
 
     oldest = (event_head + PROS_HEALTH_EVENT_MAX - event_count) %
              PROS_HEALTH_EVENT_MAX;
