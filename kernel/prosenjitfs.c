@@ -3420,6 +3420,7 @@ int prosenjitfs_selftest(void)
         return -12;
     {
         struct pros_vfs_file moved_file;
+        struct pros_vfs_vnode *hidden = 0;
         uint8_t marker = 0x5Au, verify = 0u;
         uint32_t done = 0u;
         if (vfs_file_open(&fs.mount, "/dir1/moved.bin",
@@ -3448,20 +3449,27 @@ int prosenjitfs_selftest(void)
         return -12;
     {
         struct pros_vfs_vnode *moved_dir = 0;
+        struct pros_vfs_vnode *parent_dir = 0;
         struct pfs_vnode_data *moved_data;
+        struct pfs_vnode_data *parent_data;
         struct pros_prosenjitfs_inode moved_inode;
         if (vfs_path_lookup(&fs.mount, "/dir2/subdir", &moved_dir) !=
-                PROS_VFS_OK || !moved_dir)
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir2", &parent_dir) !=
+                PROS_VFS_OK || !moved_dir || !parent_dir)
             return -12;
         moved_data = (struct pfs_vnode_data *)moved_dir->private_data;
-        if (!moved_data ||
+        parent_data = (struct pfs_vnode_data *)parent_dir->private_data;
+        if (!moved_data || !parent_data ||
             prosenjitfs_read_inode(&fs, moved_data->inode_number, &moved_inode) !=
                 PROSENJITFS_OK ||
-            moved_inode.parent_inode != 3u) {
+            moved_inode.parent_inode != parent_data->inode_number) {
             vfs_vnode_put(moved_dir);
+            vfs_vnode_put(parent_dir);
             return -12;
         }
         vfs_vnode_put(moved_dir);
+        vfs_vnode_put(parent_dir);
     }
     if (vfs_rename(&fs.mount, "/dir2", "/dir2/subdir/loop") !=
             PROS_VFS_EINVAL ||
