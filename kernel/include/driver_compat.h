@@ -39,6 +39,16 @@ enum pros_compat_trust {
     PROS_COMPAT_TRUST_REJECTED
 };
 
+enum pros_compat_tx_state {
+    PROS_COMPAT_TX_IDLE = 0,
+    PROS_COMPAT_TX_INSPECTED,
+    PROS_COMPAT_TX_VERIFIED,
+    PROS_COMPAT_TX_STAGED,
+    PROS_COMPAT_TX_HEALTHY,
+    PROS_COMPAT_TX_COMMITTED,
+    PROS_COMPAT_TX_ROLLED_BACK
+};
+
 enum pros_compat_status {
     PROS_COMPAT_STATUS_EMPTY = 0,
     PROS_COMPAT_STATUS_INSPECTED,
@@ -53,6 +63,7 @@ struct pros_compat_package {
     enum pros_compat_status status;
     uint32_t flags;
     enum pros_compat_trust trust;
+    enum pros_compat_tx_state tx_state;
     uint32_t dependency_count;
     uint32_t dependencies[PROS_DRIVER_COMPAT_MAX_DEPS];
     uint16_t vendor_id;
@@ -93,6 +104,12 @@ int pros_driver_compat_match(uint32_t package_id,
 int pros_driver_compat_inspect_inf(const char *name, const char *text,
                                     uint32_t text_len, uint32_t *package_id_out);
 int pros_driver_compat_dependency_check(uint32_t package_id);
+int pros_driver_compat_begin(uint32_t package_id);
+int pros_driver_compat_verify(uint32_t package_id);
+int pros_driver_compat_stage(uint32_t package_id);
+int pros_driver_compat_health_check(uint32_t package_id);
+int pros_driver_compat_commit(uint32_t package_id);
+int pros_driver_compat_rollback(uint32_t package_id);
 int pros_driver_compat_selftest(void);
 
 #endif
