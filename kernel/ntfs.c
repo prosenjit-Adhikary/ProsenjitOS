@@ -6327,7 +6327,7 @@ int ntfs_selftest(void)
         uint32_t root_value = 144u;
         uint32_t entry = root_attr + 24u + 32u;
         uint32_t terminal = entry + 104u;
-        uint32_t used = 208u;
+        uint32_t used = 200u;
         uint32_t alloc_offset = 200u;
         uint32_t bitmap_offset = 280u;
         uint64_t bootstrap_lcn = 0u;
