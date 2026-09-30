@@ -66,6 +66,13 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
         .dead_threads = thread_dead_count(),
         .physical_total_pages = physical_memory_total_pages(),
         .physical_free_pages = physical_memory_free_pages(),
+        .physical_failed_allocations = physical_memory_failed_allocations(),
+        .memory_pressure = (physical_memory_total_pages() != 0 &&
+                            physical_memory_free_pages() * 100ULL <
+                            physical_memory_total_pages() * 10ULL) ? 2u :
+                           (physical_memory_total_pages() != 0 &&
+                            physical_memory_free_pages() * 100ULL <
+                            physical_memory_total_pages() * 20ULL) ? 1u : 0u,
         .heap_used_bytes = heap_used_bytes(),
         .event_sequence = next_sequence,
         .event_count = event_count,
