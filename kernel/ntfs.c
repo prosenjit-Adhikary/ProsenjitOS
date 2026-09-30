@@ -1022,6 +1022,162 @@ int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
     return ntfs_write_file_record(fs, 0u, record);
 }
 
+static int ntfs_index_record_split_leaf(const struct pros_ntfs *fs,
+                                             const uint8_t *source,
+                                             uint32_t record_size,
+                                             uint64_t old_vcn,
+                                             uint64_t new_vcn,
+                                             const uint8_t *runs_key,
+                                             uint16_t *median_key_size,
+                                             uint8_t *median_key)
+{
+    static uint8_t left[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t right[PROS_NTFS_RECORD_WORK_MAX];
+    struct pros_ntfs_index_record info;
+    uint32_t offsets[256];
+    uint32_t count = 0u, offset, median;
+    uint32_t left_end, right_end;
+    uint32_t left_cursor = 64u, right_cursor = 64u;
+    uint32_t node_alloc;
+    (void)runs_key;
+
+    if (!fs || !source || !median_key_size || !median_key ||
+        record_size > sizeof(left) ||
+        record_size < 64u || record_size % fs->bytes_per_sector != 0u)
+        return PROS_NTFS_EINVAL;
+
+    for (uint32_t i = 0u; i < record_size; ++i) {
+        left[i] = 0u;
+        right[i] = 0u;
+    }
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        left[i] = right[i] = (uint8_t)"INDX"[i];
+    }
+    left[4] = right[4] = 40u;
+    left[6] = right[6] = (uint8_t)(record_size / fs->bytes_per_sector + 1u);
+    for (uint32_t i = 0u; i < 8u; ++i) {
+        left[16u + i] = (uint8_t)(old_vcn >> (8u * i));
+        right[16u + i] = (uint8_t)(new_vcn >> (8u * i));
+    }
+    left[24u] = right[24u] = 40u;
+    node_alloc = record_size - 24u;
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        left[32u + i] = right[32u + i] = (uint8_t)(node_alloc >> (8u * i));
+    }
+
+    if (ntfs_index_record_header(source, record_size, fs->bytes_per_sector,
+                                 old_vcn, &info) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    offset = info.first_entry_offset;
+    while (offset < info.entries_size) {
+        uint16_t entry_size, key_size;
+        uint8_t flags;
+        if (info.entries_size - offset < 16u)
+            return PROS_NTFS_ECORRUPT;
+        entry_size = le16(source + offset + 8u);
+        key_size = le16(source + offset + 10u);
+        flags = source[offset + 12u];
+        if (entry_size < 16u || (entry_size & 7u) != 0u ||
+            entry_size > info.entries_size - offset ||
+            (flags & ~3u) != 0u ||
+            key_size > entry_size - 16u - ((flags & 1u) ? 8u : 0u))
+            return PROS_NTFS_ECORRUPT;
+        if (flags & 2u)
+            break;
+        if (flags & 1u)
+            return PROS_NTFS_ENOTSUP;
+        if (count >= 256u)
+            return PROS_NTFS_EOVERFLOW;
+        offsets[count++] = offset;
+        offset += entry_size;
+    }
+    if (count < 2u)
+        return PROS_NTFS_ENOTSUP;
+
+    median = count / 2u;
+    {
+        uint32_t mo = offsets[median];
+        uint16_t mk = le16(source + mo + 10u);
+        if (mk > 0xFFFFu || mk > record_size - mo - 16u)
+            return PROS_NTFS_ECORRUPT;
+        *median_key_size = mk;
+        for (uint32_t i = 0u; i < mk; ++i)
+            median_key[i] = source[mo + 16u + i];
+    }
+
+    for (uint32_t i = 0u; i < median; ++i) {
+        uint32_t src = offsets[i];
+        uint32_t next = (i + 1u < count) ? offsets[i + 1u] : offsets[median];
+        uint32_t es = next - src;
+        if (left_cursor + es > record_size - 8u)
+            return PROS_NTFS_ENOTSUP;
+        for (uint32_t j = 0u; j < es; ++j)
+            left[left_cursor + j] = source[src + j];
+        left_cursor += es;
+    }
+    for (uint32_t i = median + 1u; i < count; ++i) {
+        uint32_t src = offsets[i];
+        uint32_t next = (i + 1u < count) ? offsets[i + 1u] : offset;
+        uint32_t es = next - src;
+        if (right_cursor + es > record_size - 8u)
+            return PROS_NTFS_ENOTSUP;
+        for (uint32_t j = 0u; j < es; ++j)
+            right[right_cursor + j] = source[src + j];
+        right_cursor += es;
+    }
+
+    /* Append the terminal entry to both children. */
+    left[left_cursor + 8u] = 16u;
+    left[left_cursor + 10u] = 0u;
+    left[left_cursor + 12u] = 2u;
+    left_cursor += 16u;
+    right[right_cursor + 8u] = 16u;
+    right[right_cursor + 10u] = 0u;
+    right[right_cursor + 12u] = 2u;
+    right_cursor += 16u;
+
+    left[28u] = (uint8_t)((left_cursor - 24u));
+    left[29u] = (uint8_t)((left_cursor - 24u) >> 8);
+    left[30u] = (uint8_t)((left_cursor - 24u) >> 16);
+    left[31u] = (uint8_t)((left_cursor - 24u) >> 24);
+    right[28u] = (uint8_t)((right_cursor - 24u));
+    right[29u] = (uint8_t)((right_cursor - 24u) >> 8);
+    right[30u] = (uint8_t)((right_cursor - 24u) >> 16);
+    right[31u] = (uint8_t)((right_cursor - 24u) >> 24);
+
+    /* USA is rebuilt from the now-final sector trailers. */
+    for (uint32_t side = 0u; side < 2u; ++side) {
+        uint8_t *node = side == 0u ? left : right;
+        uint16_t usa_ofs = 40u;
+        uint16_t usa_count = (uint16_t)(record_size /
+                                        fs->bytes_per_sector + 1u);
+        uint16_t sequence = 1u;
+        node[4u] = (uint8_t)usa_ofs;
+        node[5u] = (uint8_t)(usa_ofs >> 8);
+        node[6u] = (uint8_t)usa_count;
+        node[7u] = (uint8_t)(usa_count >> 8);
+        node[usa_ofs] = (uint8_t)sequence;
+        node[usa_ofs + 1u] = (uint8_t)(sequence >> 8);
+        for (uint32_t s = 1u; s < usa_count; ++s) {
+            uint32_t end = s * fs->bytes_per_sector - 2u;
+            node[usa_ofs + s * 2u] = node[end];
+            node[usa_ofs + s * 2u + 1u] = node[end + 1u];
+            node[end] = (uint8_t)sequence;
+            node[end + 1u] = (uint8_t)(sequence >> 8);
+        }
+    }
+
+    if (ntfs_index_allocation_write(fs, runs_key ? (const struct pros_ntfs_run *)runs_key : 0,
+                                    0u, 0u, left, 0u) != PROS_NTFS_EINVAL)
+        return PROS_NTFS_EINVAL;
+    left_end = left_cursor;
+    right_end = right_cursor;
+    (void)left_end;
+    (void)right_end;
+    return PROS_NTFS_OK;
+}
+
 static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
                                                uint64_t directory_record_number,
                                                uint64_t *new_vcn,
