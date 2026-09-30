@@ -5,6 +5,8 @@
 #include "sha512.h"
 #include "ed25519_field.h"
 #include "ed25519_point.h"
+#include "ed25519_scalar.h"
+#include "security_signature.h"
 #include "security_provider.h"
 #include "security_admission.h"
 #include "security_quarantine.h"
@@ -58,6 +60,8 @@ int security_manager_init(void) {
     if (pros_sha512_selftest() != 0) return -11;
     if (pros_ed25519_fe_selftest() != 0) return -12;
     if (pros_ed25519_point_selftest() != 0) return -13;
+    if (pros_ed25519_scalar_selftest() != 0) return -14;
+    if (pros_security_signature_selftest() != 0) return -15;
     if (pros_security_provider_selftest() != 0) return -2;
     if (pros_file_admission_selftest() != 0) return -3;
     if (vfs_security_selftest() != 0) return -4;
