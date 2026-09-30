@@ -1,6 +1,6 @@
 # ProsenjitOS — System Health Monitoring
 
-Status: implementation batch in progress 2026-09-30; the monotonic time/uptime source contract and kernel telemetry foundation are implemented, while end-to-end persistence, rotation, crash capture, collectors and CI verification remain gated.
+Status: implementation batch in progress 2026-09-30; monotonic time, typed kernel telemetry, expanded VFS counters, persistent-sink lifecycle integration, and bounded rotation/retention code are implemented. End-to-end crash-survival validation, broader collectors, fault-injection/QEMU observability regression and CI verification remain gated.
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Collect discovered block devices, device online/offline state, read/write operat
 ### Filesystem
 Collect mount/unmount events, read/write/truncate errors, journal transaction failures, replay/recovery results, corruption/integrity failures, free-space and inode/block exhaustion indicators, and read-only/degraded transitions.
 
-Current VFS telemetry records mount/unmount, successful file read/write/truncate operations, and classified lookup/I/O/permission/overflow error counters.
+Current VFS telemetry records mount/unmount, successful file read/write/truncate operations, successful unlink/mkdir/rmdir/rename and directory open/read operations, plus classified lookup/I/O/permission/overflow error counters.
 
 ### Kernel
 Collect warnings, exceptions/faults, failed assertions/self-tests, lockup/deadlock indicators when implemented, panic/crash events, boot health markers, and subsystem health transitions.
