@@ -293,36 +293,55 @@ int pros_driver_compat_rollback(uint32_t package_id)
 
 int pros_driver_compat_dependency_check(uint32_t package_id)
 {
+    struct pros_dep_frame {
+        uint32_t id;
+        uint32_t next_dep;
+    };
     uint8_t state[PROS_DRIVER_COMPAT_MAX_PACKAGES];
-    uint32_t stack[PROS_DRIVER_COMPAT_MAX_PACKAGES];
+    struct pros_dep_frame stack[PROS_DRIVER_COMPAT_MAX_PACKAGES];
     uint32_t i, top = 0;
 
     if (package_id == 0 || package_id > package_count)
         return PROS_DRIVER_EINVAL;
     for (i = 0; i < package_count; ++i) state[i] = 0;
 
-    stack[top++] = package_id;
+    stack[top].id = package_id;
+    stack[top].next_dep = 0;
+    state[package_id - 1u] = 1u;
+    ++top;
+
     while (top) {
-        uint32_t id = stack[--top];
-        uint32_t j;
-        if (id == 0 || id > package_count) return PROS_DRIVER_EINVAL;
-        if (state[id - 1u] == 1u) return PROS_DRIVER_EIO; /* cycle */
-        if (state[id - 1u] == 2u) continue;
-        state[id - 1u] = 1u;
-        for (j = 0; j < packages[id - 1u].dependency_count; ++j) {
-            uint32_t dep = packages[id - 1u].dependencies[j];
-            if (dep == id) return PROS_DRIVER_EIO;
-            if (dep == 0 || dep > package_count) return PROS_DRIVER_EINVAL;
+        struct pros_dep_frame *frame = &stack[top - 1u];
+        struct pros_compat_package *pkg = &packages[frame->id - 1u];
+
+        if (frame->next_dep >= pkg->dependency_count) {
+            state[frame->id - 1u] = 2u;
+            --top;
+            continue;
+        }
+
+        {
+            uint32_t dep = pkg->dependencies[frame->next_dep++];
+            if (dep == 0 || dep > package_count)
+                return PROS_DRIVER_EINVAL;
+            if (dep == frame->id)
+                return PROS_DRIVER_EIO;
             if (packages[dep - 1u].status == PROS_COMPAT_STATUS_REJECTED ||
                 packages[dep - 1u].trust == PROS_COMPAT_TRUST_REJECTED)
                 return PROS_DRIVER_EPERM;
             if (packages[dep - 1u].status == PROS_COMPAT_STATUS_EMPTY)
                 return PROS_DRIVER_ENODEV;
+            if (state[dep - 1u] == 1u)
+                return PROS_DRIVER_EIO;
+            if (state[dep - 1u] == 2u)
+                continue;
             if (top >= PROS_DRIVER_COMPAT_MAX_PACKAGES)
                 return PROS_DRIVER_ENOSPC;
-            if (state[dep - 1u] != 2u) stack[top++] = dep;
+            state[dep - 1u] = 1u;
+            stack[top].id = dep;
+            stack[top].next_dep = 0;
+            ++top;
         }
-        state[id - 1u] = 2u;
     }
     return PROS_DRIVER_OK;
 }
