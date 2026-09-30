@@ -2299,6 +2299,17 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         fs->tx.count + 2u > fs->sb.journal_blocks)
         return PROSENJITFS_EINVAL;
 
+    {
+        uintptr_t scratch_start = (uintptr_t)fs->scratch;
+        uintptr_t scratch_end = scratch_start + fs->sb.block_size;
+        uintptr_t images_start = (uintptr_t)fs->tx.images;
+        uintptr_t images_end = images_start +
+            (uintptr_t)(PROSENJITFS_MAX_TX_BLOCKS + 1u) * fs->sb.block_size;
+        if (scratch_end < scratch_start || images_end < images_start ||
+            (scratch_start < images_end && images_start < scratch_end))
+            return PROSENJITFS_EIO;
+    }
+
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         image_crc[i] = prosenjitfs_crc32c(
             fs->tx.images + (uint64_t)i * fs->sb.block_size,
