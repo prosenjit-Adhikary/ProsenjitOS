@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-struct sha256_ctx {
+struct pros_sha256_ctx {
     uint32_t h[8];
     uint64_t bit_count;
     uint8_t block[64];
@@ -70,7 +70,7 @@ static const uint32_t k[64] = {
     0x90befffau,0xa4506cebu,0xbef9a3f7u,0xc67178f2u
 };
 
-static void sha256_transform(struct sha256_ctx *ctx, const uint8_t block[64]) {
+static void sha256_transform(struct pros_sha256_ctx *ctx, const uint8_t block[64]) {
     uint32_t w[64];
     uint32_t a,b,c,d,e,f,g,h;
 
@@ -93,7 +93,7 @@ static void sha256_transform(struct sha256_ctx *ctx, const uint8_t block[64]) {
     ctx->h[4]+=e; ctx->h[5]+=f; ctx->h[6]+=g; ctx->h[7]+=h;
 }
 
-static void sha256_init(struct sha256_ctx *ctx) {
+static void sha256_init(struct pros_sha256_ctx *ctx) {
     ctx->h[0]=0x6a09e667u; ctx->h[1]=0xbb67ae85u;
     ctx->h[2]=0x3c6ef372u; ctx->h[3]=0xa54ff53au;
     ctx->h[4]=0x510e527fu; ctx->h[5]=0x9b05688cu;
@@ -102,7 +102,7 @@ static void sha256_init(struct sha256_ctx *ctx) {
     ctx->used=0;
 }
 
-static void sha256_update(struct sha256_ctx *ctx,
+static void sha256_update(struct pros_sha256_ctx *ctx,
                           const uint8_t *data, uint64_t length) {
     while (length != 0) {
         uint32_t room = 64u - ctx->used;
@@ -120,7 +120,7 @@ static void sha256_update(struct sha256_ctx *ctx,
     }
 }
 
-static void sha256_final(struct sha256_ctx *ctx,
+static void sha256_final(struct pros_sha256_ctx *ctx,
                          uint8_t digest[PROS_FILE_SHA256_BYTES]) {
     uint64_t bits = ctx->bit_count;
     ctx->block[ctx->used++] = 0x80u;
