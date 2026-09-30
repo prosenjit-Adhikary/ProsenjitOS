@@ -2952,7 +2952,7 @@ int prosenjitfs_selftest(void)
             return -62;
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != write_data[i])
-                return -63;
+                return (int)(-1000 - i);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return -64;
     }
