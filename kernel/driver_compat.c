@@ -91,6 +91,86 @@ static enum pros_compat_driver_model detect_model(const char *text, uint32_t len
     return PROS_COMPAT_MODEL_WDM;
 }
 
+static int ci_equal_range(const char *text, uint32_t start, uint32_t end, const char *value)
+{
+    uint32_t i = 0;
+    while (value[i] && start + i < end) {
+        char a = text[start + i], b = value[i];
+        if (a >= 'a' && a <= 'z') a = (char)(a - 'a' + 'A');
+        if (b >= 'a' && b <= 'z') b = (char)(b - 'a' + 'A');
+        if (a != b) return 0;
+        ++i;
+    }
+    return value[i] == 0 && start + i == end;
+}
+
+static uint32_t trim_start(const char *text, uint32_t start, uint32_t end)
+{
+    while (start < end && (text[start] == ' ' || text[start] == '\t')) ++start;
+    return start;
+}
+
+static uint32_t trim_end(const char *text, uint32_t start, uint32_t end)
+{
+    while (end > start && (text[end - 1u] == ' ' || text[end - 1u] == '\t')) --end;
+    return end;
+}
+
+static void copy_range(char *out, uint32_t cap, const char *text, uint32_t start, uint32_t end)
+{
+    uint32_t i, n;
+    if (!out || cap < 2u) return;
+    start = trim_start(text, start, end);
+    end = trim_end(text, start, end);
+    n = end - start;
+    if (n >= cap) n = cap - 1u;
+    for (i = 0; i < n; ++i) out[i] = text[start + i];
+    out[n] = 0;
+}
+
+static void inspect_manufacturer_sections(const char *text, uint32_t len,
+                                          struct pros_compat_package *pkg)
+{
+    uint32_t pos = 0, section_start = 0, section_end = 0;
+    int in_manufacturer = 0;
+    while (pos < len) {
+        uint32_t line_start = pos, line_end;
+        while (pos < len && text[pos] != '\r' && text[pos] != '\n') ++pos;
+        line_end = pos;
+        if (line_start < line_end && text[line_start] == '[' && text[line_end - 1u] == ']') {
+            uint32_t s = trim_start(text, line_start + 1u, line_end - 1u);
+            uint32_t e = trim_end(text, s, line_end - 1u);
+            in_manufacturer = ci_equal_range(text, s, e, "Manufacturer");
+        } else if (in_manufacturer) {
+            uint32_t eq = line_start;
+            while (eq < line_end && text[eq] != '=') ++eq;
+            if (eq < line_end && pkg->model_map_count < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS) {
+                uint32_t rhs = trim_start(text, eq + 1u, line_end);
+                uint32_t comma = rhs;
+                while (comma < line_end && text[comma] != ',') ++comma;
+                uint32_t e = trim_end(text, rhs, comma);
+                if (rhs < e) {
+                    uint32_t i;
+                    int duplicate = 0;
+                    for (i = 0; i < pkg->model_map_count; ++i) {
+                        if (ci_equal_range(pkg->model_sections[i], 0u,
+                                           (uint32_t)__builtin_strlen(pkg->model_sections[i]),
+                                           text + rhs)) { duplicate = 1; break; }
+                    }
+                    if (!duplicate) {
+                        copy_range(pkg->model_sections[pkg->model_map_count],
+                                   PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
+                        ++pkg->model_map_count;
+                    }
+                }
+            }
+        }
+        while (pos < len && (text[pos] == '\r' || text[pos] == '\n')) ++pos;
+    }
+    pkg->manufacturer_valid = in_manufacturer ? 1u : pkg->manufacturer_valid;
+    if (pkg->model_map_count) pkg->metadata_valid = 1u;
+}
+
 static uint32_t line_value(const char *text, uint32_t len, const char *key,
                                     char *out, uint32_t out_len)
 {
@@ -333,6 +413,7 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
             }
         }
         pkg->metadata_valid = (cn || pn || vn || pkg->subsys_valid || pkg->revision_valid) ? 1u : 0u;
+        inspect_manufacturer_sections(text, text_len, pkg);
     }
     return PROS_DRIVER_OK;
 }
