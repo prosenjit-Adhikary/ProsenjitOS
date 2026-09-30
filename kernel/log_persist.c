@@ -60,33 +60,65 @@ int pros_log_persist_attach(struct pros_vfs_mount *mount,
     return PROS_LOG_PERSIST_OK;
 }
 
+static uint32_t append_u64(char *buffer, uint32_t capacity, uint32_t pos, uint64_t value) {
+    char tmp[20];
+    uint32_t n = 0u;
+    if (value == 0u) {
+        if (pos >= capacity) return UINT32_MAX;
+        buffer[pos++] = '0';
+        return pos;
+    }
+    while (value && n < sizeof(tmp)) {
+        tmp[n++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+    if (pos + n > capacity) return UINT32_MAX;
+    while (n) buffer[pos++] = tmp[--n];
+    return pos;
+}
+
+static uint32_t append_u32(char *buffer, uint32_t capacity, uint32_t pos, uint32_t value) {
+    return append_u64(buffer, capacity, pos, value);
+}
+
 int pros_log_persist_emit(const struct pros_health_event *event) {
     char line[96];
-    uint32_t written = 0u;
-    int n;
+    uint32_t pos = 0u, next, written = 0u;
 
     if (!initialized || !event)
         return PROS_LOG_PERSIST_EINVAL;
     if (!attached)
         return PROS_LOG_PERSIST_ENOTSUP;
     if (bytes_written >= persist_policy.rotate_bytes)
-        return PROS_LOG_PERSIST_EIO;
+        return PROS_LOG_PERSIST_ENOTSUP;
 
-    n = 0;
-    n += __builtin_snprintf(line + n, sizeof(line) - (uint32_t)n,
-                            "%llu %llu %u %u %u %u %llu\n",
-                            (unsigned long long)event->sequence,
-                            (unsigned long long)event->timestamp,
-                            event->severity, event->category,
-                            event->source, event->code,
-                            (unsigned long long)event->value);
-    if (n <= 0 || (uint32_t)n >= sizeof(line) ||
-        bytes_written + (uint32_t)n > persist_policy.max_bytes)
-        return PROS_LOG_PERSIST_EIO;
+    next = append_u64(line, sizeof(line), pos, event->sequence);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = ' ';
+    next = append_u64(line, sizeof(line), pos, event->timestamp);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = ' ';
+    next = append_u32(line, sizeof(line), pos, event->severity);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = ' ';
+    next = append_u32(line, sizeof(line), pos, event->category);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = ' ';
+    next = append_u32(line, sizeof(line), pos, event->source);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = ' ';
+    next = append_u32(line, sizeof(line), pos, event->code);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = ' ';
+    next = append_u64(line, sizeof(line), pos, event->value);
+    if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
+    pos = next; line[pos++] = '\n';
 
+    if (bytes_written + pos > persist_policy.max_bytes)
+        return PROS_LOG_PERSIST_ENOTSUP;
     if (vfs_file_seek(&persist_file, bytes_written) != PROS_VFS_OK ||
-        vfs_file_write(&persist_file, line, (uint32_t)n, &written) != PROS_VFS_OK ||
-        written != (uint32_t)n)
+        vfs_file_write(&persist_file, line, pos, &written) != PROS_VFS_OK ||
+        written != pos)
         return PROS_LOG_PERSIST_EIO;
 
     bytes_written += written;
