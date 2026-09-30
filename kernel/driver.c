@@ -329,6 +329,24 @@ int pros_driver_bind(uint32_t device_id)
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_class_is_supported(enum pros_device_class class_id)
+{
+    switch (class_id) {
+    case PROS_DEVICE_CLASS_STORAGE:
+        return PROS_DRIVER_OK;
+    case PROS_DEVICE_CLASS_INPUT:
+    case PROS_DEVICE_CLASS_DISPLAY:
+    case PROS_DEVICE_CLASS_NETWORK:
+    case PROS_DEVICE_CLASS_SERIAL:
+    case PROS_DEVICE_CLASS_USB:
+    case PROS_DEVICE_CLASS_AUDIO:
+        return PROS_DRIVER_ENOTSUP;
+    case PROS_DEVICE_CLASS_OTHER:
+    default:
+        return PROS_DRIVER_EINVAL;
+    }
+}
+
 int pros_driver_bind_all(void)
 {
     int failures = 0;
