@@ -15,10 +15,22 @@ enum pros_partition_type {
     PROS_PARTITION_GPT
 };
 
+#define PROS_PARTITION_TRACE_DEPTH 64u
+
+struct pros_partition_trace_event {
+    uint64_t local_lba;
+    uint64_t parent_lba;
+    uint32_t count;
+    uint8_t write;
+};
+
 struct pros_partition_device {
     struct pros_block_device device;
     struct pros_block_device *parent;
     uint64_t first_lba;
+    struct pros_partition_trace_event trace[PROS_PARTITION_TRACE_DEPTH];
+    uint32_t trace_count;
+    uint32_t trace_head;
 };
 
 struct pros_partition {
@@ -37,6 +49,11 @@ int partition_read_mbr(struct pros_block_device *device,
 int partition_read_gpt(struct pros_block_device *device,
                        struct pros_partition *partitions,
                        uint32_t capacity, uint32_t *count);
+void partition_trace_reset(struct pros_partition_device *);
+int partition_trace_find(const struct pros_partition_device *, uint64_t lba,
+                         uint8_t write, uint64_t *parent_lba,
+                         uint32_t *trace_count);
+
 int partition_device_init(struct pros_partition_device *,
                           struct pros_block_device *,
                           const struct pros_partition *);
