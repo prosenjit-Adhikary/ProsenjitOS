@@ -170,3 +170,8 @@ Offline bundle selection now requires the bundle entry's SHA-256 identity to mat
 ### Deterministic offline candidate precedence — 2026-09-30
 
 When multiple offline bundle entries are eligible for the same hardware ID, selection is deterministic: the highest hardware-match score is preferred first; ties are resolved by higher semantic package version, then bundle source precedence (ISO before removable media before local source), then the lowest package ID. A candidate with a stale SHA-256 bundle identity or without the compatibility registry's verified/admitted active transaction remains ineligible regardless of version or source. This ordering is a selection policy only; it does not establish package trust or executable compatibility.
+
+
+### Admission-backed offline package import — 2026-09-30
+
+The offline bundle layer now has an explicit import/admission boundary. A package import registers bounded metadata, computes SHA-256 from the supplied package bytes, binds an admission record only when its digest matches, starts a compatibility transaction, verifies the package and dependencies, and only then adds the package to the offline bundle index using the computed content identity. Failure at any transaction step rolls the compatibility package back; the bundle index is never used as a trust authority. Staging/health-check/commit remain separate because executable Windows-driver compatibility is not yet implemented.
