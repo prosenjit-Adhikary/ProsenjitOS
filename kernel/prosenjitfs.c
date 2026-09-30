@@ -2288,9 +2288,9 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         return PROSENJITFS_EINVAL;
 
     for (uint32_t i = 0; i < fs->tx.count; ++i)
-        image_crc[i] = pfs_crc_with_zero32(
+        image_crc[i] = prosenjitfs_crc32c(
             fs->tx.images + (uint64_t)i * fs->sb.block_size,
-            fs->sb.block_size, UINT32_MAX);
+            fs->sb.block_size);
     pfs_zero(header, fs->sb.block_size);
     pfs_zero(commit, fs->sb.block_size);
     pfs_zero(&h, sizeof(h));
@@ -2334,9 +2334,9 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         return PROSENJITFS_EIO;
 
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
-        if (image_crc[i] != pfs_crc_with_zero32(
+        if (image_crc[i] != prosenjitfs_crc32c(
                 fs->tx.images + (uint64_t)i * fs->sb.block_size,
-                fs->sb.block_size, UINT32_MAX))
+                fs->sb.block_size))
             return PROSENJITFS_EIO;
     }
 
