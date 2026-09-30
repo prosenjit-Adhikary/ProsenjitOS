@@ -263,7 +263,9 @@ int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust tru
      * real verifier is implemented.
      */
     if (trust == PROS_COMPAT_TRUST_VERIFIED &&
-        pkg->trust_evidence == PROS_COMPAT_EVIDENCE_NONE)
+        (!pkg->content_sha256_valid ||
+         pkg->trust_evidence == PROS_COMPAT_EVIDENCE_NONE ||
+         pkg->trust_evidence == PROS_COMPAT_EVIDENCE_ADMISSION_POLICY))
         return PROS_DRIVER_EPERM;
 
     pkg->trust = trust;
@@ -295,6 +297,12 @@ int pros_driver_compat_set_trust_evidence(
         return PROS_DRIVER_EINVAL;
     if (evidence == PROS_COMPAT_EVIDENCE_CRYPTO_SIGNATURE)
         return PROS_DRIVER_ENOTSUP;
+    /*
+     * Admission evidence is established only by bind_admission(), where the
+     * exact package digest is checked against the admission record.
+     */
+    if (evidence == PROS_COMPAT_EVIDENCE_ADMISSION_POLICY)
+        return PROS_DRIVER_EPERM;
     if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED)
         return PROS_DRIVER_EPERM;
     if (packages[package_id - 1u].trust_evidence == evidence)
