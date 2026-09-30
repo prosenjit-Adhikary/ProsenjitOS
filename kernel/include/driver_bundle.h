@@ -39,6 +39,8 @@ int pros_driver_bundle_compare_version(uint32_t package_id_a,
                                        int *comparison_out);
 int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *hwid,
                               uint32_t *selected_package_id, int *score_out);
+int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
+                                   uint32_t *selected_package_id, int *score_out);
 int pros_driver_bundle_selftest(void);
 
 #endif
