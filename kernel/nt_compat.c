@@ -36,6 +36,27 @@ int pros_nt_compat_inspect(uint32_t package_id,
     return PROS_DRIVER_OK;
 }
 
+int pros_nt_compat_inspect_pe(uint32_t package_id, const uint8_t *data,
+                              uint32_t size)
+{
+    struct pros_pe_image_info info;
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        !data || size == 0)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (pros_pe_inspect(data, size, &info) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    images[package_id - 1u].package_id = package_id;
+    images[package_id - 1u].state = PROS_NT_COMPAT_INSPECTED;
+    images[package_id - 1u].machine = info.machine;
+    images[package_id - 1u].pe32_plus = info.is_pe32_plus;
+    images[package_id - 1u].has_imports = info.has_imports;
+    images[package_id - 1u].image_size = info.image_size;
+    images[package_id - 1u].image_entry = info.entry_rva;
+    return PROS_DRIVER_OK;
+}
+
 int pros_nt_compat_register_dispatch(uint32_t package_id,
                                       uint32_t irp_major,
                                       pros_nt_dispatch_fn handler)
