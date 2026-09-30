@@ -5,6 +5,7 @@
 #include "driver.h"
 #include "security_file.h"
 #include "security_admission.h"
+#include "security_signature.h"
 
 #define PROS_DRIVER_COMPAT_ABI_VERSION 1u
 #define PROS_DRIVER_COMPAT_MAX_PACKAGES 16u
@@ -114,7 +115,7 @@ int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
                               struct pros_driver_id *out);
 int pros_driver_compat_supports_model(enum pros_compat_driver_model model);
 int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust trust);
-/* Evidence is policy metadata; CRYPTO_SIGNATURE is not produced until a verifier exists. */
+/* CRYPTO_SIGNATURE may only be established by the signature trust authority. */
 int pros_driver_compat_set_trust_evidence(
     uint32_t package_id, enum pros_compat_trust_evidence evidence);
 /* Bind a policy admission result only when its SHA-256 matches package content. */
