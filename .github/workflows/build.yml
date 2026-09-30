@@ -18,6 +18,8 @@ jobs:
 
       - name: Build ISO
         run: |
+          echo "CI source commit: $(git rev-parse HEAD)"
+          echo "ProsenjitFS source SHA256: $(sha256sum kernel/prosenjitfs.c | cut -d' ' -f1)"
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
