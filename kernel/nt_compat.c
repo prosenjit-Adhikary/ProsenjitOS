@@ -64,8 +64,12 @@ static int nt_compat_resource_conflicts(uint32_t package_id,
                 uint64_t a_end = a->start + a->length - 1u;
                 uint64_t b_end = b->start + b->length - 1u;
                 if (a->type == b->type &&
-                    a->start <= b_end && b->start <= a_end)
+                    a->start <= b_end && b->start <= a_end) {
+                    if (a->type == PROS_NT_RESOURCE_IRQ &&
+                        (a->flags & 1u) && (b->flags & 1u))
+                        continue;
                     return PROS_DRIVER_EBUSY;
+                }
             }
         }
     }
