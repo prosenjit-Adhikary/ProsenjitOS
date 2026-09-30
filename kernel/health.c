@@ -317,6 +317,16 @@ int pros_health_selftest(void) {
         export_buffer[export_length] != '\0')
         return PROS_HEALTH_EIO;
 
+    if (pros_health_init() != PROS_HEALTH_OK ||
+        pros_health_record_network(10u, 20u, 30u) != PROS_HEALTH_OK ||
+        pros_health_record_security(11u, 21u, 31u) != PROS_HEALTH_OK ||
+        pros_health_record_filesystem(12u, 22u, 32u) != PROS_HEALTH_OK ||
+        pros_health_record_exception(14u, 0u, 0x1000u, 0x2000u) != PROS_HEALTH_OK ||
+        pros_health_watchdog_register(99u, 1000000u) != PROS_HEALTH_OK ||
+        pros_health_watchdog_kick(99u) != PROS_HEALTH_OK ||
+        pros_health_watchdog_poll() != PROS_HEALTH_OK)
+        return PROS_HEALTH_EIO;
+
     if (pros_health_init() != PROS_HEALTH_OK)
         return PROS_HEALTH_EIO;
 
