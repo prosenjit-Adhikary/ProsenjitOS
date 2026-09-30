@@ -131,7 +131,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] External reputation provider adapters
 
 ## Phase 5 — I/O and drivers
-- [ ] Driver model
+- [x] Driver model
+  - [x] Stable device/driver registry, hardware-ID matching, lifecycle bind/unbind, native/compatibility origin metadata, and boot self-test
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
   - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
   - [ ] Driver Manager / package-management architecture
