@@ -612,6 +612,31 @@ int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
     return PROS_DRIVER_OK;
 }
 
+static int compat_selftest_admit(uint32_t package_id,
+                                  const uint8_t *data, uint64_t length)
+{
+    struct pros_file_admission_input input;
+    struct pros_file_admission_record record;
+
+    input.data = data;
+    input.length = length;
+    input.metadata.format_valid = 1u;
+    input.metadata.signature_valid = 0u;
+    input.metadata.signature_present = 0u;
+    input.metadata.local_trusted = 1u;
+    input.metadata.local_denied = 0u;
+    input.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+    input.metadata.provenance_known = 1u;
+
+    if (pros_driver_compat_hash_content(package_id, data, length)
+            != PROS_DRIVER_OK ||
+        pros_file_admission_evaluate(&input, &record) != 0 ||
+        pros_driver_compat_bind_admission(package_id, &record)
+            != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_selftest(void)
 {
     static const char inf[] =
@@ -878,23 +903,25 @@ int pros_driver_compat_selftest(void)
             pros_driver_compat_add_dependency(dep_c, dep_d)
                 != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
-        if (pros_driver_compat_set_trust_evidence(
-                dep_a, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust_evidence(
-                dep_b, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust_evidence(
-                dep_c, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust_evidence(
-                dep_d, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust(dep_a, PROS_COMPAT_TRUST_VERIFIED)
-                != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust(dep_b, PROS_COMPAT_TRUST_VERIFIED)
-                != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust(dep_c, PROS_COMPAT_TRUST_VERIFIED)
-                != PROS_DRIVER_OK ||
-            pros_driver_compat_set_trust(dep_d, PROS_COMPAT_TRUST_VERIFIED)
-                != PROS_DRIVER_OK)
-            return PROS_DRIVER_EIO;
+        {
+            static const uint8_t dep_a_bytes[] = "dep-a";
+            static const uint8_t dep_b_bytes[] = "dep-b";
+            static const uint8_t dep_c_bytes[] = "dep-c";
+            static const uint8_t dep_d_bytes[] = "dep-d";
+            if (compat_selftest_admit(
+                    dep_a, dep_a_bytes, sizeof(dep_a_bytes) - 1u) !=
+                    PROS_DRIVER_OK ||
+                compat_selftest_admit(
+                    dep_b, dep_b_bytes, sizeof(dep_b_bytes) - 1u) !=
+                    PROS_DRIVER_OK ||
+                compat_selftest_admit(
+                    dep_c, dep_c_bytes, sizeof(dep_c_bytes) - 1u) !=
+                    PROS_DRIVER_OK ||
+                compat_selftest_admit(
+                    dep_d, dep_d_bytes, sizeof(dep_d_bytes) - 1u) !=
+                    PROS_DRIVER_OK)
+                return PROS_DRIVER_EIO;
+        }
         if (pros_driver_compat_dependency_check(dep_a) != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
         if (pros_driver_compat_match(dep_d, &dep_id, &dep_score)
