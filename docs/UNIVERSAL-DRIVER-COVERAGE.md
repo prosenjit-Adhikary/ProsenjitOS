@@ -115,3 +115,8 @@ Compatibility packages now have an explicit bounded transaction state: **idle â†
 ### PE-to-NT compatibility metadata boundary
 
 The NT compatibility layer now accepts a bounded PE byte buffer through a metadata-only inspection entry point. The PE inspector validates the DOS/PE headers, machine, optional-header form, section bounds, image size, entry RVA, and import metadata, then copies only bounded metadata into the compatibility image record. No PE entry point is invoked, no section is executed, and quarantined images are rejected. This keeps PE inspection separate from the future executable NT/WDM runtime.
+
+
+### Bounded NT/WDM I/O boundary
+
+The compatibility ABI now defines a bounded I/O request structure and submission path. Requests validate structure size, IRP major, operation type, and a 4 KiB compatibility buffer ceiling before dispatch. Quarantined images cannot receive I/O, and rollback removes registered dispatch handlers. This remains an ABI/simulation boundary: it does not execute Windows driver code or provide arbitrary kernel-memory access.
