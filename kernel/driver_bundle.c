@@ -78,11 +78,20 @@ int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
         }
         if (score == best_score && best) {
             struct pros_driver_bundle_entry *cur = find(best);
-            if (entries[i].version_major > cur->version_major ||
+            int newer = 0;
+            if (entries[i].version_major != cur->version_major)
+                newer = entries[i].version_major > cur->version_major;
+            else if (entries[i].version_minor != cur->version_minor)
+                newer = entries[i].version_minor > cur->version_minor;
+            else if (entries[i].version_patch != cur->version_patch)
+                newer = entries[i].version_patch > cur->version_patch;
+            if (newer ||
                 (entries[i].version_major == cur->version_major &&
-                 (entries[i].version_minor > cur->version_minor ||
-                  (entries[i].version_minor == cur->version_minor &&
-                   entries[i].version_patch > cur->version_patch)))) {
+                 entries[i].version_minor == cur->version_minor &&
+                 entries[i].version_patch == cur->version_patch &&
+                 (entries[i].source < cur->source ||
+                  (entries[i].source == cur->source &&
+                   entries[i].package_id < cur->package_id)))) {
                 best = entries[i].package_id;
             }
         }
