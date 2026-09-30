@@ -1074,8 +1074,7 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
         return PROS_NTFS_ECORRUPT;
     old_clusters = le64(record + alloc_attr + 48u) /
                    ((uint64_t)fs->sectors_per_cluster);
-    if (
-        le64(record + alloc_attr + 48u) %
+    if (le64(record + alloc_attr + 48u) %
         fs->sectors_per_cluster != 0u)
         return PROS_NTFS_ECORRUPT;
 
@@ -1102,7 +1101,10 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
     }
 
     vcn = old_clusters;
-    if (runs[run_count - 1u].lcn == lcn - 1u) {
+    if (runs[run_count - 1u].lcn <=
+        0xFFFFFFFFFFFFFFFFull - runs[run_count - 1u].clusters &&
+        lcn == runs[run_count - 1u].lcn +
+               runs[run_count - 1u].clusters) {
         rc = ntfs_extend_last_run(record, fs->bytes_per_file_record,
                                   alloc_attr, 1u, old_clusters + 1u,
                                   &runs[run_count - 1u]);
