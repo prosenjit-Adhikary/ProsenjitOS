@@ -2,7 +2,7 @@
 
 static struct pros_driver_bundle_entry entries[PROS_DRIVER_BUNDLE_MAX_ENTRIES];
 
-static int valid_source(enum pros_driver_bundle_source s) { return s <= PROS_DRIVER_BUNDLE_LOCAL; }
+static int valid_source(enum pros_driver_bundle_source s) {\n    return s >= PROS_DRIVER_BUNDLE_ISO && s <= PROS_DRIVER_BUNDLE_LOCAL;\n}
 static struct pros_driver_bundle_entry *find(uint32_t id) {
     for (uint32_t i=0;i<PROS_DRIVER_BUNDLE_MAX_ENTRIES;++i) if(entries[i].package_id==id) return &entries[i];
     return 0;
@@ -142,10 +142,10 @@ int pros_driver_bundle_selftest(void) {
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i){a[i]=(uint8_t)i;b[i]=(uint8_t)(i^0x55u);}
     if(pros_driver_bundle_init()!=0)return -1;
     if(pros_driver_bundle_add(1,PROS_DRIVER_BUNDLE_ISO,1,2,3,a)!=0)return -2;
-    if(pros_driver_bundle_add(2,PROS_DRIVER_BUNDLE_REMOVABLE,1,3,0,b)!=0)return -3;
-    int cmp=0;if(pros_driver_bundle_compare_version(1,2,&cmp)!=0||cmp>=0)return -4;
-    struct pros_driver_bundle_entry e;if(pros_driver_bundle_find(1,&e)!=0)return -5;
-    for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)if(e.content_sha256[i]!=a[i])return -6;
+    if(pros_driver_bundle_add(2,PROS_DRIVER_BUNDLE_REMOVABLE,1,3,0,b)!=0)return -3;\n    if(pros_driver_bundle_add(3,(enum pros_driver_bundle_source)-1,1,0,0,a)!=PROS_DRIVER_EINVAL)return -4;
+    int cmp=0;if(pros_driver_bundle_compare_version(1,2,&cmp)!=0||cmp>=0)return -5;
+    struct pros_driver_bundle_entry e;if(pros_driver_bundle_find(1,&e)!=0)return -6;
+    for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)if(e.content_sha256[i]!=a[i])return -7;
 
     /*
      * A bundle entry must track the compatibility registry's current content
@@ -192,7 +192,7 @@ int pros_driver_bundle_selftest(void) {
                 pros_driver_bundle_add(
                     package_id, PROS_DRIVER_BUNDLE_LOCAL, 1u, 0u, 0u,
                     package.content_sha256) != PROS_DRIVER_OK)
-                return -9;
+                return -10;
         }
 
         if (pros_driver_compat_hash_content(
