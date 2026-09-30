@@ -767,6 +767,25 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
 
+            if (tail_lba != 0u) {
+                uint8_t tail_found = 0u;
+                for (uint32_t ti = 0u; ti < data->fs->tx.count; ++ti) {
+                    if (data->fs->tx.targets[ti] == tail_lba) {
+                        struct pros_prosenjitfs_extent staged_tail;
+                        pfs_copy(&staged_tail,
+                                 data->fs->tx.images +
+                                 (uint64_t)ti * data->fs->sb.block_size,
+                                 sizeof(staged_tail));
+                        tail_found = 1u;
+                        if (staged_tail.next != new_extent_lba)
+                            return done ? (int)done : -88;
+                        break;
+                    }
+                }
+                if (!tail_found)
+                    return done ? (int)done : -89;
+            }
+
             {
                 uint8_t tx_found = 0u;
                 for (uint32_t ti = 0u; ti < data->fs->tx.count; ++ti) {
