@@ -189,6 +189,12 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
                                    PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
                         ++pkg->model_map_count;
                     }
+                    if (pkg->model_map_count && ci_contains(&text[rhs], e - rhs, "PCI\\\\VEN_")) {
+                        uint32_t map_index = pkg->model_map_count - 1u;
+                        if (map_index < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS &&
+                            pkg->model_id_counts[map_index] < 255u)
+                            ++pkg->model_id_counts[map_index];
+                    }
                 }
             }
         }
@@ -265,8 +271,10 @@ int pros_driver_compat_init(void)
         packages[i].manufacturer_valid = 0;
         packages[i].model_map_count = 0;
         packages[i].manufacturer_section[0] = 0;
-        for (uint32_t j = 0; j < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS; ++j)
+        for (uint32_t j = 0; j < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS; ++j) {
             packages[i].model_sections[j][0] = 0;
+            packages[i].model_id_counts[j] = 0;
+        }
     }
     return PROS_DRIVER_OK;
 }
