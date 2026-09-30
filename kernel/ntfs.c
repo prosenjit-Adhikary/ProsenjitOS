@@ -6115,7 +6115,7 @@ int ntfs_selftest(void)
 
         {
             uint32_t entry = 24u + 32u;
-            uint32_t terminal = entry + 104u;
+            uint32_t terminal = entry + 96u;
             root_attr[entry + 0u] = 0x00u;
             root_attr[entry + 1u] = 0x20u;
             root_attr[entry + 8u] = 104u;
@@ -6324,7 +6324,7 @@ int ntfs_selftest(void)
         uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
         uint32_t root_attr = 24u;
-        uint32_t root_value = 152u;
+        uint32_t root_value = 144u;
         uint32_t entry = root_attr + 24u + 32u;
         uint32_t terminal = entry + 104u;
         uint32_t used = 208u;
@@ -6409,7 +6409,9 @@ int ntfs_selftest(void)
         if (ntfs_index_root_header(r, sizeof(disk.root_record),
                                    root_attr, &root_info) != PROS_NTFS_OK ||
             root_info.flags != 1u ||
-            root_info.first_entry_offset != 40u)
+            root_info.first_entry_offset != 32u ||
+            root_info.entries_size != 40u ||
+            root_info.allocated_size != 40u)
             return -131;
 
         if (ntfs_attribute_data(r, sizeof(disk.root_record), root_attr,
@@ -6426,8 +6428,8 @@ int ntfs_selftest(void)
             disk.index_record[2u] != 'D' ||
             disk.index_record[3u] != 'X' ||
             le64(disk.index_record + 16u) != 0u ||
-            le32(disk.index_record + 28u) != 120u ||
-            le32(disk.index_record + 32u) != 4088u)
+            le32(disk.index_record + 28u) != 128u ||
+            le32(disk.index_record + 32u) != 4072u)
             return -134;
 
         /*
