@@ -1,6 +1,6 @@
 # ProsenjitOS — System Health Monitoring
 
-Status: architecture batch completed 2026-09-30; implementation remains gated by the checklist below.
+Status: implementation batch in progress 2026-09-30; kernel telemetry foundation and persistent-sink foundation are implemented, while end-to-end persistence, rotation, crash capture, collectors and CI verification remain gated.
 
 ## Purpose
 
@@ -28,8 +28,12 @@ Collect discovered block devices, device online/offline state, read/write operat
 ### Filesystem
 Collect mount/unmount events, read/write/truncate errors, journal transaction failures, replay/recovery results, corruption/integrity failures, free-space and inode/block exhaustion indicators, and read-only/degraded transitions.
 
+Current VFS telemetry records mount/unmount, successful file read/write/truncate operations, and classified lookup/I/O/permission/overflow error counters.
+
 ### Kernel
 Collect warnings, exceptions/faults, failed assertions/self-tests, lockup/deadlock indicators when implemented, panic/crash events, boot health markers, and subsystem health transitions.
+
+Current implementation records exception/page-fault counters and the last exception vector/RIP.
 
 ### Thermal/power/hardware
 The interface must support temperature sensors, fan/thermal state, battery/AC state where applicable, and throttling/power-state events. Missing sensors must report unsupported/unavailable, never a false healthy value.
@@ -174,7 +178,7 @@ QEMU regression should verify deterministic boot-health markers and at least one
 7. Filesystem/VFS health events.
 8. Bounded telemetry ring/event transport.
 9. User-space system-health collector.
-10. Structured persistent diagnostic store.
+10. Structured persistent diagnostic store foundation (VFS-backed bounded sink is implemented; end-to-end attachment/boot history still pending).
 11. Rotation/retention integration.
 12. CLI/API.
 13. Fault-injection and QEMU regression suite.
