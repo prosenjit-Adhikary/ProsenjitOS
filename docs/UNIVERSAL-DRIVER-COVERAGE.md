@@ -139,7 +139,7 @@ Compatibility devices now carry an explicit PRESENT/STARTED/QUERY_REMOVE/STOPPED
 
 ## Current implementation boundary — 2026-09-30
 
-The universal-driver foundation is implemented and fail-closed: hardware-ID matching, deterministic native/compatibility selection, bounded INF inspection, NT/WDM ABI/resource/PnP guards, package transaction rollback, SHA-256 content identity, and a dedicated signature-authority boundary are present. Generic admission no longer accepts caller-supplied signature-valid metadata as cryptographic proof. Real public-key verification, executable Windows-driver compatibility, and complete native device-class coverage remain explicit implementation milestones rather than being represented as complete.
+The universal-driver foundation is implemented and fail-closed: hardware-ID matching, deterministic native/compatibility selection, bounded INF inspection, NT/WDM ABI/resource/PnP guards, package transaction rollback, SHA-256 content identity, and a dedicated signature-authority boundary are present. Generic admission no longer accepts caller-supplied signature-valid metadata as cryptographic proof. Ed25519 verification with RFC 8032 known-answer coverage is now implemented behind the signature-authority boundary; RSA-PSS, executable Windows-driver compatibility, and complete native device-class coverage remain explicit implementation milestones rather than being represented as complete.
 
 
 ### Offline bundle selection boundary — 2026-09-30
@@ -151,3 +151,8 @@ execution eligibility. A package must still satisfy the compatibility registry's
 verified/admitted dependency and active-transaction rules before matching a
 hardware ID. This preserves the fail-closed trust boundary while allowing ISO,
 removable-media, and local driver sources to share one deterministic index.
+
+
+### INF manufacturer/model mapping — 2026-09-30
+
+Bounded INF inspection now separates the [Manufacturer] section from the referenced model sections. Manufacturer entries are recorded as model-section metadata, then the referenced sections are scanned for PCI hardware IDs without executing INF directives. Per-model PCI-ID counts are retained for later deterministic package selection. This is intentionally metadata-only; full INF directive semantics, archive extraction, and Windows driver execution remain outside the current boundary.
