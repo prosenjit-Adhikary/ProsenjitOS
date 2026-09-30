@@ -17,6 +17,7 @@
 #define PROS_DRIVER_MAX           32u
 #define PROS_DEVICE_MAX           64u
 #define PROS_DRIVER_MAX_IDS        8u
+#define PROS_DRIVER_MAX_CAPABILITIES 16u
 
 #define PROS_DRIVER_FLAG_NATIVE       0x0001u
 #define PROS_DRIVER_FLAG_COMPAT       0x0002u
@@ -77,6 +78,16 @@ struct pros_driver_device {
     void *bus_data;
 };
 
+enum pros_driver_capability {
+    PROS_DRIVER_CAP_STORAGE = 0,
+    PROS_DRIVER_CAP_INPUT,
+    PROS_DRIVER_CAP_DISPLAY,
+    PROS_DRIVER_CAP_NETWORK,
+    PROS_DRIVER_CAP_SERIAL,
+    PROS_DRIVER_CAP_USB,
+    PROS_DRIVER_CAP_AUDIO
+};
+
 struct pros_driver_ops {
     int (*probe)(struct pros_driver_device *);
     int (*remove)(struct pros_driver_device *);
@@ -107,6 +118,7 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
 int pros_device_unregister(uint32_t id);
 int pros_driver_bind(uint32_t device_id);
 int pros_driver_bind_all(void);
+int pros_driver_class_is_supported(enum pros_device_class class_id);
 int pros_driver_unbind(uint32_t device_id);
 const struct pros_driver_device *pros_device_get(uint32_t id);
 const struct pros_driver *pros_driver_find(const struct pros_driver_id *,
