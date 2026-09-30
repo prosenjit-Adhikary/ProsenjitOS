@@ -189,5 +189,24 @@ int pros_health_selftest(void) {
         export_buffer[export_length] != '\0')
         return PROS_HEALTH_EIO;
 
+    if (pros_health_init() != PROS_HEALTH_OK)
+        return PROS_HEALTH_EIO;
+
+    for (uint32_t i = 0u; i < PROS_HEALTH_EVENT_MAX + 1u; ++i) {
+        if (pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
+                               3u, i, i) != PROS_HEALTH_OK)
+            return PROS_HEALTH_EIO;
+    }
+
+    if (pros_health_snapshot(&snapshot) != PROS_HEALTH_OK ||
+        snapshot.event_count != PROS_HEALTH_EVENT_MAX ||
+        snapshot.dropped_events != 1u ||
+        pros_health_get_event(0u, &event) != PROS_HEALTH_OK ||
+        event.sequence != 2u ||
+        event.code != 1u ||
+        pros_health_get_event(PROS_HEALTH_EVENT_MAX - 1u, &event) != PROS_HEALTH_OK ||
+        event.sequence != PROS_HEALTH_EVENT_MAX + 1u)
+        return PROS_HEALTH_EIO;
+
     return PROS_HEALTH_OK;
 }
