@@ -27,6 +27,20 @@ Examples: USB HID, USB Mass Storage, NVMe, AHCI, UEFI/framebuffer-standard displ
 
 ### Layer 3 — Compatibility adapters
 Windows driver packages are input packages, not trusted native kernel modules. The compatibility service should accept local `.exe`, `.zip`, `.cab`, and `.inf` packages; inspect metadata without running vendor installers; parse hardware IDs; verify integrity/signatures when available; reject unsupported kernel-driver models; and use an adapter runtime only for deliberately supported interfaces.
+
+A major long-term reference point is the **ReactOS Windows/NT driver-compatibility architecture**. ReactOS demonstrates that a Windows-compatible driver environment can be approached by implementing compatible NT/kernel, I/O, PnP, bus/class/driver interfaces rather than trying to make arbitrary Windows `.sys` binaries native. ProsenjitOS may study ReactOS's public architecture, interfaces, behavior, and testing approach, but will implement its own compatibility subsystem around the ProsenjitOS kernel/driver ABI.
+
+ReactOS source is GPL-licensed. Therefore this project must **not copy ReactOS source code into ProsenjitOS unless the project's licensing and source-disclosure consequences are deliberately accepted**. The default ProsenjitOS plan is an independent, clean implementation based on documented interfaces, observed behavior, and independently authored code. Any future direct code reuse must receive an explicit license review first.
+
+The compatibility engine is expected to grow in stages:
+1. package/INF inspection and hardware-ID extraction;
+2. Windows driver-model classification;
+3. minimal NT/WDM compatibility ABI;
+4. controlled driver loading and I/O dispatch;
+5. PnP, interrupt, DMA, power, and bus abstractions as required;
+6. subsystem-specific adapters such as storage, network, USB, and display;
+7. health-check, isolation, rollback, and trust enforcement.
+
 A Windows `.sys` file must never be copied into the native driver registry and executed as a ProsenjitOS driver.
 
 ### Layer 4 — Graceful generic fallback
@@ -79,8 +93,9 @@ The OS should never require a user to abandon installation simply because an opt
 5. Add native class/protocol drivers: AHCI, NVMe, USB HID, USB storage, framebuffer, common Ethernet.
 6. Add offline driver import.
 7. Add INF/package inspection.
-8. Add compatibility adapter runtime for explicitly supported Windows driver interfaces.
-9. Add transactional install/rollback and health checks.
-10. Add desktop driver-management UI.
+8. Add the **ReactOS-inspired, independently implemented NT/WDM compatibility foundation** for explicitly supported Windows driver interfaces.
+9. Add subsystem-specific Windows-driver adapters and compatibility tests.
+10. Add transactional install/rollback, health checks, isolation, and trust enforcement.
+11. Add desktop driver-management UI.
 
 This strategy deliberately avoids making ProsenjitFS or the VFS depend on vendor driver details.
