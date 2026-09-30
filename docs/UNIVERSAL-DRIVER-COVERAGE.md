@@ -86,7 +86,7 @@ The OS should never require a user to abandon installation simply because an opt
 
 ## Implementation status
 
-The first compatibility inspection slice is now implemented in the kernel: bounded INF-text inspection extracts PCI `VEN_xxxx&DEV_yyyy` hardware IDs, records the detected package model, and exposes the extracted IDs to the driver-manager layer. It does not execute installers, parse arbitrary INF directives, verify signatures, or execute Windows `.sys` binaries. Those remain separate security-sensitive stages.
+The first compatibility inspection slice is now implemented in the kernel: bounded INF-text inspection extracts PCI `VEN_xxxx&DEV_yyyy` hardware IDs, records the detected package model, and exposes the extracted IDs to the driver-manager layer. Package metadata now also carries trust state and bounded dependency IDs, with deterministic compatibility matching that rejects explicitly untrusted packages. The implementation remains metadata-only: it does not execute installers, parse arbitrary INF directives, perform cryptographic signature verification, or execute Windows `.sys` binaries.
 
 ## Implementation order
 
