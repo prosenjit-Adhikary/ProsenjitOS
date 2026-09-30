@@ -231,6 +231,11 @@ int pros_nt_compat_selftest(void)
         if (pros_nt_compat_pnp(1u, PROS_NT_PNP_REMOVE) != PROS_DRIVER_OK ||
             devices[0].state != PROS_NT_DEVICE_REMOVED)
             return PROS_DRIVER_EIO;
+        device.resource_count = 1u;
+        device.resources[0].start = 0x200000u;
+        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_PRESENT)
+            return PROS_DRIVER_EIO;
     }
     if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
                                                nt_compat_test_handler)
