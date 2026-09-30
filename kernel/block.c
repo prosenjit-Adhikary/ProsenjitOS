@@ -1,5 +1,11 @@
 #include "block.h"
 
+static uint64_t read_count;
+static uint64_t write_count;
+static uint64_t error_count;
+static uint64_t flush_count;
+static uint64_t flush_error_count;
+
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
                       uint64_t sector_count,
@@ -26,7 +32,10 @@ int block_device_read(struct pros_block_device *device,
     if (lba >= device->sector_count ||
         (uint64_t)count > device->sector_count - lba)
         return PROS_BLOCK_EINVAL;
-    return device->read(device, lba, count, buffer);
+    ++read_count;
+    int rc = device->read(device, lba, count, buffer);
+    if (rc != PROS_BLOCK_OK) ++error_count;
+    return rc;
 }
 
 int block_device_write(struct pros_block_device *device,
@@ -37,7 +46,10 @@ int block_device_write(struct pros_block_device *device,
     if (lba >= device->sector_count ||
         (uint64_t)count > device->sector_count - lba)
         return PROS_BLOCK_EINVAL;
-    return device->write(device, lba, count, buffer);
+    ++write_count;
+    int rc = device->write(device, lba, count, buffer);
+    if (rc != PROS_BLOCK_OK) ++error_count;
+    return rc;
 }
 
 int block_device_set_flush(struct pros_block_device *device,
@@ -55,5 +67,17 @@ int block_device_flush(struct pros_block_device *device)
         return PROS_BLOCK_EINVAL;
     if (!device->flush)
         return PROS_BLOCK_OK;
-    return device->flush(device);
+    ++flush_count;
+    int rc = device->flush(device);
+    if (rc != PROS_BLOCK_OK) {
+        ++flush_error_count;
+        ++error_count;
+    }
+    return rc;
 }
+
+uint64_t block_read_count(void) { return read_count; }
+uint64_t block_write_count(void) { return write_count; }
+uint64_t block_error_count(void) { return error_count; }
+uint64_t block_flush_count(void) { return flush_count; }
+uint64_t block_flush_error_count(void) { return flush_error_count; }
