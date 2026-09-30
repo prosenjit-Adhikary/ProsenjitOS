@@ -120,6 +120,7 @@ jobs:
           require_native_log "ProsenjitOS: native bootloader handoff accepted"
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
           require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
+          require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_native_log "ProsenjitOS: x86-64 long mode active"
           require_native_log "ProsenjitOS: system health monitor initialized"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
