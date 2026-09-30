@@ -15,6 +15,21 @@ int pros_device_broker_init(void)
     return PROS_DRIVER_OK;
 }
 
+void pros_device_broker_drop_device(uint32_t device_id)
+{
+    if (!broker_ready || device_id == 0u)
+        return;
+
+    for (uint32_t i = 0u; i < PROS_DEVICE_BROKER_MAX_GRANTS; ++i) {
+        if (grants[i].active && grants[i].device_id == device_id) {
+            grants[i].device_id = 0u;
+            grants[i].process_id = 0u;
+            grants[i].permissions = 0u;
+            grants[i].active = 0u;
+        }
+    }
+}
+
 static int valid_permission(uint32_t permissions)
 {
     return permissions != 0u &&
