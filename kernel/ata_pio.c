@@ -149,6 +149,49 @@ static int ata_identify(struct pros_ata_pio *ata)
     return PROS_ATA_OK;
 }
 
+static void ata_trace_record(struct pros_ata_pio *ata, uint64_t lba,
+                              uint32_t count, uint8_t write)
+{
+    struct pros_ata_trace_event *event;
+    if (!ata)
+        return;
+    event = &ata->trace[ata->trace_head];
+    event->lba = lba;
+    event->count = count;
+    event->write = write;
+    ata->trace_head = (ata->trace_head + 1u) % PROS_ATA_TRACE_DEPTH;
+    if (ata->trace_count < PROS_ATA_TRACE_DEPTH)
+        ++ata->trace_count;
+}
+
+void pros_ata_pio_trace_reset(struct pros_ata_pio *ata)
+{
+    if (!ata)
+        return;
+    ata->trace_count = 0u;
+    ata->trace_head = 0u;
+}
+
+int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
+                            uint8_t write, uint64_t *trace_lba,
+                            uint32_t *trace_count)
+{
+    if (!ata || !trace_lba || !trace_count)
+        return PROS_ATA_EINVAL;
+    for (uint32_t n = 0u; n < ata->trace_count; ++n) {
+        uint32_t index = (ata->trace_head + PROS_ATA_TRACE_DEPTH - 1u - n) %
+                         PROS_ATA_TRACE_DEPTH;
+        const struct pros_ata_trace_event *event = &ata->trace[index];
+        if (event->write == write && lba >= event->lba &&
+            lba - event->lba < event->count) {
+            *trace_lba = event->lba;
+            *trace_count = event->count;
+            return PROS_ATA_OK;
+        }
+    }
+    return PROS_ATA_ENOTSUP;
+}
+
 static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
                        uint32_t count, uint8_t command)
 {
@@ -199,6 +242,7 @@ static int ata_read(struct pros_block_device *device, uint64_t lba,
 
     while (remaining != 0u) {
         uint32_t chunk = remaining > 256u ? 256u : remaining;
+        ata_trace_record(ata, lba, chunk, 0u);
         int rc = ata_prepare(ata, lba, chunk,
                              ata->lba48 ? ATA_CMD_READ_PIO_EXT :
                                           ATA_CMD_READ_PIO);
@@ -232,6 +276,7 @@ static int ata_write(struct pros_block_device *device, uint64_t lba,
 
     while (remaining != 0u) {
         uint32_t chunk = remaining > 256u ? 256u : remaining;
+        ata_trace_record(ata, lba, chunk, 1u);
         int rc = ata_prepare(ata, lba, chunk,
                              ata->lba48 ? ATA_CMD_WRITE_PIO_EXT :
                                           ATA_CMD_WRITE_PIO);
@@ -295,6 +340,7 @@ int pros_ata_pio_probe(struct pros_ata_pio *ata)
     ata->ctrl_base = ATA_PRIMARY_CTRL;
     ata->drive = 0u;
     ata->lba48 = 0u;
+    pros_ata_pio_trace_reset(ata);
 
     rc = block_device_init(&ata->block, 512u, 1u,
                            ata_read, ata_write, ata);
