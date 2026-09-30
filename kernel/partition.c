@@ -152,6 +152,51 @@ int partition_read_gpt(struct pros_block_device *device,
     return PROS_PARTITION_OK;
 }
 
+static void partition_trace_record(struct pros_partition_device *view,
+                                    uint64_t local_lba, uint64_t parent_lba,
+                                    uint32_t count, uint8_t write)
+{
+    struct pros_partition_trace_event *event;
+    if (!view)
+        return;
+    event = &view->trace[view->trace_head];
+    event->local_lba = local_lba;
+    event->parent_lba = parent_lba;
+    event->count = count;
+    event->write = write;
+    view->trace_head = (view->trace_head + 1u) % PROS_PARTITION_TRACE_DEPTH;
+    if (view->trace_count < PROS_PARTITION_TRACE_DEPTH)
+        ++view->trace_count;
+}
+
+void partition_trace_reset(struct pros_partition_device *view)
+{
+    if (!view)
+        return;
+    view->trace_count = 0u;
+    view->trace_head = 0u;
+}
+
+int partition_trace_find(const struct pros_partition_device *view, uint64_t lba,
+                         uint8_t write, uint64_t *parent_lba,
+                         uint32_t *trace_count)
+{
+    if (!view || !parent_lba || !trace_count)
+        return PROS_PARTITION_EINVAL;
+    for (uint32_t n = 0u; n < view->trace_count; ++n) {
+        uint32_t index = (view->trace_head + PROS_PARTITION_TRACE_DEPTH - 1u - n) %
+                         PROS_PARTITION_TRACE_DEPTH;
+        const struct pros_partition_trace_event *event = &view->trace[index];
+        if (event->write == write && lba >= event->local_lba &&
+            lba - event->local_lba < event->count) {
+            *parent_lba = event->parent_lba + (lba - event->local_lba);
+            *trace_count = event->count;
+            return PROS_PARTITION_OK;
+        }
+    }
+    return PROS_PARTITION_ENOTSUP;
+}
+
 static int partition_device_read(struct pros_block_device *device,
                                  uint64_t lba, uint32_t count, void *buffer)
 {
@@ -162,6 +207,7 @@ static int partition_device_read(struct pros_block_device *device,
     if (!view->parent || lba > device->sector_count ||
         count > device->sector_count - lba)
         return PROS_BLOCK_EINVAL;
+    partition_trace_record(view, lba, view->first_lba + lba, count, 0u);
     return block_device_read(view->parent, view->first_lba + lba,
                              count, buffer);
 }
@@ -188,6 +234,7 @@ static int partition_device_write(struct pros_block_device *device,
     if (!view->parent || !view->parent->write ||
         lba > device->sector_count || count > device->sector_count - lba)
         return PROS_BLOCK_EINVAL;
+    partition_trace_record(view, lba, view->first_lba + lba, count, 1u);
     return block_device_write(view->parent, view->first_lba + lba,
                               count, buffer);
 }
@@ -202,6 +249,7 @@ int partition_device_init(struct pros_partition_device *view,
         return PROS_PARTITION_EINVAL;
     view->parent = parent;
     view->first_lba = partition->first_lba;
+    partition_trace_reset(view);
     if (block_device_init(&view->device, parent->sector_size,
                           partition->sector_count, partition_device_read,
                           parent->write ? partition_device_write : 0, view) !=
