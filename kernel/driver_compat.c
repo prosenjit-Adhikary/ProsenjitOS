@@ -240,6 +240,28 @@ int pros_driver_compat_hash_content(
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_compat_set_dependency_list(uint32_t package_id,
+                                            const uint32_t *dependencies,
+                                            uint32_t count)
+{
+    struct pros_compat_package *pkg;
+    if (package_id == 0u || package_id > package_count ||
+        (count != 0u && !dependencies) ||
+        count > PROS_DRIVER_COMPAT_MAX_DEPS)
+        return PROS_DRIVER_EINVAL;
+    pkg = &packages[package_id - 1u];
+    for (uint32_t i = 0u; i < PROS_DRIVER_COMPAT_MAX_DEPS; ++i)
+        pkg->dependencies[i] = 0u;
+    for (uint32_t i = 0u; i < count; ++i) {
+        if (dependencies[i] == 0u || dependencies[i] > package_count ||
+            dependencies[i] == package_id)
+            return PROS_DRIVER_EINVAL;
+        pkg->dependencies[i] = dependencies[i];
+    }
+    pkg->dependency_count = count;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_get_package(uint32_t package_id,
                                    struct pros_compat_package *out)
 {
