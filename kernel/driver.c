@@ -14,6 +14,7 @@ static struct driver_slot drivers[PROS_DRIVER_MAX];
 static struct device_slot devices[PROS_DEVICE_MAX];
 static uint32_t next_device_id;
 static uint8_t manager_ready;
+static struct pros_driver_device pci_bridge_devices[PROS_DEVICE_MAX];
 
 static int id_field_match_u16(uint16_t expected, uint16_t actual)
 {
@@ -66,6 +67,8 @@ int pros_driver_manager_init(void)
         devices[i].used = 0u;
     }
     next_device_id = 1u;
+    for (uint32_t i = 0u; i < PROS_DEVICE_MAX; ++i)
+        pci_bridge_devices[i].state = PROS_DEVICE_REMOVED;
     manager_ready = 1u;
     return PROS_DRIVER_OK;
 }
@@ -147,32 +150,53 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
                                     uint8_t prog_if, void *bus_data,
                                     const char *name, uint32_t *device_id_out)
 {
-    struct pros_driver_device device = {
-        0u, PROS_DRIVER_BUS_PCI, PROS_DEVICE_CLASS_OTHER,
-        PROS_DEVICE_DISCOVERED,
-        { PROS_DRIVER_BUS_PCI, vendor_id, device_id,
-          class_code, subclass, prog_if },
-        name, 0, 0, bus_data
-    };
+    struct pros_driver_device *device = 0;
+
+    if (!manager_ready)
+        return PROS_DRIVER_EINVAL;
+
+    for (uint32_t i = 0u; i < PROS_DEVICE_MAX; ++i) {
+        if (pci_bridge_devices[i].state == PROS_DEVICE_REMOVED) {
+            device = &pci_bridge_devices[i];
+            break;
+        }
+    }
+    if (!device)
+        return PROS_DRIVER_ENOSPC;
+
+    device->id = 0u;
+    device->bus = PROS_DRIVER_BUS_PCI;
+    device->class_id = PROS_DEVICE_CLASS_OTHER;
+    device->state = PROS_DEVICE_DISCOVERED;
+    device->hwid.bus = PROS_DRIVER_BUS_PCI;
+    device->hwid.vendor_id = vendor_id;
+    device->hwid.device_id = device_id;
+    device->hwid.class_code = class_code;
+    device->hwid.subclass = subclass;
+    device->hwid.prog_if = prog_if;
+    device->name = name;
+    device->driver = 0;
+    device->driver_data = 0;
+    device->bus_data = bus_data;
+
+    if (class_code == 0x01u)
+        device->class_id = PROS_DEVICE_CLASS_STORAGE;
+    else if (class_code == 0x02u)
+        device->class_id = PROS_DEVICE_CLASS_NETWORK;
+    else if (class_code == 0x03u)
+        device->class_id = PROS_DEVICE_CLASS_DISPLAY;
+    else if (class_code == 0x0Cu && subclass == 0x03u)
+        device->class_id = PROS_DEVICE_CLASS_USB;
 
     (void)slot;
     (void)function;
 
-    if (class_code == 0x01u)
-        device.class_id = PROS_DEVICE_CLASS_STORAGE;
-    else if (class_code == 0x02u)
-        device.class_id = PROS_DEVICE_CLASS_NETWORK;
-    else if (class_code == 0x03u)
-        device.class_id = PROS_DEVICE_CLASS_DISPLAY;
-    else if (class_code == 0x0Cu && subclass == 0x03u)
-        device.class_id = PROS_DEVICE_CLASS_USB;
-
-    int rc = pros_device_register(&device);
+    int rc = pros_device_register(device);
     if (rc != PROS_DRIVER_OK)
         return rc;
 
     if (device_id_out)
-        *device_id_out = device.id;
+        *device_id_out = device->id;
 
     return PROS_DRIVER_OK;
 }
