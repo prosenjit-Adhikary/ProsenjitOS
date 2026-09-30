@@ -2881,14 +2881,26 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(write_data); ++i)
             write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
 
-        if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(write_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -61;
+        {
+            int open_rc = vfs_file_open(&fs.mount, "/hello.bin",
+                                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                        &file);
+            int write_rc = PROS_VFS_OK;
+            int close_rc = PROS_VFS_OK;
+            if (open_rc == PROS_VFS_OK) {
+                write_rc = vfs_file_write(&file, write_data,
+                                          sizeof(write_data), &done);
+                close_rc = vfs_file_close(&file);
+            }
+            if (open_rc != PROS_VFS_OK)
+                return -61;
+            if (write_rc != PROS_VFS_OK)
+                return write_rc;
+            if (done != sizeof(write_data))
+                return -62;
+            if (close_rc != PROS_VFS_OK)
+                return -63;
+        }
 
     /*
      * Isolate the write/read regression before changing the writer:
