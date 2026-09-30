@@ -962,7 +962,7 @@ int pros_driver_compat_selftest(void)
         "DriverVer=09/30/2026,1.2.3\r\n"
         "[Manufacturer]\r\n"
         "%Mfg%=ProsenjitModels\r\n"
-        "%Mfg%=BrokenModel\r\n"
+        "%Mfg%=BrokenModel, Models.NTamd64\r\n"
         "[ProsenjitModels]\r\n"
         "%Mfg%=Install, PCI\\VEN_1234&DEV_5678&SUBSYS_11223344&REV_02, pci\\ven_abce&dev_0002\r\n"
         "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001&REV_03\r\n"
