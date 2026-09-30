@@ -32,6 +32,68 @@ int pros_driver_bundle_compare_version(uint32_t a,uint32_t b,int *out) {
     else if(x->version_patch!=y->version_patch)*out=x->version_patch>y->version_patch?1:-1; else *out=0;
     return PROS_DRIVER_OK;
 }
+int pros_driver_bundle_admit_package(
+    enum pros_compat_package_type type,
+    enum pros_compat_driver_model model,
+    const char *name,
+    const struct pros_driver_id *ids,
+    uint32_t id_count,
+    uint32_t flags,
+    enum pros_driver_bundle_source source,
+    uint32_t major, uint32_t minor, uint32_t patch,
+    const uint8_t *content, uint64_t content_length,
+    const struct pros_file_admission_record *admission,
+    uint32_t *package_id_out)
+{
+    uint32_t package_id = 0;
+    int rc;
+
+    if (!name || !ids || !id_count || !content || !content_length ||
+        !admission || !package_id_out || !valid_source(source))
+        return PROS_DRIVER_EINVAL;
+
+    rc = pros_driver_compat_register_package(
+        type, model, name, ids, id_count, flags, &package_id);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    rc = pros_driver_compat_hash_content(package_id, content, content_length);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    rc = pros_driver_compat_bind_admission(package_id, admission);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    rc = pros_driver_compat_begin(package_id);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    rc = pros_driver_compat_verify(package_id);
+    if (rc != PROS_DRIVER_OK) {
+        (void)pros_driver_compat_rollback(package_id);
+        return rc;
+    }
+
+    {
+        struct pros_compat_package package;
+        if (pros_driver_compat_get_package(package_id, &package) != PROS_DRIVER_OK ||
+            !package.content_sha256_valid) {
+            (void)pros_driver_compat_rollback(package_id);
+            return PROS_DRIVER_EIO;
+        }
+        rc = pros_driver_bundle_add(
+            package_id, source, major, minor, patch, package.content_sha256);
+    }
+    if (rc != PROS_DRIVER_OK) {
+        (void)pros_driver_compat_rollback(package_id);
+        return rc;
+    }
+
+    *package_id_out = package_id;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *hwid,
                               uint32_t *selected_package_id, int *score_out)
 {
