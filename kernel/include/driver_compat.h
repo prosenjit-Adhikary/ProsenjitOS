@@ -125,6 +125,9 @@ int pros_driver_compat_set_trust_evidence(
 int pros_driver_compat_bind_admission(
     uint32_t package_id, const struct pros_file_admission_record *record);
 int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id);
+int pros_driver_compat_set_dependency_list(uint32_t package_id,
+                                            const uint32_t *dependencies,
+                                            uint32_t count);
 int pros_driver_compat_match(uint32_t package_id,
                              const struct pros_driver_id *hwid,
                              int *score_out);
