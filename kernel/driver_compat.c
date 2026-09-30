@@ -124,6 +124,7 @@ static int ci_equal_range(const char *text, uint32_t start, uint32_t end, const 
 static int ci_cstr_equal_range(const char *a, const char *b, uint32_t b_len)
 {
     uint32_t i = 0;
+    if (!a || !b) return 0;
     while (a[i] && i < b_len) {
         char x=a[i], y=b[i];
         if (x>='a'&&x<='z') x=(char)(x-'a'+'A');
