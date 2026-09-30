@@ -117,7 +117,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [x] Application sandbox foundation (per-process syscall allowlist enforced at syscall boundary)
 - [ ] Filesystem access control
 - [ ] Process isolation
-- [ ] Device permission broker
+- [x] Device permission broker (bound-device grants, checks, and teardown revocation)
 - [ ] Network permission policy
 - [x] Security event log (Reason Ledger foundation)
 - [ ] Signed package verification
@@ -146,22 +146,22 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Hardware-ID database and device/driver matching
   - [ ] Cryptographic signed driver-package verification and trust policy
     - [x] Fail-closed signature authority boundary and caller-metadata rejection
-    - [ ] Real Ed25519/RSA-PSS verifier with known-answer tests
+    - [~] Real Ed25519/RSA-PSS verifier with known-answer tests
       - [x] Freestanding Ed25519 field/point/scalar arithmetic primitive layer
       - [x] Ed25519 point/scalar verification implementation
       - [x] Ed25519 RFC 8032 known-answer verification test
       - [ ] RSA-PSS SHA-256 verification implementation
   - [x] Compatibility capability/resource validation and bounded PnP lifecycle guard
-  - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
+  - [~] Windows driver package importer (bounded `.inf` inspection exists; archive/executable extraction remains pending)
   - [x] Bounded INF hardware-ID inspection foundation (PCI VEN/DEV extraction)
   - [ ] Full Windows INF parsing and compatible package metadata extraction
   - [x] Staged NT/WDM compatibility boundary ABI with quarantine/rollback states
   - [ ] **ReactOS-inspired NT/WDM executable compatibility architecture (independent implementation; no direct ReactOS source copy by default)**
   - [ ] Windows-driver compatibility layer / adapter API
-  - [ ] Native-vs-compatibility driver selection and fallback flow
+  - [x] Native-vs-compatibility driver selection and fallback flow (deterministic bounded matching)
   - [ ] Installer/bootstrap driver environment and offline-first hardware bundle
   - [ ] Offline driver installation from removable/local media
-  - [ ] Driver rollback, removal, versioning, and dependency handling
+  - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies implemented; version/package persistence remains pending)
   - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
 - [ ] Keyboard
