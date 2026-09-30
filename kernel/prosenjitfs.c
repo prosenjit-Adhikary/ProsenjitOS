@@ -2911,7 +2911,6 @@ int prosenjitfs_selftest(void)
             return -72;
         if (physical_image[188u] != expected_188) {
             uint8_t saw_physical_write = 0u;
-            uint8_t latest = 0u;
             uint32_t physical_writes = 0u;
             uint32_t total = disk.write_log_count < 128u ? disk.write_log_count : 128u;
             for (uint32_t n = 0u; n < total; ++n) {
@@ -2919,7 +2918,6 @@ int prosenjitfs_selftest(void)
                 if (disk.write_log_lba[slot] == written_extent.physical_block) {
                     saw_physical_write = 1u;
                     ++physical_writes;
-                    latest = disk.write_log_byte188[slot];
                 }
             }
             if (!saw_physical_write)
