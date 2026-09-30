@@ -2965,18 +2965,28 @@ int prosenjitfs_selftest(void)
             uint64_t second_extent_lba = 0u;
             uint64_t second_tail_lba = 0u;
             uint8_t second_image[4096];
+            if (written_inode.extent_head == 0u)
+                return -74;
+            {
+                struct pros_prosenjitfs_extent first_extent;
+                if (pfs_read_extent(&fs, written_inode.extent_head,
+                                    &first_extent) != PROSENJITFS_OK)
+                    return -75;
+                if (first_extent.next == 0u)
+                    return -79;
+            }
             if (pfs_find_extent(&fs, &written_inode, 1u, &second_extent,
                                 &second_extent_lba, &second_tail_lba) !=
                 PROSENJITFS_OK)
-                return -74;
+                return -80;
             if (second_extent_lba == 0u ||
                 second_extent.physical_block >= fs.sb.total_blocks)
-                return -75;
+                return -81;
             if (pfs_read_block(fs.mount.device, second_extent.physical_block,
                                second_image) != PROSENJITFS_OK)
-                return -76;
+                return -82;
             if (second_image[0u] != write_data[512u])
-                return -77;
+                return -83;
         }
     }
 
