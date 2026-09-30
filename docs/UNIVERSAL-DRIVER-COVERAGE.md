@@ -205,3 +205,8 @@ Driver package updates use the existing admission, bundle, and transaction bound
 ### Package retirement and stale-locator policy — 2026-09-30
 
 Package retirement is intentionally separate from candidate selection. A retirement request first attempts compatibility-registry reclamation; lifecycle or dependency guards therefore preserve the bundle locator when reclamation is blocked. After successful reclamation, the remaining bundle entry is treated as a stale locator and removed. Selection never promotes stale locators, and a reclaimed package ID cannot regain eligibility merely because an old bundle entry exists.
+
+
+### Retirement preflight — 2026-09-30
+
+Retirement requires a live bundle locator before compatibility-registry reclamation begins. Registry-only packages therefore remain untouched when retirement is requested against an absent locator. This preflight prevents a successful registry mutation from being followed by a misleading stale-locator error and keeps retirement scoped to bundle-managed packages.
