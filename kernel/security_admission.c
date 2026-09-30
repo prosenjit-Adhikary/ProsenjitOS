@@ -165,5 +165,55 @@ int pros_file_admission_selftest(void) {
         record.security.action != PROS_FILE_BLOCK)
         return -304;
 
+    {
+        static const uint8_t ed_key[32] = {
+            0xd7,0x5a,0x98,0x01,0x82,0xb1,0x0a,0xb7,
+            0xd5,0x4b,0xfe,0xd3,0xc9,0x64,0x07,0x3a,
+            0x0e,0xe1,0x72,0xf3,0xda,0xa6,0x23,0x25,
+            0xaf,0x02,0x1a,0x68,0xf7,0x07,0x51,0x1a
+        };
+        static const uint8_t ed_sig[64] = {
+            0xe5,0x56,0x43,0x00,0xc3,0x60,0xac,0x72,
+            0x90,0x86,0xe2,0xcc,0x80,0x6e,0x82,0x8a,
+            0x84,0x87,0x7f,0x1e,0xb8,0xe5,0xd9,0x74,
+            0xd8,0x73,0xe0,0x65,0x22,0x49,0x01,0x55,
+            0x5f,0xb8,0x82,0x15,0x90,0xa3,0x3b,0xac,
+            0xc6,0x1e,0x39,0x70,0x1c,0xf9,0xb4,0x6b,
+            0xd2,0x5b,0xf5,0xf0,0x59,0x5b,0xbe,0x24,
+            0x65,0x51,0x41,0x43,0x8e,0x7a,0x10,0x0b
+        };
+        struct pros_file_security_metadata signed_metadata = {
+            .format_valid = 1u,
+            .signature_valid = 0u,
+            .signature_present = 0u,
+            .local_trusted = 0u,
+            .local_denied = 0u,
+            .reputation = PROS_FILE_REPUTATION_UNAVAILABLE,
+            .provenance_known = 1u
+        };
+        if (pros_file_admission_evaluate_signed(
+                0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
+                &signed_metadata, &record) != 0)
+            return -307;
+        if (record.security.state != PROS_FILE_VERIFIED ||
+            record.security.action != PROS_FILE_ALLOW)
+            return -308;
+        {
+            uint8_t bad_sig[64];
+            for (uint32_t i = 0u; i < 64u; ++i)
+                bad_sig[i] = ed_sig[i];
+            bad_sig[0] ^= 1u;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0)
+                return -309;
+            if (record.security.state == PROS_FILE_VERIFIED ||
+                record.security.action == PROS_FILE_ALLOW)
+                return -310;
+        }
+    }
+
     return 0;
 }
