@@ -473,20 +473,15 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
 
     for (i = 0; i + 21u <= text_len && count < PROS_DRIVER_COMPAT_MAX_IDS; ++i) {
         uint16_t vendor, device;
-        if (!ci_match4(&text[i], "PCI\\")) continue;
-        if (text[i + 4u] != 'V' && text[i + 4u] != 'v') continue;
-        if (text[i + 5u] != 'E' && text[i + 5u] != 'e') continue;
-        if (text[i + 6u] != 'N' && text[i + 6u] != 'n') continue;
-        if (text[i + 7u] != '_') continue;
-        if (!parse_hex4(&text[i + 8u], &vendor)) continue;
-        if (text[i + 12u] != '&') continue;
-        if (text[i + 13u] != 'D' && text[i + 13u] != 'd') continue;
-        if (text[i + 14u] != 'E' && text[i + 14u] != 'e') continue;
-        if (text[i + 15u] != 'V' && text[i + 15u] != 'v') continue;
-        if (text[i + 16u] != '_') continue;
-        if (!parse_hex4(&text[i + 17u], &device)) continue;
-        if (count && ids[count - 1u].vendor_id == vendor &&
-            ids[count - 1u].device_id == device) continue;
+        uint32_t j;
+        if (!pci_hwid_at(text, text_len, i)) continue;
+        if (!parse_hex4(&text[i + 8u], &vendor) ||
+            !parse_hex4(&text[i + 17u], &device))
+            continue;
+        for (j = 0; j < count; ++j)
+            if (ids[j].vendor_id == vendor && ids[j].device_id == device)
+                break;
+        if (j < count) continue;
         ids[count].bus = PROS_DRIVER_BUS_PCI;
         ids[count].vendor_id = vendor;
         ids[count].device_id = device;
