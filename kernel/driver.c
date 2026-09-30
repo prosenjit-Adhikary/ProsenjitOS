@@ -219,21 +219,80 @@ int pros_device_unregister(uint32_t id)
     return PROS_DRIVER_ENODEV;
 }
 
+static int driver_match_score(const struct pros_driver *driver,
+                                    const struct pros_driver_id *id,
+                                    const struct pros_driver_id *hwid,
+                                    enum pros_device_class class_id)
+{
+    int score = 0;
+
+    if (!driver || !id || !hwid || !driver_id_matches(id, hwid))
+        return -1;
+
+    /* A class-specific device must not be claimed by a conflicting class ID. */
+    if (class_id == PROS_DEVICE_CLASS_STORAGE &&
+        id->class_code != 0u && id->class_code != 0xFFu &&
+        id->class_code != 0x01u)
+        return -1;
+    if (class_id == PROS_DEVICE_CLASS_NETWORK &&
+        id->class_code != 0u && id->class_code != 0xFFu &&
+        id->class_code != 0x02u)
+        return -1;
+    if (class_id == PROS_DEVICE_CLASS_DISPLAY &&
+        id->class_code != 0u && id->class_code != 0xFFu &&
+        id->class_code != 0x03u)
+        return -1;
+    if (class_id == PROS_DEVICE_CLASS_USB &&
+        id->class_code != 0u && id->class_code != 0xFFu &&
+        id->class_code != 0x0Cu)
+        return -1;
+
+    /* Exact hardware IDs are more specific than class-only compatibility IDs. */
+    if (id->vendor_id != 0u && id->vendor_id != 0xFFFFu)
+        score += 64;
+    if (id->device_id != 0u && id->device_id != 0xFFFFu)
+        score += 64;
+    if (id->class_code != 0u && id->class_code != 0xFFu)
+        score += 16;
+    if (id->subclass != 0u && id->subclass != 0xFFu)
+        score += 8;
+    if (id->prog_if != 0u && id->prog_if != 0xFFu)
+        score += 4;
+    if (id->bus != PROS_DRIVER_BUS_NONE)
+        score += 2;
+
+    /* Native is a deterministic tie-breaker, not a replacement for specificity. */
+    if (driver->origin == PROS_DRIVER_ORIGIN_NATIVE)
+        score += 1;
+
+    return score;
+}
+
 const struct pros_driver *pros_driver_find(const struct pros_driver_id *hwid,
                                            enum pros_device_class class_id)
 {
-    (void)class_id;
+    const struct pros_driver *best = 0;
+    int best_score = -1;
+
     if (!manager_ready || !hwid)
         return 0;
 
     for (uint32_t i = 0u; i < PROS_DRIVER_MAX; ++i) {
         if (!drivers[i].used)
             continue;
-        for (uint32_t j = 0u; j < drivers[i].driver->id_count; ++j)
-            if (driver_id_matches(&drivers[i].driver->ids[j], hwid))
-                return drivers[i].driver;
+
+        for (uint32_t j = 0u; j < drivers[i].driver->id_count; ++j) {
+            int score = driver_match_score(drivers[i].driver,
+                                            &drivers[i].driver->ids[j],
+                                            hwid, class_id);
+            if (score > best_score) {
+                best = drivers[i].driver;
+                best_score = score;
+            }
+        }
     }
-    return 0;
+
+    return best;
 }
 
 int pros_driver_bind(uint32_t device_id)
