@@ -248,6 +248,33 @@ int pros_nt_compat_selftest(void)
         return PROS_DRIVER_EIO;
     if (pros_nt_compat_rollback(1u) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
+    {
+        struct pros_nt_device_object device;
+        struct pros_nt_device_object returned;
+        device.size = sizeof(device);
+        device.package_id = 0;
+        device.bus = 0;
+        device.location = 0x0100u;
+        device.vendor_id = 0x1234u;
+        device.device_id = 0x5678u;
+        device.class_code = 1u;
+        device.subclass = 6u;
+        device.prog_if = 1u;
+        device.resource_count = 1u;
+        device.resources[0].type = PROS_NT_RESOURCE_MMIO;
+        device.resources[0].flags = 0;
+        device.resources[0].start = 0x100000u;
+        device.resources[0].length = 0x1000u;
+        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        returned.size = sizeof(returned);
+        if (pros_nt_compat_get_device(1u, &returned) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (returned.package_id != 1u ||
+            returned.resource_count != 1u ||
+            returned.resources[0].type != PROS_NT_RESOURCE_MMIO)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
                                                nt_compat_test_handler)
         != PROS_DRIVER_OK)
