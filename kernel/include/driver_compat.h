@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "driver.h"
+#include "security_file.h"
 
 #define PROS_DRIVER_COMPAT_ABI_VERSION 1u
 #define PROS_DRIVER_COMPAT_MAX_PACKAGES 16u
@@ -72,6 +73,8 @@ struct pros_compat_package {
     uint8_t subclass;
     uint8_t prog_if;
     uint32_t id_count;
+    uint8_t content_sha256[PROS_FILE_SHA256_BYTES];
+    uint32_t content_sha256_valid;
     const char *name;
 };
 
