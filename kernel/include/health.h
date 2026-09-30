@@ -5,6 +5,10 @@
 
 #define PROS_HEALTH_EVENT_MAX 128u
 
+#define PROS_HEALTH_OK       0
+#define PROS_HEALTH_EINVAL  -1
+#define PROS_HEALTH_EIO     -2
+
 enum pros_health_severity {
     PROS_HEALTH_DEBUG = 0,
     PROS_HEALTH_INFO = 1,
@@ -37,6 +41,9 @@ struct pros_health_event {
 
 struct pros_health_snapshot {
     uint64_t timestamp;
+    uint64_t uptime_ticks;
+    uint64_t physical_total_pages;
+    uint64_t physical_free_pages;
     uint64_t heap_used_bytes;
     uint64_t event_sequence;
     uint32_t event_count;
