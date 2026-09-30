@@ -2969,6 +2969,8 @@ int prosenjitfs_selftest(void)
                     return -85;
                 if (second_extent.physical_block == first_extent.physical_block)
                     return -86;
+                if (second_extent.logical_block != 1u)
+                    return -93;
                 {
                     static uint8_t second_image[4096];
                     uint8_t expected_second = (uint8_t)((512u * 13u) ^ 0x5Au);
