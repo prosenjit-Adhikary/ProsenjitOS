@@ -135,3 +135,8 @@ The compatibility boundary now validates abstract resource descriptors before ac
 ### Device lifecycle/resource ownership guard
 
 Compatibility devices now carry an explicit PRESENT/STARTED/QUERY_REMOVE/STOPPED/REMOVED lifecycle. PnP transitions are validated before the compatibility callback is accepted, and abstract I/O-port/MMIO/IRQ/DMA resources are checked for invalid ranges and conflicts both within a device and against other active compatibility devices. This remains a policy/ABI layer: it does not yet claim real interrupt-controller, DMA-engine, MMIO, or I/O-port programming.
+
+
+## Current implementation boundary — 2026-09-30
+
+The universal-driver foundation is implemented and fail-closed: hardware-ID matching, deterministic native/compatibility selection, bounded INF inspection, NT/WDM ABI/resource/PnP guards, package transaction rollback, SHA-256 content identity, and a dedicated signature-authority boundary are present. Generic admission no longer accepts caller-supplied signature-valid metadata as cryptographic proof. Real public-key verification, executable Windows-driver compatibility, and complete native device-class coverage remain explicit implementation milestones rather than being represented as complete.
