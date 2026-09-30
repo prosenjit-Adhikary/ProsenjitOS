@@ -292,3 +292,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Full desktop environment
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
+
+
+### Security architecture contract
+
+The VFS security boundary uses the **File admission/security broker** for file admission decisions. This remains the authoritative boundary alongside process capabilities and syscall authorization.
