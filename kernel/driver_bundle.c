@@ -2,7 +2,10 @@
 
 static struct pros_driver_bundle_entry entries[PROS_DRIVER_BUNDLE_MAX_ENTRIES];
 
-static int valid_source(enum pros_driver_bundle_source s) {\n    return s >= PROS_DRIVER_BUNDLE_ISO && s <= PROS_DRIVER_BUNDLE_LOCAL;\n}
+static int valid_source(enum pros_driver_bundle_source s)
+{
+    return s >= PROS_DRIVER_BUNDLE_ISO && s <= PROS_DRIVER_BUNDLE_LOCAL;
+}
 static struct pros_driver_bundle_entry *find(uint32_t id) {
     for (uint32_t i=0;i<PROS_DRIVER_BUNDLE_MAX_ENTRIES;++i) if(entries[i].package_id==id) return &entries[i];
     return 0;
