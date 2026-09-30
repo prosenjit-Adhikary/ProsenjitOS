@@ -103,6 +103,30 @@ static int ci_equal_range(const char *text, uint32_t start, uint32_t end, const 
     }
     return value[i] == 0 && start + i == end;
 }
+static int ci_range_equals_cstr(const char *text, uint32_t start, uint32_t end, const char *value)
+{
+    uint32_t i = 0;
+    while (value[i] && start + i < end) {
+        char a = text[start + i], b = value[i];
+        if (a >= 'a' && a <= 'z') a = (char)(a - 'a' + 'A');
+        if (b >= 'a' && b <= 'z') b = (char)(b - 'a' + 'A');
+        if (a != b) return 0;
+        ++i;
+    }
+    return value[i] == 0 && start + i == end;
+}
+static int ci_cstr_equal(const char *a, const char *b)
+{
+    uint32_t i = 0;
+    while (a[i] && b[i]) {
+        char x=a[i], y=b[i];
+        if (x>='a'&&x<='z') x=(char)(x-'a'+'A');
+        if (y>='a'&&y<='z') y=(char)(y-'a'+'A');
+        if (x != y) return 0;
+        ++i;
+    }
+    return a[i] == 0 && b[i] == 0;
+}
 
 static uint32_t trim_start(const char *text, uint32_t start, uint32_t end)
 {
@@ -153,9 +177,7 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
                     uint32_t i;
                     int duplicate = 0;
                     for (i = 0; i < pkg->model_map_count; ++i) {
-                        if (ci_equal_range(pkg->model_sections[i], 0u,
-                                           (uint32_t)__builtin_strlen(pkg->model_sections[i]),
-                                           text + rhs)) { duplicate = 1; break; }
+                        if (ci_cstr_equal(pkg->model_sections[i], text + rhs)) { duplicate = 1; break; }
                     }
                     if (!duplicate) {
                         copy_range(pkg->model_sections[pkg->model_map_count],
