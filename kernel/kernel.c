@@ -42,6 +42,10 @@ static struct pros_ipc_channel user_ipc_channel;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
+static volatile uint64_t health_exception_count;
+static volatile uint64_t health_page_fault_count;
+static volatile uint64_t health_last_exception_vector;
+static volatile uint64_t health_last_exception_rip;
 
 static void scheduler_test_init_entry(void) {
     for (;;) {
@@ -186,7 +190,16 @@ void idt_init(void) {
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
 }
+uint64_t kernel_exception_count(void) { return health_exception_count; }
+uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
+uint64_t kernel_last_exception_vector(void) { return health_last_exception_vector; }
+uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
+
 void exception_dispatch(uint64_t *frame) {
+    ++health_exception_count;
+    health_last_exception_vector = frame[0];
+    health_last_exception_rip = frame[2];
+    if (frame[0] == 14u) ++health_page_fault_count;
     uint64_t vector = frame[0];
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
