@@ -120,3 +120,8 @@ The NT compatibility layer now accepts a bounded PE byte buffer through a metada
 ### Bounded NT/WDM I/O boundary
 
 The compatibility ABI now defines a bounded I/O request structure and submission path. Requests validate structure size, IRP major, operation type, and a 4 KiB compatibility buffer ceiling before dispatch. Quarantined images cannot receive I/O, and rollback removes registered dispatch handlers. This remains an ABI/simulation boundary: it does not execute Windows driver code or provide arbitrary kernel-memory access.
+
+
+### Bounded device/resource handoff
+
+The NT compatibility boundary now has a bounded device-object/resource descriptor. It carries bus/location, PCI identity/class fields, and up to eight abstract resources (I/O port, MMIO, IRQ, or DMA). The compatibility layer copies descriptors into private state and exposes them through validated get/set APIs; quarantined packages cannot access the descriptor. This is metadata/resource description only and does not grant raw MMIO, port-I/O, DMA, or interrupt ownership.
