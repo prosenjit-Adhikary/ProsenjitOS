@@ -54,6 +54,17 @@ static int parse_hex2(const char *p, uint8_t *out)
 }
 static int ci_match4(const char *p, const char *tag);
 
+static int line_is_comment_at(const char *text, uint32_t pos)
+{
+    uint32_t start = pos;
+    if (!text) return 0;
+    while (start > 0u && text[start - 1u] != '\r' && text[start - 1u] != '\n')
+        --start;
+    while (start < pos && (text[start] == ' ' || text[start] == '\t'))
+        ++start;
+    return start < pos && text[start] == ';';
+}
+
 static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
 {
     uint16_t vendor, device;
@@ -266,7 +277,8 @@ static void inspect_model_sections(const char *text, uint32_t len,
             }
             while (scan < line_end) {
                 if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_") &&
-                    pci_hwid_at(text, line_end, scan)) {
+                    pci_hwid_at(text, line_end, scan) &&
+                    !line_is_comment_at(text, scan)) {
                     if (pkg->model_id_counts[active] < 255u)
                         ++pkg->model_id_counts[active];
                     scan += 21u;
@@ -492,7 +504,8 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
     for (i = 0; i <= text_len && text_len - i >= 21u && count < PROS_DRIVER_COMPAT_MAX_IDS; ++i) {
         uint16_t vendor, device;
         uint32_t j;
-        if (!pci_hwid_at(text, text_len, i)) continue;
+        if (!pci_hwid_at(text, text_len, i) ||
+            line_is_comment_at(text, i)) continue;
         if (!parse_hex4(&text[i + 8u], &vendor) ||
             !parse_hex4(&text[i + 17u], &device))
             continue;
