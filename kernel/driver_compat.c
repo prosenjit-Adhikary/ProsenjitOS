@@ -32,6 +32,18 @@ static int parse_hex4(const char *p, uint16_t *out)
     return 1;
 }
 
+static int parse_hex8(const char *p, uint32_t *out)
+{
+    uint32_t i, v = 0;
+    for (i = 0; i < 8; ++i) {
+        int n = hex_value(p[i]);
+        if (n < 0) return 0;
+        v = (v << 4) | (uint32_t)n;
+    }
+    *out = v;
+    return 1;
+}
+
 static int ci_match4(const char *p, const char *tag)
 {
     uint32_t i;
@@ -291,7 +303,27 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
                                  pkg->provider, sizeof(pkg->provider));
         uint32_t vn = line_value(text, text_len, "DriverVer",
                                  pkg->driver_ver, sizeof(pkg->driver_ver));
-        pkg->metadata_valid = (cn || pn || vn) ? 1u : 0u;
+        for (i = 0; i + 16u <= text_len; ++i) {
+            if (ci_match4(&text[i], "SUBS") && text[i + 4u] == '_') {
+                uint32_t v;
+                if (parse_hex8(&text[i + 5u], &v)) {
+                    pkg->subsys_id = v;
+                    pkg->subsys_valid = 1u;
+                    break;
+                }
+            }
+        }
+        for (i = 0; i + 7u <= text_len; ++i) {
+            if (ci_match4(&text[i], "REV_")) {
+                uint16_t v;
+                if (parse_hex4(&text[i + 4u], &v)) {
+                    pkg->revision = (uint8_t)(v & 0xffu);
+                    pkg->revision_valid = 1u;
+                    break;
+                }
+            }
+        }
+        pkg->metadata_valid = (cn || pn || vn || pkg->subsys_valid || pkg->revision_valid) ? 1u : 0u;
     }
     return PROS_DRIVER_OK;
 }
