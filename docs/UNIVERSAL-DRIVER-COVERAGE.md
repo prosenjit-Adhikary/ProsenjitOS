@@ -194,4 +194,4 @@ Bundle removal is blocked while the compatibility package is in VERIFIED, STAGED
 
 ### Bundle/registry consistency guard — 2026-09-30
 
-Bundle indexing now requires the referenced compatibility package to exist and not be EMPTY. The bundle remains an index/locator rather than an independent package authority, preventing orphaned bundle entries from being introduced through direct indexing.
+The bundle remains an index/locator rather than an independent trust or execution authority. Direct index entries may exist before a compatibility package is admitted, which preserves the generic bundle-index contract; however, offline selection requires a live compatibility package with matching SHA-256 content identity and an eligible verified/admitted active transaction. Stale bundle entries can also be removed after their compatibility package has been reclaimed. Active VERIFIED/STAGED/HEALTHY/COMMITTED packages cannot have their indexed metadata replaced or removed.
