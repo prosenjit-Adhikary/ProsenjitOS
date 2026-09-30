@@ -183,6 +183,13 @@ debugging features.
 
 ### Central diagnostic export
 ### Central logging facade
+### Persistent log sink boundary
+- An optional VFS-backed persistent sink is now defined with bounded file size, rotation threshold, and file-count policy.
+- The sink attaches only to an active writable VFS mount and uses the existing VFS file contract.
+- Persistence is non-authoritative: sink absence/failure does not fail the central health event path.
+- Rotation and retention execution remain explicit follow-up work; reaching the threshold currently stops persistence rather than deleting or overwriting older logs.
+
+
 - Kernel logging now has a single structured emission boundary in `kernel/log.c`.
 - The first sink is the bounded health-event ring; future serial/persistent sinks can be attached without changing callers.
 - Sink availability is explicit, and logging remains non-authoritative for boot/storage correctness.
