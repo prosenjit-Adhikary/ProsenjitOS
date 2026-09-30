@@ -4245,7 +4245,7 @@ struct ntfs_test_disk {
     uint8_t nonresident_data[16384];
     uint8_t upcase_record[1024];
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
-    uint8_t index_record[4096];
+    uint8_t index_record[8192];
     uint8_t mft_mirror_record[1024];
     uint8_t root_record[1024];
     uint8_t bitmap_record[1024];
@@ -4294,7 +4294,7 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s >= 80u && lba + s < 336u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->upcase_data[(lba + s - 80u) * 512u + i];
-        else if (lba + s >= 64u && lba + s < 72u)
+        else if (lba + s >= 64u && lba + s < 80u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->index_record[(lba + s - 64u) * 512u + i];
     }
@@ -4335,7 +4335,7 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 368u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->bitmap_data[i] = src[i];
-        } else if (sector >= 64u && sector < 72u) {
+        } else if (sector >= 64u && sector < 80u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->index_record[(sector - 64u) * 512u + i] = src[i];
         } else {
@@ -5888,7 +5888,7 @@ int ntfs_selftest(void)
          */
         {
             uint8_t saved_root[1024];
-            uint8_t saved_index[4096];
+            uint8_t saved_index[8192];
             uint8_t saved_bitmap[512];
             uint8_t split_key[74];
             uint8_t new_key[74];
@@ -6010,7 +6010,10 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 344u) != 8192u)
+                le64(disk.root_record + 344u) != 8192u ||
+                disk.root_record[176u + 12u] != 1u ||
+                le16(disk.root_record + 176u + 10u) != 74u ||
+                le64(disk.root_record + 176u + 104u - 8u) != 1u)
                 return -197;
 
             {
@@ -6046,6 +6049,17 @@ int ntfs_selftest(void)
                 found_right = 1u;
                 if (!found_right)
                     return -202;
+                {
+                    static const uint8_t routed_name[] = {
+                        'u', 0u, '4', 0u, '1', 0u
+                    };
+                    uint64_t routed_reference = 0u;
+                    if (ntfs_directory_lookup(&fs, 5u, routed_name, 3u,
+                                               &routed_reference) !=
+                            PROS_NTFS_OK ||
+                        routed_reference != 0x4041u)
+                        return -203;
+                }
             }
 
             for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
