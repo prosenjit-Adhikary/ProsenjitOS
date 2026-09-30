@@ -19,6 +19,7 @@ int pros_log_emit(uint32_t severity, uint32_t category,
 int pros_log_sink_available(uint32_t sink);
 int pros_log_attach_persistent(struct pros_vfs_mount *mount, const char *path);
 int pros_log_detach_persistent(void);
+uint32_t pros_log_persistence_failures(void);
 int pros_log_selftest(void);
 
 #endif
