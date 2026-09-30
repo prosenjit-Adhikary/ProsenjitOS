@@ -203,21 +203,24 @@ debugging features.
 
 ### Required logging architecture
 - A central structured event/log collector interface.
-- Persistent local logs suitable for post-crash diagnostics.
+- Persistent local logs suitable for post-crash diagnostics, with bounded generation rotation and retention.
 - Severity/category/source/timestamp metadata.
 - Boot, kernel panic and crash logs must survive reboot where technically
   possible.
-- Log rotation, retention and bounded storage consumption.
+- Log rotation, retention and bounded storage consumption, including safe rotation of pre-existing oversized active logs.
 - Explicit privacy/security rules for sensitive log data.
 - Deterministic diagnostic export for support and CI/QEMU regression.
-- Monitoring must degrade safely if the logging backend is unavailable; logging
-  must never become a new kernel corruption or boot dependency.
+- Monitoring must degrade safely if the logging backend is unavailable; persistence failures are
+  recorded in the authoritative in-memory health ring, and logging must never become a new
+  kernel corruption or boot dependency.
 
 ### Completion rule
 Monitoring/logging is complete only after the interfaces, persistent storage,
 rotation/retention, crash/panic capture, service/process health, network/security
-events and automated regression coverage are implemented and verified. Do not
-mark this requirement complete merely because debug prints exist.
+events and automated regression coverage are implemented and verified. Filesystem error hooks, security-admission events, boot recovery checkpoints, and watchdog
+checkpoint integration are part of the implementation. Network instrumentation remains limited
+to the existing subsystem hook boundary until a real network stack exists. Do not mark this
+requirement complete merely because debug prints exist.
 
 ## 10. Completion gates
 
