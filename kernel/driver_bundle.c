@@ -116,6 +116,26 @@ clear_entry:
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_bundle_retire(uint32_t package_id)
+{
+    int rc;
+
+    if (!package_id)
+        return PROS_DRIVER_EINVAL;
+
+    /*
+     * Removal is deliberately ordered: first detach the locator, then
+     * reclaim the compatibility registry slot.  If registry reclamation is
+     * blocked by dependencies, the package remains unregistered from the
+     * bundle and can be retried explicitly.
+     */
+    rc = pros_driver_bundle_remove(package_id);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    return pros_driver_compat_unregister_package(package_id);
+}
+
 int pros_driver_bundle_compare_version(uint32_t a,uint32_t b,int *out) {
     if(!a||!b||!out)return PROS_DRIVER_EINVAL; struct pros_driver_bundle_entry *x=find(a),*y=find(b);
     if(!x||!y)return PROS_DRIVER_ENODEV;
