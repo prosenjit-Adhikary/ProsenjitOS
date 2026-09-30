@@ -260,6 +260,16 @@ int pros_driver_bundle_selftest(void) {
                 return -10;
 
         {
+            uint32_t selected = 0;
+            int score = 0;
+            if (pros_driver_bundle_select(
+                    imported_id, &import_id, &selected, &score) !=
+                    PROS_DRIVER_OK ||
+                selected != imported_id || score < 100)
+                return -11;
+        }
+
+        {
             struct pros_file_admission_record bad = record;
             bad.sha256[0] ^= 0xFFu;
             if (pros_driver_bundle_admit_package(
@@ -268,7 +278,7 @@ int pros_driver_bundle_selftest(void) {
                     PROS_DRIVER_BUNDLE_REMOVABLE, 2u, 1u, 1u,
                     import_bytes, sizeof(import_bytes) - 1u, &bad,
                     &imported_id) == PROS_DRIVER_OK)
-                return -11;
+                return -12;
         }
     }
 
