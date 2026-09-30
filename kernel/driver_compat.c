@@ -222,13 +222,41 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
 
 int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust trust)
 {
+    struct pros_compat_package *pkg;
+
     if (package_id == 0 || package_id > package_count)
         return PROS_DRIVER_EINVAL;
     if (trust > PROS_COMPAT_TRUST_REJECTED)
         return PROS_DRIVER_EINVAL;
-    packages[package_id - 1u].trust = trust;
-    if (trust == PROS_COMPAT_TRUST_REJECTED)
-        packages[package_id - 1u].status = PROS_COMPAT_STATUS_REJECTED;
+
+    pkg = &packages[package_id - 1u];
+
+    /*
+     * VERIFIED is a conclusion backed by evidence, not a caller-controlled
+     * state.  Cryptographic signature evidence remains unavailable until a
+     * real verifier is implemented.
+     */
+    if (trust == PROS_COMPAT_TRUST_VERIFIED &&
+        pkg->trust_evidence == PROS_COMPAT_EVIDENCE_NONE)
+        return PROS_DRIVER_EPERM;
+
+    pkg->trust = trust;
+    if (trust == PROS_COMPAT_TRUST_REJECTED) {
+        pkg->status = PROS_COMPAT_STATUS_REJECTED;
+        pkg->tx_state = PROS_COMPAT_TX_ROLLED_BACK;
+    } else if (pkg->status == PROS_COMPAT_STATUS_REJECTED) {
+        pkg->status = PROS_COMPAT_STATUS_INSPECTED;
+        pkg->tx_state = PROS_COMPAT_TX_IDLE;
+    }
+
+    /*
+     * Any trust downgrade invalidates an in-flight transaction so previously
+     * verified/staged state cannot survive a policy change.
+     */
+    if (trust != PROS_COMPAT_TRUST_VERIFIED &&
+        trust != PROS_COMPAT_TRUST_REJECTED) {
+        pkg->tx_state = PROS_COMPAT_TX_IDLE;
+    }
     return PROS_DRIVER_OK;
 }
 
@@ -625,12 +653,18 @@ int pros_driver_compat_selftest(void)
             != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
         /* dep_a already depends on dep_b; dep_b remains trusted here. */
-        if (pros_driver_compat_set_trust(dep_b, PROS_COMPAT_TRUST_VERIFIED)
-            != PROS_DRIVER_OK ||
+        if (pros_driver_compat_set_trust_evidence(
+                dep_b, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
+            pros_driver_compat_set_trust_evidence(
+                dep_c, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
+            pros_driver_compat_set_trust_evidence(
+                dep_d, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
+            pros_driver_compat_set_trust(dep_b, PROS_COMPAT_TRUST_VERIFIED)
+                != PROS_DRIVER_OK ||
             pros_driver_compat_set_trust(dep_c, PROS_COMPAT_TRUST_VERIFIED)
-            != PROS_DRIVER_OK ||
+                != PROS_DRIVER_OK ||
             pros_driver_compat_set_trust(dep_d, PROS_COMPAT_TRUST_VERIFIED)
-            != PROS_DRIVER_OK)
+                != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
         if (pros_driver_compat_dependency_check(dep_a) != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
