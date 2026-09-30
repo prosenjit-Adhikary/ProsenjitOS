@@ -19,8 +19,8 @@ enum pros_signature_result {
 /*
  * Verification is deliberately a separate trust-authority boundary.
  * Callers provide bytes/signature/key material; they cannot set a "valid"
- * result directly. Until a real verifier is linked, verification returns
- * UNSUPPORTED and no cryptographic trust may be established.
+ * result directly. Ed25519 verification is implemented by the freestanding
+ * verifier; RSA-PSS remains unsupported and therefore fail-closed.
  */
 int pros_security_signature_verify(
     enum pros_signature_algorithm algorithm,
