@@ -1130,6 +1130,7 @@ int ntfs_create_file(struct pros_ntfs *fs,
     uint64_t parent_reference;
     uint8_t parent_record[PROS_NTFS_RECORD_WORK_MAX];
     int rc;
+    uint8_t root_needs_allocation_insert = 0u;
 
     if (!fs || !record_number || !name_utf16le || name_length == 0u ||
         fs->bytes_per_file_record > sizeof(parent_record))
@@ -1172,9 +1173,21 @@ int ntfs_create_file(struct pros_ntfs *fs,
                                 root_attr, &root_data, &root_size) !=
                 PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
-        if (root.allocated_size < root.entries_size ||
-            entry_size > root.allocated_size - root.entries_size)
-            return PROS_NTFS_ENOTSUP;
+        if (root.allocated_size < root.entries_size)
+            return PROS_NTFS_ECORRUPT;
+        if (entry_size > root.allocated_size - root.entries_size) {
+            /*
+             * A full resident root can only proceed when an existing
+             * $INDEX_ALLOCATION tree is present. New-node allocation and
+             * root promotion are handled by the growth path; without that
+             * stream, fail before creating a child MFT record.
+             */
+            if (ntfs_find_attribute(parent_record,
+                                    fs->bytes_per_file_record, 0xA0u,
+                                    &root_attr) != PROS_NTFS_OK)
+                return PROS_NTFS_ENOTSUP;
+            root_needs_allocation_insert = 1u;
+        }
     }
 
     /*
@@ -1207,9 +1220,15 @@ int ntfs_create_file(struct pros_ntfs *fs,
                                     name_utf16le, name_length, 1u);
     if (rc == PROS_NTFS_OK)
         rc = ntfs_mft_add_empty_data(fs, allocated_record);
-    if (rc == PROS_NTFS_OK)
-        rc = ntfs_index_root_insert(fs, parent_record_number,
-                                    allocated_record);
+    if (rc == PROS_NTFS_OK) {
+        if (root_needs_allocation_insert)
+            rc = ntfs_index_allocation_insert_child(fs,
+                                                    parent_record_number,
+                                                    allocated_record);
+        else
+            rc = ntfs_index_root_insert(fs, parent_record_number,
+                                        allocated_record);
+    }
 
     if (rc != PROS_NTFS_OK) {
         if (ntfs_mft_free_record(fs, allocated_record) != PROS_NTFS_OK)
