@@ -1,5 +1,5 @@
 #i
-static void scalar_add_raw(uint8_t out[32], const uint8_t a[32],
+static void scalar_add_raw(uint8_t out[33], const uint8_t a[32],
                            const uint8_t b[32]) {
     uint16_t carry = 0;
     for (uint32_t i = 0; i < 32u; ++i) {
