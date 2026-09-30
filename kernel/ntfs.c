@@ -1213,17 +1213,13 @@ int ntfs_create_file(struct pros_ntfs *fs,
             if (ntfs_find_attribute(parent_record,
                                     fs->bytes_per_file_record, 0xA0u,
                                     &root_attr) != PROS_NTFS_OK) {
-                /* Bootstrap a resident-only index into a single INDX leaf. */
-                {
-                    struct pros_ntfs_index_root bootstrap_root;
-                    uint32_t cluster_bytes = fs->bytes_per_sector *
-                                              fs->sectors_per_cluster;
-                    if (cluster_bytes == 0u ||
-                        bootstrap_root.bytes_per_index_record % cluster_bytes != 0u)
-                        return PROS_NTFS_ECORRUPT;
-                    bootstrap_clusters = bootstrap_root.bytes_per_index_record /
-                                         cluster_bytes;
-                }
+                /*
+                 * Bootstrap the resident-only index. The bootstrap helper reads
+                 * the live INDEX_ROOT geometry itself and returns the exact
+                 * cluster allocation for rollback; do not inspect an
+                 * uninitialized root descriptor here.
+                 */
+                bootstrap_clusters = 0u;
                 rc = ntfs_index_allocation_bootstrap(fs, parent_record_number,
                                                      &bootstrap_lcn,
                                                      &bootstrap_clusters);
