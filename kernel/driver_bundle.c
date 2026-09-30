@@ -32,6 +32,31 @@ int pros_driver_bundle_compare_version(uint32_t a,uint32_t b,int *out) {
     else if(x->version_patch!=y->version_patch)*out=x->version_patch>y->version_patch?1:-1; else *out=0;
     return PROS_DRIVER_OK;
 }
+int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *hwid,
+                              uint32_t *selected_package_id, int *score_out)
+{
+    if (!package_id || !hwid || !selected_package_id || !score_out)
+        return PROS_DRIVER_EINVAL;
+
+    struct pros_driver_bundle_entry *entry = find(package_id);
+    if (!entry || !entry->content_sha256_valid)
+        return PROS_DRIVER_ENODEV;
+
+    /*
+     * Compatibility selection is deliberately delegated to the compatibility
+     * registry.  That registry enforces VERIFIED admission, dependency trust,
+     * and an active transaction state before a package can match.
+     */
+    int score = 0;
+    int rc = pros_driver_compat_match(package_id, hwid, &score);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    *selected_package_id = package_id;
+    *score_out = score;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_bundle_selftest(void) {
     uint8_t a[PROS_FILE_SHA256_BYTES],b[PROS_FILE_SHA256_BYTES];
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i){a[i]=(uint8_t)i;b[i]=(uint8_t)(i^0x55u);}
