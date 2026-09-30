@@ -690,6 +690,30 @@ int pros_driver_compat_selftest(void)
     if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
+    /*
+     * Trust cannot be promoted without evidence, and changing evidence
+     * invalidates a previously established trust decision.
+     */
+    if (pros_driver_compat_set_trust(
+            package_id, PROS_COMPAT_TRUST_VERIFIED) != PROS_DRIVER_EPERM)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_set_trust_evidence(
+            package_id, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
+        pros_driver_compat_set_trust(
+            package_id, PROS_COMPAT_TRUST_VERIFIED) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_set_trust_evidence(
+            package_id, PROS_COMPAT_EVIDENCE_TEST_ONLY) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    {
+        struct pros_compat_package evidence_changed_pkg;
+        if (pros_driver_compat_get_package(
+                package_id, &evidence_changed_pkg) != PROS_DRIVER_OK ||
+            evidence_changed_pkg.trust != PROS_COMPAT_TRUST_UNKNOWN ||
+            evidence_changed_pkg.tx_state != PROS_COMPAT_TX_IDLE)
+            return PROS_DRIVER_EIO;
+    }
+
     if (pros_driver_compat_match(package_id, &id, &(int){0})
         != PROS_DRIVER_ENODEV)
         return PROS_DRIVER_EIO;
