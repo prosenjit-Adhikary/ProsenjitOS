@@ -3004,6 +3004,22 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK ||
             done != sizeof(read_data))
             return -62;
+        {
+            uint8_t vfs_physical_image[4096];
+            struct pros_prosenjitfs_inode vfs_inode;
+            struct pros_prosenjitfs_extent vfs_extent;
+            uint64_t vfs_extent_lba = 0u;
+            uint64_t vfs_tail_lba = 0u;
+            if (prosenjitfs_read_inode(&fs, 1u, &vfs_inode) != PROSENJITFS_OK ||
+                pfs_find_extent(&fs, &vfs_inode, 0u, &vfs_extent,
+                                &vfs_extent_lba, &vfs_tail_lba) != PROSENJITFS_OK ||
+                pfs_read_block(fs.mount.device, vfs_extent.physical_block,
+                               vfs_physical_image) != PROSENJITFS_OK)
+                return -92;
+            for (uint32_t i = 0u; i < fs.sb.block_size && i < sizeof(read_data); ++i)
+                if (read_data[i] != vfs_physical_image[i])
+                    return (int)(-4000 - i);
+        }
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != write_data[i])
                 return (int)(-1000 - i);
