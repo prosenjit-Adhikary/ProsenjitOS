@@ -56,6 +56,10 @@ struct pros_health_snapshot {
     uint64_t block_error_count;
     uint64_t block_flush_count;
     uint64_t block_flush_error_count;
+    uint64_t exception_count;
+    uint64_t page_fault_count;
+    uint64_t last_exception_vector;
+    uint64_t last_exception_rip;
     uint64_t heap_used_bytes;
     uint64_t event_sequence;
     uint32_t event_count;
