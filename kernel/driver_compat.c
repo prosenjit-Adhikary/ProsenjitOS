@@ -307,8 +307,13 @@ int pros_driver_compat_set_trust_evidence(
         return PROS_DRIVER_EPERM;
     if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED)
         return PROS_DRIVER_EPERM;
-    if (packages[package_id - 1u].trust_evidence == evidence)
+    if (packages[package_id - 1u].trust_evidence == evidence) {
+        /*
+         * Even a repeated policy write must not revive a stale transaction.
+         * No state change is needed when the evidence is already identical.
+         */
         return PROS_DRIVER_OK;
+    }
 
     /*
      * Evidence is part of the trust decision.  Changing it invalidates any
