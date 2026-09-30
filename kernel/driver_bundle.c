@@ -11,7 +11,16 @@ static struct pros_driver_bundle_entry *find(uint32_t id) {
     return 0;
 }
 int pros_driver_bundle_init(void) {
-    for(uint32_t i=0;i<PROS_DRIVER_BUNDLE_MAX_ENTRIES;++i){ entries[i].package_id=0; entries[i].content_sha256_valid=0; entries[i].version_major=entries[i].version_minor=entries[i].version_patch=0; }
+    for (uint32_t i = 0u; i < PROS_DRIVER_BUNDLE_MAX_ENTRIES; ++i) {
+        entries[i].package_id = 0u;
+        entries[i].source = PROS_DRIVER_BUNDLE_ISO;
+        entries[i].content_sha256_valid = 0u;
+        entries[i].version_major = entries[i].version_minor =
+            entries[i].version_patch = 0u;
+        entries[i].version[0] = 0;
+        for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
+            entries[i].content_sha256[d] = 0u;
+    }
     return PROS_DRIVER_OK;
 }
 int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_t ma,uint32_t mi,uint32_t pa,const uint8_t *d) {
@@ -33,7 +42,9 @@ int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_
 
     e->package_id=id;e->source=s;e->version_major=ma;e->version_minor=mi;e->version_patch=pa;
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)e->content_sha256[i]=d[i];
-    e->content_sha256_valid=1; return PROS_DRIVER_OK;
+    e->content_sha256_valid=1u;
+    e->version[0] = 0;
+    return PROS_DRIVER_OK;
 }
 int pros_driver_bundle_find(uint32_t id, struct pros_driver_bundle_entry *out) {
     if(!id||!out)return PROS_DRIVER_EINVAL; struct pros_driver_bundle_entry *e=find(id);
@@ -74,6 +85,7 @@ int pros_driver_bundle_remove(uint32_t package_id)
     e->content_sha256_valid = 0u;
     for (i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
         e->content_sha256[i] = 0u;
+    e->version[0] = 0;
     return PROS_DRIVER_OK;
 }
 
