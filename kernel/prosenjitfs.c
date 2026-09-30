@@ -2892,6 +2892,20 @@ int prosenjitfs_selftest(void)
             return -70;
         if (extent_lba == 0u || written_extent.physical_block >= fs.sb.total_blocks)
             return -71;
+        if (written_inode.extent_head != 0u) {
+            struct pros_prosenjitfs_extent first_extent;
+            if (pfs_read_extent(&fs, written_inode.extent_head, &first_extent) !=
+                PROSENJITFS_OK)
+                return -84;
+            if (first_extent.next != 0u) {
+                struct pros_prosenjitfs_extent second_extent;
+                if (pfs_read_extent(&fs, first_extent.next, &second_extent) !=
+                    PROSENJITFS_OK)
+                    return -85;
+                if (second_extent.physical_block == first_extent.physical_block)
+                    return -86;
+            }
+        }
         if (pfs_read_block(fs.mount.device, written_extent.physical_block,
                            physical_image) != PROSENJITFS_OK)
             return -72;
