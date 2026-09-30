@@ -6410,9 +6410,9 @@ int ntfs_selftest(void)
         if (ntfs_index_root_header(r, sizeof(disk.root_record),
                                    root_attr, &root_info) != PROS_NTFS_OK ||
             root_info.flags != 1u ||
-            root_info.first_entry_offset != 32u ||
-            root_info.entries_size != 56u ||
-            root_info.allocated_size != 56u)
+            root_info.first_entry_offset != 16u ||
+            root_info.entries_size != 24u ||
+            root_info.allocated_size != 24u)
             return -131;
 
         if (ntfs_attribute_data(r, sizeof(disk.root_record), root_attr,
