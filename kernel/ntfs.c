@@ -4868,6 +4868,35 @@ int ntfs_selftest(void)
     }
 
     /*
+     * $BITMAP mutation regression: exercise both allocation and release of
+     * an exact extent through the generic bitmap updater. This catches bit
+     * masking errors at byte boundaries and verifies that a released extent
+     * becomes available again without touching unrelated allocation bits.
+     */
+    {
+        const uint64_t test_lcn = 47u;
+        const uint8_t before = disk.bitmap_data[test_lcn / 8u];
+
+        if ((before & (uint8_t)(1u << (test_lcn % 8u))) != 0u)
+            return -1279;
+        if (ntfs_bitmap_allocate_clusters_exact(&fs, test_lcn, 1u) !=
+            PROS_NTFS_OK)
+            return -1280;
+        if ((disk.bitmap_data[test_lcn / 8u] &
+             (uint8_t)(1u << (test_lcn % 8u))) == 0u)
+            return -1281;
+        if ((disk.bitmap_data[test_lcn / 8u] &
+             (uint8_t)~(1u << (test_lcn % 8u))) !=
+            (before & (uint8_t)~(1u << (test_lcn % 8u))))
+            return -1282;
+        if (ntfs_bitmap_update_clusters(&fs, test_lcn, 1u, 0u) !=
+            PROS_NTFS_OK)
+            return -1283;
+        if (disk.bitmap_data[test_lcn / 8u] != before)
+            return -1284;
+    }
+
+    /*
      * Write-boundary regression: an overflowing offset+size must be rejected
      * before any allocation or metadata commit, and the byte count must stay
      * zero.
