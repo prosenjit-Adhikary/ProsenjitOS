@@ -185,3 +185,8 @@ The bundle self-test now exercises two admission-backed, verified packages targe
 ### Offline import failure containment — 2026-09-30
 
 Admission-backed offline imports now fail closed on content-hash, admission, or transaction-start errors: the newly registered package is marked rejected where rollback cannot yet establish a transaction boundary, while verification failures explicitly roll back and revoke trust evidence. This prevents a failed import attempt from remaining accidentally selectable. Package-registry reclamation/removal remains a separate lifecycle task.
+
+
+### Deterministic bundle lifecycle and tie-break coverage — 2026-09-30
+
+Bundle removal is blocked while the compatibility package is in VERIFIED, STAGED, HEALTHY, or COMMITTED state. Failed admission-backed imports reclaim their newly allocated compatibility slot. Selection regression coverage now exercises semantic-version, source, and package-ID tie-breaks after hardware match score; content identity and admission/trust gates remain authoritative.
