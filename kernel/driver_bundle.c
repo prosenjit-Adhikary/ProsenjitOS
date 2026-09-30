@@ -352,6 +352,11 @@ int pros_driver_bundle_selftest(void) {
                     &import_id, &selected_v2, &score_v2) != PROS_DRIVER_OK ||
                 selected_v2 != package_v2_id || score_v2 < 100)
                 return -12;
+
+            if (pros_driver_bundle_remove(package_v2_id) != PROS_DRIVER_EBUSY ||
+                pros_driver_bundle_find(package_v2_id, &entry_v2) !=
+                    PROS_DRIVER_OK)
+                return -14;
         }
 
         {
