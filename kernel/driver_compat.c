@@ -172,6 +172,10 @@ int pros_driver_compat_init(void)
         compat_zero_digest(packages[i].content_sha256);
         packages[i].content_sha256_valid = 0;
         packages[i].trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
+        packages[i].provider[0] = 0;
+        packages[i].driver_ver[0] = 0;
+        packages[i].class_name[0] = 0;
+        packages[i].metadata_valid = 0;
     }
     return PROS_DRIVER_OK;
 }
