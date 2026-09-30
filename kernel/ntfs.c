@@ -3404,13 +3404,12 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     uint32_t entries_start = 0x28u;
     uint32_t expanded_used = 0u;
     uint32_t entry_count = 0u;
-    uint32_t insert_at = 0u;
+    uint32_t insert_at = 0xFFFFFFFFu;
     uint32_t offset;
     uint32_t sep_offset = 0u;
     uint32_t left_bytes = 0u;
     uint32_t right_bytes = 0u;
     uint32_t best_balance = 0xFFFFFFFFu;
-    uint32_t new_vcn32;
     uint64_t new_vcn = 0u, new_lcn = 0u;
     uint64_t separator_reference = 0u;
     uint32_t parent_entry_size;
@@ -3562,6 +3561,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             expanded[entries_start + insert_at + i] = incoming[i];
         expanded_used += incoming_size;
         entry_count++;
+        if (insert_at == 0xFFFFFFFFu)
+            insert_at = expanded_used - incoming_size;
     }
 
     if (entry_count < 3u)
@@ -3601,8 +3602,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             pos += le16(expanded + entries_start + pos + 8u);
         sep_offset = entries_start + pos;
         left_bytes = candidate_left;
-        right_bytes = candidate_right -
-                      le16(expanded + sep_offset + 8u);
+        right_bytes = candidate_right;
         if (right_bytes == 0u)
             return PROS_NTFS_ENOTSUP;
     }
@@ -3671,9 +3671,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     if (rc != PROS_NTFS_OK)
         return rc;
 
-    if (new_vcn > 0xFFFFFFFFFFFFFFFFull)
-        goto rollback;
-
+    grown_count = 0u;
     if (ntfs_read_file_record(fs, directory_record_number, directory_record,
                               sizeof(directory_record)) != PROS_NTFS_OK)
         goto rollback;
@@ -3787,13 +3785,13 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         ((uint8_t *)root_data)[parent_insert_offset + 9u] =
             (uint8_t)(parent_entry_size >> 8);
         ((uint8_t *)root_data)[parent_insert_offset + 10u] =
-            (uint8_t)separator_key[64u] * 2u;
+            (uint8_t)sep_key_size;
         ((uint8_t *)root_data)[parent_insert_offset + 11u] =
-            (uint8_t)(((uint16_t)separator_key[64u] * 2u) >> 8);
+            (uint8_t)(sep_key_size >> 8);
         ((uint8_t *)root_data)[parent_insert_offset + 12u] = 1u;
-        for (uint32_t i = 0u; i < separator_key[64u] * 2u; ++i)
+        for (uint32_t i = 0u; i < sep_key_size; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + 16u + i] =
-                separator_key[66u + i];
+                separator_key[i];
         for (uint32_t i = 0u; i < 8u; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + parent_entry_size - 8u + i] =
                 (uint8_t)(new_vcn >> (8u * i));
@@ -3812,10 +3810,11 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
 rollback:
     /* Restore the pre-split leaf and directory metadata, then release the
      * newly allocated physical cluster. */
-    (void)ntfs_index_allocation_write(fs, grown_runs, grown_count,
-                                      vcn * (uint64_t)fs->bytes_per_sector *
-                                      fs->sectors_per_cluster,
-                                      old_leaf, record_size);
+    if (grown_count != 0u)
+        (void)ntfs_index_allocation_write(fs, grown_runs, grown_count,
+                                          vcn * (uint64_t)fs->bytes_per_sector *
+                                          fs->sectors_per_cluster,
+                                          old_leaf, record_size);
     (void)ntfs_write_file_record(fs, directory_record_number,
                                  old_directory_record);
     (void)ntfs_bitmap_free_clusters(fs, new_lcn, 1u);
@@ -3946,8 +3945,11 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
 
     if (entries_size > allocated_size ||
         entry_size > allocated_size - entries_size) {
-        return ntfs_index_allocation_split_leaf(fs, 0u, runs, run_count,
-                                                vcn, record_size,
+        uint64_t parent_record = le64(key) & 0x0000FFFFFFFFFFFFull;
+        if (parent_record > 0x0000FFFFFFFFFFFFull)
+            return PROS_NTFS_EINVAL;
+        return ntfs_index_allocation_split_leaf(fs, parent_record, runs,
+                                                run_count, vcn, record_size,
                                                 file_reference, key, key_size);
     }
 
