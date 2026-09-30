@@ -675,6 +675,22 @@ int pros_driver_compat_selftest(void)
 
     if (pros_driver_compat_init() != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
+    /*
+     * Signature metadata must remain fail-closed until a real verifier
+     * establishes cryptographic evidence.
+     */
+    {
+        static const uint8_t sig_data[] = { 's' };
+        static const uint8_t sig[] = { 0x01 };
+        static const uint8_t key[] = { 0x02 };
+        enum pros_signature_result sig_result;
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                sig_data, sizeof(sig_data),
+                sig, sizeof(sig), key, sizeof(key), &sig_result) != 0 ||
+            sig_result != PROS_SIGNATURE_RESULT_UNSUPPORTED)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_driver_compat_inspect_inf(
             "compat-selftest.inf", inf, (uint32_t)(sizeof(inf) - 1u),
             &package_id) != PROS_DRIVER_OK)
