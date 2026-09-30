@@ -341,6 +341,8 @@ int pros_driver_compat_bind_admission(
     packages[package_id - 1u].trust = PROS_COMPAT_TRUST_VERIFIED;
     packages[package_id - 1u].trust_evidence =
         PROS_COMPAT_EVIDENCE_ADMISSION_POLICY;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_IDLE;
+    packages[package_id - 1u].status = PROS_COMPAT_STATUS_INSPECTED;
     return PROS_DRIVER_OK;
 }
 
