@@ -27,6 +27,23 @@ int pros_log_emit(uint32_t severity, uint32_t category,
     return PROS_LOG_OK;
 }
 
+int pros_log_attach_persistent(struct pros_vfs_mount *mount, const char *path) {
+    struct pros_log_persist_policy policy = {
+        .max_bytes = PROS_LOG_PERSIST_MAX_BYTES,
+        .rotate_bytes = PROS_LOG_PERSIST_ROTATE_BYTES,
+        .max_files = 3u
+    };
+    if (!initialized || !mount || !path)
+        return PROS_LOG_EINVAL;
+    return pros_log_persist_attach(mount, path, &policy);
+}
+
+int pros_log_detach_persistent(void) {
+    if (!initialized)
+        return PROS_LOG_EINVAL;
+    return pros_log_persist_detach();
+}
+
 int pros_log_sink_available(uint32_t sink) {
     if (!initialized)
         return PROS_LOG_EINVAL;
