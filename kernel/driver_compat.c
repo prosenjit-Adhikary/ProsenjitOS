@@ -224,6 +224,37 @@ int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_i
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_compat_dependency_check(uint32_t package_id)
+{
+    uint8_t state[PROS_DRIVER_COMPAT_MAX_PACKAGES];
+    uint32_t stack[PROS_DRIVER_COMPAT_MAX_PACKAGES];
+    uint32_t i, top = 0;
+
+    if (package_id == 0 || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+    for (i = 0; i < package_count; ++i) state[i] = 0;
+
+    stack[top++] = package_id;
+    while (top) {
+        uint32_t id = stack[--top];
+        uint32_t j;
+        if (id == 0 || id > package_count) return PROS_DRIVER_EINVAL;
+        if (state[id - 1u] == 1u) return PROS_DRIVER_EIO; /* cycle */
+        if (state[id - 1u] == 2u) continue;
+        state[id - 1u] = 1u;
+        for (j = 0; j < packages[id - 1u].dependency_count; ++j) {
+            uint32_t dep = packages[id - 1u].dependencies[j];
+            if (dep == id) return PROS_DRIVER_EIO;
+            if (dep == 0 || dep > package_count) return PROS_DRIVER_EINVAL;
+            if (top >= PROS_DRIVER_COMPAT_MAX_PACKAGES)
+                return PROS_DRIVER_ENOSPC;
+            if (state[dep - 1u] != 2u) stack[top++] = dep;
+        }
+        state[id - 1u] = 2u;
+    }
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_match(uint32_t package_id,
                              const struct pros_driver_id *hwid,
                              int *score_out)
@@ -320,6 +351,9 @@ int pros_driver_compat_selftest(void)
     }
 
     if (pros_driver_compat_get_id(package_id, 0u, &id)
+        != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_dependency_check(package_id)
         != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
