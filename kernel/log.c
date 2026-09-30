@@ -2,12 +2,14 @@
 #include "log_persist.h"
 
 static uint8_t initialized;
+static uint32_t persistence_failures;
 
 int pros_log_init(void) {
     if (pros_health_init() != PROS_HEALTH_OK ||
         pros_log_persist_init() != PROS_LOG_OK)
         return PROS_LOG_EIO;
     initialized = 1u;
+    persistence_failures = 0u;
     return PROS_LOG_OK;
 }
 
@@ -23,7 +25,19 @@ int pros_log_emit(uint32_t severity, uint32_t category,
     if (pros_health_snapshot(&snapshot) == PROS_HEALTH_OK &&
         snapshot.event_count != 0u &&
         pros_health_get_event(snapshot.event_count - 1u, &event) == PROS_HEALTH_OK)
-        (void)pros_log_persist_emit(&event);
+        {
+            int persist_rc = pros_log_persist_emit(&event);
+            if (persist_rc != PROS_LOG_PERSIST_OK) {
+                ++persistence_failures;
+                /* Record degradation in the authoritative in-memory ring. Do
+                 * not recurse through pros_log_emit(), because the persistence
+                 * sink is precisely the backend that just failed. */
+                (void)pros_health_record(PROS_HEALTH_WARN,
+                                         PROS_HEALTH_RECOVERY,
+                                         0x4C4F4750u, 2u,
+                                         (uint64_t)(uint32_t)(-persist_rc));
+            }
+        }
     return PROS_LOG_OK;
 }
 
@@ -36,6 +50,10 @@ int pros_log_attach_persistent(struct pros_vfs_mount *mount, const char *path) {
     if (!initialized || !mount || !path)
         return PROS_LOG_EINVAL;
     return pros_log_persist_attach(mount, path, &policy);
+}
+
+uint32_t pros_log_persistence_failures(void) {
+    return persistence_failures;
 }
 
 int pros_log_detach_persistent(void) {
