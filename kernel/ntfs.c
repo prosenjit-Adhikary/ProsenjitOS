@@ -987,8 +987,6 @@ int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
         return PROS_NTFS_EINVAL;
 
     /* MFT bitmap mutation is a destructive metadata operation. */
-    *allocated_lcn = 0u;
-    *allocated_clusters = 0u;
     if (!fs->mount.active || fs->mount.read_only ||
         !fs->mount.device || !fs->mount.device->write)
         return PROS_NTFS_ENOTSUP;
@@ -3452,10 +3450,13 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     uint32_t map_len;
     int rc;
 
-    if (!fs || directory_record_number > 0x0000FFFFFFFFFFFFull ||
+    if (!fs || !allocated_lcn || !allocated_clusters ||
+        directory_record_number > 0x0000FFFFFFFFFFFFull ||
         fs->bytes_per_file_record > sizeof(record) ||
         fs->bytes_per_sector == 0u || fs->sectors_per_cluster == 0u)
         return PROS_NTFS_EINVAL;
+    *allocated_lcn = 0u;
+    *allocated_clusters = 0u;
     if (!fs->mount.active || fs->mount.read_only ||
         !fs->mount.device || !fs->mount.device->write)
         return PROS_NTFS_ENOTSUP;
