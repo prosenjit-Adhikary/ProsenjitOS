@@ -55,8 +55,7 @@ The current creation path covers:
 
 The next NTFS write stages are:
 1. update directory index allocation when `$INDEX_ROOT` has no space
-2. implement generic nonresident MFT `$BITMAP` stream updates
-3. synchronize `$MFTMirr` where required
+2. synchronize `$MFTMirr` where required
 4. add deletion and reclamation
 5. add journal-aware commit/recovery
 
