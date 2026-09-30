@@ -1043,7 +1043,7 @@ int pros_driver_compat_selftest(void)
         }
     }
     if (pros_driver_compat_get_id(package_id, 1u, &id) != PROS_DRIVER_OK ||
-        id.vendor_id != 0xabcd || id.device_id != 0x0001)
+        id.vendor_id != 0xabce || id.device_id != 0x0002)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_supports_model(PROS_COMPAT_MODEL_WDM)
         != PROS_DRIVER_ENOTSUP)
