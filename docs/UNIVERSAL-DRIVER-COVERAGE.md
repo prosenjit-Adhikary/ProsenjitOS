@@ -200,3 +200,8 @@ The bundle remains an index/locator rather than an independent trust or executio
 ### Safe package update sequence — 2026-09-30
 
 Driver package updates use the existing admission, bundle, and transaction boundaries rather than mutating an active package in place. The safe sequence is: admit and hash the new package; establish verified dependency/trust state; add the new content identity to the bundle; confirm deterministic selection can choose the new eligible candidate; only then remove or roll back the old package when it is no longer active or referenced. Active package metadata replacement/removal remains blocked. A failed new-package admission must not leave a selectable package or an unreconciled bundle locator.
+
+
+### Package retirement and stale-locator policy — 2026-09-30
+
+Package retirement is intentionally separate from candidate selection. A retirement request first attempts compatibility-registry reclamation; lifecycle or dependency guards therefore preserve the bundle locator when reclamation is blocked. After successful reclamation, the remaining bundle entry is treated as a stale locator and removed. Selection never promotes stale locators, and a reclaimed package ID cannot regain eligibility merely because an old bundle entry exists.
