@@ -49,7 +49,8 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/driver.c" -o "$BUILD/obj/driver.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/driver_compat.c" -o "$BUILD/obj/driver_compat.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/nt_compat.c" -o "$BUILD/obj/nt_compat.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pe_inspect.c" -o "$BUILD/obj/pe_inspect.o"
-gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o" "$BUILD/obj/elf_loader.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/elf_loader.c" -o "$BUILD/obj/elf_loader.o"
 
 ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/vfs.o" "$BUILD/obj/fat32.o" "$BUILD/obj/exfat.o" "$BUILD/obj/exfat_upcase.o" "$BUILD/obj/ntfs.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/pci.o" "$BUILD/obj/driver.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
 
