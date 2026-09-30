@@ -578,6 +578,16 @@ int pros_driver_compat_match(uint32_t package_id,
         packages[package_id - 1u].trust_evidence ==
             PROS_COMPAT_EVIDENCE_NONE)
         return PROS_DRIVER_ENODEV;
+    /*
+     * A verified package is selectable only while its current transaction
+     * has reached an active verification/runtime stage.  ROLLED_BACK and
+     * IDLE/INSPECTED trust metadata must never resurrect driver selection.
+     */
+    if (packages[package_id - 1u].tx_state != PROS_COMPAT_TX_VERIFIED &&
+        packages[package_id - 1u].tx_state != PROS_COMPAT_TX_STAGED &&
+        packages[package_id - 1u].tx_state != PROS_COMPAT_TX_HEALTHY &&
+        packages[package_id - 1u].tx_state != PROS_COMPAT_TX_COMMITTED)
+        return PROS_DRIVER_ENODEV;
     for (i = 0; i < packages[package_id - 1u].id_count; ++i) {
         const struct pros_driver_id *id = &package_ids[package_id - 1u][i];
         if (id->bus != PROS_DRIVER_BUS_NONE && id->bus != hwid->bus) continue;
@@ -826,9 +836,20 @@ int pros_driver_compat_selftest(void)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
-    if (pros_driver_compat_match(package_id, &id, &(int){0})
-        != PROS_DRIVER_ENODEV)
-        return PROS_DRIVER_EIO;
+    /*
+     * Re-establish a real admission-backed transaction for the positive
+     * selection test.  The earlier TEST_ONLY evidence intentionally revoked
+     * selection eligibility.
+     */
+    {
+        static const uint8_t selectable_bytes[] = "changed";
+        if (compat_selftest_admit(
+                package_id, selectable_bytes,
+                sizeof(selectable_bytes) - 1u) != PROS_DRIVER_OK ||
+            pros_driver_compat_begin(package_id) != PROS_DRIVER_OK ||
+            pros_driver_compat_verify(package_id) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_driver_compat_get_id(package_id, 0u, &id)
         != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
@@ -841,6 +862,11 @@ int pros_driver_compat_selftest(void)
             != PROS_DRIVER_OK || score < 100)
             return PROS_DRIVER_EIO;
     }
+    if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_match(package_id, &id, &(int){0})
+        != PROS_DRIVER_ENODEV)
+        return PROS_DRIVER_EIO;
 
     {
         static const struct pros_driver_id dep_id = {
