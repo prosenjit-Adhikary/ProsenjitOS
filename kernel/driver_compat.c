@@ -192,6 +192,17 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
         PROS_COMPAT_PACKAGE_INF, model, name, ids, count, 0, package_id_out);
 }
 
+int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
+                              struct pros_driver_id *out)
+{
+    if (!out || package_id == 0 || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+    if (index >= packages[package_id - 1u].id_count)
+        return PROS_DRIVER_ENODEV;
+    *out = package_ids[package_id - 1u][index];
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_selftest(void)
 {
     struct pros_driver_id id = {
