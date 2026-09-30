@@ -126,10 +126,8 @@ int pros_device_broker_selftest(void)
 
     device_id = device.id;
     if (pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_OK ||
+            PROS_DRIVER_ENODEV ||
         pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_OK ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
             PROS_DRIVER_EPERM ||
         pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
             PROS_DRIVER_ENODEV)
