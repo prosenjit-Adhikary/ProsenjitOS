@@ -314,12 +314,16 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
     int rc = pros_driver_compat_register_package(
         PROS_COMPAT_PACKAGE_INF, model, name, ids, count, 0, package_id_out);
     if (rc != PROS_DRIVER_OK) return rc;
-    copy_inf_value(packages[*package_id_out - 1u].class_name,
-                   PROS_DRIVER_COMPAT_MAX_CLASS, text, text_len, "Class");
-    copy_inf_value(packages[*package_id_out - 1u].provider,
-                   PROS_DRIVER_COMPAT_MAX_PROVIDER, text, text_len, "Provider");
-    copy_inf_value(packages[*package_id_out - 1u].driver_ver,
-                   PROS_DRIVER_COMPAT_MAX_DRIVER_VER, text, text_len, "DriverVer");
+    {
+        struct pros_compat_package *pkg = &packages[*package_id_out - 1u];
+        uint32_t cn = line_value(text, text_len, "Class",
+                                 pkg->class_name, sizeof(pkg->class_name));
+        uint32_t pn = line_value(text, text_len, "Provider",
+                                 pkg->provider, sizeof(pkg->provider));
+        uint32_t vn = line_value(text, text_len, "DriverVer",
+                                 pkg->driver_ver, sizeof(pkg->driver_ver));
+        pkg->metadata_valid = (cn || pn || vn) ? 1u : 0u;
+    }
     return PROS_DRIVER_OK;
 }
 
