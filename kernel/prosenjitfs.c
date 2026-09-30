@@ -2801,6 +2801,34 @@ int prosenjitfs_selftest(void)
             return -64;
     }
 
+    /*
+     * Isolate the write/read regression before changing the writer:
+     * verify the inode extent and the physical block image directly.
+     * This deliberately checks byte 188, the byte that previously exposed
+     * the corruption, before exercising VFS readback.
+     */
+    {
+        struct pros_prosenjitfs_inode written_inode;
+        struct pros_prosenjitfs_extent written_extent;
+        uint64_t extent_lba = 0u;
+        uint64_t tail_lba = 0u;
+        uint8_t physical_image[4096];
+        uint8_t expected_188 = (uint8_t)((188u * 13u) ^ 0x5Au);
+
+        if (prosenjitfs_read_inode(&fs, 1u, &written_inode) != PROSENJITFS_OK)
+            return -69;
+        if (pfs_find_extent(&fs, &written_inode, 0u, &written_extent,
+                            &extent_lba, &tail_lba) != PROSENJITFS_OK)
+            return -70;
+        if (extent_lba == 0u || written_extent.physical_block >= fs.sb.total_blocks)
+            return -71;
+        if (pfs_read_block(fs.mount.device, written_extent.physical_block,
+                           physical_image) != PROSENJITFS_OK)
+            return -72;
+        if (physical_image[188u] != expected_188)
+            return -73;
+    }
+
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -65;
     if (first_block < fs.sb.data_start ||
