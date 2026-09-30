@@ -85,9 +85,19 @@ struct pros_nt_device_resource {
     uint64_t length;
 };
 
+enum pros_nt_device_state {
+    PROS_NT_DEVICE_EMPTY = 0,
+    PROS_NT_DEVICE_PRESENT,
+    PROS_NT_DEVICE_STARTED,
+    PROS_NT_DEVICE_QUERY_REMOVE,
+    PROS_NT_DEVICE_STOPPED,
+    PROS_NT_DEVICE_REMOVED
+};
+
 struct pros_nt_device_object {
     uint32_t size;
     uint32_t package_id;
+    uint32_t state;
     uint32_t bus;
     uint32_t location;
     uint16_t vendor_id;
