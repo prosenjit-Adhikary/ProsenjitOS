@@ -2973,6 +2973,81 @@ int ntfs_index_record_header(const void *record, uint32_t record_size,
     return PROS_NTFS_OK;
 }
 
+static int ntfs_index_allocation_write(const struct pros_ntfs *fs,
+                                       const struct pros_ntfs_run *runs,
+                                       uint32_t run_count,
+                                       uint64_t byte_offset,
+                                       const void *buffer,
+                                       uint32_t size)
+{
+    uint8_t sector[4096];
+    uint32_t copied = 0u;
+    uint64_t cluster_bytes;
+
+    if (!fs || !runs || run_count == 0u || !buffer || size == 0u ||
+        !fs->mount.active || fs->mount.read_only || !fs->mount.device ||
+        !fs->mount.device->write || fs->bytes_per_sector < 512u ||
+        fs->bytes_per_sector > sizeof(sector) || fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
+
+    cluster_bytes = (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
+    while (copied < size) {
+        uint64_t logical_cluster = byte_offset / cluster_bytes;
+        uint64_t cluster_offset = byte_offset % cluster_bytes;
+        uint64_t cumulative = 0u, physical_lcn = 0u;
+        uint8_t sparse = 0u, found = 0u;
+        uint64_t lba;
+        uint32_t sector_index, in_sector, take;
+
+        for (uint32_t r = 0u; r < run_count; ++r) {
+            if (logical_cluster < cumulative + runs[r].clusters) {
+                physical_lcn = runs[r].lcn + logical_cluster - cumulative;
+                if (physical_lcn < runs[r].lcn)
+                    return PROS_NTFS_EOVERFLOW;
+                sparse = runs[r].sparse;
+                found = 1u;
+                break;
+            }
+            if (runs[r].clusters > 0xFFFFFFFFFFFFFFFFull - cumulative)
+                return PROS_NTFS_EOVERFLOW;
+            cumulative += runs[r].clusters;
+        }
+        if (!found || sparse)
+            return PROS_NTFS_EIO;
+        if (ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        take = fs->bytes_per_sector - in_sector;
+        if (take > size - copied)
+            take = size - copied;
+        if (sector_index >= fs->sectors_per_cluster)
+            return PROS_NTFS_EIO;
+
+        lba += sector_index;
+        if (in_sector != 0u || take != fs->bytes_per_sector) {
+            if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                PROS_BLOCK_OK)
+                return PROS_NTFS_EIO;
+        } else {
+            for (uint32_t i = 0u; i < fs->bytes_per_sector; ++i)
+                sector[i] = ((const uint8_t *)buffer)[copied + i];
+        }
+        if (in_sector != 0u || take != fs->bytes_per_sector) {
+            for (uint32_t i = 0u; i < take; ++i)
+                sector[in_sector + i] = ((const uint8_t *)buffer)[copied + i];
+        }
+        if (block_device_write(fs->mount.device, lba, 1u, sector) !=
+            PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
+
+        copied += take;
+        byte_offset += take;
+    }
+    return PROS_NTFS_OK;
+}
+
 static int ntfs_index_allocation_read(const struct pros_ntfs *fs,
                                       const struct pros_ntfs_run *runs,
                                       uint32_t run_count,
