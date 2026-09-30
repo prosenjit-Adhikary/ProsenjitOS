@@ -25,9 +25,27 @@ static void scalar_sub_l(uint8_t a[32]) {
     }
 }
 
-static void scalar_shl1_add(uint8_t a[32], uint8_t bit) {
+static int scalar_cmp33(const uint8_t a[33], const uint8_t b[33]) {
+    for (int32_t i = 32; i >= 0; --i) {
+        if (a[(uint32_t)i] < b[(uint32_t)i]) return -1;
+        if (a[(uint32_t)i] > b[(uint32_t)i]) return 1;
+    }
+    return 0;
+}
+
+static void scalar_sub_l33(uint8_t a[33]) {
+    uint16_t borrow = 0;
+    for (uint32_t i = 0; i < 33u; ++i) {
+        uint16_t ai = a[i];
+        uint16_t bi = (i < 32u) ? (uint16_t)scalar_l[i] + borrow : borrow;
+        a[i] = (uint8_t)(ai - bi);
+        borrow = (ai < bi) ? 1u : 0u;
+    }
+}
+
+static void scalar_shl1_add33(uint8_t a[33], uint8_t bit) {
     uint16_t carry = bit & 1u;
-    for (uint32_t i = 0; i < 32u; ++i) {
+    for (uint32_t i = 0; i < 33u; ++i) {
         uint16_t v = ((uint16_t)a[i] << 1) | carry;
         a[i] = (uint8_t)v;
         carry = (uint16_t)(v >> 8);
@@ -35,18 +53,24 @@ static void scalar_shl1_add(uint8_t a[32], uint8_t bit) {
 }
 
 void pros_ed25519_scalar_reduce(uint8_t out[32], const uint8_t in[64]) {
-    for (uint32_t i = 0; i < 32u; ++i) out[i] = 0;
+    uint8_t rem[33] = { 0 };
+    uint8_t modulus[33] = { 0 };
 
-    /* Long division by L, processing the 512-bit input MSB first. */
+    for (uint32_t i = 0; i < 32u; ++i)
+        modulus[i] = scalar_l[i];
+
+    /* Long division by L, retaining the 33rd bit of the remainder. */
     for (int32_t bit = 511; bit >= 0; --bit) {
         uint8_t v = (uint8_t)((in[(uint32_t)bit >> 3] >>
                                ((uint32_t)bit & 7u)) & 1u);
-        scalar_shl1_add(out, v);
-        if (scalar_cmp(out, scalar_l) >= 0)
-            scalar_sub_l(out);
+        scalar_shl1_add33(rem, v);
+        if (scalar_cmp33(rem, modulus) >= 0)
+            scalar_sub_l33(rem);
     }
-}
 
+    for (uint32_t i = 0; i < 32u; ++i)
+        out[i] = rem[i];
+}
 int pros_ed25519_scalar_is_canonical(const uint8_t scalar[32]) {
     if (!scalar) return 0;
     return scalar_cmp(scalar, scalar_l) < 0;
