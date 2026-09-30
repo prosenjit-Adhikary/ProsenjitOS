@@ -12,6 +12,7 @@
 #include "ipc.h"
 #include "usercopy.h"
 #include "pci.h"
+#include "driver.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -1206,6 +1207,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
+
+    /* Driver-model foundation: discovery, matching, controlled binding and
+     * lifecycle are verified independently before real bus drivers consume it. */
+    if (pros_driver_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
