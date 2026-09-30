@@ -1,114 +1,154 @@
 #include "ed25519_field.h"
 
-#define FE_MASK25 0x1ffffff
-#define FE_MASK26 0x3ffffff
+#define FE_MASK ((uint64_t)((1ULL << 51) - 1ULL))
 
 static void fe_carry(struct pros_ed25519_fe *r) {
-    int64_t c;
-    c=(r->v[0]+(1LL<<25))>>26; r->v[1]+=(int32_t)c; r->v[0]-=(int32_t)(c<<26);
-    c=(r->v[1]+(1LL<<24))>>25; r->v[2]+=(int32_t)c; r->v[1]-=(int32_t)(c<<25);
-    c=(r->v[2]+(1LL<<25))>>26; r->v[3]+=(int32_t)c; r->v[2]-=(int32_t)(c<<26);
-    c=(r->v[3]+(1LL<<24))>>25; r->v[4]+=(int32_t)c; r->v[3]-=(int32_t)(c<<25);
-    c=(r->v[4]+(1LL<<25))>>26; r->v[5]+=(int32_t)c; r->v[4]-=(int32_t)(c<<26);
-    c=(r->v[5]+(1LL<<24))>>25; r->v[6]+=(int32_t)c; r->v[5]-=(int32_t)(c<<25);
-    c=(r->v[6]+(1LL<<25))>>26; r->v[7]+=(int32_t)c; r->v[6]-=(int32_t)(c<<26);
-    c=(r->v[7]+(1LL<<24))>>25; r->v[8]+=(int32_t)c; r->v[7]-=(int32_t)(c<<25);
-    c=(r->v[8]+(1LL<<25))>>26; r->v[9]+=(int32_t)c; r->v[8]-=(int32_t)(c<<26);
-    c=(r->v[9]+(1LL<<24))>>25; r->v[0]+=(int32_t)(c*19); r->v[9]-=(int32_t)(c<<25);
-    c=(r->v[0]+(1LL<<25))>>26; r->v[1]+=(int32_t)c; r->v[0]-=(int32_t)(c<<26);
+    for (uint32_t pass = 0; pass < 2u; ++pass) {
+        uint64_t c;
+        c = r->v[0] >> 51; r->v[0] &= FE_MASK; r->v[1] += c;
+        c = r->v[1] >> 51; r->v[1] &= FE_MASK; r->v[2] += c;
+        c = r->v[2] >> 51; r->v[2] &= FE_MASK; r->v[3] += c;
+        c = r->v[3] >> 51; r->v[3] &= FE_MASK; r->v[4] += c;
+        c = r->v[4] >> 51; r->v[4] &= FE_MASK; r->v[0] += c * 19u;
+    }
+}
+
+static void fe_reduce(struct pros_ed25519_fe *r) {
+    fe_carry(r);
+    struct pros_ed25519_fe p = {{
+        FE_MASK - 18u, FE_MASK, FE_MASK, FE_MASK, (1ULL << 51) - 1ULL
+    }};
+    /* The first limb of p is 2^51-19; remaining limbs are 2^51-1. */
+    uint64_t borrow = 0;
+    struct pros_ed25519_fe t;
+    for (uint32_t i = 0; i < 5u; ++i) {
+        uint64_t ai = r->v[i];
+        uint64_t bi = p.v[i] + borrow;
+        uint64_t nb = (ai < bi);
+        t.v[i] = ai - bi;
+        borrow = nb;
+    }
+    if (!borrow) *r = t;
 }
 
 void pros_ed25519_fe_zero(struct pros_ed25519_fe *r) {
-    for (uint32_t i=0;i<10u;++i) r->v[i]=0;
+    for (uint32_t i=0;i<5u;++i) r->v[i]=0;
 }
 
 void pros_ed25519_fe_one(struct pros_ed25519_fe *r) {
     pros_ed25519_fe_zero(r); r->v[0]=1;
 }
 
-void pros_ed25519_fe_from_bytes(struct pros_ed25519_fe *r,const uint8_t in[32]) {
-    uint64_t t0=(uint64_t)in[0]|((uint64_t)in[1]<<8)|((uint64_t)in[2]<<16)|((uint64_t)in[3]<<24)|((uint64_t)in[4]<<32);
-    uint64_t t1=(uint64_t)in[5]|((uint64_t)in[6]<<8)|((uint64_t)in[7]<<16)|((uint64_t)in[8]<<24)|((uint64_t)in[9]<<32);
-    uint64_t t2=(uint64_t)in[10]|((uint64_t)in[11]<<8)|((uint64_t)in[12]<<16)|((uint64_t)in[13]<<24)|((uint64_t)in[14]<<32);
-    uint64_t t3=(uint64_t)in[15]|((uint64_t)in[16]<<8)|((uint64_t)in[17]<<16)|((uint64_t)in[18]<<24)|((uint64_t)in[19]<<32);
-    uint64_t t4=(uint64_t)in[20]|((uint64_t)in[21]<<8)|((uint64_t)in[22]<<16)|((uint64_t)in[23]<<24)|((uint64_t)in[24]<<32);
-    uint64_t t5=(uint64_t)in[25]|((uint64_t)in[26]<<8)|((uint64_t)in[27]<<16)|((uint64_t)in[28]<<24)|((uint64_t)in[29]<<32);
-    uint64_t t6=(uint64_t)in[30]|((uint64_t)in[31]<<8);
-    r->v[0]=(int32_t)(t0&FE_MASK26);
-    r->v[1]=(int32_t)((t0>>26)&FE_MASK25);
-    r->v[2]=(int32_t)(((t0>>51)|(t1<<13))&FE_MASK26);
-    r->v[3]=(int32_t)((t1>>12)&FE_MASK25);
-    r->v[4]=(int32_t)(((t1>>37)|(t2<<27))&FE_MASK26);
-    r->v[5]=(int32_t)((t2>>24)&FE_MASK25);
-    r->v[6]=(int32_t)(((t2>>49)|(t3<<15))&FE_MASK26);
-    r->v[7]=(int32_t)((t3>>10)&FE_MASK25);
-    r->v[8]=(int32_t)(((t3>>35)|(t4<<29))&FE_MASK26);
-    r->v[9]=(int32_t)((t4>>23)&FE_MASK25);
-    (void)t5;(void)t6;
-    /* Canonical encoding is handled by the reduction in to_bytes. */
-}
-
-static uint64_t fe_value(const struct pros_ed25519_fe *a) {
+static uint64_t load_le64_partial(const uint8_t *p, uint32_t n) {
     uint64_t x=0;
-    for (int i=9;i>=0;--i) x=x*2u+(uint64_t)(a->v[i]&1);
+    for (uint32_t i=0;i<n;++i) x |= (uint64_t)p[i] << (8u*i);
     return x;
 }
 
+void pros_ed25519_fe_from_bytes(struct pros_ed25519_fe *r,const uint8_t in[32]) {
+    uint64_t t0=load_le64_partial(in,8);
+    uint64_t t1=load_le64_partial(in+8,8);
+    uint64_t t2=load_le64_partial(in+16,8);
+    uint64_t t3=load_le64_partial(in+24,8);
+    t3 &= (1ULL<<63)-1ULL;
+    r->v[0]=t0 & FE_MASK;
+    r->v[1]=((t0>>51) | (t1<<13)) & FE_MASK;
+    r->v[2]=((t1>>38) | (t2<<26)) & FE_MASK;
+    r->v[3]=((t2>>25) | (t3<<39)) & FE_MASK;
+    r->v[4]=(t3>>12) & FE_MASK;
+    fe_reduce(r);
+}
+
+static void store_le64(uint8_t *p,uint64_t x) {
+    for(uint32_t i=0;i<8u;++i) p[i]=(uint8_t)(x>>(8u*i));
+}
+
 void pros_ed25519_fe_to_bytes(uint8_t out[32],const struct pros_ed25519_fe *a) {
-    /*
-     * Serialization is implemented through the canonical carry path.
-     * The current arithmetic layer deliberately exposes only normalized
-     * field operations; full canonical reduction/encoding is a later
-     * verifier milestone.
-     */
     struct pros_ed25519_fe t=*a;
-    fe_carry(&t);
-    for(uint32_t i=0;i<32u;++i) out[i]=0;
-    for(uint32_t i=0;i<10u;++i) {
-        uint32_t bit=(i==0u)?0u:0u;
-        (void)bit;
-    }
-    /* Avoid publishing a non-canonical encoding until reduction is complete. */
+    fe_reduce(&t);
+    uint64_t x0=t.v[0] | (t.v[1]<<51);
+    uint64_t x1=(t.v[1]>>13) | (t.v[2]<<38);
+    uint64_t x2=(t.v[2]>>26) | (t.v[3]<<25);
+    uint64_t x3=(t.v[3]>>39) | (t.v[4]<<12);
+    store_le64(out,x0); store_le64(out+8,x1);
+    store_le64(out+16,x2); store_le64(out+24,x3);
 }
 
 void pros_ed25519_fe_add(struct pros_ed25519_fe *r,const struct pros_ed25519_fe *a,const struct pros_ed25519_fe *b) {
-    for(uint32_t i=0;i<10u;++i) r->v[i]=a->v[i]+b->v[i];
-    fe_carry(r);
+    for(uint32_t i=0;i<5u;++i) r->v[i]=a->v[i]+b->v[i];
+    fe_reduce(r);
 }
 
 void pros_ed25519_fe_sub(struct pros_ed25519_fe *r,const struct pros_ed25519_fe *a,const struct pros_ed25519_fe *b) {
-    static const int32_t p[10]={67108845,33554431,67108863,33554431,67108863,33554431,67108863,33554431,67108863,33554431};
-    for(uint32_t i=0;i<10u;++i) r->v[i]=a->v[i]-b->v[i]+p[i];
-    fe_carry(r);
+    /*
+     * Add 2p before subtraction so unsigned limb arithmetic cannot underflow.
+     * The final reduction returns the canonical representative.
+     */
+    static const uint64_t two_p[5] = {
+        (1ULL<<51)-38ULL, (1ULL<<52)-2ULL, (1ULL<<52)-2ULL,
+        (1ULL<<52)-2ULL, (1ULL<<52)-2ULL
+    };
+    uint64_t borrow=0;
+    for(uint32_t i=0;i<5u;++i) {
+        uint64_t bi=b->v[i]+borrow;
+        uint64_t nb=(two_p[i]+a->v[i] < bi);
+        r->v[i]=two_p[i]+a->v[i]-bi;
+        borrow=nb;
+    }
+    fe_reduce(r);
 }
 
 void pros_ed25519_fe_mul(struct pros_ed25519_fe *r,const struct pros_ed25519_fe *a,const struct pros_ed25519_fe *b) {
-    int64_t t[19]={0};
-    for(uint32_t i=0;i<10u;++i)
-        for(uint32_t j=0;j<10u;++j)
-            t[i+j]+=(int64_t)a->v[i]*b->v[j];
-    for(int i=18;i>=10;--i) t[i-10]+=t[i]*19;
-    for(uint32_t i=0;i<10u;++i) r->v[i]=(int32_t)t[i];
-    fe_carry(r);
+    __uint128_t t[5]={0,0,0,0,0};
+    for(uint32_t i=0;i<5u;++i)
+        for(uint32_t j=0;j<5u;++j)
+            t[(i+j)%5u] += (__uint128_t)a->v[i]*b->v[j]*(i+j>=5u ? 19u : 1u);
+
+    for(uint32_t i=0;i<5u;++i) {
+        r->v[i]=(uint64_t)t[i] & FE_MASK;
+        t[(i+1u)%5u] += t[i] >> 51;
+    }
+    fe_reduce(r);
 }
 
 void pros_ed25519_fe_square(struct pros_ed25519_fe *r,const struct pros_ed25519_fe *a) {
     pros_ed25519_fe_mul(r,a,a);
 }
 
+int pros_ed25519_fe_equal(const struct pros_ed25519_fe *a,const struct pros_ed25519_fe *b) {
+    uint8_t aa[32],bb[32],diff=0;
+    pros_ed25519_fe_to_bytes(aa,a);
+    pros_ed25519_fe_to_bytes(bb,b);
+    for(uint32_t i=0;i<32u;++i) diff|=(uint8_t)(aa[i]^bb[i]);
+    return diff==0;
+}
+
 int pros_ed25519_fe_selftest(void) {
+    static const uint8_t two[32]={2};
+    static const uint8_t p_minus_one[32]={
+        0xec,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x7f
+    };
     struct pros_ed25519_fe a,b,r;
     uint8_t out[32];
-    pros_ed25519_fe_one(&a);
+
+    pros_ed25519_fe_from_bytes(&a,two);
+    pros_ed25519_fe_from_bytes(&b,two);
+    pros_ed25519_fe_add(&r,&a,&b);
+    pros_ed25519_fe_to_bytes(out,&r);
+    if(out[0]!=4) return -1;
+    for(uint32_t i=1;i<32u;++i) if(out[i]!=0) return -2;
+
+    pros_ed25519_fe_from_bytes(&a,p_minus_one);
     pros_ed25519_fe_one(&b);
     pros_ed25519_fe_add(&r,&a,&b);
-    if(r.v[0]!=2) return -1;
-    pros_ed25519_fe_mul(&r,&a,&b);
-    if(r.v[0]!=1) return -2;
-    pros_ed25519_fe_sub(&r,&a,&b);
-    if(r.v[0]!=0) return -3;
-    pros_ed25519_fe_to_bytes(out,&a);
-    for(uint32_t i=0;i<32u;++i) if(out[i]!=0) return -4;
-    (void)fe_value;
+    pros_ed25519_fe_to_bytes(out,&r);
+    for(uint32_t i=0;i<32u;++i) if(out[i]!=0) return -3;
+
+    pros_ed25519_fe_from_bytes(&a,two);
+    pros_ed25519_fe_square(&r,&a);
+    if(!pros_ed25519_fe_equal(&r,&(struct pros_ed25519_fe){{4,0,0,0,0}})) return -4;
     return 0;
 }
