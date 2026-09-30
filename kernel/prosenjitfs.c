@@ -764,9 +764,22 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     PROSENJITFS_OK ||
                 (tail_lba != 0u &&
                  pfs_tx_add(data->fs, tail_lba, tail_image) != PROSENJITFS_OK) ||
-                pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK ||
-                pfs_tx_commit(data->fs) != PROSENJITFS_OK)
+                pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
+
+            if (data_image[188u] != ((uint8_t)((188u * 13u) ^ 0x5Au)))
+                return done ? (int)done : -74;
+
+            if (pfs_tx_commit(data->fs) != PROSENJITFS_OK)
+                return done ? (int)done : PROS_VFS_EIO;
+
+            {
+                uint8_t verify_image[4096];
+                if (pfs_read_block(data->fs->mount.device, physical,
+                                   verify_image) != PROSENJITFS_OK ||
+                    verify_image[188u] != ((uint8_t)((188u * 13u) ^ 0x5Au)))
+                    return done ? (int)done : -75;
+            }
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
             uint8_t inode_changed = 0u;
