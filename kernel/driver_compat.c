@@ -127,6 +127,9 @@ int pros_driver_compat_register_package(
     pkg->model = model;
     pkg->status = PROS_COMPAT_STATUS_INSPECTED;
     pkg->flags = flags;
+    pkg->trust = (flags & PROS_COMPAT_FLAG_SIGNED) ?
+        PROS_COMPAT_TRUST_UNKNOWN : PROS_COMPAT_TRUST_UNSIGNED;
+    pkg->dependency_count = 0;
     pkg->vendor_id = ids[0].vendor_id;
     pkg->device_id = ids[0].device_id;
     pkg->class_code = ids[0].class_code;
@@ -190,6 +193,69 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
     model = detect_model(text, text_len);
     return pros_driver_compat_register_package(
         PROS_COMPAT_PACKAGE_INF, model, name, ids, count, 0, package_id_out);
+}
+
+int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust trust)
+{
+    if (package_id == 0 || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+    if (trust > PROS_COMPAT_TRUST_REJECTED)
+        return PROS_DRIVER_EINVAL;
+    packages[package_id - 1u].trust = trust;
+    if (trust == PROS_COMPAT_TRUST_REJECTED)
+        packages[package_id - 1u].status = PROS_COMPAT_STATUS_REJECTED;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id)
+{
+    struct pros_compat_package *pkg;
+    uint32_t i;
+    if (package_id == 0 || package_id > package_count ||
+        dependency_id == 0 || dependency_id > package_count)
+        return PROS_DRIVER_EINVAL;
+    pkg = &packages[package_id - 1u];
+    if (pkg->dependency_count >= PROS_DRIVER_COMPAT_MAX_DEPS)
+        return PROS_DRIVER_ENOSPC;
+    for (i = 0; i < pkg->dependency_count; ++i)
+        if (pkg->dependencies[i] == dependency_id)
+            return PROS_DRIVER_OK;
+    pkg->dependencies[pkg->dependency_count++] = dependency_id;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_match(uint32_t package_id,
+                             const struct pros_driver_id *hwid,
+                             int *score_out)
+{
+    uint32_t i;
+    int score;
+    if (!hwid || !score_out || package_id == 0 || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+    if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED ||
+        packages[package_id - 1u].trust == PROS_COMPAT_TRUST_REJECTED)
+        return PROS_DRIVER_ENODEV;
+    for (i = 0; i < packages[package_id - 1u].id_count; ++i) {
+        const struct pros_driver_id *id = &package_ids[package_id - 1u][i];
+        if (id->bus != PROS_DRIVER_BUS_NONE && id->bus != hwid->bus) continue;
+        if (id->vendor_id != 0 && id->vendor_id != hwid->vendor_id) continue;
+        if (id->device_id != 0 && id->device_id != hwid->device_id) continue;
+        if (id->class_code != 0 && id->class_code != hwid->class_code) continue;
+        if (id->subclass != 0 && id->subclass != hwid->subclass) continue;
+        if (id->prog_if != 0 && id->prog_if != hwid->prog_if) continue;
+        score = 1;
+        if (id->vendor_id) score += 64;
+        if (id->device_id) score += 64;
+        if (id->class_code) score += 16;
+        if (id->subclass) score += 8;
+        if (id->prog_if) score += 4;
+        if (id->bus != PROS_DRIVER_BUS_NONE) score += 2;
+        if (packages[package_id - 1u].trust == PROS_COMPAT_TRUST_VERIFIED)
+            score += 1;
+        *score_out = score;
+        return PROS_DRIVER_OK;
+    }
+    return PROS_DRIVER_ENODEV;
 }
 
 int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
