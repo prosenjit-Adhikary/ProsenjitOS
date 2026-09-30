@@ -246,6 +246,34 @@ int pros_driver_compat_set_trust_evidence(
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_compat_bind_admission(
+    uint32_t package_id, const struct pros_file_admission_record *record)
+{
+    uint32_t i;
+
+    if (package_id == 0 || package_id > package_count || !record)
+        return PROS_DRIVER_EINVAL;
+    if (!packages[package_id - 1u].content_sha256_valid)
+        return PROS_DRIVER_EPERM;
+    if (record->security.action != PROS_FILE_ALLOW)
+        return PROS_DRIVER_EPERM;
+
+    /*
+     * Admission is bound to the exact package bytes by SHA-256.  This is
+     * policy/admission evidence only; it does not turn caller-provided
+     * signature metadata into cryptographic signature verification.
+     */
+    for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i) {
+        if (packages[package_id - 1u].content_sha256[i] != record->sha256[i])
+            return PROS_DRIVER_EPERM;
+    }
+
+    packages[package_id - 1u].trust = PROS_COMPAT_TRUST_VERIFIED;
+    packages[package_id - 1u].trust_evidence =
+        PROS_COMPAT_EVIDENCE_ADMISSION_POLICY;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id)
 {
     struct pros_compat_package *pkg;
@@ -488,13 +516,23 @@ int pros_driver_compat_selftest(void)
         != PROS_DRIVER_ENOTSUP)
         return PROS_DRIVER_EIO;
 
-    if (pros_driver_compat_set_trust(package_id,
-                                     PROS_COMPAT_TRUST_VERIFIED)
-        != PROS_DRIVER_OK)
-        return PROS_DRIVER_EIO;    if (pros_driver_compat_set_trust_evidence(
-            package_id, PROS_COMPAT_EVIDENCE_TEST_ONLY)
-        != PROS_DRIVER_OK)
-        return PROS_DRIVER_EIO;
+    {
+        struct pros_file_admission_input admission_input;
+        struct pros_file_admission_record admission_record;
+        admission_input.data = (const uint8_t *)inf;
+        admission_input.length = (uint64_t)(sizeof(inf) - 1u);
+        admission_input.metadata.format_valid = 1u;
+        admission_input.metadata.signature_valid = 0u;
+        admission_input.metadata.signature_present = 0u;
+        admission_input.metadata.local_trusted = 1u;
+        admission_input.metadata.local_denied = 0u;
+        admission_input.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+        admission_input.metadata.provenance_known = 1u;
+        if (pros_file_admission_evaluate(&admission_input, &admission_record) != 0 ||
+            pros_driver_compat_bind_admission(package_id, &admission_record)
+                != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_driver_compat_begin(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_verify(package_id) != PROS_DRIVER_OK)
