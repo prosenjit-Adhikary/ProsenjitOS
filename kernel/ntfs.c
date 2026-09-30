@@ -3436,9 +3436,9 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
         run_count == 0u)
         return PROS_NTFS_ECORRUPT;
 
-    if (le64(record + alloc_attr + 48u) % cluster_bytes != 0u)
+    if (le64(record + alloc_attr + 40u) % cluster_bytes != 0u)
         return PROS_NTFS_ECORRUPT;
-    old_clusters = le64(record + alloc_attr + 48u) / cluster_bytes;
+    old_clusters = le64(record + alloc_attr + 40u) / cluster_bytes;
     if (old_clusters > 0xFFFFFFFFFFFFFFFFull - 1u)
         return PROS_NTFS_EOVERFLOW;
     vcn = old_clusters;
@@ -3508,6 +3508,8 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
     {
         uint64_t new_allocated_size = (old_clusters + 1u) * cluster_bytes;
         for (uint32_t i = 0u; i < 8u; ++i) {
+            record[alloc_attr + 40u + i] =
+                (uint8_t)(new_allocated_size >> (8u * i));
             record[alloc_attr + 48u + i] =
                 (uint8_t)(new_allocated_size >> (8u * i));
             record[alloc_attr + 56u + i] =
