@@ -409,6 +409,12 @@ int pros_driver_bundle_selftest(void) {
                     PROS_DRIVER_OK)
                 return -14;
 
+            if (pros_driver_bundle_add(
+                    package_v2_id, PROS_DRIVER_BUNDLE_LOCAL,
+                    3u, 0u, 0u, entry_v2.content_sha256) !=
+                PROS_DRIVER_OK)
+                return -18;
+
             {
                 uint8_t replacement_digest[PROS_FILE_SHA256_BYTES];
                 for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
