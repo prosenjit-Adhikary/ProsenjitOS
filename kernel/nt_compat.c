@@ -1,5 +1,15 @@
 #include "nt_compat.h"
 
+static int nt_compat_test_handler(uint32_t package_id, uint32_t irp_major,
+                                   void *context)
+{
+    struct pros_nt_io_request *request = (struct pros_nt_io_request *)context;
+    (void)package_id;
+    if (!request || irp_major != PROS_NT_IRP_READ)
+        return PROS_DRIVER_EINVAL;
+    return PROS_DRIVER_OK;
+}
+
 static struct pros_nt_compat_image images[PROS_NT_COMPAT_MAX_HANDLES];
 static struct pros_nt_compat_dispatch_table dispatch[PROS_NT_COMPAT_MAX_HANDLES];
 
@@ -197,6 +207,30 @@ int pros_nt_compat_selftest(void)
     if (pros_nt_compat_stage(1u) != PROS_DRIVER_ENOTSUP)
         return PROS_DRIVER_EIO;
     if (pros_nt_compat_quarantine(1u) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_rollback(1u) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
+                                               nt_compat_test_handler)
+        != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    {
+        struct pros_nt_io_request request;
+        request.size = sizeof(request);
+        request.type = PROS_NT_IO_READ;
+        request.major = PROS_NT_IRP_READ;
+        request.control_code = 0;
+        request.buffer_size = 0;
+        request.buffer = 0;
+        request.status = PROS_DRIVER_EIO;
+        request.information = 0;
+        if (pros_nt_compat_submit_io(1u, &request) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+    }
+    if (pros_nt_compat_quarantine(1u) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_dispatch(1u, PROS_NT_IRP_READ, 0)
+        != PROS_DRIVER_EPERM)
         return PROS_DRIVER_EIO;
     if (pros_nt_compat_rollback(1u) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
