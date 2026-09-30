@@ -8,7 +8,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
 2. **exFAT:** harden the read-only VFS integration; Up-case table discovery, checksum validation, compressed/uncompressed parsing, UTF-16 filename decoding, UTF-8 lookup, and Unicode case-folded VFS lookup are now integrated, with broader real-volume regression coverage remaining.
 3. **NTFS:** continue from the current safe file-data write path toward directory-index mutation, cluster allocation, and journal/recovery; keep destructive metadata writes out until each stage is regression-tested.
-4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing admission/quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
+4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing File admission/security broker and quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** the driver model foundation is now implemented around the PCI enumeration layer; next work is the device permission broker and concrete keyboard/display/network device abstractions.
 6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
 7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone.
