@@ -47,6 +47,7 @@ Freestanding kernel implementation:
 - filesystem providers
 - VFS and partition discovery
 - security admission/quarantine
+- kernel logging, panic/crash diagnostics, and monitoring hooks
 
 ### include/
 Public/shared interfaces and user/kernel ABI definitions.
@@ -58,7 +59,7 @@ documented and deterministic.
 
 ### docs/
 Architecture, security contracts, storage formats, roadmap, recovery design,
-and CI/regression contracts.
+monitoring/logging requirements, and CI/regression contracts.
 
 ### .github/workflows/
 Build/boot and security gates. Every new hardware/storage/security milestone
@@ -85,7 +86,8 @@ kernel/
 ├── NTFS
 ├── ProsenjitFS
 ├── storage discovery
-└── security admission/quarantine
+├── security admission/quarantine
+└── logging/monitoring/crash diagnostics
 
 ## 4. Storage path
 
@@ -156,7 +158,41 @@ Detect
 Recovery must be non-destructive by default. Integrity checking and journal
 replay must be independently testable before automatic repair is enabled.
 
-## 9. Completion gates
+## 9. Monitoring and logging contract
+
+Monitoring and logging are mandatory platform infrastructure, not optional
+debugging features.
+
+### Required monitoring domains
+- System health: CPU, memory, storage, filesystem, boot and kernel health.
+- Process/service health: lifecycle, failures, hangs and bounded watchdog events.
+- Network: device/link state and security-relevant network events.
+- Security: authentication/authorization, capability, policy, quarantine and
+  other security events.
+- Filesystem/storage: mount, I/O, journal/recovery, corruption and integrity
+  events.
+- Driver/device: discovery, bind/unbind, faults and permission changes.
+- Kernel: warnings, exceptions, faults, panic and crash diagnostics.
+
+### Required logging architecture
+- A central structured event/log collector interface.
+- Persistent local logs suitable for post-crash diagnostics.
+- Severity/category/source/timestamp metadata.
+- Boot, kernel panic and crash logs must survive reboot where technically
+  possible.
+- Log rotation, retention and bounded storage consumption.
+- Explicit privacy/security rules for sensitive log data.
+- Deterministic diagnostic export for support and CI/QEMU regression.
+- Monitoring must degrade safely if the logging backend is unavailable; logging
+  must never become a new kernel corruption or boot dependency.
+
+### Completion rule
+Monitoring/logging is complete only after the interfaces, persistent storage,
+rotation/retention, crash/panic capture, service/process health, network/security
+events and automated regression coverage are implemented and verified. Do not
+mark this requirement complete merely because debug prints exist.
+
+## 10. Completion gates
 
 ### Gate A — Build
 ISO and native BIOS image build with warnings-as-errors.
@@ -165,13 +201,16 @@ ISO and native BIOS image build with warnings-as-errors.
 GRUB ISO boot and native BIOS boot with deterministic serial markers.
 
 ### Gate C — Kernel
-Memory, interrupts, scheduler, process, syscall, IPC and usercopy regressions.
+Memory, interrupts, scheduler, process, syscall, IPC, usercopy, kernel
+logging, panic/crash diagnostics and monitoring-hook regressions.
 
 ### Gate D — Security
-Capability, sandbox, admission, quarantine and Reason Ledger regressions.
+Capability, sandbox, admission, quarantine, Reason Ledger and security-event
+logging regressions.
 
 ### Gate E — Storage
-Block device -> partition -> filesystem -> VFS regressions.
+Block device -> partition -> filesystem -> VFS regressions, including
+filesystem/storage monitoring events where applicable.
 
 ### Gate F — User mode
 ELF -> process startup -> init -> CUI utilities.
@@ -186,18 +225,26 @@ POSIX/Linux/Windows application layers with isolated profiles.
 Signing, verified boot, updates, rollback, fuzzing, recovery and release
 artifact verification.
 
+### Gate J — Observability
+Structured logging, persistent logs, rotation/retention, boot/crash/panic
+diagnostics, system/process/service/network/security/filesystem monitoring,
+diagnostic export and regression coverage.
+
 A gate is only marked complete after its automated regression exists and the
 corresponding CI run is green.
 
-## 10. Current execution rule
+## 11. Current execution rule
 
 The project is now in a structure-first stabilization stage.
 
 1. Finish missing architectural interfaces and deterministic test hooks.
 2. Do not hide incomplete features by marking roadmap items complete.
-3. Run the full CI matrix.
-4. Fix build errors first.
-5. Fix boot/runtime regressions second.
-6. Fix storage/filesystem regressions third.
-7. Fix security regressions fourth.
-8. Only after the current baseline is green, start the next dependent feature.
+3. Treat monitoring/logging and diagnostic infrastructure as mandatory platform
+   requirements, not optional polish.
+4. Run the full CI matrix.
+5. Fix build errors first.
+6. Fix boot/runtime regressions second.
+7. Fix storage/filesystem regressions third.
+8. Fix security regressions fourth.
+9. Verify observability/diagnostic regressions alongside the affected subsystem.
+10. Only after the current baseline is green, start the next dependent feature.
