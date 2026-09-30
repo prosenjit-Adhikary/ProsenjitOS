@@ -1,4 +1,5 @@
 #include "health.h"
+#include "driver.h"
 #include "heap.h"
 #include "timer.h"
 
