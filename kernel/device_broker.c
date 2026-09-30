@@ -28,6 +28,7 @@ int pros_device_grant(uint32_t device_id, uint32_t process_id,
                       uint32_t permissions)
 {
     const struct pros_driver_device *device;
+
     if (!broker_ready || device_id == 0u || process_id == 0u ||
         !valid_permission(permissions))
         return PROS_DRIVER_EINVAL;
@@ -78,7 +79,6 @@ int pros_device_check(uint32_t device_id, uint32_t process_id,
     if (!broker_ready || device_id == 0u || process_id == 0u ||
         !valid_permission(permission) || (permission & (permission - 1u)) != 0u)
         return PROS_DRIVER_EINVAL;
-
     if (!pros_device_get(device_id))
         return PROS_DRIVER_ENODEV;
 
@@ -91,9 +91,17 @@ int pros_device_check(uint32_t device_id, uint32_t process_id,
     return PROS_DRIVER_EPERM;
 }
 
+static int broker_test_probe(struct pros_driver_device *device)
+{
+    device->driver_data = device->bus_data;
+    return PROS_DRIVER_OK;
+}
+
 int pros_device_broker_selftest(void)
 {
-    static const struct pros_driver_ops ops = { 0, 0, 0, 0 };
+    static const struct pros_driver_ops ops = {
+        broker_test_probe, 0, 0, 0
+    };
     static const struct pros_driver_id ids[] = {
         { PROS_DRIVER_BUS_VIRTUAL, 0x1111u, 0x2222u, 0u, 0u, 0u }
     };
@@ -106,10 +114,36 @@ int pros_device_broker_selftest(void)
         0u, PROS_DRIVER_BUS_VIRTUAL, PROS_DEVICE_CLASS_STORAGE,
         PROS_DEVICE_DISCOVERED,
         { PROS_DRIVER_BUS_VIRTUAL, 0x1111u, 0x2222u, 0u, 0u, 0u },
-        "broker-test-device", 0, 0, 0
+        "broker-test-device", 0, 0, (void *)(uintptr_t)0xA5u
     };
+    uint32_t device_id;
 
-    if (pros_driver_broker_unused_marker != 0u)
+    if (pros_driver_manager_init() != PROS_DRIVER_OK ||
+        pros_device_broker_init() != PROS_DRIVER_OK ||
+        pros_driver_register(&driver) != PROS_DRIVER_OK ||
+        pros_device_register(&device) != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
-    return PROS_DRIVER_ENOTSUP;
+
+    device_id = device.id;
+    if (pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
+            PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
+            PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_EPERM ||
+        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_ENODEV)
+        return PROS_DRIVER_EINVAL;
+
+    if (pros_driver_bind(device_id) != PROS_DRIVER_OK ||
+        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_OK ||
+        pros_device_revoke(device_id, 7u) != PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
+            PROS_DRIVER_EPERM)
+        return PROS_DRIVER_EINVAL;
+
+    return PROS_DRIVER_OK;
 }
