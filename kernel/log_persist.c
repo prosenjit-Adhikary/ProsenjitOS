@@ -251,7 +251,7 @@ int pros_log_persist_detach(void) {
     persist_file = (struct pros_vfs_file){0};
     attached = 0u;
     bytes_written = 0u;
-    persist_path[0] = '\\0';
+    persist_path[0] = '\0';
     return PROS_LOG_PERSIST_OK;
 }
 
