@@ -8,6 +8,12 @@
 #define PROS_DRIVER_COMPAT_MAX_PACKAGES 16u
 #define PROS_DRIVER_COMPAT_MAX_IDS 16u
 #define PROS_DRIVER_COMPAT_MAX_NAME 64u
+#define PROS_DRIVER_COMPAT_MAX_DEPS 8u
+
+#define PROS_COMPAT_FLAG_SIGNED          0x0001u
+#define PROS_COMPAT_FLAG_KERNEL_MODE     0x0002u
+#define PROS_COMPAT_FLAG_USER_MODE      0x0004u
+#define PROS_COMPAT_FLAG_BOOT_CRITICAL  0x0008u
 
 enum pros_compat_package_type {
     PROS_COMPAT_PACKAGE_UNKNOWN = 0,
@@ -26,6 +32,13 @@ enum pros_compat_driver_model {
     PROS_COMPAT_MODEL_USB
 };
 
+enum pros_compat_trust {
+    PROS_COMPAT_TRUST_UNKNOWN = 0,
+    PROS_COMPAT_TRUST_UNSIGNED,
+    PROS_COMPAT_TRUST_VERIFIED,
+    PROS_COMPAT_TRUST_REJECTED
+};
+
 enum pros_compat_status {
     PROS_COMPAT_STATUS_EMPTY = 0,
     PROS_COMPAT_STATUS_INSPECTED,
@@ -39,6 +52,9 @@ struct pros_compat_package {
     enum pros_compat_driver_model model;
     enum pros_compat_status status;
     uint32_t flags;
+    enum pros_compat_trust trust;
+    uint32_t dependency_count;
+    uint32_t dependencies[PROS_DRIVER_COMPAT_MAX_DEPS];
     uint16_t vendor_id;
     uint16_t device_id;
     uint8_t class_code;
@@ -69,6 +85,11 @@ int pros_driver_compat_get_package(uint32_t package_id,
 int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
                               struct pros_driver_id *out);
 int pros_driver_compat_supports_model(enum pros_compat_driver_model model);
+int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust trust);
+int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id);
+int pros_driver_compat_match(uint32_t package_id,
+                             const struct pros_driver_id *hwid,
+                             int *score_out);
 int pros_driver_compat_inspect_inf(const char *name, const char *text,
                                     uint32_t text_len, uint32_t *package_id_out);
 int pros_driver_compat_selftest(void);
