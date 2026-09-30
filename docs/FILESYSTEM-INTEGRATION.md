@@ -62,6 +62,7 @@ Every filesystem integration change must preserve:
 6. exFAT self-test, including Up-case/Unicode coverage.
 7. NTFS read/path/write regression markers already required by CI.
 8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in.
+9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
 
 A real QEMU disk-device test for ProsenjitFS is a separate milestone. It must not be claimed until the kernel has a real ATA/AHCI/NVMe/USB-visible block-device path.
 
