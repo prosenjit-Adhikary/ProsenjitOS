@@ -2837,6 +2837,8 @@ int prosenjitfs_selftest(void)
                     saw_physical_write = 1u;
                     if (disk.write_log_byte188[slot] == expected_188)
                         saw_expected = 1u;
+                    else
+                        return (int)(-100 - disk.write_log_byte188[slot]);
                     break;
                 }
             }
