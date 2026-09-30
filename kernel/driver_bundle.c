@@ -43,8 +43,8 @@ int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_
                         e->version_patch == pa &&
                         e->content_sha256_valid);
             if (same)
-                for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
-                    if (e->content_sha256[d] != d[d])
+                for (uint32_t j = 0u; j < PROS_FILE_SHA256_BYTES; ++j)
+                    if (e->content_sha256[j] != d[j])
                         same = 0;
             /*
              * An active entry is immutable. An exact re-add is idempotent;
