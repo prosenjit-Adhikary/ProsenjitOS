@@ -1573,6 +1573,70 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
     return PROS_NTFS_EIO;
 }
 
+static int ntfs_write_mft_mirror_record(const struct pros_ntfs *fs,
+                                               uint64_t record_number,
+                                               const uint8_t *record)
+{
+    uint64_t byte_offset;
+    uint64_t cluster_bytes;
+    uint32_t written = 0u;
+
+    if (!fs || !record || record_number >= 4u ||
+        fs->mftmirr_lcn > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record == 0u ||
+        fs->bytes_per_sector == 0u ||
+        fs->sectors_per_cluster == 0u ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_EINVAL;
+
+    if (record_number >
+        0xFFFFFFFFFFFFFFFFull / fs->bytes_per_file_record)
+        return PROS_NTFS_EOVERFLOW;
+
+    byte_offset = record_number * (uint64_t)fs->bytes_per_file_record;
+    cluster_bytes = (uint64_t)fs->bytes_per_sector *
+                    fs->sectors_per_cluster;
+    if (cluster_bytes == 0u)
+        return PROS_NTFS_EOVERFLOW;
+
+    while (written < fs->bytes_per_file_record) {
+        uint64_t logical_cluster = byte_offset / cluster_bytes;
+        uint64_t cluster_offset = byte_offset % cluster_bytes;
+        uint64_t mirror_lcn;
+        uint64_t lba;
+        uint32_t sector_index;
+        uint32_t in_sector;
+        uint32_t take;
+
+        if (logical_cluster >
+            0x0000FFFFFFFFFFFFull - fs->mftmirr_lcn)
+            return PROS_NTFS_EOVERFLOW;
+        mirror_lcn = fs->mftmirr_lcn + logical_cluster;
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        in_sector = (uint32_t)(cluster_offset % fs->bytes_per_sector);
+        take = fs->bytes_per_sector - in_sector;
+
+        /* File records are sector-aligned; refuse partial mirror writes. */
+        if (in_sector != 0u ||
+            take != fs->bytes_per_sector ||
+            sector_index >= fs->sectors_per_cluster ||
+            take > fs->bytes_per_file_record - written)
+            return PROS_NTFS_ECORRUPT;
+
+        if (ntfs_cluster_lba(fs, mirror_lcn, &lba) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        lba += sector_index;
+        if (block_device_write(fs->mount.device, lba, 1u,
+                               record + written) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
+
+        written += take;
+        byte_offset += take;
+    }
+
+    return PROS_NTFS_OK;
+}
+
 static int ntfs_write_file_record(struct pros_ntfs *fs,
                                       uint64_t record_number,
                                       uint8_t *record)
@@ -1670,6 +1734,13 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
 
         written += take;
         byte_offset += take;
+    }
+
+    if (record_number < 4u) {
+        int mirror_status = ntfs_write_mft_mirror_record(fs, record_number,
+                                                         record);
+        if (mirror_status != PROS_NTFS_OK)
+            return mirror_status;
     }
 
     return PROS_NTFS_OK;
