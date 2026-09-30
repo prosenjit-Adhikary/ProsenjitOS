@@ -41,6 +41,19 @@ int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *
                               uint32_t *selected_package_id, int *score_out);
 int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
                                    uint32_t *selected_package_id, int *score_out);
+/* Register, hash, admission-bind, and transaction-verify an offline package. */
+int pros_driver_bundle_admit_package(
+    enum pros_compat_package_type type,
+    enum pros_compat_driver_model model,
+    const char *name,
+    const struct pros_driver_id *ids,
+    uint32_t id_count,
+    uint32_t flags,
+    enum pros_driver_bundle_source source,
+    uint32_t major, uint32_t minor, uint32_t patch,
+    const uint8_t *content, uint64_t content_length,
+    const struct pros_file_admission_record *admission,
+    uint32_t *package_id_out);
 int pros_driver_bundle_selftest(void);
 
 #endif
