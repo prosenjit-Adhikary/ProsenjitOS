@@ -57,7 +57,8 @@ static int ci_match4(const char *p, const char *tag);
 static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
 {
     uint16_t vendor, device;
-    if (pos > len || len - pos < 21u) return 0;
+    uint32_t end;
+    if (!text || pos > len || len - pos < 21u) return 0;
     if (!ci_match4(&text[pos], "PCI") || text[pos + 3u] != '\\' ||
         !ci_match4(&text[pos + 4u], "VEN") || text[pos + 7u] != '_')
         return 0;
@@ -66,6 +67,13 @@ static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
         text[pos + 16u] != '_')
         return 0;
     if (!parse_hex4(&text[pos + 17u], &device)) return 0;
+    end = pos + 21u;
+    if (end < len) {
+        char next = text[end];
+        if (next != '&' && next != ',' && next != ' ' && next != '\t' &&
+            next != '\r' && next != '\n' && next != ';')
+            return 0;
+    }
     return 1;
 }
 
@@ -282,8 +290,9 @@ static uint32_t line_value(const char *text, uint32_t len, const char *key,
             }
             if (j == klen && len - i > klen && text[i+klen] == '=') {
                 uint32_t p=i+klen+1, n=0;
-                while (p <= len && len - p > 0u && text[p+n]!='\r' && text[p+n]!='\n' && n+1<out_len) {
-                    out[n]=text[p+n]; ++n;
+                while (p < len && n + 1u < out_len &&
+                       text[p] != '\r' && text[p] != '\n') {
+                    out[n++] = text[p++];
                 }
                 while(n && (out[n-1]==' ' || out[n-1]=='\t')) --n;
                 out[n]=0;
