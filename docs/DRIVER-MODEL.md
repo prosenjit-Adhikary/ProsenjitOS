@@ -57,7 +57,9 @@ The file-admission policy also distinguishes explicit local trust from
 cryptographic signature verification: a locally trusted, valid package may be
 admitted without a signature, but that policy result is not represented as
 cryptographic signature proof. Compatibility matching still requires the
-admission-backed VERIFIED state and active transaction boundary.
+admission-backed VERIFIED state and active transaction boundary. Inconsistent
+signature metadata (signature marked valid while no signature is present) is
+treated as suspicious/quarantined rather than as verification evidence.
 
 Compatibility package matching is additionally gated by an active verified
 transaction state. Trust/evidence metadata in IDLE, INSPECTED, or ROLLED_BACK
