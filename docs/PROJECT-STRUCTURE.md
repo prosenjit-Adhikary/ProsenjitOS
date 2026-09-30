@@ -181,6 +181,11 @@ debugging features.
 - The initial monitor self-test and boot-time sample run after kernel heap initialization.
 - This is only the monitoring foundation: persistent storage, rotation/retention, crash/panic persistence, watchdogs and recovery-state integration remain separate completion gates.
 
+### Central diagnostic export
+- The health monitor now exposes a bounded deterministic text export of retained structured events.
+- Export is caller-buffer bounded and does not allocate dynamically.
+- The export is diagnostic transport only; it does not yet provide persistent-on-disk retention or crash-survival across reboot.
+
 ### Required logging architecture
 - A central structured event/log collector interface.
 - Persistent local logs suitable for post-crash diagnostics.
