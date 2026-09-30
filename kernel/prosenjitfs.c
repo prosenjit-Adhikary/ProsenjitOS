@@ -3854,6 +3854,7 @@ int prosenjitfs_selftest(void)
             struct pros_prosenjitfs_inode disk_inode;
             struct pros_prosenjitfs_extent disk_extent;
             uint8_t physical_image[4096];
+            uint64_t extent_lba;
             uint64_t physical_lba;
             uint32_t logical_block = 188u / fs.sb.block_size;
             uint32_t within_block = 188u % fs.sb.block_size;
@@ -3868,9 +3869,11 @@ int prosenjitfs_selftest(void)
                 prosenjitfs_read_inode(&fs, disk_data->inode_number,
                                        &disk_inode) != PROSENJITFS_OK ||
                 pfs_find_extent(&fs, &disk_inode, logical_block,
-                                &disk_extent, &physical_lba) != PROSENJITFS_OK ||
-                pfs_read_block(fs.mount.device, physical_lba,
-                               physical_image) != PROSENJITFS_OK ||
+                                &disk_extent, &extent_lba) != PROSENJITFS_OK ||
+                (physical_lba = disk_extent.physical_block +
+                                (logical_block - disk_extent.logical_block),
+                 pfs_read_block(fs.mount.device, physical_lba,
+                                physical_image) != PROSENJITFS_OK) ||
                 physical_image[within_block] != payload[188u] ||
                 vfs_vnode_put(disk_vnode) != PROS_VFS_OK)
                 return -162;
