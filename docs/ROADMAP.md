@@ -159,8 +159,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] **ReactOS-inspired NT/WDM executable compatibility architecture (independent implementation; no direct ReactOS source copy by default)**
   - [ ] Windows-driver compatibility layer / adapter API
   - [x] Native-vs-compatibility driver selection and fallback flow (deterministic bounded matching)
-  - [ ] Installer/bootstrap driver environment and offline-first hardware bundle
-  - [ ] Offline driver installation from removable/local media
+  - [~] Installer/bootstrap driver environment and offline-first hardware bundle (bounded bundle index, content-identity guard, and admission-backed package import implemented; installer/bootstrap integration remains)
+  - [~] Offline driver installation from removable/local media (admission-backed package import/indexing foundation implemented; physical media discovery/extraction and installer integration remain)
   - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies implemented; version/package persistence remains pending)
   - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
