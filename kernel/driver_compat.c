@@ -5,6 +5,65 @@ static struct pros_driver_id package_ids[PROS_DRIVER_COMPAT_MAX_PACKAGES]
                                          [PROS_DRIVER_COMPAT_MAX_IDS];
 static uint32_t package_count;
 
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9') return (int)(c - '0');
+    if (c >= 'a' && c <= 'f') return (int)(c - 'a') + 10;
+    if (c >= 'A' && c <= 'F') return (int)(c - 'A') + 10;
+    return -1;
+}
+
+static int parse_hex4(const char *p, uint16_t *out)
+{
+    uint32_t i;
+    uint16_t v = 0;
+    for (i = 0; i < 4; ++i) {
+        int n = hex_value(p[i]);
+        if (n < 0) return 0;
+        v = (uint16_t)((v << 4) | (uint16_t)n);
+    }
+    *out = v;
+    return 1;
+}
+
+static int ci_match4(const char *p, const char *tag)
+{
+    uint32_t i;
+    for (i = 0; i < 4; ++i) {
+        char a = p[i], b = tag[i];
+        if (a >= 'a' && a <= 'z') a = (char)(a - 'a' + 'A');
+        if (b >= 'a' && b <= 'z') b = (char)(b - 'a' + 'A');
+        if (a != b) return 0;
+    }
+    return 1;
+}
+
+static int ci_contains(const char *text, uint32_t len, const char *needle)
+{
+    uint32_t i, j, n = 0;
+    while (needle[n]) ++n;
+    if (!n || n > len) return 0;
+    for (i = 0; i + n <= len; ++i) {
+        for (j = 0; j < n; ++j) {
+            char a = text[i + j], b = needle[j];
+            if (a >= 'a' && a <= 'z') a = (char)(a - 'a' + 'A');
+            if (b >= 'a' && b <= 'z') b = (char)(b - 'a' + 'A');
+            if (a != b) break;
+        }
+        if (j == n) return 1;
+    }
+    return 0;
+}
+
+static enum pros_compat_driver_model detect_model(const char *text, uint32_t len)
+{
+    if (ci_contains(text, len, "STORPORT")) return PROS_COMPAT_MODEL_STORPORT;
+    if (ci_contains(text, len, "NDIS")) return PROS_COMPAT_MODEL_NDIS;
+    if (ci_contains(text, len, "KMDF")) return PROS_COMPAT_MODEL_KMDF;
+    if (ci_contains(text, len, "USB")) return PROS_COMPAT_MODEL_USB;
+    return PROS_COMPAT_MODEL_WDM;
+}
+
 static int valid_model(enum pros_compat_driver_model model)
 {
     return model == PROS_COMPAT_MODEL_WDM ||
@@ -73,6 +132,7 @@ int pros_driver_compat_register_package(
     pkg->class_code = ids[0].class_code;
     pkg->subclass = ids[0].subclass;
     pkg->prog_if = ids[0].prog_if;
+    pkg->id_count = id_count;
     pkg->name = name;
 
     for (i = 0; i < id_count; ++i)
@@ -90,6 +150,46 @@ int pros_driver_compat_get_package(uint32_t package_id,
         return PROS_DRIVER_EINVAL;
     *out = packages[package_id - 1u];
     return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_inspect_inf(const char *name, const char *text,
+                                    uint32_t text_len, uint32_t *package_id_out)
+{
+    struct pros_driver_id ids[PROS_DRIVER_COMPAT_MAX_IDS];
+    uint32_t count = 0, i;
+    enum pros_compat_driver_model model;
+
+    if (!name || !text || !text_len || !package_id_out)
+        return PROS_DRIVER_EINVAL;
+
+    for (i = 0; i + 21u <= text_len && count < PROS_DRIVER_COMPAT_MAX_IDS; ++i) {
+        uint16_t vendor, device;
+        if (!ci_match4(&text[i], "PCI\\\\")) continue;
+        if (text[i + 4u] != 'V' && text[i + 4u] != 'v') continue;
+        if (text[i + 5u] != 'E' && text[i + 5u] != 'e') continue;
+        if (text[i + 6u] != 'N' && text[i + 6u] != 'n') continue;
+        if (text[i + 7u] != '_') continue;
+        if (!parse_hex4(&text[i + 8u], &vendor)) continue;
+        if (text[i + 12u] != '&') continue;
+        if (text[i + 13u] != 'D' && text[i + 13u] != 'd') continue;
+        if (text[i + 14u] != 'E' && text[i + 14u] != 'e') continue;
+        if (text[i + 15u] != 'V' && text[i + 15u] != 'v') continue;
+        if (text[i + 16u] != '_') continue;
+        if (!parse_hex4(&text[i + 17u], &device)) continue;
+        if (count && ids[count - 1u].vendor_id == vendor &&
+            ids[count - 1u].device_id == device) continue;
+        ids[count].bus = PROS_DRIVER_BUS_PCI;
+        ids[count].vendor_id = vendor;
+        ids[count].device_id = device;
+        ids[count].class_code = 0;
+        ids[count].subclass = 0;
+        ids[count].prog_if = 0;
+        ++count;
+    }
+    if (!count) return PROS_DRIVER_ENODEV;
+    model = detect_model(text, text_len);
+    return pros_driver_compat_register_package(
+        PROS_COMPAT_PACKAGE_INF, model, name, ids, count, 0, package_id_out);
 }
 
 int pros_driver_compat_selftest(void)
