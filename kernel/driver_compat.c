@@ -954,6 +954,7 @@ int pros_driver_compat_selftest(void)
         "DriverVer=09/30/2026,1.2.3\r\n"
         "[Manufacturer]\r\n"
         "%Mfg%=ProsenjitModels\r\n"
+        "%Mfg%=BrokenModel\r\n"
         "[ProsenjitModels]\r\n"
         "%Mfg%=Install, PCI\\VEN_1234&DEV_5678&SUBSYS_11223344&REV_02\r\n"
         "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001&REV_03\r\n"
@@ -991,9 +992,9 @@ int pros_driver_compat_selftest(void)
         pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678 ||
         pkg.model != PROS_COMPAT_MODEL_NDIS ||
         pkg.provider[0] == 0 || pkg.driver_ver[0] == 0 || pkg.class_name[0] == 0 ||
-        !pkg.manufacturer_valid || pkg.model_map_count != 1u ||
-        pkg.model_sections[0][0] == 0 ||
-        pkg.model_id_counts[0] != 2u ||
+        !pkg.manufacturer_valid || pkg.model_map_count != 2u ||
+        pkg.model_sections[0][0] == 0 || pkg.model_sections[1][0] == 0 ||
+        pkg.model_id_counts[0] != 2u || pkg.model_id_counts[1] != 0u ||
         !pkg.subsys_valid || pkg.subsys_id != 0x11223344u ||
         !pkg.revision_valid || pkg.revision != 0x02u)
         return PROS_DRIVER_EIO;
