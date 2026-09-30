@@ -146,67 +146,96 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
     uint32_t pos = 0;
     int in_manufacturer = 0;
     int found_manufacturer = 0;
+
     while (pos < len) {
         uint32_t line_start = pos, line_end;
         while (pos < len && text[pos] != '\r' && text[pos] != '\n') ++pos;
         line_end = pos;
-        if (line_start < line_end && text[line_start] == '[' && text[line_end - 1u] == ']') {
+
+        if (line_start < line_end && text[line_start] == '[' &&
+            text[line_end - 1u] == ']') {
             uint32_t s = trim_start(text, line_start + 1u, line_end - 1u);
             uint32_t e = trim_end(text, s, line_end - 1u);
             in_manufacturer = ci_equal_range(text, s, e, "Manufacturer");
             if (in_manufacturer) {
                 found_manufacturer = 1;
-                copy_range(pkg->manufacturer_section, PROS_DRIVER_COMPAT_MAX_SECTION, text, s, e);
+                copy_range(pkg->manufacturer_section,
+                           PROS_DRIVER_COMPAT_MAX_SECTION, text, s, e);
             }
         } else if (in_manufacturer) {
             uint32_t eq = line_start;
             while (eq < line_end && text[eq] != '=') ++eq;
-            if (eq < line_end && pkg->model_map_count < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS) {
+            if (eq < line_end &&
+                pkg->model_map_count < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS) {
                 uint32_t rhs = trim_start(text, eq + 1u, line_end);
                 uint32_t comma = rhs;
                 while (comma < line_end && text[comma] != ',') ++comma;
                 uint32_t e = trim_end(text, rhs, comma);
+                uint32_t i;
+                int duplicate = 0;
                 if (rhs < e) {
-                    uint32_t i;
-                    int duplicate = 0;
                     for (i = 0; i < pkg->model_map_count; ++i) {
-                        if (ci_cstr_equal_range(pkg->model_sections[i], text + rhs, e - rhs)) { duplicate = 1; break; }
-                    }
-                    uint32_t map_index = 0;
-                    if (!duplicate) {
-                        map_index = pkg->model_map_count;
-                        copy_range(pkg->model_sections[map_index],
-                                   PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
-                        ++pkg->model_map_count;
-                    } else {
-                        for (map_index = 0; map_index < pkg->model_map_count; ++map_index)
-                            if (ci_cstr_equal_range(pkg->model_sections[map_index],
-                                                    text + rhs, e - rhs))
-                                break;
-                    }
-                    {
-
-                        uint32_t scan = eq + 1u;
-                        int has_pci_id = 0;
-                        while (scan < line_end) {
-                            if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_")) {
-                                has_pci_id = 1;
-                                break;
-                            }
-                            ++scan;
+                        if (ci_cstr_equal_range(pkg->model_sections[i],
+                                                text + rhs, e - rhs)) {
+                            duplicate = 1;
+                            break;
                         }
-                        if (has_pci_id && map_index < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS &&
-                            pkg->model_id_counts[map_index] < 255u)
-                            ++pkg->model_id_counts[map_index];
+                    }
+                    if (!duplicate) {
+                        copy_range(pkg->model_sections[pkg->model_map_count],
+                                   PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
+                        pkg->model_id_counts[pkg->model_map_count] = 0;
+                        ++pkg->model_map_count;
                     }
                 }
             }
         }
         while (pos < len && (text[pos] == '\r' || text[pos] == '\n')) ++pos;
     }
+
     pkg->manufacturer_valid = found_manufacturer ? 1u : pkg->manufacturer_valid;
     if (pkg->model_map_count) pkg->metadata_valid = 1u;
 }
+
+static void inspect_model_sections(const char *text, uint32_t len,
+                                   struct pros_compat_package *pkg)
+{
+    uint32_t pos = 0;
+    int active = -1;
+
+    while (pos < len) {
+        uint32_t line_start = pos, line_end;
+        while (pos < len && text[pos] != '\r' && text[pos] != '\n') ++pos;
+        line_end = pos;
+
+        if (line_start < line_end && text[line_start] == '[' &&
+            text[line_end - 1u] == ']') {
+            uint32_t s = trim_start(text, line_start + 1u, line_end - 1u);
+            uint32_t e = trim_end(text, s, line_end - 1u);
+            uint32_t i;
+            active = -1;
+            for (i = 0; i < pkg->model_map_count; ++i) {
+                if (ci_equal_range(text, s, e, pkg->model_sections[i])) {
+                    active = (int)i;
+                    break;
+                }
+            }
+        } else if (active >= 0) {
+            uint32_t scan = line_start;
+            while (scan < line_end) {
+                if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_")) {
+                    if (pkg->model_id_counts[active] < 255u)
+                        ++pkg->model_id_counts[active];
+                    break;
+                }
+                ++scan;
+            }
+        }
+
+        while (pos < len && (text[pos] == '\r' || text[pos] == '\n')) ++pos;
+    }
+}
+
 
 static uint32_t line_value(const char *text, uint32_t len, const char *key,
                                     char *out, uint32_t out_len)
@@ -470,6 +499,7 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
         }
         pkg->metadata_valid = (cn || pn || vn || pkg->subsys_valid || pkg->revision_valid) ? 1u : 0u;
         inspect_manufacturer_sections(text, text_len, pkg);
+        inspect_model_sections(text, text_len, pkg);
     }
     return PROS_DRIVER_OK;
 }
@@ -901,7 +931,7 @@ int pros_driver_compat_selftest(void)
         "DriverVer=09/30/2026,1.2.3\r\n"
         "[Manufacturer]\r\n"
         "%Mfg%=ProsenjitModels\r\n"
-        "[Models]\r\n"
+        "[ProsenjitModels]\r\n"
         "%Mfg%=Install, PCI\\VEN_1234&DEV_5678\r\n"
         "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001\r\n"
         "NDIS=1\r\n";
