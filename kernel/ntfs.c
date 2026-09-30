@@ -1179,9 +1179,9 @@ int ntfs_create_file(struct pros_ntfs *fs,
 
     /*
      * Preflight resident INDEX_ROOT capacity before allocating an MFT slot.
-     * The current writer intentionally does not split INDEX_ROOT into
-     * INDEX_ALLOCATION nodes yet; fail before creating partially initialized
-     * child metadata when the root has no room for the new entry.
+     * A full resident root is either grown through the existing
+     * INDEX_ALLOCATION tree or bootstrapped into a single INDX leaf before
+     * the new child is inserted.
      */
     {
         uint32_t root_attr;
@@ -1310,8 +1310,6 @@ create_rollback:
         ntfs_mft_free_record(fs, allocated_record) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
     return rc;
-
-    return PROS_NTFS_OK;
 }
 
 int ntfs_mft_initialize_record(struct pros_ntfs *fs,
