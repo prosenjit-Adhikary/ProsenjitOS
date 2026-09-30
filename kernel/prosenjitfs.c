@@ -2461,18 +2461,27 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
         uint64_t range_start = first > bitmap_base ? first - bitmap_base : 0u;
         uint64_t range_end = last < bitmap_base + bits_per_block - 1u
                            ? last - bitmap_base : bits_per_block - 1u;
-        uint32_t slot;
+        uint32_t slot = 0u;
 
-        if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK)
-            return PROSENJITFS_EIO;
-        if (pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
-
-        slot = 0u;
+        /*
+         * Multiple allocations in the same bitmap block can be staged in
+         * one transaction. Reusing the existing transaction image is
+         * essential: reloading the on-disk bitmap here would discard bits
+         * staged by an earlier allocation in this same transaction.
+         */
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
-        if (slot == fs->tx.count)
-            return PROSENJITFS_EINVAL;
+        if (slot == fs->tx.count) {
+            if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            if (pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EOVERFLOW;
+            slot = 0u;
+            while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
+                ++slot;
+            if (slot == fs->tx.count)
+                return PROSENJITFS_EINVAL;
+        }
 
         for (uint64_t bit = range_start; bit <= range_end; ++bit) {
             uint8_t *tx_image =
