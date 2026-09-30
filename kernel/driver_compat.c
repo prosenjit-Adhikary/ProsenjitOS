@@ -55,7 +55,7 @@ static int parse_hex2(const char *p, uint8_t *out)
 static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
 {
     uint16_t vendor, device;
-    if (pos + 17u > len) return 0;
+    if (pos + 21u > len) return 0;
     if (text[pos] != 'P' || text[pos + 1u] != 'C' ||
         text[pos + 2u] != 'I' || text[pos + 3u] != '\\' ||
         text[pos + 4u] != 'V' || text[pos + 5u] != 'E' ||
