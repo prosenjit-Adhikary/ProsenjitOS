@@ -767,9 +767,21 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
 
-            if (data_image[188u] !=
-                ((const uint8_t *)buffer)[done + 188u])
-                return done ? (int)done : -74;
+            {
+                uint8_t tx_found = 0u;
+                for (uint32_t ti = 0u; ti < data->fs->tx.count; ++ti) {
+                    if (data->fs->tx.targets[ti] == physical) {
+                        tx_found = 1u;
+                        if (data->fs->tx.images[
+                                (uint64_t)ti * data->fs->sb.block_size + 188u] !=
+                            ((const uint8_t *)buffer)[done + 188u])
+                            return done ? (int)done : -82;
+                        break;
+                    }
+                }
+                if (!tx_found)
+                    return done ? (int)done : -83;
+            }
 
             if (pfs_tx_commit(data->fs) != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
