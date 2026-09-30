@@ -1166,6 +1166,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     trace_write[i] = (uint8_t)((i * 13u) ^ 0x5Au);
                 trace_write[188u] = 0xD6u;
 
+                /* O_CREATE opens an existing file without truncating it. Remove the
+                 * previous diagnostic file first so every boot exercises the intended
+                 * new-file/new-data-block allocation path rather than reusing old extents. */
+                {
+                    int unlink_rc = vfs_unlink(&native_fs.mount, "/.__pfs_lba_trace");
+                    if (unlink_rc != PROS_VFS_OK && unlink_rc != PROS_VFS_ENOENT) {
+                        serial_write("ProsenjitOS: ERROR native LBA trace cleanup failed\\n");
+                        for (;;) __asm__ volatile ("cli; hlt");
+                    }
+                }
+
                 prosenjitfs_write_diag_reset();
                 partition_trace_reset(&pfs_device);
                 pros_ata_pio_trace_reset(&native_ata);
