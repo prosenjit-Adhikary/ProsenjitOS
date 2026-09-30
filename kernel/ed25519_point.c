@@ -61,8 +61,7 @@ void pros_ed25519_point_add(struct pros_ed25519_point *r,
     if (!r || !p || !q) return;
 
     pros_ed25519_fe_from_bytes(&d, ed25519_d_bytes);
-    pros_ed25519_fe_add(&two, &(struct pros_ed25519_fe){{2,0,0,0,0}},
-                        &(struct pros_ed25519_fe){{0,0,0,0,0}});
+    pros_ed25519_fe_from_bytes(&two, (const uint8_t[32]){2});
     pros_ed25519_fe_sub(&t1, &p->y, &p->x);
     pros_ed25519_fe_sub(&t2, &q->y, &q->x);
     pros_ed25519_fe_mul(&A, &t1, &t2);
@@ -88,7 +87,7 @@ void pros_ed25519_point_add(struct pros_ed25519_point *r,
 
 void pros_ed25519_point_double(struct pros_ed25519_point *r,
                                const struct pros_ed25519_point *p) {
-    struct pros_ed25519_fe A,B,C,D,E,F,G,H,two,z2;
+    struct pros_ed25519_fe A,B,C,D,E,F,G,H,z2;
     struct pros_ed25519_point out;
 
     if (!r || !p) return;
@@ -111,8 +110,6 @@ void pros_ed25519_point_double(struct pros_ed25519_point *r,
     pros_ed25519_fe_mul(&out.t, &E, &H);
     pros_ed25519_fe_mul(&out.z, &F, &G);
     *r = out;
-
-    (void)two;
 }
 
 int pros_ed25519_point_on_curve(const struct pros_ed25519_point *p) {
@@ -146,6 +143,14 @@ int pros_ed25519_point_selftest(void) {
     if (encoded[0] != 1) return -3;
     for (uint32_t i = 1; i < 32u; ++i)
         if (encoded[i] != 0) return -4;
+
+    pros_ed25519_point_add(&p, &p, &p);
+    if (!pros_ed25519_point_is_identity(&p)) return -5;
+    if (!pros_ed25519_point_on_curve(&p)) return -6;
+
+    pros_ed25519_point_double(&p, &p);
+    if (!pros_ed25519_point_is_identity(&p)) return -7;
+    if (!pros_ed25519_point_on_curve(&p)) return -8;
 
     return 0;
 }
