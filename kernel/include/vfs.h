@@ -157,6 +157,12 @@ int vfs_file_admit(const struct pros_vfs_mount *,
                    const struct pros_file_security_metadata *,
                    struct pros_file_admission_record *);
 
+/* Read a file through the mounted filesystem, hash its actual contents, and
+ * route the resulting digest through the filesystem-neutral admission broker. */
+int vfs_file_admit_path(struct pros_vfs_mount *, const char *path,
+                        const struct pros_file_security_metadata *,
+                        struct pros_file_admission_record *);
+
 int vfs_security_selftest(void);
 
 #endif
