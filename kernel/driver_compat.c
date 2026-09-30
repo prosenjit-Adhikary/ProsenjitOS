@@ -115,17 +115,17 @@ static int ci_range_equals_cstr(const char *text, uint32_t start, uint32_t end, 
     }
     return value[i] == 0 && start + i == end;
 }
-static int ci_cstr_equal(const char *a, const char *b)
+static int ci_cstr_equal_range(const char *a, const char *b, uint32_t b_len)
 {
     uint32_t i = 0;
-    while (a[i] && b[i]) {
+    while (a[i] && i < b_len) {
         char x=a[i], y=b[i];
         if (x>='a'&&x<='z') x=(char)(x-'a'+'A');
         if (y>='a'&&y<='z') y=(char)(y-'a'+'A');
         if (x != y) return 0;
         ++i;
     }
-    return a[i] == 0 && b[i] == 0;
+    return a[i] == 0 && i == b_len;
 }
 
 static uint32_t trim_start(const char *text, uint32_t start, uint32_t end)
@@ -166,7 +166,10 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
             uint32_t s = trim_start(text, line_start + 1u, line_end - 1u);
             uint32_t e = trim_end(text, s, line_end - 1u);
             in_manufacturer = ci_equal_range(text, s, e, "Manufacturer");
-            if (in_manufacturer) found_manufacturer = 1;
+            if (in_manufacturer) {
+                found_manufacturer = 1;
+                copy_range(pkg->manufacturer_section, PROS_DRIVER_COMPAT_MAX_SECTION, text, s, e);
+            }
         } else if (in_manufacturer) {
             uint32_t eq = line_start;
             while (eq < line_end && text[eq] != '=') ++eq;
@@ -179,7 +182,7 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
                     uint32_t i;
                     int duplicate = 0;
                     for (i = 0; i < pkg->model_map_count; ++i) {
-                        if (ci_cstr_equal(pkg->model_sections[i], text + rhs)) { duplicate = 1; break; }
+                        if (ci_cstr_equal_range(pkg->model_sections[i], text + rhs, e - rhs)) { duplicate = 1; break; }
                     }
                     if (!duplicate) {
                         copy_range(pkg->model_sections[pkg->model_map_count],
@@ -255,6 +258,15 @@ int pros_driver_compat_init(void)
         packages[i].driver_ver[0] = 0;
         packages[i].class_name[0] = 0;
         packages[i].metadata_valid = 0;
+        packages[i].subsys_id = 0;
+        packages[i].revision = 0;
+        packages[i].subsys_valid = 0;
+        packages[i].revision_valid = 0;
+        packages[i].manufacturer_valid = 0;
+        packages[i].model_map_count = 0;
+        packages[i].manufacturer_section[0] = 0;
+        for (uint32_t j = 0; j < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS; ++j)
+            packages[i].model_sections[j][0] = 0;
     }
     return PROS_DRIVER_OK;
 }
