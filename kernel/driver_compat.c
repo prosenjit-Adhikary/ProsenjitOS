@@ -792,6 +792,18 @@ int pros_driver_compat_selftest(void)
     if (pros_driver_compat_match(package_id, &id, &(int){0})
         != PROS_DRIVER_ENODEV)
         return PROS_DRIVER_EIO;
+
+    /*
+     * Rollback must revoke driver-selection eligibility as well as the
+     * transaction state.
+     */
+    if (pros_driver_compat_begin(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_match(package_id, &id, &(int){0})
+        != PROS_DRIVER_ENODEV)
+        return PROS_DRIVER_EIO;
     if (pros_driver_compat_get_id(package_id, 0u, &id)
         != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
