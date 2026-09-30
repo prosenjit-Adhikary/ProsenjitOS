@@ -240,6 +240,21 @@ int pros_log_persist_flush(void) {
     return PROS_LOG_PERSIST_OK;
 }
 
+int pros_log_persist_detach(void) {
+    if (!initialized)
+        return PROS_LOG_PERSIST_EINVAL;
+    if (attached) {
+        if (vfs_file_close(&persist_file) != PROS_VFS_OK)
+            return PROS_LOG_PERSIST_EIO;
+    }
+    persist_mount = 0;
+    persist_file = (struct pros_vfs_file){0};
+    attached = 0u;
+    bytes_written = 0u;
+    persist_path[0] = '\\0';
+    return PROS_LOG_PERSIST_OK;
+}
+
 int pros_log_persist_available(void) {
     return initialized && attached;
 }
