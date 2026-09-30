@@ -213,6 +213,8 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    if (vector != 128 && !usercopy_fault_active())
+        (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
     if (vector == 14 && usercopy_fault_active()) {
         uint64_t fixup_rip = usercopy_fault_rip();
         usercopy_fault_clear();
