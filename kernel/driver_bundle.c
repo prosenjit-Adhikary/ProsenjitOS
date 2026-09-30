@@ -443,6 +443,11 @@ int pros_driver_bundle_selftest(void) {
                     PROS_DRIVER_OK)
                 return -14;
 
+            if (pros_driver_bundle_retire(package_v2_id) != PROS_DRIVER_EBUSY ||
+                pros_driver_bundle_find(package_v2_id, &entry_v2) !=
+                    PROS_DRIVER_OK)
+                return -25;
+
             if (pros_driver_bundle_add(
                     package_v2_id, PROS_DRIVER_BUNDLE_LOCAL,
                     3u, 0u, 0u, entry_v2.content_sha256) !=
