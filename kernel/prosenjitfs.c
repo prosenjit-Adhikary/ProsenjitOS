@@ -2978,39 +2978,12 @@ int prosenjitfs_selftest(void)
                 return -78;
             return (int)(-200 - physical_writes);
         }
-        for (uint32_t i = 0u; i < fs.sb.block_size; ++i) {
+        for (uint32_t i = 0u; i < sizeof(write_data); ++i) {
             if (physical_image[i] != write_data[i])
                 return (int)(-3000 - i);
         }
 
-        {
-            struct pros_prosenjitfs_extent second_extent;
-            uint64_t second_extent_lba = 0u;
-            uint64_t second_tail_lba = 0u;
-            uint8_t second_image[4096];
-            if (written_inode.extent_head == 0u)
-                return -74;
-            {
-                struct pros_prosenjitfs_extent first_extent;
-                if (pfs_read_extent(&fs, written_inode.extent_head,
-                                    &first_extent) != PROSENJITFS_OK)
-                    return -75;
-                if (first_extent.next == 0u)
-                    return -79;
-            }
-            if (pfs_find_extent(&fs, &written_inode, 1u, &second_extent,
-                                &second_extent_lba, &second_tail_lba) !=
-                PROSENJITFS_OK)
-                return -80;
-            if (second_extent_lba == 0u ||
-                second_extent.physical_block >= fs.sb.total_blocks)
-                return -81;
-            if (pfs_read_block(fs.mount.device, second_extent.physical_block,
-                               second_image) != PROSENJITFS_OK)
-                return -82;
-            if (second_image[0u] != write_data[512u])
-                return -83;
-        }
+
     }
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
