@@ -3634,7 +3634,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     {
         uint32_t off = 0u;
         while (off < root_entries_size) {
-            uint32_t absolute = 0x18u + off;
+            uint32_t absolute = off;
             uint16_t esize, ksize;
             uint8_t flags;
             if (root_entries_size - off < 16u)
