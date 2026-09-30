@@ -58,6 +58,23 @@ struct pros_nt_compat_image {
 typedef int (*pros_nt_dispatch_fn)(uint32_t package_id, uint32_t irp_major,
                                      void *context);
 
+enum pros_nt_pnp_event {
+    PROS_NT_PNP_START = 0,
+    PROS_NT_PNP_STOP,
+    PROS_NT_PNP_REMOVE,
+    PROS_NT_PNP_SURPRISE_REMOVE,
+    PROS_NT_PNP_QUERY_REMOVE,
+    PROS_NT_PNP_MAX
+};
+
+enum pros_nt_power_event {
+    PROS_NT_POWER_QUERY = 0,
+    PROS_NT_POWER_SET,
+    PROS_NT_POWER_SUSPEND,
+    PROS_NT_POWER_RESUME,
+    PROS_NT_POWER_MAX
+};
+
 struct pros_nt_compat_dispatch_table {
     pros_nt_dispatch_fn major[PROS_NT_IRP_MAX];
 };
@@ -79,6 +96,8 @@ int pros_nt_compat_register_dispatch(uint32_t package_id,
                                       pros_nt_dispatch_fn handler);
 int pros_nt_compat_dispatch(uint32_t package_id, uint32_t irp_major,
                             void *context);
+int pros_nt_compat_pnp(uint32_t package_id, uint32_t event);
+int pros_nt_compat_power(uint32_t package_id, uint32_t event);
 int pros_nt_compat_health_check(uint32_t package_id);
 int pros_nt_compat_quarantine(uint32_t package_id);
 int pros_nt_compat_rollback(uint32_t package_id);
