@@ -327,17 +327,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
     if (pros_health_selftest() != PROS_HEALTH_OK) {
         serial_write("ProsenjitOS: ERROR system health monitoring self-test failed\n");
-    } else {
-        serial_write("ProsenjitOS: system health monitoring foundation self-test passed\n");
-        (void)pros_health_sample();
-        serial_write("ProsenjitOS: initial system health sample recorded\n");
-    }
-
-    if (pros_health_selftest() != PROS_DRIVER_OK) {
-        serial_write("ProsenjitOS: ERROR health monitor self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (pros_health_sample() != PROS_DRIVER_OK) {
+    if (pros_health_sample() != PROS_HEALTH_OK) {
         serial_write("ProsenjitOS: ERROR initial health sample failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
