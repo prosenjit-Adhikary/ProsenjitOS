@@ -2393,6 +2393,13 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             pfs_write_block(fs->mount.device, fs->tx.targets[i],
                             fs->scratch) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
+        if (pfs_read_block(fs->mount.device, fs->tx.targets[i],
+                           fs->scratch) != PROSENJITFS_OK ||
+            prosenjitfs_crc32c(fs->scratch, fs->sb.block_size) !=
+            prosenjitfs_crc32c(
+                fs->tx.images + (uint64_t)i * fs->sb.block_size,
+                fs->sb.block_size))
+            return PROSENJITFS_EIO;
     }
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
