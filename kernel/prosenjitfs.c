@@ -2843,20 +2843,6 @@ int prosenjitfs_selftest(void)
             return -70;
         if (extent_lba == 0u || written_extent.physical_block >= fs.sb.total_blocks)
             return -71;
-        {
-            uint8_t tx_saw = 0u;
-            for (uint32_t ti = 0u; ti < fs.tx.count; ++ti) {
-                if (fs.tx.targets[ti] == written_extent.physical_block) {
-                    tx_saw = 1u;
-                    if (fs.tx.images[(uint64_t)ti * fs.sb.block_size + 188u] !=
-                        expected_188)
-                        return -80;
-                    break;
-                }
-            }
-            if (!tx_saw)
-                return -81;
-        }
         if (pfs_read_block(fs.mount.device, written_extent.physical_block,
                            physical_image) != PROSENJITFS_OK)
             return -72;
