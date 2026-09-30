@@ -19,6 +19,18 @@ int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_
     struct pros_driver_bundle_entry *e=find(id);
     if(!e) for(uint32_t i=0;i<PROS_DRIVER_BUNDLE_MAX_ENTRIES;++i) if(!entries[i].package_id){e=&entries[i];break;}
     if(!e) return PROS_DRIVER_ENOSPC;
+
+    if (e->package_id) {
+        struct pros_compat_package package;
+        if (pros_driver_compat_get_package(id, &package) != PROS_DRIVER_OK)
+            return PROS_DRIVER_ENODEV;
+        if (package.tx_state == PROS_COMPAT_TX_VERIFIED ||
+            package.tx_state == PROS_COMPAT_TX_STAGED ||
+            package.tx_state == PROS_COMPAT_TX_HEALTHY ||
+            package.tx_state == PROS_COMPAT_TX_COMMITTED)
+            return PROS_DRIVER_EBUSY;
+    }
+
     e->package_id=id;e->source=s;e->version_major=ma;e->version_minor=mi;e->version_patch=pa;
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)e->content_sha256[i]=d[i];
     e->content_sha256_valid=1; return PROS_DRIVER_OK;
