@@ -392,6 +392,25 @@ int pros_nt_compat_selftest(void)
         device.resources[0].length = 0x1000u;
         if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
+        {
+            struct pros_nt_device_object conflict = device;
+            conflict.package_id = 2u;
+            conflict.location = 0x0200u;
+            if (pros_nt_compat_set_device(2u, &conflict) != PROS_DRIVER_EBUSY)
+                return PROS_DRIVER_EIO;
+            conflict.resources[0].type = PROS_NT_RESOURCE_IRQ;
+            conflict.resources[0].flags = 1u;
+            conflict.resources[0].start = 5u;
+            conflict.resources[0].length = 1u;
+            device.resources[0].type = PROS_NT_RESOURCE_IRQ;
+            device.resources[0].flags = 1u;
+            device.resources[0].start = 5u;
+            device.resources[0].length = 1u;
+            if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK)
+                return PROS_DRIVER_EIO;
+            if (pros_nt_compat_set_device(2u, &conflict) != PROS_DRIVER_OK)
+                return PROS_DRIVER_EIO;
+        }
         returned.size = sizeof(returned);
         if (pros_nt_compat_get_device(1u, &returned) != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
