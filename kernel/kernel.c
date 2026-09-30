@@ -1246,21 +1246,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
         /* Register the PCI inventory in the generic driver model.
          * Registration does not claim ownership; binding remains separate. */
+        uint32_t registered_count = 0u;
         for (uint32_t i = 0u; i < pci_count; ++i) {
             uint32_t registered_id = 0u;
-            if (pros_driver_register_pci_device(
-                    pci_devices[i].bus, pci_devices[i].slot,
-                    pci_devices[i].function, pci_devices[i].vendor_id,
-                    pci_devices[i].device_id, pci_devices[i].class_code,
-                    pci_devices[i].subclass, pci_devices[i].prog_if,
-                    &pci_devices[i], "pci-device", &registered_id) != PROS_DRIVER_OK ||
-                registered_id == 0u) {
+            int rc = pros_driver_register_pci_device(
+                pci_devices[i].bus, pci_devices[i].slot,
+                pci_devices[i].function, pci_devices[i].vendor_id,
+                pci_devices[i].device_id, pci_devices[i].class_code,
+                pci_devices[i].subclass, pci_devices[i].prog_if,
+                &pci_devices[i], "pci-device", &registered_id);
+            if (rc == PROS_DRIVER_ENOSPC) {
+                serial_write("ProsenjitOS: PCI driver-model registry full; remaining devices stay unregistered\\n");
+                break;
+            }
+            if (rc != PROS_DRIVER_OK || registered_id == 0u) {
                 serial_write("ProsenjitOS: ERROR PCI driver-model registration failed\\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
+            ++registered_count;
         }
         serial_write("ProsenjitOS: PCI devices registered with driver model = ");
-        serial_hex64(pci_count);
+        serial_hex64(registered_count);
         serial_write("\\n");
     }
 
