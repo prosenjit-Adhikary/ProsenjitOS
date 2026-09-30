@@ -42,6 +42,7 @@ struct pros_thread {
     uint64_t blocked_syscall;
     struct pros_thread *next;
     struct pros_thread *prev;
+    struct pros_thread *registry_next;
 };
 
 int thread_manager_init(void);
