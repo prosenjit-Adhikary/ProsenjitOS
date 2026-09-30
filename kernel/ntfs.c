@@ -2555,6 +2555,17 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < child_name_size; ++i)
         key_copy[i] = child_name[i];
 
+    /*
+     * Directory-name ordering is defined by the volume's $UpCase table.
+     * Load it only for the comparison window and clear the process-global
+     * pointer on every exit path below; callers must not inherit a stale
+     * collation context from an unrelated directory operation.
+     */
+    if (ntfs_upcase_load(fs) != PROS_NTFS_OK) {
+        ntfs_active_upcase = 0;
+        return PROS_NTFS_EIO;
+    }
+
     offset = root.first_entry_offset;
     while (offset < root.entries_size) {
         uint64_t reference;
