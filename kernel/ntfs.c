@@ -1031,7 +1031,8 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
     const uint8_t *runlist;
     uint32_t alloc_attr, bitmap_attr, runlist_size, run_count;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
-    uint64_t old_clusters, vcn, lcn;
+    uint64_t old_clusters, vcn, lcn = 0u;
+    uint8_t cluster_allocated = 0u;
     uint8_t *bitmap_data;
     const uint8_t *bitmap_const;
     uint32_t bitmap_size, byte;
@@ -1069,9 +1070,11 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
         run_count == 0u)
         return PROS_NTFS_ECORRUPT;
 
+    if (fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_ECORRUPT;
     old_clusters = le64(record + alloc_attr + 48u) /
                    ((uint64_t)fs->sectors_per_cluster);
-    if (fs->sectors_per_cluster == 0u ||
+    if (
         le64(record + alloc_attr + 48u) %
         fs->sectors_per_cluster != 0u)
         return PROS_NTFS_ECORRUPT;
@@ -1088,13 +1091,14 @@ static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
         if (lcn != runs[run_count - 1u].lcn + runs[run_count - 1u].clusters) {
             ntfs_bitmap_free_clusters(fs, lcn, 1u);
             lcn = 0u;
+        } else {
+            cluster_allocated = 1u;
         }
-    } else {
-        lcn = 0u;
     }
-    if (lcn == 0u) {
+    if (!cluster_allocated) {
         if (ntfs_bitmap_allocate_clusters(fs, 1u, &lcn) != PROS_NTFS_OK)
             return PROS_NTFS_EIO;
+        cluster_allocated = 1u;
     }
 
     vcn = old_clusters;
