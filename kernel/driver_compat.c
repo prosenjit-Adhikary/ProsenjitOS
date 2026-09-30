@@ -270,19 +270,19 @@ static uint32_t line_value(const char *text, uint32_t len, const char *key,
     uint32_t klen = 0, i = 0;
     while (key[klen]) ++klen;
     if (!klen || !out || out_len < 2) return 0;
-    while (i + klen < len) {
+    while (i <= len && len - i >= klen) {
         uint32_t j;
         if ((i == 0 || text[i-1] == '\n' || text[i-1] == '\r') &&
-            i + klen <= len) {
+            len - i >= klen) {
             for (j = 0; j < klen; ++j) {
                 char a=text[i+j], b=key[j];
                 if (a>='a'&&a<='z') a=(char)(a-'a'+'A');
                 if (b>='a'&&b<='z') b=(char)(b-'a'+'A');
                 if (a!=b) break;
             }
-            if (j == klen && i+klen < len && text[i+klen] == '=') {
+            if (j == klen && len - i > klen && text[i+klen] == '=') {
                 uint32_t p=i+klen+1, n=0;
-                while (p+n<len && text[p+n]!='\r' && text[p+n]!='\n' && n+1<out_len) {
+                while (p <= len && len - p > 0u && text[p+n]!='\r' && text[p+n]!='\n' && n+1<out_len) {
                     out[n]=text[p+n]; ++n;
                 }
                 while(n && (out[n-1]==' ' || out[n-1]=='\t')) --n;
