@@ -44,7 +44,7 @@ int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_
                         e->content_sha256_valid);
             if (same)
                 for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
-                    if (e->content_sha256[d] != d /* placeholder */)
+                    if (e->content_sha256[d] != d[d])
                         same = 0;
             /*
              * An active entry is immutable. An exact re-add is idempotent;
