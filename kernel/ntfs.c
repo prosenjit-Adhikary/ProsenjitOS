@@ -1151,6 +1151,7 @@ int ntfs_create_file(struct pros_ntfs *fs,
     uint64_t allocated_record = 0u;
     uint64_t parent_reference;
     uint8_t parent_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t rollback_parent_record[PROS_NTFS_RECORD_WORK_MAX];
     int rc;
     uint8_t root_needs_allocation_insert = 0u;
     uint8_t root_bootstrapped = 0u;
@@ -1168,6 +1169,8 @@ int ntfs_create_file(struct pros_ntfs *fs,
     if (ntfs_read_file_record(fs, parent_record_number, parent_record,
                               sizeof(parent_record)) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        rollback_parent_record[i] = parent_record[i];
     if ((le16(parent_record + 22u) & 0x03u) != 0x03u)
         return PROS_NTFS_ENOTSUP;
 
@@ -1216,10 +1219,6 @@ int ntfs_create_file(struct pros_ntfs *fs,
                     uint32_t cluster_bytes = fs->bytes_per_sector *
                                               fs->sectors_per_cluster;
                     if (cluster_bytes == 0u ||
-                        ntfs_index_root_header(parent_record,
-                                               fs->bytes_per_file_record,
-                                               root_attr,
-                                               &bootstrap_root) != PROS_NTFS_OK ||
                         bootstrap_root.bytes_per_index_record % cluster_bytes != 0u)
                         return PROS_NTFS_ECORRUPT;
                     bootstrap_clusters = bootstrap_root.bytes_per_index_record /
@@ -1233,8 +1232,10 @@ int ntfs_create_file(struct pros_ntfs *fs,
                 root_bootstrapped = 1u;
                 if (ntfs_read_file_record(fs, parent_record_number,
                                           parent_record,
-                                          sizeof(parent_record)) != PROS_NTFS_OK)
+                                          sizeof(parent_record)) != PROS_NTFS_OK) {
+                    rc = PROS_NTFS_EIO;
                     goto create_rollback;
+                }
             }
             root_needs_allocation_insert = 1u;
         }
@@ -1252,10 +1253,18 @@ int ntfs_create_file(struct pros_ntfs *fs,
                                                    name_utf16le,
                                                    name_length,
                                                    &existing_reference);
-        if (lookup_status == PROS_NTFS_OK)
-            return PROS_NTFS_EINVAL;
-        if (lookup_status != PROS_NTFS_ENOTSUP)
-            return lookup_status;
+        if (lookup_status == PROS_NTFS_OK) {
+            rc = PROS_NTFS_EINVAL;
+            if (root_bootstrapped)
+                goto create_rollback;
+            return rc;
+        }
+        if (lookup_status != PROS_NTFS_ENOTSUP) {
+            rc = lookup_status;
+            if (root_bootstrapped)
+                goto create_rollback;
+            return rc;
+        }
     }
 
     rc = ntfs_mft_allocate_record(fs, &allocated_record);
@@ -1289,8 +1298,8 @@ int ntfs_create_file(struct pros_ntfs *fs,
 
 create_rollback:
     if (root_bootstrapped) {
-        if (ntfs_write_file_record(fs, parent_record_number, parent_record) !=
-            PROS_NTFS_OK)
+        if (ntfs_write_file_record(fs, parent_record_number,
+                                    rollback_parent_record) != PROS_NTFS_OK)
             return PROS_NTFS_EIO;
         if (bootstrap_clusters != 0u &&
             ntfs_bitmap_free_clusters(fs, bootstrap_lcn,
