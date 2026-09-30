@@ -15,6 +15,8 @@
 #define PROS_DRIVER_COMPAT_MAX_PROVIDER 64u
 #define PROS_DRIVER_COMPAT_MAX_DRIVER_VER 32u
 #define PROS_DRIVER_COMPAT_MAX_CLASS_NAME 32u
+#define PROS_DRIVER_COMPAT_MAX_SECTION 64u
+#define PROS_DRIVER_COMPAT_MAX_MODEL_MAPS 16u
 
 #define PROS_COMPAT_FLAG_SIGNED          0x0001u
 #define PROS_COMPAT_FLAG_KERNEL_MODE     0x0002u
@@ -98,6 +100,10 @@ struct pros_compat_package {
     uint8_t revision;
     uint8_t subsys_valid;
     uint8_t revision_valid;
+    uint32_t manufacturer_valid;
+    uint32_t model_map_count;
+    char manufacturer_section[PROS_DRIVER_COMPAT_MAX_SECTION];
+    char model_sections[PROS_DRIVER_COMPAT_MAX_MODEL_MAPS][PROS_DRIVER_COMPAT_MAX_SECTION];
 };
 
 struct pros_compat_driver_ops {
