@@ -2338,13 +2338,20 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                 fs->tx.images + (uint64_t)i * fs->sb.block_size,
                 fs->sb.block_size))
             return PROSENJITFS_EIO;
-    }
 
-    for (uint32_t i = 0; i < fs->tx.count; ++i)
-        if (pfs_write_block(fs->mount.device, fs->tx.targets[i],
-                            fs->tx.images + (uint64_t)i * fs->sb.block_size) !=
-            PROSENJITFS_OK)
+        /*
+         * Apply from the durable journal record rather than the mutable
+         * in-memory transaction image. The journal is already flushed and
+         * committed at this point, so recovery and normal commit use the
+         * same source of truth.
+         */
+        if (pfs_read_block(fs->mount.device,
+                           fs->sb.journal_start + 1u + i,
+                           fs->scratch) != PROSENJITFS_OK ||
+            pfs_write_block(fs->mount.device, fs->tx.targets[i],
+                            fs->scratch) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
+    }
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
