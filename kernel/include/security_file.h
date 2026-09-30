@@ -11,6 +11,13 @@
 
 #define PROS_FILE_SHA256_BYTES 32u
 
+struct pros_sha256_ctx {
+    uint32_t h[8];
+    uint64_t bit_count;
+    uint8_t block[64];
+    uint32_t used;
+};
+
 enum pros_file_trust_state {
     PROS_FILE_TRUSTED = 1,
     PROS_FILE_VERIFIED = 2,
@@ -61,6 +68,11 @@ struct pros_file_security_result {
     uint32_t evidence;
 };
 
+void pros_sha256_init(struct pros_sha256_ctx *ctx);
+void pros_sha256_update(struct pros_sha256_ctx *ctx,
+                        const uint8_t *data, uint64_t length);
+void pros_sha256_final(struct pros_sha256_ctx *ctx,
+                       uint8_t digest[PROS_FILE_SHA256_BYTES]);
 void pros_sha256(const uint8_t *data, uint64_t length,
                  uint8_t digest[PROS_FILE_SHA256_BYTES]);
 
