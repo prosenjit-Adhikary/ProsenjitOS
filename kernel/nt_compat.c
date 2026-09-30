@@ -74,6 +74,32 @@ int pros_nt_compat_stage(uint32_t package_id)
     return PROS_DRIVER_ENOTSUP;
 }
 
+int pros_nt_compat_pnp(uint32_t package_id, uint32_t event)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        event >= PROS_NT_PNP_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (dispatch[package_id - 1u].major[PROS_NT_IRP_PNP])
+        return dispatch[package_id - 1u].major[PROS_NT_IRP_PNP](
+            package_id, PROS_NT_IRP_PNP, (void *)(uintptr_t)event);
+    return PROS_DRIVER_ENOTSUP;
+}
+
+int pros_nt_compat_power(uint32_t package_id, uint32_t event)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        event >= PROS_NT_POWER_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (dispatch[package_id - 1u].major[PROS_NT_IRP_POWER])
+        return dispatch[package_id - 1u].major[PROS_NT_IRP_POWER](
+            package_id, PROS_NT_IRP_POWER, (void *)(uintptr_t)event);
+    return PROS_DRIVER_ENOTSUP;
+}
+
 int pros_nt_compat_health_check(uint32_t package_id)
 {
     if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES)
