@@ -754,6 +754,10 @@ int pros_driver_compat_selftest(void)
             package_id, PROS_COMPAT_TRUST_VERIFIED) != PROS_DRIVER_EPERM)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_set_trust_evidence(
+            package_id, PROS_COMPAT_EVIDENCE_ADMISSION_POLICY) !=
+        PROS_DRIVER_EPERM)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_set_trust_evidence(
             package_id, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
         pros_driver_compat_set_trust(
             package_id, PROS_COMPAT_TRUST_VERIFIED) != PROS_DRIVER_OK)
