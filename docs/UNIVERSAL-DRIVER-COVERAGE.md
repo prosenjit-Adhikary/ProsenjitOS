@@ -125,3 +125,8 @@ The compatibility ABI now defines a bounded I/O request structure and submission
 ### Bounded device/resource handoff
 
 The NT compatibility boundary now has a bounded device-object/resource descriptor. It carries bus/location, PCI identity/class fields, and up to eight abstract resources (I/O port, MMIO, IRQ, or DMA). The compatibility layer copies descriptors into private state and exposes them through validated get/set APIs; quarantined packages cannot access the descriptor. This is metadata/resource description only and does not grant raw MMIO, port-I/O, DMA, or interrupt ownership.
+
+
+### PnP lifecycle and resource-conflict guard
+
+The compatibility boundary now validates abstract resource descriptors before accepting them and rejects overlapping resources of the same type. PnP START is gated to staged/healthy images, while STOP/REMOVE cannot be issued from an un-staged inspected state; quarantined images remain blocked. This is lifecycle/resource policy only and does not yet claim real interrupt, DMA, MMIO, or port-I/O ownership.
