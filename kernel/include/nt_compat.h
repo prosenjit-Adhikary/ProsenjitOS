@@ -59,6 +59,27 @@ struct pros_nt_compat_image {
     uint8_t has_imports;
 };
 
+#define PROS_NT_IO_MAX_BUFFER 4096u
+
+enum pros_nt_io_type {
+    PROS_NT_IO_NONE = 0,
+    PROS_NT_IO_BUFFERED,
+    PROS_NT_IO_READ,
+    PROS_NT_IO_WRITE,
+    PROS_NT_IO_DEVICE_CONTROL
+};
+
+struct pros_nt_io_request {
+    uint32_t size;
+    uint32_t type;
+    uint32_t major;
+    uint32_t control_code;
+    uint32_t buffer_size;
+    void *buffer;
+    int32_t status;
+    uint32_t information;
+};
+
 typedef int (*pros_nt_dispatch_fn)(uint32_t package_id, uint32_t irp_major,
                                      void *context);
 
@@ -102,6 +123,8 @@ int pros_nt_compat_register_dispatch(uint32_t package_id,
                                       pros_nt_dispatch_fn handler);
 int pros_nt_compat_dispatch(uint32_t package_id, uint32_t irp_major,
                             void *context);
+int pros_nt_compat_submit_io(uint32_t package_id,
+                             struct pros_nt_io_request *request);
 int pros_nt_compat_pnp(uint32_t package_id, uint32_t event);
 int pros_nt_compat_power(uint32_t package_id, uint32_t event);
 int pros_nt_compat_health_check(uint32_t package_id);
