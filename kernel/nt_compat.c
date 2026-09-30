@@ -151,5 +151,8 @@ int pros_nt_compat_selftest(void)
         return PROS_DRIVER_EIO;
     if (pros_nt_compat_rollback(1u) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
+    if (pros_nt_compat_dispatch(1u, PROS_NT_IRP_READ, 0)
+        != PROS_DRIVER_ENOTSUP)
+        return PROS_DRIVER_EIO;
     return PROS_DRIVER_OK;
 }
