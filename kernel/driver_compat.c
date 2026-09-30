@@ -262,10 +262,12 @@ int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust tru
      * state.  Cryptographic signature evidence remains unavailable until a
      * real verifier is implemented.
      */
-    if (trust == PROS_COMPAT_TRUST_VERIFIED &&
-        (!pkg->content_sha256_valid ||
-         pkg->trust_evidence == PROS_COMPAT_EVIDENCE_NONE ||
-         pkg->trust_evidence == PROS_COMPAT_EVIDENCE_ADMISSION_POLICY))
+    /*
+     * VERIFIED may only be established by a dedicated trust authority
+     * (currently bind_admission(), and later the cryptographic verifier).
+     * This setter may only express downgrade/rejection decisions.
+     */
+    if (trust == PROS_COMPAT_TRUST_VERIFIED)
         return PROS_DRIVER_EPERM;
 
     pkg->trust = trust;
@@ -760,7 +762,7 @@ int pros_driver_compat_selftest(void)
     if (pros_driver_compat_set_trust_evidence(
             package_id, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
         pros_driver_compat_set_trust(
-            package_id, PROS_COMPAT_TRUST_VERIFIED) != PROS_DRIVER_OK)
+            package_id, PROS_COMPAT_TRUST_VERIFIED) != PROS_DRIVER_EPERM)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_set_trust_evidence(
             package_id, PROS_COMPAT_EVIDENCE_TEST_ONLY) != PROS_DRIVER_OK)
