@@ -270,6 +270,45 @@ int pros_driver_bundle_selftest(void) {
         }
 
         {
+            static const uint8_t import_bytes_v2[] = "offline-import-v2";
+            struct pros_file_admission_input input_v2;
+            struct pros_file_admission_record record_v2;
+            struct pros_compat_package package_v2;
+            struct pros_driver_bundle_entry entry_v2;
+            uint32_t package_v2_id = 0;
+            uint32_t selected_v2 = 0;
+            int score_v2 = 0;
+
+            input_v2.data = import_bytes_v2;
+            input_v2.length = sizeof(import_bytes_v2) - 1u;
+            input_v2.metadata.format_valid = 1u;
+            input_v2.metadata.signature_valid = 0u;
+            input_v2.metadata.signature_present = 0u;
+            input_v2.metadata.local_trusted = 1u;
+            input_v2.metadata.local_denied = 0u;
+            input_v2.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+            input_v2.metadata.provenance_known = 1u;
+
+            if (pros_file_admission_evaluate(&input_v2, &record_v2) !=
+                    PROS_DRIVER_OK ||
+                pros_driver_bundle_admit_package(
+                    PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                    "offline-import-v2.inf", &import_id, 1u, 0u,
+                    PROS_DRIVER_BUNDLE_LOCAL, 3u, 0u, 0u,
+                    import_bytes_v2, sizeof(import_bytes_v2) - 1u,
+                    &record_v2, &package_v2_id) != PROS_DRIVER_OK ||
+                pros_driver_compat_get_package(package_v2_id, &package_v2) !=
+                    PROS_DRIVER_OK ||
+                package_v2.tx_state != PROS_COMPAT_TX_VERIFIED ||
+                pros_driver_bundle_find(package_v2_id, &entry_v2) !=
+                    PROS_DRIVER_OK ||
+                pros_driver_bundle_select_best(
+                    &import_id, &selected_v2, &score_v2) != PROS_DRIVER_OK ||
+                selected_v2 != package_v2_id || score_v2 < 100)
+                return -12;
+        }
+
+        {
             struct pros_file_admission_record bad = record;
             bad.sha256[0] ^= 0xFFu;
             if (pros_driver_bundle_admit_package(
