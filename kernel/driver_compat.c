@@ -52,6 +52,8 @@ static int parse_hex2(const char *p, uint8_t *out)
     *out = (uint8_t)((hi << 4) | lo);
     return 1;
 }
+static int ci_match4(const char *p, const char *tag);
+
 static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
 {
     uint16_t vendor, device;
