@@ -166,6 +166,17 @@ static int partition_device_read(struct pros_block_device *device,
                              count, buffer);
 }
 
+static int partition_device_flush(struct pros_block_device *device)
+{
+    struct pros_partition_device *view;
+    if (!device || !device->private_data)
+        return PROS_BLOCK_EINVAL;
+    view = (struct pros_partition_device *)device->private_data;
+    if (!view->parent)
+        return PROS_BLOCK_EINVAL;
+    return block_device_flush(view->parent);
+}
+
 static int partition_device_write(struct pros_block_device *device,
                                   uint64_t lba, uint32_t count,
                                   const void *buffer)
@@ -195,6 +206,9 @@ int partition_device_init(struct pros_partition_device *view,
                           partition->sector_count, partition_device_read,
                           parent->write ? partition_device_write : 0, view) !=
         PROS_BLOCK_OK)
+        return PROS_PARTITION_EINVAL;
+    if (parent->flush &&
+        block_device_set_flush(&view->device, partition_device_flush) != PROS_BLOCK_OK)
         return PROS_PARTITION_EINVAL;
     return PROS_PARTITION_OK;
 }
