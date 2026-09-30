@@ -190,3 +190,8 @@ Admission-backed offline imports now fail closed on content-hash, admission, or 
 ### Deterministic bundle lifecycle and tie-break coverage — 2026-09-30
 
 Bundle removal is blocked while the compatibility package is in VERIFIED, STAGED, HEALTHY, or COMMITTED state. Failed admission-backed imports reclaim their newly allocated compatibility slot. Selection regression coverage now exercises semantic-version, source, and package-ID tie-breaks after hardware match score; content identity and admission/trust gates remain authoritative.
+
+
+### Bundle/registry consistency guard — 2026-09-30
+
+Bundle indexing now requires the referenced compatibility package to exist and not be EMPTY. The bundle remains an index/locator rather than an independent package authority, preventing orphaned bundle entries from being introduced through direct indexing.
