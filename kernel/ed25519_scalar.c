@@ -7,6 +7,7 @@ static void scalar_add_raw(uint8_t out[32], const uint8_t a[32],
         out[i] = (uint8_t)v;
         carry = (uint16_t)(v >> 8);
     }
+    out[32] = (uint8_t)carry;
 }
 
 void pros_ed25519_scalar_add(uint8_t out[32], const uint8_t a[32],
