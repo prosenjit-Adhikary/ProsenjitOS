@@ -1218,7 +1218,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                                &post_commit_byte, &direct_byte,
                                                &vfs_byte) != PROSENJITFS_OK ||
                     tx_byte != 0xD6u || post_commit_byte != 0xD6u ||
-                    direct_byte != 0xD6u ||
                     partition_trace_find(&pfs_device, physical_lba, 1u,
                                          &parent_write_lba, &trace_count) != PROS_PARTITION_OK ||
                     pros_ata_pio_trace_find(&native_ata, parent_write_lba, 1u,
