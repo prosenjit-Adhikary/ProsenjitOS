@@ -159,19 +159,6 @@ int pros_driver_compat_register_package(
     return PROS_DRIVER_OK;
 }
 
-int pros_driver_compat_set_content_sha256(
-    uint32_t package_id,
-    const uint8_t digest[PROS_FILE_SHA256_BYTES])
-{
-    uint32_t i;
-    if (package_id == 0 || package_id > package_count || !digest)
-        return PROS_DRIVER_EINVAL;
-    for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i)
-        packages[package_id - 1u].content_sha256[i] = digest[i];
-    packages[package_id - 1u].content_sha256_valid = 1u;
-    return PROS_DRIVER_OK;
-}
-
 int pros_driver_compat_hash_content(
     uint32_t package_id, const uint8_t *data, uint64_t length)
 {
