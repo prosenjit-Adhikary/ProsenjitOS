@@ -1401,6 +1401,9 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     if (prosenjitfs_read_inode(data->fs, inode_number, &child_inode) !=
             PROSENJITFS_OK)
         goto rmdir_out;
+    entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
+    if (!entry_block)
+        { rc = PROS_VFS_EIO; goto rmdir_out; }
     if (child_inode.type != PROSENJITFS_INODE_DIR) {
         rc = PROS_VFS_ENOTDIR; goto rmdir_out;
     }
