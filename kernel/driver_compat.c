@@ -230,6 +230,11 @@ int pros_driver_compat_begin(uint32_t package_id)
     if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
     if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED)
         return PROS_DRIVER_EPERM;
+    if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_EMPTY)
+        return PROS_DRIVER_ENODEV;
+    if (packages[package_id - 1u].tx_state != PROS_COMPAT_TX_IDLE &&
+        packages[package_id - 1u].tx_state != PROS_COMPAT_TX_ROLLED_BACK)
+        return PROS_DRIVER_EBUSY;
     packages[package_id - 1u].tx_state = PROS_COMPAT_TX_INSPECTED;
     return PROS_DRIVER_OK;
 }
@@ -240,6 +245,9 @@ int pros_driver_compat_verify(uint32_t package_id)
     if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
     p = &packages[package_id - 1u];
     if (p->tx_state != PROS_COMPAT_TX_INSPECTED) return PROS_DRIVER_EPERM;
+    if (p->status == PROS_COMPAT_STATUS_REJECTED ||
+        p->trust == PROS_COMPAT_TRUST_REJECTED)
+        return PROS_DRIVER_EPERM;
     if (p->trust != PROS_COMPAT_TRUST_VERIFIED) return PROS_DRIVER_EPERM;
     if (pros_driver_compat_dependency_check(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
