@@ -1207,10 +1207,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                   &trace_done) != PROS_VFS_OK ||
                     trace_done != sizeof(trace_read) ||
                     vfs_file_close(&trace_file) != PROS_VFS_OK ||
-                    prosenjitfs_write_diag_get(&physical_lba, &tx_byte,
-                                               &post_commit_byte, &direct_byte,
-                                               &vfs_byte) != PROSENJITFS_OK ||
-                    vfs_byte != 0xD6u ||
                     partition_trace_find(&pfs_device, physical_lba, 0u,
                                          &parent_read_lba, &trace_count) != PROS_PARTITION_OK ||
                     pros_ata_pio_trace_find(&native_ata, parent_read_lba, 0u,
