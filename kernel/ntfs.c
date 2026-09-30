@@ -4802,6 +4802,35 @@ int ntfs_selftest(void)
                                          &index_info) != PROS_NTFS_OK)
                 return -119;
 
+            /*
+             * Mutation regression: write the validated INDX image back
+             * through the same runlist path used by future index splits.
+             * The synthetic block device maps LCN 8 to the INDX storage.
+             */
+            {
+                uint8_t write_index_record[4096];
+                for (uint32_t i = 0u; i < sizeof(write_index_record); ++i)
+                    write_index_record[i] = read_index_record[i];
+                write_index_record[40u] = 0x78u;
+                write_index_record[41u] = 0x56u;
+                if (ntfs_index_allocation_write(&fs, index_runs,
+                                                index_run_count, 0u,
+                                                write_index_record,
+                                                sizeof(write_index_record)) !=
+                    PROS_NTFS_OK)
+                    return -121;
+                for (uint32_t i = 0u; i < sizeof(write_index_record); ++i)
+                    read_index_record[i] = 0u;
+                if (ntfs_index_allocation_read(&fs, index_runs,
+                                               index_run_count, 0u,
+                                               read_index_record,
+                                               sizeof(read_index_record)) !=
+                    PROS_NTFS_OK ||
+                    read_index_record[40u] != 0x78u ||
+                    read_index_record[41u] != 0x56u)
+                    return -122;
+            }
+
             if (ntfs_index_allocation_lookup(
                     &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
                     lookup_name, 4u, &child_reference) != PROS_NTFS_OK)
