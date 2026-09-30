@@ -61,6 +61,37 @@ static int ci_contains(const char *text, uint32_t len, const char *needle)
     return 0;
 }
 
+static void copy_inf_value(char *out, uint32_t cap, const char *text, uint32_t len,
+                              const char *key)
+{
+    uint32_t i, k = 0, start = 0, end = 0;
+    if (!out || !cap || !text || !key) return;
+    out[0] = 0;
+    while (key[k]) ++k;
+    for (i = 0; i + k < len; ++i) {
+        uint32_t p = i;
+        while (p < len && (text[p] == ' ' || text[p] == '\t')) ++p;
+        if (p + k < len && ci_contains(&text[p], k, key)) {
+            uint32_t q = p + k;
+            while (q < len && (text[q] == ' ' || text[q] == '\t')) ++q;
+            if (q < len && text[q] == '=') {
+                start = q + 1u;
+                while (start < len && (text[start] == ' ' || text[start] == '\t')) ++start;
+                end = start;
+                while (end < len && text[end] != '\r' && text[end] != '\n') ++end;
+                while (end > start && (text[end-1u] == ' ' || text[end-1u] == '\t')) --end;
+                {
+                    uint32_t n = end - start;
+                    if (n >= cap) n = cap - 1u;
+                    for (uint32_t j = 0; j < n; ++j) out[j] = text[start+j];
+                    out[n] = 0;
+                }
+                return;
+            }
+        }
+    }
+}
+
 static enum pros_compat_driver_model detect_model(const char *text, uint32_t len)
 {
     if (ci_contains(text, len, "STORPORT")) return PROS_COMPAT_MODEL_STORPORT;
@@ -150,6 +181,9 @@ int pros_driver_compat_register_package(
     pkg->prog_if = ids[0].prog_if;
     pkg->id_count = id_count;
     pkg->name = name;
+    pkg->provider[0] = 0;
+    pkg->driver_ver[0] = 0;
+    pkg->class_name[0] = 0;
 
     for (i = 0; i < id_count; ++i)
         package_ids[package_count][i] = ids[i];
@@ -242,8 +276,16 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
     }
     if (!count) return PROS_DRIVER_ENODEV;
     model = detect_model(text, text_len);
-    return pros_driver_compat_register_package(
+    int rc = pros_driver_compat_register_package(
         PROS_COMPAT_PACKAGE_INF, model, name, ids, count, 0, package_id_out);
+    if (rc != PROS_DRIVER_OK) return rc;
+    copy_inf_value(packages[*package_id_out - 1u].class_name,
+                   PROS_DRIVER_COMPAT_MAX_CLASS, text, text_len, "Class");
+    copy_inf_value(packages[*package_id_out - 1u].provider,
+                   PROS_DRIVER_COMPAT_MAX_PROVIDER, text, text_len, "Provider");
+    copy_inf_value(packages[*package_id_out - 1u].driver_ver,
+                   PROS_DRIVER_COMPAT_MAX_DRIVER_VER, text, text_len, "DriverVer");
+    return PROS_DRIVER_OK;
 }
 
 int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust trust)
