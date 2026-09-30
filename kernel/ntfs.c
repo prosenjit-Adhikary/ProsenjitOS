@@ -3275,6 +3275,7 @@ struct ntfs_test_disk {
     uint8_t upcase_record[1024];
     uint8_t upcase_data[PROS_NTFS_UPCASE_BYTES];
     uint8_t index_record[4096];
+    uint8_t mft_mirror_record[1024];
     uint8_t root_record[1024];
     uint8_t bitmap_record[1024];
     uint8_t bitmap_data[512];
@@ -3295,6 +3296,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s == 32u || lba + s == 33u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->mft_record[(lba + s - 32u) * 512u + i];
+        else if (lba + s == 72u || lba + s == 73u)
+            for (uint32_t i = 0; i < 512u; ++i)
+                dst[i] = disk->mft_mirror_record[(lba + s - 72u) * 512u + i];
         else if (lba + s == 54u || lba + s == 55u)
             for (uint32_t i = 0u; i < 512u; ++i)
                 dst[i] = disk->file_record[(lba + s - 54u) * 512u + i];
@@ -4047,7 +4051,7 @@ int ntfs_selftest(void)
     disk.boot[11]=0x00; disk.boot[12]=0x02;
     disk.boot[13]=8;
     disk.boot[40]=0x00; disk.boot[41]=0x10;
-    disk.boot[48]=4; disk.boot[56]=8;
+    disk.boot[48]=4; disk.boot[56]=9;
     disk.boot[64]=0xF6;
     disk.boot[510]=0x55; disk.boot[511]=0xAA;
 
