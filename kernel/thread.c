@@ -168,6 +168,31 @@ int thread_wake(struct pros_thread *thread) {
     return 0;
 }
 
+uint64_t thread_runnable_count(void) {
+    uint64_t count = 0;
+    for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
+        if (thread_process_runnable(thread) && thread->state == PROS_THREAD_READY)
+            ++count;
+    if (current_thread && thread_process_runnable(current_thread) &&
+        current_thread->state == PROS_THREAD_RUNNING)
+        ++count;
+    return count;
+}
+
+uint64_t thread_blocked_count(void) {
+    uint64_t count = 0;
+    if (current_thread && current_thread->state == PROS_THREAD_BLOCKED)
+        ++count;
+    return count;
+}
+
+uint64_t thread_dead_count(void) {
+    uint64_t count = 0;
+    if (current_thread && current_thread->state == PROS_THREAD_DEAD)
+        ++count;
+    return count;
+}
+
 int thread_has_runnable(void) {
     for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
         if (thread_process_runnable(thread))
