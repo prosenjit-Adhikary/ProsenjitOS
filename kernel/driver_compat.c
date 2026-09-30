@@ -387,6 +387,48 @@ int pros_driver_compat_begin(uint32_t package_id)
     return PROS_DRIVER_OK;
 }
 
+static int compat_dependency_trust_check(uint32_t package_id)
+{
+    uint8_t seen[PROS_DRIVER_COMPAT_MAX_PACKAGES];
+    uint32_t stack[PROS_DRIVER_COMPAT_MAX_PACKAGES];
+    uint32_t i, top = 0;
+
+    for (i = 0; i < package_count; ++i)
+        seen[i] = 0;
+
+    stack[top++] = package_id;
+    while (top) {
+        uint32_t id = stack[--top];
+        struct pros_compat_package *pkg;
+
+        if (id == 0 || id > package_count)
+            return PROS_DRIVER_EINVAL;
+        if (seen[id - 1u])
+            continue;
+        seen[id - 1u] = 1u;
+
+        pkg = &packages[id - 1u];
+        if (pkg->status == PROS_COMPAT_STATUS_REJECTED ||
+            pkg->trust == PROS_COMPAT_TRUST_REJECTED)
+            return PROS_DRIVER_EPERM;
+        if (pkg->status == PROS_COMPAT_STATUS_EMPTY)
+            return PROS_DRIVER_ENODEV;
+        if (pkg->trust != PROS_COMPAT_TRUST_VERIFIED ||
+            pkg->trust_evidence == PROS_COMPAT_EVIDENCE_NONE)
+            return PROS_DRIVER_EPERM;
+
+        for (i = 0; i < pkg->dependency_count; ++i) {
+            uint32_t dep = pkg->dependencies[i];
+            if (dep == 0 || dep > package_count)
+                return PROS_DRIVER_EINVAL;
+            if (top >= PROS_DRIVER_COMPAT_MAX_PACKAGES)
+                return PROS_DRIVER_ENOSPC;
+            stack[top++] = dep;
+        }
+    }
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_verify(uint32_t package_id)
 {
     struct pros_compat_package *p;
@@ -401,6 +443,8 @@ int pros_driver_compat_verify(uint32_t package_id)
         return PROS_DRIVER_EPERM;
     if (pros_driver_compat_dependency_check(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
+    if (compat_dependency_trust_check(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EPERM;
     p->tx_state = PROS_COMPAT_TX_VERIFIED;
     return PROS_DRIVER_OK;
 }
