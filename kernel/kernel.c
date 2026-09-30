@@ -1268,6 +1268,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 serial_write(", ATA read LBA = ");
                 serial_hex64(ata_read_lba);
                 serial_write("\n");
+                serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
             }
 
             if (prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK ||
