@@ -4,7 +4,8 @@
 static uint8_t initialized;
 
 int pros_log_init(void) {
-    if (pros_health_init() != PROS_HEALTH_OK)
+    if (pros_health_init() != PROS_HEALTH_OK ||
+        pros_log_persist_init() != PROS_LOG_OK)
         return PROS_LOG_EIO;
     initialized = 1u;
     return PROS_LOG_OK;
@@ -15,10 +16,13 @@ int pros_log_emit(uint32_t severity, uint32_t category,
     if (!initialized)
         return PROS_LOG_EINVAL;
     int rc = pros_health_record(severity, category, source, code, value);
+    struct pros_health_snapshot snapshot;
     struct pros_health_event event;
     if (rc != PROS_LOG_OK)
         return rc;
-    if (pros_health_get_event(0u, &event) == PROS_HEALTH_OK)
+    if (pros_health_snapshot(&snapshot) == PROS_HEALTH_OK &&
+        snapshot.event_count != 0u &&
+        pros_health_get_event(snapshot.event_count - 1u, &event) == PROS_HEALTH_OK)
         (void)pros_log_persist_emit(&event);
     return PROS_LOG_OK;
 }
