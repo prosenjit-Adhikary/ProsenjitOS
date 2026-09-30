@@ -357,6 +357,46 @@ int pros_driver_bundle_selftest(void) {
                 pros_driver_bundle_find(package_v2_id, &entry_v2) !=
                     PROS_DRIVER_OK)
                 return -14;
+
+            /*
+             * Same hardware score/version must prefer the deterministic
+             * source order (ISO before removable/local).
+             */
+            {
+                static const uint8_t import_bytes_v3[] = "offline-import-v3";
+                struct pros_file_admission_input input_v3;
+                struct pros_file_admission_record record_v3;
+                struct pros_compat_package package_v3;
+                uint32_t package_v3_id = 0;
+                uint32_t selected_v3 = 0;
+                int score_v3 = 0;
+
+                input_v3.data = import_bytes_v3;
+                input_v3.length = sizeof(import_bytes_v3) - 1u;
+                input_v3.metadata.format_valid = 1u;
+                input_v3.metadata.signature_valid = 0u;
+                input_v3.metadata.signature_present = 0u;
+                input_v3.metadata.local_trusted = 1u;
+                input_v3.metadata.local_denied = 0u;
+                input_v3.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+                input_v3.metadata.provenance_known = 1u;
+
+                if (pros_file_admission_evaluate(&input_v3, &record_v3) !=
+                        PROS_DRIVER_OK ||
+                    pros_driver_bundle_admit_package(
+                        PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                        "offline-import-v3.inf", &import_id, 1u, 0u,
+                        PROS_DRIVER_BUNDLE_ISO, 3u, 0u, 0u,
+                        import_bytes_v3, sizeof(import_bytes_v3) - 1u,
+                        &record_v3, &package_v3_id) != PROS_DRIVER_OK ||
+                    pros_driver_compat_get_package(package_v3_id, &package_v3) !=
+                        PROS_DRIVER_OK ||
+                    package_v3.tx_state != PROS_COMPAT_TX_VERIFIED ||
+                    pros_driver_bundle_select_best(
+                        &import_id, &selected_v3, &score_v3) != PROS_DRIVER_OK ||
+                    selected_v3 != package_v3_id || score_v3 < 100)
+                    return -15;
+            }
         }
 
         {
