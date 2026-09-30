@@ -165,3 +165,8 @@ The bounded INF inspector now follows manufacturer-to-model section references b
 ### Offline bundle content-identity guard — 2026-09-30
 
 Offline bundle selection now requires the bundle entry's SHA-256 identity to match the current compatibility-package content identity before selection. A stale bundle index entry therefore fails closed rather than selecting metadata for different package bytes. The bundle remains a locator/index; it does not establish trust, signature validity, dependency trust, or executable eligibility.
+
+
+### Deterministic offline candidate precedence — 2026-09-30
+
+When multiple offline bundle entries are eligible for the same hardware ID, selection is deterministic: the highest hardware-match score is preferred first; ties are resolved by higher semantic package version, then bundle source precedence (ISO before removable media before local source), then the lowest package ID. A candidate with a stale SHA-256 bundle identity or without the compatibility registry's verified/admitted active transaction remains ineligible regardless of version or source. This ordering is a selection policy only; it does not establish package trust or executable compatibility.
