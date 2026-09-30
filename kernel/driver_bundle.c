@@ -61,16 +61,25 @@ int pros_driver_bundle_admit_package(
         return rc;
 
     rc = pros_driver_compat_hash_content(package_id, content, content_length);
-    if (rc != PROS_DRIVER_OK)
+    if (rc != PROS_DRIVER_OK) {
+        (void)pros_driver_compat_set_trust(
+            package_id, PROS_COMPAT_TRUST_REJECTED);
         return rc;
+    }
 
     rc = pros_driver_compat_bind_admission(package_id, admission);
-    if (rc != PROS_DRIVER_OK)
+    if (rc != PROS_DRIVER_OK) {
+        (void)pros_driver_compat_set_trust(
+            package_id, PROS_COMPAT_TRUST_REJECTED);
         return rc;
+    }
 
     rc = pros_driver_compat_begin(package_id);
-    if (rc != PROS_DRIVER_OK)
+    if (rc != PROS_DRIVER_OK) {
+        (void)pros_driver_compat_set_trust(
+            package_id, PROS_COMPAT_TRUST_REJECTED);
         return rc;
+    }
 
     rc = pros_driver_compat_verify(package_id);
     if (rc != PROS_DRIVER_OK) {
