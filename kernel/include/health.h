@@ -57,6 +57,7 @@ int pros_health_record(uint32_t severity, uint32_t category,
                        uint32_t source, uint32_t code, uint64_t value);
 int pros_health_snapshot(struct pros_health_snapshot *out);
 int pros_health_get_event(uint32_t offset, struct pros_health_event *out);
+int pros_health_export(char *buffer, uint32_t capacity, uint32_t *length_out);
 int pros_health_sample(void);
 int pros_health_selftest(void);
 
