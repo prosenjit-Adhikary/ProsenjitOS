@@ -15,8 +15,8 @@ contract -> unbind/remove.
 ## Contracts
 
 A pros_driver_device is a discovered device record containing a bus-neutral
-hardware identity, device class, lifecycle state, optional bus data, and the
-currently bound driver.
+hardware identity, device class, lifecycle state, optional bus data, and
+the currently bound driver.
 
 A pros_driver declares a stable name/version, driver ABI version, native or
 compatibility origin, policy flags, a bounded hardware-ID match table, and
@@ -33,6 +33,32 @@ BOUND -> DISCOVERED is the normal unbind path.
 A removed device becomes REMOVED and cannot be rebound.
 
 A driver cannot be unregistered while it owns a device.
+
+## Device permission broker contract
+
+The driver registry deliberately does not grant device authority to applications.
+The next security layer is a small capability-oriented device permission broker
+between a process and a discovered device.
+
+The broker contract should enforce these invariants:
+
+1. A device must exist and be in a usable state before access can be granted.
+2. The requested device class must match the class authority being requested.
+3. A process receives no implicit device authority from knowing a device ID/name.
+4. Grants are explicit and bounded to a device, process, and permission mask.
+5. Unsupported or malformed requests fail closed.
+6. Revocation must invalidate future access without modifying driver state.
+7. The broker must not bypass existing process capability/permission checks.
+8. Audit/reason information should identify the device and requested authority
+   without exposing unnecessary hardware metadata.
+
+Initial permission classes are intentionally small: READ, WRITE, CONTROL, and
+MAP. Sensitive classes such as network configuration or raw DMA should remain
+separate policy decisions rather than being implied by generic device access.
+
+The first implementation target is a deterministic kernel policy primitive and
+self-test; user-facing permission prompts and actual keyboard/display/network
+drivers remain separate milestones.
 
 ## Native vs compatibility
 
