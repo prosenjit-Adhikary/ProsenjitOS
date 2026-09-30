@@ -206,6 +206,31 @@ int pros_nt_compat_selftest(void)
         device.resources[1] = device.resources[0];
         if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_EBUSY)
             return PROS_DRIVER_EIO;
+        images[0].state = PROS_NT_COMPAT_STAGED;
+        if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_PNP,
+                                             nt_compat_pnp_test_handler)
+            != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_START) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_STARTED)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_QUERY_REMOVE) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_QUERY_REMOVE)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_STOP) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_STOPPED)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_START) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_STARTED)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_REMOVE) != PROS_DRIVER_EPERM)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_STOP) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_STOPPED)
+            return PROS_DRIVER_EIO;
+        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_REMOVE) != PROS_DRIVER_OK ||
+            devices[0].state != PROS_NT_DEVICE_REMOVED)
+            return PROS_DRIVER_EIO;
     }
     if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
                                                nt_compat_test_handler)
