@@ -1032,7 +1032,7 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
     struct pros_ntfs_index_root root;
     const uint8_t *root_data, *child_name;
     uint32_t root_attr, alloc_attr, root_size, child_name_size;
-    uint32_t offset, chosen = 0u;
+    uint32_t offset, chosen = 0u, child_name_attr;
     uint64_t chosen_vcn = 0u;
     const uint8_t *runlist;
     uint32_t runlist_size, run_count;
@@ -1060,12 +1060,11 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
                             PROS_NTFS_MFT_RUN_MAX, &run_count) !=
             PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
-    if (ntfs_attribute_data(child_record, fs->bytes_per_file_record,
-                            ntfs_find_attribute(child_record,
-                                                fs->bytes_per_file_record,
-                                                0x30u, &offset) == PROS_NTFS_OK ?
-                                                offset : 0u,
-                            &child_name, &child_name_size) != PROS_NTFS_OK ||
+    if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
+                            0x30u, &child_name_attr) != PROS_NTFS_OK ||
+        ntfs_attribute_data(child_record, fs->bytes_per_file_record,
+                            child_name_attr, &child_name, &child_name_size) !=
+                            PROS_NTFS_OK ||
         child_name_size < 66u || child_name_size > sizeof(key) ||
         child_name[64u] == 0u ||
         66u + (uint32_t)child_name[64u] * 2u > child_name_size)
