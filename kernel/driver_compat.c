@@ -101,6 +101,52 @@ static enum pros_compat_driver_model detect_model(const char *text, uint32_t len
     return PROS_COMPAT_MODEL_WDM;
 }
 
+static uint32_t line_value(const char *text, uint32_t len, const char *key,
+                                    char *out, uint32_t out_len)
+{
+    uint32_t klen = 0, i = 0;
+    while (key[klen]) ++klen;
+    if (!klen || !out || out_len < 2) return 0;
+    while (i + klen < len) {
+        uint32_t j;
+        if ((i == 0 || text[i-1] == '\n' || text[i-1] == '\r') &&
+            i + klen <= len) {
+            for (j = 0; j < klen; ++j) {
+                char a=text[i+j], b=key[j];
+                if (a>='a'&&a<='z') a=(char)(a-'a'+'A');
+                if (b>='a'&&b<='z') b=(char)(b-'a'+'A');
+                if (a!=b) break;
+            }
+            if (j == klen && i+klen < len && text[i+klen] == '=') {
+                uint32_t p=i+klen+1, n=0;
+                while (p+n<len && text[p+n]!='\r' && text[p+n]!='\n' && n+1<out_len) {
+                    out[n]=text[p+n]; ++n;
+                }
+                while(n && (out[n-1]==' ' || out[n-1]=='\t')) --n;
+                out[n]=0;
+                return n;
+            }
+        }
+        ++i;
+    }
+    return 0;
+}
+
+static uint32_t parse_class_value(const char *text, uint32_t len, uint8_t *class_code)
+{
+    char value[8];
+    uint32_t n=line_value(text,len,"Class",value,sizeof(value));
+    if(!n) return 0;
+    uint32_t v=0;
+    for(uint32_t i=0;i<n && i<2;++i){
+        int h=hex_value(value[i]);
+        if(h<0)return 0;
+        v=(v<<4)|(uint32_t)h;
+    }
+    *class_code=(uint8_t)v;
+    return 1;
+}
+
 static int valid_model(enum pros_compat_driver_model model)
 {
     return model == PROS_COMPAT_MODEL_WDM ||
