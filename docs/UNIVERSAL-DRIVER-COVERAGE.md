@@ -160,3 +160,8 @@ Bounded INF inspection now separates the [Manufacturer] section from the referen
 ### INF model hardware metadata — 2026-09-30
 
 The bounded INF inspector now follows manufacturer-to-model section references before counting PCI hardware-ID entries in the referenced model sections. It also records bounded PCI SUBSYS and REV metadata when present. These values are inspection metadata only; they are not treated as executable INF directives or as a cryptographic trust decision.
+
+
+### Offline bundle content-identity guard — 2026-09-30
+
+Offline bundle selection now requires the bundle entry's SHA-256 identity to match the current compatibility-package content identity before selection. A stale bundle index entry therefore fails closed rather than selecting metadata for different package bytes. The bundle remains a locator/index; it does not establish trust, signature validity, dependency trust, or executable eligibility.
