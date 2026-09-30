@@ -137,9 +137,10 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
   - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
   - [ ] Universal hardware coverage strategy (native + class/protocol + compatibility + graceful fallback)
-  - [ ] Driver Manager / package-management architecture
+  - [x] Driver Manager metadata/trust/dependency/matching foundation
+  - [ ] Full Driver Manager / package-management architecture
   - [ ] Hardware-ID database and device/driver matching
-  - [ ] Signed driver-package verification and trust policy
+  - [ ] Cryptographic signed driver-package verification and trust policy
   - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
   - [x] Bounded INF hardware-ID inspection foundation (PCI VEN/DEV extraction)
   - [ ] Full Windows INF parsing and compatible package metadata extraction
