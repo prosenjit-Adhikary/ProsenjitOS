@@ -3,6 +3,7 @@
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
+static struct pros_thread *thread_registry;
 static int thread_process_runnable(const struct pros_thread *thread) {
     return thread && thread->process &&
            process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
@@ -23,6 +24,7 @@ int thread_manager_init(void) {
     runq_head = 0;
     runq_tail = 0;
     current_thread = 0;
+    thread_registry = 0;
     return 0;
 }
 
@@ -66,6 +68,8 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->context.rflags = 0x202;
     thread->next = 0;
     thread->prev = 0;
+    thread->registry_next = thread_registry;
+    thread_registry = thread;
     return 0;
 }
 
@@ -170,26 +174,26 @@ int thread_wake(struct pros_thread *thread) {
 
 uint64_t thread_runnable_count(void) {
     uint64_t count = 0;
-    for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
-        if (thread_process_runnable(thread) && thread->state == PROS_THREAD_READY)
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread_process_runnable(thread) &&
+            (thread->state == PROS_THREAD_READY || thread->state == PROS_THREAD_RUNNING))
             ++count;
-    if (current_thread && thread_process_runnable(current_thread) &&
-        current_thread->state == PROS_THREAD_RUNNING)
-        ++count;
     return count;
 }
 
 uint64_t thread_blocked_count(void) {
     uint64_t count = 0;
-    if (current_thread && current_thread->state == PROS_THREAD_BLOCKED)
-        ++count;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread->state == PROS_THREAD_BLOCKED)
+            ++count;
     return count;
 }
 
 uint64_t thread_dead_count(void) {
     uint64_t count = 0;
-    if (current_thread && current_thread->state == PROS_THREAD_DEAD)
-        ++count;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread->state == PROS_THREAD_DEAD)
+            ++count;
     return count;
 }
 
