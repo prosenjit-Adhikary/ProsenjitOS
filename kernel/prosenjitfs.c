@@ -3008,6 +3008,12 @@ int prosenjitfs_selftest(void)
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return -62;
         {
+            struct pfs_vnode_data *read_data_private =
+                (struct pfs_vnode_data *)file.vnode->private_data;
+            if (!read_data_private || read_data_private->inode_number != 1u)
+                return -96;
+        }
+        {
             static uint8_t second_read[188u];
             uint32_t second_done = 0u;
             int direct_rc = pfs_file_read(&file, 512u, 188u,
