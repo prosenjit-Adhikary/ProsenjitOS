@@ -82,22 +82,19 @@ int pros_driver_bundle_admit_package(
 
     rc = pros_driver_compat_hash_content(package_id, content, content_length);
     if (rc != PROS_DRIVER_OK) {
-        (void)pros_driver_compat_set_trust(
-            package_id, PROS_COMPAT_TRUST_REJECTED);
+        (void)pros_driver_compat_unregister_package(package_id);
         return rc;
     }
 
     rc = pros_driver_compat_bind_admission(package_id, admission);
     if (rc != PROS_DRIVER_OK) {
-        (void)pros_driver_compat_set_trust(
-            package_id, PROS_COMPAT_TRUST_REJECTED);
+        (void)pros_driver_compat_unregister_package(package_id);
         return rc;
     }
 
     rc = pros_driver_compat_begin(package_id);
     if (rc != PROS_DRIVER_OK) {
-        (void)pros_driver_compat_set_trust(
-            package_id, PROS_COMPAT_TRUST_REJECTED);
+        (void)pros_driver_compat_unregister_package(package_id);
         return rc;
     }
 
@@ -112,6 +109,7 @@ int pros_driver_bundle_admit_package(
         if (pros_driver_compat_get_package(package_id, &package) != PROS_DRIVER_OK ||
             !package.content_sha256_valid) {
             (void)pros_driver_compat_rollback(package_id);
+            (void)pros_driver_compat_unregister_package(package_id);
             return PROS_DRIVER_EIO;
         }
         rc = pros_driver_bundle_add(
@@ -119,6 +117,7 @@ int pros_driver_bundle_admit_package(
     }
     if (rc != PROS_DRIVER_OK) {
         (void)pros_driver_compat_rollback(package_id);
+        (void)pros_driver_compat_unregister_package(package_id);
         return rc;
     }
 
