@@ -1022,6 +1022,115 @@ int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
     return ntfs_write_file_record(fs, 0u, record);
 }
 
+static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
+                                                  uint64_t directory_record_number,
+                                                  uint64_t child_record_number)
+{
+    static uint8_t directory_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t child_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t key[0x10000];
+    struct pros_ntfs_index_root root;
+    const uint8_t *root_data, *child_name;
+    uint32_t root_attr, alloc_attr, root_size, child_name_size;
+    uint32_t offset, chosen = 0u;
+    uint64_t chosen_vcn = 0u;
+    const uint8_t *runlist;
+    uint32_t runlist_size, run_count;
+    struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
+
+    if (!fs || fs->bytes_per_file_record > sizeof(directory_record))
+        return PROS_NTFS_EINVAL;
+    if (ntfs_read_file_record(fs, directory_record_number, directory_record,
+                              sizeof(directory_record)) != PROS_NTFS_OK ||
+        ntfs_read_file_record(fs, child_record_number, child_record,
+                              sizeof(child_record)) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0x90u, &root_attr) != PROS_NTFS_OK ||
+        ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
+                               root_attr, &root) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0xA0u, &alloc_attr) != PROS_NTFS_OK)
+        return PROS_NTFS_ENOTSUP;
+    if (ntfs_attribute_runlist(directory_record, fs->bytes_per_file_record,
+                               alloc_attr, &runlist, &runlist_size) !=
+            PROS_NTFS_OK ||
+        ntfs_decode_runlist(runlist, runlist_size, runs,
+                            PROS_NTFS_MFT_RUN_MAX, &run_count) !=
+            PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_attribute_data(child_record, fs->bytes_per_file_record,
+                            ntfs_find_attribute(child_record,
+                                                fs->bytes_per_file_record,
+                                                0x30u, &offset) == PROS_NTFS_OK ?
+                                                offset : 0u,
+                            &child_name, &child_name_size) != PROS_NTFS_OK ||
+        child_name_size < 66u || child_name_size > sizeof(key) ||
+        child_name[64u] == 0u ||
+        66u + (uint32_t)child_name[64u] * 2u > child_name_size)
+        return PROS_NTFS_ECORRUPT;
+    for (uint32_t i = 0u; i < child_name_size; ++i)
+        key[i] = child_name[i];
+
+    /*
+     * Select the B-tree leaf by the greatest root separator not greater than
+     * the new key. The first child pointer is the fallback for keys before
+     * the first separator.
+     */
+    offset = root.first_entry_offset;
+    while (offset < root.entries_size) {
+        uint16_t entry_size, key_size;
+        uint8_t flags;
+        if (root.entries_size - offset < 16u)
+            return PROS_NTFS_ECORRUPT;
+        entry_size = le16(root_data = (const uint8_t *)0, 0); /* unreachable */
+        (void)entry_size;
+        break;
+    }
+
+    if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
+                             root_attr, &root_data, &root_size) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    offset = root.first_entry_offset;
+    while (offset < root.entries_size) {
+        uint16_t entry_size, key_size;
+        uint8_t flags;
+        if (root.entries_size - offset < 16u)
+            return PROS_NTFS_ECORRUPT;
+        entry_size = le16(root_data + offset + 8u);
+        key_size = le16(root_data + offset + 10u);
+        flags = root_data[offset + 12u];
+        if (entry_size < 16u || (entry_size & 7u) != 0u ||
+            entry_size > root.entries_size - offset ||
+            (flags & ~3u) != 0u ||
+            key_size > entry_size - 16u - ((flags & 1u) ? 8u : 0u))
+            return PROS_NTFS_ECORRUPT;
+        if (flags & 1u) {
+            uint64_t vcn = le64(root_data + offset + entry_size - 8u);
+            if (chosen == 0u)
+                chosen_vcn = vcn;
+            if ((flags & 2u) == 0u && key_size != 0u &&
+                ntfs_name_key_compare(root_data + offset + 16u, key_size,
+                                      key, key[64u]) <= 0)
+                chosen_vcn = vcn;
+            chosen = 1u;
+        }
+        if (flags & 2u)
+            break;
+        offset += entry_size;
+    }
+    if (!chosen)
+        return PROS_NTFS_ECORRUPT;
+
+    return ntfs_index_allocation_insert(fs, runs, run_count, chosen_vcn,
+                                        root.bytes_per_index_record,
+                                        ((uint64_t)le16(child_record + 16u) << 48) |
+                                        (child_record_number & 0x0000FFFFFFFFFFFFull),
+                                        key, child_name_size);
+}
+
 int ntfs_create_file(struct pros_ntfs *fs,
                      uint64_t parent_record_number,
                      uint64_t *record_number,
