@@ -101,9 +101,19 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
      */
     if (le64(&boot[48]) == le64(&boot[56]))
         return PROS_NTFS_ECORRUPT;
+    if (vfs_mount_init(&fs->mount, PROS_FS_NTFS, device, fs, device->write ? 0u : 1u) !=
+        PROS_VFS_OK)
+        return PROS_NTFS_EINVAL;
+
+    fs->bytes_per_sector = sector_size;
+    fs->sectors_per_cluster = boot[13];
+    fs->total_sectors = le64(&boot[40]);
+    fs->mft_lcn = le64(&boot[48]);
+    fs->mftmirr_lcn = le64(&boot[56]);
+
     {
         uint64_t cluster_bytes =
-            (uint64_t)sector_size * (uint64_t)boot[13];
+            (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
         uint64_t mirror_bytes = (uint64_t)4u *
                                 (uint64_t)fs->bytes_per_file_record;
         uint64_t mirror_clusters;
@@ -114,19 +124,11 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
         mirror_clusters = (mirror_bytes + cluster_bytes - 1u) /
                           cluster_bytes;
         if (mirror_clusters == 0u ||
-            le64(&boot[56]) > le64(&boot[40]) - mirror_clusters)
+            fs->mftmirr_lcn > fs->total_sectors / fs->sectors_per_cluster ||
+            mirror_clusters > fs->total_sectors / fs->sectors_per_cluster -
+                              fs->mftmirr_lcn)
             return PROS_NTFS_ECORRUPT;
     }
-
-    if (vfs_mount_init(&fs->mount, PROS_FS_NTFS, device, fs, device->write ? 0u : 1u) !=
-        PROS_VFS_OK)
-        return PROS_NTFS_EINVAL;
-
-    fs->bytes_per_sector = sector_size;
-    fs->sectors_per_cluster = boot[13];
-    fs->total_sectors = le64(&boot[40]);
-    fs->mft_lcn = le64(&boot[48]);
-    fs->mftmirr_lcn = le64(&boot[56]);
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK)
         return PROS_NTFS_EINVAL;
