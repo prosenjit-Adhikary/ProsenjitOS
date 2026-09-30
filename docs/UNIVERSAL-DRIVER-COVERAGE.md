@@ -140,3 +140,14 @@ Compatibility devices now carry an explicit PRESENT/STARTED/QUERY_REMOVE/STOPPED
 ## Current implementation boundary — 2026-09-30
 
 The universal-driver foundation is implemented and fail-closed: hardware-ID matching, deterministic native/compatibility selection, bounded INF inspection, NT/WDM ABI/resource/PnP guards, package transaction rollback, SHA-256 content identity, and a dedicated signature-authority boundary are present. Generic admission no longer accepts caller-supplied signature-valid metadata as cryptographic proof. Real public-key verification, executable Windows-driver compatibility, and complete native device-class coverage remain explicit implementation milestones rather than being represented as complete.
+
+
+### Offline bundle selection boundary — 2026-09-30
+
+The offline driver bundle index now records package source, semantic version, and
+SHA-256 content identity. Compatibility selection is delegated back to the
+compatibility registry, so a bundle entry by itself never grants trust or
+execution eligibility. A package must still satisfy the compatibility registry's
+verified/admitted dependency and active-transaction rules before matching a
+hardware ID. This preserves the fail-closed trust boundary while allowing ISO,
+removable-media, and local driver sources to share one deterministic index.
