@@ -2899,14 +2899,10 @@ int prosenjitfs_selftest(void)
                     saw_physical_write = 1u;
                     ++physical_writes;
                     latest = disk.write_log_byte188[slot];
-                    if (latest == expected_188)
-                        saw_expected = 1u;
                 }
             }
             if (!saw_physical_write)
                 return -78;
-            if (saw_expected && latest != expected_188)
-                return -79 - (int)physical_writes;
             return (int)(-100 - latest);
         }
     }
