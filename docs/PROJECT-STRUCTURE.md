@@ -174,6 +174,13 @@ debugging features.
 - Driver/device: discovery, bind/unbind, faults and permission changes.
 - Kernel: warnings, exceptions, faults, panic and crash diagnostics.
 
+### System health monitoring foundation
+- A bounded structured health-event ring is now available to kernel subsystems.
+- Health events carry sequence, timer timestamp, severity, category, source, code and value metadata.
+- Health snapshots expose heap usage and event/drop counters without requiring dynamic allocation.
+- The initial monitor self-test and boot-time sample run after kernel heap initialization.
+- This is only the monitoring foundation: persistent storage, rotation/retention, crash/panic persistence, watchdogs and recovery-state integration remain separate completion gates.
+
 ### Required logging architecture
 - A central structured event/log collector interface.
 - Persistent local logs suitable for post-crash diagnostics.
