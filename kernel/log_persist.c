@@ -58,7 +58,7 @@ int pros_log_persist_attach(struct pros_vfs_mount *mount,
     persist_mount = mount;
     persist_policy = *policy;
     attached = 1u;
-    bytes_written = 0u;
+    bytes_written = persist_file.vnode ? persist_file.vnode->size : 0u;
     for (uint32_t i = 0u; i <= length; ++i)
         persist_path[i] = path[i];
     return PROS_LOG_PERSIST_OK;
@@ -130,7 +130,7 @@ static int persist_open_current(const char *path) {
                        &persist_file);
     if (rc != PROS_VFS_OK) return PROS_LOG_PERSIST_EIO;
     attached = 1u;
-    bytes_written = 0u;
+    bytes_written = persist_file.vnode ? persist_file.vnode->size : 0u;
     return PROS_LOG_PERSIST_OK;
 }
 
