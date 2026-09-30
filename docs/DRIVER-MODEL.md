@@ -53,6 +53,12 @@ remains kernel-trusted until user-mode driver isolation is available.
 Signed-driver enforcement is represented as policy metadata (SIGNED_REQ), while
 cryptographic package verification remains a separate package/security milestone.
 
+The file-admission policy also distinguishes explicit local trust from
+cryptographic signature verification: a locally trusted, valid package may be
+admitted without a signature, but that policy result is not represented as
+cryptographic signature proof. Compatibility matching still requires the
+admission-backed VERIFIED state and active transaction boundary.
+
 Compatibility package matching is additionally gated by an active verified
 transaction state. Trust/evidence metadata in IDLE, INSPECTED, or ROLLED_BACK
 state cannot make a package selectable; rollback therefore revokes driver
