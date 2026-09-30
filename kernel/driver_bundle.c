@@ -396,6 +396,47 @@ int pros_driver_bundle_selftest(void) {
                         &import_id, &selected_v3, &score_v3) != PROS_DRIVER_OK ||
                     selected_v3 != package_v3_id || score_v3 < 100)
                     return -15;
+
+                /*
+                 * Equal score/version/source falls through to package ID;
+                 * the older package ID must remain the deterministic winner.
+                 */
+                {
+                    static const uint8_t import_bytes_v4[] =
+                        "offline-import-v4";
+                    struct pros_file_admission_input input_v4;
+                    struct pros_file_admission_record record_v4;
+                    uint32_t package_v4_id = 0;
+                    uint32_t selected_v4 = 0;
+                    int score_v4 = 0;
+
+                    input_v4.data = import_bytes_v4;
+                    input_v4.length = sizeof(import_bytes_v4) - 1u;
+                    input_v4.metadata.format_valid = 1u;
+                    input_v4.metadata.signature_valid = 0u;
+                    input_v4.metadata.signature_present = 0u;
+                    input_v4.metadata.local_trusted = 1u;
+                    input_v4.metadata.local_denied = 0u;
+                    input_v4.metadata.reputation =
+                        PROS_FILE_REPUTATION_CLEAN;
+                    input_v4.metadata.provenance_known = 1u;
+
+                    if (pros_file_admission_evaluate(
+                            &input_v4, &record_v4) != PROS_DRIVER_OK ||
+                        pros_driver_bundle_admit_package(
+                            PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                            "offline-import-v4.inf", &import_id, 1u, 0u,
+                            PROS_DRIVER_BUNDLE_ISO, 3u, 0u, 0u,
+                            import_bytes_v4, sizeof(import_bytes_v4) - 1u,
+                            &record_v4, &package_v4_id) != PROS_DRIVER_OK ||
+                        package_v4_id <= package_v3_id ||
+                        pros_driver_bundle_select_best(
+                            &import_id, &selected_v4, &score_v4) !=
+                            PROS_DRIVER_OK ||
+                        selected_v4 != package_v3_id ||
+                        score_v4 < 100)
+                        return -16;
+                }
             }
         }
 
