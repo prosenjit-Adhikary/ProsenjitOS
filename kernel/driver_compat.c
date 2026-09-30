@@ -162,12 +162,38 @@ int pros_driver_compat_register_package(
 int pros_driver_compat_hash_content(
     uint32_t package_id, const uint8_t *data, uint64_t length)
 {
+    struct pros_compat_package *pkg;
+    uint8_t digest[PROS_FILE_SHA256_BYTES];
+    uint32_t i;
+
     if (package_id == 0 || package_id > package_count ||
         (length != 0 && !data))
         return PROS_DRIVER_EINVAL;
 
-    pros_sha256(data, length, packages[package_id - 1u].content_sha256);
-    packages[package_id - 1u].content_sha256_valid = 1u;
+    pkg = &packages[package_id - 1u];
+
+    /*
+     * Re-hashing is a new content identity.  Never leave trust or an
+     * admission decision attached to the previous bytes.
+     */
+    pros_sha256(data, length, digest);
+
+    if (pkg->content_sha256_valid) {
+        for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i)
+            if (pkg->content_sha256[i] != digest[i])
+                break;
+        if (i != PROS_FILE_SHA256_BYTES) {
+            pkg->trust = PROS_COMPAT_TRUST_UNKNOWN;
+            pkg->trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
+            pkg->tx_state = PROS_COMPAT_TX_IDLE;
+            if (pkg->status != PROS_COMPAT_STATUS_REJECTED)
+                pkg->status = PROS_COMPAT_STATUS_INSPECTED;
+        }
+    }
+
+    for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i)
+        pkg->content_sha256[i] = digest[i];
+    pkg->content_sha256_valid = 1u;
     return PROS_DRIVER_OK;
 }
 
@@ -583,6 +609,23 @@ int pros_driver_compat_selftest(void)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_verify(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
+
+    /* A content change must revoke the previous admission/trust decision. */
+    {
+        static const uint8_t changed_inf[] = "changed";
+        struct pros_compat_package changed_pkg;
+        if (pros_driver_compat_hash_content(
+                package_id, changed_inf, (uint64_t)(sizeof(changed_inf) - 1u))
+            != PROS_DRIVER_OK ||
+            pros_driver_compat_get_package(package_id, &changed_pkg)
+                != PROS_DRIVER_OK ||
+            changed_pkg.trust != PROS_COMPAT_TRUST_UNKNOWN ||
+            changed_pkg.trust_evidence != PROS_COMPAT_EVIDENCE_NONE ||
+            changed_pkg.tx_state != PROS_COMPAT_TX_IDLE)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_verify(package_id) != PROS_DRIVER_EPERM)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_driver_compat_stage(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_health_check(package_id) != PROS_DRIVER_ENOTSUP)
