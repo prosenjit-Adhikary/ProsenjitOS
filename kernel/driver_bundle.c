@@ -346,6 +346,22 @@ int pros_driver_bundle_selftest(void) {
                     import_bytes, sizeof(import_bytes) - 1u, &bad,
                     &imported_id) == PROS_DRIVER_OK)
                 return -12;
+
+        /*
+         * A failed tail import must reclaim its registry slot so a later
+         * offline import is not blocked by a permanently poisoned entry.
+         */
+        {
+            uint32_t reclaimed_id = 0;
+            if (pros_driver_compat_register_package(
+                    PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                    "offline-reclaim.inf", &import_id, 1u, 0u,
+                    &reclaimed_id) != PROS_DRIVER_OK ||
+                reclaimed_id != imported_id ||
+                pros_driver_compat_unregister_package(reclaimed_id) !=
+                    PROS_DRIVER_OK)
+                return -13;
+        }
         }
     }
 
