@@ -1,5 +1,4 @@
 #include "health.h"
-#include "driver.h"
 #include "heap.h"
 #include "memory.h"
 #include "timer.h"
@@ -49,16 +48,18 @@ int pros_health_record(uint32_t severity, uint32_t category,
         ++event_count;
     else
         ++dropped_events;
-    return PROS_DRIVER_OK;
+    return PROS_HEALTH_OK;
 }
 
 int pros_health_snapshot(struct pros_health_snapshot *out) {
     if (!initialized || !out)
-        return PROS_DRIVER_EINVAL;
+        return PROS_HEALTH_EINVAL;
 
     *out = (struct pros_health_snapshot){
         .timestamp = timer_ticks(),
         .uptime_ticks = timer_ticks(),
+        .timer_irq_count = timer_irq_count(),
+        .scheduler_preempt_count = timer_preempt_count(),
         .physical_total_pages = physical_memory_total_pages(),
         .physical_free_pages = physical_memory_free_pages(),
         .heap_used_bytes = heap_used_bytes(),
