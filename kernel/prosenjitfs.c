@@ -768,6 +768,26 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 return done ? (int)done : PROS_VFS_EIO;
 
             {
+                uint64_t bits_per_block =
+                    (uint64_t)data->fs->sb.block_size * 8u;
+                uint64_t bitmap_lba =
+                    data->fs->sb.block_bitmap_start + physical / bits_per_block;
+                uint8_t bitmap_tx_found = 0u;
+                for (uint32_t ti = 0u; ti < data->fs->tx.count; ++ti) {
+                    if (data->fs->tx.targets[ti] == bitmap_lba) {
+                        bitmap_tx_found = 1u;
+                        if ((data->fs->tx.images[
+                                (uint64_t)ti * data->fs->sb.block_size +
+                                ((physical % bits_per_block) >> 3)] &
+                             (uint8_t)(1u << (physical & 7u))) == 0u)
+                            return done ? (int)done : -89;
+                        break;
+                    }
+                }
+                if (!bitmap_tx_found)
+                    return done ? (int)done : -90;
+            }
+            {
                 uint8_t tx_found = 0u;
                 for (uint32_t ti = 0u; ti < data->fs->tx.count; ++ti) {
                     if (data->fs->tx.targets[ti] == physical) {
