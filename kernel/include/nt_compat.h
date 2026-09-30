@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "driver.h"
+#include "pe_inspect.h"
 
 /*
  * NT/WDM compatibility boundary.
@@ -53,6 +54,9 @@ struct pros_nt_compat_image {
     uint32_t capabilities;
     uint32_t image_size;
     uint64_t image_entry;
+    uint16_t machine;
+    uint8_t pe32_plus;
+    uint8_t has_imports;
 };
 
 typedef int (*pros_nt_dispatch_fn)(uint32_t package_id, uint32_t irp_major,
@@ -91,6 +95,8 @@ int pros_nt_compat_init(void);
 int pros_nt_compat_inspect(uint32_t package_id,
                            struct pros_nt_compat_image *out);
 int pros_nt_compat_stage(uint32_t package_id);
+int pros_nt_compat_inspect_pe(uint32_t package_id, const uint8_t *data,
+                              uint32_t size);
 int pros_nt_compat_register_dispatch(uint32_t package_id,
                                       uint32_t irp_major,
                                       pros_nt_dispatch_fn handler);
