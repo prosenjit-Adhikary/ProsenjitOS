@@ -42,12 +42,52 @@ int pros_security_signature_selftest(void)
         return -2;
 
     if (pros_security_signature_verify(
+            PROS_SIGNATURE_ALGORITHM_RSA_PSS_SHA256,
+            data, sizeof(data), signature, sizeof(signature),
+            key, sizeof(key), &result) != 0)
+        return -3;
+    if (result != PROS_SIGNATURE_RESULT_UNSUPPORTED)
+        return -4;
+
+    if (pros_security_signature_verify(
+            (enum pros_signature_algorithm)0xFFFFu,
+            data, sizeof(data), signature, sizeof(signature),
+            key, sizeof(key), &result) != 0)
+        return -5;
+    if (result != PROS_SIGNATURE_RESULT_UNSUPPORTED)
+        return -6;
+
+    if (pros_security_signature_verify(
             PROS_SIGNATURE_ALGORITHM_NONE,
             data, sizeof(data), signature, sizeof(signature),
             key, sizeof(key), &result) != 0)
         return -3;
     if (result != PROS_SIGNATURE_RESULT_INVALID)
-        return -4;
+        return -7;
+
+    if (pros_security_signature_verify(
+            PROS_SIGNATURE_ALGORITHM_ED25519,
+            0, 1, signature, sizeof(signature),
+            key, sizeof(key), &result) != -1)
+        return -8;
+
+    if (pros_security_signature_verify(
+            PROS_SIGNATURE_ALGORITHM_ED25519,
+            data, sizeof(data), 0, 1,
+            key, sizeof(key), &result) != -1)
+        return -9;
+
+    if (pros_security_signature_verify(
+            PROS_SIGNATURE_ALGORITHM_ED25519,
+            data, sizeof(data), signature, sizeof(signature),
+            0, 1, &result) != -1)
+        return -10;
+
+    if (pros_security_signature_verify(
+            PROS_SIGNATURE_ALGORITHM_ED25519,
+            data, sizeof(data), signature, sizeof(signature),
+            key, sizeof(key), 0) != -1)
+        return -11;
 
     return 0;
 }
