@@ -3950,10 +3950,8 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
 
     if (entries_size > allocated_size ||
         entry_size > allocated_size - entries_size) {
-        uint64_t parent_record = le64(key) & 0x0000FFFFFFFFFFFFull;
-        if (parent_record > 0x0000FFFFFFFFFFFFull)
-            return PROS_NTFS_EINVAL;
-        return ntfs_index_allocation_split_leaf(fs, parent_record, runs,
+        return ntfs_index_allocation_split_leaf(fs,
+                                                directory_record_number, runs,
                                                 run_count, vcn, record_size,
                                                 file_reference, key, key_size);
     }
