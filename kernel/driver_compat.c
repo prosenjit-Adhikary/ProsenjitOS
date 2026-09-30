@@ -374,6 +374,10 @@ int pros_driver_compat_register_package(
     pkg->manufacturer_valid = 0;
     pkg->model_map_count = 0;
     pkg->manufacturer_section[0] = 0;
+    for (i = 0; i < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS; ++i) {
+        pkg->model_sections[i][0] = 0;
+        pkg->model_id_counts[i] = 0;
+    }
 
     for (i = 0; i < id_count; ++i)
         package_ids[package_count][i] = ids[i];
