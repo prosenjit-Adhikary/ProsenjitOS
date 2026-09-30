@@ -1159,7 +1159,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 uint64_t physical_lba = 0u, read_physical_lba = 0u;
                 uint64_t parent_write_lba = 0u, parent_read_lba = 0u;
                 uint64_t ata_write_lba = 0u, ata_read_lba = 0u;
-                uint64_t ata_read_lba = 0u;
                 uint8_t tx_byte = 0u, post_commit_byte = 0u;
                 uint8_t direct_byte = 0u, vfs_byte = 0u;
 
