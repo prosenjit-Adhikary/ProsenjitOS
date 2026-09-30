@@ -135,13 +135,13 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Stable device/driver registry, hardware-ID matching, lifecycle bind/unbind, native/compatibility origin metadata, and boot self-test
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
   - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
-  - [ ] Driver Manager / package-management architecture
+  - [ ] Universal hardware coverage strategy (native + class/protocol + compatibility + graceful fallback)\n  - [ ] Driver Manager / package-management architecture
   - [ ] Hardware-ID database and device/driver matching
   - [ ] Signed driver-package verification and trust policy
   - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
   - [ ] Windows INF parsing and compatible package metadata extraction
   - [ ] Windows-driver compatibility layer / adapter API
-  - [ ] Native-vs-compatibility driver selection and fallback flow
+  - [ ] Native-vs-compatibility driver selection and fallback flow\n  - [ ] Installer/bootstrap driver environment and offline-first hardware bundle
   - [ ] Offline driver installation from removable/local media
   - [ ] Driver rollback, removal, versioning, and dependency handling
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
