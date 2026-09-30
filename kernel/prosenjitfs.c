@@ -2848,6 +2848,26 @@ int prosenjitfs_selftest(void)
             return -72;
         if (physical_image[188u] != expected_188) {
             uint8_t saw_expected = 0u;
+            uint8_t journal_seen = 0u;
+            uint8_t journal_byte = 0u;
+            uint32_t tx_slot = UINT32_MAX;
+            for (uint32_t ti = 0u; ti < fs.tx.count; ++ti)
+                if (fs.tx.targets[ti] == written_extent.physical_block) {
+                    tx_slot = ti;
+                    break;
+                }
+            if (tx_slot != UINT32_MAX) {
+                uint64_t journal_lba = fs.sb.journal_start + 1u + tx_slot;
+                uint32_t total_log = disk.write_log_count < 128u ? disk.write_log_count : 128u;
+                for (uint32_t n = 0u; n < total_log; ++n) {
+                    uint32_t slot = (disk.write_log_count - 1u - n) % 128u;
+                    if (disk.write_log_lba[slot] == journal_lba) {
+                        journal_seen = 1u;
+                        journal_byte = disk.write_log_byte188[slot];
+                        break;
+                    }
+                }
+            }
             uint8_t saw_physical_write = 0u;
             uint8_t latest = 0u;
             uint32_t physical_writes = 0u;
@@ -2866,6 +2886,8 @@ int prosenjitfs_selftest(void)
                 return -78;
             if (saw_expected && latest != expected_188)
                 return -79 - (int)physical_writes;
+            if (journal_seen)
+                return (int)(-400 - journal_byte);
             return (int)(-100 - latest);
         }
     }
