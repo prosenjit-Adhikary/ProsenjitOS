@@ -3,6 +3,7 @@
 #include "paging.h"
 #include "heap.h"
 #include "health.h"
+#include "log.h"
 #include "address_space.h"
 #include "usercopy.h"
 #include "object.h"
@@ -337,8 +338,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
-    if (pros_health_selftest() != PROS_HEALTH_OK) {
-        serial_write("ProsenjitOS: ERROR system health monitoring self-test failed\n");
+    if (pros_log_selftest() != PROS_LOG_OK) {
+        serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (pros_health_sample() != PROS_HEALTH_OK) {
