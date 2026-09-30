@@ -194,6 +194,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] NTFS safe overwrite of existing unnamed $DATA (no allocation)
   - [x] NTFS file growth inside already allocated non-sparse $DATA
   - [x] NTFS `$Bitmap` contiguous free-cluster allocation primitive
+  - [x] NTFS generic `$BITMAP` allocation/update for resident and nonresident bitmap streams
   - [x] NTFS file growth with exact contiguous `$Bitmap` allocation and runlist extension
   - [x] NTFS non-contiguous runlist growth with mapping-pairs append
   - [x] NTFS `$MFT` bitmap reclamation guard (writable mount + allocated-bit validation)
