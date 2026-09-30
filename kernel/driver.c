@@ -448,6 +448,22 @@ int pros_driver_selftest(void)
         "test-storage", 0, 0, (void *)(uintptr_t)0xA5u
     };
 
+    static const struct {
+        uint8_t class_code;
+        uint8_t subclass;
+        enum pros_device_class expected;
+    } pci_class_tests[] = {
+        { 0x01u, 0x00u, PROS_DEVICE_CLASS_STORAGE },
+        { 0x02u, 0x00u, PROS_DEVICE_CLASS_NETWORK },
+        { 0x03u, 0x00u, PROS_DEVICE_CLASS_DISPLAY },
+        { 0x04u, 0x00u, PROS_DEVICE_CLASS_AUDIO },
+        { 0x07u, 0x00u, PROS_DEVICE_CLASS_SERIAL },
+        { 0x09u, 0x00u, PROS_DEVICE_CLASS_INPUT },
+        { 0x0Cu, 0x03u, PROS_DEVICE_CLASS_USB }
+    };
+    uint32_t pci_test_ids[sizeof(pci_class_tests) / sizeof(pci_class_tests[0])];
+    uint32_t pci_test_count = 0u;
+
     if (pros_driver_class_is_supported(PROS_DEVICE_CLASS_STORAGE) !=
             PROS_DRIVER_OK ||
         pros_driver_class_is_supported(PROS_DEVICE_CLASS_INPUT) !=
@@ -464,8 +480,33 @@ int pros_driver_selftest(void)
             PROS_DRIVER_ENOTSUP ||
         pros_driver_class_is_supported(PROS_DEVICE_CLASS_OTHER) !=
             PROS_DRIVER_EINVAL ||
-        pros_driver_manager_init() != PROS_DRIVER_OK ||
-        pros_driver_register(&compat_driver) != PROS_DRIVER_OK ||
+        pros_driver_manager_init() != PROS_DRIVER_OK)
+        return PROS_DRIVER_EINVAL;
+
+    for (uint32_t i = 0u;
+         i < sizeof(pci_class_tests) / sizeof(pci_class_tests[0]); ++i) {
+        if (pros_driver_register_pci_device(
+                0u, (uint8_t)i, 0u, 0x1234u, (uint16_t)(0x5000u + i),
+                pci_class_tests[i].class_code, pci_class_tests[i].subclass,
+                0u, 0, "class-test", &pci_test_ids[pci_test_count]) !=
+                PROS_DRIVER_OK)
+            return PROS_DRIVER_EINVAL;
+        {
+            const struct pros_driver_device *test_device =
+                pros_device_get(pci_test_ids[pci_test_count]);
+            if (!test_device ||
+                test_device->class_id != pci_class_tests[i].expected)
+                return PROS_DRIVER_EINVAL;
+        }
+        ++pci_test_count;
+    }
+
+    for (uint32_t i = 0u; i < pci_test_count; ++i) {
+        if (pros_device_unregister(pci_test_ids[i]) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EINVAL;
+    }
+
+    if (pros_driver_register(&compat_driver) != PROS_DRIVER_OK ||
         pros_driver_register(&native_driver) != PROS_DRIVER_OK ||
         pros_device_register(&device) != PROS_DRIVER_OK ||
         device.id == 0u ||
