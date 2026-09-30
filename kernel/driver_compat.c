@@ -487,6 +487,8 @@ int pros_driver_compat_get_package(uint32_t package_id,
 {
     if (!out || package_id == 0 || package_id > package_count)
         return PROS_DRIVER_EINVAL;
+    if (packages[package_id - 1u].id == 0u)
+        return PROS_DRIVER_ENODEV;
     *out = packages[package_id - 1u];
     return PROS_DRIVER_OK;
 }
