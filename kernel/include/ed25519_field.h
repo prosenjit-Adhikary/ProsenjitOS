@@ -4,15 +4,18 @@
 #include <stdint.h>
 
 /*
- * Field elements are represented modulo p = 2^255 - 19 using ten
- * signed 25/26-bit limbs.  The representation is intentionally kept
- * private to the implementation; callers only use the fixed-width
- * byte encoding below.
+ * Field elements are represented modulo p = 2^255 - 19 using five
+ * unsigned 51-bit limbs:
+ *
+ *   x = v[0] + v[1] 2^51 + ... + v[4] 2^204
+ *
+ * The representation is an internal arithmetic form. Callers exchange
+ * field elements through the fixed-width 32-byte little-endian encoding.
  */
 #define PROS_ED25519_FIELD_BYTES 32u
 
 struct pros_ed25519_fe {
-    int32_t v[10];
+    uint64_t v[5];
 };
 
 void pros_ed25519_fe_zero(struct pros_ed25519_fe *r);
@@ -34,6 +37,8 @@ void pros_ed25519_fe_mul(struct pros_ed25519_fe *r,
 void pros_ed25519_fe_square(struct pros_ed25519_fe *r,
                             const struct pros_ed25519_fe *a);
 
+int pros_ed25519_fe_equal(const struct pros_ed25519_fe *a,
+                          const struct pros_ed25519_fe *b);
 int pros_ed25519_fe_selftest(void);
 
 #endif
