@@ -485,8 +485,14 @@ int pros_driver_compat_hash_content(
 int pros_driver_compat_get_package(uint32_t package_id,
                                    struct pros_compat_package *out)
 {
-    if (!out || package_id == 0 || package_id > package_count)
+    if (!out || package_id == 0u)
         return PROS_DRIVER_EINVAL;
+    /*
+     * A reclaimed tail slot is no longer inside package_count.  Treat it as
+     * an absent package so stale bundle locators can be cleaned up safely.
+     */
+    if (package_id > package_count)
+        return PROS_DRIVER_ENODEV;
     if (packages[package_id - 1u].id == 0u)
         return PROS_DRIVER_ENODEV;
     *out = packages[package_id - 1u];
