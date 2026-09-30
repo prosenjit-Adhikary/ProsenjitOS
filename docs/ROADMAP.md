@@ -199,7 +199,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] NTFS non-contiguous runlist growth with mapping-pairs append
   - [x] NTFS `$MFT` bitmap reclamation guard (writable mount + allocated-bit validation)
   - [x] NTFS `$MFTMirr` first-record synchronization for MFT records 0-3
-  - [~] NTFS directory-index growth/splitting: index-node write and existing `$INDEX_ALLOCATION` child insertion primitives are implemented; root→`$INDEX_ALLOCATION` conversion, allocation bitmap growth, and node splitting remain
+  - [~] NTFS directory-index growth/splitting: `$INDEX_ALLOCATION` growth, leaf splitting, new INDX-node creation, resident `$INDEX_ROOT` separator promotion, and rollback restoration are implemented; root→`$INDEX_ALLOCATION` conversion and recursive non-root parent splitting remain
   - [ ] NTFS full write support (directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
