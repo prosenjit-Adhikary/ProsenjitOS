@@ -207,7 +207,8 @@ int pros_driver_bundle_selftest(void) {
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i){a[i]=(uint8_t)i;b[i]=(uint8_t)(i^0x55u);}
     if(pros_driver_bundle_init()!=0)return -1;
     if(pros_driver_bundle_add(1,PROS_DRIVER_BUNDLE_ISO,1,2,3,a)!=0)return -2;
-    if(pros_driver_bundle_add(2,PROS_DRIVER_BUNDLE_REMOVABLE,1,3,0,b)!=0)return -3;\n    if(pros_driver_bundle_add(3,(enum pros_driver_bundle_source)-1,1,0,0,a)!=PROS_DRIVER_EINVAL)return -4;
+    if(pros_driver_bundle_add(2,PROS_DRIVER_BUNDLE_REMOVABLE,1,3,0,b)!=0)return -3;
+    if(pros_driver_bundle_add(3,(enum pros_driver_bundle_source)-1,1,0,0,a)!=PROS_DRIVER_EINVAL)return -4;
     int cmp=0;if(pros_driver_bundle_compare_version(1,2,&cmp)!=0||cmp>=0)return -5;
     struct pros_driver_bundle_entry e;if(pros_driver_bundle_find(1,&e)!=0)return -6;
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)if(e.content_sha256[i]!=a[i])return -7;
@@ -237,16 +238,6 @@ int pros_driver_bundle_selftest(void) {
             pros_driver_bundle_add(
                 package_id, PROS_DRIVER_BUNDLE_LOCAL, 1u, 0u, 0u, a)
                 != PROS_DRIVER_OK)
-            return -7;
-
-        /*
-         * The test entry above intentionally uses a different digest first;
-         * replace it with the actual package digest before testing the stale
-         * transition.
-         */
-        if (pros_driver_compat_hash_content(
-                package_id, old_bytes, sizeof(old_bytes) - 1u)
-                != PROS_DRIVER_OK)
             return -8;
 
         {
@@ -257,7 +248,7 @@ int pros_driver_bundle_selftest(void) {
                 pros_driver_bundle_add(
                     package_id, PROS_DRIVER_BUNDLE_LOCAL, 1u, 0u, 0u,
                     package.content_sha256) != PROS_DRIVER_OK)
-                return -10;
+                return -9;
         }
 
         if (pros_driver_compat_hash_content(
