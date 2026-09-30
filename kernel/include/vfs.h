@@ -159,4 +159,15 @@ int vfs_file_admit(const struct pros_vfs_mount *,
 
 int vfs_security_selftest(void);
 
+/* Filesystem/VFS observability counters consumed by the health monitor. */
+uint64_t vfs_health_mount_count(void);
+uint64_t vfs_health_unmount_count(void);
+uint64_t vfs_health_read_count(void);
+uint64_t vfs_health_write_count(void);
+uint64_t vfs_health_truncate_count(void);
+uint64_t vfs_health_lookup_error_count(void);
+uint64_t vfs_health_io_error_count(void);
+uint64_t vfs_health_permission_error_count(void);
+uint64_t vfs_health_corruption_error_count(void);
+
 #endif
