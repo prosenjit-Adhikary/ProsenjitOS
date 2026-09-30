@@ -141,6 +141,42 @@ int pros_device_register(struct pros_driver_device *device)
     return PROS_DRIVER_ENOSPC;
 }
 
+int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
+                                    uint16_t vendor_id, uint16_t device_id,
+                                    uint8_t class_code, uint8_t subclass,
+                                    uint8_t prog_if, void *bus_data,
+                                    const char *name, uint32_t *device_id_out)
+{
+    struct pros_driver_device device = {
+        0u, PROS_DRIVER_BUS_PCI, PROS_DEVICE_CLASS_OTHER,
+        PROS_DEVICE_DISCOVERED,
+        { PROS_DRIVER_BUS_PCI, vendor_id, device_id,
+          class_code, subclass, prog_if },
+        name, 0, 0, bus_data
+    };
+
+    (void)slot;
+    (void)function;
+
+    if (class_code == 0x01u)
+        device.class_id = PROS_DEVICE_CLASS_STORAGE;
+    else if (class_code == 0x02u)
+        device.class_id = PROS_DEVICE_CLASS_NETWORK;
+    else if (class_code == 0x03u)
+        device.class_id = PROS_DEVICE_CLASS_DISPLAY;
+    else if (class_code == 0x0Cu && subclass == 0x03u)
+        device.class_id = PROS_DEVICE_CLASS_USB;
+
+    int rc = pros_device_register(&device);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+
+    if (device_id_out)
+        *device_id_out = device.id;
+
+    return PROS_DRIVER_OK;
+}
+
 int pros_device_unregister(uint32_t id)
 {
     if (!manager_ready || id == 0u)
