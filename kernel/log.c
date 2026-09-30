@@ -1,4 +1,5 @@
 #include "log.h"
+#include "log_persist.h"
 
 static uint8_t initialized;
 
@@ -13,7 +14,13 @@ int pros_log_emit(uint32_t severity, uint32_t category,
                   uint32_t source, uint32_t code, uint64_t value) {
     if (!initialized)
         return PROS_LOG_EINVAL;
-    return pros_health_record(severity, category, source, code, value);
+    int rc = pros_health_record(severity, category, source, code, value);
+    struct pros_health_event event;
+    if (rc != PROS_LOG_OK)
+        return rc;
+    if (pros_health_get_event(0u, &event) == PROS_HEALTH_OK)
+        (void)pros_log_persist_emit(&event);
+    return PROS_LOG_OK;
 }
 
 int pros_log_sink_available(uint32_t sink) {
