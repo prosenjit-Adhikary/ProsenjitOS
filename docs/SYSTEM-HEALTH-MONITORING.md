@@ -33,7 +33,7 @@ Current VFS telemetry records mount/unmount, successful file read/write/truncate
 ### Kernel
 Collect warnings, exceptions/faults, failed assertions/self-tests, lockup/deadlock indicators when implemented, panic/crash events, boot health markers, and subsystem health transitions.
 
-Current implementation records exception/page-fault counters and the last exception vector/RIP.
+Current implementation records exception/page-fault counters and the last exception vector/RIP. Security authorization decisions and driver device lifecycle transitions also emit bounded structured health events.
 
 ### Thermal/power/hardware
 The interface must support temperature sensors, fan/thermal state, battery/AC state where applicable, and throttling/power-state events. Missing sensors must report unsupported/unavailable, never a false healthy value.
@@ -166,6 +166,8 @@ The batch is not implementation-complete until tests cover:
 - SMP-safe counter/event access when SMP is enabled
 
 QEMU regression should verify deterministic boot-health markers and at least one synthetic degraded-health transition before the observability gate is considered verified.
+
+Network telemetry remains event-hook capable but is not fabricated: the current repository does not yet provide a real network-device/link subsystem to instrument. The health API therefore exposes a network category without pretending unsupported network metrics exist.
 
 ## 11. Implementation order
 
