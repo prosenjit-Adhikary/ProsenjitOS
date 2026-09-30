@@ -94,6 +94,7 @@ int pros_driver_compat_init(void)
         packages[i].status = PROS_COMPAT_STATUS_EMPTY;
         compat_zero_digest(packages[i].content_sha256);
         packages[i].content_sha256_valid = 0;
+        packages[i].trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
     }
     return PROS_DRIVER_OK;
 }
@@ -140,6 +141,7 @@ int pros_driver_compat_register_package(
     pkg->tx_state = PROS_COMPAT_TX_IDLE;
     pkg->trust = (flags & PROS_COMPAT_FLAG_SIGNED) ?
         PROS_COMPAT_TRUST_UNKNOWN : PROS_COMPAT_TRUST_UNSIGNED;
+    pkg->trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
     pkg->dependency_count = 0;
     pkg->vendor_id = ids[0].vendor_id;
     pkg->device_id = ids[0].device_id;
@@ -231,6 +233,19 @@ int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust tru
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_compat_set_trust_evidence(
+    uint32_t package_id, enum pros_compat_trust_evidence evidence)
+{
+    if (package_id == 0 || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+    if (evidence > PROS_COMPAT_EVIDENCE_TEST_ONLY)
+        return PROS_DRIVER_EINVAL;
+    if (evidence == PROS_COMPAT_EVIDENCE_CRYPTO_SIGNATURE)
+        return PROS_DRIVER_ENOTSUP;
+    packages[package_id - 1u].trust_evidence = evidence;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id)
 {
     struct pros_compat_package *pkg;
@@ -272,6 +287,8 @@ int pros_driver_compat_verify(uint32_t package_id)
         p->trust == PROS_COMPAT_TRUST_REJECTED)
         return PROS_DRIVER_EPERM;
     if (p->trust != PROS_COMPAT_TRUST_VERIFIED) return PROS_DRIVER_EPERM;
+    if (p->trust_evidence == PROS_COMPAT_EVIDENCE_NONE)
+        return PROS_DRIVER_EPERM;
     if (pros_driver_compat_dependency_check(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     p->tx_state = PROS_COMPAT_TX_VERIFIED;
@@ -473,6 +490,9 @@ int pros_driver_compat_selftest(void)
 
     if (pros_driver_compat_set_trust(package_id,
                                      PROS_COMPAT_TRUST_VERIFIED)
+        != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;    if (pros_driver_compat_set_trust_evidence(
+            package_id, PROS_COMPAT_EVIDENCE_TEST_ONLY)
         != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_begin(package_id) != PROS_DRIVER_OK)
