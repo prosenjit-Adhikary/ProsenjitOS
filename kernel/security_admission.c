@@ -65,9 +65,20 @@ int pros_file_admission_selftest(void) {
         record.security.action != PROS_FILE_ALLOW)
         return -302;
 
-    input.metadata.local_denied = 1;
+    /* Caller-supplied signature metadata must not create VERIFIED trust. */
+    input.metadata.local_trusted = 0;
+    input.metadata.local_denied = 0;
+    input.metadata.signature_valid = 1;
+    input.metadata.signature_present = 1;
     if (pros_file_admission_evaluate(&input, &record) != 0)
         return -303;
+    if (record.security.state != PROS_FILE_UNKNOWN ||
+        record.security.action != PROS_FILE_QUARANTINE)
+        return -306;
+
+    input.metadata.local_denied = 1;
+    if (pros_file_admission_evaluate(&input, &record) != 0)
+        return -305;
     if (record.security.state != PROS_FILE_MALICIOUS ||
         record.security.action != PROS_FILE_BLOCK)
         return -304;
