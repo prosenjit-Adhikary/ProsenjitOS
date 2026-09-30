@@ -324,6 +324,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
 
     {
+        serial_write("ProsenjitOS: ProsenjitFS diagnostic build 8a686b3e\n");
         int pfs_bootstrap_rc = prosenjitfs_selftest();
         if (pfs_bootstrap_rc != PROSENJITFS_OK) {
             serial_write("ProsenjitOS: ERROR bootstrap ProsenjitFS self-test failed rc=");
