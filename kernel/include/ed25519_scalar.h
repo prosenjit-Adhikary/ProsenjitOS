@@ -11,6 +11,13 @@
 void pros_ed25519_scalar_reduce(uint8_t out[32], const uint8_t in[64]);
 int pros_ed25519_scalar_is_canonical(const uint8_t scalar[32]);
 
+void pros_ed25519_scalar_add(uint8_t out[32], const uint8_t a[32],
+                             const uint8_t b[32]);
+void pros_ed25519_scalar_sub(uint8_t out[32], const uint8_t a[32],
+                             const uint8_t b[32]);
+void pros_ed25519_scalar_mul(uint8_t out[32], const uint8_t a[32],
+                             const uint8_t b[32]);
+
 /* Variable-time multiplication is acceptable for public verification scalars. */
 void pros_ed25519_point_scalar_mul(struct pros_ed25519_point *r,
                                    const struct pros_ed25519_point *p,
