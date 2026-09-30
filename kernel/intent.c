@@ -1,5 +1,6 @@
 #include "intent.h"
 #include "process.h"
+#include "health.h"
 #include "timer.h"
 #include "security_file.h"
 #include "sha512.h"
@@ -54,6 +55,10 @@ static void ledger_record(const struct pros_process *process,
     r->decision = (uint8_t)decision;
     r->reason = (uint8_t)reason;
     if (ledger_count_value < PROS_REASON_LEDGER_SIZE) ++ledger_count_value;
+    (void)pros_health_record_security(
+        0x53454341u,
+        ((uint32_t)decision << 16) | (uint32_t)reason,
+        r->intent_id);
 }
 
 int security_manager_init(void) {
