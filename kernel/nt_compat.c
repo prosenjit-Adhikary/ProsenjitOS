@@ -304,6 +304,13 @@ int pros_nt_compat_selftest(void)
             returned.resource_count != 1u ||
             returned.resources[0].type != PROS_NT_RESOURCE_MMIO)
             return PROS_DRIVER_EIO;
+        device.resources[0].start = 0x100800u;
+        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        device.resource_count = 2u;
+        device.resources[1] = device.resources[0];
+        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_EBUSY)
+            return PROS_DRIVER_EIO;
     }
     if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
                                                nt_compat_test_handler)
