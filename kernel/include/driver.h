@@ -99,6 +99,11 @@ int pros_driver_manager_init(void);
 int pros_driver_register(const struct pros_driver *);
 int pros_driver_unregister(const struct pros_driver *);
 int pros_device_register(struct pros_driver_device *);
+int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
+                                    uint16_t vendor_id, uint16_t device_id,
+                                    uint8_t class_code, uint8_t subclass,
+                                    uint8_t prog_if, void *bus_data,
+                                    const char *name, uint32_t *device_id_out);
 int pros_device_unregister(uint32_t id);
 int pros_driver_bind(uint32_t device_id);
 int pros_driver_bind_all(void);
