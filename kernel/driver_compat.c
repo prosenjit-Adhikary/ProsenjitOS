@@ -498,9 +498,22 @@ int pros_driver_compat_commit(uint32_t package_id)
 
 int pros_driver_compat_rollback(uint32_t package_id)
 {
-    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
-    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_ROLLED_BACK;
-    packages[package_id - 1u].status = PROS_COMPAT_STATUS_INSPECTED;
+    struct pros_compat_package *pkg;
+
+    if (package_id == 0 || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+
+    pkg = &packages[package_id - 1u];
+
+    /*
+     * Rollback is a security boundary, not only a transaction-state change.
+     * A rolled-back package must not retain admission-backed trust, because
+     * a later begin()/verify() sequence must require fresh admission.
+     */
+    pkg->trust = PROS_COMPAT_TRUST_UNKNOWN;
+    pkg->trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
+    pkg->tx_state = PROS_COMPAT_TX_ROLLED_BACK;
+    pkg->status = PROS_COMPAT_STATUS_INSPECTED;
     return PROS_DRIVER_OK;
 }
 
@@ -833,6 +846,15 @@ int pros_driver_compat_selftest(void)
      * transaction state.
      */
     if (pros_driver_compat_begin(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    /*
+     * Rollback revokes trust/evidence, so begin() alone must not resurrect
+     * the old admission-backed verification state.
+     */
+    if (pros_driver_compat_begin(package_id) != PROS_DRIVER_OK ||
+        pros_driver_compat_verify(package_id) != PROS_DRIVER_EPERM)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
