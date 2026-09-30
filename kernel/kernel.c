@@ -13,6 +13,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "driver.h"
+#include "health.h"
 #include "device_broker.h"
 #include "ata_pio.h"
 #include "partition.h"
@@ -323,6 +324,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
+
+    if (pros_health_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR health monitor self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (pros_health_sample() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR initial health sample failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: system health monitor initialized\n");
 
     struct pros_process init_process;
     if (process_manager_init() != 0 ||
