@@ -791,7 +791,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     (uint64_t)data->fs->sb.block_size * 8u;
                 uint64_t bitmap_lba =
                     data->fs->sb.block_bitmap_start + physical / bits_per_block;
-                uint8_t bitmap_check[4096];
+                static uint8_t bitmap_check[4096];
                 if (pfs_read_block(data->fs->mount.device, bitmap_lba,
                                    bitmap_check) != PROSENJITFS_OK ||
                     (bitmap_check[(physical % bits_per_block) >> 3] &
