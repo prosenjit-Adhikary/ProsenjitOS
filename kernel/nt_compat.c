@@ -1,6 +1,7 @@
 #include "nt_compat.h"
 
 static struct pros_nt_compat_image images[PROS_NT_COMPAT_MAX_HANDLES];
+static struct pros_nt_compat_dispatch_table dispatch[PROS_NT_COMPAT_MAX_HANDLES];
 
 int pros_nt_compat_init(void)
 {
@@ -11,6 +12,7 @@ int pros_nt_compat_init(void)
         images[i].capabilities = 0;
         images[i].image_size = 0;
         images[i].image_entry = 0;
+        { uint32_t j; for (j = 0; j < PROS_NT_IRP_MAX; ++j) dispatch[i].major[j] = 0; }
     }
     return PROS_DRIVER_OK;
 }
@@ -32,6 +34,35 @@ int pros_nt_compat_inspect(uint32_t package_id,
     }
     *out = images[package_id - 1u];
     return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_register_dispatch(uint32_t package_id,
+                                      uint32_t irp_major,
+                                      pros_nt_dispatch_fn handler)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        irp_major >= PROS_NT_IRP_MAX || !handler)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_EMPTY ||
+        images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    dispatch[package_id - 1u].major[irp_major] = handler;
+    images[package_id - 1u].capabilities |= PROS_NT_CAP_IO_DISPATCH;
+    return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_dispatch(uint32_t package_id, uint32_t irp_major,
+                            void *context)
+{
+    pros_nt_dispatch_fn fn;
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        irp_major >= PROS_NT_IRP_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    fn = dispatch[package_id - 1u].major[irp_major];
+    if (!fn) return PROS_DRIVER_ENOTSUP;
+    return fn(package_id, irp_major, context);
 }
 
 int pros_nt_compat_stage(uint32_t package_id)
@@ -77,6 +108,9 @@ int pros_nt_compat_selftest(void)
     if (pros_nt_compat_inspect(1u, &image) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (image.state != PROS_NT_COMPAT_INSPECTED)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_dispatch(1u, PROS_NT_IRP_READ, 0)
+        != PROS_DRIVER_ENOTSUP)
         return PROS_DRIVER_EIO;
     if (pros_nt_compat_stage(1u) != PROS_DRIVER_ENOTSUP)
         return PROS_DRIVER_EIO;
