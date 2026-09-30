@@ -199,6 +199,19 @@ int pros_file_admit(const struct pros_file_security_metadata *metadata,
         return 0;
     }
 
+    /*
+     * Local trust is an explicit policy decision and may authorize a package
+     * even when no signature is present.  It is deliberately distinct from
+     * cryptographic verification: callers must not turn an arbitrary
+     * signature_valid flag into a cryptographic proof.
+     */
+    if (metadata->local_trusted && metadata->format_valid &&
+        !metadata->signature_present) {
+        result->state = PROS_FILE_TRUSTED;
+        result->action = PROS_FILE_ALLOW;
+        return 0;
+    }
+
     if (metadata->local_trusted && metadata->signature_valid) {
         result->state = PROS_FILE_TRUSTED;
         result->action = PROS_FILE_ALLOW;
@@ -247,6 +260,21 @@ int pros_file_security_selftest(void) {
     if (pros_file_admit(&m, &r) != 0 ||
         r.state != PROS_FILE_TRUSTED || r.action != PROS_FILE_ALLOW)
         return -1;
+
+    m = (struct pros_file_security_metadata){
+        .format_valid=1, .signature_valid=0, .signature_present=0,
+        .local_trusted=1, .local_denied=0,
+        .reputation=PROS_FILE_REPUTATION_CLEAN, .provenance_known=1
+    };
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_TRUSTED || r.action != PROS_FILE_ALLOW)
+        return -1;
+
+    m = (struct pros_file_security_metadata){
+        .format_valid=1, .signature_valid=1, .signature_present=1,
+        .local_trusted=0, .local_denied=0,
+        .reputation=PROS_FILE_REPUTATION_CLEAN, .provenance_known=1
+    };
 
     m.reputation = PROS_FILE_REPUTATION_SUSPICIOUS;
     if (pros_file_admit(&m, &r) != 0 ||
