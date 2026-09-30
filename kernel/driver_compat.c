@@ -387,28 +387,24 @@ int pros_driver_compat_selftest(void)
 
     if (pros_driver_compat_init() != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
-
     if (pros_driver_compat_inspect_inf(
             "compat-selftest.inf", inf, (uint32_t)(sizeof(inf) - 1u),
             &package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
-
     if (pros_driver_compat_get_package(package_id, &pkg) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
-
     if (pkg.status != PROS_COMPAT_STATUS_INSPECTED ||
         pkg.id_count != 2u ||
         pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678 ||
         pkg.model != PROS_COMPAT_MODEL_NDIS)
         return PROS_DRIVER_EIO;
-
     if (pros_driver_compat_get_id(package_id, 1u, &id) != PROS_DRIVER_OK ||
         id.vendor_id != 0xabcd || id.device_id != 0x0001)
         return PROS_DRIVER_EIO;
-
     if (pros_driver_compat_supports_model(PROS_COMPAT_MODEL_WDM)
         != PROS_DRIVER_ENOTSUP)
         return PROS_DRIVER_EIO;
+
     if (pros_driver_compat_set_trust(package_id,
                                      PROS_COMPAT_TRUST_VERIFIED)
         != PROS_DRIVER_OK)
@@ -424,19 +420,15 @@ int pros_driver_compat_selftest(void)
     if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
-
-        if (pros_driver_compat_match(package_id, &id, &score)
-            != PROS_DRIVER_ENODEV)
-            return PROS_DRIVER_EIO;
-    }
-
+    if (pros_driver_compat_match(package_id, &id, &(int){0})
+        != PROS_DRIVER_ENODEV)
+        return PROS_DRIVER_EIO;
     if (pros_driver_compat_get_id(package_id, 0u, &id)
         != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_dependency_check(package_id)
         != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
-
     {
         int score = 0;
         if (pros_driver_compat_match(package_id, &id, &score)
@@ -475,6 +467,5 @@ int pros_driver_compat_selftest(void)
         if (pros_driver_compat_begin(dep_b) != PROS_DRIVER_EPERM)
             return PROS_DRIVER_EIO;
     }
-
     return PROS_DRIVER_OK;
 }
