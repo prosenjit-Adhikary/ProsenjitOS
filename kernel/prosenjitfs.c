@@ -3854,12 +3854,13 @@ int prosenjitfs_selftest(void)
             struct pros_prosenjitfs_inode disk_inode;
             struct pros_prosenjitfs_extent disk_extent;
             uint8_t physical_image[4096];
-            uint64_t extent_lba;
-            uint64_t physical_lba;
+            uint64_t extent_lba = 0u;
+            uint64_t physical_lba = 0u;
             uint32_t logical_block = 188u / fs.sb.block_size;
             uint32_t within_block = 188u % fs.sb.block_size;
             struct pros_vfs_vnode *disk_vnode = 0;
             struct pfs_vnode_data *disk_data;
+            int diagnostic_rc = PROSENJITFS_OK;
 
             if (fs.sb.block_size > sizeof(physical_image) ||
                 vfs_path_lookup(&fs.mount, "/new", &disk_vnode) != PROS_VFS_OK)
@@ -3869,14 +3870,20 @@ int prosenjitfs_selftest(void)
                 prosenjitfs_read_inode(&fs, disk_data->inode_number,
                                        &disk_inode) != PROSENJITFS_OK ||
                 pfs_find_extent(&fs, &disk_inode, logical_block,
-                                &disk_extent, &extent_lba) != PROSENJITFS_OK ||
-                (physical_lba = disk_extent.physical_block +
-                                (logical_block - disk_extent.logical_block),
-                 pfs_read_block(fs.mount.device, physical_lba,
-                                physical_image) != PROSENJITFS_OK) ||
-                physical_image[within_block] != payload[188u] ||
-                vfs_vnode_put(disk_vnode) != PROS_VFS_OK)
-                return -162;
+                                &disk_extent, &extent_lba) != PROSENJITFS_OK) {
+                diagnostic_rc = -162;
+            } else {
+                physical_lba = disk_extent.physical_block +
+                                (logical_block - disk_extent.logical_block);
+                if (pfs_read_block(fs.mount.device, physical_lba,
+                                   physical_image) != PROSENJITFS_OK ||
+                    physical_image[within_block] != payload[188u])
+                    diagnostic_rc = -162;
+            }
+            if (vfs_vnode_put(disk_vnode) != PROS_VFS_OK)
+                diagnostic_rc = -162;
+            if (diagnostic_rc != PROSENJITFS_OK)
+                return diagnostic_rc;
         }
 
         pfs_zero(&file, sizeof(file));
