@@ -86,7 +86,7 @@ The OS should never require a user to abandon installation simply because an opt
 
 ## Implementation status
 
-The compatibility foundation now includes a staged NT/WDM boundary ABI and explicit inspect/stage/health-check/quarantine/rollback states. The stage operation deliberately returns unsupported until the executable NT/WDM runtime exists; this prevents accidental native execution of Windows kernel binaries.
+The compatibility foundation now includes a staged NT/WDM boundary ABI, bounded IRP-major dispatch, and explicit PnP/power event entry points. Inspect/stage/health-check/quarantine/rollback remain explicit lifecycle states. The stage operation deliberately returns unsupported until the executable NT/WDM runtime exists; this prevents accidental native execution of Windows kernel binaries.
 
 The first compatibility inspection slice is now implemented in the kernel: bounded INF-text inspection extracts PCI `VEN_xxxx&DEV_yyyy` hardware IDs, records the detected package model, and exposes the extracted IDs to the driver-manager layer. Package metadata now also carries trust state and bounded dependency IDs, with deterministic compatibility matching that rejects explicitly untrusted packages. The implementation remains metadata-only: it does not execute installers, parse arbitrary INF directives, perform cryptographic signature verification, or execute Windows `.sys` binaries.
 
