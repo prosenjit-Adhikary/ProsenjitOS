@@ -1025,6 +1025,35 @@ int ntfs_create_file(struct pros_ntfs *fs,
                        ((uint64_t)le16(parent_record + 16u) << 48);
 
     /*
+     * Preflight resident INDEX_ROOT capacity before allocating an MFT slot.
+     * The current writer intentionally does not split INDEX_ROOT into
+     * INDEX_ALLOCATION nodes yet; fail before creating partially initialized
+     * child metadata when the root has no room for the new entry.
+     */
+    {
+        uint32_t root_attr;
+        struct pros_ntfs_index_root root;
+        const uint8_t *root_data;
+        uint32_t root_size;
+        uint32_t file_name_size = 66u + (uint32_t)name_length * 2u;
+        uint32_t entry_size = (16u + file_name_size + 7u) & ~7u;
+
+        if (file_name_size > 0xFFFFu || entry_size > 0xFFFFu)
+            return PROS_NTFS_EOVERFLOW;
+        if (ntfs_find_attribute(parent_record, fs->bytes_per_file_record,
+                                0x90u, &root_attr) != PROS_NTFS_OK ||
+            ntfs_index_root_header(parent_record, fs->bytes_per_file_record,
+                                   root_attr, &root) != PROS_NTFS_OK ||
+            ntfs_attribute_data(parent_record, fs->bytes_per_file_record,
+                                root_attr, &root_data, &root_size) !=
+                PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        if (root.allocated_size < root.entries_size ||
+            entry_size > root.allocated_size - root.entries_size)
+            return PROS_NTFS_ENOTSUP;
+    }
+
+    /*
      * Reject an existing case-insensitive name before consuming an MFT slot.
      * A missing resident entry is reported as ENOTSUP by the current lookup
      * path; that is the expected fall-through for a new name.
