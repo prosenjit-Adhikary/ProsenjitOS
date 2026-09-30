@@ -162,6 +162,12 @@ int pros_file_admit(const struct pros_file_security_metadata *metadata,
         evidence |= PROS_FILE_EVIDENCE_SIGNATURE_VALID;
     if (metadata->signature_present && !metadata->signature_valid)
         evidence |= PROS_FILE_EVIDENCE_SIGNATURE_INVALID;
+    /*
+     * A "valid signature" without an actual signature blob is inconsistent
+     * metadata and must never become cryptographic evidence.
+     */
+    if (metadata->signature_valid && !metadata->signature_present)
+        evidence |= PROS_FILE_EVIDENCE_SIGNATURE_INVALID;
     if (metadata->local_trusted)
         evidence |= PROS_FILE_EVIDENCE_LOCAL_TRUST;
     if (metadata->local_denied)
@@ -193,7 +199,8 @@ int pros_file_admit(const struct pros_file_security_metadata *metadata,
     }
 
     if (metadata->reputation == PROS_FILE_REPUTATION_SUSPICIOUS ||
-        (metadata->signature_present && !metadata->signature_valid)) {
+        (metadata->signature_present && !metadata->signature_valid) ||
+        (metadata->signature_valid && !metadata->signature_present)) {
         result->state = PROS_FILE_SUSPICIOUS;
         result->action = PROS_FILE_QUARANTINE;
         return 0;
@@ -259,6 +266,17 @@ int pros_file_security_selftest(void) {
     };
     if (pros_file_admit(&m, &r) != 0 ||
         r.state != PROS_FILE_TRUSTED || r.action != PROS_FILE_ALLOW)
+        return -1;
+
+    m = (struct pros_file_security_metadata){
+        .format_valid=1, .signature_valid=1, .signature_present=0,
+        .local_trusted=0, .local_denied=0,
+        .reputation=PROS_FILE_REPUTATION_CLEAN, .provenance_known=1
+    };
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_SUSPICIOUS ||
+        r.action != PROS_FILE_QUARANTINE ||
+        !(r.evidence & PROS_FILE_EVIDENCE_SIGNATURE_INVALID))
         return -1;
 
     m = (struct pros_file_security_metadata){
