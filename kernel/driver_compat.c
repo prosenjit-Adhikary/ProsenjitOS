@@ -491,6 +491,47 @@ int pros_driver_compat_get_package(uint32_t package_id,
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_compat_unregister_package(uint32_t package_id)
+{
+    struct pros_compat_package *pkg;
+    uint32_t i, d;
+
+    if (package_id == 0u || package_id > package_count)
+        return PROS_DRIVER_EINVAL;
+
+    pkg = &packages[package_id - 1u];
+
+    if (pkg->tx_state == PROS_COMPAT_TX_VERIFIED ||
+        pkg->tx_state == PROS_COMPAT_TX_STAGED ||
+        pkg->tx_state == PROS_COMPAT_TX_HEALTHY ||
+        pkg->tx_state == PROS_COMPAT_TX_COMMITTED)
+        return PROS_DRIVER_EBUSY;
+
+    for (i = 0u; i < package_count; ++i) {
+        if (i + 1u == package_id)
+            continue;
+        for (d = 0u; d < packages[i].dependency_count; ++d)
+            if (packages[i].dependencies[d] == package_id)
+                return PROS_DRIVER_EBUSY;
+    }
+
+    packages[package_id - 1u].id = 0u;
+    packages[package_id - 1u].status = PROS_COMPAT_STATUS_EMPTY;
+    packages[package_id - 1u].trust = PROS_COMPAT_TRUST_UNKNOWN;
+    packages[package_id - 1u].trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_IDLE;
+    packages[package_id - 1u].dependency_count = 0u;
+    packages[package_id - 1u].content_sha256_valid = 0u;
+    for (d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
+        packages[package_id - 1u].content_sha256[d] = 0u;
+    for (d = 0u; d < PROS_DRIVER_COMPAT_MAX_IDS; ++d)
+        package_ids[package_id - 1u][d] = (struct pros_driver_id){0};
+
+    while (package_count > 0u && packages[package_count - 1u].id == 0u)
+        --package_count;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_inspect_inf(const char *name, const char *text,
                                     uint32_t text_len, uint32_t *package_id_out)
 {
