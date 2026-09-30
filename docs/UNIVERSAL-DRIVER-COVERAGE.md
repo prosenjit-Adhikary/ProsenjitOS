@@ -130,3 +130,8 @@ The NT compatibility boundary now has a bounded device-object/resource descripto
 ### PnP lifecycle and resource-conflict guard
 
 The compatibility boundary now validates abstract resource descriptors before accepting them and rejects overlapping resources of the same type. PnP START is gated to staged/healthy images, while STOP/REMOVE cannot be issued from an un-staged inspected state; quarantined images remain blocked. This is lifecycle/resource policy only and does not yet claim real interrupt, DMA, MMIO, or port-I/O ownership.
+
+
+### Device lifecycle/resource ownership guard
+
+Compatibility devices now carry an explicit PRESENT/STARTED/QUERY_REMOVE/STOPPED/REMOVED lifecycle. PnP transitions are validated before the compatibility callback is accepted, and abstract I/O-port/MMIO/IRQ/DMA resources are checked for invalid ranges and conflicts both within a device and against other active compatibility devices. This remains a policy/ABI layer: it does not yet claim real interrupt-controller, DMA-engine, MMIO, or I/O-port programming.
