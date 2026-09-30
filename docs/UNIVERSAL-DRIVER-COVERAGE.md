@@ -86,6 +86,8 @@ The OS should never require a user to abandon installation simply because an opt
 
 ## Implementation status
 
+The compatibility foundation now includes a staged NT/WDM boundary ABI and explicit inspect/stage/health-check/quarantine/rollback states. The stage operation deliberately returns unsupported until the executable NT/WDM runtime exists; this prevents accidental native execution of Windows kernel binaries.
+
 The first compatibility inspection slice is now implemented in the kernel: bounded INF-text inspection extracts PCI `VEN_xxxx&DEV_yyyy` hardware IDs, records the detected package model, and exposes the extracted IDs to the driver-manager layer. Package metadata now also carries trust state and bounded dependency IDs, with deterministic compatibility matching that rejects explicitly untrusted packages. The implementation remains metadata-only: it does not execute installers, parse arbitrary INF directives, perform cryptographic signature verification, or execute Windows `.sys` binaries.
 
 ## Implementation order
@@ -97,7 +99,7 @@ The first compatibility inspection slice is now implemented in the kernel: bound
 5. Add native class/protocol drivers: AHCI, NVMe, USB HID, USB storage, framebuffer, common Ethernet.
 6. Add offline driver import.
 7. Add INF/package inspection.
-8. Add the **ReactOS-inspired, independently implemented NT/WDM compatibility foundation** for explicitly supported Windows driver interfaces.
+8. Add the **ReactOS-inspired, independently implemented NT/WDM compatibility foundation** for explicitly supported Windows driver interfaces. The initial ABI boundary is now present; executable PE/NT runtime work remains gated.
 9. Add subsystem-specific Windows-driver adapters and compatibility tests.
 10. Add transactional install/rollback, health checks, isolation, and trust enforcement.
 11. Add desktop driver-management UI.
