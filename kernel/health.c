@@ -288,6 +288,9 @@ int pros_health_record_filesystem(uint32_t source, uint32_t code, uint64_t value
 }
 
 int pros_health_sample(void) {
+    int rc = pros_health_watchdog_poll();
+    if (rc != PROS_HEALTH_OK)
+        return rc;
     return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
                               1u, 1u, physical_memory_free_pages());
 }
