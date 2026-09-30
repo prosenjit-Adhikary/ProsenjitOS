@@ -5948,14 +5948,14 @@ int ntfs_selftest(void)
                 for (uint32_t i = a; i < a + 64u; ++i)
                     disk.root_record[i] = 0u;
                 disk.root_record[a + 0u] = 0xB0u;
-                disk.root_record[a + 4u] = 64u;
+                disk.root_record[a + 4u] = 32u;
                 disk.root_record[a + 16u] = 1u;
                 disk.root_record[a + 20u] = 24u;
                 disk.root_record[a + 24u] = 1u;
-                disk.root_record[a + 60u] = 0xFFu;
-                disk.root_record[a + 61u] = 0xFFu;
-                disk.root_record[a + 62u] = 0xFFu;
-                disk.root_record[a + 63u] = 0xFFu;
+                disk.root_record[a + 32u] = 0xFFu;
+                disk.root_record[a + 33u] = 0xFFu;
+                disk.root_record[a + 34u] = 0xFFu;
+                disk.root_record[a + 35u] = 0xFFu;
                 disk.root_record[400u] = 1u;
             }
 
