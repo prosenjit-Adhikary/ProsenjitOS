@@ -141,6 +141,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Full Driver Manager / package-management architecture
   - [ ] Hardware-ID database and device/driver matching
   - [ ] Cryptographic signed driver-package verification and trust policy
+  - [x] Compatibility capability/resource validation and bounded PnP lifecycle guard
   - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
   - [x] Bounded INF hardware-ID inspection foundation (PCI VEN/DEV extraction)
   - [ ] Full Windows INF parsing and compatible package metadata extraction
