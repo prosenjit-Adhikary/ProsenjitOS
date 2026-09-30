@@ -58,6 +58,11 @@ int thread_block(void *wait_channel);
 int thread_wake(struct pros_thread *thread);
 int thread_has_runnable(void);
 
+/* Read-only scheduler population counters for observability. */
+uint64_t thread_runnable_count(void);
+uint64_t thread_blocked_count(void);
+uint64_t thread_dead_count(void);
+
 /* Save the current IRQ frame and select the next runnable thread frame. */
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame);
