@@ -142,9 +142,9 @@ int ntfs_index_record_header(const void *record, uint32_t record_size,
                              uint32_t bytes_per_sector, uint64_t expected_vcn,
                              struct pros_ntfs_index_record *info);
 /*
- * Insert a leaf entry into an existing $INDEX_ALLOCATION INDX node.
- * This primitive mutates only an already allocated leaf node; B-tree root
- * promotion and node splitting are handled by the higher-level writer.
+ * Insert a key into an existing $INDEX_ALLOCATION tree. Non-full leaves are
+ * updated in place; full leaves are split into a new INDX node and a
+ * separator is promoted into the resident $INDEX_ROOT when it has room.
  */
 int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                  const struct pros_ntfs_run *runs,
