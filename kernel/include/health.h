@@ -66,6 +66,12 @@ struct pros_health_snapshot {
     uint64_t fs_read_count;
     uint64_t fs_write_count;
     uint64_t fs_truncate_count;
+    uint64_t fs_unlink_count;
+    uint64_t fs_mkdir_count;
+    uint64_t fs_rmdir_count;
+    uint64_t fs_rename_count;
+    uint64_t fs_dir_open_count;
+    uint64_t fs_dir_read_count;
     uint64_t fs_lookup_error_count;
     uint64_t fs_io_error_count;
     uint64_t fs_permission_error_count;
