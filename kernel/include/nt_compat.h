@@ -14,6 +14,8 @@
 
 #define PROS_NT_COMPAT_ABI_VERSION 1u
 #define PROS_NT_COMPAT_MAX_HANDLES 32u
+#define PROS_NT_COMPAT_MAX_DISPATCH 16u
+#define PROS_NT_COMPAT_MAX_REGISTRY 32u
 
 enum pros_nt_compat_state {
     PROS_NT_COMPAT_EMPTY = 0,
@@ -22,6 +24,17 @@ enum pros_nt_compat_state {
     PROS_NT_COMPAT_HEALTHY,
     PROS_NT_COMPAT_FAILED,
     PROS_NT_COMPAT_QUARANTINED
+};
+
+enum pros_nt_irp_major {
+    PROS_NT_IRP_CREATE = 0,
+    PROS_NT_IRP_CLOSE,
+    PROS_NT_IRP_READ,
+    PROS_NT_IRP_WRITE,
+    PROS_NT_IRP_DEVICE_CONTROL,
+    PROS_NT_IRP_PNP,
+    PROS_NT_IRP_POWER,
+    PROS_NT_IRP_MAX
 };
 
 enum pros_nt_compat_capability {
@@ -42,6 +55,13 @@ struct pros_nt_compat_image {
     uint64_t image_entry;
 };
 
+typedef int (*pros_nt_dispatch_fn)(uint32_t package_id, uint32_t irp_major,
+                                     void *context);
+
+struct pros_nt_compat_dispatch_table {
+    pros_nt_dispatch_fn major[PROS_NT_IRP_MAX];
+};
+
 struct pros_nt_compat_ops {
     int (*inspect)(uint32_t package_id, struct pros_nt_compat_image *out);
     int (*stage)(uint32_t package_id);
@@ -54,6 +74,11 @@ int pros_nt_compat_init(void);
 int pros_nt_compat_inspect(uint32_t package_id,
                            struct pros_nt_compat_image *out);
 int pros_nt_compat_stage(uint32_t package_id);
+int pros_nt_compat_register_dispatch(uint32_t package_id,
+                                      uint32_t irp_major,
+                                      pros_nt_dispatch_fn handler);
+int pros_nt_compat_dispatch(uint32_t package_id, uint32_t irp_major,
+                            void *context);
 int pros_nt_compat_health_check(uint32_t package_id);
 int pros_nt_compat_quarantine(uint32_t package_id);
 int pros_nt_compat_rollback(uint32_t package_id);
