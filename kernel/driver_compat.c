@@ -716,6 +716,14 @@ int pros_driver_compat_selftest(void)
     struct pros_driver_id id;
     uint32_t package_id = 0;
 
+    {
+        char version[PROS_DRIVER_COMPAT_MAX_VERSION];
+        if (pros_driver_compat_set_version(1u, "1.2.3") != PROS_DRIVER_OK ||
+            pros_driver_compat_get_version(1u, version, sizeof(version)) != PROS_DRIVER_OK ||
+            version[0] != '1' || version[1] != '.' || version[2] != '2' || version[3] != '.' || version[4] != '3' || version[5] != 0)
+            return PROS_DRIVER_EINVAL;
+    }
+
     if (pros_driver_compat_init() != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_inspect_inf(
