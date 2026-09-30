@@ -189,9 +189,18 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
                                    PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
                         ++pkg->model_map_count;
                     }
-                    if (pkg->model_map_count && ci_contains(&text[rhs], e - rhs, "PCI\\\\VEN_")) {
+                    {
                         uint32_t map_index = pkg->model_map_count - 1u;
-                        if (map_index < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS &&
+                        uint32_t scan = eq + 1u;
+                        int has_pci_id = 0;
+                        while (scan < line_end) {
+                            if (ci_contains(&text[scan], line_end - scan, "PCI\\\\VEN_")) {
+                                has_pci_id = 1;
+                                break;
+                            }
+                            ++scan;
+                        }
+                        if (has_pci_id && map_index < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS &&
                             pkg->model_id_counts[map_index] < 255u)
                             ++pkg->model_id_counts[map_index];
                     }
