@@ -203,7 +203,8 @@ int pros_health_selftest(void) {
     char export_buffer[1024];
     uint32_t export_length = 0u;
 
-    if (pros_health_init() != PROS_HEALTH_OK ||
+    if (timer_selftest() != 0 ||
+        pros_health_init() != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
                            2u, 1u, heap_used_bytes()) != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_SYSTEM,
