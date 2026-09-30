@@ -156,3 +156,7 @@ removable-media, and local driver sources to share one deterministic index.
 ### INF manufacturer/model mapping — 2026-09-30
 
 Bounded INF inspection now separates the [Manufacturer] section from the referenced model sections. Manufacturer entries are recorded as model-section metadata, then the referenced sections are scanned for PCI hardware IDs without executing INF directives. Per-model PCI-ID counts are retained for later deterministic package selection. This is intentionally metadata-only; full INF directive semantics, archive extraction, and Windows driver execution remain outside the current boundary.
+
+### INF model hardware metadata — 2026-09-30
+
+The bounded INF inspector now follows manufacturer-to-model section references before counting PCI hardware-ID entries in the referenced model sections. It also records bounded PCI SUBSYS and REV metadata when present. These values are inspection metadata only; they are not treated as executable INF directives or as a cryptographic trust decision.
