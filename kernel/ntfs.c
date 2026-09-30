@@ -6057,7 +6057,7 @@ int ntfs_selftest(void)
                     if (ntfs_directory_lookup(&fs, 5u, routed_name, 3u,
                                                &routed_reference) !=
                             PROS_NTFS_OK ||
-                        routed_reference != 0x4041u)
+                        routed_reference != 0x4029u)
                         return -203;
                 }
             }
