@@ -5074,6 +5074,57 @@ int ntfs_selftest(void)
                 return -114;
             if (child_reference != 0x3000u)
                 return -115;
+
+            /*
+             * Writable INDEX_ALLOCATION regression: insert a second leaf
+             * entry, persist the INDX fixup-protected record, then resolve
+             * the new name through the normal child-node lookup path.
+             */
+            {
+                uint8_t second_key[74];
+                static const uint8_t second_name[8] = {
+                    'b',0u,'e',0u,'t',0u,'a',0u
+                };
+                static const uint8_t second_lookup[8] = {
+                    'b',0u,'e',0u,'t',0u,'a',0u
+                };
+                uint8_t verify_record[4096];
+                struct pros_ntfs_index_record verify_info;
+
+                for (uint32_t i = 0u; i < sizeof(second_key); ++i)
+                    second_key[i] = file_name_key[i];
+                second_key[64u] = 4u;
+                second_key[65u] = 1u;
+                for (uint32_t i = 0u; i < sizeof(second_name); ++i)
+                    second_key[66u + i] = second_name[i];
+
+                if (ntfs_index_allocation_insert(
+                        &fs, index_runs, index_run_count, 0u, 4096u,
+                        0x4000u, second_key, sizeof(second_key)) !=
+                    PROS_NTFS_OK)
+                    return -121;
+
+                if (ntfs_index_allocation_read(
+                        &fs, index_runs, index_run_count, 0u,
+                        verify_record, sizeof(verify_record)) !=
+                    PROS_NTFS_OK ||
+                    ntfs_index_record_fixup(verify_record,
+                                             sizeof(verify_record), 512u) !=
+                    PROS_NTFS_OK ||
+                    ntfs_index_record_header(verify_record,
+                                             sizeof(verify_record), 512u,
+                                             0u, &verify_info) !=
+                    PROS_NTFS_OK ||
+                    verify_info.entries_size <= index_info.entries_size)
+                    return -123;
+
+                if (ntfs_index_allocation_lookup(
+                        &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
+                        second_lookup, 4u, &child_reference) !=
+                    PROS_NTFS_OK ||
+                    child_reference != 0x4000u)
+                    return -124;
+            }
         }
 
         /* USA corruption must reject the child node rather than guess. */
