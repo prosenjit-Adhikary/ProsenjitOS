@@ -19,6 +19,11 @@ int pros_file_admission_evaluate(
     const struct pros_file_admission_input *input,
     struct pros_file_admission_record *record);
 
+int pros_file_admission_evaluate_digest(
+    const uint8_t digest[PROS_FILE_SHA256_BYTES],
+    const struct pros_file_security_metadata *metadata,
+    struct pros_file_admission_record *record);
+
 int pros_file_admission_selftest(void);
 
 #endif
