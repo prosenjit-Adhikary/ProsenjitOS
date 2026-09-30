@@ -110,3 +110,8 @@ This strategy deliberately avoids making ProsenjitFS or the VFS depend on vendor
 ### Transactional compatibility package lifecycle
 
 Compatibility packages now have an explicit bounded transaction state: **idle → inspected → verified → staged → healthy → committed**, with rollback returning the package to an inspected state. Verification requires explicit VERIFIED trust and a valid dependency graph. Health-check currently remains metadata-only and returns ENOTSUP until an executable compatibility runtime exists; therefore packages cannot be committed prematurely. Rejected/quarantined paths remain blocked.
+
+
+### PE-to-NT compatibility metadata boundary
+
+The NT compatibility layer now accepts a bounded PE byte buffer through a metadata-only inspection entry point. The PE inspector validates the DOS/PE headers, machine, optional-header form, section bounds, image size, entry RVA, and import metadata, then copies only bounded metadata into the compatibility image record. No PE entry point is invoked, no section is executed, and quarantined images are rejected. This keeps PE inspection separate from the future executable NT/WDM runtime.
