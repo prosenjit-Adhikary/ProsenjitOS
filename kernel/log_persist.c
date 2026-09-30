@@ -61,6 +61,11 @@ int pros_log_persist_attach(struct pros_vfs_mount *mount,
     bytes_written = persist_file.vnode ? persist_file.vnode->size : 0u;
     for (uint32_t i = 0u; i <= length; ++i)
         persist_path[i] = path[i];
+    /* A pre-existing file may already be at/over the rotation boundary.
+     * Rotate before the first new record so an old oversized generation can
+     * never make the active sink permanently unavailable. */
+    if (bytes_written >= persist_policy.rotate_bytes)
+        return persist_rotate(persist_path);
     return PROS_LOG_PERSIST_OK;
 }
 
@@ -215,14 +220,14 @@ int pros_log_persist_emit(const struct pros_health_event *event) {
     if (next == UINT32_MAX || next + 1u >= sizeof(line)) return PROS_LOG_PERSIST_EIO;
     pos = next; line[pos++] = '\n';
 
-    if (bytes_written + pos > persist_policy.max_bytes)
-        return PROS_LOG_PERSIST_ENOTSUP;
     if (bytes_written != 0u &&
         bytes_written + pos > persist_policy.rotate_bytes) {
         int rotate_rc = persist_rotate(persist_path);
         if (rotate_rc != PROS_LOG_PERSIST_OK)
             return rotate_rc;
     }
+    if (bytes_written + pos > persist_policy.max_bytes)
+        return PROS_LOG_PERSIST_ENOTSUP;
     if (vfs_file_seek(&persist_file, bytes_written) != PROS_VFS_OK ||
         vfs_file_write(&persist_file, line, pos, &written) != PROS_VFS_OK ||
         written != pos)
