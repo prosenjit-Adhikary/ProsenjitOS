@@ -94,6 +94,10 @@ struct pros_compat_package {
     char driver_ver[PROS_DRIVER_COMPAT_MAX_DRIVER_VER];
     char class_name[PROS_DRIVER_COMPAT_MAX_CLASS_NAME];
     uint32_t metadata_valid;
+    uint32_t subsys_id;
+    uint8_t revision;
+    uint8_t subsys_valid;
+    uint8_t revision_valid;
 };
 
 struct pros_compat_driver_ops {
