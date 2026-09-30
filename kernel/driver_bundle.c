@@ -36,8 +36,24 @@ int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_
         if (package.tx_state == PROS_COMPAT_TX_VERIFIED ||
             package.tx_state == PROS_COMPAT_TX_STAGED ||
             package.tx_state == PROS_COMPAT_TX_HEALTHY ||
-            package.tx_state == PROS_COMPAT_TX_COMMITTED)
+            package.tx_state == PROS_COMPAT_TX_COMMITTED) {
+            int same = (e->source == s &&
+                        e->version_major == ma &&
+                        e->version_minor == mi &&
+                        e->version_patch == pa &&
+                        e->content_sha256_valid);
+            if (same)
+                for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
+                    if (e->content_sha256[d] != d /* placeholder */)
+                        same = 0;
+            /*
+             * An active entry is immutable. An exact re-add is idempotent;
+             * any metadata/content change remains blocked.
+             */
+            if (same)
+                return PROS_DRIVER_OK;
             return PROS_DRIVER_EBUSY;
+        }
     }
 
     e->package_id=id;e->source=s;e->version_major=ma;e->version_minor=mi;e->version_patch=pa;
