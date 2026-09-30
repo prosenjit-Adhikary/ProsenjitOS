@@ -1394,6 +1394,21 @@ int pros_driver_compat_selftest(void)
                 reclaimed_package, &reclaimed_package_data) !=
                 PROS_DRIVER_ENODEV)
             return PROS_DRIVER_EIO;
+
+        /*
+         * Reusing a reclaimed slot must not inherit stale package metadata.
+         */
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "reclaimed-reuse.inf", &reclaimed_id, 1u, 0u,
+                &reclaimed_package) != PROS_DRIVER_OK ||
+            pros_driver_compat_get_package(
+                reclaimed_package, &reclaimed_package_data) != PROS_DRIVER_OK ||
+            reclaimed_package_data.provider[0] != 0u ||
+            reclaimed_package_data.driver_ver[0] != 0u ||
+            reclaimed_package_data.class_name[0] != 0u ||
+            reclaimed_package_data.content_sha256_valid != 0u)
+            return PROS_DRIVER_EIO;
     }
     return PROS_DRIVER_OK;
 }
