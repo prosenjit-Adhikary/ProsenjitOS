@@ -115,6 +115,42 @@ void pros_ed25519_fe_square(struct pros_ed25519_fe *r,const struct pros_ed25519_
     pros_ed25519_fe_mul(r,a,a);
 }
 
+/*
+ * Compute a^(p-2) with p = 2^255 - 19, which is the multiplicative
+ * inverse for every non-zero field element. The exponent is fixed, so
+ * the operation schedule is independent of the input value.
+ */
+int pros_ed25519_fe_invert(struct pros_ed25519_fe *r,const struct pros_ed25519_fe *a) {
+    static const uint8_t exponent[32] = {
+        0xeb,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x7f
+    };
+    struct pros_ed25519_fe result, base;
+    uint8_t nonzero = 0;
+
+    for (uint32_t i = 0; i < 5u; ++i)
+        nonzero |= (uint8_t)(a->v[i] != 0);
+    if (!nonzero) {
+        pros_ed25519_fe_zero(r);
+        return -1;
+    }
+
+    result.v[0] = 1;
+    result.v[1] = result.v[2] = result.v[3] = result.v[4] = 0;
+    base = *a;
+
+    for (int32_t bit = 254; bit >= 0; --bit) {
+        pros_ed25519_fe_square(&result, &result);
+        if ((exponent[(uint32_t)bit >> 3] >>
+             ((uint32_t)bit & 7u)) & 1u)
+            pros_ed25519_fe_mul(&result, &result, &base);
+    }
+    *r = result;
+    return 0;
+}
+
 int pros_ed25519_fe_equal(const struct pros_ed25519_fe *a,const struct pros_ed25519_fe *b) {
     uint8_t aa[32],bb[32],diff=0;
     pros_ed25519_fe_to_bytes(aa,a);
@@ -192,6 +228,16 @@ int pros_ed25519_fe_selftest(void) {
     if (out[0] != 3) return -9;
     for (uint32_t i = 1; i < 32u; ++i)
         if (out[i] != 0) return -10;
+
+    /* 3 * inverse(3) = 1. */
+    if (pros_ed25519_fe_invert(&r, &a) != 0) return -11;
+    pros_ed25519_fe_mul(&r, &r, &a);
+    pros_ed25519_fe_one(&expected);
+    if (!pros_ed25519_fe_equal(&r, &expected)) return -12;
+
+    /* Zero has no inverse and must fail closed. */
+    pros_ed25519_fe_zero(&a);
+    if (pros_ed25519_fe_invert(&r, &a) != -1) return -13;
 
     return 0;
 }
