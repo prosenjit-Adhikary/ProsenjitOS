@@ -523,15 +523,12 @@ int pros_driver_compat_unregister_package(uint32_t package_id)
                 return PROS_DRIVER_EBUSY;
     }
 
-    packages[package_id - 1u].id = 0u;
-    packages[package_id - 1u].status = PROS_COMPAT_STATUS_EMPTY;
-    packages[package_id - 1u].trust = PROS_COMPAT_TRUST_UNKNOWN;
-    packages[package_id - 1u].trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
-    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_IDLE;
-    packages[package_id - 1u].dependency_count = 0u;
-    packages[package_id - 1u].content_sha256_valid = 0u;
-    for (d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
-        packages[package_id - 1u].content_sha256[d] = 0u;
+    /*
+     * Reclaim the complete bounded record, not only its identity fields.
+     * This prevents stale provider/version/class/metadata from surviving
+     * into a later package registration that reuses the slot.
+     */
+    *pkg = (struct pros_compat_package){0};
     for (d = 0u; d < PROS_DRIVER_COMPAT_MAX_IDS; ++d)
         package_ids[package_id - 1u][d] = (struct pros_driver_id){0};
 
