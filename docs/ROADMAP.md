@@ -197,6 +197,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] NTFS file growth with exact contiguous `$Bitmap` allocation and runlist extension
   - [x] NTFS non-contiguous runlist growth with mapping-pairs append
   - [x] NTFS `$MFT` bitmap reclamation guard (writable mount + allocated-bit validation)
+  - [x] NTFS `$MFTMirr` first-record synchronization for MFT records 0-3
   - [ ] NTFS directory-index growth/splitting (`$INDEX_ALLOCATION` mutation)
   - [ ] NTFS full write support (directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
