@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "health.h"
+#include "vfs.h"
 
 #define PROS_LOG_OK       PROS_HEALTH_OK
 #define PROS_LOG_EINVAL   PROS_HEALTH_EINVAL
@@ -16,6 +17,8 @@ int pros_log_init(void);
 int pros_log_emit(uint32_t severity, uint32_t category,
                   uint32_t source, uint32_t code, uint64_t value);
 int pros_log_sink_available(uint32_t sink);
+int pros_log_attach_persistent(struct pros_vfs_mount *mount, const char *path);
+int pros_log_detach_persistent(void);
 int pros_log_selftest(void);
 
 #endif
