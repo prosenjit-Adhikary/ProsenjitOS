@@ -4,6 +4,7 @@
 #include "timer.h"
 #include "thread.h"
 #include "block.h"
+#include "vfs.h"
 
 extern uint64_t kernel_exception_count(void);
 extern uint64_t kernel_page_fault_count(void);
@@ -89,6 +90,15 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
                             physical_memory_free_pages() * 100ULL <
                             physical_memory_total_pages() * 20ULL) ? 1u : 0u,
         .heap_used_bytes = heap_used_bytes(),
+        .fs_mount_count = vfs_health_mount_count(),
+        .fs_unmount_count = vfs_health_unmount_count(),
+        .fs_read_count = vfs_health_read_count(),
+        .fs_write_count = vfs_health_write_count(),
+        .fs_truncate_count = vfs_health_truncate_count(),
+        .fs_lookup_error_count = vfs_health_lookup_error_count(),
+        .fs_io_error_count = vfs_health_io_error_count(),
+        .fs_permission_error_count = vfs_health_permission_error_count(),
+        .fs_corruption_error_count = vfs_health_corruption_error_count(),
         .event_sequence = next_sequence,
         .event_count = event_count,
         .dropped_events = dropped_events,
@@ -116,7 +126,7 @@ int pros_health_get_event(uint32_t offset, struct pros_health_event *out) {
              PROS_HEALTH_EVENT_MAX;
     index = (oldest + offset) % PROS_HEALTH_EVENT_MAX;
     *out = events[index];
-    return PROS_DRIVER_OK;
+    return PROS_HEALTH_OK;
 }
 
 static uint32_t append_hex(char *buffer, uint32_t capacity, uint32_t pos, uint64_t value) {
