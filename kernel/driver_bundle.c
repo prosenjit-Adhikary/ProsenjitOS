@@ -204,9 +204,14 @@ int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *
     struct pros_compat_package package;
     if (!entry || !entry->content_sha256_valid)
         return PROS_DRIVER_ENODEV;
-    if (pros_driver_compat_get_package(package_id, &package) != PROS_DRIVER_OK ||
-        !package.content_sha256_valid)
-        return PROS_DRIVER_ENODEV;
+    {
+        int package_rc = pros_driver_compat_get_package(package_id, &package);
+        if (package_rc != PROS_DRIVER_OK)
+            return package_rc == PROS_DRIVER_EINVAL ?
+                PROS_DRIVER_ENODEV : package_rc;
+        if (!package.content_sha256_valid)
+            return PROS_DRIVER_ENODEV;
+    }
 
     /*
      * The offline bundle index is only a locator.  Its digest must agree with
