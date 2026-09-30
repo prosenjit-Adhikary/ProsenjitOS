@@ -150,12 +150,55 @@ int pros_driver_compat_register_package(
     pkg->prog_if = ids[0].prog_if;
     pkg->id_count = id_count;
     pkg->name = name;
+    for (i = 0u; i < PROS_DRIVER_COMPAT_MAX_VERSION; ++i) pkg->version[i] = 0;
 
     for (i = 0; i < id_count; ++i)
         package_ids[package_count][i] = ids[i];
 
     ++package_count;
     *package_id_out = pkg->id;
+    return PROS_DRIVER_OK;
+}
+
+static uint32_t compat_strnlen(const char *s, uint32_t max)
+{
+    uint32_t n = 0u;
+    if (!s) return 0u;
+    while (n < max && s[n]) ++n;
+    return n;
+}
+
+int pros_driver_compat_set_version(uint32_t package_id, const char *version)
+{
+    struct pros_compat_package *pkg;
+    uint32_t n;
+    if (package_id == 0u || package_id > package_count || !version)
+        return PROS_DRIVER_EINVAL;
+    n = compat_strnlen(version, PROS_DRIVER_COMPAT_MAX_VERSION);
+    if (n == 0u || n >= PROS_DRIVER_COMPAT_MAX_VERSION)
+        return PROS_DRIVER_EINVAL;
+    pkg = &packages[package_id - 1u];
+    for (uint32_t i = 0u; i < PROS_DRIVER_COMPAT_MAX_VERSION; ++i)
+        pkg->version[i] = 0;
+    for (uint32_t i = 0u; i < n; ++i)
+        pkg->version[i] = version[i];
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_get_version(uint32_t package_id, char *out,
+                                   uint32_t capacity)
+{
+    const struct pros_compat_package *pkg;
+    uint32_t n;
+    if (package_id == 0u || package_id > package_count || !out ||
+        capacity == 0u)
+        return PROS_DRIVER_EINVAL;
+    pkg = &packages[package_id - 1u];
+    n = compat_strnlen(pkg->version, PROS_DRIVER_COMPAT_MAX_VERSION);
+    if (n + 1u > capacity)
+        return PROS_DRIVER_ENOSPC;
+    for (uint32_t i = 0u; i <= n; ++i)
+        out[i] = pkg->version[i];
     return PROS_DRIVER_OK;
 }
 
@@ -194,6 +237,28 @@ int pros_driver_compat_hash_content(
     for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i)
         pkg->content_sha256[i] = digest[i];
     pkg->content_sha256_valid = 1u;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_set_dependency_list(uint32_t package_id,
+                                            const uint32_t *dependencies,
+                                            uint32_t count)
+{
+    struct pros_compat_package *pkg;
+    if (package_id == 0u || package_id > package_count ||
+        (count != 0u && !dependencies) ||
+        count > PROS_DRIVER_COMPAT_MAX_DEPS)
+        return PROS_DRIVER_EINVAL;
+    pkg = &packages[package_id - 1u];
+    for (uint32_t i = 0u; i < PROS_DRIVER_COMPAT_MAX_DEPS; ++i)
+        pkg->dependencies[i] = 0u;
+    for (uint32_t i = 0u; i < count; ++i) {
+        if (dependencies[i] == 0u || dependencies[i] > package_count ||
+            dependencies[i] == package_id)
+            return PROS_DRIVER_EINVAL;
+        pkg->dependencies[i] = dependencies[i];
+    }
+    pkg->dependency_count = count;
     return PROS_DRIVER_OK;
 }
 
@@ -672,6 +737,14 @@ int pros_driver_compat_selftest(void)
     struct pros_compat_package pkg;
     struct pros_driver_id id;
     uint32_t package_id = 0;
+
+    {
+        char version[PROS_DRIVER_COMPAT_MAX_VERSION];
+        if (pros_driver_compat_set_version(1u, "1.2.3") != PROS_DRIVER_OK ||
+            pros_driver_compat_get_version(1u, version, sizeof(version)) != PROS_DRIVER_OK ||
+            version[0] != '1' || version[1] != '.' || version[2] != '2' || version[3] != '.' || version[4] != '3' || version[5] != 0)
+            return PROS_DRIVER_EINVAL;
+    }
 
     if (pros_driver_compat_init() != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;

@@ -12,6 +12,7 @@
 #define PROS_DRIVER_COMPAT_MAX_IDS 16u
 #define PROS_DRIVER_COMPAT_MAX_NAME 64u
 #define PROS_DRIVER_COMPAT_MAX_DEPS 8u
+#define PROS_DRIVER_COMPAT_MAX_VERSION 16u
 
 #define PROS_COMPAT_FLAG_SIGNED          0x0001u
 #define PROS_COMPAT_FLAG_KERNEL_MODE     0x0002u
@@ -87,6 +88,7 @@ struct pros_compat_package {
     uint8_t content_sha256[PROS_FILE_SHA256_BYTES];
     uint32_t content_sha256_valid;
     const char *name;
+    char version[PROS_DRIVER_COMPAT_MAX_VERSION];
 };
 
 struct pros_compat_driver_ops {
@@ -105,6 +107,8 @@ int pros_driver_compat_register_package(
     uint32_t id_count,
     uint32_t flags,
     uint32_t *package_id_out);
+int pros_driver_compat_set_version(uint32_t package_id, const char *version);
+int pros_driver_compat_get_version(uint32_t package_id, char *out, uint32_t capacity);
 /* Compute content identity from the actual package bytes. */
 int pros_driver_compat_hash_content(
     uint32_t package_id, const uint8_t *data, uint64_t length);
@@ -122,6 +126,9 @@ int pros_driver_compat_set_trust_evidence(
 int pros_driver_compat_bind_admission(
     uint32_t package_id, const struct pros_file_admission_record *record);
 int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id);
+int pros_driver_compat_set_dependency_list(uint32_t package_id,
+                                            const uint32_t *dependencies,
+                                            uint32_t count);
 int pros_driver_compat_match(uint32_t package_id,
                              const struct pros_driver_id *hwid,
                              int *score_out);
