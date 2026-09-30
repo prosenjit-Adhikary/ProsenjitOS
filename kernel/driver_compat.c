@@ -431,5 +431,37 @@ int pros_driver_compat_selftest(void)
             return PROS_DRIVER_EIO;
     }
 
+    {
+        static const struct pros_driver_id dep_id = {
+            PROS_DRIVER_BUS_PCI, 0x4321u, 0x1000u, 0, 0, 0
+        };
+        uint32_t dep_a = 0, dep_b = 0;
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "dep-a.inf", &dep_id, 1u, 0, &dep_a) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "dep-b.inf", &dep_id, 1u, 0, &dep_b) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_add_dependency(dep_a, dep_b)
+            != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_dependency_check(dep_a)
+            != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_add_dependency(dep_b, dep_a)
+            != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_dependency_check(dep_a)
+            != PROS_DRIVER_EIO)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_set_trust(dep_b, PROS_COMPAT_TRUST_REJECTED)
+            != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_begin(dep_b) != PROS_DRIVER_EPERM)
+            return PROS_DRIVER_EIO;
+    }
+
     return PROS_DRIVER_OK;
 }
