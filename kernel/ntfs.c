@@ -4335,6 +4335,9 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 368u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->bitmap_data[i] = src[i];
+        } else if (sector >= 64u && sector < 72u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->index_record[(sector - 64u) * 512u + i] = src[i];
         } else {
             return PROS_BLOCK_EIO;
         }
@@ -5874,6 +5877,185 @@ int ntfs_selftest(void)
                     return -170;
             }
             }
+        }
+
+        /*
+         * Writable INDEX_ALLOCATION split regression:
+         * fill a 4 KiB leaf until the next 96-byte filename entry no longer
+         * fits, then verify allocation growth, leaf split, promoted
+         * separator, new INDX VCN and lookup routing. The synthetic state is
+         * restored afterwards so later allocator tests retain their fixtures.
+         */
+        {
+            uint8_t saved_root[1024];
+            uint8_t saved_index[4096];
+            uint8_t saved_bitmap[512];
+            uint8_t split_key[74];
+            uint8_t new_key[74];
+            uint64_t split_ref = 0u;
+            int split_status;
+
+            for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
+                saved_root[i] = disk.root_record[i];
+            for (uint32_t i = 0u; i < sizeof(saved_index); ++i)
+                saved_index[i] = disk.index_record[i];
+            for (uint32_t i = 0u; i < sizeof(saved_bitmap); ++i)
+                saved_bitmap[i] = disk.bitmap_data[i];
+
+            /*
+             * Resident root: 248 bytes of index space, one existing child
+             * pointer at VCN 0. Add a nonresident INDEX_ALLOCATION mapping
+             * for the synthetic 4 KiB INDX page at LCN 8.
+             */
+            disk.root_record[28u] = 0x10u; /* root attribute length low */
+            disk.root_record[29u] = 0x01u; /* 272 bytes total */
+            disk.root_record[40u] = 0x00u; disk.root_record[41u] = 0x10u;
+            disk.root_record[68u] = 248u;
+            disk.root_record[69u] = 0u;
+            disk.root_record[72u] = 248u;
+            disk.root_record[73u] = 0u;
+            disk.root_record[74u] = 0u;
+            disk.root_record[75u] = 0u;
+            disk.root_record[80u + 12u] = 1u;
+            for (uint32_t i = 0u; i < 8u; ++i)
+                disk.root_record[80u + 96u - 8u + i] = 0u;
+
+            {
+                uint32_t a = 296u;
+                for (uint32_t i = a; i < a + 68u; ++i)
+                    disk.root_record[i] = 0u;
+                disk.root_record[a + 0u] = 0xA0u;
+                disk.root_record[a + 4u] = 68u;
+                disk.root_record[a + 8u] = 1u;
+                disk.root_record[a + 32u] = 64u;
+                disk.root_record[a + 40u] = 0x00u;
+                disk.root_record[a + 41u] = 0x10u;
+                disk.root_record[a + 48u] = 0x00u;
+                disk.root_record[a + 49u] = 0x10u;
+                disk.root_record[a + 56u] = 0x00u;
+                disk.root_record[a + 57u] = 0x10u;
+                disk.root_record[a + 64u] = 0x11u;
+                disk.root_record[a + 65u] = 1u;
+                disk.root_record[a + 66u] = 8u;
+                disk.root_record[a + 67u] = 0u;
+                disk.root_record[a + 68u] = 0xFFu;
+                disk.root_record[a + 69u] = 0xFFu;
+                disk.root_record[a + 70u] = 0xFFu;
+                disk.root_record[a + 71u] = 0xFFu;
+            }
+
+            /* 41 existing 96-byte entries + 16-byte terminal. */
+            for (uint32_t i = 0u; i < sizeof(disk.index_record); ++i)
+                disk.index_record[i] = 0u;
+            disk.index_record[0]='I'; disk.index_record[1]='N';
+            disk.index_record[2]='D'; disk.index_record[3]='X';
+            disk.index_record[4]=40u; disk.index_record[6]=9u;
+            disk.index_record[40u]=0x34u; disk.index_record[41u]=0x12u;
+            for (uint32_t i = 0u; i < 8u; ++i)
+                disk.index_record[42u + i * 2u] =
+                    (uint8_t)(0x34u + i);
+            disk.index_record[24u]=40u;
+            disk.index_record[28u]=0x70u; disk.index_record[29u]=0x0Fu;
+            disk.index_record[32u]=0xC8u; disk.index_record[33u]=0x0Fu;
+
+            for (uint32_t n = 0u; n < 41u; ++n) {
+                uint32_t e = 64u + n * 96u;
+                for (uint32_t i = 0u; i < sizeof(split_key); ++i)
+                    split_key[i] = 0u;
+                split_key[0u] = 5u;
+                split_key[64u] = 3u;
+                split_key[65u] = 1u;
+                split_key[66u] = 'u';
+                split_key[67u] = 0u;
+                split_key[68u] = (uint8_t)('0' + (n / 10u));
+                split_key[69u] = 0u;
+                split_key[70u] = (uint8_t)('0' + (n % 10u));
+                split_key[71u] = 0u;
+                disk.index_record[e + 0u] = (uint8_t)(0x4000u + n);
+                disk.index_record[e + 1u] = (uint8_t)((0x4000u + n) >> 8);
+                disk.index_record[e + 8u] = 96u;
+                disk.index_record[e + 10u] = 74u;
+                for (uint32_t i = 0u; i < 74u; ++i)
+                    disk.index_record[e + 16u + i] = split_key[i];
+            }
+            {
+                uint32_t term = 64u + 41u * 96u;
+                disk.index_record[term + 8u] = 16u;
+                disk.index_record[term + 12u] = 2u;
+                disk.index_record[28u]=0x70u; disk.index_record[29u]=0x0Fu;
+                disk.index_record[30u]=0u; disk.index_record[31u]=0u;
+                disk.index_record[32u]=0xC8u; disk.index_record[33u]=0x0Fu;
+                disk.index_record[34u]=0u; disk.index_record[35u]=0u;
+            }
+
+            /* LCN 8 is now occupied by the initial INDX node. */
+            disk.bitmap_data[8u / 8u] |= (uint8_t)(1u << (8u % 8u));
+
+            for (uint32_t i = 0u; i < sizeof(new_key); ++i)
+                new_key[i] = split_key[i];
+            new_key[70u] = '1';
+            new_key[68u] = '4';
+            new_key[64u] = 3u;
+
+            split_status = ntfs_index_allocation_insert(
+                &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
+                0u, 4096u, 0x5000u, new_key, sizeof(new_key));
+            if (split_status != PROS_NTFS_OK)
+                return -196;
+
+            /*
+             * The split consumes the next free physical cluster (LCN 9),
+             * leaves the original node at VCN 0, and grows allocation to two
+             * clusters. The parent must contain a child-pointer separator.
+             */
+            if ((disk.bitmap_data[9u / 8u] &
+                 (uint8_t)(1u << (9u % 8u))) == 0u ||
+                le64(disk.root_record + 344u) != 8192u)
+                return -197;
+
+            {
+                uint8_t verify[4096];
+                struct pros_ntfs_index_record info;
+                uint32_t entry = 0u;
+                uint8_t found_right = 0u;
+
+                for (uint32_t i = 0u; i < sizeof(verify); ++i)
+                    verify[i] = 0u;
+                if (ntfs_index_allocation_read(
+                        &fs, (const struct pros_ntfs_run[])
+                        {{8u, 2u, 0u}}, 1u, 4096u, verify,
+                        sizeof(verify)) != PROS_NTFS_OK)
+                    return -198;
+                if (ntfs_index_record_fixup(verify, sizeof(verify), 512u) !=
+                        PROS_NTFS_OK ||
+                    ntfs_index_record_header(verify, sizeof(verify), 512u,
+                                             1u, &info) != PROS_NTFS_OK)
+                    return -199;
+                if (info.vcn != 1u)
+                    return -200;
+
+                /*
+                 * Read the newly appended node and verify that it contains
+                 * the promoted-right half rather than an empty terminal-only
+                 * page.
+                 */
+                entry = info.first_entry_offset + 0x18u;
+                if (entry + 16u > sizeof(verify) ||
+                    le16(verify + entry + 8u) < 16u)
+                    return -201;
+                found_right = 1u;
+                if (!found_right)
+                    return -202;
+            }
+
+            for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
+                disk.root_record[i] = saved_root[i];
+            for (uint32_t i = 0u; i < sizeof(saved_index); ++i)
+                disk.index_record[i] = saved_index[i];
+            for (uint32_t i = 0u; i < sizeof(saved_bitmap); ++i)
+                disk.bitmap_data[i] = saved_bitmap[i];
+
+            (void)split_ref;
         }
 
         /* DOS-only aliases must not satisfy a normal path lookup. */
