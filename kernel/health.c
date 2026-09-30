@@ -164,20 +164,26 @@ int pros_health_sample(void) {
 int pros_health_selftest(void) {
     struct pros_health_snapshot snapshot;
     struct pros_health_event event;
+    char export_buffer[1024];
+    uint32_t export_length = 0u;
 
-    if (pros_health_init() != PROS_DRIVER_OK ||
+    if (pros_health_init() != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
-                           2u, 1u, heap_used_bytes()) != PROS_DRIVER_OK ||
+                           2u, 1u, heap_used_bytes()) != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_SYSTEM,
-                           2u, 2u, 123u) != PROS_DRIVER_OK ||
-        pros_health_snapshot(&snapshot) != PROS_DRIVER_OK ||
+                           2u, 2u, 123u) != PROS_HEALTH_OK ||
+        pros_health_snapshot(&snapshot) != PROS_HEALTH_OK ||
         snapshot.event_count != 2u ||
         snapshot.last_severity != PROS_HEALTH_WARN ||
-        pros_health_get_event(0u, &event) != PROS_DRIVER_OK ||
+        pros_health_get_event(0u, &event) != PROS_HEALTH_OK ||
         event.category != PROS_HEALTH_MEMORY ||
-        pros_health_get_event(1u, &event) != PROS_DRIVER_OK ||
-        event.value != 123u)
+        pros_health_get_event(1u, &event) != PROS_HEALTH_OK ||
+        event.value != 123u ||
+        pros_health_export(export_buffer, sizeof(export_buffer),
+                           &export_length) != PROS_HEALTH_OK ||
+        export_length == 0u ||
+        export_buffer[export_length] != '\0')
         return PROS_HEALTH_EIO;
 
-    return PROS_DRIVER_OK;
+    return PROS_HEALTH_OK;
 }
