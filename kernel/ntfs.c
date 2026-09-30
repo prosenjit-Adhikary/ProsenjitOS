@@ -3403,6 +3403,141 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                        record, record_size);
 }
 
+static int ntfs_index_allocation_insert_node(const struct pros_ntfs *fs,
+                                               const struct pros_ntfs_run *runs,
+                                               uint32_t run_count,
+                                               uint64_t vcn,
+                                               const uint8_t *key,
+                                               uint16_t key_size,
+                                               uint64_t file_reference)
+{
+    static uint8_t node[PROS_NTFS_RECORD_WORK_MAX];
+    struct pros_ntfs_index_record info;
+    uint32_t offset, terminal = 0u, insert = 0u, entry_size, used;
+    uint32_t capacity;
+    if (!fs || !runs || run_count == 0u || !key || key_size < 66u ||
+        key_size > 0xFFFFu || file_reference > 0x0000FFFFFFFFFFFFull)
+        return PROS_NTFS_EINVAL;
+    if (key[64u] == 0u || key[65u] != 1u && key[65u] != 3u ||
+        66u + (uint32_t)key[64u] * 2u > key_size)
+        return PROS_NTFS_EINVAL;
+    if (fs->bytes_per_file_record > sizeof(node) ||
+        fs->bytes_per_sector == 0u || fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
+
+    /*
+     * The index-record size is defined by INDEX_ROOT. For the supported
+     * kernel geometry, one node fits in the working record buffer.
+     */
+    capacity = fs->bytes_per_file_record;
+    if (capacity < 48u)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_index_allocation_read(fs, runs, run_count,
+                                   vcn, node, capacity) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if (ntfs_index_record_header(node, capacity, fs->bytes_per_sector,
+                                 vcn, &info) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    offset = info.first_entry_offset;
+    while (offset < info.entries_size) {
+        uint16_t es, ks;
+        uint8_t flags;
+        uint32_t remaining = info.entries_size - offset;
+        if (remaining < 16u)
+            return PROS_NTFS_ECORRUPT;
+        es = le16(node + offset + 8u);
+        ks = le16(node + offset + 10u);
+        flags = node[offset + 12u];
+        if (es < 16u || es > remaining || (es & 7u) != 0u ||
+            (flags & ~3u) != 0u ||
+            ks > es - 16u - ((flags & 1u) ? 8u : 0u))
+            return PROS_NTFS_ECORRUPT;
+        if (flags & 2u) {
+            terminal = offset;
+            break;
+        }
+        if (ntfs_name_key_matches(node + offset + 16u, ks,
+                                  key, key[64u]))
+            return PROS_NTFS_EINVAL;
+        if (insert == 0u &&
+            ntfs_name_key_compare(node + offset + 16u, ks,
+                                  key, key[64u]) > 0)
+            insert = offset;
+        if (offset + es <= offset)
+            return PROS_NTFS_ECORRUPT;
+        offset += es;
+    }
+    if (terminal == 0u)
+        return PROS_NTFS_ECORRUPT;
+    if (insert == 0u)
+        insert = terminal;
+
+    if ((uint32_t)16u + key_size > 0xFFFFu)
+        return PROS_NTFS_EOVERFLOW;
+    entry_size = ((uint32_t)16u + key_size + 7u) & ~7u;
+    /*
+     * terminal is part of the entries area, so the new entry must fit before
+     * it. Keep the terminal as the final entry and preserve its end flag.
+     */
+    if (info.allocated_size < info.entries_size ||
+        entry_size > info.allocated_size - info.entries_size)
+        return PROS_NTFS_ENOTSUP;
+
+    used = info.entries_size;
+    for (uint32_t i = used; i > insert; --i)
+        node[i + entry_size - 1u] = node[i - 1u];
+    for (uint32_t i = 0u; i < entry_size; ++i)
+        node[insert + i] = 0u;
+
+    for (uint32_t i = 0u; i < 8u; ++i)
+        node[insert + i] = (uint8_t)(file_reference >> (8u * i));
+    node[insert + 8u] = (uint8_t)entry_size;
+    node[insert + 9u] = (uint8_t)(entry_size >> 8);
+    node[insert + 10u] = (uint8_t)key_size;
+    node[insert + 11u] = (uint8_t)(key_size >> 8);
+    node[insert + 12u] = 0u;
+    for (uint32_t i = 0u; i < key_size; ++i)
+        node[insert + 16u + i] = key[i];
+
+    used += entry_size;
+    node[28u] = (uint8_t)(used - 24u);
+    node[29u] = (uint8_t)((used - 24u) >> 8);
+    node[30u] = (uint8_t)((used - 24u) >> 16);
+    node[31u] = (uint8_t)((used - 24u) >> 24);
+
+    /*
+     * Rebuild the update sequence and USA trailer before writing. The reader
+     * validates these bytes, so an ordinary memcpy-style node write is not
+     * sufficient for a mutated INDX record.
+     */
+    {
+        uint16_t usa_offset = le16(node + 4u);
+        uint16_t usa_count = le16(node + 6u);
+        uint16_t sequence;
+        if (usa_count < 2u ||
+            (uint32_t)usa_offset + (uint32_t)usa_count * 2u > capacity)
+            return PROS_NTFS_ECORRUPT;
+        sequence = (uint16_t)(le16(node + usa_offset) + 1u);
+        if (sequence == 0u)
+            sequence = 1u;
+        node[usa_offset] = (uint8_t)sequence;
+        node[usa_offset + 1u] = (uint8_t)(sequence >> 8);
+        for (uint32_t s = 1u; s < usa_count; ++s) {
+            uint32_t end = s * fs->bytes_per_sector - 2u;
+            if (end + 2u > capacity)
+                return PROS_NTFS_ECORRUPT;
+            node[usa_offset + s * 2u] = node[end];
+            node[usa_offset + s * 2u + 1u] = node[end + 1u];
+            node[end] = (uint8_t)sequence;
+            node[end + 1u] = (uint8_t)(sequence >> 8);
+        }
+    }
+
+    return ntfs_index_allocation_write(fs, runs, run_count,
+                                       vcn, node, capacity);
+}
+
 int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                                  const void *record, uint32_t record_size,
                                  uint32_t index_root_attr_offset,
