@@ -538,6 +538,34 @@ int pros_driver_bundle_selftest(void) {
     }
 
     /*
+     * A reclaimed compatibility package must not leave an unremovable
+     * bundle locator behind.
+     */
+    {
+        static const struct pros_driver_id stale_id = {
+            PROS_DRIVER_BUS_PCI, 0xCAFEu, 0xBEEFu, 0, 0, 0
+        };
+        uint8_t stale_digest[PROS_FILE_SHA256_BYTES];
+        uint32_t stale_package = 0;
+        for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
+            stale_digest[d] = (uint8_t)(0x30u + d);
+
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "stale-locator.inf", &stale_id, 1u, 0u,
+                &stale_package) != PROS_DRIVER_OK ||
+            pros_driver_bundle_add(
+                stale_package, PROS_DRIVER_BUNDLE_LOCAL,
+                1u, 0u, 0u, stale_digest) != PROS_DRIVER_OK ||
+            pros_driver_compat_unregister_package(stale_package) !=
+                PROS_DRIVER_OK ||
+            pros_driver_bundle_remove(stale_package) != PROS_DRIVER_OK ||
+            pros_driver_bundle_find(stale_package, &entry_v2) !=
+                PROS_DRIVER_ENODEV)
+            return -19;
+    }
+
+    /*
      * A bundle entry must track the compatibility registry's current content
      * identity.  Deliberately change the package bytes after indexing and
      * verify that selection fails closed rather than using stale metadata.
