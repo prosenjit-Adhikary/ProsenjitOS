@@ -707,6 +707,8 @@ int pros_driver_compat_selftest(void)
     static const char inf[] =
         "[Version]\r\n"
         "Class=Net\r\n"
+        "Provider=Prosenjit Test Vendor\r\n"
+        "DriverVer=09/30/2026,1.2.3\r\n"
         "[Models]\r\n"
         "%Mfg%=Install, PCI\\VEN_1234&DEV_5678\r\n"
         "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001\r\n"
@@ -730,7 +732,7 @@ int pros_driver_compat_selftest(void)
                 PROS_SIGNATURE_ALGORITHM_ED25519,
                 sig_data, sizeof(sig_data),
                 sig, sizeof(sig), key, sizeof(key), &sig_result) != 0 ||
-            sig_result != PROS_SIGNATURE_RESULT_UNSUPPORTED)
+            sig_result != PROS_SIGNATURE_RESULT_INVALID)
             return PROS_DRIVER_EIO;
     }
     if (pros_driver_compat_inspect_inf(
@@ -742,7 +744,8 @@ int pros_driver_compat_selftest(void)
     if (pkg.status != PROS_COMPAT_STATUS_INSPECTED ||
         pkg.id_count != 2u ||
         pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678 ||
-        pkg.model != PROS_COMPAT_MODEL_NDIS)
+        pkg.model != PROS_COMPAT_MODEL_NDIS ||
+        pkg.provider[0] == 0 || pkg.driver_ver[0] == 0 || pkg.class_name[0] == 0)
         return PROS_DRIVER_EIO;
 
     /*
