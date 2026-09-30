@@ -3403,7 +3403,7 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                        record, record_size);
 }
 
-static int ntfs_index_allocation_insert_node(const struct pros_ntfs *fs,
+int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                                const struct pros_ntfs_run *runs,
                                                uint32_t run_count,
                                                uint64_t vcn,
