@@ -24,8 +24,8 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - exFAT FAT-entry validation and bounded file-stream reads implemented, including NoFatChain and ValidDataLength handling.
 - exFAT read-only VFS integration implemented: root vnode, case-insensitive path lookup, file read, directory enumeration, vnode lifetime handling, and directory entry sets crossing cluster boundaries are covered by the boot regression.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
-- Signature-verification trust boundary hardened with Ed25519/RSA-PSS/unknown-algorithm and malformed-input self-tests; real cryptographic verification remains intentionally unsupported until a reviewed freestanding implementation exists.
-- Ed25519 field arithmetic foundation now uses a 5×51-bit representation with canonical encoding/reduction, explicit carry-safe multiplication, subtraction, and constant-schedule inversion; the extended-coordinate point layer now includes identity, complete add/double formulas, curve-equation checking, canonical point decoding with sign-bit recovery, affine encoding, and base-point round-trip self-tests. Scalar arithmetic and full signature verification remain incomplete. GitHub Actions currently starts these push runs but the runner job is failing before any workflow step is created, so the new crypto code remains unverified by CI.
+- Signature-verification trust boundary now performs real freestanding Ed25519 verification with strict point/scalar validation, SHA-512 challenge hashing, subgroup-small-order rejection, and an RFC 8032 known-answer self-test; RSA-PSS remains fail-closed as unsupported.
+- Ed25519 field arithmetic foundation now uses a 5×51-bit representation with canonical encoding/reduction, explicit carry-safe multiplication, subtraction, and constant-schedule inversion; the extended-coordinate point layer now includes identity, complete add/double formulas, curve-equation checking, canonical point decoding with sign-bit recovery, affine encoding, and base-point round-trip self-tests. Ed25519 scalar reduction/multiplication and signature verification are now implemented and startup-gated by self-tests. GitHub Actions currently starts push runs but the runner job is failing before any workflow step is created, so this new crypto implementation remains unverified by CI.
 - NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
 - VFS vnode lookup/reference semantics now explicitly transfer an owned lookup reference; cached FAT32/NTFS nodes retain their cache references, while dynamically allocated exFAT child vnodes release cleanly at final put.
 - Both repository GitHub Actions workflows were green on the last verified storage/VFS commit (`3ed84998`). The Up-case parser work is intentionally isolated on a feature branch until CI verifies it.
@@ -147,8 +147,9 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Cryptographic signed driver-package verification and trust policy
     - [x] Fail-closed signature authority boundary and caller-metadata rejection
     - [ ] Real Ed25519/RSA-PSS verifier with known-answer tests
-      - [ ] Freestanding big-integer/arithmetic primitive layer
-      - [ ] Ed25519 point/scalar verification implementation
+      - [x] Freestanding Ed25519 field/point/scalar arithmetic primitive layer
+      - [x] Ed25519 point/scalar verification implementation
+      - [x] Ed25519 RFC 8032 known-answer verification test
       - [ ] RSA-PSS SHA-256 verification implementation
   - [x] Compatibility capability/resource validation and bounded PnP lifecycle guard
   - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
