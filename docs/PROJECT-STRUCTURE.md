@@ -182,6 +182,13 @@ debugging features.
 - This is only the monitoring foundation: persistent storage, rotation/retention, crash/panic persistence, watchdogs and recovery-state integration remain separate completion gates.
 
 ### Central diagnostic export
+### Central logging facade
+- Kernel logging now has a single structured emission boundary in `kernel/log.c`.
+- The first sink is the bounded health-event ring; future serial/persistent sinks can be attached without changing callers.
+- Sink availability is explicit, and logging remains non-authoritative for boot/storage correctness.
+- Persistent retention, rotation, and crash-survival remain separate milestones.
+
+
 - The health monitor now exposes a bounded deterministic text export of retained structured events.
 - Export is caller-buffer bounded and does not allocate dynamically.
 - The export is diagnostic transport only; it does not yet provide persistent-on-disk retention or crash-survival across reboot.
