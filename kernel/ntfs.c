@@ -3377,6 +3377,451 @@ static int ntfs_index_allocation_write(const struct pros_ntfs *fs,
     return PROS_NTFS_OK;
 }
 
+
+static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
+                                            uint64_t directory_record_number,
+                                            const struct pros_ntfs_run *runs,
+                                            uint32_t run_count,
+                                            uint64_t vcn,
+                                            uint32_t record_size,
+                                            uint64_t file_reference,
+                                            const uint8_t *key,
+                                            uint16_t key_size)
+{
+    static uint8_t leaf[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t old_leaf[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t directory_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t old_directory_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t right[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t expanded[PROS_NTFS_RECORD_WORK_MAX * 2u];
+    static uint8_t incoming[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t separator_key[0x10000];
+    struct pros_ntfs_run grown_runs[PROS_NTFS_MFT_RUN_MAX];
+    const uint8_t *root_data;
+    const uint8_t *runlist;
+    uint32_t root_attr, alloc_attr, root_size;
+    uint32_t runlist_size, grown_count;
+    uint32_t entries_start = 0x28u;
+    uint32_t expanded_used = 0u;
+    uint32_t entry_count = 0u;
+    uint32_t insert_at = 0u;
+    uint32_t offset;
+    uint32_t sep_offset = 0u;
+    uint32_t left_bytes = 0u;
+    uint32_t right_bytes = 0u;
+    uint32_t best_balance = 0xFFFFFFFFu;
+    uint32_t new_vcn32;
+    uint64_t new_vcn = 0u, new_lcn = 0u;
+    uint64_t separator_reference = 0u;
+    uint32_t parent_entry_size;
+    uint32_t parent_insert_offset = 0u;
+    uint32_t root_entries_size;
+    uint32_t root_allocated_size;
+    uint32_t terminal_offset = 0u;
+    int rc;
+
+    if (!fs || !runs || run_count == 0u || !key || key_size < 66u ||
+        key_size > 0xFFFFu || record_size > sizeof(leaf) ||
+        record_size < fs->bytes_per_sector ||
+        record_size % fs->bytes_per_sector != 0u ||
+        vcn > 0x0000FFFFFFFFFFFFull)
+        return PROS_NTFS_EINVAL;
+
+    if (!fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_ENOTSUP;
+
+    if (ntfs_read_file_record(fs, directory_record_number,
+                               directory_record,
+                               sizeof(directory_record)) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        old_directory_record[i] = directory_record[i];
+
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0x90u, &root_attr) != PROS_NTFS_OK ||
+        ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
+                               root_attr,
+                               &(struct pros_ntfs_index_root){0}) !=
+            PROS_NTFS_OK ||
+        ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0xA0u, &alloc_attr) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
+                            root_attr, &root_data, &root_size) !=
+        PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    {
+        struct pros_ntfs_index_root root;
+        if (ntfs_index_root_header(directory_record,
+                                   fs->bytes_per_file_record,
+                                   root_attr, &root) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+        root_entries_size = root.entries_size;
+        root_allocated_size = root.allocated_size;
+    }
+
+    if (ntfs_index_allocation_read(fs, runs, run_count,
+                                   vcn * (uint64_t)fs->bytes_per_sector *
+                                   fs->sectors_per_cluster,
+                                   leaf, record_size) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    for (uint32_t i = 0u; i < record_size; ++i)
+        old_leaf[i] = leaf[i];
+
+    if (ntfs_index_record_fixup(leaf, record_size, fs->bytes_per_sector) !=
+            PROS_NTFS_OK ||
+        ntfs_index_record_header(leaf, record_size, fs->bytes_per_sector,
+                                 vcn,
+                                 &(struct pros_ntfs_index_record){0}) !=
+            PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+
+    {
+        uint32_t entries_offset = le32(leaf + 0x18u);
+        uint32_t entries_size = le32(leaf + 0x1Cu);
+        uint32_t allocated_size = le32(leaf + 0x20u);
+
+        if (entries_offset < 0x10u || entries_size < entries_offset ||
+            allocated_size < entries_size ||
+            0x18u + allocated_size > record_size ||
+            0x18u + entries_offset > record_size ||
+            0x18u + entries_size > record_size)
+            return PROS_NTFS_ECORRUPT;
+
+        offset = entries_offset;
+        while (offset < entries_size) {
+            uint32_t absolute = 0x18u + offset;
+            uint16_t esize, ksize;
+            uint8_t flags;
+            uint32_t remaining = entries_size - offset;
+
+            if (remaining < 16u)
+                return PROS_NTFS_ECORRUPT;
+            esize = le16(leaf + absolute + 8u);
+            ksize = le16(leaf + absolute + 10u);
+            flags = leaf[absolute + 12u];
+            if (esize < 16u || esize > remaining || (esize & 7u) != 0u ||
+                (flags & ~3u) != 0u ||
+                ksize > esize - 16u - ((flags & 1u) ? 8u : 0u))
+                return PROS_NTFS_ECORRUPT;
+
+            if (flags & 2u) {
+                terminal_offset = absolute;
+                break;
+            }
+            if (flags & 1u || ksize < 66u)
+                return PROS_NTFS_ECORRUPT;
+            if (entry_count >= (PROS_NTFS_RECORD_WORK_MAX / 16u))
+                return PROS_NTFS_EOVERFLOW;
+
+            {
+                uint32_t dst = entries_start + expanded_used;
+                for (uint32_t i = 0u; i < esize; ++i)
+                    expanded[dst + i] = leaf[absolute + i];
+
+                if (insert_at == 0u &&
+                    ntfs_name_key_compare(leaf + absolute + 16u, ksize,
+                                          key, key[64u]) > 0)
+                    insert_at = expanded_used;
+                expanded_used += esize;
+                entry_count++;
+            }
+            offset += esize;
+        }
+    }
+
+    if (terminal_offset == 0u || entry_count < 2u)
+        return PROS_NTFS_ENOTSUP;
+
+    {
+        uint32_t required = 16u + (uint32_t)key_size;
+        uint32_t incoming_size = (required + 7u) & ~7u;
+        if (incoming_size > sizeof(incoming) ||
+            incoming_size > 0xFFFFu ||
+            expanded_used > sizeof(expanded) - entries_start - incoming_size)
+            return PROS_NTFS_EOVERFLOW;
+
+        for (uint32_t i = expanded_used; i > insert_at; --i)
+            expanded[entries_start + i + incoming_size - 1u] =
+                expanded[entries_start + i - 1u];
+
+        for (uint32_t i = 0u; i < incoming_size; ++i)
+            incoming[i] = 0u;
+        for (uint32_t i = 0u; i < 8u; ++i)
+            incoming[i] = (uint8_t)(file_reference >> (8u * i));
+        incoming[8u] = (uint8_t)incoming_size;
+        incoming[9u] = (uint8_t)(incoming_size >> 8);
+        incoming[10u] = (uint8_t)key_size;
+        incoming[11u] = (uint8_t)(key_size >> 8);
+        for (uint32_t i = 0u; i < key_size; ++i)
+            incoming[16u + i] = key[i];
+        for (uint32_t i = 0u; i < incoming_size; ++i)
+            expanded[entries_start + insert_at + i] = incoming[i];
+        expanded_used += incoming_size;
+        entry_count++;
+    }
+
+    if (entry_count < 3u)
+        return PROS_NTFS_ENOTSUP;
+
+    /*
+     * Pick a separator such that both children retain at least one entry
+     * after the separator itself is promoted to the parent.
+     */
+    {
+        uint32_t pos = 0u;
+        uint32_t candidate = 0u;
+        uint32_t candidate_left = 0u;
+        uint32_t candidate_right = 0u;
+        for (uint32_t n = 0u; n < entry_count; ++n) {
+            uint16_t esize = le16(expanded + entries_start + pos + 8u);
+            if (n >= 1u && n <= entry_count - 2u) {
+                uint32_t lb = pos;
+                uint32_t rb = expanded_used - pos - esize;
+                if (lb + 16u <= record_size - entries_start &&
+                    rb + 16u <= record_size - entries_start) {
+                    uint32_t balance = lb > rb ? lb - rb : rb - lb;
+                    if (balance < best_balance) {
+                        best_balance = balance;
+                        candidate = n;
+                        candidate_left = lb;
+                        candidate_right = rb;
+                    }
+                }
+            }
+            pos += esize;
+        }
+        if (best_balance == 0xFFFFFFFFu)
+            return PROS_NTFS_ENOTSUP;
+        pos = 0u;
+        for (uint32_t n = 0u; n < candidate; ++n)
+            pos += le16(expanded + entries_start + pos + 8u);
+        sep_offset = entries_start + pos;
+        left_bytes = candidate_left;
+        right_bytes = candidate_right -
+                      le16(expanded + sep_offset + 8u);
+        if (right_bytes == 0u)
+            return PROS_NTFS_ENOTSUP;
+    }
+
+    {
+        uint16_t sep_entry_size = le16(expanded + sep_offset + 8u);
+        uint16_t sep_key_size = le16(expanded + sep_offset + 10u);
+        if (sep_entry_size < 16u || sep_key_size < 66u ||
+            sep_key_size > sep_entry_size - 16u ||
+            sep_key_size > sizeof(separator_key))
+            return PROS_NTFS_ECORRUPT;
+        separator_reference = le64(expanded + sep_offset);
+        for (uint32_t i = 0u; i < sep_key_size; ++i)
+            separator_key[i] = expanded[sep_offset + 16u + i];
+
+        parent_entry_size =
+            (16u + (uint32_t)sep_key_size + 8u + 7u) & ~7u;
+        if (parent_entry_size > 0xFFFFu ||
+            root_allocated_size < root_entries_size ||
+            parent_entry_size > root_allocated_size - root_entries_size)
+            return PROS_NTFS_ENOTSUP;
+    }
+
+    /* Locate the separator insertion point in the resident parent. */
+    {
+        uint32_t off = 0u;
+        while (off < root_entries_size) {
+            uint32_t absolute = 0x18u + off;
+            uint16_t esize, ksize;
+            uint8_t flags;
+            if (root_entries_size - off < 16u)
+                return PROS_NTFS_ECORRUPT;
+            esize = le16(root_data + absolute + 8u);
+            ksize = le16(root_data + absolute + 10u);
+            flags = root_data[absolute + 12u];
+            if (esize < 16u || esize > root_entries_size - off ||
+                (esize & 7u) != 0u || (flags & ~3u) != 0u ||
+                ksize > esize - 16u - ((flags & 1u) ? 8u : 0u))
+                return PROS_NTFS_ECORRUPT;
+            if (flags & 2u) {
+                parent_insert_offset = absolute;
+                break;
+            }
+            if (!(flags & 1u))
+                return PROS_NTFS_ECORRUPT;
+            if (ksize >= 66u &&
+                ntfs_name_key_compare(root_data + absolute + 16u, ksize,
+                                      separator_key,
+                                      separator_key[64u]) > 0) {
+                parent_insert_offset = absolute;
+                break;
+            }
+            off += esize;
+        }
+        if (parent_insert_offset == 0u)
+            return PROS_NTFS_ECORRUPT;
+    }
+
+    /*
+     * Allocate the new child before modifying either index node. The
+     * original directory/leaf images are retained so all metadata can be
+     * restored if any subsequent write fails.
+     */
+    rc = ntfs_index_allocation_grow_one(fs, directory_record_number,
+                                        &new_vcn, &new_lcn);
+    if (rc != PROS_NTFS_OK)
+        return rc;
+
+    if (new_vcn > 0xFFFFFFFFFFFFFFFFull)
+        goto rollback;
+
+    if (ntfs_read_file_record(fs, directory_record_number, directory_record,
+                              sizeof(directory_record)) != PROS_NTFS_OK)
+        goto rollback;
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0xA0u, &alloc_attr) != PROS_NTFS_OK ||
+        ntfs_attribute_runlist(directory_record, fs->bytes_per_file_record,
+                               alloc_attr, &runlist, &runlist_size) !=
+            PROS_NTFS_OK ||
+        ntfs_decode_runlist(runlist, runlist_size, grown_runs,
+                            PROS_NTFS_MFT_RUN_MAX, &grown_count) !=
+            PROS_NTFS_OK)
+        goto rollback;
+
+    for (uint32_t i = 0u; i < record_size; ++i)
+        right[i] = 0u;
+    right[0]='I'; right[1]='N'; right[2]='D'; right[3]='X';
+    right[4]=0x28u; right[6]=(uint8_t)(record_size / fs->bytes_per_sector + 1u);
+    for (uint32_t i = 0u; i < 8u; ++i)
+        right[8u + i] = leaf[8u + i];
+    for (uint32_t i = 0u; i < 8u; ++i)
+        right[16u + i] = (uint8_t)(new_vcn >> (8u * i));
+    right[0x18u]=0x10u;
+    right[0x1Cu]=(uint8_t)(right_bytes + 16u);
+    right[0x1Du]=(uint8_t)((right_bytes + 16u) >> 8);
+    right[0x20u]=(uint8_t)(record_size - 0x18u);
+    right[0x21u]=(uint8_t)((record_size - 0x18u) >> 8);
+    right[0x22u]=(uint8_t)((record_size - 0x18u) >> 16);
+    right[0x23u]=(uint8_t)((record_size - 0x18u) >> 24);
+    right[0x24u]=0u;
+    for (uint32_t i = 0u; i < right_bytes; ++i)
+        right[entries_start + i] =
+            expanded[sep_offset + le16(expanded + sep_offset + 8u) + i];
+    {
+        uint32_t term = entries_start + right_bytes;
+        right[term + 8u]=16u;
+        right[term + 12u]=2u;
+    }
+
+    for (uint32_t i = 0u; i < record_size; ++i)
+        leaf[i] = 0u;
+    for (uint32_t i = 0u; i < record_size; ++i)
+        leaf[i] = old_leaf[i];
+    for (uint32_t i = 0u; i < left_bytes; ++i)
+        leaf[entries_start + i] = expanded[entries_start + i];
+    for (uint32_t i = entries_start + left_bytes; i < record_size; ++i)
+        leaf[i] = 0u;
+    leaf[0x1Cu]=(uint8_t)(left_bytes + 16u);
+    leaf[0x1Du]=(uint8_t)((left_bytes + 16u) >> 8);
+    leaf[0x1Eu]=(uint8_t)((left_bytes + 16u) >> 16);
+    leaf[0x1Fu]=(uint8_t)((left_bytes + 16u) >> 24);
+    leaf[0x24u]=0u;
+
+    /* Re-seal USA fixups for both nodes. */
+    {
+        uint16_t usa_offset = le16(leaf + 4u);
+        uint16_t usa_count = le16(leaf + 6u);
+        uint16_t sequence = le16(leaf + usa_offset);
+        if (usa_count < 2u ||
+            (uint32_t)usa_offset + (uint32_t)usa_count * 2u > record_size)
+            goto rollback;
+        for (uint32_t i = 1u; i < usa_count; ++i) {
+            uint32_t end = i * fs->bytes_per_sector - 2u;
+            leaf[usa_offset + i * 2u] = leaf[end];
+            leaf[usa_offset + i * 2u + 1u] = leaf[end + 1u];
+            leaf[end] = (uint8_t)sequence;
+            leaf[end + 1u] = (uint8_t)(sequence >> 8);
+        }
+
+        usa_offset = le16(right + 4u);
+        usa_count = le16(right + 6u);
+        right[usa_offset]= (uint8_t)sequence;
+        right[usa_offset + 1u]=(uint8_t)(sequence >> 8);
+        for (uint32_t i = 1u; i < usa_count; ++i) {
+            uint32_t e = i * fs->bytes_per_sector - 2u;
+            right[usa_offset + i * 2u] = right[e];
+            right[usa_offset + i * 2u + 1u] = right[e + 1u];
+            right[e] = (uint8_t)sequence;
+            right[e + 1u] = (uint8_t)(sequence >> 8);
+        }
+    }
+
+    rc = ntfs_index_allocation_write(fs, grown_runs, grown_count,
+                                     vcn * (uint64_t)fs->bytes_per_sector *
+                                     fs->sectors_per_cluster,
+                                     leaf, record_size);
+    if (rc != PROS_NTFS_OK)
+        goto rollback;
+    rc = ntfs_index_allocation_write(fs, grown_runs, grown_count,
+                                     new_vcn * (uint64_t)fs->bytes_per_sector *
+                                     fs->sectors_per_cluster,
+                                     right, record_size);
+    if (rc != PROS_NTFS_OK)
+        goto rollback;
+
+    /* Insert the promoted separator and the new right-child VCN. */
+    if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
+                            root_attr, &root_data, &root_size) != PROS_NTFS_OK)
+        goto rollback;
+    {
+        uint32_t old_root_entries = le32(root_data + 20u);
+        for (uint32_t i = old_root_entries; i > parent_insert_offset; --i)
+            ((uint8_t *)root_data)[i + parent_entry_size - 1u] =
+                root_data[i - 1u];
+        for (uint32_t i = 0u; i < parent_entry_size; ++i)
+            ((uint8_t *)root_data)[parent_insert_offset + i] = 0u;
+        for (uint32_t i = 0u; i < 8u; ++i)
+            ((uint8_t *)root_data)[parent_insert_offset + i] =
+                (uint8_t)(separator_reference >> (8u * i));
+        ((uint8_t *)root_data)[parent_insert_offset + 8u] =
+            (uint8_t)parent_entry_size;
+        ((uint8_t *)root_data)[parent_insert_offset + 9u] =
+            (uint8_t)(parent_entry_size >> 8);
+        ((uint8_t *)root_data)[parent_insert_offset + 10u] =
+            (uint8_t)separator_key[64u] * 2u;
+        ((uint8_t *)root_data)[parent_insert_offset + 11u] =
+            (uint8_t)(((uint16_t)separator_key[64u] * 2u) >> 8);
+        ((uint8_t *)root_data)[parent_insert_offset + 12u] = 1u;
+        for (uint32_t i = 0u; i < separator_key[64u] * 2u; ++i)
+            ((uint8_t *)root_data)[parent_insert_offset + 16u + i] =
+                separator_key[66u + i];
+        for (uint32_t i = 0u; i < 8u; ++i)
+            ((uint8_t *)root_data)[parent_insert_offset + parent_entry_size - 8u + i] =
+                (uint8_t)(new_vcn >> (8u * i));
+        old_root_entries += parent_entry_size;
+        ((uint8_t *)root_data)[20u]=(uint8_t)old_root_entries;
+        ((uint8_t *)root_data)[21u]=(uint8_t)(old_root_entries >> 8);
+        ((uint8_t *)root_data)[22u]=(uint8_t)(old_root_entries >> 16);
+        ((uint8_t *)root_data)[23u]=(uint8_t)(old_root_entries >> 24);
+    }
+
+    rc = ntfs_write_file_record(fs, directory_record_number,
+                                directory_record);
+    if (rc == PROS_NTFS_OK)
+        return PROS_NTFS_OK;
+
+rollback:
+    /* Restore the pre-split leaf and directory metadata, then release the
+     * newly allocated physical cluster. */
+    (void)ntfs_index_allocation_write(fs, grown_runs, grown_count,
+                                      vcn * (uint64_t)fs->bytes_per_sector *
+                                      fs->sectors_per_cluster,
+                                      old_leaf, record_size);
+    (void)ntfs_write_file_record(fs, directory_record_number,
+                                 old_directory_record);
+    (void)ntfs_bitmap_free_clusters(fs, new_lcn, 1u);
+    return rc == PROS_NTFS_OK ? PROS_NTFS_EIO : rc;
+}
+
 int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                  const struct pros_ntfs_run *runs,
                                  uint32_t run_count,
@@ -3447,8 +3892,6 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
         entries_size > allocated_size)
         return PROS_NTFS_ECORRUPT;
 
-    /* This primitive is deliberately leaf-only; internal-node insertion
-     * requires split/promotion of the separator key and child VCNs. */
     if ((record[0x24u] & 1u) != 0u)
         return PROS_NTFS_ENOTSUP;
 
@@ -3502,8 +3945,11 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
         return PROS_NTFS_ECORRUPT;
 
     if (entries_size > allocated_size ||
-        entry_size > allocated_size - entries_size)
-        return PROS_NTFS_ENOTSUP;
+        entry_size > allocated_size - entries_size) {
+        return ntfs_index_allocation_split_leaf(fs, 0u, runs, run_count,
+                                                vcn, record_size,
+                                                file_reference, key, key_size);
+    }
 
     for (uint32_t i = entries_size; i > insert_offset - 0x18u; --i)
         record[0x18u + i + entry_size - 1u] =
