@@ -1,6 +1,7 @@
 #include "health.h"
 #include "driver.h"
 #include "heap.h"
+#include "memory.h"
 #include "timer.h"
 
 static struct pros_health_event events[PROS_HEALTH_EVENT_MAX];
@@ -26,13 +27,13 @@ int pros_health_init(void) {
     dropped_events = 0u;
     next_sequence = 0u;
     initialized = 1u;
-    return PROS_DRIVER_OK;
+    return PROS_HEALTH_OK;
 }
 
 int pros_health_record(uint32_t severity, uint32_t category,
                        uint32_t source, uint32_t code, uint64_t value) {
     if (!initialized || !valid_severity(severity) || !valid_category(category))
-        return PROS_DRIVER_EINVAL;
+        return PROS_HEALTH_EINVAL;
 
     events[event_head] = (struct pros_health_event){
         .sequence = ++next_sequence,
@@ -57,6 +58,9 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
 
     *out = (struct pros_health_snapshot){
         .timestamp = timer_ticks(),
+        .uptime_ticks = timer_ticks(),
+        .physical_total_pages = physical_memory_total_pages(),
+        .physical_free_pages = physical_memory_free_pages(),
         .heap_used_bytes = heap_used_bytes(),
         .event_sequence = next_sequence,
         .event_count = event_count,
@@ -90,7 +94,7 @@ int pros_health_get_event(uint32_t offset, struct pros_health_event *out) {
 
 int pros_health_sample(void) {
     return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
-                              1u, 1u, heap_used_bytes());
+                              1u, 1u, physical_memory_free_pages());
 }
 
 int pros_health_selftest(void) {
@@ -109,7 +113,7 @@ int pros_health_selftest(void) {
         event.category != PROS_HEALTH_MEMORY ||
         pros_health_get_event(1u, &event) != PROS_DRIVER_OK ||
         event.value != 123u)
-        return PROS_DRIVER_EIO;
+        return PROS_HEALTH_EIO;
 
     return PROS_DRIVER_OK;
 }
