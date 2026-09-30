@@ -245,9 +245,15 @@ int pros_log_persist_available(void) {
 }
 
 int pros_log_persist_selftest(void) {
+    char rotated[PROS_LOG_PERSIST_PATH_MAX];
     if (pros_log_persist_init() != PROS_LOG_PERSIST_OK)
         return PROS_LOG_PERSIST_EIO;
     if (pros_log_persist_available())
+        return PROS_LOG_PERSIST_EIO;
+    if (persist_path_with_suffix("/var/log/prosenjitos.log", 1u,
+                                 rotated, sizeof(rotated)) != PROS_LOG_PERSIST_OK)
+        return PROS_LOG_PERSIST_EIO;
+    if (bounded_strlen(rotated, sizeof(rotated)) == 0u)
         return PROS_LOG_PERSIST_EIO;
     return PROS_LOG_PERSIST_OK;
 }
