@@ -352,13 +352,38 @@ int pros_nt_compat_rollback(uint32_t package_id)
     uint32_t i;
     if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES)
         return PROS_DRIVER_EINVAL;
+
+    /*
+     * Rollback is a full teardown boundary: no stale device identity,
+     * lifecycle state, resources, or dispatch handlers may survive it.
+     */
     images[package_id - 1u].state = PROS_NT_COMPAT_EMPTY;
     images[package_id - 1u].package_id = 0;
     images[package_id - 1u].capabilities = 0;
     images[package_id - 1u].image_entry = 0;
     images[package_id - 1u].image_size = 0;
+    images[package_id - 1u].machine = 0;
+    images[package_id - 1u].pe32_plus = 0;
+    images[package_id - 1u].has_imports = 0;
+
     devices[package_id - 1u].size = 0;
     devices[package_id - 1u].package_id = 0;
+    devices[package_id - 1u].state = PROS_NT_DEVICE_EMPTY;
+    devices[package_id - 1u].bus = 0;
+    devices[package_id - 1u].location = 0;
+    devices[package_id - 1u].vendor_id = 0;
+    devices[package_id - 1u].device_id = 0;
+    devices[package_id - 1u].class_code = 0;
+    devices[package_id - 1u].subclass = 0;
+    devices[package_id - 1u].prog_if = 0;
+    devices[package_id - 1u].resource_count = 0;
+    for (i = 0; i < PROS_NT_COMPAT_MAX_RESOURCES; ++i) {
+        devices[package_id - 1u].resources[i].type = PROS_NT_RESOURCE_NONE;
+        devices[package_id - 1u].resources[i].flags = 0;
+        devices[package_id - 1u].resources[i].start = 0;
+        devices[package_id - 1u].resources[i].length = 0;
+    }
+
     for (i = 0; i < PROS_NT_IRP_MAX; ++i)
         dispatch[package_id - 1u].major[i] = 0;
     return PROS_DRIVER_OK;
@@ -477,6 +502,19 @@ int pros_nt_compat_selftest(void)
         return PROS_DRIVER_EIO;
     if (pros_nt_compat_rollback(1u) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
+    if (devices[0].state != PROS_NT_DEVICE_EMPTY ||
+        devices[0].package_id != 0 ||
+        devices[0].resource_count != 0 ||
+        devices[0].resources[0].type != PROS_NT_RESOURCE_NONE ||
+        devices[0].resources[0].start != 0 ||
+        devices[0].resources[0].length != 0)
+        return PROS_DRIVER_EIO;
+    {
+        struct pros_nt_device_object cleared;
+        cleared.size = sizeof(cleared);
+        if (pros_nt_compat_get_device(1u, &cleared) != PROS_DRIVER_ENODEV)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_nt_compat_dispatch(1u, PROS_NT_IRP_READ, 0)
         != PROS_DRIVER_ENOTSUP)
         return PROS_DRIVER_EIO;
