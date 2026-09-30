@@ -295,7 +295,19 @@ int pros_driver_compat_set_trust_evidence(
         return PROS_DRIVER_EINVAL;
     if (evidence == PROS_COMPAT_EVIDENCE_CRYPTO_SIGNATURE)
         return PROS_DRIVER_ENOTSUP;
+    if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED)
+        return PROS_DRIVER_EPERM;
+    if (packages[package_id - 1u].trust_evidence == evidence)
+        return PROS_DRIVER_OK;
+
+    /*
+     * Evidence is part of the trust decision.  Changing it invalidates any
+     * previous VERIFIED/staged state and requires a fresh transaction.
+     */
     packages[package_id - 1u].trust_evidence = evidence;
+    packages[package_id - 1u].trust = PROS_COMPAT_TRUST_UNKNOWN;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_IDLE;
+    packages[package_id - 1u].status = PROS_COMPAT_STATUS_INSPECTED;
     return PROS_DRIVER_OK;
 }
 
@@ -308,6 +320,11 @@ int pros_driver_compat_bind_admission(
         return PROS_DRIVER_EINVAL;
     if (!packages[package_id - 1u].content_sha256_valid)
         return PROS_DRIVER_EPERM;
+    if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED)
+        return PROS_DRIVER_EPERM;
+    if (packages[package_id - 1u].tx_state != PROS_COMPAT_TX_IDLE &&
+        packages[package_id - 1u].tx_state != PROS_COMPAT_TX_ROLLED_BACK)
+        return PROS_DRIVER_EBUSY;
     if (record->security.action != PROS_FILE_ALLOW)
         return PROS_DRIVER_EPERM;
 
@@ -335,12 +352,24 @@ int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_i
         dependency_id == 0 || dependency_id > package_count)
         return PROS_DRIVER_EINVAL;
     pkg = &packages[package_id - 1u];
+    if (pkg->status == PROS_COMPAT_STATUS_REJECTED)
+        return PROS_DRIVER_EPERM;
+    if (pkg->tx_state != PROS_COMPAT_TX_IDLE &&
+        pkg->tx_state != PROS_COMPAT_TX_ROLLED_BACK)
+        return PROS_DRIVER_EBUSY;
     if (pkg->dependency_count >= PROS_DRIVER_COMPAT_MAX_DEPS)
         return PROS_DRIVER_ENOSPC;
     for (i = 0; i < pkg->dependency_count; ++i)
         if (pkg->dependencies[i] == dependency_id)
             return PROS_DRIVER_OK;
     pkg->dependencies[pkg->dependency_count++] = dependency_id;
+
+    /* Dependency metadata changes invalidate prior trust/transaction state. */
+    pkg->trust = PROS_COMPAT_TRUST_UNKNOWN;
+    pkg->trust_evidence = PROS_COMPAT_EVIDENCE_NONE;
+    pkg->tx_state = PROS_COMPAT_TX_IDLE;
+    if (pkg->status != PROS_COMPAT_STATUS_REJECTED)
+        pkg->status = PROS_COMPAT_STATUS_INSPECTED;
     return PROS_DRIVER_OK;
 }
 
