@@ -3022,7 +3022,10 @@ int prosenjitfs_selftest(void)
         }
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != write_data[i])
-                return (int)(-1000 - i);
+                return (int)(-1000000 -
+                             (int)(i * 65536u) -
+                             (int)(read_data[i] * 256u) -
+                             (int)write_data[i]);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return -64;
     }
