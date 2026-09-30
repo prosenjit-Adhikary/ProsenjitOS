@@ -195,3 +195,8 @@ Bundle removal is blocked while the compatibility package is in VERIFIED, STAGED
 ### Bundle/registry consistency guard — 2026-09-30
 
 The bundle remains an index/locator rather than an independent trust or execution authority. Direct index entries may exist before a compatibility package is admitted, which preserves the generic bundle-index contract; however, offline selection requires a live compatibility package with matching SHA-256 content identity and an eligible verified/admitted active transaction. Stale bundle entries can also be removed after their compatibility package has been reclaimed. Active VERIFIED/STAGED/HEALTHY/COMMITTED packages cannot have their indexed metadata replaced or removed.
+
+
+### Safe package update sequence — 2026-09-30
+
+Driver package updates use the existing admission, bundle, and transaction boundaries rather than mutating an active package in place. The safe sequence is: admit and hash the new package; establish verified dependency/trust state; add the new content identity to the bundle; confirm deterministic selection can choose the new eligible candidate; only then remove or roll back the old package when it is no longer active or referenced. Active package metadata replacement/removal remains blocked. A failed new-package admission must not leave a selectable package or an unreconciled bundle locator.
