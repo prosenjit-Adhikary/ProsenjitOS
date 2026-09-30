@@ -655,6 +655,34 @@ int pros_driver_compat_selftest(void)
         if (pros_driver_compat_verify(package_id) != PROS_DRIVER_EPERM)
             return PROS_DRIVER_EIO;
     }
+
+    /*
+     * The content change revoked the old admission, so a fresh admission and
+     * transaction are required before staging.
+     */
+    {
+        struct pros_file_admission_input refreshed_input;
+        struct pros_file_admission_record refreshed_record;
+        static const uint8_t changed_inf[] = "changed";
+
+        refreshed_input.data = changed_inf;
+        refreshed_input.length = (uint64_t)(sizeof(changed_inf) - 1u);
+        refreshed_input.metadata.format_valid = 1u;
+        refreshed_input.metadata.signature_valid = 0u;
+        refreshed_input.metadata.signature_present = 0u;
+        refreshed_input.metadata.local_trusted = 1u;
+        refreshed_input.metadata.local_denied = 0u;
+        refreshed_input.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+        refreshed_input.metadata.provenance_known = 1u;
+
+        if (pros_file_admission_evaluate(
+                &refreshed_input, &refreshed_record) != 0 ||
+            pros_driver_compat_bind_admission(
+                package_id, &refreshed_record) != PROS_DRIVER_OK ||
+            pros_driver_compat_begin(package_id) != PROS_DRIVER_OK ||
+            pros_driver_compat_verify(package_id) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+    }
     if (pros_driver_compat_stage(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
     if (pros_driver_compat_health_check(package_id) != PROS_DRIVER_ENOTSUP)
