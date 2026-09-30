@@ -285,6 +285,47 @@ int vfs_file_admit(const struct pros_vfs_mount *mount,
     return pros_file_admission_evaluate(&input, record);
 }
 
+int vfs_file_admit_path(
+    struct pros_vfs_mount *mount, const char *path,
+    const struct pros_file_security_metadata *metadata,
+    struct pros_file_admission_record *record)
+{
+    struct pros_vfs_file file;
+    struct pros_sha256_ctx sha;
+    uint8_t buffer[4096];
+    uint32_t done;
+    uint64_t remaining;
+    int rc;
+
+    if (!mount || !path || !metadata || !record)
+        return PROS_VFS_EINVAL;
+
+    rc = vfs_file_open(mount, path, PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+
+    pros_sha256_init(&sha);
+    remaining = file.vnode ? file.vnode->size : 0u;
+
+    while (remaining != 0u) {
+        uint32_t request = remaining > sizeof(buffer) ?
+                           (uint32_t)sizeof(buffer) : (uint32_t)remaining;
+        rc = vfs_file_read(&file, buffer, request, &done);
+        if (rc != PROS_VFS_OK || done == 0u || done > request) {
+            (void)vfs_file_close(&file);
+            return rc != PROS_VFS_OK ? rc : PROS_VFS_EIO;
+        }
+        pros_sha256_update(&sha, buffer, done);
+        remaining -= done;
+    }
+
+    pros_sha256_final(&sha, record->sha256);
+    rc = pros_file_admission_evaluate_digest(record->sha256, metadata, record);
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        return PROS_VFS_EIO;
+    return rc;
+}
+
 static int vfs_security_admission_selftest(void)
 {
     struct pros_block_device device;
