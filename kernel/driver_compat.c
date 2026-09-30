@@ -541,8 +541,8 @@ int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust tru
 
     /*
      * VERIFIED is a conclusion backed by evidence, not a caller-controlled
-     * state.  Cryptographic signature evidence remains unavailable until a
-     * real verifier is implemented.
+     * state. Cryptographic evidence must come through the dedicated
+     * signature/trust authority path.
      */
     /*
      * VERIFIED may only be established by a dedicated trust authority
