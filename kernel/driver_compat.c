@@ -471,7 +471,7 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
     if (!name || !text || !text_len || !package_id_out)
         return PROS_DRIVER_EINVAL;
 
-    for (i = 0; i + 21u <= text_len && count < PROS_DRIVER_COMPAT_MAX_IDS; ++i) {
+    for (i = 0; i <= text_len && text_len - i >= 21u && count < PROS_DRIVER_COMPAT_MAX_IDS; ++i) {
         uint16_t vendor, device;
         uint32_t j;
         if (!pci_hwid_at(text, text_len, i)) continue;
@@ -503,7 +503,7 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
                                  pkg->provider, sizeof(pkg->provider));
         uint32_t vn = line_value(text, text_len, "DriverVer",
                                  pkg->driver_ver, sizeof(pkg->driver_ver));
-        for (i = 0; i + 16u <= text_len; ++i) {
+        for (i = 0; i <= text_len && text_len - i >= 16u; ++i) {
             if (ci_match4(&text[i], "SUBS") && text[i + 4u] == '_') {
                 uint32_t v;
                 if (parse_hex8(&text[i + 5u], &v)) {
@@ -513,7 +513,7 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
                 }
             }
         }
-        for (i = 0; i + 6u <= text_len; ++i) {
+        for (i = 0; i <= text_len && text_len - i >= 6u; ++i) {
             if (ci_match4(&text[i], "REV_")) {
                 uint8_t v;
                 if (parse_hex2(&text[i + 4u], &v)) {
