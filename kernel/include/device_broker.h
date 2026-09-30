@@ -19,6 +19,8 @@ struct pros_device_grant {
 };
 
 int pros_device_broker_init(void);
+/* Drop every grant associated with a device during lifecycle teardown. */
+void pros_device_broker_drop_device(uint32_t device_id);
 int pros_device_grant(uint32_t device_id, uint32_t process_id,
                       uint32_t permissions);
 int pros_device_revoke(uint32_t device_id, uint32_t process_id);
