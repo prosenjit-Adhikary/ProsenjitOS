@@ -3397,6 +3397,9 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
     uint32_t required_size;
 
     if (!fs || !runs || run_count == 0u || !key || key_size < 66u ||
+        key[64u] == 0u ||
+        (key[65u] != 1u && key[65u] != 3u) ||
+        66u + (uint32_t)key[64u] * 2u > key_size ||
         record_size < fs->bytes_per_sector ||
         record_size > sizeof(record) ||
         record_size % fs->bytes_per_sector != 0u ||
