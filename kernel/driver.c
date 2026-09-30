@@ -1,4 +1,5 @@
 #include "driver.h"
+#include "health.h"
 #include "driver_bundle.h"
 #include "device_broker.h"
 #include "driver_compat.h"
@@ -207,8 +208,11 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
     (void)function;
 
     int rc = pros_device_register(device);
-    if (rc != PROS_DRIVER_OK)
+    if (rc != PROS_DRIVER_OK) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
+                                 device->id, 1u, (uint64_t)(uint32_t)(-rc));
         return rc;
+    }
 
     if (device_id_out)
         *device_id_out = device->id;
@@ -335,11 +339,15 @@ int pros_driver_bind(uint32_t device_id)
         device->state = PROS_DEVICE_FAILED;
         device->driver = 0;
         device->driver_data = 0;
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
+                                 device->id, 3u, (uint64_t)device->class_id);
         return PROS_DRIVER_EIO;
     }
 
     device->driver = driver;
     device->state = PROS_DEVICE_BOUND;
+    (void)pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
+                             device->id, 2u, (uint64_t)device->class_id);
     return PROS_DRIVER_OK;
 }
 
@@ -399,6 +407,8 @@ int pros_driver_unbind(uint32_t device_id)
     device->driver = 0;
     device->driver_data = 0;
     device->state = PROS_DEVICE_DISCOVERED;
+    (void)pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
+                             device->id, 4u, (uint64_t)device->class_id);
     return PROS_DRIVER_OK;
 }
 
