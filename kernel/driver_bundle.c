@@ -107,17 +107,23 @@ int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
         }
         if (score == best_score && best) {
             struct pros_driver_bundle_entry *cur = find(best);
-            int newer = 0;
+            int version_cmp = 0;
             if (entries[i].version_major != cur->version_major)
-                newer = entries[i].version_major > cur->version_major;
+                version_cmp = entries[i].version_major > cur->version_major ? 1 : -1;
             else if (entries[i].version_minor != cur->version_minor)
-                newer = entries[i].version_minor > cur->version_minor;
+                version_cmp = entries[i].version_minor > cur->version_minor ? 1 : -1;
             else if (entries[i].version_patch != cur->version_patch)
-                newer = entries[i].version_patch > cur->version_patch;
-            if (newer ||
-                (entries[i].version_major == cur->version_major &&
-                 entries[i].version_minor == cur->version_minor &&
-                 entries[i].version_patch == cur->version_patch &&
+                version_cmp = entries[i].version_patch > cur->version_patch ? 1 : -1;
+
+            /*
+             * Deterministic precedence:
+             *   1. hardware match score
+             *   2. semantic version
+             *   3. bundle source (ISO/removable/local enum order)
+             *   4. package ID
+             */
+            if (version_cmp > 0 ||
+                (version_cmp == 0 &&
                  (entries[i].source < cur->source ||
                   (entries[i].source == cur->source &&
                    entries[i].package_id < cur->package_id)))) {
