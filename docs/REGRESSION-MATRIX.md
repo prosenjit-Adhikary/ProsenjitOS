@@ -63,6 +63,10 @@ The following work remains intentionally dependent on lower layers:
 - NTFS journal-aware metadata writes require safe allocation and directory-index mutation first.
 - UEFI boot validation requires the native UEFI loader before Secure Boot/verified-boot work can be meaningfully tested.
 
+### ProsenjitFS mutation regression
+
+The deterministic native-filesystem self-test now covers persistent inode/data-block allocation and reclamation, file create/delete, directory creation/removal, nested directories, cross-directory file and directory moves, rename collision rejection, directory-parent cycle rejection, and non-empty-directory removal rejection. The test remains subject to the repository-wide GitHub Actions verification gate.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
