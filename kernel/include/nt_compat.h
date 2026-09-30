@@ -60,6 +60,7 @@ struct pros_nt_compat_image {
 };
 
 #define PROS_NT_IO_MAX_BUFFER 4096u
+#define PROS_NT_COMPAT_MAX_RESOURCES 8u
 
 enum pros_nt_io_type {
     PROS_NT_IO_NONE = 0,
@@ -67,6 +68,35 @@ enum pros_nt_io_type {
     PROS_NT_IO_READ,
     PROS_NT_IO_WRITE,
     PROS_NT_IO_DEVICE_CONTROL
+};
+
+enum pros_nt_resource_type {
+    PROS_NT_RESOURCE_NONE = 0,
+    PROS_NT_RESOURCE_IOPORT,
+    PROS_NT_RESOURCE_MMIO,
+    PROS_NT_RESOURCE_IRQ,
+    PROS_NT_RESOURCE_DMA
+};
+
+struct pros_nt_device_resource {
+    uint32_t type;
+    uint32_t flags;
+    uint64_t start;
+    uint64_t length;
+};
+
+struct pros_nt_device_object {
+    uint32_t size;
+    uint32_t package_id;
+    uint32_t bus;
+    uint32_t location;
+    uint16_t vendor_id;
+    uint16_t device_id;
+    uint8_t class_code;
+    uint8_t subclass;
+    uint8_t prog_if;
+    uint8_t resource_count;
+    struct pros_nt_device_resource resources[PROS_NT_COMPAT_MAX_RESOURCES];
 };
 
 struct pros_nt_io_request {
@@ -125,6 +155,10 @@ int pros_nt_compat_dispatch(uint32_t package_id, uint32_t irp_major,
                             void *context);
 int pros_nt_compat_submit_io(uint32_t package_id,
                              struct pros_nt_io_request *request);
+int pros_nt_compat_set_device(uint32_t package_id,
+                              const struct pros_nt_device_object *device);
+int pros_nt_compat_get_device(uint32_t package_id,
+                              struct pros_nt_device_object *device);
 int pros_nt_compat_pnp(uint32_t package_id, uint32_t event);
 int pros_nt_compat_power(uint32_t package_id, uint32_t event);
 int pros_nt_compat_health_check(uint32_t package_id);
