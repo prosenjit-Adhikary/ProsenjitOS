@@ -3018,8 +3018,10 @@ int prosenjitfs_selftest(void)
             uint32_t second_done = 0u;
             int direct_rc = pfs_file_read(&file, 512u, 188u,
                                           second_read);
-            if (direct_rc != 188 || second_read[0u] != write_data[512u])
-                return -94;
+            if (direct_rc != 188)
+                return direct_rc;
+            if (second_read[0u] != write_data[512u])
+                return (int)(-97 - second_read[0u]);
             if (second_done != 0u)
                 return -95;
         }
