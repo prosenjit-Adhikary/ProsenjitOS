@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "security_provider.h"
+#include "health.h"
 
 int pros_file_admission_evaluate(
     const struct pros_file_admission_input *input,
