@@ -3719,7 +3719,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         for (uint32_t i = 0u; i < 8u; ++i)
             root_data[32u + 8u + i] = (uint8_t)((uint64_t)0u >> (8u * i));
         root_data[40u] = 24u;
-        root_data[44u] = 2u;
+        root_data[44u] = 3u;
         root_data[48u] = 0u;
         root_data[49u] = 0u;
         root_data[50u] = 0u;
