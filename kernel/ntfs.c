@@ -2680,7 +2680,7 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     uint32_t new_entries_size;
     uint64_t file_reference;
 
-    if (!fs || !allocated_lcn || !allocated_clusters ||
+    if (!fs ||
         directory_record_number > 0x0000FFFFFFFFFFFFull ||
         child_record_number > 0x0000FFFFFFFFFFFFull ||
         fs->bytes_per_file_record > sizeof(directory_record))
