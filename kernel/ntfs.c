@@ -1081,6 +1081,16 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
                              root_attr, &root_data, &root_size) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
 
+    /*
+     * Root separator selection uses the same NTFS collation as normal
+     * INDEX_ROOT insertion. Keep the UpCase table active only for this
+     * comparison window so callers never inherit stale collation state.
+     */
+    if (ntfs_upcase_load(fs) != PROS_NTFS_OK) {
+        ntfs_active_upcase = 0;
+        return PROS_NTFS_EIO;
+    }
+
     offset = root.first_entry_offset;
     while (offset < root.entries_size) {
         uint16_t entry_size, key_size;
@@ -1109,14 +1119,20 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
             break;
         offset += entry_size;
     }
-    if (!chosen)
+    if (!chosen) {
+        ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
+    }
 
-    return ntfs_index_allocation_insert(fs, runs, run_count, chosen_vcn,
-                                        root.bytes_per_index_record,
-                                        ((uint64_t)le16(child_record + 16u) << 48) |
-                                        (child_record_number & 0x0000FFFFFFFFFFFFull),
-                                        key, child_name_size);
+    {
+        int status = ntfs_index_allocation_insert(
+            fs, runs, run_count, chosen_vcn, root.bytes_per_index_record,
+            ((uint64_t)le16(child_record + 16u) << 48) |
+            (child_record_number & 0x0000FFFFFFFFFFFFull),
+            key, child_name_size);
+        ntfs_active_upcase = 0;
+        return status;
+    }
 }
 
 int ntfs_create_file(struct pros_ntfs *fs,
