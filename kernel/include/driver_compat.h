@@ -129,6 +129,8 @@ int pros_driver_compat_hash_content(
 
 int pros_driver_compat_get_package(uint32_t package_id,
                                    struct pros_compat_package *out);
+/* Remove a package only when no package depends on it and it is not active. */
+int pros_driver_compat_unregister_package(uint32_t package_id);
 int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
                               struct pros_driver_id *out);
 int pros_driver_compat_supports_model(enum pros_compat_driver_model model);
