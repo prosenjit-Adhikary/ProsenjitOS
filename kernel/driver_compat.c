@@ -205,32 +205,36 @@ int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
 
 int pros_driver_compat_selftest(void)
 {
-    struct pros_driver_id id = {
-        .bus = PROS_DRIVER_BUS_PCI,
-        .vendor_id = 0x1234,
-        .device_id = 0x5678,
-        .class_code = 0x02,
-        .subclass = 0x00,
-        .prog_if = 0x00
-    };
+    static const char inf[] =
+        "[Version]\r\n"
+        "Class=Net\r\n"
+        "[Models]\r\n"
+        "%Mfg%=Install, PCI\\VEN_1234&DEV_5678\r\n"
+        "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001\r\n"
+        "NDIS=1\r\n";
     struct pros_compat_package pkg;
-    uint32_t id_out = 0;
+    struct pros_driver_id id;
+    uint32_t package_id = 0;
 
     if (pros_driver_compat_init() != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
-    if (pros_driver_compat_register_package(
-            PROS_COMPAT_PACKAGE_INF,
-            PROS_COMPAT_MODEL_WDM,
-            "compat-selftest.inf",
-            &id, 1, 0, &id_out) != PROS_DRIVER_OK)
+    if (pros_driver_compat_inspect_inf(
+            "compat-selftest.inf", inf, (uint32_t)(sizeof(inf) - 1u),
+            &package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
-    if (pros_driver_compat_get_package(id_out, &pkg) != PROS_DRIVER_OK)
+    if (pros_driver_compat_get_package(package_id, &pkg) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
     if (pkg.status != PROS_COMPAT_STATUS_INSPECTED ||
-        pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678)
+        pkg.id_count != 2u ||
+        pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678 ||
+        pkg.model != PROS_COMPAT_MODEL_NDIS)
+        return PROS_DRIVER_EIO;
+
+    if (pros_driver_compat_get_id(package_id, 1u, &id) != PROS_DRIVER_OK ||
+        id.vendor_id != 0xabcd || id.device_id != 0x0001)
         return PROS_DRIVER_EIO;
 
     if (pros_driver_compat_supports_model(PROS_COMPAT_MODEL_WDM)
