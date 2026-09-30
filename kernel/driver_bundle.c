@@ -57,6 +57,42 @@ int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
+                                   uint32_t *selected_package_id, int *score_out)
+{
+    uint32_t best = 0;
+    int best_score = -1;
+    if (!hwid || !selected_package_id || !score_out)
+        return PROS_DRIVER_EINVAL;
+
+    for (uint32_t i = 0; i < PROS_DRIVER_BUNDLE_MAX_ENTRIES; ++i) {
+        if (!entries[i].package_id || !entries[i].content_sha256_valid)
+            continue;
+        int score = 0;
+        if (pros_driver_compat_match(entries[i].package_id, hwid, &score) != PROS_DRIVER_OK)
+            continue;
+        if (score > best_score) {
+            best = entries[i].package_id;
+            best_score = score;
+            continue;
+        }
+        if (score == best_score && best) {
+            struct pros_driver_bundle_entry *cur = find(best);
+            if (entries[i].version_major > cur->version_major ||
+                (entries[i].version_major == cur->version_major &&
+                 (entries[i].version_minor > cur->version_minor ||
+                  (entries[i].version_minor == cur->version_minor &&
+                   entries[i].version_patch > cur->version_patch)))) {
+                best = entries[i].package_id;
+            }
+        }
+    }
+    if (!best) return PROS_DRIVER_ENODEV;
+    *selected_package_id = best;
+    *score_out = best_score;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_bundle_selftest(void) {
     uint8_t a[PROS_FILE_SHA256_BYTES],b[PROS_FILE_SHA256_BYTES];
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i){a[i]=(uint8_t)i;b[i]=(uint8_t)(i^0x55u);}
