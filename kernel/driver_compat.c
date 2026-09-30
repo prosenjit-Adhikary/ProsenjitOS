@@ -1,5 +1,11 @@
 #include "driver_compat.h"
 
+static void compat_zero_digest(uint8_t digest[PROS_FILE_SHA256_BYTES])
+{
+    uint32_t i;
+    for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i) digest[i] = 0;
+}
+
 static struct pros_compat_package packages[PROS_DRIVER_COMPAT_MAX_PACKAGES];
 static struct pros_driver_id package_ids[PROS_DRIVER_COMPAT_MAX_PACKAGES]
                                          [PROS_DRIVER_COMPAT_MAX_IDS];
@@ -86,6 +92,8 @@ int pros_driver_compat_init(void)
     for (i = 0; i < PROS_DRIVER_COMPAT_MAX_PACKAGES; ++i) {
         packages[i].id = 0;
         packages[i].status = PROS_COMPAT_STATUS_EMPTY;
+        compat_zero_digest(packages[i].content_sha256);
+        packages[i].content_sha256_valid = 0;
     }
     return PROS_DRIVER_OK;
 }
@@ -122,6 +130,8 @@ int pros_driver_compat_register_package(
     }
 
     pkg = &packages[package_count];
+    compat_zero_digest(pkg->content_sha256);
+    pkg->content_sha256_valid = 0;
     pkg->id = package_count + 1u;
     pkg->type = type;
     pkg->model = model;
@@ -144,6 +154,19 @@ int pros_driver_compat_register_package(
 
     ++package_count;
     *package_id_out = pkg->id;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_set_content_sha256(
+    uint32_t package_id,
+    const uint8_t digest[PROS_FILE_SHA256_BYTES])
+{
+    uint32_t i;
+    if (package_id == 0 || package_id > package_count || !digest)
+        return PROS_DRIVER_EINVAL;
+    for (i = 0; i < PROS_FILE_SHA256_BYTES; ++i)
+        packages[package_id - 1u].content_sha256[i] = digest[i];
+    packages[package_id - 1u].content_sha256_valid = 1u;
     return PROS_DRIVER_OK;
 }
 
