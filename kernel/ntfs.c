@@ -1204,8 +1204,16 @@ int ntfs_create_file(struct pros_ntfs *fs,
              */
             if (ntfs_find_attribute(parent_record,
                                     fs->bytes_per_file_record, 0xA0u,
-                                    &root_attr) != PROS_NTFS_OK)
-                return PROS_NTFS_ENOTSUP;
+                                    &root_attr) != PROS_NTFS_OK) {
+                /* Bootstrap a resident-only index into a single INDX leaf. */
+                rc = ntfs_index_allocation_bootstrap(fs, parent_record_number);
+                if (rc != PROS_NTFS_OK)
+                    return rc;
+                if (ntfs_read_file_record(fs, parent_record_number,
+                                          parent_record,
+                                          sizeof(parent_record)) != PROS_NTFS_OK)
+                    return PROS_NTFS_EIO;
+            }
             root_needs_allocation_insert = 1u;
         }
     }
@@ -3377,6 +3385,345 @@ static int ntfs_index_allocation_write(const struct pros_ntfs *fs,
     return PROS_NTFS_OK;
 }
 
+
+
+static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
+                                           uint64_t directory_record_number)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t old_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t node[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t entries[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t root_attr, first, used, pos, root_value_size;
+    uint32_t alloc_attr, bitmap_attr, attr_id = 0u;
+    uint32_t root_entries_size, root_allocated_size;
+    uint32_t index_block_size, index_block_clusters;
+    uint32_t cluster_bytes;
+    uint32_t entries_len;
+    uint32_t alloc_len = 72u;
+    uint32_t bitmap_len = 32u;
+    uint32_t new_used;
+    uint64_t lcn = 0u;
+    uint64_t cluster_count;
+    uint32_t lcn_bytes;
+    uint32_t map_len;
+    int rc;
+
+    if (!fs || directory_record_number > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record > sizeof(record) ||
+        fs->bytes_per_sector == 0u || fs->sectors_per_cluster == 0u)
+        return PROS_NTFS_EINVAL;
+    if (!fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_ENOTSUP;
+
+    cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
+    if (cluster_bytes == 0u)
+        return PROS_NTFS_EOVERFLOW;
+
+    rc = ntfs_read_file_record(fs, directory_record_number,
+                               record, sizeof(record));
+    if (rc != PROS_NTFS_OK)
+        return rc;
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        old_record[i] = record[i];
+
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x90u,
+                            &root_attr) != PROS_NTFS_OK)
+        return PROS_NTFS_ECORRUPT;
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0xA0u,
+                            &alloc_attr) == PROS_NTFS_OK ||
+        ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
+                            &bitmap_attr) == PROS_NTFS_OK)
+        return PROS_NTFS_EINVAL;
+
+    {
+        struct pros_ntfs_index_root root;
+        const uint8_t *root_data;
+        uint32_t root_size;
+
+        if (ntfs_index_root_header(record, fs->bytes_per_file_record,
+                                   root_attr, &root) != PROS_NTFS_OK ||
+            ntfs_attribute_data(record, fs->bytes_per_file_record, root_attr,
+                                &root_data, &root_size) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+
+        if ((root.flags & 1u) != 0u ||
+            root.bytes_per_index_record < cluster_bytes ||
+            root.bytes_per_index_record > sizeof(node) ||
+            root.bytes_per_index_record % cluster_bytes != 0u)
+            return PROS_NTFS_ENOTSUP;
+
+        index_block_size = root.bytes_per_index_record;
+        index_block_clusters = index_block_size / cluster_bytes;
+        if (index_block_clusters == 0u ||
+            index_block_clusters > 128u)
+            return PROS_NTFS_ENOTSUP;
+
+        root_entries_size = root.entries_size;
+        root_allocated_size = root.allocated_size;
+        if (root.first_entry_offset < 16u ||
+            root_entries_size < root.first_entry_offset ||
+            root_entries_size > root_allocated_size ||
+            root_allocated_size > root_size - 16u)
+            return PROS_NTFS_ECORRUPT;
+
+        entries_len = root_entries_size - root.first_entry_offset;
+        if (entries_len < 16u ||
+            entries_len > index_block_size - 0x28u)
+            return PROS_NTFS_ENOTSUP;
+
+        /*
+         * Conversion is only valid for a resident leaf root. A pre-existing
+         * child pointer means the tree is already large and needs recursive
+         * parent handling rather than bootstrap.
+         */
+        {
+            uint32_t off = root.first_entry_offset;
+            uint32_t remaining = entries_len;
+            while (remaining != 0u) {
+                uint16_t esize;
+                uint8_t flags;
+                if (remaining < 16u)
+                    return PROS_NTFS_ECORRUPT;
+                esize = le16(root_data + off + 8u);
+                flags = root_data[off + 12u];
+                if (esize < 16u || (esize & 7u) != 0u ||
+                    esize > remaining || (flags & ~3u) != 0u)
+                    return PROS_NTFS_ECORRUPT;
+                if (flags & 1u)
+                    return PROS_NTFS_ENOTSUP;
+                for (uint32_t i = 0u; i < esize; ++i)
+                    entries[off - root.first_entry_offset + i] =
+                        root_data[off + i];
+                if (flags & 2u) {
+                    if (esize != 16u)
+                        return PROS_NTFS_ECORRUPT;
+                    if (remaining != esize)
+                        return PROS_NTFS_ECORRUPT;
+                    break;
+                }
+                off += esize;
+                remaining -= esize;
+            }
+        }
+    }
+
+    /*
+     * The new resident attributes must fit before the existing end marker.
+     * This implementation deliberately refuses to relocate the directory
+     * record or introduce an attribute-list extent.
+     */
+    first = le16(record + 20u);
+    used = le32(record + 24u);
+    if (first < 24u || first + 8u > fs->bytes_per_file_record ||
+        used < first + 8u || used > fs->bytes_per_file_record)
+        return PROS_NTFS_ECORRUPT;
+    pos = first;
+    while (pos + 8u <= used) {
+        uint32_t type = le32(record + pos);
+        uint32_t len = le32(record + pos + 4u);
+        if (type == 0xFFFFFFFFu)
+            break;
+        if (len < 16u || (len & 7u) != 0u ||
+            pos + len > used)
+            return PROS_NTFS_ECORRUPT;
+        if (le16(record + pos + 14u) >= attr_id)
+            attr_id = (uint32_t)le16(record + pos + 14u) + 1u;
+        pos += len;
+    }
+    if (pos != used - 8u)
+        return PROS_NTFS_ECORRUPT;
+
+    new_used = pos + alloc_len + bitmap_len + 8u;
+    if (new_used > fs->bytes_per_file_record)
+        return PROS_NTFS_ENOTSUP;
+
+    /*
+     * Allocate physical storage before changing the directory record. The
+     * volume bitmap is updated transactionally by the allocator.
+     */
+    cluster_count = index_block_clusters;
+    rc = ntfs_bitmap_allocate_clusters(fs, cluster_count, &lcn);
+    if (rc != PROS_NTFS_OK)
+        return rc;
+    if (lcn > 0x7FFFFFFFFFFFFFFFull) {
+        (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
+        return PROS_NTFS_ENOTSUP;
+    }
+
+    for (uint32_t i = 0u; i < index_block_size; ++i)
+        node[i] = 0u;
+    node[0] = 'I'; node[1] = 'N'; node[2] = 'D'; node[3] = 'X';
+    node[4] = 0x28u;
+    node[5] = 0u;
+    node[6] = (uint8_t)(index_block_size / fs->bytes_per_sector + 1u);
+    node[7] = (uint8_t)((index_block_size / fs->bytes_per_sector + 1u) >> 8);
+    node[16] = 0u;
+    node[17] = 0u;
+    node[18] = 0u;
+    node[19] = 0u;
+    node[0x18u] = 0x10u;
+    node[0x1Cu] = (uint8_t)(entries_len + 16u);
+    node[0x1Du] = (uint8_t)((entries_len + 16u) >> 8);
+    node[0x1Eu] = (uint8_t)((entries_len + 16u) >> 16);
+    node[0x1Fu] = (uint8_t)((entries_len + 16u) >> 24);
+    node[0x20u] = (uint8_t)(index_block_size - 0x18u);
+    node[0x21u] = (uint8_t)((index_block_size - 0x18u) >> 8);
+    node[0x22u] = (uint8_t)((index_block_size - 0x18u) >> 16);
+    node[0x23u] = (uint8_t)((index_block_size - 0x18u) >> 24);
+    node[0x24u] = 0u;
+    for (uint32_t i = 0u; i < entries_len; ++i)
+        node[0x28u + i] = entries[i];
+
+    /*
+     * Rebuild the node's USA. The sequence value is deliberately non-zero
+     * and stable for this first allocation block.
+     */
+    {
+        uint16_t usa_offset = le16(node + 4u);
+        uint16_t usa_count = le16(node + 6u);
+        uint16_t sequence = 1u;
+        if (usa_offset + (uint32_t)usa_count * 2u > index_block_size ||
+            usa_count < 2u)
+            goto rollback;
+        node[usa_offset] = (uint8_t)sequence;
+        node[usa_offset + 1u] = (uint8_t)(sequence >> 8);
+        for (uint32_t i = 1u; i < usa_count; ++i) {
+            uint32_t end = i * fs->bytes_per_sector - 2u;
+            node[usa_offset + i * 2u] = node[end];
+            node[usa_offset + i * 2u + 1u] = node[end + 1u];
+            node[end] = (uint8_t)sequence;
+            node[end + 1u] = (uint8_t)(sequence >> 8);
+        }
+    }
+
+    /* Append $INDEX_ALLOCATION as a single-extent nonresident attribute. */
+    alloc_attr = pos;
+    for (uint32_t i = 0u; i < alloc_len; ++i)
+        record[alloc_attr + i] = 0u;
+    record[alloc_attr + 0u] = 0xA0u;
+    record[alloc_attr + 4u] = (uint8_t)alloc_len;
+    record[alloc_attr + 5u] = (uint8_t)(alloc_len >> 8);
+    record[alloc_attr + 8u] = 1u;
+    record[alloc_attr + 9u] = 0u;
+    record[alloc_attr + 10u] = 0u;
+    record[alloc_attr + 11u] = 0u;
+    record[alloc_attr + 12u] = 0u;
+    record[alloc_attr + 13u] = 0u;
+    record[alloc_attr + 14u] = (uint8_t)attr_id;
+    record[alloc_attr + 15u] = (uint8_t)(attr_id >> 8);
+    record[alloc_attr + 32u] = 64u;
+    for (uint32_t i = 0u; i < 8u; ++i) {
+        record[alloc_attr + 16u + i] = 0u;
+        record[alloc_attr + 24u + i] = 0u;
+        record[alloc_attr + 40u + i] =
+            (uint8_t)((uint64_t)index_block_size >> (8u * i));
+        record[alloc_attr + 48u + i] =
+            (uint8_t)((uint64_t)index_block_size >> (8u * i));
+        record[alloc_attr + 56u + i] =
+            (uint8_t)((uint64_t)index_block_size >> (8u * i));
+    }
+    lcn_bytes = ntfs_signed_width((int64_t)lcn);
+    map_len = 1u + 1u + lcn_bytes + 1u;
+    if (64u + map_len > alloc_len)
+        goto rollback;
+    record[alloc_attr + 64u] = (uint8_t)(1u | (lcn_bytes << 4));
+    record[alloc_attr + 65u] = 1u;
+    for (uint32_t i = 0u; i < lcn_bytes; ++i)
+        record[alloc_attr + 66u + i] = (uint8_t)(lcn >> (8u * i));
+    record[alloc_attr + 66u + lcn_bytes] = 0u;
+    attr_id++;
+
+    /* Companion resident $BITMAP: one bit for VCN 0 is allocated. */
+    bitmap_attr = alloc_attr + alloc_len;
+    for (uint32_t i = 0u; i < bitmap_len; ++i)
+        record[bitmap_attr + i] = 0u;
+    record[bitmap_attr + 0u] = 0xB0u;
+    record[bitmap_attr + 4u] = (uint8_t)bitmap_len;
+    record[bitmap_attr + 5u] = (uint8_t)(bitmap_len >> 8);
+    record[bitmap_attr + 8u] = 0u;
+    record[bitmap_attr + 14u] = (uint8_t)attr_id;
+    record[bitmap_attr + 15u] = (uint8_t)(attr_id >> 8);
+    record[bitmap_attr + 16u] = 1u;
+    record[bitmap_attr + 20u] = 24u;
+    record[bitmap_attr + 24u] = 1u; /* VCN 0 in use. */
+    attr_id++;
+
+    /*
+     * Replace the resident root entries with a single END|NODE entry
+     * pointing at VCN 0. This is the canonical large-index root shape.
+     */
+    {
+        const uint8_t *root_data_const;
+        uint32_t root_size;
+        uint8_t *root_data;
+        if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                root_attr, &root_data_const,
+                                &root_size) != PROS_NTFS_OK)
+            goto rollback;
+        root_data = (uint8_t *)(uintptr_t)root_data_const;
+        if (root_size < 0x30u)
+            goto rollback;
+        for (uint32_t i = 0u; i < root_size; ++i)
+            root_data[i] = 0u;
+        /* Preserve the INDEX_ROOT type/collation/index-block geometry. */
+        root_data[16u] = 0x10u;
+        root_data[20u] = 0x20u;
+        root_data[24u] = 0x20u;
+        root_data[28u] = 1u;
+        for (uint32_t i = 0u; i < 8u; ++i)
+            root_data[32u + 8u + i] = (uint8_t)((uint64_t)0u >> (8u * i));
+        root_data[40u] = 24u;
+        root_data[44u] = 2u;
+        root_data[48u] = 0u;
+        root_data[49u] = 0u;
+        root_data[50u] = 0u;
+        root_data[51u] = 0u;
+        root_data[52u] = 0u;
+        root_data[53u] = 0u;
+        root_data[54u] = 0u;
+        root_data[55u] = 0u;
+    }
+
+    /*
+     * Keep the original root attribute record length but reduce its logical
+     * value size to the new 0x30-byte root. The old payload remains padding.
+     */
+    root_value_size = 48u;
+    record[root_attr + 16u] = (uint8_t)root_value_size;
+    record[root_attr + 17u] = (uint8_t)(root_value_size >> 8);
+    record[root_attr + 18u] = (uint8_t)(root_value_size >> 16);
+    record[root_attr + 19u] = (uint8_t)(root_value_size >> 24);
+
+    record[24] = (uint8_t)new_used;
+    record[25] = (uint8_t)(new_used >> 8);
+    record[26] = (uint8_t)(new_used >> 16);
+    record[27] = (uint8_t)(new_used >> 24);
+    record[pos + alloc_len + bitmap_len] = 0xFFu;
+    record[pos + alloc_len + bitmap_len + 1u] = 0xFFu;
+    record[pos + alloc_len + bitmap_len + 2u] = 0xFFu;
+    record[pos + alloc_len + bitmap_len + 3u] = 0xFFu;
+
+    rc = ntfs_index_allocation_write(
+        fs,
+        &(struct pros_ntfs_run){ .lcn = lcn, .clusters = cluster_count,
+                                 .sparse = 0u },
+        1u, 0u, node, index_block_size);
+    if (rc != PROS_NTFS_OK)
+        goto rollback;
+
+    rc = ntfs_write_file_record(fs, directory_record_number, record);
+    if (rc != PROS_NTFS_OK)
+        goto rollback;
+
+    return PROS_NTFS_OK;
+
+rollback:
+    (void)ntfs_write_file_record(fs, directory_record_number, old_record);
+    (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
+    return rc == PROS_NTFS_OK ? PROS_NTFS_EIO : rc;
+}
 
 static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
                                                uint64_t directory_record_number,
