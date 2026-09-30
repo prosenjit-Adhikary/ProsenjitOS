@@ -1,5 +1,6 @@
 #include "driver.h"
 #include "driver_compat.h"
+#include "nt_compat.h"
 
 struct driver_slot {
     const struct pros_driver *driver;
