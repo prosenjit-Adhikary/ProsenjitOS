@@ -1,4 +1,5 @@
 #include "driver.h"
+#include "driver_bundle.h"
 #include "device_broker.h"
 #include "driver_compat.h"
 #include "nt_compat.h"
@@ -523,7 +524,8 @@ int pros_driver_selftest(void)
         pros_device_unregister(device.id) != PROS_DRIVER_OK ||
         pros_driver_unregister(&native_driver) != PROS_DRIVER_OK ||
         pros_driver_unregister(&compat_driver) != PROS_DRIVER_OK ||
-        pros_driver_compat_selftest() != PROS_DRIVER_OK)
+        pros_driver_compat_selftest() != PROS_DRIVER_OK ||
+        pros_driver_bundle_selftest() != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
 
     return PROS_DRIVER_OK;
