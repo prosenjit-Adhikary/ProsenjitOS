@@ -212,8 +212,12 @@ int pros_health_record_exception(uint64_t vector, uint64_t error_code,
     panic_capture_active = 1u;
     int rc = pros_health_record(PROS_HEALTH_CRITICAL, PROS_HEALTH_RECOVERY,
                                 0x45584350u, (uint32_t)vector, rip);
-    (void)error_code;
-    (void)cr2;
+    if (rc == PROS_HEALTH_OK)
+        rc = pros_health_record(PROS_HEALTH_CRITICAL, PROS_HEALTH_RECOVERY,
+                                0x45584351u, (uint32_t)vector, error_code);
+    if (rc == PROS_HEALTH_OK)
+        rc = pros_health_record(PROS_HEALTH_CRITICAL, PROS_HEALTH_RECOVERY,
+                                0x45584352u, (uint32_t)vector, cr2);
     panic_capture_active = 0u;
     return rc;
 }
