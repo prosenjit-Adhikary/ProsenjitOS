@@ -285,7 +285,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Filesystem metadata redundancy/degraded-mode handling
   - [ ] Service/process watchdog with bounded restart policy
   - [ ] Configuration transaction + health-check rollback
-  - [~] System health manager and recovery-state logging (bounded structured health-event ring + heap/timer sampling + boot self-test integrated; central logging backend, persistent storage, rotation/retention, crash/panic capture, watchdog/service health, and recovery-state integration remain)
+  - [~] System health manager and recovery-state logging (bounded structured health-event ring + heap/timer sampling + boot self-test + deterministic diagnostic export integrated; persistent storage, rotation/retention, crash/panic capture, watchdog/service health, and recovery-state integration remain)
   - [ ] Recovery environment and manual recovery override
   - [ ] Non-destructive recovery by default; destructive repair requires explicit recovery mode
   - [ ] Self-healing fault-injection, corruption, and rollback regression tests
