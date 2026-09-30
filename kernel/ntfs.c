@@ -3273,10 +3273,6 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
     byte_offset = vcn *
         (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
 
-    if (ntfs_upcase_load(fs) != PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
-    ntfs_active_upcase = ntfs_upcase_data;
-
     if (ntfs_index_allocation_read(fs, runs, run_count, byte_offset,
                                    record, record_size) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
