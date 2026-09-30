@@ -149,13 +149,28 @@ int pros_device_broker_selftest(void)
         return PROS_DRIVER_EINVAL;
 
     if (pros_driver_bind(device_id) != PROS_DRIVER_OK ||
-        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+        pros_device_grant(device_id, 7u,
+                          PROS_DEVICE_PERMISSION_READ |
+                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
             PROS_DRIVER_OK ||
         pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
             PROS_DRIVER_OK ||
-        pros_device_revoke(device_id, 7u) != PROS_DRIVER_OK ||
+        pros_driver_unbind(device_id) != PROS_DRIVER_OK ||
         pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_EPERM)
+            PROS_DRIVER_EPERM ||
+        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
+            PROS_DRIVER_ENODEV ||
+        pros_driver_bind(device_id) != PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
+            PROS_DRIVER_EPERM ||
+        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_OK ||
+        pros_device_revoke(device_id, 7u) != PROS_DRIVER_OK ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_EPERM ||
+        pros_driver_unbind(device_id) != PROS_DRIVER_OK ||
+        pros_device_unregister(device_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
 
     return PROS_DRIVER_OK;
