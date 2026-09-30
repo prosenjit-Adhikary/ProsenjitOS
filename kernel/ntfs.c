@@ -6314,6 +6314,149 @@ int ntfs_selftest(void)
     }
 
     /*
+     * INDEX_ROOT bootstrap regression: a full resident root must be converted
+     * into one INDX leaf plus resident root separator/child metadata. Verify
+     * both attribute creation and the migrated leaf, then restore the fixture.
+     */
+    {
+        uint8_t saved_root[1024];
+        uint8_t saved_index[4096];
+        uint8_t saved_bitmap[512];
+        uint8_t *r = disk.root_record;
+        uint32_t root_attr = 24u;
+        uint32_t root_value = 152u;
+        uint32_t entry = root_attr + 24u + 32u;
+        uint32_t terminal = entry + 104u;
+        uint32_t used = 208u;
+        uint32_t alloc_offset = 200u;
+        uint32_t bitmap_offset = 280u;
+        uint64_t bootstrap_lcn = 0u;
+        uint64_t bootstrap_clusters = 0u;
+        uint32_t a0 = 0u, b0 = 0u;
+        const uint8_t *root_data = 0;
+        uint32_t root_size = 0u;
+        struct pros_ntfs_index_root root_info;
+
+        for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
+            saved_root[i] = disk.root_record[i];
+        for (uint32_t i = 0u; i < sizeof(saved_index); ++i)
+            saved_index[i] = disk.index_record[i];
+        for (uint32_t i = 0u; i < sizeof(saved_bitmap); ++i)
+            saved_bitmap[i] = disk.bitmap_data[i];
+
+        for (uint32_t i = 0u; i < sizeof(disk.root_record); ++i)
+            disk.root_record[i] = 0u;
+        r[0] = 'F'; r[1] = 'I'; r[2] = 'L'; r[3] = 'E';
+        r[4] = 8u; r[6] = 3u;
+        r[8] = 0x78u; r[9] = 0x56u;
+        r[20] = 24u;
+        r[22] = 3u;
+        r[24] = (uint8_t)used;
+        r[25] = (uint8_t)(used >> 8);
+
+        r[root_attr + 0u] = 0x90u;
+        r[root_attr + 4u] = 168u;
+        r[root_attr + 16u] = (uint8_t)root_value;
+        r[root_attr + 20u] = 24u;
+        r[root_attr + 24u] = 0x30u;
+        r[root_attr + 28u] = 1u;
+        r[root_attr + 32u] = 0u;
+        r[root_attr + 33u] = 0x10u;
+        r[root_attr + 36u] = 1u;
+        r[root_attr + 40u] = 32u;
+        r[root_attr + 44u] = (uint8_t)root_value;
+        r[root_attr + 48u] = (uint8_t)root_value;
+
+        /* One ordinary $FILE_NAME index entry plus the END marker. */
+        r[entry + 0u] = 0x00u; r[entry + 1u] = 0x10u;
+        r[entry + 8u] = 104u;
+        r[entry + 10u] = 74u;
+        r[entry + 12u] = 0u;
+        for (uint32_t i = 0u; i < 74u; ++i)
+            r[entry + 16u + i] = (uint8_t)(0x40u + (i & 0x3Fu));
+        r[entry + 16u + 64u] = 4u;
+        r[entry + 16u + 65u] = 1u;
+        r[entry + 16u + 66u] = 'd';
+        r[entry + 16u + 68u] = 'e';
+        r[entry + 16u + 70u] = 'm';
+        r[entry + 16u + 72u] = 'o';
+        r[terminal + 8u] = 16u;
+        r[terminal + 10u] = 0u;
+        r[terminal + 12u] = 2u;
+
+        r[root_attr + 168u] = 0xFFu;
+        r[root_attr + 169u] = 0xFFu;
+        r[root_attr + 170u] = 0xFFu;
+        r[root_attr + 171u] = 0xFFu;
+
+        if (ntfs_index_allocation_bootstrap(&fs, 5u,
+                                            &bootstrap_lcn,
+                                            &bootstrap_clusters) !=
+                PROS_NTFS_OK ||
+            bootstrap_clusters != 1u ||
+            bootstrap_lcn != 8u)
+            return -129;
+
+        if (ntfs_find_attribute(r, sizeof(disk.root_record), 0xA0u,
+                                 &a0) != PROS_NTFS_OK ||
+            ntfs_find_attribute(r, sizeof(disk.root_record), 0xB0u,
+                                &b0) != PROS_NTFS_OK ||
+            r[a0 + 8u] != 1u ||
+            r[a0 + 64u] == 0u ||
+            (r[b0 + 24u] & 1u) == 0u)
+            return -130;
+
+        if (ntfs_index_root_header(r, sizeof(disk.root_record),
+                                   root_attr, &root_info) != PROS_NTFS_OK ||
+            root_info.flags != 1u ||
+            root_info.first_entry_offset != 40u)
+            return -131;
+
+        if (ntfs_attribute_data(r, sizeof(disk.root_record), root_attr,
+                                &root_data, &root_size) != PROS_NTFS_OK ||
+            root_size != 56u ||
+            le32(root_data + 32u) != 0u)
+            return -132;
+
+        if ((disk.bitmap_data[8u / 8u] & (uint8_t)(1u << (8u % 8u))) == 0u)
+            return -133;
+
+        if (disk.index_record[0u] != 'I' ||
+            disk.index_record[1u] != 'N' ||
+            disk.index_record[2u] != 'D' ||
+            disk.index_record[3u] != 'X' ||
+            le64(disk.index_record + 16u) != 0u ||
+            le32(disk.index_record + 28u) != 120u ||
+            le32(disk.index_record + 32u) != 4088u)
+            return -134;
+
+        /*
+         * The bootstrap must leave the directory usable through the normal
+         * INDEX_ALLOCATION lookup path, not merely produce parseable bytes.
+         */
+        {
+            static const uint8_t demo_name[] = {
+                'd', 0u, 'e', 0u, 'm', 0u, 'o', 0u
+            };
+            uint64_t reference = 0u;
+            if (ntfs_index_allocation_lookup(
+                    &fs, r, sizeof(disk.root_record), root_attr, a0,
+                    demo_name, 4u, &reference) != PROS_NTFS_OK)
+                return -135;
+        }
+
+        for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
+            disk.root_record[i] = saved_root[i];
+        for (uint32_t i = 0u; i < sizeof(saved_index); ++i)
+            disk.index_record[i] = saved_index[i];
+        for (uint32_t i = 0u; i < sizeof(saved_bitmap); ++i)
+            disk.bitmap_data[i] = saved_bitmap[i];
+
+        (void)alloc_offset;
+        (void)bitmap_offset;
+    }
+
+    /*
      * Directory/path regression: MFT record 5 ($Root) contains a resident
      * $INDEX_ROOT entry, so the public path API must begin at record 5 and
      * return the entry's MFT reference.
