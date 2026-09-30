@@ -370,6 +370,17 @@ int pros_driver_bundle_selftest(void) {
                     PROS_DRIVER_OK)
                 return -14;
 
+            {
+                uint8_t replacement_digest[PROS_FILE_SHA256_BYTES];
+                for (uint32_t d = 0u; d < PROS_FILE_SHA256_BYTES; ++d)
+                    replacement_digest[d] = (uint8_t)(d ^ 0xA5u);
+                if (pros_driver_bundle_add(
+                        package_v2_id, PROS_DRIVER_BUNDLE_LOCAL,
+                        4u, 0u, 0u, replacement_digest) !=
+                    PROS_DRIVER_EBUSY)
+                    return -17;
+            }
+
             /*
              * Same hardware score/version must prefer the deterministic
              * source order (ISO before removable/local).
