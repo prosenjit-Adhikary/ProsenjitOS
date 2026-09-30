@@ -440,6 +440,30 @@ int pros_driver_compat_selftest(void)
         pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678 ||
         pkg.model != PROS_COMPAT_MODEL_NDIS)
         return PROS_DRIVER_EIO;
+
+    /*
+     * Package digest is identity/integrity metadata.  Compute it from the
+     * inspected package bytes so the self-test does not trust an arbitrary
+     * caller-supplied digest.
+     */
+    {
+        uint8_t digest[PROS_FILE_SHA256_BYTES];
+        struct pros_compat_package hashed_pkg;
+
+        pros_sha256((const uint8_t *)inf, (uint64_t)(sizeof(inf) - 1u), digest);
+        if (pros_driver_compat_set_content_sha256(package_id, digest)
+            != PROS_DRIVER_OK)
+            return PROS_DRIVER_EIO;
+        if (pros_driver_compat_get_package(package_id, &hashed_pkg)
+            != PROS_DRIVER_OK || !hashed_pkg.content_sha256_valid)
+            return PROS_DRIVER_EIO;
+        {
+            uint32_t di;
+            for (di = 0; di < PROS_FILE_SHA256_BYTES; ++di)
+                if (hashed_pkg.content_sha256[di] != digest[di])
+                    return PROS_DRIVER_EIO;
+        }
+    }
     if (pros_driver_compat_get_id(package_id, 1u, &id) != PROS_DRIVER_OK ||
         id.vendor_id != 0xabcd || id.device_id != 0x0001)
         return PROS_DRIVER_EIO;
