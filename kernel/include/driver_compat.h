@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "driver.h"
 #include "security_file.h"
+#include "security_admission.h"
 
 #define PROS_DRIVER_COMPAT_ABI_VERSION 1u
 #define PROS_DRIVER_COMPAT_MAX_PACKAGES 16u
@@ -43,6 +44,7 @@ enum pros_compat_trust {
 enum pros_compat_trust_evidence {
     PROS_COMPAT_EVIDENCE_NONE = 0,
     PROS_COMPAT_EVIDENCE_LOCAL_POLICY,
+    PROS_COMPAT_EVIDENCE_ADMISSION_POLICY,
     PROS_COMPAT_EVIDENCE_CRYPTO_SIGNATURE,
     PROS_COMPAT_EVIDENCE_TEST_ONLY
 };
@@ -116,6 +118,9 @@ int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust tru
 /* Evidence is policy metadata; CRYPTO_SIGNATURE is not produced until a verifier exists. */
 int pros_driver_compat_set_trust_evidence(
     uint32_t package_id, enum pros_compat_trust_evidence evidence);
+/* Bind a policy admission result only when its SHA-256 matches package content. */
+int pros_driver_compat_bind_admission(
+    uint32_t package_id, const struct pros_file_admission_record *record);
 int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id);
 int pros_driver_compat_match(uint32_t package_id,
                              const struct pros_driver_id *hwid,
