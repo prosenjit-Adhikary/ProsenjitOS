@@ -104,10 +104,6 @@ int pros_driver_compat_register_package(
     uint32_t id_count,
     uint32_t flags,
     uint32_t *package_id_out);
-/* Content identity/integrity metadata only; not a signature proof. */
-int pros_driver_compat_set_content_sha256(
-    uint32_t package_id,
-    const uint8_t digest[PROS_FILE_SHA256_BYTES]);
 /* Compute content identity from the actual package bytes. */
 int pros_driver_compat_hash_content(
     uint32_t package_id, const uint8_t *data, uint64_t length);
