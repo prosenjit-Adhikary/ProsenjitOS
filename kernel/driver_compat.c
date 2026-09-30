@@ -172,6 +172,18 @@ int pros_driver_compat_set_content_sha256(
     return PROS_DRIVER_OK;
 }
 
+int pros_driver_compat_hash_content(
+    uint32_t package_id, const uint8_t *data, uint64_t length)
+{
+    if (package_id == 0 || package_id > package_count ||
+        (length != 0 && !data))
+        return PROS_DRIVER_EINVAL;
+
+    pros_sha256(data, length, packages[package_id - 1u].content_sha256);
+    packages[package_id - 1u].content_sha256_valid = 1u;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_compat_get_package(uint32_t package_id,
                                    struct pros_compat_package *out)
 {
@@ -496,8 +508,9 @@ int pros_driver_compat_selftest(void)
         struct pros_compat_package hashed_pkg;
 
         pros_sha256((const uint8_t *)inf, (uint64_t)(sizeof(inf) - 1u), digest);
-        if (pros_driver_compat_set_content_sha256(package_id, digest)
-            != PROS_DRIVER_OK)
+        if (pros_driver_compat_hash_content(
+                package_id, (const uint8_t *)inf,
+                (uint64_t)(sizeof(inf) - 1u)) != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
         if (pros_driver_compat_get_package(package_id, &hashed_pkg)
             != PROS_DRIVER_OK || !hashed_pkg.content_sha256_valid)
@@ -507,6 +520,24 @@ int pros_driver_compat_selftest(void)
             for (di = 0; di < PROS_FILE_SHA256_BYTES; ++di)
                 if (hashed_pkg.content_sha256[di] != digest[di])
                     return PROS_DRIVER_EIO;
+        }
+        {
+            static const uint8_t altered[] = { 'x' };
+            struct pros_file_admission_record bad_record;
+            struct pros_file_admission_input bad_input;
+            bad_input.data = altered;
+            bad_input.length = 1u;
+            bad_input.metadata.format_valid = 1u;
+            bad_input.metadata.signature_valid = 0u;
+            bad_input.metadata.signature_present = 0u;
+            bad_input.metadata.local_trusted = 1u;
+            bad_input.metadata.local_denied = 0u;
+            bad_input.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+            bad_input.metadata.provenance_known = 1u;
+            if (pros_file_admission_evaluate(&bad_input, &bad_record) != 0 ||
+                pros_driver_compat_bind_admission(package_id, &bad_record)
+                    != PROS_DRIVER_EPERM)
+                return PROS_DRIVER_EIO;
         }
     }
     if (pros_driver_compat_get_id(package_id, 1u, &id) != PROS_DRIVER_OK ||
