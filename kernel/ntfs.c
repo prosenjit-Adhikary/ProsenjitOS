@@ -5925,7 +5925,7 @@ int ntfs_selftest(void)
                 for (uint32_t i = a; i < a + 68u; ++i)
                     disk.root_record[i] = 0u;
                 disk.root_record[a + 0u] = 0xA0u;
-                disk.root_record[a + 4u] = 68u;
+                disk.root_record[a + 4u] = 80u;
                 disk.root_record[a + 8u] = 1u;
                 disk.root_record[a + 32u] = 64u;
                 disk.root_record[a + 40u] = 0x00u;
@@ -5938,16 +5938,13 @@ int ntfs_selftest(void)
                 disk.root_record[a + 65u] = 1u;
                 disk.root_record[a + 66u] = 8u;
                 disk.root_record[a + 67u] = 0u;
-                disk.root_record[a + 68u] = 0xFFu;
-                disk.root_record[a + 69u] = 0xFFu;
-                disk.root_record[a + 70u] = 0xFFu;
-                disk.root_record[a + 71u] = 0xFFu;
+                disk.root_record[a + 68u] = 0u;
 
                 /*
                  * Directory-index $BITMAP: VCN 0 is occupied; VCN 1 is
                  * initially free and will be claimed by the split.
                  */
-                a += 68u;
+                a += 80u;
                 for (uint32_t i = a; i < a + 64u; ++i)
                     disk.root_record[i] = 0u;
                 disk.root_record[a + 0u] = 0xB0u;
@@ -5959,7 +5956,7 @@ int ntfs_selftest(void)
                 disk.root_record[a + 61u] = 0xFFu;
                 disk.root_record[a + 62u] = 0xFFu;
                 disk.root_record[a + 63u] = 0xFFu;
-                disk.root_record[388u] = 1u;
+                disk.root_record[400u] = 1u;
             }
 
             /* 41 existing 96-byte entries + 16-byte terminal. */
