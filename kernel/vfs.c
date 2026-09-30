@@ -4,6 +4,29 @@
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
+static uint64_t health_mount_count;
+static uint64_t health_unmount_count;
+static uint64_t health_read_count;
+static uint64_t health_write_count;
+static uint64_t health_truncate_count;
+static uint64_t health_lookup_error_count;
+static uint64_t health_io_error_count;
+static uint64_t health_permission_error_count;
+static uint64_t health_corruption_error_count;
+
+static void vfs_health_error(int rc)
+{
+    if (rc == PROS_VFS_EIO)
+        ++health_io_error_count;
+    else if (rc == PROS_VFS_EPERM)
+        ++health_permission_error_count;
+    else if (rc == PROS_VFS_ENOENT || rc == PROS_VFS_ENOTDIR ||
+             rc == PROS_VFS_ELOOP)
+        ++health_lookup_error_count;
+    else if (rc == PROS_VFS_EOVERFLOW)
+        ++health_corruption_error_count;
+}
+
 static int vfs_selftest_read(struct pros_block_device *device,
                              uint64_t lba, uint32_t count, void *buffer)
 {
@@ -133,6 +156,7 @@ int vfs_mount_activate(struct pros_vfs_mount *mount)
     if (mount->active)
         return PROS_VFS_EBUSY;
     mount->active = 1;
+    ++health_mount_count;
     return PROS_VFS_OK;
 }
 
@@ -146,6 +170,7 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
         vfs_vnode_put(mount->root);
         mount->root = 0;
     }
+    ++health_unmount_count;
     return PROS_VFS_OK;
 }
 
@@ -193,11 +218,13 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
         return PROS_VFS_OK;
 
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
-    if (rc < 0) return rc;
+    if (rc < 0) { vfs_health_error(rc); return rc; }
+
     if ((uint32_t)rc > length)
         return PROS_VFS_EIO;
     file->position += (uint32_t)rc;
     *bytes_read = (uint32_t)rc;
+    ++health_read_count;
     return PROS_VFS_OK;
 }
 
@@ -211,12 +238,15 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         file->mount->read_only || file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EPERM;
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
-    if (rc < 0)
+    if (rc < 0) {
+        vfs_health_error(rc);
         return rc;
+    }
     if ((uint32_t)rc > length)
         return PROS_VFS_EIO;
     file->position += (uint32_t)rc;
     *bytes_written = (uint32_t)rc;
+    ++health_write_count;
     return PROS_VFS_OK;
 }
 
@@ -229,7 +259,12 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_EPERM;
     if (size > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
-    return file->ops->truncate(file, size);
+    {
+        int rc = file->ops->truncate(file, size);
+        if (rc < 0) vfs_health_error(rc);
+        else ++health_truncate_count;
+        return rc;
+    }
 }
 
 int vfs_file_close(struct pros_vfs_file *file)
@@ -1069,6 +1104,16 @@ static int vfs_probe_selftest(void)
 
     return 0;
 }
+
+uint64_t vfs_health_mount_count(void) { return health_mount_count; }
+uint64_t vfs_health_unmount_count(void) { return health_unmount_count; }
+uint64_t vfs_health_read_count(void) { return health_read_count; }
+uint64_t vfs_health_write_count(void) { return health_write_count; }
+uint64_t vfs_health_truncate_count(void) { return health_truncate_count; }
+uint64_t vfs_health_lookup_error_count(void) { return health_lookup_error_count; }
+uint64_t vfs_health_io_error_count(void) { return health_io_error_count; }
+uint64_t vfs_health_permission_error_count(void) { return health_permission_error_count; }
+uint64_t vfs_health_corruption_error_count(void) { return health_corruption_error_count; }
 
 int vfs_security_selftest(void)
 {
