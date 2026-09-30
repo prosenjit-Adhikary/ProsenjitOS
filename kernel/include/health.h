@@ -49,6 +49,8 @@ struct pros_health_snapshot {
     uint64_t dead_threads;
     uint64_t physical_total_pages;
     uint64_t physical_free_pages;
+    uint64_t physical_failed_allocations;
+    uint32_t memory_pressure;
     uint64_t heap_used_bytes;
     uint64_t event_sequence;
     uint32_t event_count;
