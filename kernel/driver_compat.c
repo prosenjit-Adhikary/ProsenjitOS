@@ -570,6 +570,14 @@ int pros_driver_compat_match(uint32_t package_id,
     if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED ||
         packages[package_id - 1u].trust == PROS_COMPAT_TRUST_REJECTED)
         return PROS_DRIVER_ENODEV;
+    /*
+     * Hardware matching is an executable selection boundary.  Do not expose
+     * an unverified compatibility package as a selectable driver.
+     */
+    if (packages[package_id - 1u].trust != PROS_COMPAT_TRUST_VERIFIED ||
+        packages[package_id - 1u].trust_evidence ==
+            PROS_COMPAT_EVIDENCE_NONE)
+        return PROS_DRIVER_ENODEV;
     for (i = 0; i < packages[package_id - 1u].id_count; ++i) {
         const struct pros_driver_id *id = &package_ids[package_id - 1u][i];
         if (id->bus != PROS_DRIVER_BUS_NONE && id->bus != hwid->bus) continue;
