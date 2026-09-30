@@ -1156,8 +1156,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 struct pros_vfs_file trace_file;
                 uint8_t trace_write[512], trace_read[512];
                 uint32_t trace_done = 0u, trace_count = 0u;
-                uint64_t physical_lba = 0u, parent_write_lba = 0u;
-                uint64_t ata_write_lba = 0u, parent_read_lba = 0u;
+                uint64_t physical_lba = 0u, read_physical_lba = 0u;
+                uint64_t parent_write_lba = 0u, parent_read_lba = 0u;
+                uint64_t ata_write_lba = 0u, ata_read_lba = 0u;
                 uint64_t ata_read_lba = 0u;
                 uint8_t tx_byte = 0u, post_commit_byte = 0u;
                 uint8_t direct_byte = 0u, vfs_byte = 0u;
@@ -1212,6 +1213,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
                 partition_trace_reset(&pfs_device);
                 pros_ata_pio_trace_reset(&native_ata);
+                prosenjitfs_write_diag_begin_read();
                 trace_done = 0u;
                 if (vfs_file_open(&native_fs.mount, "/.__pfs_lba_trace",
                                   PROS_VFS_O_READ, &trace_file) != PROS_VFS_OK ||
@@ -1219,7 +1221,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                   &trace_done) != PROS_VFS_OK ||
                     trace_done != sizeof(trace_read) ||
                     vfs_file_close(&trace_file) != PROS_VFS_OK ||
-                    partition_trace_find(&pfs_device, physical_lba, 0u,
+                    prosenjitfs_write_diag_get_read_lba(&read_physical_lba) != PROSENJITFS_OK ||
+                    read_physical_lba != physical_lba ||
+                    partition_trace_find(&pfs_device, read_physical_lba, 0u,
                                          &parent_read_lba, &trace_count) != PROS_PARTITION_OK ||
                     pros_ata_pio_trace_find(&native_ata, parent_read_lba, 0u,
                                             &ata_read_lba, &trace_count) != PROS_ATA_OK ||
@@ -1234,7 +1238,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     }
 
                 serial_write("ProsenjitOS: PFS read LBA = ");
-                serial_hex64(physical_lba);
+                serial_hex64(read_physical_lba);
                 serial_write(", partition parent LBA = ");
                 serial_hex64(parent_read_lba);
                 serial_write(", ATA read LBA = ");
