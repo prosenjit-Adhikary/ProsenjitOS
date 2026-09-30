@@ -1,6 +1,6 @@
 # ProsenjitOS Roadmap
 
-## Current status — 2026-09-29
+## Current status — 2026-09-30
 
 The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, added an exFAT FAT-chain/file-stream read foundation, completed exFAT read-only directory entry-set parsing/lookup (including UTF-16 ASCII-subset decoding, NameLength handling, checksum validation, and case-insensitive lookup), integrated exFAT read-only root lookup/file read/directory enumeration into the VFS with vnode lifetime handling, and documented the firewall-inspired unknown-threat handling model. The repository is private.
 
@@ -24,6 +24,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - exFAT FAT-entry validation and bounded file-stream reads implemented, including NoFatChain and ValidDataLength handling.
 - exFAT read-only VFS integration implemented: root vnode, case-insensitive path lookup, file read, directory enumeration, vnode lifetime handling, and directory entry sets crossing cluster boundaries are covered by the boot regression.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
+- Signature-verification trust boundary hardened with Ed25519/RSA-PSS/unknown-algorithm and malformed-input self-tests; real cryptographic verification remains intentionally unsupported until a reviewed freestanding implementation exists.
 - NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
 - VFS vnode lookup/reference semantics now explicitly transfer an owned lookup reference; cached FAT32/NTFS nodes retain their cache references, while dynamically allocated exFAT child vnodes release cleanly at final put.
 - Both repository GitHub Actions workflows were green on the last verified storage/VFS commit (`3ed84998`). The Up-case parser work is intentionally isolated on a feature branch until CI verifies it.
