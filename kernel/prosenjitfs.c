@@ -2788,19 +2788,6 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -61;
 
-        if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(read_data))
-            return -62;
-        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
-            if (read_data[i] != write_data[i])
-                return -63;
-        if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -64;
-    }
-
     /*
      * Isolate the write/read regression before changing the writer:
      * verify the inode extent and the physical block image directly.
@@ -2827,6 +2814,19 @@ int prosenjitfs_selftest(void)
             return -72;
         if (physical_image[188u] != expected_188)
             return -73;
+    }
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data))
+            return -62;
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != write_data[i])
+                return -63;
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -64;
     }
 
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
