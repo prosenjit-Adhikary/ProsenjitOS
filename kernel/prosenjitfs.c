@@ -2711,6 +2711,9 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
 
 struct pfs_test_disk {
     uint8_t data[512u * 512u];
+    uint64_t write_log_lba[128u];
+    uint8_t write_log_byte188[128u];
+    uint32_t write_log_count;
 };
 
 static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
@@ -2730,6 +2733,12 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
     pfs_copy(disk->data + lba * 512u, buffer, count * 512u);
+    if (count == 1u) {
+        uint32_t slot = disk->write_log_count % 128u;
+        disk->write_log_lba[slot] = lba;
+        disk->write_log_byte188[slot] = ((const uint8_t *)buffer)[188u];
+        ++disk->write_log_count;
+    }
     return PROS_BLOCK_OK;
 }
 
@@ -2818,8 +2827,21 @@ int prosenjitfs_selftest(void)
         if (pfs_read_block(fs.mount.device, written_extent.physical_block,
                            physical_image) != PROSENJITFS_OK)
             return -72;
-        if (physical_image[188u] != expected_188)
-            return -73;
+        if (physical_image[188u] != expected_188) {
+            uint8_t saw_expected = 0u;
+            uint8_t saw_physical_write = 0u;
+            uint32_t total = disk.write_log_count < 128u ? disk.write_log_count : 128u;
+            for (uint32_t n = 0u; n < total; ++n) {
+                uint32_t slot = (disk.write_log_count - 1u - n) % 128u;
+                if (disk.write_log_lba[slot] == written_extent.physical_block) {
+                    saw_physical_write = 1u;
+                    if (disk.write_log_byte188[slot] == expected_188)
+                        saw_expected = 1u;
+                    break;
+                }
+            }
+            return saw_physical_write ? (saw_expected ? -77 : -76) : -78;
+        }
     }
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
