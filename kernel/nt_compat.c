@@ -146,6 +146,8 @@ int pros_nt_compat_set_device(uint32_t package_id,
         return PROS_DRIVER_EINVAL;
     if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
         return PROS_DRIVER_EPERM;
+    if (nt_compat_validate_resources(device) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EBUSY;
     devices[package_id - 1u] = *device;
     devices[package_id - 1u].package_id = package_id;
     for (i = device->resource_count; i < PROS_NT_COMPAT_MAX_RESOURCES; ++i) {
@@ -170,12 +172,40 @@ int pros_nt_compat_get_device(uint32_t package_id,
     return PROS_DRIVER_OK;
 }
 
+static int nt_compat_validate_resources(const struct pros_nt_device_object *device)
+{
+    uint32_t i, j;
+    if (!device || device->resource_count > PROS_NT_COMPAT_MAX_RESOURCES)
+        return PROS_DRIVER_EINVAL;
+    for (i = 0; i < device->resource_count; ++i) {
+        const struct pros_nt_device_resource *a = &device->resources[i];
+        if (a->type == PROS_NT_RESOURCE_NONE || a->length == 0)
+            return PROS_DRIVER_EINVAL;
+        for (j = i + 1u; j < device->resource_count; ++j) {
+            const struct pros_nt_device_resource *b = &device->resources[j];
+            if (a->type == b->type &&
+                a->start < b->start + b->length &&
+                b->start < a->start + a->length)
+                return PROS_DRIVER_EBUSY;
+        }
+    }
+    return PROS_DRIVER_OK;
+}
+
 int pros_nt_compat_pnp(uint32_t package_id, uint32_t event)
 {
+    enum pros_nt_compat_state state;
     if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
         event >= PROS_NT_PNP_MAX)
         return PROS_DRIVER_EINVAL;
-    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+    state = images[package_id - 1u].state;
+    if (state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (event == PROS_NT_PNP_START &&
+        state != PROS_NT_COMPAT_STAGED && state != PROS_NT_COMPAT_HEALTHY)
+        return PROS_DRIVER_EPERM;
+    if ((event == PROS_NT_PNP_STOP || event == PROS_NT_PNP_REMOVE) &&
+        state == PROS_NT_COMPAT_INSPECTED)
         return PROS_DRIVER_EPERM;
     if (dispatch[package_id - 1u].major[PROS_NT_IRP_PNP])
         return dispatch[package_id - 1u].major[PROS_NT_IRP_PNP](
