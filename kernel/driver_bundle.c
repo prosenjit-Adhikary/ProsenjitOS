@@ -38,6 +38,24 @@ int pros_driver_bundle_remove(uint32_t package_id)
     if (!e)
         return PROS_DRIVER_ENODEV;
 
+    {
+        struct pros_compat_package package;
+        if (pros_driver_compat_get_package(package_id, &package) !=
+            PROS_DRIVER_OK)
+            return PROS_DRIVER_ENODEV;
+
+        /*
+         * Removing an indexed candidate must never silently detach an
+         * admitted/active transaction.  The compatibility registry owns
+         * the package lifecycle; the bundle index is only the locator.
+         */
+        if (package.tx_state == PROS_COMPAT_TX_VERIFIED ||
+            package.tx_state == PROS_COMPAT_TX_STAGED ||
+            package.tx_state == PROS_COMPAT_TX_HEALTHY ||
+            package.tx_state == PROS_COMPAT_TX_COMMITTED)
+            return PROS_DRIVER_EBUSY;
+    }
+
     e->package_id = 0u;
     e->source = PROS_DRIVER_BUNDLE_ISO;
     e->version_major = e->version_minor = e->version_patch = 0u;
