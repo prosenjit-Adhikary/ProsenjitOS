@@ -960,23 +960,17 @@ static int vfs_vnode_api_selftest(void)
             .provenance_known = 1
         };
         struct pros_file_admission_record admission;
-        static const uint8_t expected[PROS_FILE_SHA256_BYTES] = {
-            0xA8,0x33,0x7D,0xC4,0x4C,0xE7,0x4C,0xD9,
-            0x84,0xB2,0xE3,0x4B,0x6E,0xB0,0xB6,0xD1,
-            0x6D,0x8C,0x5A,0xF7,0x0A,0x5B,0xE7,0xF0,
-            0xA5,0x4B,0x0B,0x4F,0xF1,0xA6,0xC4,0x9D
-        };
+        uint8_t expected[PROS_FILE_SHA256_BYTES];
         int admission_rc = vfs_file_admit_path(
             &mount, "/hello.txt", &metadata, &admission);
+        pros_sha256(hello, sizeof(hello) - 1u, expected);
         if (admission_rc != PROS_VFS_OK ||
             admission.security.state != PROS_FILE_VERIFIED ||
             admission.security.action != PROS_FILE_ALLOW)
             return -1;
-        /*
-         * The digest is produced from the mounted vnode's actual read path,
-         * not from a second copy supplied by the test.
-         */
-        (void)expected;
+        for (uint32_t i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
+            if (admission.sha256[i] != expected[i])
+                return -1;
     }
 
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
