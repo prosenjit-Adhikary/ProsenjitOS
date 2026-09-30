@@ -953,11 +953,18 @@ int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
     uint32_t data_size;
     uint8_t *bitmap;
     uint32_t byte;
+    uint8_t mask;
 
     if (!fs || record_number < 24u ||
         record_number > 0x0000FFFFFFFFFFFFull ||
         fs->bytes_per_file_record > sizeof(record))
         return PROS_NTFS_EINVAL;
+
+    /* MFT bitmap mutation is a destructive metadata operation. */
+    if (!fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_ENOTSUP;
+
     if (ntfs_read_file_record(fs, 0u, record, sizeof(record)) != PROS_NTFS_OK ||
         ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
                             &attr_offset) != PROS_NTFS_OK)
@@ -967,11 +974,25 @@ int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
     if (ntfs_attribute_data(record, fs->bytes_per_file_record, attr_offset,
                             &data, &data_size) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
-    byte = (uint32_t)(record_number / 8u);
-    if (byte >= data_size)
+
+    if (record_number > 0xFFFFFFFFFFFFFFFFull / 8u)
         return PROS_NTFS_EOVERFLOW;
+    byte = (uint32_t)(record_number / 8u);
+    if ((uint64_t)byte >= data_size)
+        return PROS_NTFS_EOVERFLOW;
+
+    mask = (uint8_t)(1u << (record_number & 7u));
     bitmap = (uint8_t *)data;
-    bitmap[byte] &= (uint8_t)~(1u << (record_number & 7u));
+
+    /*
+     * Freeing an already-free MFT slot is not idempotent metadata repair:
+     * callers must prove ownership of the allocated record before clearing
+     * the bit, otherwise a rollback can accidentally mask allocator bugs.
+     */
+    if ((bitmap[byte] & mask) == 0u)
+        return PROS_NTFS_EINVAL;
+
+    bitmap[byte] &= (uint8_t)~mask;
     return ntfs_write_file_record(fs, 0u, record);
 }
 
