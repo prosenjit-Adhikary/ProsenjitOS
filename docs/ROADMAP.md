@@ -161,7 +161,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Native-vs-compatibility driver selection and fallback flow (deterministic bounded matching)
   - [~] Installer/bootstrap driver environment and offline-first hardware bundle (bounded bundle index, content-identity guard, and admission-backed package import implemented; installer/bootstrap integration remains)
   - [~] Offline driver installation from removable/local media (admission-backed package import/indexing foundation implemented; physical media discovery/extraction and installer integration remain)
-  - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies + deterministic bundle version/source/package-ID selection + active-package immutability + safe staged update sequence implemented; persistent package/update lifecycle remains pending)
+  - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies + deterministic bundle version/source/package-ID selection + active-package immutability + safe staged update sequence + guarded package retirement/stale-locator cleanup implemented; persistent package/update lifecycle remains pending)
   - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
 - [ ] Keyboard
