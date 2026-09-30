@@ -2969,6 +2969,17 @@ int prosenjitfs_selftest(void)
                     return -85;
                 if (second_extent.physical_block == first_extent.physical_block)
                     return -86;
+                {
+                    uint8_t second_image[4096];
+                    uint8_t expected_second = (uint8_t)((512u * 13u) ^ 0x5Au);
+                    if (second_extent.physical_block >= fs.sb.total_blocks ||
+                        pfs_read_block(fs.mount.device,
+                                       second_extent.physical_block,
+                                       second_image) != PROSENJITFS_OK)
+                        return -91;
+                    if (second_image[0u] != expected_second)
+                        return -92;
+                }
             }
         }
         if (pfs_read_block(fs.mount.device, written_extent.physical_block,
