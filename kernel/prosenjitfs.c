@@ -2315,6 +2315,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             fs->tx.images + (uint64_t)i * fs->sb.block_size,
             fs->sb.block_size);
     pfs_zero(header, fs->sb.block_size);
+    for (uint32_t i = 0; i < fs->tx.count; ++i)
+        if (image_crc[i] != prosenjitfs_crc32c(
+                fs->tx.images + (uint64_t)i * fs->sb.block_size,
+                fs->sb.block_size))
+            return PROSENJITFS_EIO;
     pfs_zero(commit, fs->sb.block_size);
     pfs_zero(&h, sizeof(h));
     h.magic = PROSENJITFS_JOURNAL_MAGIC;
