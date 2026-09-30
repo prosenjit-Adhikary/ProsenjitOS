@@ -2,6 +2,7 @@
 #include "process.h"
 #include "timer.h"
 #include "security_file.h"
+#include "sha512.h"
 #include "security_provider.h"
 #include "security_admission.h"
 #include "security_quarantine.h"
@@ -52,6 +53,7 @@ static void ledger_record(const struct pros_process *process,
 
 int security_manager_init(void) {
     if (pros_file_security_selftest() != 0) return -1;
+    if (pros_sha512_selftest() != 0) return -11;
     if (pros_security_provider_selftest() != 0) return -2;
     if (pros_file_admission_selftest() != 0) return -3;
     if (vfs_security_selftest() != 0) return -4;
