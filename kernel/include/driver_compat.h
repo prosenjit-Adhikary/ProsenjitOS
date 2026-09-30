@@ -92,6 +92,7 @@ int pros_driver_compat_match(uint32_t package_id,
                              int *score_out);
 int pros_driver_compat_inspect_inf(const char *name, const char *text,
                                     uint32_t text_len, uint32_t *package_id_out);
+int pros_driver_compat_dependency_check(uint32_t package_id);
 int pros_driver_compat_selftest(void);
 
 #endif
