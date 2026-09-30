@@ -64,11 +64,14 @@ static void pfs_copy(void *dst, const void *src, uint32_t size)
 struct pfs_write_diag {
     uint8_t enabled;
     uint8_t found;
+    uint8_t read_enabled;
+    uint8_t read_found;
     uint8_t tx_byte;
     uint8_t post_commit_byte;
     uint8_t direct_byte;
     uint8_t vfs_byte;
     uint64_t physical_lba;
+    uint64_t read_physical_lba;
 };
 
 static struct pfs_write_diag pfs_diag;
@@ -77,6 +80,13 @@ void prosenjitfs_write_diag_reset(void)
 {
     pfs_zero(&pfs_diag, sizeof(pfs_diag));
     pfs_diag.enabled = 1u;
+}
+
+void prosenjitfs_write_diag_begin_read(void)
+{
+    pfs_diag.read_enabled = 1u;
+    pfs_diag.read_found = 0u;
+    pfs_diag.read_physical_lba = 0u;
 }
 
 int prosenjitfs_write_diag_get(uint64_t *physical_lba, uint8_t *tx_byte,
@@ -93,6 +103,16 @@ int prosenjitfs_write_diag_get(uint64_t *physical_lba, uint8_t *tx_byte,
     *post_commit_byte = pfs_diag.post_commit_byte;
     *direct_byte = pfs_diag.direct_byte;
     *vfs_byte = pfs_diag.vfs_byte;
+    return PROSENJITFS_OK;
+}
+
+int prosenjitfs_write_diag_get_read_lba(uint64_t *physical_lba)
+{
+    if (!physical_lba)
+        return PROSENJITFS_EINVAL;
+    if (!pfs_diag.read_found)
+        return PROSENJITFS_ENOENT;
+    *physical_lba = pfs_diag.read_physical_lba;
     return PROSENJITFS_OK;
 }
 
@@ -667,6 +687,11 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
                 pfs_read_block(data->fs->mount.device, physical, block) !=
                     PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
+            if (pfs_diag.read_enabled && !pfs_diag.read_found) {
+                pfs_diag.read_physical_lba = physical;
+                pfs_diag.read_found = 1u;
+                pfs_diag.read_enabled = 0u;
+            }
         }
         for (uint32_t i = 0u; i < want; ++i)
             ((uint8_t *)buffer)[done + i] = block[in_block + i];
