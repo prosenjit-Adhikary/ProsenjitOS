@@ -132,21 +132,6 @@ static uint32_t line_value(const char *text, uint32_t len, const char *key,
     return 0;
 }
 
-static uint32_t parse_class_value(const char *text, uint32_t len, uint8_t *class_code)
-{
-    char value[8];
-    uint32_t n=line_value(text,len,"Class",value,sizeof(value));
-    if(!n) return 0;
-    uint32_t v=0;
-    for(uint32_t i=0;i<n && i<2;++i){
-        int h=hex_value(value[i]);
-        if(h<0)return 0;
-        v=(v<<4)|(uint32_t)h;
-    }
-    *class_code=(uint8_t)v;
-    return 1;
-}
-
 static int valid_model(enum pros_compat_driver_model model)
 {
     return model == PROS_COMPAT_MODEL_WDM ||
