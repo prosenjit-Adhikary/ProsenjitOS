@@ -53,6 +53,12 @@ remains kernel-trusted until user-mode driver isolation is available.
 Signed-driver enforcement is represented as policy metadata (SIGNED_REQ), while
 cryptographic package verification remains a separate package/security milestone.
 
+Compatibility package matching is additionally gated by an active verified
+transaction state. Trust/evidence metadata in IDLE, INSPECTED, or ROLLED_BACK
+state cannot make a package selectable; rollback therefore revokes driver
+selection eligibility until a fresh admission and verification transaction is
+completed.
+
 ## Bus integration
 
 PCI enumeration can create device records using vendor, device, class, subclass
