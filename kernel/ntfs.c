@@ -3407,6 +3407,7 @@ static int ntfs_index_allocation_insert_node(const struct pros_ntfs *fs,
                                                const struct pros_ntfs_run *runs,
                                                uint32_t run_count,
                                                uint64_t vcn,
+                                               uint32_t node_size,
                                                const uint8_t *key,
                                                uint16_t key_size,
                                                uint64_t file_reference)
@@ -3421,7 +3422,8 @@ static int ntfs_index_allocation_insert_node(const struct pros_ntfs *fs,
     if (key[64u] == 0u || key[65u] != 1u && key[65u] != 3u ||
         66u + (uint32_t)key[64u] * 2u > key_size)
         return PROS_NTFS_EINVAL;
-    if (fs->bytes_per_file_record > sizeof(node) ||
+    if (node_size < 48u || node_size > sizeof(node) ||
+        node_size % fs->bytes_per_sector != 0u ||
         fs->bytes_per_sector == 0u || fs->sectors_per_cluster == 0u)
         return PROS_NTFS_EINVAL;
 
@@ -3429,7 +3431,7 @@ static int ntfs_index_allocation_insert_node(const struct pros_ntfs *fs,
      * The index-record size is defined by INDEX_ROOT. For the supported
      * kernel geometry, one node fits in the working record buffer.
      */
-    capacity = fs->bytes_per_file_record;
+    capacity = node_size;
     if (capacity < 48u)
         return PROS_NTFS_ECORRUPT;
     if (ntfs_index_allocation_read(fs, runs, run_count,
