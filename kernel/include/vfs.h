@@ -58,6 +58,9 @@ struct pros_vfs_vnode_ops {
                    struct pros_vfs_dirent *);
     int (*create)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode **);
+    int (*mkdir)(struct pros_vfs_vnode *, const char *,
+                 struct pros_vfs_vnode **);
+    int (*rmdir)(struct pros_vfs_vnode *, const char *);
     int (*unlink)(struct pros_vfs_vnode *, const char *);
     int (*rename)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode *, const char *);
@@ -122,6 +125,8 @@ int vfs_vnode_put(struct pros_vfs_vnode *);
 int vfs_path_lookup(struct pros_vfs_mount *, const char *,
                     struct pros_vfs_vnode **);
 int vfs_unlink(struct pros_vfs_mount *, const char *);
+int vfs_mkdir(struct pros_vfs_mount *, const char *);
+int vfs_rmdir(struct pros_vfs_mount *, const char *);
 int vfs_rename(struct pros_vfs_mount *, const char *, const char *);
 int vfs_file_open(struct pros_vfs_mount *, const char *, uint32_t,
                   struct pros_vfs_file *);
