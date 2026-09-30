@@ -3847,6 +3847,35 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -16;
 
+        /* Isolate the write-path physical mapping from the VFS read path.
+         * Byte 188 is intentionally checked at its on-disk home block so a
+         * read-after-write success cannot hide a transaction-target/LBA bug. */
+        {
+            struct pros_prosenjitfs_inode disk_inode;
+            struct pros_prosenjitfs_extent disk_extent;
+            uint8_t physical_image[4096];
+            uint64_t physical_lba;
+            uint32_t logical_block = 188u / fs.sb.block_size;
+            uint32_t within_block = 188u % fs.sb.block_size;
+            struct pros_vfs_vnode *disk_vnode = 0;
+            struct pfs_vnode_data *disk_data;
+
+            if (fs.sb.block_size > sizeof(physical_image) ||
+                vfs_path_lookup(&fs.mount, "/new", &disk_vnode) != PROS_VFS_OK)
+                return -161;
+            disk_data = (struct pfs_vnode_data *)disk_vnode->private_data;
+            if (!disk_data ||
+                prosenjitfs_read_inode(&fs, disk_data->inode_number,
+                                       &disk_inode) != PROSENJITFS_OK ||
+                pfs_find_extent(&fs, &disk_inode, logical_block,
+                                &disk_extent, &physical_lba) != PROSENJITFS_OK ||
+                pfs_read_block(fs.mount.device, physical_lba,
+                               physical_image) != PROSENJITFS_OK ||
+                physical_image[within_block] != payload[188u] ||
+                vfs_vnode_put(disk_vnode) != PROS_VFS_OK)
+                return -162;
+        }
+
         pfs_zero(&file, sizeof(file));
         if (vfs_file_open(&fs.mount, "/new", PROS_VFS_O_READ |
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
