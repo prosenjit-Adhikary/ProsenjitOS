@@ -2,6 +2,7 @@
 #include "heap.h"
 #include "memory.h"
 #include "timer.h"
+#include "thread.h"
 
 static struct pros_health_event events[PROS_HEALTH_EVENT_MAX];
 static uint32_t event_head;
@@ -60,6 +61,9 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
         .uptime_ticks = timer_ticks(),
         .timer_irq_count = timer_irq_count(),
         .scheduler_preempt_count = timer_preempt_count(),
+        .runnable_threads = thread_runnable_count(),
+        .blocked_threads = thread_blocked_count(),
+        .dead_threads = thread_dead_count(),
         .physical_total_pages = physical_memory_total_pages(),
         .physical_free_pages = physical_memory_free_pages(),
         .heap_used_bytes = heap_used_bytes(),
