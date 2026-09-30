@@ -167,7 +167,7 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
 
     for (i = 0; i + 21u <= text_len && count < PROS_DRIVER_COMPAT_MAX_IDS; ++i) {
         uint16_t vendor, device;
-        if (!ci_match4(&text[i], "PCI\\\\")) continue;
+        if (!ci_match4(&text[i], "PCI\\")) continue;
         if (text[i + 4u] != 'V' && text[i + 4u] != 'v') continue;
         if (text[i + 5u] != 'E' && text[i + 5u] != 'e') continue;
         if (text[i + 6u] != 'N' && text[i + 6u] != 'n') continue;
