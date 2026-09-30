@@ -140,5 +140,63 @@ int pros_driver_bundle_selftest(void) {
     int cmp=0;if(pros_driver_bundle_compare_version(1,2,&cmp)!=0||cmp>=0)return -4;
     struct pros_driver_bundle_entry e;if(pros_driver_bundle_find(1,&e)!=0)return -5;
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)if(e.content_sha256[i]!=a[i])return -6;
+
+    /*
+     * A bundle entry must track the compatibility registry's current content
+     * identity.  Deliberately change the package bytes after indexing and
+     * verify that selection fails closed rather than using stale metadata.
+     */
+    {
+        static const struct pros_driver_id id = {
+            PROS_DRIVER_BUS_PCI, 0x1234u, 0x5678u, 0, 0, 0
+        };
+        static const uint8_t old_bytes[] = "bundle-old";
+        static const uint8_t new_bytes[] = "bundle-new";
+        uint32_t package_id = 0;
+        uint32_t selected = 0;
+        int score = 0;
+
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "bundle-selftest.inf", &id, 1u, 0, &package_id)
+                != PROS_DRIVER_OK ||
+            pros_driver_compat_hash_content(
+                package_id, old_bytes, sizeof(old_bytes) - 1u)
+                != PROS_DRIVER_OK ||
+            pros_driver_bundle_add(
+                package_id, PROS_DRIVER_BUNDLE_LOCAL, 1u, 0u, 0u, a)
+                != PROS_DRIVER_OK)
+            return -7;
+
+        /*
+         * The test entry above intentionally uses a different digest first;
+         * replace it with the actual package digest before testing the stale
+         * transition.
+         */
+        if (pros_driver_compat_hash_content(
+                package_id, old_bytes, sizeof(old_bytes) - 1u)
+                != PROS_DRIVER_OK)
+            return -8;
+
+        {
+            struct pros_compat_package package;
+            if (pros_driver_compat_get_package(package_id, &package)
+                    != PROS_DRIVER_OK ||
+                !package.content_sha256_valid ||
+                pros_driver_bundle_add(
+                    package_id, PROS_DRIVER_BUNDLE_LOCAL, 1u, 0u, 0u,
+                    package.content_sha256) != PROS_DRIVER_OK)
+                return -9;
+        }
+
+        if (pros_driver_compat_hash_content(
+                package_id, new_bytes, sizeof(new_bytes) - 1u)
+                != PROS_DRIVER_OK)
+            return -10;
+
+        if (pros_driver_bundle_select(
+                package_id, &id, &selected, &score) != PROS_DRIVER_ENODEV)
+            return -11;
+    }
     return 0;
 }
