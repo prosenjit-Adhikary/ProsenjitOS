@@ -421,6 +421,8 @@ static int compat_dependency_trust_check(uint32_t package_id)
             uint32_t dep = pkg->dependencies[i];
             if (dep == 0 || dep > package_count)
                 return PROS_DRIVER_EINVAL;
+            if (seen[dep - 1u])
+                continue;
             if (top >= PROS_DRIVER_COMPAT_MAX_PACKAGES)
                 return PROS_DRIVER_ENOSPC;
             stack[top++] = dep;
