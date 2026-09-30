@@ -250,7 +250,9 @@ int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
             continue;
         {
             struct pros_compat_package package;
-            if (pros_driver_compat_get_package(entries[i].package_id, &package) != PROS_DRIVER_OK ||
+            int package_rc = pros_driver_compat_get_package(
+                entries[i].package_id, &package);
+            if (package_rc != PROS_DRIVER_OK ||
                 !package.content_sha256_valid)
                 continue;
             {
