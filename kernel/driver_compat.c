@@ -887,6 +887,8 @@ int pros_driver_compat_selftest(void)
         "Class=Net\r\n"
         "Provider=Prosenjit Test Vendor\r\n"
         "DriverVer=09/30/2026,1.2.3\r\n"
+        "[Manufacturer]\r\n"
+        "%Mfg%=ProsenjitModels\r\n"
         "[Models]\r\n"
         "%Mfg%=Install, PCI\\VEN_1234&DEV_5678\r\n"
         "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001\r\n"
@@ -923,7 +925,9 @@ int pros_driver_compat_selftest(void)
         pkg.id_count != 2u ||
         pkg.vendor_id != 0x1234 || pkg.device_id != 0x5678 ||
         pkg.model != PROS_COMPAT_MODEL_NDIS ||
-        pkg.provider[0] == 0 || pkg.driver_ver[0] == 0 || pkg.class_name[0] == 0)
+        pkg.provider[0] == 0 || pkg.driver_ver[0] == 0 || pkg.class_name[0] == 0 ||
+        !pkg.manufacturer_valid || pkg.model_map_count != 1u ||
+        pkg.model_sections[0][0] == 0)
         return PROS_DRIVER_EIO;
 
     /*
