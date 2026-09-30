@@ -81,6 +81,105 @@ static uint32_t append_u32(char *buffer, uint32_t capacity, uint32_t pos, uint32
     return append_u64(buffer, capacity, pos, value);
 }
 
+
+static int persist_path_with_suffix(const char *base, uint32_t suffix,
+                                    char *out, uint32_t capacity) {
+    uint32_t length = bounded_strlen(base, PROS_LOG_PERSIST_PATH_MAX);
+    char digits[10];
+    uint32_t n = 0u, pos = 0u;
+
+    if (!base || !out || capacity == 0u || length == 0u ||
+        length >= PROS_LOG_PERSIST_PATH_MAX || suffix == 0u)
+        return PROS_LOG_PERSIST_EINVAL;
+    while (suffix && n < sizeof(digits)) {
+        digits[n++] = (char)('0' + (suffix % 10u));
+        suffix /= 10u;
+    }
+    if (suffix != 0u || length + n + 3u > capacity)
+        return PROS_LOG_PERSIST_EINVAL;
+    while (pos < length) { out[pos] = base[pos]; ++pos; }
+    out[pos++] = '.';
+    while (n) out[pos++] = digits[--n];
+    out[pos] = '\0';
+    return PROS_LOG_PERSIST_OK;
+}
+
+static int persist_path_exists(struct pros_vfs_mount *mount, const char *path) {
+    struct pros_vfs_file file;
+    int rc;
+    if (!mount || !path) return PROS_LOG_PERSIST_EINVAL;
+    rc = vfs_file_open(mount, path, PROS_VFS_O_READ, &file);
+    if (rc == PROS_VFS_OK) {
+        (void)vfs_file_close(&file);
+        return 1;
+    }
+    if (rc == PROS_VFS_ENOENT) return 0;
+    return PROS_LOG_PERSIST_EIO;
+}
+
+static int persist_open_current(const char *path) {
+    int rc;
+    if (!path || bounded_strlen(path, PROS_LOG_PERSIST_PATH_MAX) == 0u)
+        return PROS_LOG_PERSIST_EINVAL;
+    rc = vfs_file_open(persist_mount, path,
+                       PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                       &persist_file);
+    if (rc != PROS_VFS_OK) return PROS_LOG_PERSIST_EIO;
+    attached = 1u;
+    bytes_written = 0u;
+    return PROS_LOG_PERSIST_OK;
+}
+
+static int persist_rotate(const char *path) {
+    char src[PROS_LOG_PERSIST_PATH_MAX];
+    char dst[PROS_LOG_PERSIST_PATH_MAX];
+    uint32_t index;
+    int exists, rc;
+
+    if (!attached || !persist_mount || !path)
+        return PROS_LOG_PERSIST_EINVAL;
+    if (vfs_file_close(&persist_file) != PROS_VFS_OK)
+        return PROS_LOG_PERSIST_EIO;
+    attached = 0u;
+
+    if (persist_policy.max_files <= 1u) {
+        rc = vfs_unlink(persist_mount, path);
+        if (rc != PROS_VFS_OK && rc != PROS_VFS_ENOENT)
+            return PROS_LOG_PERSIST_EIO;
+        return persist_open_current(path);
+    }
+
+    if (persist_path_with_suffix(path, persist_policy.max_files - 1u,
+                                 src, sizeof(src)) != PROS_LOG_PERSIST_OK)
+        return PROS_LOG_PERSIST_EINVAL;
+    exists = persist_path_exists(persist_mount, src);
+    if (exists < 0) return PROS_LOG_PERSIST_EIO;
+    if (exists > 0 && vfs_unlink(persist_mount, src) != PROS_VFS_OK)
+        return PROS_LOG_PERSIST_EIO;
+
+    for (index = persist_policy.max_files - 2u; index >= 1u; --index) {
+        if (persist_path_with_suffix(path, index, src, sizeof(src)) !=
+                PROS_LOG_PERSIST_OK ||
+            persist_path_with_suffix(path, index + 1u, dst, sizeof(dst)) !=
+                PROS_LOG_PERSIST_OK)
+            return PROS_LOG_PERSIST_EINVAL;
+        exists = persist_path_exists(persist_mount, src);
+        if (exists < 0) return PROS_LOG_PERSIST_EIO;
+        if (exists == 0) continue;
+        if (vfs_rename(persist_mount, src, dst) != PROS_VFS_OK)
+            return PROS_LOG_PERSIST_EIO;
+        if (index == 1u) break;
+    }
+
+    if (persist_path_with_suffix(path, 1u, dst, sizeof(dst)) !=
+        PROS_LOG_PERSIST_OK)
+        return PROS_LOG_PERSIST_EINVAL;
+    if (vfs_rename(persist_mount, path, dst) != PROS_VFS_OK)
+        return PROS_LOG_PERSIST_EIO;
+
+    return persist_open_current(path);
+}
+
 int pros_log_persist_emit(const struct pros_health_event *event) {
     char line[96];
     uint32_t pos = 0u, next, written = 0u;
@@ -88,8 +187,6 @@ int pros_log_persist_emit(const struct pros_health_event *event) {
     if (!initialized || !event)
         return PROS_LOG_PERSIST_EINVAL;
     if (!attached)
-        return PROS_LOG_PERSIST_ENOTSUP;
-    if (bytes_written >= persist_policy.rotate_bytes)
         return PROS_LOG_PERSIST_ENOTSUP;
 
     next = append_u64(line, sizeof(line), pos, event->sequence);
@@ -116,6 +213,12 @@ int pros_log_persist_emit(const struct pros_health_event *event) {
 
     if (bytes_written + pos > persist_policy.max_bytes)
         return PROS_LOG_PERSIST_ENOTSUP;
+    if (bytes_written != 0u &&
+        bytes_written + pos > persist_policy.rotate_bytes) {
+        int rotate_rc = persist_rotate(persist_path);
+        if (rotate_rc != PROS_LOG_PERSIST_OK)
+            return rotate_rc;
+    }
     if (vfs_file_seek(&persist_file, bytes_written) != PROS_VFS_OK ||
         vfs_file_write(&persist_file, line, pos, &written) != PROS_VFS_OK ||
         written != pos)
