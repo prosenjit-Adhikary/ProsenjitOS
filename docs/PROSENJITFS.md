@@ -3,9 +3,11 @@
 ## Status
 This document is the implementation contract for the native ProsenjitFS filesystem. It is intentionally separate from the compatibility FAT32, exFAT and NTFS drivers.
 
-## Current verified scope — 2026-09-29
+## Current implementation scope — 2026-09-30
 
-The integrated provider now covers persistent file data I/O, transactional unlink/rename, redo-journal replay, torn-transaction discard, journal checksum corruption rejection, and mount-time metadata corruption checks in the deterministic memory-backed self-test. Cross-directory moves update directory metadata atomically and protect against directory-parent cycles.
+The provider now covers persistent file-data I/O, bitmap-backed inode/block allocation and reclamation, hash-indexed directory lookup/readdir/create, transactional mkdir/rmdir, transactional unlink/rename, cross-directory moves with directory-parent cycle protection, redo-journal replay, torn-transaction discard, journal checksum corruption rejection, and mount-time metadata corruption checks in the deterministic memory-backed self-test.
+
+The directory mutation regression now exercises directory allocation, nested directories, cross-directory file moves, directory moves, cycle rejection, non-empty-directory removal rejection, and empty-directory reclamation. This is an implementation/self-test milestone; current GitHub Actions runner failures occur before workflow steps are created, so this commit is not yet CI-verified.
 
 This is still not a claim of physical power-loss validation: a real QEMU disk-device test remains pending until an ATA/AHCI/NVMe/USB-visible block-device path exists. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
 
@@ -64,7 +66,7 @@ Mount validates magic/version, feature flags, block size and volume bounds, all 
 5. Implement inode and extent persistence.
 6. Implement journal transaction/recovery.
 7. Implement hash-indexed directories and strict UTF-8 names.
-8. Implement VFS root/lookup/readdir/create/mkdir.
+8. Implement VFS root/lookup/readdir/create/mkdir/rmdir.
 9. Implement file read/write/truncate and safe growth.
 10. Implement unlink/rename and transaction coverage.
 11. Add corruption and crash-point tests.
