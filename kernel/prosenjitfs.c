@@ -1368,13 +1368,15 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
              PROSENJITFS_DIR_BUCKETS;
     current = dir_index.heads[bucket];
     while (current != 0u) {
-        if (++steps > data->fs->sb.total_blocks)
-            return PROSENJITFS_ECORRUPT;
+        if (++steps > data->fs->sb.total_blocks) {
+            rc = PROS_VFS_EIO;
+            goto rmdir_out;
+        }
         if (current < data->fs->sb.data_start ||
             current >= data->fs->sb.total_blocks ||
             pfs_read_block(data->fs->mount.device, current, entry_block) !=
                 PROSENJITFS_OK) {
-            /* entry_block is allocated below; defer to the normal error path. */
+            /* Invalid or unreadable directory chains fail safely. */
             break;
         }
         pfs_copy(&entry, entry_block, sizeof(entry));
