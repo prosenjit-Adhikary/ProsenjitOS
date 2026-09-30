@@ -395,16 +395,24 @@ static int driver_test_remove(struct pros_driver_device *device)
 
 int pros_driver_selftest(void)
 {
-    static const struct pros_driver_id ids[] = {
+    static const struct pros_driver_id native_ids[] = {
         { PROS_DRIVER_BUS_PCI, 0x1234u, 0x5678u, 0u, 0u, 0u },
+    };
+    static const struct pros_driver_id compat_ids[] = {
+        { PROS_DRIVER_BUS_PCI, 0u, 0u, 0x01u, 0x06u, 0x01u },
     };
     static const struct pros_driver_ops ops = {
         driver_test_probe, driver_test_remove, 0, 0
     };
-    static const struct pros_driver test_driver = {
-        "test-pci-driver", "1.0", PROS_DRIVER_ABI_VERSION,
+    static const struct pros_driver native_driver = {
+        "test-pci-native", "1.0", PROS_DRIVER_ABI_VERSION,
         PROS_DRIVER_FLAG_NATIVE, PROS_DRIVER_ORIGIN_NATIVE,
-        ids, 1u, &ops
+        native_ids, 1u, &ops
+    };
+    static const struct pros_driver compat_driver = {
+        "test-pci-compat", "1.0", PROS_DRIVER_ABI_VERSION,
+        PROS_DRIVER_FLAG_COMPAT, PROS_DRIVER_ORIGIN_COMPAT,
+        compat_ids, 1u, &ops
     };
     struct pros_driver_device device = {
         0u, PROS_DRIVER_BUS_PCI, PROS_DEVICE_CLASS_STORAGE,
@@ -414,18 +422,20 @@ int pros_driver_selftest(void)
     };
 
     if (pros_driver_manager_init() != PROS_DRIVER_OK ||
-        pros_driver_register(&test_driver) != PROS_DRIVER_OK ||
+        pros_driver_register(&compat_driver) != PROS_DRIVER_OK ||
+        pros_driver_register(&native_driver) != PROS_DRIVER_OK ||
         pros_device_register(&device) != PROS_DRIVER_OK ||
         device.id == 0u ||
-        pros_driver_find(&device.hwid, device.class_id) != &test_driver ||
+        pros_driver_find(&device.hwid, device.class_id) != &native_driver ||
         pros_driver_bind(device.id) != PROS_DRIVER_OK ||
         device.state != PROS_DEVICE_BOUND ||
-        device.driver != &test_driver ||
+        device.driver != &native_driver ||
         device.driver_data != device.bus_data ||
         pros_driver_unbind(device.id) != PROS_DRIVER_OK ||
         device.state != PROS_DEVICE_DISCOVERED ||
         pros_device_unregister(device.id) != PROS_DRIVER_OK ||
-        pros_driver_unregister(&test_driver) != PROS_DRIVER_OK)
+        pros_driver_unregister(&native_driver) != PROS_DRIVER_OK ||
+        pros_driver_unregister(&compat_driver) != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
 
     return PROS_DRIVER_OK;
