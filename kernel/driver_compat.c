@@ -651,27 +651,31 @@ int pros_driver_compat_match(uint32_t package_id,
         packages[package_id - 1u].tx_state != PROS_COMPAT_TX_HEALTHY &&
         packages[package_id - 1u].tx_state != PROS_COMPAT_TX_COMMITTED)
         return PROS_DRIVER_ENODEV;
-    for (i = 0; i < packages[package_id - 1u].id_count; ++i) {
-        const struct pros_driver_id *id = &package_ids[package_id - 1u][i];
-        if (id->bus != PROS_DRIVER_BUS_NONE && id->bus != hwid->bus) continue;
-        if (id->vendor_id != 0 && id->vendor_id != hwid->vendor_id) continue;
-        if (id->device_id != 0 && id->device_id != hwid->device_id) continue;
-        if (id->class_code != 0 && id->class_code != hwid->class_code) continue;
-        if (id->subclass != 0 && id->subclass != hwid->subclass) continue;
-        if (id->prog_if != 0 && id->prog_if != hwid->prog_if) continue;
-        score = 1;
-        if (id->vendor_id) score += 64;
-        if (id->device_id) score += 64;
-        if (id->class_code) score += 16;
-        if (id->subclass) score += 8;
-        if (id->prog_if) score += 4;
-        if (id->bus != PROS_DRIVER_BUS_NONE) score += 2;
-        if (packages[package_id - 1u].trust == PROS_COMPAT_TRUST_VERIFIED)
-            score += 1;
-        *score_out = score;
-        return PROS_DRIVER_OK;
+    {
+        int best_score = -1;
+        for (i = 0; i < packages[package_id - 1u].id_count; ++i) {
+            const struct pros_driver_id *id = &package_ids[package_id - 1u][i];
+            if (id->bus != PROS_DRIVER_BUS_NONE && id->bus != hwid->bus) continue;
+            if (id->vendor_id != 0 && id->vendor_id != hwid->vendor_id) continue;
+            if (id->device_id != 0 && id->device_id != hwid->device_id) continue;
+            if (id->class_code != 0 && id->class_code != hwid->class_code) continue;
+            if (id->subclass != 0 && id->subclass != hwid->subclass) continue;
+            if (id->prog_if != 0 && id->prog_if != hwid->prog_if) continue;
+            score = 1;
+            if (id->vendor_id) score += 64;
+            if (id->device_id) score += 64;
+            if (id->class_code) score += 16;
+            if (id->subclass) score += 8;
+            if (id->prog_if) score += 4;
+            if (id->bus != PROS_DRIVER_BUS_NONE) score += 2;
+            if (packages[package_id - 1u].trust == PROS_COMPAT_TRUST_VERIFIED)
+                score += 1;
+            if (score > best_score) best_score = score;
+        }
+        if (best_score < 0) return PROS_DRIVER_ENODEV;
+        *score_out = best_score;
     }
-    return PROS_DRIVER_ENODEV;
+    return PROS_DRIVER_OK;
 }
 
 int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
