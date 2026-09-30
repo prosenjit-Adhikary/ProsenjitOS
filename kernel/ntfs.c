@@ -3707,7 +3707,11 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                                 &root_size) != PROS_NTFS_OK)
             goto rollback;
         root_data = (uint8_t *)(uintptr_t)root_data_const;
-        if (root_size < 0x30u)
+        /*
+         * The compact large-index root consists of its 32-byte header plus
+         * the 24-byte END|NODE entry (0x38 bytes total).
+         */
+        if (root_size < 0x38u)
             goto rollback;
         for (uint32_t i = 16u; i < root_size; ++i)
             root_data[i] = 0u;
@@ -3733,7 +3737,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
 
     /*
      * Keep the original root attribute record length but reduce its logical
-     * value size to the new 0x30-byte root. The old payload remains padding.
+     * value size to the new 0x38-byte root. The old payload remains padding.
      */
     root_value_size = 56u;
     record[root_attr + 16u] = (uint8_t)root_value_size;
