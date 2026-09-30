@@ -990,6 +990,8 @@ int pros_driver_compat_selftest(void)
         "%Mfg%=ProsenjitModels\r\n"
         "%Mfg%=BrokenModel, Models.NTamd64\r\n"
         "[ProsenjitModels]\r\n"
+        "; PCI\\VEN_DEAD&DEV_BEEF should be ignored as a comment\r\n"
+        "PCI\\VEN_1234&DEV_56789 should be rejected as malformed\r\n"
         "%Mfg%=Install, PCI\\VEN_1234&DEV_5678&SUBSYS_11223344&REV_02, pci\\ven_abce&dev_0002\r\n"
         "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001&REV_03\r\n""%Mfg%=Install, pci\\ven_1234&dev_5678\r\n"
         "NDIS=1\r\n"
