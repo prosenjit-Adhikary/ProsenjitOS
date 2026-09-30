@@ -142,6 +142,15 @@ void pros_sha512(const uint8_t *data,uint64_t length,uint8_t digest[PROS_SHA512_
     sha512_final(&ctx,digest);
 }
 
+void pros_sha512_prefix(const uint8_t prefix[64], const uint8_t *data,
+                        uint64_t length, uint8_t digest[PROS_SHA512_BYTES]) {
+    struct sha512_ctx ctx;
+    sha512_init(&ctx);
+    sha512_update(&ctx, prefix, 64u);
+    if (length && data) sha512_update(&ctx, data, length);
+    sha512_final(&ctx, digest);
+}
+
 static int digest_equal(const uint8_t *a,const uint8_t *b) {
     uint8_t diff=0;
     for(uint32_t i=0;i<PROS_SHA512_BYTES;++i) diff|=(uint8_t)(a[i]^b[i]);
