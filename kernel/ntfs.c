@@ -3522,7 +3522,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                 for (uint32_t i = 0u; i < esize; ++i)
                     expanded[dst + i] = leaf[absolute + i];
 
-                if (insert_at == 0u &&
+                if (insert_at == 0xFFFFFFFFu &&
                     ntfs_name_key_compare(leaf + absolute + 16u, ksize,
                                           key, key[64u]) > 0)
                     insert_at = expanded_used;
