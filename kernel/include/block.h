@@ -28,4 +28,10 @@ int block_device_write(struct pros_block_device *, uint64_t, uint32_t, const voi
 int block_device_set_flush(struct pros_block_device *, pros_block_flush_fn);
 int block_device_flush(struct pros_block_device *);
 
+uint64_t block_read_count(void);
+uint64_t block_write_count(void);
+uint64_t block_error_count(void);
+uint64_t block_flush_count(void);
+uint64_t block_flush_error_count(void);
+
 #endif
