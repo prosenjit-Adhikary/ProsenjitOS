@@ -47,9 +47,11 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *,
 int prosenjitfs_write_inode(struct pros_prosenjitfs *, uint64_t,
                             const struct pros_prosenjitfs_inode *);
 void prosenjitfs_write_diag_reset(void);
+void prosenjitfs_write_diag_begin_read(void);
 int prosenjitfs_write_diag_get(uint64_t *physical_lba, uint8_t *tx_byte,
                                uint8_t *post_commit_byte,
                                uint8_t *direct_byte, uint8_t *vfs_byte);
+int prosenjitfs_write_diag_get_read_lba(uint64_t *physical_lba);
 int prosenjitfs_selftest(void);
 
 #endif
