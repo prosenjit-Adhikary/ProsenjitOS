@@ -730,5 +730,30 @@ int pros_driver_bundle_selftest(void) {
                 &id, &selected, &score) != PROS_DRIVER_ENODEV)
             return -22;
     }
+
+    /*
+     * A registry-only package must not be reclaimed by bundle retirement:
+     * retirement is defined only for packages with a live bundle locator.
+     */
+    {
+        uint32_t registry_only_id = 0u;
+        struct pros_driver_id registry_only_hwid = {
+            .vendor_id = 0xCAFEu, .device_id = 0x1001u
+        };
+        struct pros_compat_package registry_only_pkg;
+
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "registry-only-retire.inf", &registry_only_hwid, 1u, 0u,
+                &registry_only_id) != PROS_DRIVER_OK ||
+            pros_driver_bundle_retire(registry_only_id) !=
+                PROS_DRIVER_ENODEV ||
+            pros_driver_compat_get_package(
+                registry_only_id, &registry_only_pkg) != PROS_DRIVER_OK ||
+            pros_driver_compat_unregister_package(registry_only_id) !=
+                PROS_DRIVER_OK)
+            return -26;
+    }
+
     return 0;
 }
