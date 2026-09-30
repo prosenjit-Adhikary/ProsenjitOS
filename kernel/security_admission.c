@@ -26,6 +26,26 @@ int pros_file_admission_evaluate(
     return pros_file_admit(&metadata, &record->security);
 }
 
+
+int pros_file_admission_evaluate_digest(
+    const uint8_t digest[PROS_FILE_SHA256_BYTES],
+    const struct pros_file_security_metadata *metadata,
+    struct pros_file_admission_record *record) {
+    struct pros_file_security_metadata effective;
+
+    if (!digest || !metadata || !record)
+        return -1;
+
+    effective = *metadata;
+    for (uint32_t i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
+        record->sha256[i] = digest[i];
+
+    if (effective.reputation == PROS_FILE_REPUTATION_UNAVAILABLE)
+        effective.reputation = pros_security_provider_reputation(digest);
+
+    return pros_file_admit(&effective, &record->security);
+}
+
 int pros_file_admission_selftest(void) {
     static const uint8_t data[] = { 'a','b','c' };
     struct pros_file_admission_input input = {
