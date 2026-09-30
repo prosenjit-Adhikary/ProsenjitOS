@@ -3243,7 +3243,7 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                  uint16_t key_size)
 {
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
-    uint32_t byte_offset;
+    uint64_t byte_offset;
     uint32_t entries_offset;
     uint32_t entries_size;
     uint32_t allocated_size;
@@ -3252,7 +3252,7 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
     uint32_t entry_size;
     uint32_t required_size;
 
-    if (!fs || !runs || run_count == 0u || !key || key_size == 0u ||
+    if (!fs || !runs || run_count == 0u || !key || key_size < 66u ||
         record_size < fs->bytes_per_sector ||
         record_size > sizeof(record) ||
         record_size % fs->bytes_per_sector != 0u ||
@@ -3274,12 +3274,16 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
     if (vcn > 0xFFFFFFFFFFFFFFFFull /
               ((uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster))
         return PROS_NTFS_EOVERFLOW;
-    byte_offset = (uint32_t)(vcn *
-        (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster);
+    byte_offset = vcn *
+        (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
+
+    if (ntfs_upcase_load(fs) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    ntfs_active_upcase = ntfs_upcase_data;
 
     if (ntfs_index_allocation_read(fs, runs, run_count, byte_offset,
                                    record, record_size) != PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
+        { ntfs_active_upcase = 0; return PROS_NTFS_EIO; }
     if (ntfs_index_record_fixup(record, record_size, fs->bytes_per_sector) !=
         PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
