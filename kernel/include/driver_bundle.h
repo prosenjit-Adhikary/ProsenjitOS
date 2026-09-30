@@ -35,7 +35,7 @@ int pros_driver_bundle_add(uint32_t package_id,
 int pros_driver_bundle_find(uint32_t package_id,
                             struct pros_driver_bundle_entry *out);
 int pros_driver_bundle_remove(uint32_t package_id);
-/* Remove a package from the bundle index and then reclaim its registry slot. */
+/* Reclaim a package first; on success, remove its stale bundle locator. */
 int pros_driver_bundle_retire(uint32_t package_id);
 int pros_driver_bundle_compare_version(uint32_t package_id_a,
                                        uint32_t package_id_b,
