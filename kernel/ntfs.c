@@ -94,6 +94,30 @@ int ntfs_mount(struct pros_ntfs *fs, struct pros_block_device *device)
         le64(&boot[56]) >= le64(&boot[40]))
         return PROS_NTFS_ECORRUPT;
 
+    /*
+     * $MFT and $MFTMirr are distinct metadata streams. The mirror must have
+     * enough clusters to hold the first four MFT records (the NTFS-defined
+     * mirrored set), and its extent must remain inside the volume.
+     */
+    if (le64(&boot[48]) == le64(&boot[56]))
+        return PROS_NTFS_ECORRUPT;
+    {
+        uint64_t cluster_bytes =
+            (uint64_t)sector_size * (uint64_t)boot[13];
+        uint64_t mirror_bytes = (uint64_t)4u *
+                                (uint64_t)fs->bytes_per_file_record;
+        uint64_t mirror_clusters;
+
+        if (cluster_bytes == 0u ||
+            mirror_bytes > 0xFFFFFFFFFFFFFFFFull - (cluster_bytes - 1u))
+            return PROS_NTFS_EOVERFLOW;
+        mirror_clusters = (mirror_bytes + cluster_bytes - 1u) /
+                          cluster_bytes;
+        if (mirror_clusters == 0u ||
+            le64(&boot[56]) > le64(&boot[40]) - mirror_clusters)
+            return PROS_NTFS_ECORRUPT;
+    }
+
     if (vfs_mount_init(&fs->mount, PROS_FS_NTFS, device, fs, device->write ? 0u : 1u) !=
         PROS_VFS_OK)
         return PROS_NTFS_EINVAL;
