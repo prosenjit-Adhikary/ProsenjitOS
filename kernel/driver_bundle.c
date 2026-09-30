@@ -25,13 +25,6 @@ int pros_driver_bundle_init(void) {
 }
 int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_t ma,uint32_t mi,uint32_t pa,const uint8_t *d) {
     if(!id||!valid_source(s)||!d) return PROS_DRIVER_EINVAL;
-    {
-        struct pros_compat_package package;
-        if (pros_driver_compat_get_package(id, &package) != PROS_DRIVER_OK)
-            return PROS_DRIVER_ENODEV;
-        if (package.status == PROS_COMPAT_STATUS_EMPTY)
-            return PROS_DRIVER_ENODEV;
-    }
     struct pros_driver_bundle_entry *e=find(id);
     if(!e) for(uint32_t i=0;i<PROS_DRIVER_BUNDLE_MAX_ENTRIES;++i) if(!entries[i].package_id){e=&entries[i];break;}
     if(!e) return PROS_DRIVER_ENOSPC;
