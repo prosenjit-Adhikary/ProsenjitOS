@@ -33,6 +33,7 @@ The synthetic NTFS disk exercises:
 6. mapping-pairs encoding for an appended extent
 7. `$Bitmap` state after allocation
 8. VFS open/read/write/reopen verification
+9. `$INDEX_ALLOCATION` full-leaf split, new INDX-node creation, `$INDEX_ROOT` separator promotion, allocation growth, and lookup routing
 
 The build workflow requires the NTFS file-data write marker during the QEMU regression boot.
 
@@ -54,8 +55,9 @@ The current creation path covers:
 5. expose the new file through VFS `O_CREATE`
 
 The next NTFS write stages are:
-1. update directory index allocation when `$INDEX_ROOT` has no space
-2. synchronize `$MFTMirr` where required
+1. root→`$INDEX_ALLOCATION` conversion when a directory has no existing index-allocation stream
+2. recursive splitting of a non-root internal index node when its parent is full
+3. synchronize `$MFTMirr` where required
 4. add deletion and reclamation
 5. add journal-aware commit/recovery
 
@@ -69,7 +71,7 @@ The current path does not yet write:
 - compressed data
 - encrypted data
 - arbitrary attribute-list expansion
-- directory index growth/splitting
+- root→`$INDEX_ALLOCATION` conversion and recursive internal-node splitting
 - security descriptors
 - `$LogFile` journal transactions
 
