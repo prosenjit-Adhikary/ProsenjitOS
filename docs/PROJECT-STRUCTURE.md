@@ -196,7 +196,7 @@ debugging features.
 - Persistent retention/rotation is implemented; crash-survival across reboot remains a separate milestone.
 
 
-- The health monitor now exposes a bounded deterministic text export of retained structured events.
+- The health monitor now exposes a bounded deterministic text export of retained structured events and expanded VFS mutation/directory counters.
 - Export is caller-buffer bounded and does not allocate dynamically.
 - The export is diagnostic transport only; it does not yet provide persistent-on-disk retention or crash-survival across reboot.
 
