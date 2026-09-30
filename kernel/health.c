@@ -93,6 +93,69 @@ int pros_health_get_event(uint32_t offset, struct pros_health_event *out) {
     return PROS_DRIVER_OK;
 }
 
+static uint32_t append_hex(char *buffer, uint32_t capacity, uint32_t pos, uint64_t value) {
+    static const char hex[] = "0123456789ABCDEF";
+    if (pos + 18u > capacity) return UINT32_MAX;
+    buffer[pos++] = '0'; buffer[pos++] = 'x';
+    for (int shift = 60; shift >= 0; shift -= 4)
+        buffer[pos++] = hex[(value >> shift) & 0xFu];
+    return pos;
+}
+
+static uint32_t append_u32(char *buffer, uint32_t capacity, uint32_t pos, uint32_t value) {
+    char tmp[10];
+    uint32_t n = 0u;
+    if (value == 0u) {
+        if (pos >= capacity) return UINT32_MAX;
+        buffer[pos++] = '0';
+        return pos;
+    }
+    while (value && n < sizeof(tmp)) {
+        tmp[n++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+    if (pos + n > capacity) return UINT32_MAX;
+    while (n) buffer[pos++] = tmp[--n];
+    return pos;
+}
+
+int pros_health_export(char *buffer, uint32_t capacity, uint32_t *length_out) {
+    uint32_t pos = 0u;
+    if (!initialized || !buffer || !length_out || capacity == 0u)
+        return PROS_HEALTH_EINVAL;
+    for (uint32_t i = 0u; i < event_count; ++i) {
+        struct pros_health_event event;
+        uint32_t next;
+        if (pros_health_get_event(i, &event) != PROS_HEALTH_OK)
+            return PROS_HEALTH_EIO;
+        next = append_u32(buffer, capacity, pos, (uint32_t)event.sequence);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = ' ';
+        next = append_hex(buffer, capacity, pos, event.timestamp);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = ' ';
+        next = append_u32(buffer, capacity, pos, event.severity);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = ' ';
+        next = append_u32(buffer, capacity, pos, event.category);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = ' ';
+        next = append_u32(buffer, capacity, pos, event.source);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = ' ';
+        next = append_u32(buffer, capacity, pos, event.code);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = ' ';
+        next = append_hex(buffer, capacity, pos, event.value);
+        if (next == UINT32_MAX || next + 1u >= capacity) return PROS_HEALTH_EIO;
+        pos = next; buffer[pos++] = '\n';
+    }
+    if (pos >= capacity) return PROS_HEALTH_EIO;
+    buffer[pos] = '\0';
+    *length_out = pos;
+    return PROS_HEALTH_OK;
+}
+
 int pros_health_sample(void) {
     return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
                               1u, 1u, physical_memory_free_pages());
