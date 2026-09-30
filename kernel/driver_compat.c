@@ -1375,5 +1375,28 @@ int pros_driver_compat_selftest(void)
             != PROS_DRIVER_OK || dep_score < 100)
             return PROS_DRIVER_EIO;
     }
+
+    /*
+     * Reclaimed package IDs are absent, not malformed input.  This keeps
+     * stale bundle locators distinguishable from caller argument errors.
+     */
+    {
+        static const struct pros_driver_id reclaimed_id = {
+            PROS_DRIVER_BUS_PCI, 0xCAFEu, 0xBEEFu, 0, 0, 0
+        };
+        uint32_t reclaimed_package = 0u;
+        struct pros_compat_package reclaimed_package_data;
+
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "reclaimed-selftest.inf", &reclaimed_id, 1u, 0u,
+                &reclaimed_package) != PROS_DRIVER_OK ||
+            pros_driver_compat_unregister_package(reclaimed_package) !=
+                PROS_DRIVER_OK ||
+            pros_driver_compat_get_package(
+                reclaimed_package, &reclaimed_package_data) !=
+                PROS_DRIVER_ENODEV)
+            return PROS_DRIVER_EIO;
+    }
     return PROS_DRIVER_OK;
 }
