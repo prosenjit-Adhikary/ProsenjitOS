@@ -127,6 +127,7 @@ int pros_driver_compat_register_package(
     pkg->model = model;
     pkg->status = PROS_COMPAT_STATUS_INSPECTED;
     pkg->flags = flags;
+    pkg->tx_state = PROS_COMPAT_TX_IDLE;
     pkg->trust = (flags & PROS_COMPAT_FLAG_SIGNED) ?
         PROS_COMPAT_TRUST_UNKNOWN : PROS_COMPAT_TRUST_UNSIGNED;
     pkg->dependency_count = 0;
@@ -221,6 +222,64 @@ int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_i
         if (pkg->dependencies[i] == dependency_id)
             return PROS_DRIVER_OK;
     pkg->dependencies[pkg->dependency_count++] = dependency_id;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_begin(uint32_t package_id)
+{
+    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
+    if (packages[package_id - 1u].status == PROS_COMPAT_STATUS_REJECTED)
+        return PROS_DRIVER_EPERM;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_INSPECTED;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_verify(uint32_t package_id)
+{
+    struct pros_compat_package *p;
+    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
+    p = &packages[package_id - 1u];
+    if (p->tx_state != PROS_COMPAT_TX_INSPECTED) return PROS_DRIVER_EPERM;
+    if (p->trust != PROS_COMPAT_TRUST_VERIFIED) return PROS_DRIVER_EPERM;
+    if (pros_driver_compat_dependency_check(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    p->tx_state = PROS_COMPAT_TX_VERIFIED;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_stage(uint32_t package_id)
+{
+    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
+    if (packages[package_id - 1u].tx_state != PROS_COMPAT_TX_VERIFIED)
+        return PROS_DRIVER_EPERM;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_STAGED;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_health_check(uint32_t package_id)
+{
+    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
+    if (packages[package_id - 1u].tx_state != PROS_COMPAT_TX_STAGED)
+        return PROS_DRIVER_EPERM;
+    /* Runtime support is not yet claimed; staging can be validated only as metadata. */
+    return PROS_DRIVER_ENOTSUP;
+}
+
+int pros_driver_compat_commit(uint32_t package_id)
+{
+    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
+    if (packages[package_id - 1u].tx_state != PROS_COMPAT_TX_HEALTHY)
+        return PROS_DRIVER_EPERM;
+    packages[package_id - 1u].status = PROS_COMPAT_STATUS_SUPPORTED;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_COMMITTED;
+    return PROS_DRIVER_OK;
+}
+
+int pros_driver_compat_rollback(uint32_t package_id)
+{
+    if (package_id == 0 || package_id > package_count) return PROS_DRIVER_EINVAL;
+    packages[package_id - 1u].tx_state = PROS_COMPAT_TX_ROLLED_BACK;
+    packages[package_id - 1u].status = PROS_COMPAT_STATUS_INSPECTED;
     return PROS_DRIVER_OK;
 }
 
@@ -336,6 +395,16 @@ int pros_driver_compat_selftest(void)
 
     if (pros_driver_compat_supports_model(PROS_COMPAT_MODEL_WDM)
         != PROS_DRIVER_ENOTSUP)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_begin(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_verify(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_stage(package_id) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_health_check(package_id) != PROS_DRIVER_ENOTSUP)
+        return PROS_DRIVER_EIO;
+    if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
 
     if (pros_driver_compat_set_trust(package_id,
