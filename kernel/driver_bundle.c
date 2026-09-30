@@ -623,6 +623,45 @@ int pros_driver_bundle_selftest(void) {
     }
 
     /*
+     * Retirement must preserve the locator when dependency ownership blocks
+     * registry reclamation.
+     */
+    {
+        static const struct pros_driver_id parent_id = {
+            PROS_DRIVER_BUS_PCI, 0xD00Du, 0x0002u, 0, 0, 0
+        };
+        static const struct pros_driver_id child_id = {
+            PROS_DRIVER_BUS_PCI, 0xD00Du, 0x0003u, 0, 0, 0
+        };
+        static const uint8_t parent_digest[PROS_FILE_SHA256_BYTES] = { 0x6Au };
+        static const uint8_t child_digest[PROS_FILE_SHA256_BYTES] = { 0x6Bu };
+        uint32_t parent_package = 0u;
+        uint32_t child_package = 0u;
+
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "retire-parent.inf", &parent_id, 1u, 0u,
+                &parent_package) != PROS_DRIVER_OK ||
+            pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "retire-child.inf", &child_id, 1u, 0u,
+                &child_package) != PROS_DRIVER_OK ||
+            pros_driver_compat_add_dependency(
+                child_package, parent_package) != PROS_DRIVER_OK ||
+            pros_driver_bundle_add(
+                parent_package, PROS_DRIVER_BUNDLE_LOCAL,
+                1u, 0u, 0u, parent_digest) != PROS_DRIVER_OK ||
+            pros_driver_bundle_retire(parent_package) != PROS_DRIVER_EBUSY ||
+            pros_driver_bundle_find(parent_package, &entry_v2) !=
+                PROS_DRIVER_OK)
+            return -24;
+
+        (void)pros_driver_bundle_remove(parent_package);
+        (void)pros_driver_compat_unregister_package(child_package);
+        (void)pros_driver_compat_unregister_package(parent_package);
+    }
+
+    /*
      * A bundle entry must track the compatibility registry's current content
      * identity.  Deliberately change the package bytes after indexing and
      * verify that selection fails closed rather than using stale metadata.
