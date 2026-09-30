@@ -305,6 +305,11 @@ int pros_driver_compat_dependency_check(uint32_t package_id)
             uint32_t dep = packages[id - 1u].dependencies[j];
             if (dep == id) return PROS_DRIVER_EIO;
             if (dep == 0 || dep > package_count) return PROS_DRIVER_EINVAL;
+            if (packages[dep - 1u].status == PROS_COMPAT_STATUS_REJECTED ||
+                packages[dep - 1u].trust == PROS_COMPAT_TRUST_REJECTED)
+                return PROS_DRIVER_EPERM;
+            if (packages[dep - 1u].status == PROS_COMPAT_STATUS_EMPTY)
+                return PROS_DRIVER_ENODEV;
             if (top >= PROS_DRIVER_COMPAT_MAX_PACKAGES)
                 return PROS_DRIVER_ENOSPC;
             if (state[dep - 1u] != 2u) stack[top++] = dep;
