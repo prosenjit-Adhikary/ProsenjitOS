@@ -36,6 +36,9 @@ void pros_ed25519_fe_mul(struct pros_ed25519_fe *r,
                          const struct pros_ed25519_fe *b);
 void pros_ed25519_fe_square(struct pros_ed25519_fe *r,
                             const struct pros_ed25519_fe *a);
+/* Returns 0 on success; zero has no multiplicative inverse and returns -1. */
+int pros_ed25519_fe_invert(struct pros_ed25519_fe *r,
+                           const struct pros_ed25519_fe *a);
 
 int pros_ed25519_fe_equal(const struct pros_ed25519_fe *a,
                           const struct pros_ed25519_fe *b);
