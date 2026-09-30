@@ -44,6 +44,15 @@ static int parse_hex8(const char *p, uint32_t *out)
     return 1;
 }
 
+static int parse_hex2(const char *p, uint8_t *out)
+{
+    int hi = hex_value(p[0]);
+    int lo = hex_value(p[1]);
+    if (hi < 0 || lo < 0) return 0;
+    *out = (uint8_t)((hi << 4) | lo);
+    return 1;
+}
+
 static int ci_match4(const char *p, const char *tag)
 {
     uint32_t i;
@@ -313,11 +322,11 @@ int pros_driver_compat_inspect_inf(const char *name, const char *text,
                 }
             }
         }
-        for (i = 0; i + 7u <= text_len; ++i) {
+        for (i = 0; i + 6u <= text_len; ++i) {
             if (ci_match4(&text[i], "REV_")) {
-                uint16_t v;
-                if (parse_hex4(&text[i + 4u], &v)) {
-                    pkg->revision = (uint8_t)(v & 0xffu);
+                uint8_t v;
+                if (parse_hex2(&text[i + 4u], &v)) {
+                    pkg->revision = v;
                     pkg->revision_valid = 1u;
                     break;
                 }
