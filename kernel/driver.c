@@ -1,4 +1,5 @@
 #include "driver.h"
+#include "driver_compat.h"
 
 struct driver_slot {
     const struct pros_driver *driver;
@@ -220,16 +221,15 @@ int pros_device_unregister(uint32_t id)
 }
 
 static int driver_match_score(const struct pros_driver *driver,
-                                    const struct pros_driver_id *id,
-                                    const struct pros_driver_id *hwid,
-                                    enum pros_device_class class_id)
+                              const struct pros_driver_id *id,
+                              const struct pros_driver_id *hwid,
+                              enum pros_device_class class_id)
 {
     int score = 0;
 
     if (!driver || !id || !hwid || !driver_id_matches(id, hwid))
         return -1;
 
-    /* A class-specific device must not be claimed by a conflicting class ID. */
     if (class_id == PROS_DEVICE_CLASS_STORAGE &&
         id->class_code != 0u && id->class_code != 0xFFu &&
         id->class_code != 0x01u)
@@ -247,7 +247,6 @@ static int driver_match_score(const struct pros_driver *driver,
         id->class_code != 0x0Cu)
         return -1;
 
-    /* Exact hardware IDs are more specific than class-only compatibility IDs. */
     if (id->vendor_id != 0u && id->vendor_id != 0xFFFFu)
         score += 64;
     if (id->device_id != 0u && id->device_id != 0xFFFFu)
@@ -260,8 +259,6 @@ static int driver_match_score(const struct pros_driver *driver,
         score += 4;
     if (id->bus != PROS_DRIVER_BUS_NONE)
         score += 2;
-
-    /* Native is a deterministic tie-breaker, not a replacement for specificity. */
     if (driver->origin == PROS_DRIVER_ORIGIN_NATIVE)
         score += 1;
 
@@ -283,8 +280,8 @@ const struct pros_driver *pros_driver_find(const struct pros_driver_id *hwid,
 
         for (uint32_t j = 0u; j < drivers[i].driver->id_count; ++j) {
             int score = driver_match_score(drivers[i].driver,
-                                            &drivers[i].driver->ids[j],
-                                            hwid, class_id);
+                                           &drivers[i].driver->ids[j],
+                                           hwid, class_id);
             if (score > best_score) {
                 best = drivers[i].driver;
                 best_score = score;
@@ -435,7 +432,8 @@ int pros_driver_selftest(void)
         device.state != PROS_DEVICE_DISCOVERED ||
         pros_device_unregister(device.id) != PROS_DRIVER_OK ||
         pros_driver_unregister(&native_driver) != PROS_DRIVER_OK ||
-        pros_driver_unregister(&compat_driver) != PROS_DRIVER_OK)
+        pros_driver_unregister(&compat_driver) != PROS_DRIVER_OK ||
+        pros_driver_compat_selftest() != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
 
     return PROS_DRIVER_OK;
