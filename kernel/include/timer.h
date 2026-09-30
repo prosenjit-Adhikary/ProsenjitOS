@@ -9,6 +9,12 @@ uint32_t timer_frequency_hz(void);
 uint64_t timer_uptime_ms(void);
 /* Validate the monotonic time source contract after timer initialization. */
 int timer_selftest(void);
+/* Actual PIT-derived tick rate used by the monotonic uptime source. */
+uint32_t timer_frequency_hz(void);
+/* Monotonic uptime derived from timer_ticks(), rounded down to milliseconds. */
+uint64_t timer_uptime_ms(void);
+/* Validate the monotonic time source contract after timer initialization. */
+int timer_selftest(void);
 void timer_dispatch(uint64_t *frame);
 
 /* Return non-zero when a scheduler tick should request a context switch. */
