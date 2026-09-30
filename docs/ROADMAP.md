@@ -144,7 +144,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
   - [x] Bounded INF hardware-ID inspection foundation (PCI VEN/DEV extraction)
   - [ ] Full Windows INF parsing and compatible package metadata extraction
-  - [ ] **ReactOS-inspired NT/WDM compatibility architecture (independent implementation; no direct ReactOS source copy by default)**
+  - [x] Staged NT/WDM compatibility boundary ABI with quarantine/rollback states
+  - [ ] **ReactOS-inspired NT/WDM executable compatibility architecture (independent implementation; no direct ReactOS source copy by default)**
   - [ ] Windows-driver compatibility layer / adapter API
   - [ ] Native-vs-compatibility driver selection and fallback flow
   - [ ] Installer/bootstrap driver environment and offline-first hardware bundle
