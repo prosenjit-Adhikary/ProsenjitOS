@@ -6410,9 +6410,9 @@ int ntfs_selftest(void)
         if (ntfs_index_root_header(r, sizeof(disk.root_record),
                                    root_attr, &root_info) != PROS_NTFS_OK ||
             root_info.flags != 1u ||
-            root_info.first_entry_offset != 32u ||
-            root_info.entries_size != 56u ||
-            root_info.allocated_size != 56u)
+            root_info.first_entry_offset != 16u ||
+            root_info.entries_size != 24u ||
+            root_info.allocated_size != 24u)
             return -131;
 
         if (ntfs_attribute_data(r, sizeof(disk.root_record), root_attr,
@@ -6609,7 +6609,7 @@ int ntfs_selftest(void)
                 disk.root_record[80u + 96u - 8u + i] = 0u;
 
             {
-                uint32_t a = 300u;
+                uint32_t a = 296u;
                 for (uint32_t i = a; i < a + 68u; ++i)
                     disk.root_record[i] = 0u;
                 disk.root_record[a + 0u] = 0xA0u;
@@ -6717,7 +6717,7 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 348u) != 8192u ||
+                le64(disk.root_record + 344u) != 8192u ||
                 disk.root_record[176u + 12u] != 1u ||
                 le16(disk.root_record + 176u + 10u) != 74u ||
                 le64(disk.root_record + 176u + 104u - 8u) != 1u)
