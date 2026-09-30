@@ -17,6 +17,16 @@ static uint32_t event_count;
 static uint32_t dropped_events;
 static uint64_t next_sequence;
 static uint8_t initialized;
+#define PROS_HEALTH_WATCHDOG_MAX 16u
+struct health_watchdog_slot {
+    uint32_t service_id;
+    uint64_t last_kick;
+    uint64_t timeout_ticks;
+    uint8_t active;
+    uint8_t faulted;
+};
+static struct health_watchdog_slot watchdogs[PROS_HEALTH_WATCHDOG_MAX];
+static uint8_t panic_capture_active;
 
 static int valid_severity(uint32_t value) {
     return value <= PROS_HEALTH_CRITICAL;
@@ -34,6 +44,9 @@ int pros_health_init(void) {
     dropped_events = 0u;
     next_sequence = 0u;
     initialized = 1u;
+    panic_capture_active = 0u;
+    for (uint32_t i = 0u; i < PROS_HEALTH_WATCHDOG_MAX; ++i)
+        watchdogs[i] = (struct health_watchdog_slot){0};
     return PROS_HEALTH_OK;
 }
 
@@ -190,6 +203,88 @@ int pros_health_export(char *buffer, uint32_t capacity, uint32_t *length_out) {
     buffer[pos] = '\0';
     *length_out = pos;
     return PROS_HEALTH_OK;
+}
+
+int pros_health_record_exception(uint64_t vector, uint64_t error_code,
+                                  uint64_t rip, uint64_t cr2) {
+    if (!initialized || panic_capture_active)
+        return PROS_HEALTH_EINVAL;
+    panic_capture_active = 1u;
+    int rc = pros_health_record(PROS_HEALTH_CRITICAL, PROS_HEALTH_RECOVERY,
+                                0x45584350u, (uint32_t)vector, rip);
+    (void)error_code;
+    (void)cr2;
+    panic_capture_active = 0u;
+    return rc;
+}
+
+int pros_health_record_recovery(uint32_t source, uint32_t code, uint64_t value) {
+    return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
+                              source, code, value);
+}
+
+int pros_health_watchdog_register(uint32_t service_id, uint64_t timeout_ticks) {
+    if (!initialized || service_id == 0u || timeout_ticks == 0u)
+        return PROS_HEALTH_EINVAL;
+    for (uint32_t i = 0u; i < PROS_HEALTH_WATCHDOG_MAX; ++i) {
+        if (watchdogs[i].active && watchdogs[i].service_id == service_id)
+            return PROS_HEALTH_EINVAL;
+    }
+    for (uint32_t i = 0u; i < PROS_HEALTH_WATCHDOG_MAX; ++i) {
+        if (!watchdogs[i].active) {
+            watchdogs[i] = (struct health_watchdog_slot){
+                .service_id = service_id, .last_kick = timer_ticks(),
+                .timeout_ticks = timeout_ticks, .active = 1u, .faulted = 0u
+            };
+            return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
+                                      service_id, 1u, timeout_ticks);
+        }
+    }
+    return PROS_HEALTH_EIO;
+}
+
+int pros_health_watchdog_kick(uint32_t service_id) {
+    if (!initialized || service_id == 0u)
+        return PROS_HEALTH_EINVAL;
+    for (uint32_t i = 0u; i < PROS_HEALTH_WATCHDOG_MAX; ++i) {
+        if (watchdogs[i].active && watchdogs[i].service_id == service_id) {
+            watchdogs[i].last_kick = timer_ticks();
+            watchdogs[i].faulted = 0u;
+            return PROS_HEALTH_OK;
+        }
+    }
+    return PROS_HEALTH_EINVAL;
+}
+
+int pros_health_watchdog_poll(void) {
+    uint64_t now;
+    if (!initialized)
+        return PROS_HEALTH_EINVAL;
+    now = timer_ticks();
+    for (uint32_t i = 0u; i < PROS_HEALTH_WATCHDOG_MAX; ++i) {
+        if (!watchdogs[i].active || watchdogs[i].faulted)
+            continue;
+        if (now - watchdogs[i].last_kick >= watchdogs[i].timeout_ticks) {
+            watchdogs[i].faulted = 1u;
+            if (pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_RECOVERY,
+                                   watchdogs[i].service_id, 2u,
+                                   now - watchdogs[i].last_kick) != PROS_HEALTH_OK)
+                return PROS_HEALTH_EIO;
+        }
+    }
+    return PROS_HEALTH_OK;
+}
+
+int pros_health_record_network(uint32_t source, uint32_t code, uint64_t value) {
+    return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_NETWORK, source, code, value);
+}
+
+int pros_health_record_security(uint32_t source, uint32_t code, uint64_t value) {
+    return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SECURITY, source, code, value);
+}
+
+int pros_health_record_filesystem(uint32_t source, uint32_t code, uint64_t value) {
+    return pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_FILESYSTEM, source, code, value);
 }
 
 int pros_health_sample(void) {
