@@ -153,6 +153,10 @@ int pros_nt_compat_register_dispatch(uint32_t package_id,
         return PROS_DRIVER_EPERM;
     dispatch[package_id - 1u].major[irp_major] = handler;
     images[package_id - 1u].capabilities |= PROS_NT_CAP_IO_DISPATCH;
+    if (irp_major == PROS_NT_IRP_PNP)
+        images[package_id - 1u].capabilities |= PROS_NT_CAP_PNP;
+    else if (irp_major == PROS_NT_IRP_POWER)
+        images[package_id - 1u].capabilities |= PROS_NT_CAP_POWER;
     return PROS_DRIVER_OK;
 }
 
@@ -259,6 +263,9 @@ int pros_nt_compat_pnp(uint32_t package_id, uint32_t event)
     device_state = devices[package_id - 1u].state;
     if (state == PROS_NT_COMPAT_QUARANTINED)
         return PROS_DRIVER_EPERM;
+    if (event == PROS_NT_PNP_START &&
+        nt_compat_validate_capabilities(package_id, PROS_NT_CAP_PNP) != PROS_DRIVER_OK)
+        return PROS_DRIVER_ENOTSUP;
     if (device_state == PROS_NT_DEVICE_EMPTY || device_state == PROS_NT_DEVICE_REMOVED)
         return PROS_DRIVER_ENODEV;
     if (event == PROS_NT_PNP_START &&
