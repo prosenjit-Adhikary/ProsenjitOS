@@ -26,6 +26,7 @@ int pros_log_persist_attach(struct pros_vfs_mount *mount,
 int pros_log_persist_emit(const struct pros_health_event *event);
 int pros_log_persist_flush(void);
 int pros_log_persist_available(void);
+int pros_log_persist_detach(void);
 int pros_log_persist_selftest(void);
 
 #endif
