@@ -2376,6 +2376,11 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
         fs->bytes_per_file_record > sizeof(directory_record))
         return PROS_NTFS_EINVAL;
 
+    /* Directory-index insertion mutates on-disk metadata. */
+    if (!fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_ENOTSUP;
+
     if (ntfs_read_file_record(fs, directory_record_number, directory_record,
                               sizeof(directory_record)) != PROS_NTFS_OK ||
         ntfs_read_file_record(fs, child_record_number, child_record,
@@ -2412,6 +2417,17 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
         66u + (uint32_t)child_name[64u] * 2u > child_name_size) {
         ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
+    }
+
+    {
+        uint64_t stored_parent = le64(child_name);
+        uint64_t expected_parent =
+            (directory_record_number & 0x0000FFFFFFFFFFFFull) |
+            ((uint64_t)le16(directory_record + 16u) << 48);
+        if (stored_parent != expected_parent) {
+            ntfs_active_upcase = 0;
+            return PROS_NTFS_EINVAL;
+        }
     }
 
     for (uint32_t i = 0u; i < child_name_size; ++i)
