@@ -2342,12 +2342,21 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     if (pfs_write_block(fs->mount.device, fs->sb.journal_start,
                         header) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
-    for (uint32_t i = 0; i < fs->tx.count; ++i)
+    for (uint32_t i = 0; i < fs->tx.count; ++i) {
         if (pfs_write_block(fs->mount.device,
                             fs->sb.journal_start + 1u + i,
                             fs->tx.images + (uint64_t)i * fs->sb.block_size) !=
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
+        if (pfs_read_block(fs->mount.device,
+                           fs->sb.journal_start + 1u + i,
+                           fs->scratch) != PROSENJITFS_OK ||
+            prosenjitfs_crc32c(fs->scratch, fs->sb.block_size) !=
+            prosenjitfs_crc32c(
+                fs->tx.images + (uint64_t)i * fs->sb.block_size,
+                fs->sb.block_size))
+            return PROSENJITFS_EIO;
+    }
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
