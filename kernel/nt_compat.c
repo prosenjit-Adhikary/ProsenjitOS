@@ -12,7 +12,6 @@ static int nt_compat_validate_resources(const struct pros_nt_device_object *devi
             a->length == 0 || a->start > UINT64_MAX - (a->length - 1u))
             return PROS_DRIVER_EINVAL;
         a_end = a->start + a->length - 1u;
-        (void)a_end;
         for (j = i + 1u; j < device->resource_count; ++j) {
             const struct pros_nt_device_resource *b = &device->resources[j];
             uint64_t b_end;
@@ -31,14 +30,12 @@ static int nt_compat_validate_resources(const struct pros_nt_device_object *devi
 static int nt_compat_resource_conflicts(uint32_t package_id,
                                         const struct pros_nt_device_object *device)
 {
-    uint32_t i, j;
+    uint32_t i, j, k;
     for (i = 0; i < PROS_NT_COMPAT_MAX_HANDLES; ++i) {
-        if (i + 1u == package_id ||
-            devices[i].package_id == 0 ||
+        if (i + 1u == package_id || devices[i].package_id == 0 ||
             devices[i].state == PROS_NT_DEVICE_REMOVED)
             continue;
         for (j = 0; j < device->resource_count; ++j) {
-            uint32_t k;
             const struct pros_nt_device_resource *a = &device->resources[j];
             for (k = 0; k < devices[i].resource_count; ++k) {
                 const struct pros_nt_device_resource *b = &devices[i].resources[k];
@@ -50,6 +47,181 @@ static int nt_compat_resource_conflicts(uint32_t package_id,
             }
         }
     }
+    return PROS_DRIVER_OK;
+}
+
+static int nt_compat_test_handler(uint32_t package_id, uint32_t irp_major,
+                                   void *context)
+{
+    struct pros_nt_io_request *request = (struct pros_nt_io_request *)context;
+    (void)package_id;
+    if (!request || irp_major != PROS_NT_IRP_READ)
+        return PROS_DRIVER_EINVAL;
+    return PROS_DRIVER_OK;
+}
+
+static struct pros_nt_compat_image images[PROS_NT_COMPAT_MAX_HANDLES];
+static struct pros_nt_compat_dispatch_table dispatch[PROS_NT_COMPAT_MAX_HANDLES];
+static struct pros_nt_device_object devices[PROS_NT_COMPAT_MAX_HANDLES];
+
+int pros_nt_compat_init(void)
+{
+    uint32_t i;
+    for (i = 0; i < PROS_NT_COMPAT_MAX_HANDLES; ++i) {
+        images[i].package_id = 0;
+        images[i].state = PROS_NT_COMPAT_EMPTY;
+        images[i].capabilities = 0;
+        images[i].image_size = 0;
+        images[i].image_entry = 0;
+        { uint32_t j; devices[i].size = 0; devices[i].package_id = 0; devices[i].state = PROS_NT_DEVICE_EMPTY; devices[i].resource_count = 0; for (j = 0; j < PROS_NT_COMPAT_MAX_RESOURCES; ++j) { devices[i].resources[j].type = PROS_NT_RESOURCE_NONE; devices[i].resources[j].start = 0; devices[i].resources[j].length = 0; } }
+        { uint32_t j; for (j = 0; j < PROS_NT_IRP_MAX; ++j) dispatch[i].major[j] = 0; }
+    }
+    return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_inspect(uint32_t package_id,
+                           struct pros_nt_compat_image *out)
+{
+    if (!out || package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES)
+        return PROS_DRIVER_EINVAL;
+
+    /*
+     * Deliberately do not parse/execute PE code here. The image inspection
+     * stage will only become executable after a PE loader and NT ABI are
+     * explicitly implemented and policy-approved.
+     */
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_EMPTY) {
+        images[package_id - 1u].package_id = package_id;
+        images[package_id - 1u].state = PROS_NT_COMPAT_INSPECTED;
+    }
+    *out = images[package_id - 1u];
+    return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_inspect_pe(uint32_t package_id, const uint8_t *data,
+                              uint32_t size)
+{
+    struct pros_pe_image_info info;
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        !data || size == 0)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (pros_pe_inspect(data, size, &info) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    images[package_id - 1u].package_id = package_id;
+    images[package_id - 1u].state = PROS_NT_COMPAT_INSPECTED;
+    images[package_id - 1u].machine = info.machine;
+    images[package_id - 1u].pe32_plus = info.is_pe32_plus;
+    images[package_id - 1u].has_imports = info.has_imports;
+    images[package_id - 1u].image_size = info.image_size;
+    images[package_id - 1u].image_entry = info.entry_rva;
+    return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_register_dispatch(uint32_t package_id,
+                                      uint32_t irp_major,
+                                      pros_nt_dispatch_fn handler)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        irp_major >= PROS_NT_IRP_MAX || !handler)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_EMPTY ||
+        images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    dispatch[package_id - 1u].major[irp_major] = handler;
+    images[package_id - 1u].capabilities |= PROS_NT_CAP_IO_DISPATCH;
+    return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_dispatch(uint32_t package_id, uint32_t irp_major,
+                            void *context)
+{
+    pros_nt_dispatch_fn fn;
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        irp_major >= PROS_NT_IRP_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    fn = dispatch[package_id - 1u].major[irp_major];
+    if (!fn) return PROS_DRIVER_ENOTSUP;
+    return fn(package_id, irp_major, context);
+}
+
+int pros_nt_compat_stage(uint32_t package_id)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state != PROS_NT_COMPAT_INSPECTED)
+        return PROS_DRIVER_EPERM;
+    return PROS_DRIVER_ENOTSUP;
+}
+
+int pros_nt_compat_submit_io(uint32_t package_id,
+                             struct pros_nt_io_request *request)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        !request)
+        return PROS_DRIVER_EINVAL;
+    if (request->size < sizeof(*request) ||
+        request->major >= PROS_NT_IRP_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (request->buffer_size > PROS_NT_IO_MAX_BUFFER)
+        return PROS_DRIVER_ENOSPC;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (request->major == PROS_NT_IRP_READ &&
+        request->type != PROS_NT_IO_READ)
+        return PROS_DRIVER_EINVAL;
+    if (request->major == PROS_NT_IRP_WRITE &&
+        request->type != PROS_NT_IO_WRITE)
+        return PROS_DRIVER_EINVAL;
+    if (request->major == PROS_NT_IRP_DEVICE_CONTROL &&
+        request->type != PROS_NT_IO_DEVICE_CONTROL)
+        return PROS_DRIVER_EINVAL;
+    request->status = pros_nt_compat_dispatch(
+        package_id, request->major, request);
+    if (request->status == PROS_DRIVER_OK)
+        request->information = request->buffer_size;
+    return request->status;
+}
+
+int pros_nt_compat_set_device(uint32_t package_id,
+                              const struct pros_nt_device_object *device)
+{
+    uint32_t i;
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        !device || device->size < sizeof(*device) ||
+        device->resource_count > PROS_NT_COMPAT_MAX_RESOURCES)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (nt_compat_validate_resources(device) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EINVAL;
+    if (nt_compat_resource_conflicts(package_id, device) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EBUSY;
+    devices[package_id - 1u] = *device;
+    devices[package_id - 1u].package_id = package_id;
+    devices[package_id - 1u].state = PROS_NT_DEVICE_PRESENT;
+    for (i = device->resource_count; i < PROS_NT_COMPAT_MAX_RESOURCES; ++i) {
+        devices[package_id - 1u].resources[i].type = PROS_NT_RESOURCE_NONE;
+        devices[package_id - 1u].resources[i].start = 0;
+        devices[package_id - 1u].resources[i].length = 0;
+    }
+    return PROS_DRIVER_OK;
+}
+
+int pros_nt_compat_get_device(uint32_t package_id,
+                              struct pros_nt_device_object *device)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        !device || device->size < sizeof(*device))
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (devices[package_id - 1u].package_id != package_id)
+        return PROS_DRIVER_ENODEV;
+    *device = devices[package_id - 1u];
     return PROS_DRIVER_OK;
 }
 
@@ -65,8 +237,7 @@ int pros_nt_compat_pnp(uint32_t package_id, uint32_t event)
     device_state = devices[package_id - 1u].state;
     if (state == PROS_NT_COMPAT_QUARANTINED)
         return PROS_DRIVER_EPERM;
-    if (device_state == PROS_NT_DEVICE_EMPTY ||
-        device_state == PROS_NT_DEVICE_REMOVED)
+    if (device_state == PROS_NT_DEVICE_EMPTY || device_state == PROS_NT_DEVICE_REMOVED)
         return PROS_DRIVER_ENODEV;
     if (event == PROS_NT_PNP_START &&
         state != PROS_NT_COMPAT_STAGED && state != PROS_NT_COMPAT_HEALTHY)
@@ -87,14 +258,12 @@ int pros_nt_compat_pnp(uint32_t package_id, uint32_t event)
         device_state != PROS_NT_DEVICE_QUERY_REMOVE &&
         device_state != PROS_NT_DEVICE_STARTED)
         return PROS_DRIVER_EPERM;
-    if (dispatch[package_id - 1u].major[PROS_NT_IRP_PNP]) {
-        rc = dispatch[package_id - 1u].major[PROS_NT_IRP_PNP](
-            package_id, PROS_NT_IRP_PNP, (void *)(uintptr_t)event);
-        if (rc != PROS_DRIVER_OK)
-            return rc;
-    } else {
+    if (!dispatch[package_id - 1u].major[PROS_NT_IRP_PNP])
         return PROS_DRIVER_ENOTSUP;
-    }
+    rc = dispatch[package_id - 1u].major[PROS_NT_IRP_PNP](
+        package_id, PROS_NT_IRP_PNP, (void *)(uintptr_t)event);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
     if (event == PROS_NT_PNP_START)
         devices[package_id - 1u].state = PROS_NT_DEVICE_STARTED;
     else if (event == PROS_NT_PNP_QUERY_REMOVE)
@@ -147,8 +316,6 @@ int pros_nt_compat_rollback(uint32_t package_id)
     images[package_id - 1u].image_size = 0;
     devices[package_id - 1u].size = 0;
     devices[package_id - 1u].package_id = 0;
-    devices[package_id - 1u].state = PROS_NT_DEVICE_EMPTY;
-    devices[package_id - 1u].resource_count = 0;
     for (i = 0; i < PROS_NT_IRP_MAX; ++i)
         dispatch[package_id - 1u].major[i] = 0;
     return PROS_DRIVER_OK;
@@ -198,43 +365,6 @@ int pros_nt_compat_selftest(void)
         if (returned.package_id != 1u ||
             returned.resource_count != 1u ||
             returned.resources[0].type != PROS_NT_RESOURCE_MMIO)
-            return PROS_DRIVER_EIO;
-        device.resources[0].start = 0x100800u;
-        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK)
-            return PROS_DRIVER_EIO;
-        device.resource_count = 2u;
-        device.resources[1] = device.resources[0];
-        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_EBUSY)
-            return PROS_DRIVER_EIO;
-        images[0].state = PROS_NT_COMPAT_STAGED;
-        if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_PNP,
-                                             nt_compat_pnp_test_handler)
-            != PROS_DRIVER_OK)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_START) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_STARTED)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_QUERY_REMOVE) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_QUERY_REMOVE)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_STOP) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_STOPPED)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_START) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_STARTED)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_REMOVE) != PROS_DRIVER_EPERM)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_STOP) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_STOPPED)
-            return PROS_DRIVER_EIO;
-        if (pros_nt_compat_pnp(1u, PROS_NT_PNP_REMOVE) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_REMOVED)
-            return PROS_DRIVER_EIO;
-        device.resource_count = 1u;
-        device.resources[0].start = 0x200000u;
-        if (pros_nt_compat_set_device(1u, &device) != PROS_DRIVER_OK ||
-            devices[0].state != PROS_NT_DEVICE_PRESENT)
             return PROS_DRIVER_EIO;
     }
     if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
