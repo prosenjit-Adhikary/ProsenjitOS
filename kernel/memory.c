@@ -32,6 +32,7 @@ extern char __kernel_end[];
 static uint64_t page_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
+static uint64_t failed_allocations;
 
 static inline void bitmap_set(uint64_t page) {
     page_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
@@ -85,6 +86,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) page_bitmap[i] = 0;
     total_pages = 0;
     free_pages = 0;
+    failed_allocations = 0;
 
     if (multiboot_info_address == 0) return -1;
 
@@ -143,13 +145,17 @@ uint64_t physical_page_alloc(void) {
         if (bits != 0) {
             uint64_t bit = (uint64_t)__builtin_ctzll(bits);
             uint64_t page = (word << 6) + bit;
-            if (page >= MAX_PAGES) return 0;
+            if (page >= MAX_PAGES) {
+                ++failed_allocations;
+                return 0;
+            }
 
             bitmap_clear(page);
             --free_pages;
             return page * PROSENJIT_PAGE_SIZE;
         }
     }
+    ++failed_allocations;
     return 0;
 }
 
@@ -169,4 +175,8 @@ uint64_t physical_memory_total_pages(void) {
 
 uint64_t physical_memory_free_pages(void) {
     return free_pages;
+}
+
+uint64_t physical_memory_failed_allocations(void) {
+    return failed_allocations;
 }
