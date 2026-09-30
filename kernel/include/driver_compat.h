@@ -104,6 +104,7 @@ struct pros_compat_package {
     uint32_t model_map_count;
     char manufacturer_section[PROS_DRIVER_COMPAT_MAX_SECTION];
     char model_sections[PROS_DRIVER_COMPAT_MAX_MODEL_MAPS][PROS_DRIVER_COMPAT_MAX_SECTION];
+    uint8_t model_id_counts[PROS_DRIVER_COMPAT_MAX_MODEL_MAPS];
 };
 
 struct pros_compat_driver_ops {
