@@ -1180,6 +1180,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 for (;;) __asm__ volatile ("cli; hlt");
             }
 
+            /*
+             * Attach the optional persistent diagnostic sink only after a
+             * writable native filesystem is mounted. The sink is never a
+             * prerequisite for boot/storage correctness.
+             */
+            if (pros_log_attach_persistent(&native_fs.mount,
+                                           "/.__prosenjitos.log") != PROS_LOG_OK) {
+                serial_write("ProsenjitOS: persistent health log unavailable; continuing without disk sink\n");
+            } else {
+                (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
+                                    0x4C4F4742u, 1u, timer_ticks());
+                serial_write("ProsenjitOS: persistent health log attached\n");
+            }
+
             {
                 struct pros_vfs_file trace_file;
                 uint8_t trace_write[512], trace_read[512];
@@ -1273,6 +1287,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
             }
 
+            (void)pros_log_detach_persistent();
             if (prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK ||
                 pros_storage_discover(&native_ata.block, volumes,
                                        PROS_STORAGE_MAX_VOLUMES,
