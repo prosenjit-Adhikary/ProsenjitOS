@@ -808,27 +808,45 @@ int pros_driver_compat_selftest(void)
         if (pros_driver_compat_begin(dep_b) != PROS_DRIVER_EPERM)
             return PROS_DRIVER_EIO;
 
-        /* Shared dependency graph: A -> B,C and B,C -> D is valid. */
-        if (pros_driver_compat_register_package(
-                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
-                "dep-c.inf", &dep_id, 1u, 0, &dep_c) != PROS_DRIVER_OK)
+        /*
+         * Reinitialize after the deliberate cycle/rejection test.  The next
+         * graph is independent and must prove the valid shared-dependency
+         * topology A -> B,C and B,C -> D.
+         */
+        if (pros_driver_compat_init() != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
         if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "dep-a.inf", &dep_id, 1u, 0, &dep_a) != PROS_DRIVER_OK ||
+            pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "dep-b.inf", &dep_id, 1u, 0, &dep_b) != PROS_DRIVER_OK ||
+            pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "dep-c.inf", &dep_id, 1u, 0, &dep_c) != PROS_DRIVER_OK ||
+            pros_driver_compat_register_package(
                 PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
                 "dep-d.inf", &dep_id, 1u, 0, &dep_d) != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
-        if (pros_driver_compat_add_dependency(dep_c, dep_d)
-            != PROS_DRIVER_OK ||
+        if (pros_driver_compat_add_dependency(dep_a, dep_b)
+                != PROS_DRIVER_OK ||
             pros_driver_compat_add_dependency(dep_a, dep_c)
-            != PROS_DRIVER_OK)
+                != PROS_DRIVER_OK ||
+            pros_driver_compat_add_dependency(dep_b, dep_d)
+                != PROS_DRIVER_OK ||
+            pros_driver_compat_add_dependency(dep_c, dep_d)
+                != PROS_DRIVER_OK)
             return PROS_DRIVER_EIO;
-        /* dep_a already depends on dep_b; dep_b remains trusted here. */
         if (pros_driver_compat_set_trust_evidence(
+                dep_a, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
+            pros_driver_compat_set_trust_evidence(
                 dep_b, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
             pros_driver_compat_set_trust_evidence(
                 dep_c, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
             pros_driver_compat_set_trust_evidence(
                 dep_d, PROS_COMPAT_EVIDENCE_LOCAL_POLICY) != PROS_DRIVER_OK ||
+            pros_driver_compat_set_trust(dep_a, PROS_COMPAT_TRUST_VERIFIED)
+                != PROS_DRIVER_OK ||
             pros_driver_compat_set_trust(dep_b, PROS_COMPAT_TRUST_VERIFIED)
                 != PROS_DRIVER_OK ||
             pros_driver_compat_set_trust(dep_c, PROS_COMPAT_TRUST_VERIFIED)
