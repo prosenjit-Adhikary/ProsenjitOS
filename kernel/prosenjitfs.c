@@ -2281,11 +2281,16 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_header h;
     struct pros_prosenjitfs_journal_commit c;
     uint32_t checksum;
+    uint32_t image_crc[PROSENJITFS_MAX_TX_BLOCKS];
 
     if (!fs || fs->read_only || fs->tx.count == 0u ||
         fs->tx.count + 2u > fs->sb.journal_blocks)
         return PROSENJITFS_EINVAL;
 
+    for (uint32_t i = 0; i < fs->tx.count; ++i)
+        image_crc[i] = pfs_crc_with_zero32(
+            fs->tx.images + (uint64_t)i * fs->sb.block_size,
+            fs->sb.block_size, UINT32_MAX);
     pfs_zero(header, fs->sb.block_size);
     pfs_zero(commit, fs->sb.block_size);
     pfs_zero(&h, sizeof(h));
@@ -2327,6 +2332,13 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                         commit) != PROSENJITFS_OK ||
         pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+
+    for (uint32_t i = 0; i < fs->tx.count; ++i) {
+        if (image_crc[i] != pfs_crc_with_zero32(
+                fs->tx.images + (uint64_t)i * fs->sb.block_size,
+                fs->sb.block_size, UINT32_MAX))
+            return PROSENJITFS_EIO;
+    }
 
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         if (pfs_write_block(fs->mount.device, fs->tx.targets[i],
