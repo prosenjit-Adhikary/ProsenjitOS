@@ -94,6 +94,10 @@ int pros_driver_compat_register_package(
     uint32_t id_count,
     uint32_t flags,
     uint32_t *package_id_out);
+int pros_driver_compat_set_content_sha256(
+    uint32_t package_id,
+    const uint8_t digest[PROS_FILE_SHA256_BYTES]);
+
 int pros_driver_compat_get_package(uint32_t package_id,
                                    struct pros_compat_package *out);
 int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
