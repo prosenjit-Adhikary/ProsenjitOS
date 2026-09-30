@@ -39,8 +39,21 @@ int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *
         return PROS_DRIVER_EINVAL;
 
     struct pros_driver_bundle_entry *entry = find(package_id);
+    struct pros_compat_package package;
     if (!entry || !entry->content_sha256_valid)
         return PROS_DRIVER_ENODEV;
+    if (pros_driver_compat_get_package(package_id, &package) != PROS_DRIVER_OK ||
+        !package.content_sha256_valid)
+        return PROS_DRIVER_ENODEV;
+
+    /*
+     * The offline bundle index is only a locator.  Its digest must agree with
+     * the compatibility registry's current package content identity before
+     * the package is selectable.  A stale bundle entry must fail closed.
+     */
+    for (uint32_t i = 0; i < PROS_FILE_SHA256_BYTES; ++i)
+        if (entry->content_sha256[i] != package.content_sha256[i])
+            return PROS_DRIVER_ENODEV;
 
     /*
      * Compatibility selection is deliberately delegated to the compatibility
@@ -68,6 +81,22 @@ int pros_driver_bundle_select_best(const struct pros_driver_id *hwid,
     for (uint32_t i = 0; i < PROS_DRIVER_BUNDLE_MAX_ENTRIES; ++i) {
         if (!entries[i].package_id || !entries[i].content_sha256_valid)
             continue;
+        {
+            struct pros_compat_package package;
+            if (pros_driver_compat_get_package(entries[i].package_id, &package) != PROS_DRIVER_OK ||
+                !package.content_sha256_valid)
+                continue;
+            {
+                int digest_match = 1;
+                for (uint32_t d = 0; d < PROS_FILE_SHA256_BYTES; ++d) {
+                    if (entries[i].content_sha256[d] != package.content_sha256[d]) {
+                        digest_match = 0;
+                        break;
+                    }
+                }
+                if (!digest_match) continue;
+            }
+        }
         int score = 0;
         if (pros_driver_compat_match(entries[i].package_id, hwid, &score) != PROS_DRIVER_OK)
             continue;
