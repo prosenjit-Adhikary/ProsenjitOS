@@ -103,18 +103,6 @@ static int ci_equal_range(const char *text, uint32_t start, uint32_t end, const 
     }
     return value[i] == 0 && start + i == end;
 }
-static int ci_range_equals_cstr(const char *text, uint32_t start, uint32_t end, const char *value)
-{
-    uint32_t i = 0;
-    while (value[i] && start + i < end) {
-        char a = text[start + i], b = value[i];
-        if (a >= 'a' && a <= 'z') a = (char)(a - 'a' + 'A');
-        if (b >= 'a' && b <= 'z') b = (char)(b - 'a' + 'A');
-        if (a != b) return 0;
-        ++i;
-    }
-    return value[i] == 0 && start + i == end;
-}
 static int ci_cstr_equal_range(const char *a, const char *b, uint32_t b_len)
 {
     uint32_t i = 0;
@@ -184,17 +172,24 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
                     for (i = 0; i < pkg->model_map_count; ++i) {
                         if (ci_cstr_equal_range(pkg->model_sections[i], text + rhs, e - rhs)) { duplicate = 1; break; }
                     }
+                    uint32_t map_index = 0;
                     if (!duplicate) {
-                        copy_range(pkg->model_sections[pkg->model_map_count],
+                        map_index = pkg->model_map_count;
+                        copy_range(pkg->model_sections[map_index],
                                    PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
                         ++pkg->model_map_count;
+                    } else {
+                        for (map_index = 0; map_index < pkg->model_map_count; ++map_index)
+                            if (ci_cstr_equal_range(pkg->model_sections[map_index],
+                                                    text + rhs, e - rhs))
+                                break;
                     }
                     {
-                        uint32_t map_index = pkg->model_map_count - 1u;
+
                         uint32_t scan = eq + 1u;
                         int has_pci_id = 0;
                         while (scan < line_end) {
-                            if (ci_contains(&text[scan], line_end - scan, "PCI\\\\VEN_")) {
+                            if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_")) {
                                 has_pci_id = 1;
                                 break;
                             }
@@ -944,7 +939,8 @@ int pros_driver_compat_selftest(void)
         pkg.model != PROS_COMPAT_MODEL_NDIS ||
         pkg.provider[0] == 0 || pkg.driver_ver[0] == 0 || pkg.class_name[0] == 0 ||
         !pkg.manufacturer_valid || pkg.model_map_count != 1u ||
-        pkg.model_sections[0][0] == 0)
+        pkg.model_sections[0][0] == 0 ||
+        pkg.model_id_counts[0] != 2u)
         return PROS_DRIVER_EIO;
 
     /*
