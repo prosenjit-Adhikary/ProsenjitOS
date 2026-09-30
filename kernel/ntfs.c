@@ -3712,22 +3712,23 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         for (uint32_t i = 16u; i < root_size; ++i)
             root_data[i] = 0u;
         /* Preserve the INDEX_ROOT type/collation/index-block geometry. */
-        root_data[16u] = 0x10u;
-        root_data[20u] = 0x28u;
-        root_data[24u] = 0x28u;
-        root_data[28u] = 1u;
+        root_data[16u] = 0x20u; /* first entry: 32-byte INDEX_ROOT header */
+        root_data[20u] = 0x38u; /* entries end: one 24-byte END|NODE entry */
+        root_data[24u] = 0x38u; /* allocated root entry area */
+        root_data[28u] = 1u;    /* LARGE_INDEX: child VCNs live in INDX */
+        /*
+         * END|NODE entry at offset 0x20: file reference 0, size 24,
+         * zero key, flags END|NODE, child VCN 0.
+         */
+        root_data[32u] = 0u; root_data[33u] = 0u;
+        root_data[34u] = 0u; root_data[35u] = 0u;
+        root_data[36u] = 0u; root_data[37u] = 0u;
+        root_data[38u] = 0u; root_data[39u] = 0u;
+        root_data[40u] = 24u; root_data[41u] = 0u;
+        root_data[42u] = 0u; root_data[43u] = 0u;
+        root_data[44u] = 3u;  root_data[45u] = 0u;
         for (uint32_t i = 0u; i < 8u; ++i)
-            root_data[32u + 8u + i] = (uint8_t)((uint64_t)0u >> (8u * i));
-        root_data[40u] = 24u;
-        root_data[44u] = 3u;
-        root_data[48u] = 0u;
-        root_data[49u] = 0u;
-        root_data[50u] = 0u;
-        root_data[51u] = 0u;
-        root_data[52u] = 0u;
-        root_data[53u] = 0u;
-        root_data[54u] = 0u;
-        root_data[55u] = 0u;
+            root_data[48u + i] = 0u;
     }
 
     /*
