@@ -936,8 +936,8 @@ int pros_driver_compat_selftest(void)
         "[Manufacturer]\r\n"
         "%Mfg%=ProsenjitModels\r\n"
         "[ProsenjitModels]\r\n"
-        "%Mfg%=Install, PCI\\VEN_1234&DEV_5678\r\n"
-        "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001\r\n"
+        "%Mfg%=Install, PCI\\VEN_1234&DEV_5678&SUBSYS_11223344&REV_02\r\n"
+        "%Mfg%=Install, PCI\\VEN_ABCD&DEV_0001&REV_03\r\n"
         "NDIS=1\r\n";
     struct pros_compat_package pkg;
     struct pros_driver_id id;
@@ -974,7 +974,9 @@ int pros_driver_compat_selftest(void)
         pkg.provider[0] == 0 || pkg.driver_ver[0] == 0 || pkg.class_name[0] == 0 ||
         !pkg.manufacturer_valid || pkg.model_map_count != 1u ||
         pkg.model_sections[0][0] == 0 ||
-        pkg.model_id_counts[0] != 2u)
+        pkg.model_id_counts[0] != 2u ||
+        !pkg.subsys_valid || pkg.subsys_id != 0x11223344u ||
+        !pkg.revision_valid || pkg.revision != 0x02u)
         return PROS_DRIVER_EIO;
 
     /*
