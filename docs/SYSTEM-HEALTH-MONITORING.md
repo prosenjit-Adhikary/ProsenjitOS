@@ -1,6 +1,6 @@
 # ProsenjitOS — System Health Monitoring
 
-Status: implementation batch in progress 2026-09-30; kernel telemetry foundation and persistent-sink foundation are implemented, while end-to-end persistence, rotation, crash capture, collectors and CI verification remain gated.
+Status: implementation batch in progress 2026-09-30; the monotonic time/uptime source contract and kernel telemetry foundation are implemented, while end-to-end persistence, rotation, crash capture, collectors and CI verification remain gated.
 
 ## Purpose
 
@@ -74,7 +74,7 @@ Use a hybrid model:
 - threshold triggers for critical conditions
 - on-demand detailed diagnostics
 
-Suggested baseline sampling:
+Suggested baseline sampling (design only; not implemented by the current batch):
 - 1s: lightweight health counters/scheduler/memory pressure summary
 - 5s: storage/filesystem/device summary
 - 30s: hardware/thermal inventory where supported
@@ -111,7 +111,7 @@ Retention is bounded and protected by the logging subsystem's rotation and reten
 Planned semantic interfaces:
 
 pros_health_snapshot
-- timestamp
+- timestamp (monotonic timer ticks; unit defined by `timer_frequency_hz()`)
 - boot/session identifier
 - CPU summary
 - memory summary
@@ -169,7 +169,7 @@ QEMU regression should verify deterministic boot-health markers and at least one
 
 ## 11. Implementation order
 
-1. Kernel monotonic time/uptime source contract.
+1. Kernel monotonic time/uptime source contract — implemented: `timer_ticks()` is the monotonic tick source, `timer_frequency_hz()` exposes the PIT-derived rate, `timer_uptime_ms()` provides a derived millisecond uptime view, and `timer_selftest()` validates the contract.
 2. Typed health counters and snapshot structures.
 3. CPU/scheduler telemetry.
 4. Physical-memory/allocator telemetry.
