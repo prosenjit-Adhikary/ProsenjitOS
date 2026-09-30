@@ -99,15 +99,56 @@ void pros_ed25519_fe_sub(struct pros_ed25519_fe *r,const struct pros_ed25519_fe 
 }
 
 void pros_ed25519_fe_mul(struct pros_ed25519_fe *r,const struct pros_ed25519_fe *a,const struct pros_ed25519_fe *b) {
-    __uint128_t t[5]={0,0,0,0,0};
-    for(uint32_t i=0;i<5u;++i)
-        for(uint32_t j=0;j<5u;++j)
-            t[(i+j)%5u] += (__uint128_t)a->v[i]*b->v[j]*(i+j>=5u ? 19u : 1u);
+    __uint128_t t0, t1, t2, t3, t4;
+    uint64_t c;
 
-    for(uint32_t i=0;i<5u;++i) {
-        r->v[i]=(uint64_t)t[i] & FE_MASK;
-        t[(i+1u)%5u] += t[i] >> 51;
-    }
+    /*
+     * 5x51 multiplication with the 2^255 = 19 reduction folded into
+     * the low limbs.  Keep the high-limb fold explicit so the carry from
+     * limb 4 is propagated through limb 0 before canonical reduction.
+     */
+    t0 = (__uint128_t)a->v[0]*b->v[0]
+       + 19u*((__uint128_t)a->v[1]*b->v[4]
+            + (__uint128_t)a->v[2]*b->v[3]
+            + (__uint128_t)a->v[3]*b->v[2]
+            + (__uint128_t)a->v[4]*b->v[1]);
+
+    t1 = (__uint128_t)a->v[0]*b->v[1]
+       + (__uint128_t)a->v[1]*b->v[0]
+       + 19u*((__uint128_t)a->v[2]*b->v[4]
+            + (__uint128_t)a->v[3]*b->v[3]
+            + (__uint128_t)a->v[4]*b->v[2]);
+
+    t2 = (__uint128_t)a->v[0]*b->v[2]
+       + (__uint128_t)a->v[1]*b->v[1]
+       + (__uint128_t)a->v[2]*b->v[0]
+       + 19u*((__uint128_t)a->v[3]*b->v[4]
+            + (__uint128_t)a->v[4]*b->v[3]);
+
+    t3 = (__uint128_t)a->v[0]*b->v[3]
+       + (__uint128_t)a->v[1]*b->v[2]
+       + (__uint128_t)a->v[2]*b->v[1]
+       + (__uint128_t)a->v[3]*b->v[0]
+       + 19u*((__uint128_t)a->v[4]*b->v[4]);
+
+    t4 = (__uint128_t)a->v[0]*b->v[4]
+       + (__uint128_t)a->v[1]*b->v[3]
+       + (__uint128_t)a->v[2]*b->v[2]
+       + (__uint128_t)a->v[3]*b->v[1]
+       + (__uint128_t)a->v[4]*b->v[0];
+
+    c = (uint64_t)(t0 >> 51); t0 &= FE_MASK; t1 += c;
+    c = (uint64_t)(t1 >> 51); t1 &= FE_MASK; t2 += c;
+    c = (uint64_t)(t2 >> 51); t2 &= FE_MASK; t3 += c;
+    c = (uint64_t)(t3 >> 51); t3 &= FE_MASK; t4 += c;
+    c = (uint64_t)(t4 >> 51); t4 &= FE_MASK; t0 += (__uint128_t)c * 19u;
+    c = (uint64_t)(t0 >> 51); t0 &= FE_MASK; t1 += c;
+
+    r->v[0]=(uint64_t)t0;
+    r->v[1]=(uint64_t)t1;
+    r->v[2]=(uint64_t)t2;
+    r->v[3]=(uint64_t)t3;
+    r->v[4]=(uint64_t)t4;
     fe_reduce(r);
 }
 
