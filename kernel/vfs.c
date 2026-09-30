@@ -1,6 +1,7 @@
 #include "vfs.h"
 #include "partition.h"
 #include "prosenjitfs.h"
+#include "health.h"
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
@@ -22,15 +23,25 @@ static uint64_t health_dir_read_count;
 
 static void vfs_health_error(int rc)
 {
-    if (rc == PROS_VFS_EIO)
+    uint32_t code = 0u;
+    if (rc == PROS_VFS_EIO) {
         ++health_io_error_count;
-    else if (rc == PROS_VFS_EPERM)
+        code = 1u;
+    }
+    else if (rc == PROS_VFS_EPERM) {
         ++health_permission_error_count;
+        code = 2u;
+    }
     else if (rc == PROS_VFS_ENOENT || rc == PROS_VFS_ENOTDIR ||
              rc == PROS_VFS_ELOOP)
         ++health_lookup_error_count;
-    else if (rc == PROS_VFS_EOVERFLOW)
+    else if (rc == PROS_VFS_EOVERFLOW) {
         ++health_corruption_error_count;
+        code = 4u;
+    }
+    if (code != 0u)
+        (void)pros_health_record_filesystem(0x56465348u, code,
+                                            (uint64_t)(uint32_t)(-rc));
 }
 
 static int vfs_selftest_read(struct pros_block_device *device,
