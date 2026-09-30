@@ -611,6 +611,11 @@ int pros_driver_bundle_selftest(void) {
         if (pros_driver_bundle_select(
                 package_id, &id, &selected, &score) != PROS_DRIVER_ENODEV)
             return -11;
+
+        if (pros_driver_compat_rollback(package_id) != PROS_DRIVER_OK ||
+            pros_driver_bundle_select_best(
+                &id, &selected, &score) != PROS_DRIVER_ENODEV)
+            return -22;
     }
     return 0;
 }
