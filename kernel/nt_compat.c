@@ -1,5 +1,26 @@
 #include "nt_compat.h"
 
+static int nt_compat_validate_capabilities(uint32_t package_id, uint32_t required)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES)
+        return PROS_DRIVER_EINVAL;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if ((images[package_id - 1u].capabilities & required) != required)
+        return PROS_DRIVER_ENOTSUP;
+    return PROS_DRIVER_OK;
+}
+
+static int nt_compat_resource_flags_valid(uint32_t type, uint32_t flags)
+{
+    /* Bit 0 is the only defined policy bit for now: shareable. */
+    if (flags & ~1u)
+        return PROS_DRIVER_EINVAL;
+    if (type == PROS_NT_RESOURCE_IRQ && flags & 1u)
+        return PROS_DRIVER_OK;
+    return PROS_DRIVER_OK;
+}
+
 static int nt_compat_validate_resources(const struct pros_nt_device_object *device)
 {
     uint32_t i, j;
@@ -9,6 +30,7 @@ static int nt_compat_validate_resources(const struct pros_nt_device_object *devi
         const struct pros_nt_device_resource *a = &device->resources[i];
         uint64_t a_end;
         if (a->type < PROS_NT_RESOURCE_IOPORT || a->type > PROS_NT_RESOURCE_DMA ||
+            nt_compat_resource_flags_valid(a->type, a->flags) != PROS_DRIVER_OK ||
             a->length == 0 || a->start > UINT64_MAX - (a->length - 1u))
             return PROS_DRIVER_EINVAL;
         a_end = a->start + a->length - 1u;
