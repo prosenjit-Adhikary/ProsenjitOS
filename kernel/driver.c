@@ -181,12 +181,23 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
     device->driver_data = 0;
     device->bus_data = bus_data;
 
+    /*
+     * PCI base-class mapping is deliberately conservative.  A class is
+     * identified only when its standard base/subclass combination is known;
+     * unsupported/unknown classes remain OTHER and are handled fail-closed.
+     */
     if (class_code == 0x01u)
         device->class_id = PROS_DEVICE_CLASS_STORAGE;
     else if (class_code == 0x02u)
         device->class_id = PROS_DEVICE_CLASS_NETWORK;
     else if (class_code == 0x03u)
         device->class_id = PROS_DEVICE_CLASS_DISPLAY;
+    else if (class_code == 0x04u)
+        device->class_id = PROS_DEVICE_CLASS_AUDIO;
+    else if (class_code == 0x07u)
+        device->class_id = PROS_DEVICE_CLASS_SERIAL;
+    else if (class_code == 0x09u)
+        device->class_id = PROS_DEVICE_CLASS_INPUT;
     else if (class_code == 0x0Cu && subclass == 0x03u)
         device->class_id = PROS_DEVICE_CLASS_USB;
 
@@ -437,7 +448,23 @@ int pros_driver_selftest(void)
         "test-storage", 0, 0, (void *)(uintptr_t)0xA5u
     };
 
-    if (pros_driver_manager_init() != PROS_DRIVER_OK ||
+    if (pros_driver_class_is_supported(PROS_DEVICE_CLASS_STORAGE) !=
+            PROS_DRIVER_OK ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_INPUT) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_DISPLAY) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_NETWORK) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_SERIAL) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_USB) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_AUDIO) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_OTHER) !=
+            PROS_DRIVER_EINVAL ||
+        pros_driver_manager_init() != PROS_DRIVER_OK ||
         pros_driver_register(&compat_driver) != PROS_DRIVER_OK ||
         pros_driver_register(&native_driver) != PROS_DRIVER_OK ||
         pros_device_register(&device) != PROS_DRIVER_OK ||
