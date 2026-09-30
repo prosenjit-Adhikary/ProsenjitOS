@@ -14,6 +14,7 @@
 #define PROS_DRIVER_COMPAT_MAX_DEPS 8u
 #define PROS_DRIVER_COMPAT_MAX_PROVIDER 64u
 #define PROS_DRIVER_COMPAT_MAX_DRIVER_VER 32u
+#define PROS_DRIVER_COMPAT_MAX_CLASS_NAME 32u
 #define PROS_DRIVER_COMPAT_MAX_PROVIDER 64u
 #define PROS_DRIVER_COMPAT_MAX_DRIVER_VER 32u
 #define PROS_DRIVER_COMPAT_MAX_CLASS 32u
@@ -94,6 +95,7 @@ struct pros_compat_package {
     const char *name;
     char provider[PROS_DRIVER_COMPAT_MAX_PROVIDER];
     char driver_ver[PROS_DRIVER_COMPAT_MAX_DRIVER_VER];
+    char class_name[PROS_DRIVER_COMPAT_MAX_CLASS_NAME];
     uint32_t metadata_valid;
     char provider[PROS_DRIVER_COMPAT_MAX_PROVIDER];
     char driver_ver[PROS_DRIVER_COMPAT_MAX_DRIVER_VER];
