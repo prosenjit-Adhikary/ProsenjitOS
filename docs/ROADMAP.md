@@ -138,6 +138,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
   - [ ] Universal hardware coverage strategy (native + class/protocol + compatibility + graceful fallback)
   - [x] Driver Manager metadata/trust/dependency/matching foundation
+  - [x] Explicit device-class capability contract with fail-closed unsupported-class handling
+  - [x] PCI base-class mapping for storage/network/display/audio/serial/input/USB
   - [ ] Full Driver Manager / package-management architecture
   - [ ] Hardware-ID database and device/driver matching
   - [ ] Cryptographic signed driver-package verification and trust policy
