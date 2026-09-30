@@ -179,7 +179,7 @@ debugging features.
 - Health events carry sequence, timer timestamp, severity, category, source, code and value metadata.
 - Health snapshots expose heap usage and event/drop counters without requiring dynamic allocation.
 - The initial monitor self-test and boot-time sample run after kernel heap initialization.
-- This is only the monitoring foundation: persistent storage, rotation/retention, crash/panic persistence, watchdogs and recovery-state integration remain separate completion gates.
+- This is the monitoring foundation plus bounded persistent rotation/retention, fatal-exception/recovery capture and watchdog/subsystem event hooks; reboot-surviving panic persistence and full runtime service/network instrumentation remain separate completion gates.
 
 ### Central diagnostic export
 ### Central logging facade
@@ -187,13 +187,13 @@ debugging features.
 - An optional VFS-backed persistent sink is now defined with bounded file size, rotation threshold, and file-count policy.
 - The sink attaches only to an active writable VFS mount and uses the existing VFS file contract.
 - Persistence is non-authoritative: sink absence/failure does not fail the central health event path.
-- Rotation and retention execution remain explicit follow-up work; reaching the threshold currently stops persistence rather than deleting or overwriting older logs.
+- Rotation/retention execution is now implemented with bounded generation shifting and oldest-generation removal; filesystem failures fail closed. Fatal exception events are captured in the health ring and bounded watchdog/subsystem hooks are available.
 
 
 - Kernel logging now has a single structured emission boundary in `kernel/log.c`.
 - The first sink is the bounded health-event ring; future serial/persistent sinks can be attached without changing callers.
 - Sink availability is explicit, and logging remains non-authoritative for boot/storage correctness.
-- Persistent retention, rotation, and crash-survival remain separate milestones.
+- Persistent retention/rotation is implemented; crash-survival across reboot remains a separate milestone.
 
 
 - The health monitor now exposes a bounded deterministic text export of retained structured events.
