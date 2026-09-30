@@ -157,6 +157,7 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
 {
     uint32_t pos = 0, section_start = 0, section_end = 0;
     int in_manufacturer = 0;
+    int found_manufacturer = 0;
     while (pos < len) {
         uint32_t line_start = pos, line_end;
         while (pos < len && text[pos] != '\r' && text[pos] != '\n') ++pos;
@@ -165,6 +166,7 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
             uint32_t s = trim_start(text, line_start + 1u, line_end - 1u);
             uint32_t e = trim_end(text, s, line_end - 1u);
             in_manufacturer = ci_equal_range(text, s, e, "Manufacturer");
+            if (in_manufacturer) found_manufacturer = 1;
         } else if (in_manufacturer) {
             uint32_t eq = line_start;
             while (eq < line_end && text[eq] != '=') ++eq;
@@ -189,7 +191,7 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
         }
         while (pos < len && (text[pos] == '\r' || text[pos] == '\n')) ++pos;
     }
-    pkg->manufacturer_valid = in_manufacturer ? 1u : pkg->manufacturer_valid;
+    pkg->manufacturer_valid = found_manufacturer ? 1u : pkg->manufacturer_valid;
     if (pkg->model_map_count) pkg->metadata_valid = 1u;
 }
 
