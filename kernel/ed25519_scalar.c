@@ -1,4 +1,73 @@
-#include "ed25519_scalar.h"
+#i
+static void scalar_add_raw(uint8_t out[32], const uint8_t a[32],
+                           const uint8_t b[32]) {
+    uint16_t carry = 0;
+    for (uint32_t i = 0; i < 32u; ++i) {
+        uint16_t v = (uint16_t)a[i] + b[i] + carry;
+        out[i] = (uint8_t)v;
+        carry = (uint16_t)(v >> 8);
+    }
+}
+
+void pros_ed25519_scalar_add(uint8_t out[32], const uint8_t a[32],
+                             const uint8_t b[32]) {
+    uint8_t wide[64] = {0};
+    if (!out || !a || !b) return;
+    scalar_add_raw(wide, a, b);
+    pros_ed25519_scalar_reduce(out, wide);
+}
+
+void pros_ed25519_scalar_sub(uint8_t out[32], const uint8_t a[32],
+                             const uint8_t b[32]) {
+    uint8_t tmp[32];
+    uint16_t borrow = 0;
+    if (!out || !a || !b) return;
+    for (uint32_t i = 0; i < 32u; ++i) {
+        uint16_t ai = a[i];
+        uint16_t bi = (uint16_t)b[i] + borrow;
+        tmp[i] = (uint8_t)(ai - bi);
+        borrow = (ai < bi) ? 1u : 0u;
+    }
+    if (borrow) {
+        uint16_t carry = 0;
+        for (uint32_t i = 0; i < 32u; ++i) {
+            uint16_t v = (uint16_t)tmp[i] + scalar_l[i] + carry;
+            tmp[i] = (uint8_t)v;
+            carry = (uint16_t)(v >> 8);
+        }
+    }
+    /* Inputs are reduced scalars in normal use; normalize defensively. */
+    {
+        uint8_t wide[64] = {0};
+        for (uint32_t i = 0; i < 32u; ++i) wide[i] = tmp[i];
+        pros_ed25519_scalar_reduce(out, wide);
+    }
+}
+
+void pros_ed25519_scalar_mul(uint8_t out[32], const uint8_t a[32],
+                             const uint8_t b[32]) {
+    uint8_t wide[64] = {0};
+    if (!out || !a || !b) return;
+
+    for (uint32_t i = 0; i < 32u; ++i) {
+        uint16_t carry = 0;
+        for (uint32_t j = 0; j < 32u - i; ++j) {
+            uint32_t k = i + j;
+            uint32_t v = (uint32_t)wide[k] + (uint32_t)a[i] * b[j] + carry;
+            wide[k] = (uint8_t)v;
+            carry = (uint16_t)(v >> 8);
+        }
+        uint32_t k = i + (32u - i);
+        while (carry && k < 64u) {
+            uint32_t v = (uint32_t)wide[k] + carry;
+            wide[k] = (uint8_t)v;
+            carry = (uint16_t)(v >> 8);
+            ++k;
+        }
+    }
+    pros_ed25519_scalar_reduce(out, wide);
+}
+nclude "ed25519_scalar.h"
 
 static const uint8_t scalar_l[32] = {
     0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
