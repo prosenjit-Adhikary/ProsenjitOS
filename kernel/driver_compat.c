@@ -186,25 +186,32 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
             if (eq < line_end &&
                 pkg->model_map_count < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS) {
                 uint32_t rhs = trim_start(text, eq + 1u, line_end);
-                uint32_t comma = rhs;
-                while (comma < line_end && text[comma] != ',') ++comma;
-                uint32_t e = trim_end(text, rhs, comma);
-                uint32_t i;
-                int duplicate = 0;
-                if (rhs < e) {
-                    for (i = 0; i < pkg->model_map_count; ++i) {
-                        if (ci_cstr_equal_range(pkg->model_sections[i],
-                                                text + rhs, e - rhs)) {
-                            duplicate = 1;
-                            break;
+                while (rhs < line_end &&
+                       pkg->model_map_count < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS) {
+                    uint32_t comma = rhs;
+                    uint32_t e;
+                    uint32_t i;
+                    int duplicate = 0;
+                    while (comma < line_end && text[comma] != ',') ++comma;
+                    e = trim_end(text, rhs, comma);
+                    if (rhs < e) {
+                        for (i = 0; i < pkg->model_map_count; ++i) {
+                            if (ci_cstr_equal_range(pkg->model_sections[i],
+                                                    text + rhs, e - rhs)) {
+                                duplicate = 1;
+                                break;
+                            }
+                        }
+                        if (!duplicate) {
+                            copy_range(pkg->model_sections[pkg->model_map_count],
+                                       PROS_DRIVER_COMPAT_MAX_SECTION,
+                                       text, rhs, e);
+                            pkg->model_id_counts[pkg->model_map_count] = 0;
+                            ++pkg->model_map_count;
                         }
                     }
-                    if (!duplicate) {
-                        copy_range(pkg->model_sections[pkg->model_map_count],
-                                   PROS_DRIVER_COMPAT_MAX_SECTION, text, rhs, e);
-                        pkg->model_id_counts[pkg->model_map_count] = 0;
-                        ++pkg->model_map_count;
-                    }
+                    if (comma >= line_end) break;
+                    rhs = trim_start(text, comma + 1u, line_end);
                 }
             }
         }
