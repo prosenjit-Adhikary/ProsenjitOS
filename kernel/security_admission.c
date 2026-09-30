@@ -12,6 +12,17 @@ int pros_file_admission_evaluate(
         return -1;
 
     metadata = input->metadata;
+
+    /*
+     * Signature validity is authoritative cryptographic evidence and must
+     * never be accepted from this generic metadata-only admission path.
+     * The dedicated signature trust authority must establish it first.
+     * Local policy trust remains valid as a separate, explicitly named
+     * admission path.
+     */
+    metadata.signature_valid = 0;
+    metadata.signature_present = 0;
+
     pros_sha256(input->data, input->length, record->sha256);
 
     /*
@@ -33,8 +44,8 @@ int pros_file_admission_selftest(void) {
         .length = 3,
         .metadata = {
             .format_valid = 1,
-            .signature_valid = 1,
-            .signature_present = 1,
+            .signature_valid = 0,
+            .signature_present = 0,
             .local_trusted = 0,
             .local_denied = 0,
             .reputation = PROS_FILE_REPUTATION_CLEAN,
