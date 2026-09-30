@@ -6514,7 +6514,7 @@ int ntfs_selftest(void)
 
             split_status = ntfs_index_allocation_insert(
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
-                0u, 4096u, 0x5000u, new_key, sizeof(new_key));
+                0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
             if (split_status != PROS_NTFS_OK)
                 return -196;
 
