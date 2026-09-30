@@ -57,7 +57,7 @@ static int ci_match4(const char *p, const char *tag);
 static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
 {
     uint16_t vendor, device;
-    if (pos + 21u > len) return 0;
+    if (pos > len || len - pos < 21u) return 0;
     if (!ci_match4(&text[pos], "PCI") || text[pos + 3u] != '\\' ||
         !ci_match4(&text[pos + 4u], "VEN") || text[pos + 7u] != '_')
         return 0;
