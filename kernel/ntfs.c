@@ -3412,6 +3412,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     uint32_t best_balance = 0xFFFFFFFFu;
     uint64_t new_vcn = 0u, new_lcn = 0u;
     uint64_t separator_reference = 0u;
+    uint16_t separator_key_size = 0u;
     uint32_t parent_entry_size;
     uint32_t parent_insert_offset = 0u;
     uint32_t root_entries_size;
@@ -3615,11 +3616,12 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             sep_key_size > sizeof(separator_key))
             return PROS_NTFS_ECORRUPT;
         separator_reference = le64(expanded + sep_offset);
+        separator_key_size = sep_key_size;
         for (uint32_t i = 0u; i < sep_key_size; ++i)
             separator_key[i] = expanded[sep_offset + 16u + i];
 
         parent_entry_size =
-            (16u + (uint32_t)sep_key_size + 8u + 7u) & ~7u;
+            (16u + (uint32_t)separator_key_size + 8u + 7u) & ~7u;
         if (parent_entry_size > 0xFFFFu ||
             root_allocated_size < root_entries_size ||
             parent_entry_size > root_allocated_size - root_entries_size)
@@ -3785,11 +3787,11 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         ((uint8_t *)root_data)[parent_insert_offset + 9u] =
             (uint8_t)(parent_entry_size >> 8);
         ((uint8_t *)root_data)[parent_insert_offset + 10u] =
-            (uint8_t)sep_key_size;
+            (uint8_t)separator_key_size;
         ((uint8_t *)root_data)[parent_insert_offset + 11u] =
-            (uint8_t)(sep_key_size >> 8);
+            (uint8_t)(separator_key_size >> 8);
         ((uint8_t *)root_data)[parent_insert_offset + 12u] = 1u;
-        for (uint32_t i = 0u; i < sep_key_size; ++i)
+        for (uint32_t i = 0u; i < separator_key_size; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + 16u + i] =
                 separator_key[i];
         for (uint32_t i = 0u; i < 8u; ++i)
