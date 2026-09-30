@@ -119,9 +119,17 @@ clear_entry:
 int pros_driver_bundle_retire(uint32_t package_id)
 {
     int rc;
+    struct pros_driver_bundle_entry entry;
 
     if (!package_id)
         return PROS_DRIVER_EINVAL;
+
+    /*
+     * Retirement is a bundle operation.  Preflight the locator so a
+     * registry-only package is never reclaimed and then reported as ENODEV.
+     */
+    if (pros_driver_bundle_find(package_id, &entry) != PROS_DRIVER_OK)
+        return PROS_DRIVER_ENODEV;
 
     /*
      * Reclaim the compatibility package first.  If dependency or lifecycle
