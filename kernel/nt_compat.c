@@ -95,6 +95,35 @@ int pros_nt_compat_stage(uint32_t package_id)
     return PROS_DRIVER_ENOTSUP;
 }
 
+int pros_nt_compat_submit_io(uint32_t package_id,
+                             struct pros_nt_io_request *request)
+{
+    if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
+        !request)
+        return PROS_DRIVER_EINVAL;
+    if (request->size < sizeof(*request) ||
+        request->major >= PROS_NT_IRP_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (request->buffer_size > PROS_NT_IO_MAX_BUFFER)
+        return PROS_DRIVER_ENOSPC;
+    if (images[package_id - 1u].state == PROS_NT_COMPAT_QUARANTINED)
+        return PROS_DRIVER_EPERM;
+    if (request->major == PROS_NT_IRP_READ &&
+        request->type != PROS_NT_IO_READ)
+        return PROS_DRIVER_EINVAL;
+    if (request->major == PROS_NT_IRP_WRITE &&
+        request->type != PROS_NT_IO_WRITE)
+        return PROS_DRIVER_EINVAL;
+    if (request->major == PROS_NT_IRP_DEVICE_CONTROL &&
+        request->type != PROS_NT_IO_DEVICE_CONTROL)
+        return PROS_DRIVER_EINVAL;
+    request->status = pros_nt_compat_dispatch(
+        package_id, request->major, request);
+    if (request->status == PROS_DRIVER_OK)
+        request->information = request->buffer_size;
+    return request->status;
+}
+
 int pros_nt_compat_pnp(uint32_t package_id, uint32_t event)
 {
     if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES ||
