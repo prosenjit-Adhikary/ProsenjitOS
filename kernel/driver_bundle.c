@@ -70,9 +70,19 @@ int pros_driver_bundle_remove(uint32_t package_id)
 
     {
         struct pros_compat_package package;
-        if (pros_driver_compat_get_package(package_id, &package) !=
-            PROS_DRIVER_OK)
-            return PROS_DRIVER_ENODEV;
+        {
+            int package_rc = pros_driver_compat_get_package(package_id, &package);
+            /*
+             * The bundle index is a locator, not the package owner.  A
+             * stale locator must remain removable even if its compatibility
+             * package was already reclaimed.
+             */
+            if (package_rc != PROS_DRIVER_OK &&
+                package_rc != PROS_DRIVER_ENODEV)
+                return package_rc;
+            if (package_rc == PROS_DRIVER_ENODEV)
+                goto clear_entry;
+        }
 
         /*
          * Removing an indexed candidate must never silently detach an
@@ -86,6 +96,7 @@ int pros_driver_bundle_remove(uint32_t package_id)
             return PROS_DRIVER_EBUSY;
     }
 
+clear_entry:
     e->package_id = 0u;
     e->source = PROS_DRIVER_BUNDLE_ISO;
     e->version_major = e->version_minor = e->version_patch = 0u;
