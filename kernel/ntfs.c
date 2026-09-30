@@ -3645,7 +3645,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     record[bitmap_attr + 8u] = 0u;
     record[bitmap_attr + 14u] = (uint8_t)attr_id;
     record[bitmap_attr + 15u] = (uint8_t)(attr_id >> 8);
-    record[bitmap_attr + 16u] = 1u;
+    record[bitmap_attr + 16u] = 8u;
     record[bitmap_attr + 20u] = 24u;
     record[bitmap_attr + 24u] = 1u; /* VCN 0 in use. */
     attr_id++;
