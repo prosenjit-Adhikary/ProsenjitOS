@@ -247,6 +247,19 @@ static int ata_write(struct pros_block_device *device, uint64_t lba,
                           ((const uint16_t *)(const void *)src)[w]);
             src += 512u;
         }
+
+        /* Wait for the device to finish the PIO write before issuing the
+         * next command. The final data word only completes the host transfer;
+         * the device may still have BSY asserted while committing the sector. */
+        rc = ata_wait_not_busy(ata);
+        if (rc != PROS_ATA_OK)
+            return PROS_BLOCK_EIO;
+        {
+            uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
+            if (status & (ATA_SR_ERR | ATA_SR_DF))
+                return PROS_BLOCK_EIO;
+        }
+
         lba += chunk;
         remaining -= chunk;
     }
