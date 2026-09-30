@@ -206,12 +206,71 @@ int pros_driver_bundle_selftest(void) {
     uint8_t a[PROS_FILE_SHA256_BYTES],b[PROS_FILE_SHA256_BYTES];
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i){a[i]=(uint8_t)i;b[i]=(uint8_t)(i^0x55u);}
     if(pros_driver_bundle_init()!=0)return -1;
+    if(pros_driver_compat_init()!=PROS_DRIVER_OK)return -2;
     if(pros_driver_bundle_add(1,PROS_DRIVER_BUNDLE_ISO,1,2,3,a)!=0)return -2;
     if(pros_driver_bundle_add(2,PROS_DRIVER_BUNDLE_REMOVABLE,1,3,0,b)!=0)return -3;
     if(pros_driver_bundle_add(3,(enum pros_driver_bundle_source)-1,1,0,0,a)!=PROS_DRIVER_EINVAL)return -4;
     int cmp=0;if(pros_driver_bundle_compare_version(1,2,&cmp)!=0||cmp>=0)return -5;
     struct pros_driver_bundle_entry e;if(pros_driver_bundle_find(1,&e)!=0)return -6;
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)if(e.content_sha256[i]!=a[i])return -7;
+
+    /*
+     * Admission-backed import must hash the actual bytes, bind matching
+     * admission evidence, verify the transaction, and only then index it.
+     */
+    {
+        static const struct pros_driver_id import_id = {
+            PROS_DRIVER_BUS_PCI, 0x2468u, 0x1357u, 0, 0, 0
+        };
+        static const uint8_t import_bytes[] = "offline-import";
+        struct pros_file_admission_input input;
+        struct pros_file_admission_record record;
+        struct pros_compat_package package;
+        struct pros_driver_bundle_entry imported;
+        uint32_t imported_id = 0;
+
+        input.data = import_bytes;
+        input.length = sizeof(import_bytes) - 1u;
+        input.metadata.format_valid = 1u;
+        input.metadata.signature_valid = 0u;
+        input.metadata.signature_present = 0u;
+        input.metadata.local_trusted = 1u;
+        input.metadata.local_denied = 0u;
+        input.metadata.reputation = PROS_FILE_REPUTATION_CLEAN;
+        input.metadata.provenance_known = 1u;
+
+        if (pros_file_admission_evaluate(&input, &record) != 0 ||
+            pros_driver_bundle_admit_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "offline-import.inf", &import_id, 1u, 0u,
+                PROS_DRIVER_BUNDLE_REMOVABLE, 2u, 1u, 0u,
+                import_bytes, sizeof(import_bytes) - 1u, &record,
+                &imported_id) != PROS_DRIVER_OK ||
+            pros_driver_compat_get_package(imported_id, &package) !=
+                PROS_DRIVER_OK ||
+            package.tx_state != PROS_COMPAT_TX_VERIFIED ||
+            package.trust != PROS_COMPAT_TRUST_VERIFIED ||
+            pros_driver_bundle_find(imported_id, &imported) !=
+                PROS_DRIVER_OK ||
+            !imported.content_sha256_valid)
+            return -9;
+
+        for (uint32_t i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
+            if (imported.content_sha256[i] != package.content_sha256[i])
+                return -10;
+
+        {
+            struct pros_file_admission_record bad = record;
+            bad.sha256[0] ^= 0xFFu;
+            if (pros_driver_bundle_admit_package(
+                    PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                    "offline-import-bad.inf", &import_id, 1u, 0u,
+                    PROS_DRIVER_BUNDLE_REMOVABLE, 2u, 1u, 1u,
+                    import_bytes, sizeof(import_bytes) - 1u, &bad,
+                    &imported_id) == PROS_DRIVER_OK)
+                return -11;
+        }
+    }
 
     /*
      * A bundle entry must track the compatibility registry's current content
