@@ -86,6 +86,16 @@ static int nt_compat_test_handler(uint32_t package_id, uint32_t irp_major,
     return PROS_DRIVER_OK;
 }
 
+static int nt_compat_pnp_test_handler(uint32_t package_id, uint32_t irp_major,
+                                       void *context)
+{
+    uintptr_t event = (uintptr_t)context;
+    (void)package_id;
+    if (irp_major != PROS_NT_IRP_PNP || event >= PROS_NT_PNP_MAX)
+        return PROS_DRIVER_EINVAL;
+    return PROS_DRIVER_OK;
+}
+
 static struct pros_nt_compat_image images[PROS_NT_COMPAT_MAX_HANDLES];
 static struct pros_nt_compat_dispatch_table dispatch[PROS_NT_COMPAT_MAX_HANDLES];
 static struct pros_nt_device_object devices[PROS_NT_COMPAT_MAX_HANDLES];
@@ -422,6 +432,30 @@ int pros_nt_compat_selftest(void)
     if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_READ,
                                                nt_compat_test_handler)
         != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_register_dispatch(1u, PROS_NT_IRP_PNP,
+                                               nt_compat_pnp_test_handler)
+        != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    images[0].state = PROS_NT_COMPAT_STAGED;
+    if (pros_nt_compat_pnp(1u, PROS_NT_PNP_QUERY_REMOVE)
+        != PROS_DRIVER_EPERM)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_pnp(1u, PROS_NT_PNP_START) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (devices[0].state != PROS_NT_DEVICE_STARTED)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_pnp(1u, PROS_NT_PNP_QUERY_REMOVE) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (devices[0].state != PROS_NT_DEVICE_QUERY_REMOVE)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_pnp(1u, PROS_NT_PNP_STOP) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (devices[0].state != PROS_NT_DEVICE_STOPPED)
+        return PROS_DRIVER_EIO;
+    if (pros_nt_compat_pnp(1u, PROS_NT_PNP_REMOVE) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    if (devices[0].state != PROS_NT_DEVICE_REMOVED)
         return PROS_DRIVER_EIO;
     {
         struct pros_nt_io_request request;
