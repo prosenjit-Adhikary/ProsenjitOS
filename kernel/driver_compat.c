@@ -52,6 +52,24 @@ static int parse_hex2(const char *p, uint8_t *out)
     *out = (uint8_t)((hi << 4) | lo);
     return 1;
 }
+static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
+{
+    uint16_t vendor, device;
+    if (pos + 17u > len) return 0;
+    if (text[pos] != 'P' || text[pos + 1u] != 'C' ||
+        text[pos + 2u] != 'I' || text[pos + 3u] != '\\' ||
+        text[pos + 4u] != 'V' || text[pos + 5u] != 'E' ||
+        text[pos + 6u] != 'N' || text[pos + 7u] != '_')
+        return 0;
+    if (!parse_hex4(&text[pos + 8u], &vendor) ||
+        text[pos + 12u] != '&' || text[pos + 13u] != 'D' ||
+        text[pos + 14u] != 'E' || text[pos + 15u] != 'V' ||
+        text[pos + 16u] != '_')
+        return 0;
+    if (!parse_hex4(&text[pos + 17u], &device)) return 0;
+    return 1;
+}
+
 
 static int ci_match4(const char *p, const char *tag)
 {
@@ -223,7 +241,8 @@ static void inspect_model_sections(const char *text, uint32_t len,
         } else if (active >= 0) {
             uint32_t scan = line_start;
             while (scan < line_end) {
-                if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_")) {
+                if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_") &&
+                    pci_hwid_at(text, line_end, scan)) {
                     if (pkg->model_id_counts[active] < 255u)
                         ++pkg->model_id_counts[active];
                     break;
