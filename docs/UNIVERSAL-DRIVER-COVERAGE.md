@@ -84,6 +84,10 @@ Literal support for 100% of hardware cannot be guaranteed by a new OS without im
 The practical target is 100% installation continuity for unsupported non-critical hardware, plus maximum hardware coverage through standard protocols, native drivers, and a controlled compatibility layer.
 The OS should never require a user to abandon installation simply because an optional vendor-specific device has no driver.
 
+## Implementation status
+
+The first compatibility inspection slice is now implemented in the kernel: bounded INF-text inspection extracts PCI `VEN_xxxx&DEV_yyyy` hardware IDs, records the detected package model, and exposes the extracted IDs to the driver-manager layer. It does not execute installers, parse arbitrary INF directives, verify signatures, or execute Windows `.sys` binaries. Those remain separate security-sensitive stages.
+
 ## Implementation order
 
 1. Keep the generic driver registry stable.
