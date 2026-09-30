@@ -13,6 +13,12 @@ static uint64_t health_lookup_error_count;
 static uint64_t health_io_error_count;
 static uint64_t health_permission_error_count;
 static uint64_t health_corruption_error_count;
+static uint64_t health_unlink_count;
+static uint64_t health_mkdir_count;
+static uint64_t health_rmdir_count;
+static uint64_t health_rename_count;
+static uint64_t health_dir_open_count;
+static uint64_t health_dir_read_count;
 
 static void vfs_health_error(int rc)
 {
@@ -632,6 +638,7 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
     rc = parent->ops->mkdir(parent, name, &created);
     if (created) vfs_vnode_put(created);
     vfs_vnode_put(parent);
+    if (rc < 0) vfs_health_error(rc); else ++health_mkdir_count;
     return rc;
 }
 
@@ -690,6 +697,7 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
     }
     rc = parent->ops->rmdir(parent, name);
     vfs_vnode_put(parent);
+    if (rc < 0) vfs_health_error(rc); else ++health_rmdir_count;
     return rc;
 }
 
@@ -894,6 +902,7 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
     dir->vnode = vnode;
     dir->cookie = 0;
     dir->open = 1u;
+    ++health_dir_open_count;
     return PROS_VFS_OK;
 }
 
@@ -902,7 +911,9 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
     if (!dir || !dir->open || !dir->vnode || !entry ||
         !dir->vnode->ops->readdir)
         return PROS_VFS_EINVAL;
-    return dir->vnode->ops->readdir(dir->vnode, &dir->cookie, entry);
+    int rc = dir->vnode->ops->readdir(dir->vnode, &dir->cookie, entry);
+    if (rc < 0) vfs_health_error(rc); else ++health_dir_read_count;
+    return rc;
 }
 
 int vfs_dir_close(struct pros_vfs_dir *dir)
@@ -1235,6 +1246,12 @@ uint64_t vfs_health_lookup_error_count(void) { return health_lookup_error_count;
 uint64_t vfs_health_io_error_count(void) { return health_io_error_count; }
 uint64_t vfs_health_permission_error_count(void) { return health_permission_error_count; }
 uint64_t vfs_health_corruption_error_count(void) { return health_corruption_error_count; }
+uint64_t vfs_health_unlink_count(void) { return health_unlink_count; }
+uint64_t vfs_health_mkdir_count(void) { return health_mkdir_count; }
+uint64_t vfs_health_rmdir_count(void) { return health_rmdir_count; }
+uint64_t vfs_health_rename_count(void) { return health_rename_count; }
+uint64_t vfs_health_dir_open_count(void) { return health_dir_open_count; }
+uint64_t vfs_health_dir_read_count(void) { return health_dir_read_count; }
 
 int vfs_security_selftest(void)
 {
