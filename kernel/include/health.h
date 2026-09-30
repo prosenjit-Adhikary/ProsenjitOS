@@ -61,6 +61,15 @@ struct pros_health_snapshot {
     uint64_t last_exception_vector;
     uint64_t last_exception_rip;
     uint64_t heap_used_bytes;
+    uint64_t fs_mount_count;
+    uint64_t fs_unmount_count;
+    uint64_t fs_read_count;
+    uint64_t fs_write_count;
+    uint64_t fs_truncate_count;
+    uint64_t fs_lookup_error_count;
+    uint64_t fs_io_error_count;
+    uint64_t fs_permission_error_count;
+    uint64_t fs_corruption_error_count;
     uint64_t event_sequence;
     uint32_t event_count;
     uint32_t dropped_events;
