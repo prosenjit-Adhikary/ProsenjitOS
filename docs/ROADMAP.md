@@ -15,6 +15,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
 9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
 10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
+11. **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -135,15 +136,19 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Stable device/driver registry, hardware-ID matching, lifecycle bind/unbind, native/compatibility origin metadata, and boot self-test
   - [x] Legacy ATA PIO block-device provider (polling, LBA28/LBA48, write and flush)
   - [x] Native QEMU persistent-disk handoff into the partition/VFS stack
-  - [ ] Universal hardware coverage strategy (native + class/protocol + compatibility + graceful fallback)\n  - [ ] Driver Manager / package-management architecture
+  - [ ] Universal hardware coverage strategy (native + class/protocol + compatibility + graceful fallback)
+  - [ ] Driver Manager / package-management architecture
   - [ ] Hardware-ID database and device/driver matching
   - [ ] Signed driver-package verification and trust policy
   - [ ] Windows driver package importer (extract/inspect `.exe`, `.zip`, `.cab`, `.inf` packages without executing vendor installers)
   - [ ] Windows INF parsing and compatible package metadata extraction
+  - [ ] **ReactOS-inspired NT/WDM compatibility architecture (independent implementation; no direct ReactOS source copy by default)**
   - [ ] Windows-driver compatibility layer / adapter API
-  - [ ] Native-vs-compatibility driver selection and fallback flow\n  - [ ] Installer/bootstrap driver environment and offline-first hardware bundle
+  - [ ] Native-vs-compatibility driver selection and fallback flow
+  - [ ] Installer/bootstrap driver environment and offline-first hardware bundle
   - [ ] Offline driver installation from removable/local media
   - [ ] Driver rollback, removal, versioning, and dependency handling
+  - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
@@ -281,7 +286,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - **Boot:** prefer an original ProsenjitOS bootloader and stable boot protocol; MBR/GPT remain partition-layer concerns, and GRUB/other traditional loaders are optional adapters rather than kernel dependencies.
 - **Filesystem extensibility:** future filesystem providers should attach through the VFS/provider boundary without requiring kernel-core redesign; existing FAT32/exFAT/NTFS/ProsenjitFS implementations remain protected from unnecessary architectural churn.
 - **Compatibility:** Windows Office and OneDrive support are engineering targets to be validated incrementally, not current guarantees.
-- **Driver compatibility:** maximize practical hardware coverage without attempting to author every vendor driver natively. Native ProsenjitOS drivers remain the primary path; a controlled Windows-driver import/compatibility subsystem is a critical long-term feature. Vendor `.exe` installers should be treated as packages to extract and inspect (when technically possible), not executed blindly. The importer should recognize common package forms such as `.exe`, `.zip`, `.cab`, and `.inf`, inspect hardware IDs and metadata, verify package trust/signatures where available, and install only through the ProsenjitOS driver model/compatibility layer. Windows `.sys` binaries must not be assumed to be directly loadable by the ProsenjitOS kernel.
+- **Driver compatibility:** maximize practical hardware coverage without attempting to author every vendor driver natively. Native ProsenjitOS drivers remain the primary path; a controlled Windows-driver import/compatibility subsystem is a critical long-term feature. ReactOS is an architectural/reference point for understanding NT/WDM compatibility, but ProsenjitOS will use an independently implemented compatibility layer by default. ReactOS source is GPL-licensed, so direct source reuse requires an explicit license review before any reuse. Vendor `.exe` installers should be treated as packages to extract and inspect (when technically possible), not executed blindly. The importer should recognize common package forms such as `.exe`, `.zip`, `.cab`, and `.inf`, inspect hardware IDs and metadata, verify package trust/signatures where available, and install only through the ProsenjitOS driver model/compatibility layer. Windows `.sys` binaries must not be assumed to be directly loadable by the ProsenjitOS kernel.
 
 ## Long-term
 - [ ] USB
