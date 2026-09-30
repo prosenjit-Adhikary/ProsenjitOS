@@ -44,6 +44,7 @@ struct pros_compat_package {
     uint8_t class_code;
     uint8_t subclass;
     uint8_t prog_if;
+    uint32_t id_count;
     const char *name;
 };
 
@@ -66,6 +67,8 @@ int pros_driver_compat_register_package(
 int pros_driver_compat_get_package(uint32_t package_id,
                                    struct pros_compat_package *out);
 int pros_driver_compat_supports_model(enum pros_compat_driver_model model);
+int pros_driver_compat_inspect_inf(const char *name, const char *text,
+                                    uint32_t text_len, uint32_t *package_id_out);
 int pros_driver_compat_selftest(void);
 
 #endif
