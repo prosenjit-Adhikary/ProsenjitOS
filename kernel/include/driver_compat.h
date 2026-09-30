@@ -40,6 +40,13 @@ enum pros_compat_trust {
     PROS_COMPAT_TRUST_REJECTED
 };
 
+enum pros_compat_trust_evidence {
+    PROS_COMPAT_EVIDENCE_NONE = 0,
+    PROS_COMPAT_EVIDENCE_LOCAL_POLICY,
+    PROS_COMPAT_EVIDENCE_CRYPTO_SIGNATURE,
+    PROS_COMPAT_EVIDENCE_TEST_ONLY
+};
+
 enum pros_compat_tx_state {
     PROS_COMPAT_TX_IDLE = 0,
     PROS_COMPAT_TX_INSPECTED,
@@ -64,6 +71,7 @@ struct pros_compat_package {
     enum pros_compat_status status;
     uint32_t flags;
     enum pros_compat_trust trust;
+    enum pros_compat_trust_evidence trust_evidence;
     enum pros_compat_tx_state tx_state;
     uint32_t dependency_count;
     uint32_t dependencies[PROS_DRIVER_COMPAT_MAX_DEPS];
@@ -105,6 +113,9 @@ int pros_driver_compat_get_id(uint32_t package_id, uint32_t index,
                               struct pros_driver_id *out);
 int pros_driver_compat_supports_model(enum pros_compat_driver_model model);
 int pros_driver_compat_set_trust(uint32_t package_id, enum pros_compat_trust trust);
+/* Evidence is policy metadata; CRYPTO_SIGNATURE is not produced until a verifier exists. */
+int pros_driver_compat_set_trust_evidence(
+    uint32_t package_id, enum pros_compat_trust_evidence evidence);
 int pros_driver_compat_add_dependency(uint32_t package_id, uint32_t dependency_id);
 int pros_driver_compat_match(uint32_t package_id,
                              const struct pros_driver_id *hwid,
