@@ -2833,9 +2833,12 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return -6;
 
-        if (!pfs_diag.found || pfs_diag.tx_byte != 0xD6u ||
-            pfs_diag.post_commit_byte != 0xD6u)
-            return -0x20000 - (int)pfs_diag.post_commit_byte;
+        if (!pfs_diag.found)
+            return -0x20000;
+        if (pfs_diag.tx_byte != 0xD6u)
+            return -0x21000 - (int)pfs_diag.tx_byte;
+        if (pfs_diag.post_commit_byte != 0xD6u)
+            return -0x22000 - (int)pfs_diag.post_commit_byte;
 
         if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK)
             return -0x21000;
