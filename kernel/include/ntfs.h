@@ -153,7 +153,8 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                  uint32_t record_size,
                                  uint64_t file_reference,
                                  const uint8_t *key,
-                                 uint16_t key_size);
+                                 uint16_t key_size,
+                                 uint64_t directory_record_number);
 
 int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                                  const void *record, uint32_t record_size,
