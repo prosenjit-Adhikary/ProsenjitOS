@@ -6,6 +6,7 @@ static struct pros_log_persist_policy persist_policy;
 static uint8_t initialized;
 static uint8_t attached;
 static uint32_t bytes_written;
+static char persist_path[PROS_LOG_PERSIST_PATH_MAX];
 
 static uint32_t bounded_strlen(const char *s, uint32_t max) {
     uint32_t n = 0u;
@@ -25,6 +26,7 @@ int pros_log_persist_init(void) {
     initialized = 1u;
     attached = 0u;
     bytes_written = 0u;
+    persist_path[0] = '\0';
     return PROS_LOG_PERSIST_OK;
 }
 
@@ -57,6 +59,8 @@ int pros_log_persist_attach(struct pros_vfs_mount *mount,
     persist_policy = *policy;
     attached = 1u;
     bytes_written = 0u;
+    for (uint32_t i = 0u; i <= length; ++i)
+        persist_path[i] = path[i];
     return PROS_LOG_PERSIST_OK;
 }
 
