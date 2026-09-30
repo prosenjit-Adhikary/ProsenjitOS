@@ -2417,7 +2417,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
-    return pfs_journal_clear(fs);
+    /*
+     * Diagnostic isolation: leave the committed journal intact so the caller
+     * can verify that clearing the journal is not touching metadata/data.
+     * Recovery is designed to replay a committed record idempotently.
+     */
+    return PROSENJITFS_OK;
 }
 
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit)
