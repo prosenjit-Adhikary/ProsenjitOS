@@ -56,14 +56,11 @@ static int pci_hwid_at(const char *text, uint32_t len, uint32_t pos)
 {
     uint16_t vendor, device;
     if (pos + 21u > len) return 0;
-    if (text[pos] != 'P' || text[pos + 1u] != 'C' ||
-        text[pos + 2u] != 'I' || text[pos + 3u] != '\\' ||
-        text[pos + 4u] != 'V' || text[pos + 5u] != 'E' ||
-        text[pos + 6u] != 'N' || text[pos + 7u] != '_')
+    if (!ci_match4(&text[pos], "PCI") || text[pos + 3u] != '\\' ||
+        !ci_match4(&text[pos + 4u], "VEN") || text[pos + 7u] != '_')
         return 0;
     if (!parse_hex4(&text[pos + 8u], &vendor) ||
-        text[pos + 12u] != '&' || text[pos + 13u] != 'D' ||
-        text[pos + 14u] != 'E' || text[pos + 15u] != 'V' ||
+        text[pos + 12u] != '&' || !ci_match4(&text[pos + 13u], "DEV") ||
         text[pos + 16u] != '_')
         return 0;
     if (!parse_hex4(&text[pos + 17u], &device)) return 0;
@@ -246,7 +243,8 @@ static void inspect_model_sections(const char *text, uint32_t len,
                     pci_hwid_at(text, line_end, scan)) {
                     if (pkg->model_id_counts[active] < 255u)
                         ++pkg->model_id_counts[active];
-                    break;
+                    scan += 21u;
+                    continue;
                 }
                 ++scan;
             }
