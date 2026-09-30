@@ -155,6 +155,14 @@ int pros_device_broker_selftest(void)
             PROS_DRIVER_OK ||
         pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
             PROS_DRIVER_OK ||
+        (pros_device_broker_drop_device(device_id), 0) != 0 ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
+            PROS_DRIVER_EPERM ||
+        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
+            PROS_DRIVER_EPERM ||
+        pros_device_grant(device_id, 7u,
+                          PROS_DEVICE_PERMISSION_READ |
+                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_OK ||
         pros_driver_unbind(device_id) != PROS_DRIVER_OK ||
         pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
             PROS_DRIVER_EPERM ||
