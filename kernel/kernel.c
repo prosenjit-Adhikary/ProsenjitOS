@@ -13,6 +13,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "driver.h"
+#include "device_broker.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -1313,6 +1314,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
+
+    /* Device permission broker: grants are issued only after a device is bound. */
+    if (pros_device_broker_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR device permission broker self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: device permission broker self-test passed\\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
