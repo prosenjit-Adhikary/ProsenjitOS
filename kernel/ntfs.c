@@ -1242,16 +1242,21 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
     while (offset < root.entries_size) {
         uint16_t entry_size, key_size;
         uint8_t flags;
-        if (root.entries_size - offset < 16u)
+        if (root.entries_size - offset < 16u) {
+            ntfs_active_upcase = 0;
             return PROS_NTFS_ECORRUPT;
+        }
         entry_size = le16(root_data + offset + 8u);
         key_size = le16(root_data + offset + 10u);
         flags = root_data[offset + 12u];
         if (entry_size < 16u || (entry_size & 7u) != 0u ||
             entry_size > root.entries_size - offset ||
             (flags & ~3u) != 0u ||
-            key_size > entry_size - 16u - ((flags & 1u) ? 8u : 0u))
+            entry_size < 16u + ((flags & 1u) ? 8u : 0u) ||
+            key_size > entry_size - 16u - ((flags & 1u) ? 8u : 0u)) {
+            ntfs_active_upcase = 0;
             return PROS_NTFS_ECORRUPT;
+        }
         if (flags & 1u) {
             uint64_t vcn = le64(root_data + offset + entry_size - 8u);
             if (chosen == 0u)
