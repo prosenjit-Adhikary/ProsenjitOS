@@ -2978,7 +2978,7 @@ int prosenjitfs_selftest(void)
                 return -78;
             return (int)(-200 - physical_writes);
         }
-        for (uint32_t i = 0u; i < sizeof(write_data); ++i) {
+        for (uint32_t i = 0u; i < fs.sb.block_size && i < sizeof(write_data); ++i) {
             if (physical_image[i] != write_data[i])
                 return (int)(-3000 - i);
         }
