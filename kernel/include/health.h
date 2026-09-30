@@ -42,6 +42,8 @@ struct pros_health_event {
 struct pros_health_snapshot {
     uint64_t timestamp;
     uint64_t uptime_ticks;
+    uint64_t timer_irq_count;
+    uint64_t scheduler_preempt_count;
     uint64_t physical_total_pages;
     uint64_t physical_free_pages;
     uint64_t heap_used_bytes;
