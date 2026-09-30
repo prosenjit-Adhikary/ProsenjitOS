@@ -5,6 +5,11 @@
 #include "thread.h"
 #include "block.h"
 
+extern uint64_t kernel_exception_count(void);
+extern uint64_t kernel_page_fault_count(void);
+extern uint64_t kernel_last_exception_vector(void);
+extern uint64_t kernel_last_exception_rip(void);
+
 static struct pros_health_event events[PROS_HEALTH_EVENT_MAX];
 static uint32_t event_head;
 static uint32_t event_count;
@@ -73,6 +78,10 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
         .block_error_count = block_error_count(),
         .block_flush_count = block_flush_count(),
         .block_flush_error_count = block_flush_error_count(),
+        .exception_count = kernel_exception_count(),
+        .page_fault_count = kernel_page_fault_count(),
+        .last_exception_vector = kernel_last_exception_vector(),
+        .last_exception_rip = kernel_last_exception_rip(),
         .memory_pressure = (physical_memory_total_pages() != 0 &&
                             physical_memory_free_pages() * 100ULL <
                             physical_memory_total_pages() * 10ULL) ? 2u :
