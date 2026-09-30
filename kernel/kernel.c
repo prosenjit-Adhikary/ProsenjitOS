@@ -1147,8 +1147,94 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     pfs_rc = prosenjitfs_probe(&pfs_device.device);
             }
             if (pfs_rc != PROSENJITFS_OK ||
-                prosenjitfs_mount(&native_fs, &pfs_device.device, 0u) != PROSENJITFS_OK ||
-                prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&native_fs, &pfs_device.device, 0u) != PROSENJITFS_OK) {
+                serial_write("ProsenjitOS: ERROR native ProsenjitFS persistent storage test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            {
+                struct pros_vfs_file trace_file;
+                uint8_t trace_write[512], trace_read[512];
+                uint32_t trace_done = 0u, trace_count = 0u;
+                uint64_t physical_lba = 0u, parent_write_lba = 0u;
+                uint64_t ata_write_lba = 0u, parent_read_lba = 0u;
+                uint64_t ata_read_lba = 0u;
+                uint8_t tx_byte = 0u, post_commit_byte = 0u;
+                uint8_t direct_byte = 0u, vfs_byte = 0u;
+
+                for (uint32_t i = 0u; i < sizeof(trace_write); ++i)
+                    trace_write[i] = (uint8_t)((i * 13u) ^ 0x5Au);
+                trace_write[188u] = 0xD6u;
+
+                prosenjitfs_write_diag_reset();
+                partition_trace_reset(&pfs_device);
+                pros_ata_pio_trace_reset(&native_ata);
+
+                if (vfs_file_open(&native_fs.mount, "/.__pfs_lba_trace",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                  &trace_file) != PROS_VFS_OK ||
+                    vfs_file_write(&trace_file, trace_write,
+                                   sizeof(trace_write), &trace_done) != PROS_VFS_OK ||
+                    trace_done != sizeof(trace_write) ||
+                    vfs_file_close(&trace_file) != PROS_VFS_OK ||
+                    prosenjitfs_write_diag_get(&physical_lba, &tx_byte,
+                                               &post_commit_byte, &direct_byte,
+                                               &vfs_byte) != PROSENJITFS_OK ||
+                    tx_byte != 0xD6u || post_commit_byte != 0xD6u ||
+                    partition_trace_find(&pfs_device, physical_lba, 1u,
+                                         &parent_write_lba, &trace_count) != PROS_PARTITION_OK ||
+                    pros_ata_pio_trace_find(&native_ata, parent_write_lba, 1u,
+                                            &ata_write_lba, &trace_count) != PROS_ATA_OK ||
+                    ata_write_lba != parent_write_lba) {
+                    serial_write("ProsenjitOS: ERROR native write LBA boundary trace failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+
+                serial_write("ProsenjitOS: PFS write LBA = ");
+                serial_hex64(physical_lba);
+                serial_write(", partition parent LBA = ");
+                serial_hex64(parent_write_lba);
+                serial_write(", ATA write LBA = ");
+                serial_hex64(ata_write_lba);
+                serial_write("\n");
+
+                partition_trace_reset(&pfs_device);
+                pros_ata_pio_trace_reset(&native_ata);
+                trace_done = 0u;
+                if (vfs_file_open(&native_fs.mount, "/.__pfs_lba_trace",
+                                  PROS_VFS_O_READ, &trace_file) != PROS_VFS_OK ||
+                    vfs_file_read(&trace_file, trace_read, sizeof(trace_read),
+                                  &trace_done) != PROS_VFS_OK ||
+                    trace_done != sizeof(trace_read) ||
+                    vfs_file_close(&trace_file) != PROS_VFS_OK ||
+                    prosenjitfs_write_diag_get(&physical_lba, &tx_byte,
+                                               &post_commit_byte, &direct_byte,
+                                               &vfs_byte) != PROSENJITFS_OK ||
+                    vfs_byte != 0xD6u ||
+                    partition_trace_find(&pfs_device, physical_lba, 0u,
+                                         &parent_read_lba, &trace_count) != PROS_PARTITION_OK ||
+                    pros_ata_pio_trace_find(&native_ata, parent_read_lba, 0u,
+                                            &ata_read_lba, &trace_count) != PROS_ATA_OK ||
+                    ata_read_lba != parent_read_lba) {
+                    serial_write("ProsenjitOS: ERROR native read LBA boundary trace failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                for (uint32_t i = 0u; i < sizeof(trace_read); ++i)
+                    if (trace_read[i] != trace_write[i]) {
+                        serial_write("ProsenjitOS: ERROR native LBA trace readback data mismatch\n");
+                        for (;;) __asm__ volatile ("cli; hlt");
+                    }
+
+                serial_write("ProsenjitOS: PFS read LBA = ");
+                serial_hex64(physical_lba);
+                serial_write(", partition parent LBA = ");
+                serial_hex64(parent_read_lba);
+                serial_write(", ATA read LBA = ");
+                serial_hex64(ata_read_lba);
+                serial_write("\n");
+            }
+
+            if (prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK ||
                 pros_storage_discover(&native_ata.block, volumes,
                                        PROS_STORAGE_MAX_VOLUMES,
                                        &volume_count) != PROS_STORAGE_OK ||
