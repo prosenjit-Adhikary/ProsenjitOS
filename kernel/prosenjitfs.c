@@ -793,10 +793,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     data->fs->sb.block_bitmap_start + physical / bits_per_block;
                 static uint8_t bitmap_check[4096];
                 if (pfs_read_block(data->fs->mount.device, bitmap_lba,
-                                   bitmap_check) != PROSENJITFS_OK ||
-                    (bitmap_check[(physical % bits_per_block) >> 3] &
-                     (uint8_t)(1u << (physical & 7u))) == 0u)
+                                   bitmap_check) != PROSENJITFS_OK)
                     return done ? (int)done : -87;
+                if ((bitmap_check[(physical % bits_per_block) >> 3] &
+                     (uint8_t)(1u << (physical & 7u))) == 0u)
+                    return done ? (int)done : -88;
             }
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
