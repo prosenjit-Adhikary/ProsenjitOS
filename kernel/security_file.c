@@ -2,13 +2,6 @@
 
 #include <stdint.h>
 
-struct pros_sha256_ctx {
-    uint32_t h[8];
-    uint64_t bit_count;
-    uint8_t block[64];
-    uint32_t used;
-};
-
 static uint32_t rotr32(uint32_t x, uint32_t n) {
     return (x >> n) | (x << (32u - n));
 }
