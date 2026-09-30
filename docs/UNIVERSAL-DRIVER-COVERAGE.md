@@ -180,3 +180,8 @@ The offline bundle layer now has an explicit import/admission boundary. A packag
 ### Offline select-best regression coverage — 2026-09-30
 
 The bundle self-test now exercises two admission-backed, verified packages targeting the same PCI hardware ID. It verifies that select-best chooses the higher semantic version when hardware match scores are equal, while preserving the existing content-identity and trust gates. This is regression coverage for deterministic selection policy, not a claim of executable Windows-driver compatibility.
+
+
+### Offline import failure containment — 2026-09-30
+
+Admission-backed offline imports now fail closed on content-hash, admission, or transaction-start errors: the newly registered package is marked rejected where rollback cannot yet establish a transaction boundary, while verification failures explicitly roll back and revoke trust evidence. This prevents a failed import attempt from remaining accidentally selectable. Package-registry reclamation/removal remains a separate lifecycle task.
