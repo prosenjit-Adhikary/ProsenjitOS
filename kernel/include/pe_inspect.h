@@ -31,6 +31,10 @@ struct pros_pe_image_info {
     uint32_t import_rva;
     uint32_t import_size;
     uint32_t section_count;
+    uint8_t is_pe32_plus;
+    uint8_t has_imports;
+    uint8_t has_relocations;
+    uint8_t reserved;
 };
 
 int pros_pe_inspect(const uint8_t *image, uint32_t image_size,
