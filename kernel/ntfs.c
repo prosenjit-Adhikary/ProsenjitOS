@@ -5733,8 +5733,8 @@ int ntfs_selftest(void)
 
                 if (ntfs_index_allocation_insert(
                         &fs, index_runs, index_run_count, 0u, 4096u,
-                        0x4000u, second_key, sizeof(second_key)) !=
-                    PROS_NTFS_OK)
+                        0x4000u, second_key, sizeof(second_key),
+                        5u) != PROS_NTFS_OK)
                     return -121;
 
                 if (ntfs_index_allocation_read(
