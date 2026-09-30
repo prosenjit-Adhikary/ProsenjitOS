@@ -155,7 +155,7 @@ static void copy_range(char *out, uint32_t cap, const char *text, uint32_t start
 static void inspect_manufacturer_sections(const char *text, uint32_t len,
                                           struct pros_compat_package *pkg)
 {
-    uint32_t pos = 0, section_start = 0, section_end = 0;
+    uint32_t pos = 0;
     int in_manufacturer = 0;
     int found_manufacturer = 0;
     while (pos < len) {
@@ -313,6 +313,14 @@ int pros_driver_compat_register_package(
     pkg->provider[0] = 0;
     pkg->driver_ver[0] = 0;
     pkg->class_name[0] = 0;
+    pkg->metadata_valid = 0;
+    pkg->subsys_id = 0;
+    pkg->revision = 0;
+    pkg->subsys_valid = 0;
+    pkg->revision_valid = 0;
+    pkg->manufacturer_valid = 0;
+    pkg->model_map_count = 0;
+    pkg->manufacturer_section[0] = 0;
 
     for (i = 0; i < id_count; ++i)
         package_ids[package_count][i] = ids[i];
