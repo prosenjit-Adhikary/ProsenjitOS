@@ -2924,7 +2924,7 @@ int prosenjitfs_selftest(void)
             }
             if (!saw_physical_write)
                 return -78;
-            return (int)(-100 - latest);
+            return (int)(-200 - physical_writes);
         }
     }
 
