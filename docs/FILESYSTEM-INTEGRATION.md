@@ -1,8 +1,10 @@
 # ProsenjitOS filesystem integration boundary
 
-## Status — 2026-09-29
+## Status — 2026-09-30
 
-The native BIOS bootloader and the initial ProsenjitFS provider are now integrated on main and CI-verified. The native bootloader remains independent of partitions/filesystems.
+The native BIOS bootloader and ProsenjitFS provider are integrated on main. The latest filesystem work completes the VFS/provider mutation scope for ProsenjitFS: persistent allocation/reclamation, file create/delete, mkdir/rmdir, same-directory rename, cross-directory move, and directory-parent cycle protection. The native bootloader remains independent of partitions/filesystems.
+
+Final CI verification is currently pending because recent GitHub Actions jobs fail during job startup before workflow steps are created; no successful post-change QEMU regression result is claimed.
 
 ## Frozen dependency direction
 
@@ -61,7 +63,7 @@ Every filesystem integration change must preserve:
 5. FAT32 self-test.
 6. exFAT self-test, including Up-case/Unicode coverage.
 7. NTFS read/path/write regression markers already required by CI.
-8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in.
+8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in, including allocation/reclamation and directory mutation regression.
 9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
 
 A real QEMU disk-device test for ProsenjitFS is a separate milestone. It must not be claimed until the kernel has a real ATA/AHCI/NVMe/USB-visible block-device path.
@@ -76,4 +78,4 @@ Do not remove or bypass FAT32/exFAT/NTFS providers to make ProsenjitFS work.
 
 ## Merge gate
 
-The ProsenjitFS integration is considered CI-verified for its current scope: build/link, memory-backed format/mount/allocation/journal self-test, native BIOS boot, GRUB boot, and FAT32/exFAT/NTFS regressions are green on main. Full filesystem completion still requires broader directory/file mutation, corruption/crash-point coverage, and a real QEMU-visible storage-device path.
+The ProsenjitFS implementation scope is now covered by deterministic memory-backed mutation tests and the native physical-LBA diagnostic gate. The implementation is not labeled CI-verified until a post-change GitHub Actions run successfully executes the workflow steps. Broader corruption/crash-point coverage and real power-loss validation remain separate reliability milestones.
