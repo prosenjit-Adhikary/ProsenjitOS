@@ -1245,15 +1245,3 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
 
-    serial_write("ProsenjitOS: entering CPL3 user-mode test\n");
-    if (address_space_switch(user_space) != 0) {
-        serial_write("ProsenjitOS: ERROR user address-space switch failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    enter_user_mode(PROSENJIT_USER_CODE_VA, PROSENJIT_USER_STACK_TOP, user_mode_handle);
-    for (;;) __asm__ volatile ("cli; hlt");
-
-    vga_write("ProsenjitOS 0.1.0 - kernel online", 0x0F);
-    serial_write("ProsenjitOS: kernel online\n");
-    for (;;) __asm__ volatile ("hlt");
-}
