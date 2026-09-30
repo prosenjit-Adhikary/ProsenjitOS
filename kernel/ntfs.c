@@ -3665,7 +3665,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         root_data = (uint8_t *)(uintptr_t)root_data_const;
         if (root_size < 0x30u)
             goto rollback;
-        for (uint32_t i = 0u; i < root_size; ++i)
+        for (uint32_t i = 16u; i < root_size; ++i)
             root_data[i] = 0u;
         /* Preserve the INDEX_ROOT type/collation/index-block geometry. */
         root_data[16u] = 0x10u;
