@@ -27,6 +27,26 @@ int pros_driver_bundle_find(uint32_t id, struct pros_driver_bundle_entry *out) {
     if(!id||!out)return PROS_DRIVER_EINVAL; struct pros_driver_bundle_entry *e=find(id);
     if(!e)return PROS_DRIVER_ENODEV; *out=*e; return PROS_DRIVER_OK;
 }
+int pros_driver_bundle_remove(uint32_t package_id)
+{
+    struct pros_driver_bundle_entry *e;
+    uint32_t i;
+
+    if (!package_id)
+        return PROS_DRIVER_EINVAL;
+    e = find(package_id);
+    if (!e)
+        return PROS_DRIVER_ENODEV;
+
+    e->package_id = 0u;
+    e->source = PROS_DRIVER_BUNDLE_ISO;
+    e->version_major = e->version_minor = e->version_patch = 0u;
+    e->content_sha256_valid = 0u;
+    for (i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
+        e->content_sha256[i] = 0u;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_bundle_compare_version(uint32_t a,uint32_t b,int *out) {
     if(!a||!b||!out)return PROS_DRIVER_EINVAL; struct pros_driver_bundle_entry *x=find(a),*y=find(b);
     if(!x||!y)return PROS_DRIVER_ENODEV;
