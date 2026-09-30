@@ -189,7 +189,12 @@ static void inspect_manufacturer_sections(const char *text, uint32_t len,
                            PROS_DRIVER_COMPAT_MAX_SECTION, text, s, e);
             }
         } else if (in_manufacturer) {
-            uint32_t eq = line_start;
+            uint32_t content_start = trim_start(text, line_start, line_end);
+            if (content_start < line_end && text[content_start] == ';') {
+                while (pos < len && (text[pos] == '\r' || text[pos] == '\n')) ++pos;
+                continue;
+            }
+            uint32_t eq = content_start;
             while (eq < line_end && text[eq] != '=') ++eq;
             if (eq < line_end &&
                 pkg->model_map_count < PROS_DRIVER_COMPAT_MAX_MODEL_MAPS) {
@@ -254,7 +259,11 @@ static void inspect_model_sections(const char *text, uint32_t len,
                 }
             }
         } else if (active >= 0) {
-            uint32_t scan = line_start;
+            uint32_t scan = trim_start(text, line_start, line_end);
+            if (scan < line_end && text[scan] == ';') {
+                while (pos < len && (text[pos] == '\r' || text[pos] == '\n')) ++pos;
+                continue;
+            }
             while (scan < line_end) {
                 if (ci_contains(&text[scan], line_end - scan, "PCI\\VEN_") &&
                     pci_hwid_at(text, line_end, scan)) {
