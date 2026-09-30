@@ -73,10 +73,27 @@ struct pfs_write_diag {
 
 static struct pfs_write_diag pfs_diag;
 
-static void pfs_diag_reset(void)
+void prosenjitfs_write_diag_reset(void)
 {
     pfs_zero(&pfs_diag, sizeof(pfs_diag));
     pfs_diag.enabled = 1u;
+}
+
+int prosenjitfs_write_diag_get(uint64_t *physical_lba, uint8_t *tx_byte,
+                               uint8_t *post_commit_byte,
+                               uint8_t *direct_byte, uint8_t *vfs_byte)
+{
+    if (!physical_lba || !tx_byte || !post_commit_byte ||
+        !direct_byte || !vfs_byte)
+        return PROSENJITFS_EINVAL;
+    if (!pfs_diag.found)
+        return PROSENJITFS_ENOENT;
+    *physical_lba = pfs_diag.physical_lba;
+    *tx_byte = pfs_diag.tx_byte;
+    *post_commit_byte = pfs_diag.post_commit_byte;
+    *direct_byte = pfs_diag.direct_byte;
+    *vfs_byte = pfs_diag.vfs_byte;
+    return PROSENJITFS_OK;
 }
 
 static uint32_t pfs_crc_update(uint32_t crc, const uint8_t *data,
@@ -2823,7 +2840,7 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(write_data); ++i)
             write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
 
-        pfs_diag_reset();
+        prosenjitfs_write_diag_reset();
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
