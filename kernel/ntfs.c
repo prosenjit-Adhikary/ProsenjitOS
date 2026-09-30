@@ -1512,6 +1512,8 @@ int ntfs_mft_allocate_record(struct pros_ntfs *fs,
         return PROS_NTFS_EOVERFLOW;
     total_records = (fs->total_sectors * (uint64_t)fs->bytes_per_sector) /
                     fs->bytes_per_file_record;
+    if (bitmap_size > 0xFFFFFFFFFFFFFFFFull / 8u)
+        return PROS_NTFS_EOVERFLOW;
     record_count = bitmap_size * 8u;
     if (record_count > total_records)
         record_count = total_records;
