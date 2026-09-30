@@ -46,6 +46,9 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
     out->import_rva = 0;
     out->import_size = 0;
     out->section_count = sections;
+    out->is_pe32_plus = (magic == 0x20bu) ? 1u : 0u;
+    out->has_imports = 0;
+    out->has_relocations = 0;
 
     if (magic == 0x10bu) {
         if (opt_size >= 104u) {
@@ -69,6 +72,8 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
         if (raw_size && !range_ok(raw_off, raw_size, size))
             return PROS_DRIVER_EIO;
     }
+    out->has_imports = out->import_rva != 0 && out->import_size != 0;
+    /* Relocation directory is optional; metadata-only for now. */
     if (out->image_size == 0 || out->entry_rva >= out->image_size)
         return PROS_DRIVER_EIO;
     return PROS_DRIVER_OK;
@@ -91,7 +96,8 @@ int pros_pe_selftest(void)
     pe[p+24+68]=1;
     if (pros_pe_inspect(pe, sizeof(pe), &info) != PROS_DRIVER_OK)
         return PROS_DRIVER_EIO;
-    if (info.machine != 0 || info.sections != 1 || info.entry_rva != 0x1000u)
+    if (info.machine != 0 || info.sections != 1 || info.entry_rva != 0x1000u ||
+        info.is_pe32_plus || info.has_imports)
         return PROS_DRIVER_EIO;
     return PROS_DRIVER_OK;
 }
