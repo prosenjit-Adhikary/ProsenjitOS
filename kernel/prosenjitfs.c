@@ -3406,6 +3406,72 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK)
             return -12;
     }
+    /*
+     * Directory mutation regression:
+     *  - mkdir allocates both inode and directory-index storage.
+     *  - file creation works below the new directory.
+     *  - cross-directory rename preserves the inode/data.
+     *  - directory moves update parent_inode and reject cycles.
+     *  - rmdir rejects non-empty directories and reclaims empty directories.
+     */
+    if (vfs_mkdir(&fs.mount, "/dir1") != PROS_VFS_OK ||
+        vfs_mkdir(&fs.mount, "/dir2") != PROS_VFS_OK ||
+        vfs_mkdir(&fs.mount, "/dir1/subdir") != PROS_VFS_OK)
+        return -12;
+    {
+        struct pros_vfs_file moved_file;
+        uint8_t marker = 0x5Au, verify = 0u;
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/dir1/moved.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &moved_file) != PROS_VFS_OK ||
+            vfs_file_write(&moved_file, &marker, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&moved_file) != PROS_VFS_OK)
+            return -12;
+        if (vfs_rename(&fs.mount, "/dir1/moved.bin", "/dir2/moved.bin") !=
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir1/moved.bin", &hidden) !=
+                PROS_VFS_ENOENT)
+            return -12;
+        if (hidden)
+            vfs_vnode_put(hidden);
+        if (vfs_file_open(&fs.mount, "/dir2/moved.bin",
+                          PROS_VFS_O_READ, &moved_file) != PROS_VFS_OK ||
+            vfs_file_read(&moved_file, &verify, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || verify != marker ||
+            vfs_file_close(&moved_file) != PROS_VFS_OK)
+            return -12;
+    }
+    if (vfs_rename(&fs.mount, "/dir1/subdir", "/dir2/subdir") !=
+            PROS_VFS_OK)
+        return -12;
+    {
+        struct pros_vfs_vnode *moved_dir = 0;
+        struct pfs_vnode_data *moved_data;
+        struct pros_prosenjitfs_inode moved_inode;
+        if (vfs_path_lookup(&fs.mount, "/dir2/subdir", &moved_dir) !=
+                PROS_VFS_OK || !moved_dir)
+            return -12;
+        moved_data = (struct pfs_vnode_data *)moved_dir->private_data;
+        if (!moved_data ||
+            prosenjitfs_read_inode(&fs, moved_data->inode_number, &moved_inode) !=
+                PROSENJITFS_OK ||
+            moved_inode.parent_inode != 3u) {
+            vfs_vnode_put(moved_dir);
+            return -12;
+        }
+        vfs_vnode_put(moved_dir);
+    }
+    if (vfs_rename(&fs.mount, "/dir2", "/dir2/subdir/loop") !=
+            PROS_VFS_EINVAL ||
+        vfs_rmdir(&fs.mount, "/dir2") != PROS_VFS_ENOTEMPTY ||
+        vfs_unlink(&fs.mount, "/dir2/moved.bin") != PROS_VFS_OK ||
+        vfs_rmdir(&fs.mount, "/dir2/subdir") != PROS_VFS_OK ||
+        vfs_rmdir(&fs.mount, "/dir1") != PROS_VFS_OK ||
+        vfs_rmdir(&fs.mount, "/dir2") != PROS_VFS_OK)
+        return -12;
+
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return -12;
     {
