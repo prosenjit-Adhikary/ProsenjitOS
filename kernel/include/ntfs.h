@@ -141,6 +141,20 @@ int ntfs_index_record_fixup(void *record, uint32_t record_size,
 int ntfs_index_record_header(const void *record, uint32_t record_size,
                              uint32_t bytes_per_sector, uint64_t expected_vcn,
                              struct pros_ntfs_index_record *info);
+/*
+ * Insert a leaf entry into an existing $INDEX_ALLOCATION INDX node.
+ * This primitive mutates only an already allocated leaf node; B-tree root
+ * promotion and node splitting are handled by the higher-level writer.
+ */
+int ntfs_index_allocation_insert(struct pros_ntfs *fs,
+                                 const struct pros_ntfs_run *runs,
+                                 uint32_t run_count,
+                                 uint64_t vcn,
+                                 uint32_t record_size,
+                                 uint64_t file_reference,
+                                 const uint8_t *key,
+                                 uint16_t key_size);
+
 int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                                  const void *record, uint32_t record_size,
                                  uint32_t index_root_attr_offset,
