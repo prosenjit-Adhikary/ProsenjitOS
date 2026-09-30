@@ -124,11 +124,10 @@ int pros_nt_compat_rollback(uint32_t package_id)
     images[package_id - 1u].state = PROS_NT_COMPAT_EMPTY;
     images[package_id - 1u].package_id = 0;
     images[package_id - 1u].capabilities = 0;
-    images[package_id - 1u].machine = 0;
-    images[package_id - 1u].entry_rva = 0;
+    images[package_id - 1u].image_entry = 0;
     images[package_id - 1u].image_size = 0;
-    for (i = 0; i < PROS_NT_COMPAT_MAX_DISPATCH; ++i)
-        dispatch_tables[package_id - 1u].handlers[i] = 0;
+    for (i = 0; i < PROS_NT_IRP_MAX; ++i)
+        dispatch[package_id - 1u].major[i] = 0;
     return PROS_DRIVER_OK;
 }
 
