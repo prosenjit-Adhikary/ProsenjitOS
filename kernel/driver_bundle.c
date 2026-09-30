@@ -593,6 +593,33 @@ int pros_driver_bundle_selftest(void) {
     }
 
     /*
+     * Safe retirement removes the bundle locator before reclaiming an
+     * inactive compatibility package.
+     */
+    {
+        static const struct pros_driver_id retire_id = {
+            PROS_DRIVER_BUS_PCI, 0xD00Du, 0x0001u, 0, 0, 0
+        };
+        static const uint8_t retire_digest[PROS_FILE_SHA256_BYTES] = { 0x5Au };
+        uint32_t retire_package = 0u;
+        struct pros_compat_package retire_package_data;
+
+        if (pros_driver_compat_register_package(
+                PROS_COMPAT_PACKAGE_INF, PROS_COMPAT_MODEL_WDM,
+                "retire-selftest.inf", &retire_id, 1u, 0u,
+                &retire_package) != PROS_DRIVER_OK ||
+            pros_driver_bundle_add(
+                retire_package, PROS_DRIVER_BUNDLE_LOCAL,
+                1u, 0u, 0u, retire_digest) != PROS_DRIVER_OK ||
+            pros_driver_bundle_retire(retire_package) != PROS_DRIVER_OK ||
+            pros_driver_bundle_find(
+                retire_package, &entry_v2) != PROS_DRIVER_ENODEV ||
+            pros_driver_compat_get_package(
+                retire_package, &retire_package_data) != PROS_DRIVER_ENODEV)
+            return -23;
+    }
+
+    /*
      * A bundle entry must track the compatibility registry's current content
      * identity.  Deliberately change the package bytes after indexing and
      * verify that selection fails closed rather than using stale metadata.
