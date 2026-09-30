@@ -327,7 +327,9 @@ int pros_health_selftest(void) {
         pros_health_export(export_buffer, sizeof(export_buffer),
                            &export_length) != PROS_HEALTH_OK ||
         export_length == 0u ||
-        export_buffer[export_length] != '\0')
+        export_buffer[export_length] != '\0' ||
+        pros_health_export(export_buffer, 8u, &export_length) != PROS_HEALTH_EIO ||
+        pros_health_watchdog_register(0u, 1u) != PROS_HEALTH_EINVAL)
         return PROS_HEALTH_EIO;
 
     if (pros_health_init() != PROS_HEALTH_OK ||
