@@ -2512,10 +2512,6 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
         ntfs_read_file_record(fs, child_record_number, child_record,
                               sizeof(child_record)) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_upcase_load(fs) != PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
-    ntfs_active_upcase = ntfs_upcase_data;
-
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0x90u, &index_root_offset) != PROS_NTFS_OK) {
         ntfs_active_upcase = 0;
@@ -3283,7 +3279,7 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
 
     if (ntfs_index_allocation_read(fs, runs, run_count, byte_offset,
                                    record, record_size) != PROS_NTFS_OK)
-        { ntfs_active_upcase = 0; return PROS_NTFS_EIO; }
+        return PROS_NTFS_EIO;
     if (ntfs_index_record_fixup(record, record_size, fs->bytes_per_sector) !=
         PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
