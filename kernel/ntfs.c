@@ -1134,7 +1134,7 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
             fs, runs, run_count, chosen_vcn, root.bytes_per_index_record,
             ((uint64_t)le16(child_record + 16u) << 48) |
             (child_record_number & 0x0000FFFFFFFFFFFFull),
-            key, child_name_size);
+            key, child_name_size, directory_record_number);
         ntfs_active_upcase = 0;
         return status;
     }
@@ -3420,7 +3420,9 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     uint32_t terminal_offset = 0u;
     int rc;
 
-    if (!fs || !runs || run_count == 0u || !key || key_size < 66u ||
+    if (!fs || !runs || run_count == 0u ||
+        directory_record_number > 0x0000FFFFFFFFFFFFull ||
+        !key || key_size < 66u ||
         key_size > 0xFFFFu || record_size > sizeof(leaf) ||
         record_size < fs->bytes_per_sector ||
         record_size % fs->bytes_per_sector != 0u ||
@@ -3830,7 +3832,8 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
                                  uint32_t record_size,
                                  uint64_t file_reference,
                                  const uint8_t *key,
-                                 uint16_t key_size)
+                                 uint16_t key_size,
+                                 uint64_t directory_record_number)
 {
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     uint64_t byte_offset;
