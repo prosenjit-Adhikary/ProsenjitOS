@@ -124,31 +124,74 @@ int pros_ed25519_fe_equal(const struct pros_ed25519_fe *a,const struct pros_ed25
 }
 
 int pros_ed25519_fe_selftest(void) {
-    static const uint8_t two[32]={2};
-    static const uint8_t p_minus_one[32]={
+    static const uint8_t two[32] = { 2 };
+    static const uint8_t three[32] = { 3 };
+    static const uint8_t five[32] = { 5 };
+    static const uint8_t p_minus_one[32] = {
         0xec,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x7f
     };
-    struct pros_ed25519_fe a,b,r;
+    static const uint8_t p[32] = {
+        0xed,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x7f
+    };
+    struct pros_ed25519_fe a,b,r,expected;
     uint8_t out[32];
 
-    pros_ed25519_fe_from_bytes(&a,two);
-    pros_ed25519_fe_from_bytes(&b,two);
-    pros_ed25519_fe_add(&r,&a,&b);
-    pros_ed25519_fe_to_bytes(out,&r);
-    if(out[0]!=4) return -1;
-    for(uint32_t i=1;i<32u;++i) if(out[i]!=0) return -2;
+    /* 2 + 2 = 4. */
+    pros_ed25519_fe_from_bytes(&a, two);
+    pros_ed25519_fe_from_bytes(&b, two);
+    pros_ed25519_fe_add(&r, &a, &b);
+    pros_ed25519_fe_to_bytes(out, &r);
+    if (out[0] != 4) return -1;
+    for (uint32_t i = 1; i < 32u; ++i)
+        if (out[i] != 0) return -2;
 
-    pros_ed25519_fe_from_bytes(&a,p_minus_one);
+    /* (p - 1) + 1 = 0. */
+    pros_ed25519_fe_from_bytes(&a, p_minus_one);
     pros_ed25519_fe_one(&b);
-    pros_ed25519_fe_add(&r,&a,&b);
-    pros_ed25519_fe_to_bytes(out,&r);
-    for(uint32_t i=0;i<32u;++i) if(out[i]!=0) return -3;
+    pros_ed25519_fe_add(&r, &a, &b);
+    pros_ed25519_fe_to_bytes(out, &r);
+    for (uint32_t i = 0; i < 32u; ++i)
+        if (out[i] != 0) return -3;
 
-    pros_ed25519_fe_from_bytes(&a,two);
-    pros_ed25519_fe_square(&r,&a);
-    if(!pros_ed25519_fe_equal(&r,&(struct pros_ed25519_fe){{4,0,0,0,0}})) return -4;
+    /* 2^2 = 4. */
+    pros_ed25519_fe_from_bytes(&a, two);
+    pros_ed25519_fe_square(&r, &a);
+    pros_ed25519_fe_from_bytes(&expected, (const uint8_t[32]){ 4 });
+    if (!pros_ed25519_fe_equal(&r, &expected)) return -4;
+
+    /* 2 * 3 = 6. */
+    pros_ed25519_fe_from_bytes(&a, two);
+    pros_ed25519_fe_from_bytes(&b, three);
+    pros_ed25519_fe_mul(&r, &a, &b);
+    pros_ed25519_fe_to_bytes(out, &r);
+    if (out[0] != 6) return -5;
+    for (uint32_t i = 1; i < 32u; ++i)
+        if (out[i] != 0) return -6;
+
+    /* 5 - 3 = 2. */
+    pros_ed25519_fe_from_bytes(&a, five);
+    pros_ed25519_fe_from_bytes(&b, three);
+    pros_ed25519_fe_sub(&r, &a, &b);
+    pros_ed25519_fe_from_bytes(&expected, two);
+    if (!pros_ed25519_fe_equal(&r, &expected)) return -7;
+
+    /* Encoding the modulus must canonicalize to zero. */
+    pros_ed25519_fe_from_bytes(&a, p);
+    pros_ed25519_fe_zero(&expected);
+    if (!pros_ed25519_fe_equal(&a, &expected)) return -8;
+
+    /* Decode/encode of a canonical small value must be stable. */
+    pros_ed25519_fe_from_bytes(&a, three);
+    pros_ed25519_fe_to_bytes(out, &a);
+    if (out[0] != 3) return -9;
+    for (uint32_t i = 1; i < 32u; ++i)
+        if (out[i] != 0) return -10;
+
     return 0;
 }
