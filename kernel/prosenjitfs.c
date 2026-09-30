@@ -2830,19 +2830,24 @@ int prosenjitfs_selftest(void)
         if (physical_image[188u] != expected_188) {
             uint8_t saw_expected = 0u;
             uint8_t saw_physical_write = 0u;
+            uint8_t latest = 0u;
+            uint32_t physical_writes = 0u;
             uint32_t total = disk.write_log_count < 128u ? disk.write_log_count : 128u;
             for (uint32_t n = 0u; n < total; ++n) {
                 uint32_t slot = (disk.write_log_count - 1u - n) % 128u;
                 if (disk.write_log_lba[slot] == written_extent.physical_block) {
                     saw_physical_write = 1u;
-                    if (disk.write_log_byte188[slot] == expected_188)
+                    ++physical_writes;
+                    latest = disk.write_log_byte188[slot];
+                    if (latest == expected_188)
                         saw_expected = 1u;
-                    else
-                        return (int)(-100 - disk.write_log_byte188[slot]);
-                    break;
                 }
             }
-            return saw_physical_write ? (saw_expected ? -77 : -76) : -78;
+            if (!saw_physical_write)
+                return -78;
+            if (saw_expected && latest != expected_188)
+                return -79 - (int)physical_writes;
+            return (int)(-100 - latest);
         }
     }
 
