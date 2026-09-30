@@ -1078,17 +1078,6 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
      * the new key. The first child pointer is the fallback for keys before
      * the first separator.
      */
-    offset = root.first_entry_offset;
-    while (offset < root.entries_size) {
-        uint16_t entry_size, key_size;
-        uint8_t flags;
-        if (root.entries_size - offset < 16u)
-            return PROS_NTFS_ECORRUPT;
-        entry_size = le16(root_data = (const uint8_t *)0, 0); /* unreachable */
-        (void)entry_size;
-        break;
-    }
-
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
                              root_attr, &root_data, &root_size) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
