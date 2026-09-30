@@ -26,7 +26,7 @@ The repository has moved beyond the original boot/kernel-only milestone. Recent 
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
 - Signature-verification trust boundary now performs real freestanding Ed25519 verification with strict point/scalar validation, SHA-512 challenge hashing, subgroup-small-order rejection, and an RFC 8032 known-answer self-test; RSA-PSS remains fail-closed as unsupported.
 - Ed25519 field arithmetic foundation now uses a 5×51-bit representation with canonical encoding/reduction, explicit carry-safe multiplication, subtraction, and constant-schedule inversion; the extended-coordinate point layer now includes identity, complete add/double formulas, curve-equation checking, canonical point decoding with sign-bit recovery, affine encoding, and base-point round-trip self-tests. Ed25519 scalar reduction/multiplication and signature verification are now implemented and startup-gated by self-tests. GitHub Actions currently starts push runs but the runner job is failing before any workflow step is created, so this new crypto implementation remains unverified by CI.
-- NTFS safe overwrite, allocated-space growth, $Bitmap allocation, and non-contiguous runlist growth are implemented; full directory metadata/journal writes remain incomplete.
+- NTFS safe overwrite, allocated-space growth, `$Bitmap` allocation, non-contiguous runlist growth, and guarded `$MFT` record reclamation are implemented; full directory index growth/splitting and journal/recovery writes remain incomplete.
 - VFS vnode lookup/reference semantics now explicitly transfer an owned lookup reference; cached FAT32/NTFS nodes retain their cache references, while dynamically allocated exFAT child vnodes release cleanly at final put.
 - Both repository GitHub Actions workflows were green on the last verified storage/VFS commit (`3ed84998`). The Up-case parser work is intentionally isolated on a feature branch until CI verifies it.
 
@@ -196,6 +196,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] NTFS `$Bitmap` contiguous free-cluster allocation primitive
   - [x] NTFS file growth with exact contiguous `$Bitmap` allocation and runlist extension
   - [x] NTFS non-contiguous runlist growth with mapping-pairs append
+  - [x] NTFS `$MFT` bitmap reclamation guard (writable mount + allocated-bit validation)
+  - [ ] NTFS directory-index growth/splitting (`$INDEX_ALLOCATION` mutation)
   - [ ] NTFS full write support (directory metadata updates, journal/recovery)
   - [ ] NTFS journal/recovery handling
 - [ ] Native filesystem design
