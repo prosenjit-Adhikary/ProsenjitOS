@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "driver.h"
 #include "security_file.h"
+#include "driver_compat.h"
 
 #define PROS_DRIVER_BUNDLE_MAX_ENTRIES 32u
 #define PROS_DRIVER_BUNDLE_MAX_VERSION 32u
@@ -36,6 +37,8 @@ int pros_driver_bundle_find(uint32_t package_id,
 int pros_driver_bundle_compare_version(uint32_t package_id_a,
                                        uint32_t package_id_b,
                                        int *comparison_out);
+int pros_driver_bundle_select(uint32_t package_id, const struct pros_driver_id *hwid,
+                              uint32_t *selected_package_id, int *score_out);
 int pros_driver_bundle_selftest(void);
 
 #endif
