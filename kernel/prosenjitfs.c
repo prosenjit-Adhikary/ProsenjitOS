@@ -805,6 +805,18 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (pfs_tx_commit(data->fs) != PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
 
+            if (tail_lba != 0u) {
+                uint8_t committed_tail_image[4096];
+                struct pros_prosenjitfs_extent committed_tail;
+                if (pfs_read_block(data->fs->mount.device, tail_lba,
+                                   committed_tail_image) != PROSENJITFS_OK)
+                    return done ? (int)done : -90;
+                pfs_copy(&committed_tail, committed_tail_image,
+                         sizeof(committed_tail));
+                if (committed_tail.next != new_extent_lba)
+                    return done ? (int)done : -91;
+            }
+
             {
                 uint64_t bits_per_block =
                     (uint64_t)data->fs->sb.block_size * 8u;
