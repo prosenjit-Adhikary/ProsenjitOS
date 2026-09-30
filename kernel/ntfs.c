@@ -987,6 +987,8 @@ int ntfs_mft_free_record(struct pros_ntfs *fs, uint64_t record_number)
         return PROS_NTFS_EINVAL;
 
     /* MFT bitmap mutation is a destructive metadata operation. */
+    *allocated_lcn = 0u;
+    *allocated_clusters = 0u;
     if (!fs->mount.active || fs->mount.read_only ||
         !fs->mount.device || !fs->mount.device->write)
         return PROS_NTFS_ENOTSUP;
@@ -1151,6 +1153,9 @@ int ntfs_create_file(struct pros_ntfs *fs,
     uint8_t parent_record[PROS_NTFS_RECORD_WORK_MAX];
     int rc;
     uint8_t root_needs_allocation_insert = 0u;
+    uint8_t root_bootstrapped = 0u;
+    uint64_t bootstrap_lcn = 0u;
+    uint64_t bootstrap_clusters = 0u;
 
     if (!fs || !record_number || !name_utf16le || name_length == 0u ||
         fs->bytes_per_file_record > sizeof(parent_record))
@@ -1206,13 +1211,30 @@ int ntfs_create_file(struct pros_ntfs *fs,
                                     fs->bytes_per_file_record, 0xA0u,
                                     &root_attr) != PROS_NTFS_OK) {
                 /* Bootstrap a resident-only index into a single INDX leaf. */
-                rc = ntfs_index_allocation_bootstrap(fs, parent_record_number);
+                {
+                    struct pros_ntfs_index_root bootstrap_root;
+                    uint32_t cluster_bytes = fs->bytes_per_sector *
+                                              fs->sectors_per_cluster;
+                    if (cluster_bytes == 0u ||
+                        ntfs_index_root_header(parent_record,
+                                               fs->bytes_per_file_record,
+                                               root_attr,
+                                               &bootstrap_root) != PROS_NTFS_OK ||
+                        bootstrap_root.bytes_per_index_record % cluster_bytes != 0u)
+                        return PROS_NTFS_ECORRUPT;
+                    bootstrap_clusters = bootstrap_root.bytes_per_index_record /
+                                         cluster_bytes;
+                }
+                rc = ntfs_index_allocation_bootstrap(fs, parent_record_number,
+                                                     &bootstrap_lcn,
+                                                     &bootstrap_clusters);
                 if (rc != PROS_NTFS_OK)
                     return rc;
+                root_bootstrapped = 1u;
                 if (ntfs_read_file_record(fs, parent_record_number,
                                           parent_record,
                                           sizeof(parent_record)) != PROS_NTFS_OK)
-                    return PROS_NTFS_EIO;
+                    goto create_rollback;
             }
             root_needs_allocation_insert = 1u;
         }
@@ -1238,7 +1260,7 @@ int ntfs_create_file(struct pros_ntfs *fs,
 
     rc = ntfs_mft_allocate_record(fs, &allocated_record);
     if (rc != PROS_NTFS_OK)
-        return rc;
+        goto create_rollback;
 
     rc = ntfs_mft_initialize_record(fs, allocated_record, 0u);
     if (rc == PROS_NTFS_OK)
@@ -1259,12 +1281,27 @@ int ntfs_create_file(struct pros_ntfs *fs,
     }
 
     if (rc != PROS_NTFS_OK) {
-        if (ntfs_mft_free_record(fs, allocated_record) != PROS_NTFS_OK)
-            return PROS_NTFS_EIO;
-        return rc;
+        goto create_rollback;
     }
 
     *record_number = allocated_record;
+    return PROS_NTFS_OK;
+
+create_rollback:
+    if (root_bootstrapped) {
+        if (ntfs_write_file_record(fs, parent_record_number, parent_record) !=
+            PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        if (bootstrap_clusters != 0u &&
+            ntfs_bitmap_free_clusters(fs, bootstrap_lcn,
+                                      bootstrap_clusters) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+    }
+    if (allocated_record != 0u &&
+        ntfs_mft_free_record(fs, allocated_record) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    return rc;
+
     return PROS_NTFS_OK;
 }
 
@@ -2642,7 +2679,8 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     uint32_t new_entries_size;
     uint64_t file_reference;
 
-    if (!fs || directory_record_number > 0x0000FFFFFFFFFFFFull ||
+    if (!fs || !allocated_lcn || !allocated_clusters ||
+        directory_record_number > 0x0000FFFFFFFFFFFFull ||
         child_record_number > 0x0000FFFFFFFFFFFFull ||
         fs->bytes_per_file_record > sizeof(directory_record))
         return PROS_NTFS_EINVAL;
@@ -3388,7 +3426,9 @@ static int ntfs_index_allocation_write(const struct pros_ntfs *fs,
 
 
 static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
-                                           uint64_t directory_record_number)
+                                           uint64_t directory_record_number,
+                                           uint64_t *allocated_lcn,
+                                           uint64_t *allocated_clusters)
 {
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t old_record[PROS_NTFS_RECORD_WORK_MAX];
@@ -3717,6 +3757,8 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     if (rc != PROS_NTFS_OK)
         goto rollback;
 
+    *allocated_lcn = lcn;
+    *allocated_clusters = cluster_count;
     return PROS_NTFS_OK;
 
 rollback:
