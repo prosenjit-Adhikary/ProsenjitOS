@@ -133,8 +133,7 @@ int pros_device_broker_selftest(void)
     };
     uint32_t device_id;
 
-    if (pros_driver_manager_init() != PROS_DRIVER_OK ||
-        pros_device_broker_init() != PROS_DRIVER_OK ||
+    if (!broker_ready && pros_device_broker_init() != PROS_DRIVER_OK ||
         pros_driver_register(&driver) != PROS_DRIVER_OK ||
         pros_device_register(&device) != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
@@ -170,7 +169,8 @@ int pros_device_broker_selftest(void)
         pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
             PROS_DRIVER_EPERM ||
         pros_driver_unbind(device_id) != PROS_DRIVER_OK ||
-        pros_device_unregister(device_id) != PROS_DRIVER_OK)
+        pros_device_unregister(device_id) != PROS_DRIVER_OK ||
+        pros_driver_unregister(&driver) != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;
 
     return PROS_DRIVER_OK;
