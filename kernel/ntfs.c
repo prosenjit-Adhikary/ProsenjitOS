@@ -5942,6 +5942,24 @@ int ntfs_selftest(void)
                 disk.root_record[a + 69u] = 0xFFu;
                 disk.root_record[a + 70u] = 0xFFu;
                 disk.root_record[a + 71u] = 0xFFu;
+
+                /*
+                 * Directory-index $BITMAP: VCN 0 is occupied; VCN 1 is
+                 * initially free and will be claimed by the split.
+                 */
+                a += 68u;
+                for (uint32_t i = a; i < a + 64u; ++i)
+                    disk.root_record[i] = 0u;
+                disk.root_record[a + 0u] = 0xB0u;
+                disk.root_record[a + 4u] = 64u;
+                disk.root_record[a + 16u] = 1u;
+                disk.root_record[a + 20u] = 24u;
+                disk.root_record[a + 24u] = 1u;
+                disk.root_record[a + 60u] = 0xFFu;
+                disk.root_record[a + 61u] = 0xFFu;
+                disk.root_record[a + 62u] = 0xFFu;
+                disk.root_record[a + 63u] = 0xFFu;
+                disk.root_record[388u] = 1u;
             }
 
             /* 41 existing 96-byte entries + 16-byte terminal. */
