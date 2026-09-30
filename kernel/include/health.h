@@ -78,6 +78,7 @@ struct pros_health_snapshot {
 };
 
 int pros_health_init(void);
+/* Health timestamps use timer_ticks(); timer_frequency_hz() defines their unit. */
 int pros_health_record(uint32_t severity, uint32_t category,
                        uint32_t source, uint32_t code, uint64_t value);
 int pros_health_snapshot(struct pros_health_snapshot *out);
