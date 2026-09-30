@@ -3005,8 +3005,19 @@ int prosenjitfs_selftest(void)
     }
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return -62;
+        {
+            static uint8_t second_read[188u];
+            uint32_t second_done = 0u;
+            int direct_rc = pfs_file_read(&file, 512u, 188u,
+                                          second_read);
+            if (direct_rc != 188 || second_read[0u] != write_data[512u])
+                return -94;
+            if (second_done != 0u)
+                return -95;
+        }
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data))
             return -62;
