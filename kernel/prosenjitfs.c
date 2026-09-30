@@ -2970,7 +2970,7 @@ int prosenjitfs_selftest(void)
                 if (second_extent.physical_block == first_extent.physical_block)
                     return -86;
                 {
-                    uint8_t second_image[4096];
+                    static uint8_t second_image[4096];
                     uint8_t expected_second = (uint8_t)((512u * 13u) ^ 0x5Au);
                     if (second_extent.physical_block >= fs.sb.total_blocks ||
                         pfs_read_block(fs.mount.device,
