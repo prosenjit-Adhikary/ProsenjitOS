@@ -1,4 +1,5 @@
 #include "driver.h"
+#include "device_broker.h"
 #include "driver_compat.h"
 #include "nt_compat.h"
 
@@ -224,6 +225,7 @@ int pros_device_unregister(uint32_t id)
             continue;
         if (devices[i].device->driver)
             return PROS_DRIVER_EBUSY;
+        pros_device_broker_drop_device(id);
         devices[i].device->state = PROS_DEVICE_REMOVED;
         devices[i].device = 0;
         devices[i].used = 0u;
@@ -392,6 +394,7 @@ int pros_driver_unbind(uint32_t device_id)
     if (driver->ops->remove && driver->ops->remove(device) != PROS_DRIVER_OK)
         return PROS_DRIVER_EBUSY;
 
+    pros_device_broker_drop_device(device_id);
     device->driver = 0;
     device->driver_data = 0;
     device->state = PROS_DEVICE_DISCOVERED;
