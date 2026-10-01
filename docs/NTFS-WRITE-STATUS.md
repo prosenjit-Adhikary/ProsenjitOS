@@ -86,6 +86,7 @@ These should be added only with corresponding metadata validation and regression
 - MFT record reuse now advances the record sequence number so stale file references are not silently revived.
 - Directory creation checks for an existing case-insensitive name before allocating a new MFT record.
 - Directory index insertion preserves NTFS $UpCase ordering and rejects case-insensitive duplicates.
+- Resident `$INDEX_ROOT` entries can now be removed by child file reference; `$INDEX_ALLOCATION` delete/rebalance remains intentionally rejected.
 - VFS directory lookup clears temporary $UpCase comparison state on all early failures.
 
 - File creation now rejects inactive/read-only mounts at the public NTFS create API boundary.
