@@ -36,6 +36,12 @@ jobs:
           set -e
 
           echo "QEMU exit status: $qemu_status"
+          # The OS normally remains halted after successful milestones, so timeout(124)
+          # is an expected termination. Any other QEMU/timeout failure is a real failure.
+          if (( qemu_status != 0 && qemu_status != 124 )); then
+            echo "::error::QEMU exited with unexpected status: $qemu_status"
+            exit "$qemu_status"
+          fi
           cat build/qemu-serial.log
           echo "===== QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
@@ -105,6 +111,12 @@ jobs:
           set -e
 
           echo "Native QEMU exit status: $qemu_status"
+          # A timeout after all required milestones is expected; every other
+          # non-zero QEMU result must fail the job rather than being masked.
+          if (( qemu_status != 0 && qemu_status != 124 )); then
+            echo "::error::Native QEMU exited with unexpected status: $qemu_status"
+            exit "$qemu_status"
+          fi
           cat build/native-qemu-serial.log
           echo "===== Native QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
