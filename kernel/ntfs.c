@@ -6268,10 +6268,10 @@ int ntfs_selftest(void)
         uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
         uint32_t root_attr = 24u;
-        uint32_t root_value = 152u;
+        uint32_t root_value = 168u;
         uint32_t entry = root_attr + 24u + 32u;
         uint32_t terminal = entry + 104u;
-        uint32_t used = 200u;
+        uint32_t used = 224u;
         uint32_t alloc_offset = 200u;
         uint32_t bitmap_offset = 280u;
         uint64_t bootstrap_lcn = 0u;
@@ -6299,7 +6299,7 @@ int ntfs_selftest(void)
         r[25] = (uint8_t)(used >> 8);
 
         r[root_attr + 0u] = 0x90u;
-        r[root_attr + 4u] = 168u;
+        r[root_attr + 4u] = 192u;
         r[root_attr + 16u] = (uint8_t)root_value;
         r[root_attr + 20u] = 24u;
         r[root_attr + 24u] = 0x30u;
@@ -6328,10 +6328,10 @@ int ntfs_selftest(void)
         r[terminal + 10u] = 0u;
         r[terminal + 12u] = 2u;
 
-        r[root_attr + 168u] = 0xFFu;
-        r[root_attr + 169u] = 0xFFu;
-        r[root_attr + 170u] = 0xFFu;
-        r[root_attr + 171u] = 0xFFu;
+        r[root_attr + 192u] = 0xFFu;
+        r[root_attr + 193u] = 0xFFu;
+        r[root_attr + 194u] = 0xFFu;
+        r[root_attr + 195u] = 0xFFu;
 
         if (ntfs_index_allocation_bootstrap(&fs, 5u,
                                             &bootstrap_lcn,
