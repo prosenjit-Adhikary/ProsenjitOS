@@ -46,6 +46,7 @@ static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
 static volatile uint64_t health_exception_count;
 static volatile uint64_t health_page_fault_count;
+static volatile uint64_t health_recovered_page_fault_count;
 static volatile uint64_t health_last_exception_vector;
 static volatile uint64_t health_last_exception_rip;
 static volatile uint64_t health_previous_crash_sequence;
@@ -197,6 +198,7 @@ void idt_init(void) {
 }
 uint64_t kernel_exception_count(void) { return health_exception_count; }
 uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
+uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_fault_count; }
 uint64_t kernel_last_exception_vector(void) { return health_last_exception_vector; }
 uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
 
@@ -228,6 +230,8 @@ void exception_dispatch(uint64_t *frame) {
         (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
     }
     if (vector == 14 && usercopy_fault_active()) {
+        ++health_recovered_page_fault_count;
+        (void)pros_health_record_recovery(0x55504346u, 1u, frame[2]);
         uint64_t fixup_rip = usercopy_fault_rip();
         usercopy_fault_clear();
         frame[2] = fixup_rip;
