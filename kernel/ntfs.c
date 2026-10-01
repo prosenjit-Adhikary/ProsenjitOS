@@ -3735,9 +3735,14 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     return PROS_NTFS_OK;
 
 rollback:
+    /*
+     * Rollback is best-effort. Preserve the primary failure instead of
+     * replacing it with cleanup EIO, so the caller sees the real invariant
+     * that failed during bootstrap.
+     */
     (void)ntfs_write_file_record(fs, directory_record_number, old_record);
     (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
-    return rc == PROS_NTFS_OK ? PROS_NTFS_EIO : rc;
+    return rc;
 }
 
 static int ntfs_index_allocation_grow_one(struct pros_ntfs *fs,
