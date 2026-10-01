@@ -19,6 +19,9 @@
 #include "ntfs.h"
 #include "partition.h"
 
+extern void serial_write(const char *text);
+extern void serial_hex64(uint64_t value);
+
 static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
 static uint64_t ledger_count_value;
