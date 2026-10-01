@@ -6644,7 +6644,7 @@ int ntfs_selftest(void)
             int bootstrap_status = ntfs_index_allocation_bootstrap(
                 &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
             if (bootstrap_status != PROS_NTFS_OK)
-                return -15000 + bootstrap_status;
+                return -20000 + bootstrap_status;
             if (bootstrap_clusters != 1u)
                 return -15001;
             if (bootstrap_lcn != 8u)
@@ -6859,14 +6859,14 @@ int ntfs_selftest(void)
                 int directory_status = ntfs_directory_lookup(
                     &fs, 5u, path_name, 4u, &path_reference);
                 if (directory_status != PROS_NTFS_OK)
-                    return -140 + directory_status;
+                    return -30000 + directory_status;
             if (path_reference != 0x2000u)
                 return -150;
             {
                 int path_status = ntfs_path_lookup(
                     &fs, components, lengths, 1u, &path_reference);
                 if (path_status != PROS_NTFS_OK)
-                    return -160 + path_status;
+                    return -40000 + path_status;
                 if (path_reference != 0x2000u)
                     return -170;
             }
