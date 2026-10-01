@@ -839,7 +839,7 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
         got = 0u;
         if (ntfs_file_read(fs, 6u, byte_offset, bitmap_chunk, want,
                            &got) != PROS_NTFS_OK || got != want)
-            return PROS_NTFS_EIO;
+            return -18001;
 
         for (uint32_t b = 0u; b < want && scan_lcn < total_clusters; ++b) {
             uint8_t value = bitmap_chunk[b];
