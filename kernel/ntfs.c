@@ -2988,7 +2988,6 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     uint32_t index_root_offset;
     uint32_t file_name_offset;
     const uint8_t *root_data;
-    uint8_t *root_mutable_data;
     const uint8_t *child_name;
     uint32_t root_size;
     uint32_t child_name_size;
@@ -3033,8 +3032,6 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
         ntfs_active_upcase = 0;
         return PROS_NTFS_ECORRUPT;
     }
-    root_mutable_data = (uint8_t *)root_data;
-
     if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
                             0x30u, &file_name_offset) != PROS_NTFS_OK ||
         ntfs_attribute_data(child_record, fs->bytes_per_file_record,
@@ -3131,7 +3128,7 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     }
 
     for (uint32_t i = root.entries_size; i > insert_offset; --i)
-        root_mutable_data[i + entry_size - 1u] =
+        ((uint8_t *)root_data)[i + entry_size - 1u] =
             root_data[i - 1u];
     for (uint32_t i = 0u; i < entry_size; ++i)
         ((uint8_t *)root_data)[insert_offset + i] = 0u;
