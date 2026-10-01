@@ -7716,7 +7716,8 @@ int ntfs_selftest(void)
                  * the promoted-right half rather than an empty terminal-only
                  * page.
                  */
-                entry = info.first_entry_offset + 0x18u;
+                /* first_entry_offset is already absolute within the INDX record. */
+                entry = info.first_entry_offset;
                 if (entry + 16u > sizeof(verify) ||
                     le16(verify + entry + 8u) < 16u)
                     return -201;
