@@ -4113,7 +4113,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     if (ntfs_read_file_record(fs, directory_record_number,
                                directory_record,
                                sizeof(directory_record)) != PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
+        return -18005;
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_directory_record[i] = directory_record[i];
 
@@ -4138,7 +4138,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                                    vcn * (uint64_t)fs->bytes_per_sector *
                                    fs->sectors_per_cluster,
                                    leaf, record_size) != PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
+        return -18006;
     for (uint32_t i = 0u; i < record_size; ++i)
         old_leaf[i] = leaf[i];
 
