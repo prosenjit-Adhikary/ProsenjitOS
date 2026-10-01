@@ -7686,6 +7686,8 @@ int ntfs_selftest(void)
                         {{8u, 2u, 0u}}, 1u, 4096u, verify,
                         sizeof(verify)) != PROS_NTFS_OK)
                     return -198;
+                if (le64(disk.root_record + 440u) != 8192u)
+                    return -2201;
                 {
                     int split_verify_header_rc = ntfs_index_record_header(
                         verify, sizeof(verify), 512u, 1u, &info);
