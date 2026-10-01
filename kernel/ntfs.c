@@ -7363,11 +7363,13 @@ int ntfs_selftest(void)
                 static const uint8_t unicode_miss[] = {
                     0xACu, 0x20u
                 };
-                if (ntfs_index_root_lookup(root_probe, sizeof(root_probe),
-                                           root_attr_probe, unicode_miss, 1u,
-                                           &path_reference) !=
-                        PROS_NTFS_ENOTSUP)
-                    return -1821;
+                {
+                    int unicode_miss_status = ntfs_index_root_lookup(
+                        root_probe, sizeof(root_probe), root_attr_probe,
+                        unicode_miss, 1u, &path_reference);
+                    if (unicode_miss_status != PROS_NTFS_ENOTSUP)
+                        return -18000 - unicode_miss_status;
+                }
             }
 
             {
