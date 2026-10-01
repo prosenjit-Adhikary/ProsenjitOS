@@ -3947,19 +3947,19 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             PROS_NTFS_OK ||
         ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0xA0u, &alloc_attr) != PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+        return -15001 - 1;
 
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
                             root_attr, &root_data, &root_size) !=
         PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+        return -15001 - 2;
 
     {
         struct pros_ntfs_index_root root;
         if (ntfs_index_root_header(directory_record,
                                    fs->bytes_per_file_record,
                                    root_attr, &root) != PROS_NTFS_OK)
-            return PROS_NTFS_ECORRUPT;
+            return -15001 - 3;
         root_first_entry_offset = root.first_entry_offset;
         root_entries_size = root.entries_size;
         root_allocated_size = root.allocated_size;
@@ -3977,7 +3977,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                                  vcn,
                                  &(struct pros_ntfs_index_record){0}) !=
             PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+        return -15001 - 4;
 
     {
         uint32_t entries_offset = le32(leaf + 0x18u);
@@ -3989,7 +3989,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             0x18u + allocated_size > record_size ||
             0x18u + entries_offset > record_size ||
             0x18u + entries_size > record_size)
-            return PROS_NTFS_ECORRUPT;
+            return -15001 - 5;
 
         offset = entries_offset;
         while (offset < entries_size) {
@@ -3999,21 +3999,21 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             uint32_t remaining = entries_size - offset;
 
             if (remaining < 16u)
-                return PROS_NTFS_ECORRUPT;
+                return -15001 - 6;
             esize = le16(leaf + absolute + 8u);
             ksize = le16(leaf + absolute + 10u);
             flags = leaf[absolute + 12u];
             if (esize < 16u || esize > remaining || (esize & 7u) != 0u ||
                 (flags & ~3u) != 0u ||
                 ksize > esize - 16u - ((flags & 1u) ? 8u : 0u))
-                return PROS_NTFS_ECORRUPT;
+                return -15001 - 7;
 
             if (flags & 2u) {
                 terminal_offset = absolute;
                 break;
             }
             if (flags & 1u || ksize < 66u)
-                return PROS_NTFS_ECORRUPT;
+                return -15001 - 8;
             if (entry_count >= (PROS_NTFS_RECORD_WORK_MAX / 16u))
                 return PROS_NTFS_EOVERFLOW;
 
@@ -4115,7 +4115,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         uint16_t sep_key_size = le16(expanded + sep_offset + 10u);
         if (sep_entry_size < 16u || sep_key_size < 66u ||
             sep_key_size > sep_entry_size - 16u)
-            return PROS_NTFS_ECORRUPT;
+            return -15001 - 9;
         separator_reference = le64(expanded + sep_offset);
         separator_key_size = sep_key_size;
         for (uint32_t i = 0u; i < sep_key_size; ++i)
@@ -4137,20 +4137,20 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             uint16_t esize, ksize;
             uint8_t flags;
             if (root_entries_size - off < 16u)
-                return PROS_NTFS_ECORRUPT;
+                return -15001 - 10;
             esize = le16(root_data + absolute + 8u);
             ksize = le16(root_data + absolute + 10u);
             flags = root_data[absolute + 12u];
             if (esize < 16u || esize > root_entries_size - off ||
                 (esize & 7u) != 0u || (flags & ~3u) != 0u ||
                 ksize > esize - 16u - ((flags & 1u) ? 8u : 0u))
-                return PROS_NTFS_ECORRUPT;
+                return -15001 - 11;
             if (flags & 2u) {
                 parent_insert_offset = absolute;
                 break;
             }
             if (!(flags & 1u))
-                return PROS_NTFS_ECORRUPT;
+                return -15001 - 12;
             if (ksize >= 66u &&
                 ntfs_name_key_compare(root_data + absolute + 16u, ksize,
                                       separator_key,
@@ -4161,7 +4161,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             off += esize;
         }
         if (parent_insert_offset == 0u)
-            return PROS_NTFS_ECORRUPT;
+            return -15001 - 13;
     }
 
     /*
