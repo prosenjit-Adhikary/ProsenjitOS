@@ -69,3 +69,6 @@ copy's recovery path, which returns an error instead of halting the kernel. A re
 probe exercises an intentionally unmapped kernel-mode source address. The design is
 currently single-copy-at-a-time and should be extended with per-CPU fault state before
 SMP support.
+
+
+CI verification target: build workflow must execute both ISO and native BIOS QEMU boot tests for this milestone.
