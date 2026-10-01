@@ -7125,9 +7125,9 @@ int ntfs_selftest(void)
      * both attribute creation and the migrated leaf, then restore the fixture.
      */
     {
-        uint8_t saved_root[1024];
-        uint8_t saved_index[4096];
-        uint8_t saved_bitmap[512];
+        static uint8_t saved_root[1024];
+        static uint8_t saved_index[4096];
+        static uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
         uint32_t root_attr = 56u;
         uint32_t root_value = 168u;
