@@ -698,7 +698,7 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                     cumulative += runs[r].clusters;
                 }
                 if (!found || sparse)
-                    return PROS_NTFS_EIO;
+                    return -16001;
 
                 sector_index = cluster_offset / fs->bytes_per_sector;
                 in_sector = cluster_offset % fs->bytes_per_sector;
@@ -794,20 +794,20 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                 if (sector_index >= fs->sectors_per_cluster ||
                     ntfs_cluster_lba(fs, physical_lcn, &lba) !=
                         PROS_NTFS_OK)
-                    return PROS_NTFS_EIO;
+                    return -16002;
                 lba += sector_index;
 
                 if (in_sector != 0u || take != fs->bytes_per_sector) {
                     if (block_device_read(fs->mount.device, lba, 1u,
                                           bitmap_sector) != PROS_BLOCK_OK)
-                        return PROS_NTFS_EIO;
+                        return -16003;
                 }
                 for (uint32_t i = 0u; i < take; ++i)
                     bitmap_sector[in_sector + i] =
                         bitmap_chunk[(uint32_t)done + i];
                 if (block_device_write(fs->mount.device, lba, 1u,
                                        bitmap_sector) != PROS_BLOCK_OK)
-                    return PROS_NTFS_EIO;
+                    return -16004;
                 done += take;
             }
         }
