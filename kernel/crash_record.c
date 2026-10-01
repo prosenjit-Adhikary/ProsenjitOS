@@ -8,6 +8,8 @@ static uint64_t crash_sequence;
 static uint32_t crash_next_slot;
 static uint8_t crash_attached;
 static uint8_t crash_capture_active;
+static struct pros_crash_record pending_record;
+static uint8_t pending_valid;
 
 static void crash_zero(void *buffer, uint32_t size)
 {
@@ -145,39 +147,57 @@ void pros_crash_record_detach(void)
     crash_next_slot = 0u;
     crash_attached = 0u;
     crash_capture_active = 0u;
+    pending_record = (struct pros_crash_record){0};
+    pending_valid = 0u;
 }
 
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                               uint64_t rip, uint64_t cr2, uint64_t timestamp)
 {
-    struct pros_crash_record record;
-    if (!crash_attached || crash_capture_active)
+    if (crash_capture_active || pending_valid)
         return PROS_CRASH_RECORD_ENOTSUP;
     crash_capture_active = 1u;
-    crash_zero(&record, sizeof(record));
-    record.magic = PROS_CRASH_RECORD_MAGIC;
-    record.version = PROS_CRASH_RECORD_VERSION;
-    record.size = sizeof(record);
-    record.sequence = crash_sequence + 1u;
-    record.timestamp = timestamp;
-    record.vector = vector;
-    record.error_code = error_code;
-    record.rip = rip;
-    record.cr2 = cr2;
-    record.committed = 1u;
-    record.checksum = crash_crc32c((const uint8_t *)&record,
-                                   sizeof(record));
-    int rc = crash_slot_write(crash_next_slot, &record);
-    if (rc == PROS_CRASH_RECORD_OK) {
-        crash_sequence = record.sequence;
-        crash_next_slot ^= 1u;
-    }
+    crash_zero(&pending_record, sizeof(pending_record));
+    pending_record.magic = PROS_CRASH_RECORD_MAGIC;
+    pending_record.version = PROS_CRASH_RECORD_VERSION;
+    pending_record.size = sizeof(pending_record);
+    pending_record.sequence = crash_sequence + 1u;
+    pending_record.timestamp = timestamp;
+    pending_record.vector = vector;
+    pending_record.error_code = error_code;
+    pending_record.rip = rip;
+    pending_record.cr2 = cr2;
+    pending_record.committed = 1u;
+    pending_record.checksum = crash_crc32c((const uint8_t *)&pending_record,
+                                           sizeof(pending_record));
+    pending_valid = 1u;
     crash_capture_active = 0u;
-    return rc;
+    return PROS_CRASH_RECORD_OK;
+}
+
+int pros_crash_record_flush_pending(void)
+{
+    int rc;
+    if (!pending_valid)
+        return PROS_CRASH_RECORD_ENOENT;
+    if (!crash_attached)
+        return PROS_CRASH_RECORD_ENOTSUP;
+    rc = crash_slot_write(crash_next_slot, &pending_record);
+    if (rc != PROS_CRASH_RECORD_OK)
+        return rc;
+    crash_sequence = pending_record.sequence;
+    crash_next_slot ^= 1u;
+    pending_valid = 0u;
+    return PROS_CRASH_RECORD_OK;
 }
 
 int pros_crash_record_peek(struct pros_crash_record *record)
 {
+    if (!record) return PROS_CRASH_RECORD_EINVAL;
+    if (pending_valid) {
+        *record = pending_record;
+        return PROS_CRASH_RECORD_OK;
+    }
     return crash_find_latest(record, 0);
 }
 
@@ -197,12 +217,17 @@ int pros_crash_record_clear(void)
 
 int pros_crash_record_consume(struct pros_crash_record *record)
 {
-    int rc = pros_crash_record_peek(record);
-    if (rc != PROS_CRASH_RECORD_OK)
-        return rc;
-    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK)
-        return PROS_CRASH_RECORD_EIO;
-    return PROS_CRASH_RECORD_OK;
+    int rc;
+    if (!record) return PROS_CRASH_RECORD_EINVAL;
+    if (pending_valid) {
+        *record = pending_record;
+        pending_valid = 0u;
+        pending_record = (struct pros_crash_record){0};
+        return PROS_CRASH_RECORD_OK;
+    }
+    rc = crash_find_latest(record, 0);
+    if (rc != PROS_CRASH_RECORD_OK) return rc;
+    return pros_crash_record_clear();
 }
 
 static int crash_selftest_read(struct pros_block_device *device,
@@ -255,6 +280,7 @@ int pros_crash_record_selftest(void)
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 14u || record.error_code != 0x11u ||
         record.rip != 0x22u || record.cr2 != 0x33u ||
+        pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_consume(&record) != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
         return PROS_CRASH_RECORD_EIO;
