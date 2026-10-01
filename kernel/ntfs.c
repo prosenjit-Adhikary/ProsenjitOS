@@ -7756,6 +7756,15 @@ int ntfs_selftest(void)
                 allocated_lcn != 8u ||
                 (disk.bitmap_data[1u] & 0x03u) != 0x03u)
                 return -194;
+            /*
+             * This allocation probe is intentionally transient. Release the
+             * exact extent after validating it so the later INDEX_ROOT
+             * bootstrap regression starts from the original bitmap state.
+             */
+            if (ntfs_bitmap_free_clusters(&fs, allocated_lcn, 2u) !=
+                    PROS_NTFS_OK ||
+                (disk.bitmap_data[1u] & 0x03u) != 0u)
+                return -1941;
         }
 
         {
