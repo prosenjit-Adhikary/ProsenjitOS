@@ -69,21 +69,31 @@ int security_manager_init(void) {
      * wrapper code made a real boot failure difficult to identify.
      */
     int rc;
-    rc = pros_file_security_selftest(); if (rc != 0) return -1000 + rc;
-    rc = pros_sha512_selftest(); if (rc != 0) return -1100 + rc;
-    rc = pros_ed25519_fe_selftest(); if (rc != 0) return -1200 + rc;
-    rc = pros_ed25519_point_selftest(); if (rc != 0) return -1300 + rc;
-    rc = pros_ed25519_scalar_selftest(); if (rc != 0) return -1400 + rc;
-    rc = pros_security_signature_selftest(); if (rc != 0) return -1500 + rc;
-    rc = pros_security_provider_selftest(); if (rc != 0) return -2000 + rc;
-    rc = pros_file_admission_selftest(); if (rc != 0) return -3000 + rc;
-    rc = vfs_security_selftest(); if (rc != 0) return -4000 + rc;
-    rc = fat32_selftest(); if (rc != 0) return -5000 + rc;
-    rc = exfat_selftest(); if (rc != 0) return -6000 + rc;
-    rc = ntfs_selftest(); if (rc != 0) return -7000 + rc;
-    rc = partition_selftest(); if (rc != 0) return -8000 + rc;
-    rc = pros_security_quarantine_selftest(); if (rc != 0) return -9000 + rc;
-    rc = pros_security_exec_selftest(); if (rc != 0) return -10000 + rc;
+#define SECURITY_SELFTEST_STEP(name, expr, base) \
+    do { \
+        serial_write("ProsenjitOS: security selftest " name " begin\\n"); \
+        rc = (expr); \
+        serial_write("ProsenjitOS: security selftest " name " rc="); \
+        serial_hex64((uint64_t)(int64_t)rc); \
+        serial_write("\\n"); \
+        if (rc != 0) return (base) + rc; \
+    } while (0)
+    SECURITY_SELFTEST_STEP("file", pros_file_security_selftest(), -1000);
+    SECURITY_SELFTEST_STEP("sha512", pros_sha512_selftest(), -1100);
+    SECURITY_SELFTEST_STEP("ed25519-fe", pros_ed25519_fe_selftest(), -1200);
+    SECURITY_SELFTEST_STEP("ed25519-point", pros_ed25519_point_selftest(), -1300);
+    SECURITY_SELFTEST_STEP("ed25519-scalar", pros_ed25519_scalar_selftest(), -1400);
+    SECURITY_SELFTEST_STEP("signature", pros_security_signature_selftest(), -1500);
+    SECURITY_SELFTEST_STEP("provider", pros_security_provider_selftest(), -2000);
+    SECURITY_SELFTEST_STEP("file-admission", pros_file_admission_selftest(), -3000);
+    SECURITY_SELFTEST_STEP("vfs-security", vfs_security_selftest(), -4000);
+    SECURITY_SELFTEST_STEP("fat32", fat32_selftest(), -5000);
+    SECURITY_SELFTEST_STEP("exfat", exfat_selftest(), -6000);
+    SECURITY_SELFTEST_STEP("ntfs", ntfs_selftest(), -7000);
+    SECURITY_SELFTEST_STEP("partition", partition_selftest(), -8000);
+    SECURITY_SELFTEST_STEP("quarantine", pros_security_quarantine_selftest(), -9000);
+    SECURITY_SELFTEST_STEP("exec", pros_security_exec_selftest(), -10000);
+#undef SECURITY_SELFTEST_STEP
     next_intent_id = 1;
     ledger_sequence = 0;
     ledger_count_value = 0;
