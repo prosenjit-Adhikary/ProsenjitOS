@@ -167,7 +167,7 @@ The implementation is not called production-complete until the remaining environ
 
 QEMU regression should verify deterministic boot-health markers and at least one synthetic degraded-health transition before the observability gate is considered verified.
 
-Network telemetry remains event-hook capable but is not fabricated: the current repository does not yet provide a real network-device/link subsystem to instrument. The health API therefore exposes a network category without pretending unsupported network metrics exist.
+Network telemetry is implemented at the currently available device boundary: PCI devices classified as network devices emit bounded events for discovery/removal, driver bind/unbind, and probe failure. If a real network stack/link layer is unavailable, the driver layer emits an explicit `STACK_UNAVAILABLE` event rather than fabricating link, packet, throughput, or error counters. No interval-based network sampling is performed; future link/packet telemetry must be driven by a real network-stack contract.
 
 ## 11. Implementation order
 
