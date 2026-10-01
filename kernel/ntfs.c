@@ -6906,19 +6906,21 @@ int ntfs_selftest(void)
             disk.root_record[29u] = 0x01u;
             /*
              * INDEX_ROOT value begins at attribute+24 (record offset 48).
-             * Keep the attribute value size and the embedded INDEX_ROOT
-             * header at their canonical offsets: bytes-per-index-record,
-             * clusters-per-record, first-entry offset, entries size,
-             * allocated size, then LARGE_INDEX flags.
+             * The embedded header fields are relative to that value:
+             * +8 bytes-per-index-record, +12 clusters-per-record,
+             * +16 first-entry offset, +20 entries size, +24 allocated size,
+             * +28 LARGE_INDEX flags.
              */
             disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
             disk.root_record[42u] = 0u; disk.root_record[43u] = 0u;
-            disk.root_record[48u] = 0x60u; disk.root_record[49u] = 0x01u;
-            disk.root_record[52u] = 1u;
-            disk.root_record[56u] = 32u; disk.root_record[57u] = 0u;
-            disk.root_record[60u] = 144u; disk.root_record[61u] = 0u;
-            disk.root_record[64u] = 0x60u; disk.root_record[65u] = 0x01u;
-            disk.root_record[68u] = 1u;
+            disk.root_record[56u] = 0x00u; disk.root_record[57u] = 0x10u;
+            disk.root_record[58u] = 0u; disk.root_record[59u] = 0u;
+            disk.root_record[60u] = 1u;
+            disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
+            disk.root_record[68u] = 144u; disk.root_record[69u] = 0u;
+            disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
+            disk.root_record[74u] = 0u; disk.root_record[75u] = 0u;
+            disk.root_record[76u] = 1u;
             /* One 96-byte child entry plus the 16-byte END entry. */
             disk.root_record[68u] = 144u;
             disk.root_record[69u] = 0u;
