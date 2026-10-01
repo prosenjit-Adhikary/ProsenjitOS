@@ -6445,6 +6445,14 @@ int ntfs_selftest(void)
             if (disk.bitmap_data[0u] != 0xFFu ||
                 disk.bitmap_data[1u] != 0xFCu)
                 return -15011;
+            {
+                uint8_t bitmap_probe = 0u;
+                uint32_t bitmap_probe_read = 0u;
+                if (ntfs_file_read(&fs, 6u, 1u, &bitmap_probe, 1u,
+                                   &bitmap_probe_read) != PROS_NTFS_OK ||
+                    bitmap_probe_read != 1u || bitmap_probe != 0xFCu)
+                    return -15039;
+            }
             int bootstrap_status = ntfs_index_allocation_bootstrap(
                 &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
             if (bootstrap_status != PROS_NTFS_OK)
