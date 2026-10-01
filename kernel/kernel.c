@@ -1535,7 +1535,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * completed. The user test validates the INT 0x80 ABI, capability/IPC
      * syscalls, user-memory access, and returns through the kernel trampoline. */
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\\n");
-    enter_user_mode((uint64_t)(uintptr_t)user_test_entry,
+    enter_user_mode((uint64_t)PROSENJIT_USER_CODE_VA,
                     (uint64_t)PROSENJIT_USER_STACK_VA + PROSENJIT_PAGE_SIZE,
                     user_mode_handle);
 
