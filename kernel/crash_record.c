@@ -1,0 +1,266 @@
+#include "crash_record.h"
+
+#include <stddef.h>
+
+static struct pros_block_device *crash_device;
+static uint64_t crash_first_lba;
+static uint64_t crash_sequence;
+static uint32_t crash_next_slot;
+static uint8_t crash_attached;
+static uint8_t crash_capture_active;
+
+static void crash_zero(void *buffer, uint32_t size)
+{
+    uint8_t *p = (uint8_t *)buffer;
+    for (uint32_t i = 0u; i < size; ++i)
+        p[i] = 0u;
+}
+
+static uint32_t crash_crc32c(const uint8_t *data, uint32_t length)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0u; i < length; ++i) {
+        uint8_t value = data[i];
+        /* checksum and committed are excluded from the integrity calculation. */
+        if (i >= offsetof(struct pros_crash_record, checksum) &&
+            i < offsetof(struct pros_crash_record, checksum) + sizeof(uint32_t))
+            value = 0u;
+        if (i >= offsetof(struct pros_crash_record, committed) &&
+            i < offsetof(struct pros_crash_record, committed) + sizeof(uint32_t))
+            value = 0u;
+        crc ^= value;
+        for (uint32_t bit = 0u; bit < 8u; ++bit)
+            crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
+    }
+    return ~crc;
+}
+
+static int crash_record_valid(const struct pros_crash_record *record)
+{
+    if (!record ||
+        record->magic != PROS_CRASH_RECORD_MAGIC ||
+        record->version != PROS_CRASH_RECORD_VERSION ||
+        record->size != sizeof(struct pros_crash_record) ||
+        record->committed != 1u)
+        return 0;
+    return crash_crc32c((const uint8_t *)record,
+                        sizeof(struct pros_crash_record)) == record->checksum;
+}
+
+static int crash_slot_read(uint32_t slot, struct pros_crash_record *record)
+{
+    uint8_t sector[512];
+    if (!crash_attached || !record || slot >= PROS_CRASH_RECORD_SLOT_COUNT)
+        return PROS_CRASH_RECORD_EINVAL;
+    crash_zero(sector, sizeof(sector));
+    if (block_device_read(crash_device, crash_first_lba + slot, 1u, sector) !=
+        PROS_BLOCK_OK)
+        return PROS_CRASH_RECORD_EIO;
+    crash_zero(record, sizeof(*record));
+    for (uint32_t i = 0u; i < sizeof(*record); ++i)
+        ((uint8_t *)record)[i] = sector[i];
+    return PROS_CRASH_RECORD_OK;
+}
+
+static int crash_slot_write(uint32_t slot,
+                            const struct pros_crash_record *record)
+{
+    uint8_t sector[512];
+    if (!crash_attached || !record || slot >= PROS_CRASH_RECORD_SLOT_COUNT)
+        return PROS_CRASH_RECORD_EINVAL;
+    crash_zero(sector, sizeof(sector));
+    for (uint32_t i = 0u; i < sizeof(*record); ++i)
+        sector[i] = ((const uint8_t *)record)[i];
+    if (block_device_write(crash_device, crash_first_lba + slot, 1u, sector) !=
+        PROS_BLOCK_OK)
+        return PROS_CRASH_RECORD_EIO;
+    return block_device_flush(crash_device) == PROS_BLOCK_OK
+         ? PROS_CRASH_RECORD_OK : PROS_CRASH_RECORD_EIO;
+}
+
+static int crash_find_latest(struct pros_crash_record *latest,
+                             uint32_t *slot_out)
+{
+    struct pros_crash_record a, b;
+    int va, vb;
+    if (!crash_attached || !latest)
+        return PROS_CRASH_RECORD_EINVAL;
+    va = crash_slot_read(0u, &a) == PROS_CRASH_RECORD_OK &&
+         crash_record_valid(&a);
+    vb = crash_slot_read(1u, &b) == PROS_CRASH_RECORD_OK &&
+         crash_record_valid(&b);
+    if (!va && !vb)
+        return PROS_CRASH_RECORD_ENOENT;
+    if (va && (!vb || a.sequence >= b.sequence)) {
+        *latest = a;
+        if (slot_out) *slot_out = 0u;
+    } else {
+        *latest = b;
+        if (slot_out) *slot_out = 1u;
+    }
+    return PROS_CRASH_RECORD_OK;
+}
+
+int pros_crash_record_attach(struct pros_block_device *device,
+                             uint64_t first_lba)
+{
+    struct pros_crash_record latest;
+    uint32_t slot = 0u;
+    int rc;
+    if (!device || device->sector_size != 512u ||
+        first_lba > device->sector_count ||
+        device->sector_count - first_lba < PROS_CRASH_RECORD_SLOT_COUNT)
+        return PROS_CRASH_RECORD_EINVAL;
+    crash_device = device;
+    crash_first_lba = first_lba;
+    crash_sequence = 0u;
+    crash_next_slot = 0u;
+    crash_attached = 1u;
+    crash_capture_active = 0u;
+
+    rc = crash_find_latest(&latest, &slot);
+    if (rc == PROS_CRASH_RECORD_OK) {
+        crash_sequence = latest.sequence;
+        crash_next_slot = slot ^ 1u;
+    } else if (rc != PROS_CRASH_RECORD_ENOENT) {
+        crash_attached = 0u;
+        crash_device = 0;
+        return rc;
+    }
+    return PROS_CRASH_RECORD_OK;
+}
+
+int pros_crash_record_available(void)
+{
+    return crash_attached ? 1 : 0;
+}
+
+int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
+                              uint64_t rip, uint64_t cr2, uint64_t timestamp)
+{
+    struct pros_crash_record record;
+    if (!crash_attached || crash_capture_active)
+        return PROS_CRASH_RECORD_ENOTSUP;
+    crash_capture_active = 1u;
+    crash_zero(&record, sizeof(record));
+    record.magic = PROS_CRASH_RECORD_MAGIC;
+    record.version = PROS_CRASH_RECORD_VERSION;
+    record.size = sizeof(record);
+    record.sequence = crash_sequence + 1u;
+    record.timestamp = timestamp;
+    record.vector = vector;
+    record.error_code = error_code;
+    record.rip = rip;
+    record.cr2 = cr2;
+    record.committed = 1u;
+    record.checksum = crash_crc32c((const uint8_t *)&record,
+                                   sizeof(record));
+    int rc = crash_slot_write(crash_next_slot, &record);
+    if (rc == PROS_CRASH_RECORD_OK) {
+        crash_sequence = record.sequence;
+        crash_next_slot ^= 1u;
+    }
+    crash_capture_active = 0u;
+    return rc;
+}
+
+int pros_crash_record_peek(struct pros_crash_record *record)
+{
+    return crash_find_latest(record, 0);
+}
+
+int pros_crash_record_clear(void)
+{
+    struct pros_crash_record empty;
+    crash_zero(&empty, sizeof(empty));
+    if (!crash_attached)
+        return PROS_CRASH_RECORD_ENOTSUP;
+    for (uint32_t slot = 0u; slot < PROS_CRASH_RECORD_SLOT_COUNT; ++slot)
+        if (crash_slot_write(slot, &empty) != PROS_CRASH_RECORD_OK)
+            return PROS_CRASH_RECORD_EIO;
+    crash_sequence = 0u;
+    crash_next_slot = 0u;
+    return PROS_CRASH_RECORD_OK;
+}
+
+int pros_crash_record_consume(struct pros_crash_record *record)
+{
+    int rc = pros_crash_record_peek(record);
+    if (rc != PROS_CRASH_RECORD_OK)
+        return rc;
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK)
+        return PROS_CRASH_RECORD_EIO;
+    return PROS_CRASH_RECORD_OK;
+}
+
+static int crash_selftest_read(struct pros_block_device *device,
+                               uint64_t lba, uint32_t count, void *buffer)
+{
+    uint8_t (*disk)[512] = (uint8_t (*)[512])device->private_data;
+    if (!disk || !buffer || lba >= 4u || count == 0u || count > 4u - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t s = 0u; s < count; ++s)
+        for (uint32_t i = 0u; i < 512u; ++i)
+            ((uint8_t *)buffer)[s * 512u + i] = disk[lba + s][i];
+    return PROS_BLOCK_OK;
+}
+
+static int crash_selftest_write(struct pros_block_device *device,
+                                uint64_t lba, uint32_t count,
+                                const void *buffer)
+{
+    uint8_t (*disk)[512] = (uint8_t (*)[512])device->private_data;
+    if (!disk || !buffer || lba >= 4u || count == 0u || count > 4u - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t s = 0u; s < count; ++s)
+        for (uint32_t i = 0u; i < 512u; ++i)
+            disk[lba + s][i] = ((const uint8_t *)buffer)[s * 512u + i];
+    return PROS_BLOCK_OK;
+}
+
+static int crash_selftest_flush(struct pros_block_device *device)
+{
+    (void)device;
+    return PROS_BLOCK_OK;
+}
+
+int pros_crash_record_selftest(void)
+{
+    static uint8_t disk[4][512];
+    struct pros_block_device device;
+    struct pros_crash_record record;
+    for (uint32_t s = 0u; s < 4u; ++s)
+        for (uint32_t i = 0u; i < 512u; ++i)
+            disk[s][i] = 0u;
+
+    if (block_device_init(&device, 512u, 4u, crash_selftest_read,
+                          crash_selftest_write, disk) != PROS_BLOCK_OK ||
+        block_device_set_flush(&device, crash_selftest_flush) != PROS_BLOCK_OK ||
+        pros_crash_record_attach(&device, 1u) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT ||
+        pros_crash_record_capture(14u, 0x11u, 0x22u, 0x33u, 0x44u) !=
+            PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 14u || record.error_code != 0x11u ||
+        record.rip != 0x22u || record.cr2 != 0x33u ||
+        pros_crash_record_consume(&record) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        return PROS_CRASH_RECORD_EIO;
+
+    if (pros_crash_record_capture(13u, 1u, 2u, 3u, 4u) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_capture(12u, 5u, 6u, 7u, 8u) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 12u)
+        return PROS_CRASH_RECORD_EIO;
+
+    /* Corrupt the newest slot: the older valid slot must remain selectable. */
+    disk[2][offsetof(struct pros_crash_record, checksum)] ^= 0x5Au;
+    if (pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
+        record.vector != 13u)
+        return PROS_CRASH_RECORD_ECORRUPT;
+
+    if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        return PROS_CRASH_RECORD_EIO;
+    return PROS_CRASH_RECORD_OK;
+}
