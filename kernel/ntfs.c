@@ -6074,7 +6074,10 @@ int ntfs_selftest(void)
         disk.index_record[16u] = 0u;
         disk.index_record[24u] = 40u;
         disk.index_record[28u] = 152u;
-        disk.index_record[32u] = 152u;
+        disk.index_record[32u] = 0xE8u;
+        disk.index_record[33u] = 0x0Fu;
+        disk.index_record[34u] = 0u;
+        disk.index_record[35u] = 0u;
         disk.index_record[36u] = 0u;
 
         {
@@ -6220,14 +6223,11 @@ int ntfs_selftest(void)
                 for (uint32_t i = 0u; i < sizeof(second_name); ++i)
                     second_key[66u + i] = second_name[i];
 
-                {
-                    int insert_rc = ntfs_index_allocation_insert(
+                if (ntfs_index_allocation_insert(
                         &fs, index_runs, index_run_count, 0u, 4096u,
                         0x4000u, second_key, sizeof(second_key),
-                        5u);
-                    if (insert_rc != PROS_NTFS_OK)
-                        return -14000 + insert_rc;
-                }
+                        5u) != PROS_NTFS_OK)
+                    return -121;
 
                 if (ntfs_index_allocation_read(
                         &fs, index_runs, index_run_count, 0u,
