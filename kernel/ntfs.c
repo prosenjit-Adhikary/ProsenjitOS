@@ -4292,14 +4292,12 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         old_directory_record[i] = directory_record[i];
 
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
-                            0x90u, &root_attr) != PROS_NTFS_OK)
-        return -22101;
-    if (ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
-                               root_attr, &root) != PROS_NTFS_OK)
-        return -22102;
-    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0x90u, &root_attr) != PROS_NTFS_OK ||
+        ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
+                               root_attr, &root) != PROS_NTFS_OK ||
+        ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0xA0u, &alloc_attr) != PROS_NTFS_OK)
-        return -22103;
+        return -18100 - __LINE__;
 
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
                             root_attr, &root_data, &root_size) !=
@@ -7203,20 +7201,12 @@ int ntfs_selftest(void)
              * clusters. The parent must contain a child-pointer separator.
              */
             if ((disk.bitmap_data[9u / 8u] &
-                 (uint8_t)(1u << (9u % 8u))) == 0u)
-                return -22201;
-            if (le64(disk.root_record + 440u) != 8192u)
-                return -22202;
-            if (disk.root_record[184u + 12u] != 1u)
-                return -22203;
-            if (le16(disk.root_record + 184u + 10u) != 74u)
-                return -22204;
-            {
-                uint64_t actual_separator_vcn =
-                    le64(disk.root_record + 184u + 104u - 8u);
-                if (actual_separator_vcn != 1u)
-                    return -23000 - (int)(actual_separator_vcn & 0xFFu);
-            }
+                 (uint8_t)(1u << (9u % 8u))) == 0u ||
+                le64(disk.root_record + 440u) != 8192u ||
+                disk.root_record[176u + 12u] != 1u ||
+                le16(disk.root_record + 176u + 10u) != 74u ||
+                le64(disk.root_record + 176u + 104u - 8u) != 1u)
+                return -197;
 
             {
                 uint8_t verify[4096];
