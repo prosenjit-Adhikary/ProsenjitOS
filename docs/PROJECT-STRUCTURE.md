@@ -179,7 +179,7 @@ debugging features.
 - Health events carry sequence, timer timestamp, severity, category, source, code and value metadata.
 - Health snapshots expose heap usage and event/drop counters without requiring dynamic allocation.
 - The initial monitor self-test and boot-time sample run after kernel heap initialization.
-- This is the monitoring foundation plus bounded persistent rotation/retention, reboot-surviving crash-record persistence, fatal-exception/recovery capture, timer-driven kernel heartbeat/watchdog checks, and watchdog/subsystem event hooks; full runtime service-manager and network-stack instrumentation remain separate completion gates.
+- This is the monitoring foundation plus bounded persistent rotation/retention, crash-record persistence infrastructure with safe-context flushing, fatal-exception/recovery capture, and watchdog/subsystem event hooks; full runtime service-manager integration, fatal-path disk persistence, and network-stack instrumentation remain separate completion gates.
 
 ### Central diagnostic export
 ### Central logging facade
@@ -193,7 +193,7 @@ debugging features.
 - Kernel logging now has a single structured emission boundary in `kernel/log.c`.
 - The first sink is the bounded health-event ring; future serial/persistent sinks can be attached without changing callers.
 - Sink availability is explicit, and logging remains non-authoritative for boot/storage correctness.
-- Persistent retention/rotation is implemented; crash survival across reboot is now provided by a bounded raw-block crash record store when a validated non-overlapping crash slot is available.
+- Persistent retention/rotation is implemented; a bounded raw-block crash record store and safe-context flush API are implemented when a validated non-overlapping crash slot is available. Fatal exception capture currently records a pending crash in memory; reboot-surviving persistence from the fatal path still requires an explicitly safe recovery/reset mechanism.
 
 
 - The health monitor now exposes a bounded deterministic text export of retained structured events and expanded VFS mutation/directory counters.
