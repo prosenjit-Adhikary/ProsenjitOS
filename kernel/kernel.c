@@ -3,6 +3,7 @@
 #include "paging.h"
 #include "heap.h"
 #include "health.h"
+#include "crash_record.h"
 #include "log.h"
 #include "address_space.h"
 #include "usercopy.h"
@@ -213,8 +214,16 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
-    if (vector != 128 && !usercopy_fault_active())
+    if (vector != 128 && !usercopy_fault_active()) {
+        int crash_rc = pros_crash_record_capture(vector, frame[1],
+                                                  frame[2], cr2,
+                                                  timer_ticks());
+        if (crash_rc != PROS_CRASH_RECORD_OK &&
+            pros_crash_record_available())
+            (void)pros_health_record_recovery(0x43525348u, 4u,
+                                              (uint64_t)(uint32_t)(-crash_rc));
         (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
+    }
     if (vector == 14 && usercopy_fault_active()) {
         uint64_t fixup_rip = usercopy_fault_rip();
         usercopy_fault_clear();
@@ -1174,7 +1183,44 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 for (;;) __asm__ volatile ("cli; hlt");
             }
 
-            pfs_rc = prosenjitfs_probe(&pfs_device.device);
+            {
+                const uint64_t crash_first_lba = PROS_CRASH_RECORD_DEFAULT_LBA;
+                uint8_t crash_slot_safe = 1u;
+                for (uint32_t p = 0u; p < partition_count; ++p) {
+                    uint64_t part_start = partitions[p].first_lba;
+                    uint64_t part_end = part_start + partitions[p].sector_count;
+                    if (part_end < part_start)
+                        crash_slot_safe = 0u;
+                    for (uint32_t s = 0u; s < PROS_CRASH_RECORD_SLOT_COUNT; ++s) {
+                        uint64_t slot = crash_first_lba + s;
+                        if (slot >= part_start && slot < part_end)
+                            crash_slot_safe = 0u;
+                    }
+                }
+                if (crash_slot_safe &&
+                    pros_crash_record_attach(&native_ata.block, crash_first_lba) ==
+                        PROS_CRASH_RECORD_OK) {
+                    struct pros_crash_record previous;
+                    int crash_rc = pros_crash_record_consume(&previous);
+                    if (crash_rc == PROS_CRASH_RECORD_OK) {
+                        (void)pros_health_record_recovery(0x43525348u, 1u,
+                                                          previous.sequence);
+                        (void)pros_health_record_recovery(0x43525348u, 2u,
+                                                          previous.vector);
+                        (void)pros_log_emit(PROS_HEALTH_WARN, PROS_HEALTH_RECOVERY,
+                                            0x43525348u, 1u, previous.rip);
+                        serial_write("ProsenjitOS: previous persistent crash record recovered\n");
+                    } else if (crash_rc != PROS_CRASH_RECORD_ENOENT) {
+                        (void)pros_health_record_recovery(
+                            0x43525348u, 3u,
+                            (uint64_t)(uint32_t)(-crash_rc));
+                        serial_write("ProsenjitOS: persistent crash record unavailable or invalid; continuing\n");
+                    }
+                } else {
+                    (void)pros_health_record_recovery(0x43525348u, 5u,
+                                                      crash_first_lba);
+                }
+            }            pfs_rc = prosenjitfs_probe(&pfs_device.device);
             if (pfs_rc == PROSENJITFS_ENOTSUP) {
                 if (prosenjitfs_format(&pfs_device.device) != PROSENJITFS_OK)
                     pfs_rc = PROSENJITFS_EIO;
