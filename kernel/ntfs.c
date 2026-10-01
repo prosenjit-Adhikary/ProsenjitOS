@@ -9,6 +9,7 @@
 /* Shared NTFS UpCase table state used by index name comparison/insertion. */
 static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
 static const uint8_t *ntfs_active_upcase = 0;
+static uint32_t ntfs_lookup_debug_stage;
 static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
                                       const uint8_t *name_utf16le,
@@ -4505,17 +4506,21 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
     uint32_t visited_count = 0u;
     static uint8_t index_record[PROS_NTFS_RECORD_WORK_MAX];
 
+    ntfs_lookup_debug_stage = 0u;
     if (!fs || !record || !name_utf16le || !file_reference ||
         name_length == 0u)
         return PROS_NTFS_EINVAL;
 
+    ntfs_lookup_debug_stage = 1u;
     if (ntfs_index_root_header(record, record_size, index_root_attr_offset,
                                &root) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
+    ntfs_lookup_debug_stage = 2u;
     if (ntfs_index_record_geometry(fs, &root, &record_clusters) !=
         PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
 
+    ntfs_lookup_debug_stage = 3u;
     if (ntfs_attribute_runlist(record, record_size,
                                index_allocation_attr_offset, &root_data,
                                &root_size) != PROS_NTFS_OK)
@@ -4534,11 +4539,13 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
         uint32_t data_size;
         uint32_t offset;
 
+        ntfs_lookup_debug_stage = 4u;
         if (ntfs_attribute_data(record, record_size, index_root_attr_offset,
                                  &data, &data_size) != PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
 
         offset = root.first_entry_offset;
+        ntfs_lookup_debug_stage = 5u;
         while (offset < root.entries_size) {
             uint16_t entry_size;
             uint16_t stream_size;
@@ -4612,12 +4619,14 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                 fs->sectors_per_cluster;
             struct pros_ntfs_index_record info;
 
+            ntfs_lookup_debug_stage = 6u;
             if (ntfs_index_allocation_read(fs, runs, run_count,
                                            byte_offset, index_record,
                                            root.bytes_per_index_record) !=
                 PROS_NTFS_OK)
                 return PROS_NTFS_EIO;
 
+            ntfs_lookup_debug_stage = 7u;
             if (ntfs_index_record_header(index_record,
                                          root.bytes_per_index_record,
                                          fs->bytes_per_sector, vcn, &info) !=
@@ -4626,6 +4635,7 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
 
             {
                 uint32_t offset = info.first_entry_offset;
+                ntfs_lookup_debug_stage = 8u;
                 while (offset < info.entries_size) {
                     uint16_t entry_size;
                     uint16_t stream_size;
@@ -6466,8 +6476,12 @@ int ntfs_selftest(void)
             int lookup_status = ntfs_index_allocation_lookup(
                     &fs, r, sizeof(disk.root_record), root_attr, a0,
                     demo_name, 4u, &reference);
-            if (lookup_status != PROS_NTFS_OK)
+            if (lookup_status != PROS_NTFS_OK) {
+                if (lookup_status == PROS_NTFS_ECORRUPT &&
+                    ntfs_lookup_debug_stage != 0u)
+                    return -200 - (int)ntfs_lookup_debug_stage;
                 return -135 + lookup_status;
+            }
         }
 
         for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
