@@ -6486,6 +6486,15 @@ int ntfs_selftest(void)
                 'd', 0u, 'e', 0u, 'm', 0u, 'o', 0u
             };
             uint64_t reference = 0u;
+            if (disk.index_record[144u] != 4u ||
+                disk.index_record[145u] != 1u ||
+                disk.index_record[146u] != 'd' ||
+                disk.index_record[148u] != 'e' ||
+                disk.index_record[150u] != 'm' ||
+                disk.index_record[152u] != 'o' ||
+                !ntfs_name_key_matches(disk.index_record + 80u, 74u,
+                                        demo_name, 4u))
+                return -141;
             int lookup_status = ntfs_index_allocation_lookup(
                     &fs, r, sizeof(disk.root_record), root_attr, a0,
                     demo_name, 4u, &reference);
