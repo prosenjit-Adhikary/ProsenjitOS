@@ -6423,6 +6423,14 @@ int ntfs_selftest(void)
         r[root_attr + 195u] = 0xFFu;
 
         {
+            if (fs.mft_run_count != 1u ||
+                fs.mft_runs[0].lcn != 4u ||
+                fs.mft_runs[0].clusters != 4u ||
+                fs.mft_runs[0].sparse != 0u)
+                return -15010;
+            if (disk.bitmap_data[0u] != 0xFFu ||
+                disk.bitmap_data[1u] != 0xFCu)
+                return -15011;
             int bootstrap_status = ntfs_index_allocation_bootstrap(
                 &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
             if (bootstrap_status != PROS_NTFS_OK)
