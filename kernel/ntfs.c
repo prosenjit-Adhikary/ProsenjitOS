@@ -6954,6 +6954,16 @@ int ntfs_selftest(void)
                 disk.root_record[504u] = 1u;
             }
 
+            /*
+             * The synthetic INDEX_ALLOCATION/$BITMAP attributes occupy the
+             * first-sector trailer area, so re-seal the FILE record USA after
+             * constructing them.
+             */
+            disk.root_record[510u] = 0x34u;
+            disk.root_record[511u] = 0x12u;
+            disk.root_record[1022u] = 0x34u;
+            disk.root_record[1023u] = 0x12u;
+
             /* 41 existing 96-byte entries + 16-byte terminal. */
             for (uint32_t i = 0u; i < sizeof(disk.index_record); ++i)
                 disk.index_record[i] = 0u;
