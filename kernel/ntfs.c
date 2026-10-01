@@ -3431,7 +3431,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     rc = ntfs_read_file_record(fs, directory_record_number,
                                record, sizeof(record));
     if (rc != PROS_NTFS_OK)
-        return -15038;
+        return PROS_NTFS_EIO;
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_record[i] = record[i];
 
@@ -3583,13 +3583,13 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         return PROS_NTFS_EOVERFLOW;
 
     if (allocation_start_lcn != 8u)
-        return -15020;
+        return PROS_NTFS_ECORRUPT;
     rc = ntfs_bitmap_allocate_clusters_from(fs, allocation_start_lcn,
                                              cluster_count, &lcn);
     if (rc != PROS_NTFS_OK)
         return rc;
     if (lcn != 8u)
-        return -15021;
+        return PROS_NTFS_EIO;
     if (lcn > 0x7FFFFFFFFFFFFFFFull) {
         (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
         return PROS_NTFS_ENOTSUP;
@@ -3629,7 +3629,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         uint16_t sequence = 1u;
         if (usa_offset + (uint32_t)usa_count * 2u > index_block_size ||
             usa_count < 2u) {
-            rc = -15034;
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
         }
         node[usa_offset] = (uint8_t)sequence;
@@ -3672,7 +3672,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     lcn_bytes = ntfs_signed_width((int64_t)lcn);
     map_len = 1u + 1u + lcn_bytes + 1u;
     if (64u + map_len > alloc_len) {
-        rc = -15035;
+        rc = PROS_NTFS_EOVERFLOW;
         goto rollback;
     }
     record[alloc_attr + 64u] = (uint8_t)(1u | (lcn_bytes << 4));
@@ -3708,7 +3708,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         if (ntfs_attribute_data(record, fs->bytes_per_file_record,
                                 root_attr, &root_data_const,
                                 &root_size) != PROS_NTFS_OK) {
-            rc = -15036;
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
         }
         root_data = (uint8_t *)(uintptr_t)root_data_const;
@@ -3717,7 +3717,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
          * the 24-byte END|NODE entry (0x38 bytes total).
          */
         if (root_size < 0x38u) {
-            rc = -15037;
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
         }
         for (uint32_t i = 16u; i < root_size; ++i)
@@ -3767,13 +3767,13 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                                  .sparse = 0u },
         1u, 0u, node, index_block_size);
     if (rc != PROS_NTFS_OK) {
-        rc = -15032;
+        rc = PROS_NTFS_EIO;
         goto rollback;
     }
 
     rc = ntfs_write_file_record(fs, directory_record_number, record);
     if (rc != PROS_NTFS_OK) {
-        rc = -15033;
+        rc = PROS_NTFS_EIO;
         goto rollback;
     }
 
