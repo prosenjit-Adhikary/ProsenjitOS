@@ -179,7 +179,7 @@ debugging features.
 - Health events carry sequence, timer timestamp, severity, category, source, code and value metadata.
 - Health snapshots expose heap usage and event/drop counters without requiring dynamic allocation.
 - The initial monitor self-test and boot-time sample run after kernel heap initialization.
-- This is the monitoring foundation plus bounded persistent rotation/retention, fatal-exception/recovery capture and watchdog/subsystem event hooks; reboot-surviving panic persistence and full runtime service/network instrumentation remain separate completion gates.
+- This is the monitoring foundation plus bounded persistent rotation/retention, reboot-surviving crash-record persistence, fatal-exception/recovery capture, timer-driven kernel heartbeat/watchdog checks, and watchdog/subsystem event hooks; full runtime service-manager and network-stack instrumentation remain separate completion gates.
 
 ### Central diagnostic export
 ### Central logging facade
@@ -193,13 +193,13 @@ debugging features.
 - Kernel logging now has a single structured emission boundary in `kernel/log.c`.
 - The first sink is the bounded health-event ring; future serial/persistent sinks can be attached without changing callers.
 - Sink availability is explicit, and logging remains non-authoritative for boot/storage correctness.
-- Persistent retention/rotation is implemented; crash-survival across reboot remains a separate milestone.
+- Persistent retention/rotation is implemented; crash survival across reboot is now provided by a bounded raw-block crash record store when a validated non-overlapping crash slot is available.
 
 
 - The health monitor now exposes a bounded deterministic text export of retained structured events and expanded VFS mutation/directory counters.
 - Security authorization decisions and driver bind/unbind/failure transitions now emit bounded health events; no unsupported network metrics are synthesized.
 - Export is caller-buffer bounded and does not allocate dynamically.
-- The export is diagnostic transport only; it does not yet provide persistent-on-disk retention or crash-survival across reboot.
+- The export is diagnostic transport only; persistent logs and reboot-surviving crash records are separate bounded transports and are not boot/corruption dependencies.
 
 ### Required logging architecture
 - A central structured event/log collector interface.
@@ -217,7 +217,10 @@ debugging features.
 ### Completion rule
 Monitoring/logging is complete only after the interfaces, persistent storage,
 rotation/retention, crash/panic capture, service/process health, network/security
-events and automated regression coverage are implemented and verified. Filesystem error hooks, security-admission events, boot recovery checkpoints, and watchdog
+events and automated regression coverage are implemented and verified. The current
+crash record store is active only when its raw slots are proven outside discovered
+partitions; service-manager and real network-stack instrumentation remain pending
+until those subsystems exist. Filesystem error hooks, security-admission events, boot recovery checkpoints, and watchdog
 checkpoint integration are part of the implementation. Network instrumentation remains limited
 to the existing subsystem hook boundary until a real network stack exists. Do not mark this
 requirement complete merely because debug prints exist.
