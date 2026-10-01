@@ -7300,6 +7300,10 @@ int ntfs_selftest(void)
             disk.mft_record[97u] = 0x30u;
             disk.mft_record[98u] = 0x00u;
             disk.mft_record[99u] = 0x00u;
+            disk.mft_record[100u] = 0u;
+            disk.mft_record[101u] = 0u;
+            disk.mft_record[102u] = 0u;
+            disk.mft_record[103u] = 0u;
 
             if (!fs.mount.root || !fs.mount.root->ops ||
                 !fs.mount.root->ops->readdir)
