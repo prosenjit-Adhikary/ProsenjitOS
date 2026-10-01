@@ -7207,11 +7207,14 @@ int ntfs_selftest(void)
                     split_mask |= 1u;
                 if (le64(disk.root_record + 440u) != 8192u)
                     split_mask |= 2u;
-                if (disk.root_record[176u + 12u] != 1u)
+                /* The promoted separator is inserted before the old 16-byte
+                 * terminal entry at absolute offset 184. Its aligned
+                 * $FILE_NAME key entry is 104 bytes long. */
+                if (disk.root_record[184u + 12u] != 1u)
                     split_mask |= 4u;
-                if (le16(disk.root_record + 176u + 10u) != 74u)
+                if (le16(disk.root_record + 184u + 10u) != 74u)
                     split_mask |= 8u;
-                if (le64(disk.root_record + 176u + 104u - 8u) != 1u)
+                if (le64(disk.root_record + 184u + 104u - 8u) != 1u)
                     split_mask |= 16u;
                 if (split_mask != 0u)
                     return -24000 - (int)split_mask;
