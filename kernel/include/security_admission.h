@@ -3,6 +3,13 @@
 
 #include <stdint.h>
 #include "security_file.h"
+
+/* Stable security-health event codes. */
+enum pros_security_health_code {
+    PROS_SECURITY_HEALTH_ADMISSION = 1u,
+    PROS_SECURITY_HEALTH_SIGNATURE_FAILURE = 2u,
+    PROS_SECURITY_HEALTH_PROVIDER = 3u
+};
 #include "security_signature.h"
 
 struct pros_file_admission_input {
