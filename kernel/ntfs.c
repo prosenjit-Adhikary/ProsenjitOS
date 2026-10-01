@@ -7689,8 +7689,26 @@ int ntfs_selftest(void)
                 {
                     int split_verify_header_rc = ntfs_index_record_header(
                         verify, sizeof(verify), 512u, 1u, &info);
-                    if (split_verify_header_rc != PROS_NTFS_OK)
+                    if (split_verify_header_rc != PROS_NTFS_OK) {
+                        uint16_t usa_offset = le16(verify + 4u);
+                        uint16_t usa_count = le16(verify + 6u);
+                        uint16_t usa_seq = (usa_offset + 2u <= sizeof(verify)) ?
+                            le16(verify + usa_offset) : 0u;
+                        if (le64(verify + 16u) != 1u)
+                            return -2101;
+                        if (usa_offset != 40u)
+                            return -2102;
+                        if (usa_count != 9u)
+                            return -2103;
+                        if (usa_seq != 0x1234u)
+                            return -2104;
+                        for (uint32_t i = 1u; i < usa_count; ++i) {
+                            uint32_t end = i * 512u - 2u;
+                            if (le16(verify + end) != usa_seq)
+                                return -2110 - (int)i;
+                        }
                         return -1990 + split_verify_header_rc;
+                    }
                     if (info.vcn != 1u)
                         return -200;
                 }
