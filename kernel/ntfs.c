@@ -4186,7 +4186,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     rc = ntfs_index_allocation_grow_one(fs, directory_record_number,
                                         &new_vcn, &new_lcn);
     if (rc != PROS_NTFS_OK)
-        return rc;
+        return -15040 + rc;
 
     grown_count = 0u;
     if (ntfs_read_file_record(fs, directory_record_number, directory_record,
