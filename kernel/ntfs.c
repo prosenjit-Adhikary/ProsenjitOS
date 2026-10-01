@@ -3895,6 +3895,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     static uint8_t incoming[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t separator_key[0x10000];
     struct pros_ntfs_run grown_runs[PROS_NTFS_MFT_RUN_MAX];
+    struct pros_ntfs_index_root root;
     const uint8_t *root_data;
     const uint8_t *runlist;
     uint32_t root_attr, alloc_attr, root_size;
@@ -3942,9 +3943,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0x90u, &root_attr) != PROS_NTFS_OK ||
         ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
-                               root_attr,
-                               &(struct pros_ntfs_index_root){0}) !=
-            PROS_NTFS_OK ||
+                               root_attr, &root) != PROS_NTFS_OK ||
         ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0xA0u, &alloc_attr) != PROS_NTFS_OK)
         return -15001 - 1;
@@ -3954,16 +3953,9 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         PROS_NTFS_OK)
         return -15001 - 2;
 
-    {
-        struct pros_ntfs_index_root root;
-        if (ntfs_index_root_header(directory_record,
-                                   fs->bytes_per_file_record,
-                                   root_attr, &root) != PROS_NTFS_OK)
-            return -15001 - 3;
-        root_first_entry_offset = root.first_entry_offset;
-        root_entries_size = root.entries_size;
-        root_allocated_size = root.allocated_size;
-    }
+    root_first_entry_offset = root.first_entry_offset;
+    root_entries_size = root.entries_size;
+    root_allocated_size = root.allocated_size;
 
     if (ntfs_index_allocation_read(fs, runs, run_count,
                                    vcn * (uint64_t)fs->bytes_per_sector *
