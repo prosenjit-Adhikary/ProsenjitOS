@@ -6293,6 +6293,14 @@ int ntfs_selftest(void)
         r[0] = 'F'; r[1] = 'I'; r[2] = 'L'; r[3] = 'E';
         r[4] = 8u; r[6] = 3u;
         r[8] = 0x78u; r[9] = 0x56u;
+        /*
+         * The bootstrap path reads record 5 through the normal MFT
+         * USA-fixup path. Seed the sector trailers with the same sequence
+         * value as the USA so the synthetic record is structurally valid
+         * before the mutation is exercised.
+         */
+        r[510] = 0x78u; r[511] = 0x56u;
+        r[1022] = 0x78u; r[1023] = 0x56u;
         r[20] = 24u;
         r[22] = 3u;
         r[24] = (uint8_t)used;
