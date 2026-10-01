@@ -7423,37 +7423,43 @@ int ntfs_selftest(void)
                 uint8_t found_right_child = 0u;
 
                 if ((disk.bitmap_data[9u / 8u] &
-                     (uint8_t)(1u << (9u % 8u))) == 0u ||
-                    ntfs_find_attribute(disk.root_record,
+                     (uint8_t)(1u << (9u % 8u))) == 0u)
+                    return -24101;
+                if (ntfs_find_attribute(disk.root_record,
                                          sizeof(disk.root_record), 0x90u,
                                          &root_attr_check) != PROS_NTFS_OK ||
                     ntfs_find_attribute(disk.root_record,
                                          sizeof(disk.root_record), 0xA0u,
-                                         &alloc_attr_check) != PROS_NTFS_OK ||
-                    le64(disk.root_record + alloc_attr_check + 40u) != 8192u ||
-                    ntfs_index_root_header(disk.root_record,
+                                         &alloc_attr_check) != PROS_NTFS_OK)
+                    return -24102;
+                if (le64(disk.root_record + alloc_attr_check + 40u) != 8192u)
+                    return -24103;
+                if (ntfs_index_root_header(disk.root_record,
                                            sizeof(disk.root_record),
                                            root_attr_check,
-                                           &split_root_check) != PROS_NTFS_OK ||
-                    split_root_check.entries_size != 256u ||
+                                           &split_root_check) != PROS_NTFS_OK)
+                    return -24104;
+                if (split_root_check.entries_size != 256u ||
                     split_root_check.allocated_size != 352u ||
-                    split_root_check.flags != 1u ||
-                    ntfs_attribute_data(disk.root_record,
+                    split_root_check.flags != 1u)
+                    return -24105;
+                if (ntfs_attribute_data(disk.root_record,
                                         sizeof(disk.root_record),
                                         root_attr_check,
                                         &root_data_check,
                                         &root_size_check) != PROS_NTFS_OK ||
                     root_size_check != 352u)
-                    return -197;
+                    return -24106;
 
                 {
                     uint32_t off = split_root_check.first_entry_offset;
+                    uint8_t saw_terminal = 0u;
                     while (off < split_root_check.entries_size) {
                         uint16_t entry_size;
                         uint16_t key_size;
                         uint8_t flags;
                         if (split_root_check.entries_size - off < 16u)
-                            return -197;
+                            return -24107;
                         entry_size = le16(root_data_check + off + 8u);
                         key_size = le16(root_data_check + off + 10u);
                         flags = root_data_check[off + 12u];
@@ -7463,7 +7469,7 @@ int ntfs_selftest(void)
                             (flags & ~3u) != 0u ||
                             key_size > entry_size - 16u -
                                        ((flags & 1u) ? 8u : 0u))
-                            return -197;
+                            return -24108;
                         if ((flags & 1u) != 0u &&
                             key_size == 74u &&
                             le64(root_data_check + off + entry_size - 8u) == 1u)
@@ -7472,13 +7478,16 @@ int ntfs_selftest(void)
                             if (entry_size != 16u ||
                                 off + entry_size !=
                                     split_root_check.entries_size)
-                                return -197;
+                                return -24109;
+                            saw_terminal = 1u;
                             break;
                         }
                         off += entry_size;
                     }
+                    if (!saw_terminal)
+                        return -24110;
                     if (!found_right_child)
-                        return -197;
+                        return -24111;
                 }
             }
 
