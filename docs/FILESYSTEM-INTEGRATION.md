@@ -66,7 +66,7 @@ Every filesystem integration change must preserve:
 8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in, including allocation/reclamation and directory mutation regression.
 9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
 
-A real QEMU disk-device test for ProsenjitFS is a separate milestone. It must not be claimed until the kernel has a real ATA/AHCI/NVMe/USB-visible block-device path.
+A native QEMU disk-device test is now a mandatory regression gate. The native image uses the kernel-visible ATA PIO path and the reserved MBR ProsenjitFS partition described above.
 
 ## Non-overlap rule
 
