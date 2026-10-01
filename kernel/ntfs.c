@@ -6676,10 +6676,10 @@ int ntfs_selftest(void)
             disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u; /* 352-byte value */
             disk.root_record[68u] = 248u;
             disk.root_record[69u] = 0u;
-            disk.root_record[72u] = 248u;
-            disk.root_record[73u] = 0u;
-            disk.root_record[74u] = 0x60u;
-            disk.root_record[75u] = 0x01u;
+            disk.root_record[72u] = 0x60u;
+            disk.root_record[73u] = 0x01u;
+            disk.root_record[74u] = 0u;
+            disk.root_record[75u] = 0u;
             disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
                 disk.root_record[80u + 96u - 8u + i] = 0u;
