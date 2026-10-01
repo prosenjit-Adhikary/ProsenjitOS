@@ -5647,7 +5647,7 @@ int ntfs_selftest(void)
             int first_write_rc = ntfs_file_write(
                 &fs, 11u, 0u, replacement, sizeof(replacement), &written);
             if (first_write_rc != PROS_NTFS_OK)
-                return -121;
+                return -13000 + first_write_rc;
             {
                 int overflow_rc = ntfs_file_write(
                     &fs, 11u, 4u, replacement, 2u, &written);
