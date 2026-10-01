@@ -7,9 +7,9 @@ This document is the implementation contract for the native ProsenjitFS filesyst
 
 The provider now covers persistent file-data I/O, bitmap-backed inode/block allocation and reclamation, hash-indexed directory lookup/readdir/create, transactional mkdir/rmdir, transactional unlink/rename, cross-directory moves with directory-parent cycle protection, redo-journal replay, torn-transaction discard, journal checksum corruption rejection, and mount-time metadata corruption checks in the deterministic memory-backed self-test.
 
-The directory mutation regression now exercises directory allocation, nested directories, cross-directory file moves, directory moves, cycle rejection, non-empty-directory removal rejection, and empty-directory reclamation. This is an implementation/self-test milestone; current GitHub Actions runner failures occur before workflow steps are created, so this commit is not yet CI-verified.
+The directory mutation regression now exercises directory allocation, nested directories, cross-directory file moves, directory moves, cycle rejection, non-empty-directory removal rejection, and empty-directory reclamation. This is an implementation/self-test milestone. The native ATA PIO -> MBR -> ProsenjitFS QEMU path is implemented and is a mandatory CI gate; the repository must not call the filesystem CI-verified until a post-change workflow run executes all build and boot steps successfully.
 
-This is still not a claim of physical power-loss validation: a real QEMU disk-device test remains pending until an ATA/AHCI/NVMe/USB-visible block-device path exists. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
+This is still not a claim of physical power-loss validation. The native QEMU disk path exercises ATA PIO and a persistent ProsenjitFS partition, but QEMU is not a substitute for a real power-loss hardware test. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
 
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
@@ -71,14 +71,14 @@ Mount validates magic/version, feature flags, block size and volume bounds, all 
 10. Implement unlink/rename and transaction coverage.
 11. Add corruption and crash-point tests.
 12. Add host-side format tests.
-13. Add ProsenjitFS filesystem probing/storage discovery.
-14. Add QEMU regression using a real ProsenjitFS disk image once a QEMU-visible block-device path exists.
+13. Add ProsenjitFS filesystem probing/storage discovery. **Completed in the native BIOS storage path.**
+14. Run the mandatory QEMU regression using the native ProsenjitFS disk image and verify the ATA -> MBR -> ProsenjitFS path.
 15. Run complete existing CI regression and preserve FAT32/exFAT/NTFS behavior.
 16. Add ProsenjitFS self-healing hooks: integrity scan, journal-first recovery, conservative orphan reclamation, degraded-metadata handling, and post-repair verification.
 17. Add fault-injection tests for torn writes, corrupted metadata, interrupted recovery, and rollback; automatic destructive repair must remain disabled outside explicit recovery mode.
 
-## Current dependency boundary
-The repository does not yet expose a real ATA/AHCI/NVMe block device to the kernel/QEMU boot test. Therefore physical QEMU disk detection cannot honestly be claimed until that dependency exists. Deterministic memory-backed block-device self-tests will exercise the real filesystem code now; they supplement rather than replace the eventual QEMU disk test.
+## Current verification boundary
+The repository exposes an ATA PIO block-device path to the native BIOS QEMU image and the mandatory workflow checks the resulting MBR -> ProsenjitFS persistence chain. Deterministic memory-backed tests supplement that path. Physical power-loss durability remains a hardware-validation limitation and is not claimed.
 
 ## Completion rule
 ProsenjitFS is not complete until format/mount/validation, persistent allocation, directories, Unicode names, file I/O, rename/delete, journal recovery, corruption handling, VFS/security integration, QEMU disk integration, complete CI regression and accurate documentation are verified.
