@@ -7735,11 +7735,40 @@ int ntfs_selftest(void)
                         'u', 0u, '4', 0u, '1', 0u
                     };
                     uint64_t routed_reference = 0u;
-                    if (ntfs_directory_lookup(&fs, 5u, routed_name, 3u,
-                                               &routed_reference) !=
-                            PROS_NTFS_OK ||
-                        routed_reference != 0x4029u)
-                        return -203;
+                    {
+                        uint8_t raw_found = 0u;
+                        uint32_t roff = info.first_entry_offset;
+                        while (roff < info.entries_size) {
+                            uint16_t es = le16(verify + roff + 8u);
+                            uint16_t ks = le16(verify + roff + 10u);
+                            uint8_t fl = verify[roff + 12u];
+                            if (es < 16u || es > info.entries_size - roff ||
+                                (es & 7u) != 0u)
+                                return -204;
+                            if ((fl & 2u) == 0u && ks >= 72u &&
+                                verify[roff + 16u + 64u] == 3u &&
+                                verify[roff + 16u + 66u] == 'u' &&
+                                verify[roff + 16u + 68u] == '4' &&
+                                verify[roff + 16u + 70u] == '1') {
+                                raw_found = 1u;
+                                if (le64(verify + roff) != 0x4029u)
+                                    return -205;
+                            }
+                            if (fl & 2u)
+                                break;
+                            roff += es;
+                        }
+                        if (!raw_found)
+                            return -206;
+                    }
+                    {
+                        int routed_status = ntfs_directory_lookup(
+                            &fs, 5u, routed_name, 3u, &routed_reference);
+                        if (routed_status != PROS_NTFS_OK)
+                            return -21000 + routed_status;
+                        if (routed_reference != 0x4029u)
+                            return -207;
+                    }
                 }
             }
 
