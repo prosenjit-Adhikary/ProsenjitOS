@@ -4760,6 +4760,19 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         ((uint8_t *)root_data)[21u]=(uint8_t)(old_root_entries >> 8);
         ((uint8_t *)root_data)[22u]=(uint8_t)(old_root_entries >> 16);
         ((uint8_t *)root_data)[23u]=(uint8_t)(old_root_entries >> 24);
+
+        /*
+         * Rebuild the terminal INDEX_ROOT entry explicitly after insertion.
+         * The separator insertion shifts the old terminal entry, but the
+         * destination bytes must be canonical regardless of fixture state.
+         */
+        {
+            uint32_t terminal = old_root_entries - 16u;
+            for (uint32_t i = 0u; i < 16u; ++i)
+                ((uint8_t *)root_data)[terminal + i] = 0u;
+            ((uint8_t *)root_data)[terminal + 8u] = 16u;
+            ((uint8_t *)root_data)[terminal + 12u] = 2u;
+        }
     }
 
     rc = ntfs_write_file_record(fs, directory_record_number,
