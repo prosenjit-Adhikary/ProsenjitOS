@@ -768,14 +768,11 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                                                uint64_t cluster_count,
                                                uint64_t *first_lcn)
 {
-    static uint8_t bitmap_chunk[4096];
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     const uint8_t *runlist;
     uint32_t attr_offset, runlist_size, run_count;
     struct pros_ntfs_run runs[PROS_NTFS_MFT_RUN_MAX];
     uint64_t bitmap_size, total_clusters;
-    uint64_t scan_lcn;
-    uint32_t got;
 
     if (!fs || !first_lcn || cluster_count == 0u ||
         fs->bytes_per_file_record > sizeof(record))
@@ -820,55 +817,48 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
     }
+
     if (bitmap_size < total_clusters / 8u +
                       ((total_clusters % 8u) != 0u ? 1u : 0u))
         return PROS_NTFS_ECORRUPT;
 
     /*
-     * Scan candidate extents from the requested lower bound. Read complete
-     * bitmap bytes and validate every bit in the candidate run before
-     * committing it. Keeping the candidate start as an explicit LCN avoids
-     * coupling the result to the bitmap-chunk cursor.
+     * Probe each candidate from the lower bound using the live $BITMAP
+     * stream. This deliberately avoids a chunk cursor: the returned LCN is
+     * derived from the exact bitmap byte/bit that was validated.
      */
-    scan_lcn = start_lcn;
-    while (scan_lcn <= total_clusters - cluster_count) {
-        uint64_t byte_offset = scan_lcn / 8u;
-        uint64_t last_lcn = scan_lcn + cluster_count - 1u;
-        uint64_t last_byte = last_lcn / 8u;
-        uint64_t byte_count = last_byte - byte_offset + 1u;
+    for (uint64_t candidate = start_lcn;
+         candidate <= total_clusters - cluster_count; ++candidate) {
+        uint8_t free_run = 1u;
 
-        if (byte_count > sizeof(bitmap_chunk))
-            return PROS_NTFS_EOVERFLOW;
-        got = 0u;
-        if (ntfs_file_read(fs, 6u, byte_offset, bitmap_chunk,
-                           (uint32_t)byte_count, &got) != PROS_NTFS_OK ||
-            got != (uint32_t)byte_count)
-            return -15030;
+        for (uint64_t i = 0u; i < cluster_count; ++i) {
+            uint64_t lcn = candidate + i;
+            uint64_t byte_offset = lcn / 8u;
+            uint8_t bitmap_byte = 0u;
+            uint32_t got = 0u;
 
-        {
-            uint8_t free_run = 1u;
-            for (uint64_t lcn = scan_lcn; lcn <= last_lcn; ++lcn) {
-                uint64_t relative = lcn - byte_offset * 8u;
-                uint8_t value = bitmap_chunk[relative / 8u];
-                if ((value & (uint8_t)(1u << (relative & 7u))) != 0u) {
-                    free_run = 0u;
-                    break;
-                }
+            if (ntfs_file_read(fs, 6u, byte_offset, &bitmap_byte, 1u,
+                               &got) != PROS_NTFS_OK || got != 1u) {
+                free_run = 0u;
+                break;
             }
-            if (free_run) {
-                if (ntfs_bitmap_update_clusters(fs, scan_lcn,
-                                                cluster_count, 1u) !=
-                    PROS_NTFS_OK)
-                    return -15031;
-                *first_lcn = scan_lcn;
-                return PROS_NTFS_OK;
+            if ((bitmap_byte & (uint8_t)(1u << (lcn & 7u))) != 0u) {
+                free_run = 0u;
+                break;
             }
         }
 
-        if (scan_lcn == UINT64_MAX)
-            break;
-        ++scan_lcn;
+        if (!free_run)
+            continue;
+
+        if (ntfs_bitmap_update_clusters(fs, candidate, cluster_count, 1u) !=
+            PROS_NTFS_OK)
+            return -15031;
+
+        *first_lcn = candidate;
+        return PROS_NTFS_OK;
     }
+
     return PROS_NTFS_EIO;
 }
 
