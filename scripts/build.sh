@@ -7,6 +7,8 @@ ISO="$BUILD/prosenjitOS.iso"
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD/obj" "$BUILD/isodir/boot/grub"
+echo "NTFS source fingerprint: $(sha256sum "$ROOT/kernel/ntfs.c")"
+grep -F "return -15022 + (int)bootstrap_lcn;" "$ROOT/kernel/ntfs.c" >/dev/null
 
 nasm -f elf64 "$ROOT/boot/multiboot2_header.asm" -o "$BUILD/obj/multiboot2_header.o"
 nasm -f elf64 "$ROOT/boot/entry.asm" -o "$BUILD/obj/entry.o"
