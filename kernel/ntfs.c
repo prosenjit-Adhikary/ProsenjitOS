@@ -820,9 +820,13 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
             }
             if (!free_run)
                 continue;
-            if (ntfs_bitmap_update_clusters(fs, candidate, cluster_count, 1u) !=
-                PROS_NTFS_OK)
-                return PROS_NTFS_EIO;
+            {
+                int update_status =
+                    ntfs_bitmap_update_clusters(fs, candidate,
+                                                 cluster_count, 1u);
+                if (update_status != PROS_NTFS_OK)
+                    return update_status;
+            }
             *first_lcn = candidate;
             return PROS_NTFS_OK;
         }
@@ -911,9 +915,13 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
         }
         if (!free_run)
             continue;
-        if (ntfs_bitmap_update_clusters(fs, candidate, cluster_count, 1u) !=
-            PROS_NTFS_OK)
-            return PROS_NTFS_EIO;
+        {
+            int update_status =
+                ntfs_bitmap_update_clusters(fs, candidate,
+                                             cluster_count, 1u);
+            if (update_status != PROS_NTFS_OK)
+                return update_status;
+        }
         *first_lcn = candidate;
         return PROS_NTFS_OK;
     }
