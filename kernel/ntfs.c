@@ -4856,10 +4856,12 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
      * pointer has been assembled. The pointer is the VCN of the newly
      * allocated right-hand INDX node.
      */
-    if (le64(root_mutable_data + parent_insert_offset +
-             parent_entry_size - 8u) != new_vcn) {
-        rc = PROS_NTFS_ECORRUPT;
-        goto rollback;
+    {
+        uint32_t terminal = new_root_entries - 24u;
+        if (le64(root_mutable_data + terminal + 16u) != new_vcn) {
+            rc = PROS_NTFS_ECORRUPT;
+            goto rollback;
+        }
     }
     rc = ntfs_write_file_record(fs, directory_record_number,
                                 directory_record);
