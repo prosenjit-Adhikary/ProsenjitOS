@@ -36,7 +36,15 @@ int pros_file_admission_evaluate(
         metadata.reputation =
             pros_security_provider_reputation(record->sha256);
 
-    return pros_file_admit(&metadata, &record->security);
+    {
+        int rc = pros_file_admit(&metadata, &record->security);
+        if (rc == 0)
+            (void)pros_health_record_security(
+                0x53454341u, PROS_SECURITY_HEALTH_ADMISSION,
+                ((uint64_t)record->security.action << 32) |
+                (uint64_t)record->security.state);
+        return rc;
+    }
 }
 
 int pros_file_admission_evaluate_signed(
@@ -57,8 +65,11 @@ int pros_file_admission_evaluate_signed(
 
     if (pros_security_signature_verify(
             algorithm, data, length, signature, signature_length,
-            public_key, public_key_length, &signature_result) != 0)
+            public_key, public_key_length, &signature_result) != 0) {
+        (void)pros_health_record_security(
+            0x53454341u, PROS_SECURITY_HEALTH_SIGNATURE_FAILURE, 0u);
         return -2;
+    }
 
     /*
      * Cryptographic failure is deliberately mapped to UNKNOWN/quarantine,
