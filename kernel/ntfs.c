@@ -6750,8 +6750,6 @@ int ntfs_selftest(void)
                 disk.index_record[42u + i * 2u] =
                     (uint8_t)(0xA0u + i);
                 disk.index_record[43u + i * 2u] = 0u;
-                disk.index_record[510u + i * 512u] = 0x34u;
-                disk.index_record[511u + i * 512u] = 0x12u;
             }
             disk.index_record[24u]=40u;
             disk.index_record[28u]=0x70u; disk.index_record[29u]=0x0Fu;
@@ -6781,10 +6779,16 @@ int ntfs_selftest(void)
                 uint32_t term = 64u + 41u * 96u;
                 disk.index_record[term + 8u] = 16u;
                 disk.index_record[term + 12u] = 2u;
-                disk.index_record[28u]=0x70u; disk.index_record[29u]=0x0Fu;
+                disk.index_record[28u]=0x98u; disk.index_record[29u]=0x0Fu;
                 disk.index_record[30u]=0u; disk.index_record[31u]=0u;
                 disk.index_record[32u]=0xC8u; disk.index_record[33u]=0x0Fu;
                 disk.index_record[34u]=0u; disk.index_record[35u]=0u;
+            }
+
+            /* Seal USA trailer words after all entry bytes are populated. */
+            for (uint32_t i = 0u; i < 8u; ++i) {
+                disk.index_record[510u + i * 512u] = 0x34u;
+                disk.index_record[511u + i * 512u] = 0x12u;
             }
 
             /* LCN 8 is now occupied by the initial INDX node. */
