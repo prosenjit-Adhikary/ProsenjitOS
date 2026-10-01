@@ -6904,12 +6904,12 @@ int ntfs_selftest(void)
              */
             disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
             disk.root_record[29u] = 0x01u;
-            /* Root index header: first entry at 32, 144 bytes used, 352 allocated. */
-            disk.root_record[40u] = 32u; disk.root_record[41u] = 0u;
-            disk.root_record[44u] = 144u; disk.root_record[45u] = 0u;
-            disk.root_record[48u] = 0x60u; disk.root_record[49u] = 0x01u;
-            /* One 96-byte child entry plus the 16-byte END entry. */
-            disk.root_record[68u] = 144u;
+            /* Root attribute value is 352 bytes; INDEX_ROOT header starts at value+0. */
+            disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
+            /* first entry=32, entries used=144, allocated=352. */
+            disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
+            disk.root_record[68u] = 144u; disk.root_record[69u] = 0u;
+            disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
             disk.root_record[69u] = 0u;
             disk.root_record[72u] = 0x60u;
             disk.root_record[73u] = 0x01u;
@@ -6969,7 +6969,7 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            /* Keep offset 24 as the $INDEX_ROOT attribute type (0x90). */
+            /* Preserve the FILE/$INDEX_ROOT attribute header and value layout. */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
