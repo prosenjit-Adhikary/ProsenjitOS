@@ -821,7 +821,7 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                                                uint64_t cluster_count,
                                                uint64_t *first_lcn)
 {
-    static uint8_t bitmap_chunk[4096];
+    static uint8_t bitmap_sector[4096];
     static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
     uint32_t attr_offset;
     uint64_t bitmap_size, total_clusters;
