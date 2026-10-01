@@ -6998,10 +6998,15 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            disk.root_record[24u] = 0x08u;
-            disk.root_record[25u] = 0x02u;
-            disk.root_record[26u] = 0u;
-            disk.root_record[27u] = 0u;
+            /*
+             * The synthetic fixture keeps the first attribute at record
+             * offset 24, so the generic FILE-record used-size field overlaps
+             * that attribute by design. Do not rewrite 24..27 here: doing so
+             * would destroy the $INDEX_ROOT type/length before the split path
+             * reads the record. Attribute traversal is terminated explicitly
+             * below and does not depend on the unused-size header in this
+             * fixture.
+             */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
