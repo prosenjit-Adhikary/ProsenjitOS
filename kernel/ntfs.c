@@ -4223,8 +4223,11 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             flags = leaf[absolute + 12u];
             if (esize < 16u || esize > remaining || (esize & 7u) != 0u ||
                 (flags & ~3u) != 0u ||
-                ksize > esize - 16u - ((flags & 1u) ? 8u : 0u))
-                return -18100 - __LINE__;
+                ksize > esize - 16u - ((flags & 1u) ? 8u : 0u)) {
+                if (absolute == 32u)
+                    return -24032;
+                return -24136;
+            }
 
             if (flags & 2u) {
                 terminal_offset = absolute;
