@@ -4343,6 +4343,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     static uint8_t leaf[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t old_leaf[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t directory_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t rebuilt_directory_record[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t old_directory_record[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t right[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t expanded[PROS_NTFS_RECORD_WORK_MAX * 2u];
@@ -4728,8 +4729,17 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         goto rollback;
     }
 
+    /*
+     * Build the parent metadata in an isolated image. This makes the
+     * variable-sized INDEX_ROOT shift deterministic and prevents the
+     * terminal-entry move from aliasing the entry being inserted.
+     */
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        rebuilt_directory_record[i] = directory_record[i];
+
     /* Insert the promoted separator and the new right-child VCN. */
-    if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
+    if (ntfs_attribute_data(rebuilt_directory_record,
+                            fs->bytes_per_file_record,
                             root_attr, &root_data, &root_size) != PROS_NTFS_OK)
         goto rollback;
     {
@@ -4793,6 +4803,17 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             ((uint8_t *)root_data)[terminal + 12u] = 2u;
         }
     }
+
+    /*
+     * Commit the fully rebuilt parent image only after the promoted child
+     * pointer has been assembled. The pointer is the VCN of the newly
+     * allocated right-hand INDX node.
+     */
+    if (le64(root_data + parent_insert_offset + parent_entry_size - 8u) !=
+            new_vcn)
+        goto rollback;
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        directory_record[i] = rebuilt_directory_record[i];
 
     rc = ntfs_write_file_record(fs, directory_record_number,
                                 directory_record);
