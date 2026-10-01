@@ -3474,7 +3474,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             break;
         if (len < 16u || (len & 7u) != 0u ||
             pos + len > used)
-            return -30000 - (int)len;
+            return -40000 - (int)used;
         if (le16(record + pos + 14u) >= attr_id)
             attr_id = (uint32_t)le16(record + pos + 14u) + 1u;
         pos += len;
