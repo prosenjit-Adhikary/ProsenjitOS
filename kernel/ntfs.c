@@ -3970,19 +3970,25 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         int leaf_header_status = ntfs_index_record_header(
             leaf, record_size, fs->bytes_per_sector, vcn, &leaf_info);
         if (leaf_header_status != PROS_NTFS_OK) {
-            if (ntfs_index_record_fixup(leaf, record_size,
-                                         fs->bytes_per_sector) != PROS_NTFS_OK)
-                return -15020;
-            if (le64(leaf + 16u) != vcn)
-                return -15021;
-            if ((uint32_t)le16(leaf + 4u) +
-                    (uint32_t)le16(leaf + 6u) * 2u > record_size)
-                return -15022;
-            if (24u + le32(leaf + 24u) > record_size ||
-                24u + le32(leaf + 28u) > record_size ||
-                24u + le32(leaf + 32u) > record_size)
-                return -15023;
-            return -15024;
+            uint32_t first_relative = le32(leaf + 24u);
+            uint32_t entries_size = le32(leaf + 28u);
+            uint32_t allocated_size = le32(leaf + 32u);
+            uint32_t usa_end = (uint32_t)le16(leaf + 4u) +
+                               (uint32_t)le16(leaf + 6u) * 2u;
+            uint32_t first_absolute = 24u + first_relative;
+            if (le64(leaf + 16u) != vcn) return -15020;
+            if (usa_end > record_size) return -15021;
+            if (first_relative > UINT32_MAX - 24u) return -15022;
+            if (first_relative < 16u) return -15023;
+            if (first_absolute < usa_end) return -15024;
+            if ((first_absolute & 7u) != 0u) return -15025;
+            if (entries_size < first_relative) return -15026;
+            if (allocated_size < entries_size) return -15027;
+            if ((leaf[36u] & ~1u) != 0u) return -15028;
+            if (24u + allocated_size > record_size) return -15029;
+            if (24u + entries_size > record_size) return -15030;
+            if (first_absolute > 24u + entries_size) return -15031;
+            return -15032;
         }
     }
 
