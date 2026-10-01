@@ -7409,27 +7409,36 @@ int ntfs_selftest(void)
              */
             disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
             disk.root_record[29u] = 0x01u;
-            /* INDEX_ROOT resident value: 352 bytes; header first=32, end=152. */
+            /*
+             * INDEX_ROOT value begins at attribute+24 (record offset 48).
+             * The embedded header fields are relative to that value:
+             * +8 bytes-per-index-record, +12 clusters-per-record,
+             * +16 first-entry offset, +20 entries size, +24 allocated size,
+             * +28 LARGE_INDEX flags.
+             */
             disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
-            /* Keep the resident value offset at 24 bytes. */
-            disk.root_record[44u] = 24u; disk.root_record[45u] = 0u;
-            /* FILE_NAME key type, Unicode collation, 4 KiB index records. */
-            disk.root_record[48u] = 0x30u; disk.root_record[49u] = 0u;
-            disk.root_record[52u] = 1u;
-            disk.root_record[56u] = 0u; disk.root_record[57u] = 0x10u;
+            disk.root_record[42u] = 0u; disk.root_record[43u] = 0u;
+            disk.root_record[56u] = 0x00u; disk.root_record[57u] = 0x10u;
+            disk.root_record[58u] = 0u; disk.root_record[59u] = 0u;
             disk.root_record[60u] = 1u;
             disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
-            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
+            disk.root_record[68u] = 144u; disk.root_record[69u] = 0u;
             disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
             disk.root_record[74u] = 0u; disk.root_record[75u] = 0u;
+            disk.root_record[76u] = 1u;
+            /*
+             * The child entry has a 74-byte $FILE_NAME key plus an 8-byte
+             * child VCN, so its aligned size is 104 bytes. With the 16-byte
+             * END entry, the root's entries_size is 32 + 104 + 16 = 152.
+             */
+            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
             disk.root_record[80u + 8u] = 104u;
-             disk.root_record[80u + 9u] = 0u;
-             disk.root_record[80u + 8u] = 104u;
-             disk.root_record[80u + 9u] = 0u;
-             disk.root_record[80u + 12u] = 1u;
+            disk.root_record[80u + 9u] = 0u;
+            disk.root_record[80u + 10u] = 74u;
+            disk.root_record[80u + 11u] = 0u;
+            disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
                 disk.root_record[80u + 104u - 8u + i] = 0u;
-            /* 104-byte child entry is followed immediately by a 16-byte END entry. */
             disk.root_record[184u + 8u] = 16u;
             disk.root_record[184u + 12u] = 2u;
 
@@ -7479,7 +7488,15 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            /* Preserve the FILE/$INDEX_ROOT attribute header and value layout. */
+            /*
+             * The synthetic fixture keeps the first attribute at record
+             * offset 24, so the generic FILE-record used-size field overlaps
+             * that attribute by design. Do not rewrite 24..27 here: doing so
+             * would destroy the $INDEX_ROOT type/length before the split path
+             * reads the record. Attribute traversal is terminated explicitly
+             * below and does not depend on the unused-size header in this
+             * fixture.
+             */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
@@ -7561,13 +7578,25 @@ int ntfs_selftest(void)
              * leaves the original node at VCN 0, and grows allocation to two
              * clusters. The parent must contain a child-pointer separator.
              */
-            if ((disk.bitmap_data[9u / 8u] &
-                 (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 280u) != 1u ||
-                disk.root_record[184u + 12u] != 1u ||
-                le16(disk.root_record + 184u + 10u) != 74u ||
-                le64(disk.root_record + 184u + 104u - 8u) != 1u)
-                return -197;
+            {
+                uint32_t split_mask = 0u;
+                if ((disk.bitmap_data[9u / 8u] &
+                     (uint8_t)(1u << (9u % 8u))) == 0u)
+                    split_mask |= 1u;
+                if (le64(disk.root_record + 440u) != 8192u)
+                    split_mask |= 2u;
+                /* The promoted separator is inserted before the old 16-byte
+                 * terminal entry at absolute offset 184. Its aligned
+                 * $FILE_NAME key entry is 104 bytes long. */
+                if (disk.root_record[184u + 12u] != 1u)
+                    split_mask |= 4u;
+                if (le16(disk.root_record + 184u + 10u) != 74u)
+                    split_mask |= 8u;
+                if (le64(disk.root_record + 184u + 104u - 8u) != 1u)
+                    split_mask |= 16u;
+                if (split_mask != 0u)
+                    return -24000 - (int)split_mask;
+            }
 
             {
                 uint8_t verify[4096];
