@@ -3374,9 +3374,13 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_record[i] = record[i];
 
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x90u,
-                            &root_attr) != PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+    {
+        int status = ntfs_find_attribute(record,
+                                         fs->bytes_per_file_record,
+                                         0x90u, &root_attr);
+        if (status != PROS_NTFS_OK)
+            return status;
+    }
     if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0xA0u,
                             &alloc_attr) == PROS_NTFS_OK ||
         ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
@@ -3388,11 +3392,18 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         const uint8_t *root_data;
         uint32_t root_size;
 
-        if (ntfs_index_root_header(record, fs->bytes_per_file_record,
-                                   root_attr, &root) != PROS_NTFS_OK ||
-            ntfs_attribute_data(record, fs->bytes_per_file_record, root_attr,
-                                &root_data, &root_size) != PROS_NTFS_OK)
-            return PROS_NTFS_ECORRUPT;
+        {
+            int status = ntfs_index_root_header(record,
+                                                fs->bytes_per_file_record,
+                                                root_attr, &root);
+            if (status != PROS_NTFS_OK)
+                return status;
+            status = ntfs_attribute_data(record,
+                                         fs->bytes_per_file_record,
+                                         root_attr, &root_data, &root_size);
+            if (status != PROS_NTFS_OK)
+                return status;
+        }
 
         if ((root.flags & 1u) != 0u ||
             root.bytes_per_index_record < cluster_bytes ||
