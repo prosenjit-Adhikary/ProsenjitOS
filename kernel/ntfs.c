@@ -3137,6 +3137,8 @@ int ntfs_index_record_header(const void *record, uint32_t record_size,
     uint32_t first_relative;
     uint32_t entries_size;
     uint32_t allocated_size;
+    uint32_t first_absolute;
+    uint32_t usa_end;
     uint8_t flags;
 
     if (!p || !info)
@@ -3158,13 +3160,24 @@ int ntfs_index_record_header(const void *record, uint32_t record_size,
     allocated_size = le32(p + 32u);
     flags = p[36u];
 
+    if ((uint32_t)le16(p + 4u) + (uint32_t)le16(p + 6u) * 2u >
+        record_size)
+        return PROS_NTFS_ECORRUPT;
+    usa_end = (uint32_t)le16(p + 4u) +
+              (uint32_t)le16(p + 6u) * 2u;
+    if (first_relative > UINT32_MAX - 24u)
+        return PROS_NTFS_ECORRUPT;
+    first_absolute = 24u + first_relative;
+
     if (first_relative < 16u ||
+        first_absolute < usa_end ||
+        (first_absolute & 7u) != 0u ||
         entries_size < first_relative ||
         allocated_size < entries_size ||
         (flags & ~1u) != 0u ||
         24u + allocated_size > record_size ||
         24u + entries_size > record_size ||
-        24u + first_relative > 24u + entries_size)
+        first_absolute > 24u + entries_size)
         return PROS_NTFS_ECORRUPT;
 
     info->vcn = expected_vcn;
@@ -3429,7 +3442,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
 
         entries_len = root_entries_size - root.first_entry_offset;
         if (entries_len < 16u ||
-            entries_len > index_block_size - 0x28u)
+            entries_len > index_block_size - 0x40u)
             return PROS_NTFS_ENOTSUP;
 
         /*
@@ -3543,7 +3556,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     node[17] = 0u;
     node[18] = 0u;
     node[19] = 0u;
-    node[0x18u] = 0x10u;
+    node[0x18u] = 0x28u;
     node[0x1Cu] = (uint8_t)(entries_len + 16u);
     node[0x1Du] = (uint8_t)((entries_len + 16u) >> 8);
     node[0x1Eu] = (uint8_t)((entries_len + 16u) >> 16);
@@ -3554,7 +3567,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     node[0x23u] = (uint8_t)((index_block_size - 0x18u) >> 24);
     node[0x24u] = 0u;
     for (uint32_t i = 0u; i < entries_len; ++i)
-        node[0x28u + i] = entries[i];
+        node[0x40u + i] = entries[i];
 
     /*
      * Rebuild the node's USA. The sequence value is deliberately non-zero
@@ -3886,7 +3899,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     const uint8_t *runlist;
     uint32_t root_attr, alloc_attr, root_size;
     uint32_t runlist_size, grown_count;
-    uint32_t entries_start = 0x28u;
+    uint32_t entries_start = 0x40u;
     uint32_t expanded_used = 0u;
     uint32_t entry_count = 0u;
     uint32_t insert_at = 0xFFFFFFFFu;
@@ -4181,7 +4194,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         right[8u + i] = leaf[8u + i];
     for (uint32_t i = 0u; i < 8u; ++i)
         right[16u + i] = (uint8_t)(new_vcn >> (8u * i));
-    right[0x18u]=0x10u;
+    right[0x18u]=0x28u;
     right[0x1Cu]=(uint8_t)(right_bytes + 16u);
     right[0x1Du]=(uint8_t)((right_bytes + 16u) >> 8);
     right[0x20u]=(uint8_t)(record_size - 0x18u);
@@ -6436,8 +6449,8 @@ int ntfs_selftest(void)
             le16(disk.index_record + 4u) != 0x28u ||
             le16(disk.index_record + 6u) != 9u ||
             le64(disk.index_record + 16u) != 0u ||
-            le32(disk.index_record + 24u) != 16u ||
-            le32(disk.index_record + 28u) != 136u ||
+            le32(disk.index_record + 24u) != 40u ||
+            le32(disk.index_record + 28u) != 160u ||
             le32(disk.index_record + 32u) != 4072u ||
             disk.index_record[36u] != 0u)
             return -134;
@@ -6457,8 +6470,8 @@ int ntfs_selftest(void)
                 fs.bytes_per_sector, 0u, &rebuilt_info);
             if (rebuilt_status != PROS_NTFS_OK)
                 return -136 + rebuilt_status;
-            if (rebuilt_info.first_entry_offset != 40u ||
-                rebuilt_info.entries_size != 160u ||
+            if (rebuilt_info.first_entry_offset != 64u ||
+                rebuilt_info.entries_size != 184u ||
                 rebuilt_info.allocated_size != 4096u ||
                 rebuilt_info.flags != 0u)
                 return -140;
