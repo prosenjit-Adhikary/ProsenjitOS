@@ -7431,6 +7431,24 @@ int ntfs_selftest(void)
                                        root_attr_probe, path_name, 4u,
                                        &path_reference) != PROS_NTFS_OK)
                 return -182;
+            /*
+             * Namespace 0 is DOS-only. It must not satisfy a normal NTFS
+             * filename lookup even when the UTF-16 key bytes otherwise match.
+             */
+            {
+                uint8_t dos_only_key[74];
+                for (uint32_t i = 0u; i < sizeof(dos_only_key); ++i)
+                    dos_only_key[i] = path_key[i];
+                dos_only_key[65u] = 0u;
+                for (uint32_t i = 0u; i < sizeof(dos_only_key); ++i)
+                    root_probe[96u + i] = dos_only_key[i];
+                if (ntfs_index_root_lookup(root_probe, sizeof(root_probe),
+                                           root_attr_probe, path_name, 4u,
+                                           &path_reference) != PROS_NTFS_ENOTSUP)
+                    return -1822;
+                for (uint32_t i = 0u; i < sizeof(path_key); ++i)
+                    root_probe[96u + i] = path_key[i];
+            }
 
             {
                 int directory_status = ntfs_directory_lookup(
