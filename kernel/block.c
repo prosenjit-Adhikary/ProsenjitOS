@@ -1,4 +1,5 @@
 #include "block.h"
+#include "health.h"
 
 static uint64_t read_count;
 static uint64_t write_count;
@@ -34,7 +35,11 @@ int block_device_read(struct pros_block_device *device,
         return PROS_BLOCK_EINVAL;
     ++read_count;
     int rc = device->read(device, lba, count, buffer);
-    if (rc != PROS_BLOCK_OK) ++error_count;
+    if (rc != PROS_BLOCK_OK) {
+        ++error_count;
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
+                                 0x424C4B52u, (uint32_t)(-rc), lba);
+    }
     return rc;
 }
 
@@ -48,7 +53,11 @@ int block_device_write(struct pros_block_device *device,
         return PROS_BLOCK_EINVAL;
     ++write_count;
     int rc = device->write(device, lba, count, buffer);
-    if (rc != PROS_BLOCK_OK) ++error_count;
+    if (rc != PROS_BLOCK_OK) {
+        ++error_count;
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
+                                 0x424C4B57u, (uint32_t)(-rc), lba);
+    }
     return rc;
 }
 
@@ -72,6 +81,8 @@ int block_device_flush(struct pros_block_device *device)
     if (rc != PROS_BLOCK_OK) {
         ++flush_error_count;
         ++error_count;
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
+                                 0x424C4B46u, (uint32_t)(-rc), 0u);
     }
     return rc;
 }
