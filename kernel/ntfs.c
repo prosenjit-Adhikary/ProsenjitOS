@@ -4857,7 +4857,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
      * allocated right-hand INDX node.
      */
     {
-        uint32_t terminal = new_root_entries - 24u;
+        uint32_t final_root_entries = le32(root_mutable_data + 20u);
+        if (final_root_entries < 24u)
+            goto rollback;
+        uint32_t terminal = final_root_entries - 24u;
         if (le64(root_mutable_data + terminal + 16u) != new_vcn) {
             rc = PROS_NTFS_ECORRUPT;
             goto rollback;
