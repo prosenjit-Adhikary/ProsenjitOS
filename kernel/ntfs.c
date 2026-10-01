@@ -4355,7 +4355,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             uint16_t esize, ksize;
             uint8_t flags;
             if (root_entries_size - off < 16u)
-                return -18100 - __LINE__;
+                return -26000 - (int)esize - ((int)ksize << 8) -
+                       ((int)flags << 16);
             esize = le16(root_data + absolute + 8u);
             ksize = le16(root_data + absolute + 10u);
             flags = root_data[absolute + 12u];
