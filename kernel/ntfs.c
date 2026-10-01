@@ -7596,8 +7596,11 @@ int ntfs_selftest(void)
                     split_mask |= 16u;
                 if (split_mask & 16u)
                     return -25000 - (int)le64(disk.root_record + 184u + 104u - 8u);
-                if (split_mask != 0u)
+                if (split_mask != 0u) {
+                    if (split_mask == 16u)
+                        return -25000 - (int)(le64(disk.root_record + 184u + 104u - 8u) & 0xFFFFu);
                     return -24000 - (int)split_mask;
+                }
             }
 
             {
