@@ -3527,11 +3527,47 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
 
     if (allocation_start_lcn != 8u)
         return -15020;
-    rc = ntfs_bitmap_allocate_clusters_from(fs, allocation_start_lcn,
-                                             cluster_count, &lcn);
-    if (rc != PROS_NTFS_OK)
-        return rc;
-    if (lcn != 8u)
+    /*
+     * Bootstrap allocation is metadata-sensitive: probe the live $BITMAP
+     * stream directly from the highest MFT extent and select the first free
+     * contiguous run. This keeps the bootstrap result independent of any
+     * allocator cursor state.
+     */
+    {
+        uint8_t found = 0u;
+        for (uint64_t candidate = allocation_start_lcn;
+             candidate <= total_clusters - cluster_count; ++candidate) {
+            uint8_t free_run = 1u;
+            for (uint64_t i = 0u; i < cluster_count; ++i) {
+                uint64_t probe_lcn = candidate + i;
+                uint8_t bitmap_byte = 0u;
+                uint32_t got = 0u;
+                if (ntfs_file_read(fs, 6u, probe_lcn / 8u,
+                                   &bitmap_byte, 1u, &got) != PROS_NTFS_OK ||
+                    got != 1u) {
+                    free_run = 0u;
+                    break;
+                }
+                if ((bitmap_byte &
+                     (uint8_t)(1u << (probe_lcn & 7u))) != 0u) {
+                    free_run = 0u;
+                    break;
+                }
+            }
+            if (!free_run)
+                continue;
+            if (ntfs_bitmap_update_clusters(fs, candidate,
+                                            cluster_count, 1u) !=
+                PROS_NTFS_OK)
+                return -15031;
+            lcn = candidate;
+            found = 1u;
+            break;
+        }
+        if (!found)
+            return PROS_NTFS_EIO;
+    }
+    if (lcn != allocation_start_lcn)
         return -15021;
     if (lcn > 0x7FFFFFFFFFFFFFFFull) {
         (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
