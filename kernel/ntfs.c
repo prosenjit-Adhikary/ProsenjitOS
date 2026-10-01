@@ -6988,7 +6988,7 @@ int ntfs_selftest(void)
                 disk.index_record[43u + i * 2u] = 0u;
             }
             disk.index_record[24u]=40u;
-            disk.index_record[28u]=0x70u; disk.index_record[29u]=0x0Fu;
+            disk.index_record[28u]=0x98u; disk.index_record[29u]=0x0Fu;
             disk.index_record[32u]=0xC8u; disk.index_record[33u]=0x0Fu;
 
             for (uint32_t n = 0u; n < 41u; ++n) {
