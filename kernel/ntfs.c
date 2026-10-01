@@ -5321,9 +5321,9 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         else if (lba + s == 32u || lba + s == 33u)
             for (uint32_t i = 0; i < 512u; ++i)
                 dst[i] = disk->mft_record[(lba + s - 32u) * 512u + i];
-        else if (lba + s == 72u || lba + s == 73u)
+        else if (lba + s == 96u || lba + s == 97u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->mft_mirror_record[(lba + s - 72u) * 512u + i];
+                dst[i] = disk->mft_mirror_record[(lba + s - 96u) * 512u + i];
         else if (lba + s == 54u || lba + s == 55u)
             for (uint32_t i = 0u; i < 512u; ++i)
                 dst[i] = disk->file_record[(lba + s - 54u) * 512u + i];
@@ -6322,7 +6322,7 @@ int ntfs_selftest(void)
     disk.boot[11]=0x00; disk.boot[12]=0x02;
     disk.boot[13]=8;
     disk.boot[40]=0x00; disk.boot[41]=0x10;
-    disk.boot[48]=4; disk.boot[56]=9;
+    disk.boot[48]=4; disk.boot[56]=12;
     disk.boot[64]=0xF6;
     disk.boot[510]=0x55; disk.boot[511]=0xAA;
 
@@ -7469,6 +7469,22 @@ int ntfs_selftest(void)
             for (uint32_t i = 0u; i < sizeof(saved_bitmap); ++i)
                 saved_bitmap[i] = disk.bitmap_data[i];
 
+            /* Build this synthetic FILE record from a clean image. Do not
+             * inherit attribute/value-offset bytes from earlier regressions. */
+            for (uint32_t i = 0u; i < sizeof(disk.root_record); ++i)
+                disk.root_record[i] = 0u;
+            disk.root_record[0u] = 'F'; disk.root_record[1u] = 'I';
+            disk.root_record[2u] = 'L'; disk.root_record[3u] = 'E';
+            disk.root_record[4u] = 8u; disk.root_record[6u] = 3u;
+            disk.root_record[8u] = 0x34u; disk.root_record[9u] = 0x12u;
+            disk.root_record[20u] = 24u;
+            disk.root_record[24u] = 0x90u;
+            disk.root_record[28u] = 0x78u; disk.root_record[29u] = 0x01u;
+            disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
+            disk.root_record[44u] = 24u;
+            disk.root_record[510u] = 0x34u; disk.root_record[511u] = 0x12u;
+            disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
+
             /*
              * Resident root: 352 bytes of index space with 248 bytes
              * already occupied by entries and one existing child pointer at
@@ -7666,24 +7682,8 @@ int ntfs_selftest(void)
                     disk.root_record[184u + 104u + 12u] != 3u ||
                     le64(disk.root_record + 184u + 104u + 16u) != 1u)
                     split_mask |= 32u;
-                if (split_mask & 16u) {
-                    uint32_t found_one = 0xFFFFFFFFu;
-                    for (uint32_t probe = 0u; probe + 8u <=
-                         sizeof(disk.root_record); ++probe) {
-                        if (disk.root_record[probe] == 1u) {
-                            uint8_t all_zero = 1u;
-                            for (uint32_t q = 1u; q < 8u; ++q)
-                                if (disk.root_record[probe + q] != 0u)
-                                    all_zero = 0u;
-                            if (all_zero) {
-                                found_one = probe;
-                                break;
-                            }
-                        }
-                    }
-                    return found_one == 0xFFFFFFFFu ?
-                           -27000 : -27000 - (int)found_one;
-                }
+                if (split_mask & 16u)
+                    split_mask |= 16u;
                 if (split_mask != 0u)
                     return -24000 - (int)split_mask;
             }
