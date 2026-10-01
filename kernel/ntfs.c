@@ -6016,7 +6016,7 @@ int ntfs_selftest(void)
 
         {
             uint32_t entry = 24u + 32u;
-            uint32_t terminal = entry + 96u;
+            uint32_t terminal = entry + 104u;
             root_attr[entry + 0u] = 0x00u;
             root_attr[entry + 1u] = 0x20u;
             root_attr[entry + 8u] = 104u;
@@ -6187,38 +6187,10 @@ int ntfs_selftest(void)
                     return -122;
             }
 
-            {
-                int lookup_rc = ntfs_index_allocation_lookup(
+            if (ntfs_index_allocation_lookup(
                     &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
-                    lookup_name, 4u, &child_reference);
-                if (lookup_rc != PROS_NTFS_OK) {
-                    uint8_t diagnostic_record[4096];
-                    struct pros_ntfs_index_record diagnostic_info;
-                    int read_rc = ntfs_index_allocation_read(
-                        &fs, index_runs, index_run_count, 0u,
-                        diagnostic_record, sizeof(diagnostic_record));
-                    if (read_rc != PROS_NTFS_OK)
-                        return -10100 + read_rc;
-                    {
-                        int header_rc = ntfs_index_record_header(
-                            diagnostic_record, sizeof(diagnostic_record),
-                            512u, 0u, &diagnostic_info);
-                        if (header_rc != PROS_NTFS_OK)
-                            return -10200 + header_rc;
-                        if (diagnostic_info.first_entry_offset != 64u ||
-                            diagnostic_info.entries_size != 176u ||
-                            diagnostic_record[72u] != 96u ||
-                            diagnostic_record[73u] != 0u ||
-                            diagnostic_record[74u] != 74u ||
-                            diagnostic_record[75u] != 0u ||
-                            diagnostic_record[76u] != 0u ||
-                            !ntfs_name_key_matches(diagnostic_record + 80u,
-                                                    74u, lookup_name, 4u))
-                            return -10300;
-                    }
-                    return -10000 + lookup_rc;
-                }
-            }
+                    lookup_name, 4u, &child_reference) != PROS_NTFS_OK)
+                return -114;
             if (child_reference != 0x3000u)
                 return -115;
 
