@@ -856,10 +856,12 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                         candidate = lcn;
                     ++candidate_len;
                     if (candidate_len == cluster_count) {
-                        if (ntfs_bitmap_update_clusters(fs, candidate,
-                                                        cluster_count, 1u) !=
-                            PROS_NTFS_OK)
-                            return PROS_NTFS_EIO;
+                        {
+                            int update_status = ntfs_bitmap_update_clusters(
+                                fs, candidate, cluster_count, 1u);
+                            if (update_status != PROS_NTFS_OK)
+                                return -17000 + update_status;
+                        }
                         *first_lcn = candidate;
                         return PROS_NTFS_OK;
                     }
