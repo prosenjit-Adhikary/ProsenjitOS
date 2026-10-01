@@ -7,6 +7,14 @@
 #define PROS_BLOCK_EINVAL  -1
 #define PROS_BLOCK_EIO     -2
 
+/* Stable block-health event codes (PROS_HEALTH_STORAGE). */
+enum pros_block_health_code {
+    PROS_BLOCK_HEALTH_INVALID_REQUEST = 1u,
+    PROS_BLOCK_HEALTH_READ_FAILURE = 2u,
+    PROS_BLOCK_HEALTH_WRITE_FAILURE = 3u,
+    PROS_BLOCK_HEALTH_FLUSH_FAILURE = 4u
+};
+
 struct pros_block_device;
 typedef int (*pros_block_read_fn)(struct pros_block_device *, uint64_t, uint32_t, void *);
 typedef int (*pros_block_write_fn)(struct pros_block_device *, uint64_t, uint32_t, const void *);
