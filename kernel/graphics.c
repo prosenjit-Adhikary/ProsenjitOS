@@ -16,7 +16,8 @@ int pros_graphics_validate_surface(const struct pros_graphics_surface *surface)
         surface->bpp > PROS_GRAPHICS_MAX_BPP ||
         (surface->bpp & 7u))
         return PROS_DRIVER_EINVAL;
-    if (surface->pitch < surface->width * (surface->bpp / 8u))
+    if (surface->width > UINT32_MAX / (surface->bpp / 8u) ||
+        surface->pitch < surface->width * (surface->bpp / 8u))
         return PROS_DRIVER_EINVAL;
     return PROS_DRIVER_OK;
 }
