@@ -1510,3 +1510,5 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\\n");
     }
 
+
+}
