@@ -332,7 +332,11 @@ int pros_health_selftest(void) {
         return PROS_HEALTH_EIO;
 
     if (pros_health_init() != PROS_HEALTH_OK ||
-        pros_health_record_network(10u, 20u, 30u) != PROS_HEALTH_OK ||
+        pros_health_record_network(10u, PROS_HEALTH_NETWORK_DEVICE_DISCOVERED, 30u) != PROS_HEALTH_OK ||
+        pros_health_get_event(0u, &event) != PROS_HEALTH_OK ||
+        event.category != PROS_HEALTH_NETWORK ||
+        event.source != 10u ||
+        event.code != PROS_HEALTH_NETWORK_DEVICE_DISCOVERED ||
         pros_health_record_security(11u, 21u, 31u) != PROS_HEALTH_OK ||
         pros_health_record_filesystem(12u, 22u, 32u) != PROS_HEALTH_OK ||
         pros_health_record_exception(14u, 0u, 0x1000u, 0x2000u) != PROS_HEALTH_OK ||
