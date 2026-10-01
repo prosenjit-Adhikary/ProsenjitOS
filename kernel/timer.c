@@ -1,5 +1,6 @@
 #include "timer.h"
 #include "pic.h"
+#include "health.h"
 
 #define PROSENJIT_PIT_BASE_HZ 1193182u
 
@@ -68,6 +69,19 @@ void timer_dispatch(uint64_t *frame) {
     (void)frame;
     ++ticks;
     ++irq_count;
+
+    /*
+     * The timer is the real kernel heartbeat. The health watchdog is checked
+     * from this interrupt path so watchdog state cannot depend on a userspace
+     * service or a periodic polling thread that may itself be unhealthy.
+     * Service 1 is the kernel health monitor registered during boot.
+     */
+    if ((ticks % 100u) == 0u) {
+        (void)pros_health_watchdog_kick(1u);
+        (void)pros_health_watchdog_poll();
+    }
+    if ((ticks % 1000u) == 0u)
+        (void)pros_health_sample();
 }
 
 int timer_should_preempt(void) {
