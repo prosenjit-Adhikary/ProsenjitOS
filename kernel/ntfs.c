@@ -3375,9 +3375,13 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_record[i] = record[i];
 
-    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x90u,
-                            &root_attr) != PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+    {
+        int status = ntfs_find_attribute(record,
+                                         fs->bytes_per_file_record,
+                                         0x90u, &root_attr);
+        if (status != PROS_NTFS_OK)
+            return status;
+    }
     if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0xA0u,
                             &alloc_attr) == PROS_NTFS_OK ||
         ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
@@ -3389,13 +3393,20 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         const uint8_t *root_data;
         uint32_t root_size;
 
-        if (ntfs_index_root_header(record, fs->bytes_per_file_record,
-                                   root_attr, &root) != PROS_NTFS_OK ||
-            ntfs_attribute_data(record, fs->bytes_per_file_record, root_attr,
-                                &root_data, &root_size) != PROS_NTFS_OK)
-            return PROS_NTFS_ECORRUPT;
+            {
+            int status = ntfs_index_root_header(record,
+                                                fs->bytes_per_file_record,
+                                                root_attr, &root);
+            if (status != PROS_NTFS_OK)
+                return status;
+            status = ntfs_attribute_data(record,
+                                         fs->bytes_per_file_record,
+                                         root_attr, &root_data, &root_size);
+            if (status != PROS_NTFS_OK)
+                return status;
+        }
 
-        if ((root.flags & 1u) != 0u ||
+            if ((root.flags & 1u) != 0u ||
             root.bytes_per_index_record < cluster_bytes ||
             root.bytes_per_index_record > sizeof(node) ||
             root.bytes_per_index_record % cluster_bytes != 0u)
@@ -3428,7 +3439,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         {
             uint32_t off = root.first_entry_offset;
             uint32_t remaining = entries_len;
-            while (remaining != 0u) {
+                    while (remaining != 0u) {
                 uint16_t esize;
                 uint8_t flags;
                 if (remaining < 16u)
@@ -4787,6 +4798,9 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 32u || sector == 33u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->mft_record[(sector - 32u) * 512u + i] = src[i];
+        } else if (sector == 42u || sector == 43u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->root_record[(sector - 42u) * 512u + i] = src[i];
         } else if (sector == 54u || sector == 55u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->file_record[(sector - 54u) * 512u + i] = src[i];
@@ -6289,11 +6303,11 @@ int ntfs_selftest(void)
         uint8_t saved_index[4096];
         uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
-        uint32_t root_attr = 32u;
+        uint32_t root_attr = 56u;
         uint32_t root_value = 168u;
         uint32_t entry = root_attr + 24u + 32u;
         uint32_t terminal = entry + 104u;
-        uint32_t used = 232u;
+        uint32_t used = 256u;
         uint32_t alloc_offset = 200u;
         uint32_t bitmap_offset = 280u;
         uint64_t bootstrap_lcn = 0u;
@@ -6316,19 +6330,17 @@ int ntfs_selftest(void)
         r[4] = 8u; r[6] = 3u;
         r[8] = 0x78u; r[9] = 0x56u;
         /*
-         * The bootstrap path reads record 5 through the normal MFT
-         * USA-fixup path. Seed the sector trailers with the same sequence
-         * value as the USA so the synthetic record is structurally valid
-         * before the mutation is exercised.
+         * The fixture is read through ntfs_read_file_record(), so its
+         * multi-sector USA must already be sealed with the FILE-record
+         * sequence value 0x5678. The USA entries at 0x0A/0x0C preserve the
+         * original trailer words (zero in this synthetic record).
          */
         r[510] = 0x78u; r[511] = 0x56u;
         r[1022] = 0x78u; r[1023] = 0x56u;
-        r[20] = (uint8_t)root_attr;
-        r[21] = (uint8_t)(root_attr >> 8);
+        r[20] = 56u;
         r[22] = 3u;
         r[24] = (uint8_t)used;
         r[25] = (uint8_t)(used >> 8);
-        r[28] = 0x00u; r[29] = 0x04u;
 
         r[root_attr + 0u] = 0x90u;
         r[root_attr + 4u] = 192u;
