@@ -7697,7 +7697,7 @@ int ntfs_selftest(void)
                         uint16_t usa_seq = (usa_offset + 2u <= sizeof(verify)) ?
                             le16(verify + usa_offset) : 0u;
                         if (le64(verify + 16u) != 1u)
-                            return -2101;
+                            return -2200 - (int)(le64(verify + 16u) & 0xFFu);
                         if (usa_offset != 40u)
                             return -2102;
                         if (usa_count != 9u)
