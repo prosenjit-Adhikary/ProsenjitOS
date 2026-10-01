@@ -7458,9 +7458,9 @@ int ntfs_selftest(void)
          * restored afterwards so later allocator tests retain their fixtures.
          */
         {
-            uint8_t saved_root[1024];
-            uint8_t saved_index[8192];
-            uint8_t saved_bitmap[512];
+            static uint8_t saved_root[1024];
+            static uint8_t saved_index[8192];
+            static uint8_t saved_bitmap[512];
             uint8_t split_key[74];
             uint8_t new_key[74];
             uint64_t split_ref = 0u;
