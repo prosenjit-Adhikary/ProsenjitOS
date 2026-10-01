@@ -2402,12 +2402,16 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
              */
             uint64_t fallback_start =
                 runs[run_count - 1u].lcn + runs[run_count - 1u].clusters;
-            if (fallback_start < runs[run_count - 1u].lcn ||
-                ntfs_bitmap_allocate_clusters_from(fs, fallback_start,
-                                                    required_clusters,
-                                                    &growth_lcn) !=
-                    PROS_NTFS_OK)
-                return PROS_NTFS_EIO;
+            if (fallback_start < runs[run_count - 1u].lcn)
+                return PROS_NTFS_EOVERFLOW;
+            {
+                int fallback_status =
+                    ntfs_bitmap_allocate_clusters_from(fs, fallback_start,
+                                                        required_clusters,
+                                                        &growth_lcn);
+                if (fallback_status != PROS_NTFS_OK)
+                    return fallback_status;
+            }
         }
         growth_clusters = required_clusters;
 
@@ -2423,14 +2427,22 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             }
         } else {
             uint64_t new_vcn = old_alloc_clusters;
-            if (run_count >= PROS_NTFS_MFT_RUN_MAX ||
-                ntfs_append_run(record, fs->bytes_per_file_record,
-                                attr_offset, new_vcn, growth_lcn,
-                                required_clusters,
-                                &runs[run_count - 1u]) != PROS_NTFS_OK) {
+            if (run_count >= PROS_NTFS_MFT_RUN_MAX) {
                 (void)ntfs_bitmap_free_clusters(fs, growth_lcn,
                                                  growth_clusters);
-                return PROS_NTFS_ENOTSUP;
+                return PROS_NTFS_EOVERFLOW;
+            }
+            {
+                int append_status =
+                    ntfs_append_run(record, fs->bytes_per_file_record,
+                                    attr_offset, new_vcn, growth_lcn,
+                                    required_clusters,
+                                    &runs[run_count - 1u]);
+                if (append_status != PROS_NTFS_OK) {
+                    (void)ntfs_bitmap_free_clusters(fs, growth_lcn,
+                                                     growth_clusters);
+                    return append_status;
+                }
             }
             runs[run_count].lcn = growth_lcn;
             runs[run_count].clusters = required_clusters;
