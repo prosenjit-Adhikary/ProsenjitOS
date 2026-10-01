@@ -4745,7 +4745,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     {
         uint32_t old_root_entries = le32(root_data + 20u);
         uint32_t old_terminal;
-        uint32_t new_root_entries;
+        uint32_t new_root_entries = 0u;
 
         /*
          * The INDEX_ROOT entry array is variable-sized and its terminal entry
