@@ -28,17 +28,23 @@ int block_device_init(struct pros_block_device *device,
 int block_device_read(struct pros_block_device *device,
                       uint64_t lba, uint32_t count, void *buffer)
 {
-    if (!device || !device->read || !buffer || count == 0)
+    if (!device || !device->read || !buffer || count == 0) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B52u,
+                                 PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
         return PROS_BLOCK_EINVAL;
+    }
     if (lba >= device->sector_count ||
-        (uint64_t)count > device->sector_count - lba)
+        (uint64_t)count > device->sector_count - lba) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B52u,
+                                 PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
         return PROS_BLOCK_EINVAL;
+    }
     ++read_count;
     int rc = device->read(device, lba, count, buffer);
     if (rc != PROS_BLOCK_OK) {
         ++error_count;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
-                                 0x424C4B52u, (uint32_t)(-rc), lba);
+                                 0x424C4B52u, PROS_BLOCK_HEALTH_READ_FAILURE, lba);
     }
     return rc;
 }
@@ -46,17 +52,23 @@ int block_device_read(struct pros_block_device *device,
 int block_device_write(struct pros_block_device *device,
                        uint64_t lba, uint32_t count, const void *buffer)
 {
-    if (!device || !device->write || !buffer || count == 0)
+    if (!device || !device->write || !buffer || count == 0) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B57u,
+                                 PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
         return PROS_BLOCK_EINVAL;
+    }
     if (lba >= device->sector_count ||
-        (uint64_t)count > device->sector_count - lba)
+        (uint64_t)count > device->sector_count - lba) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B57u,
+                                 PROS_BLOCK_HEALTH_INVALID_REQUEST, lba);
         return PROS_BLOCK_EINVAL;
+    }
     ++write_count;
     int rc = device->write(device, lba, count, buffer);
     if (rc != PROS_BLOCK_OK) {
         ++error_count;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
-                                 0x424C4B57u, (uint32_t)(-rc), lba);
+                                 0x424C4B57u, PROS_BLOCK_HEALTH_WRITE_FAILURE, lba);
     }
     return rc;
 }
@@ -64,8 +76,11 @@ int block_device_write(struct pros_block_device *device,
 int block_device_set_flush(struct pros_block_device *device,
                            pros_block_flush_fn flush)
 {
-    if (!device)
+    if (!device) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE, 0x424C4B46u,
+                                 PROS_BLOCK_HEALTH_INVALID_REQUEST, 0u);
         return PROS_BLOCK_EINVAL;
+    }
     device->flush = flush;
     return PROS_BLOCK_OK;
 }
@@ -82,7 +97,7 @@ int block_device_flush(struct pros_block_device *device)
         ++flush_error_count;
         ++error_count;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_STORAGE,
-                                 0x424C4B46u, (uint32_t)(-rc), 0u);
+                                 0x424C4B46u, PROS_BLOCK_HEALTH_FLUSH_FAILURE, 0u);
     }
     return rc;
 }
