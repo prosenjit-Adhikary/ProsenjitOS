@@ -6438,9 +6438,12 @@ int ntfs_selftest(void)
          * tree traversal can obscure the actual failure.
          */
         {
+            static uint8_t rebuilt_copy[4096];
             struct pros_ntfs_index_record rebuilt_info;
+            for (uint32_t i = 0u; i < sizeof(rebuilt_copy); ++i)
+                rebuilt_copy[i] = disk.index_record[i];
             int rebuilt_status = ntfs_index_record_header(
-                disk.index_record, sizeof(disk.index_record),
+                rebuilt_copy, sizeof(rebuilt_copy),
                 fs.bytes_per_sector, 0u, &rebuilt_info);
             if (rebuilt_status != PROS_NTFS_OK)
                 return -136 + rebuilt_status;
