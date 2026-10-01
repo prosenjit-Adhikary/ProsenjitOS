@@ -48,6 +48,9 @@ static volatile uint64_t health_exception_count;
 static volatile uint64_t health_page_fault_count;
 static volatile uint64_t health_last_exception_vector;
 static volatile uint64_t health_last_exception_rip;
+static volatile uint64_t health_previous_crash_sequence;
+static volatile uint64_t health_previous_crash_rip;
+static volatile uint8_t health_previous_crash_pending;
 
 static void scheduler_test_init_entry(void) {
     for (;;) {
@@ -1207,12 +1210,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             crash_slot_safe = 0u;
                     }
                 }
-                if (crash_slot_safe &&
-                    pros_crash_record_attach(&native_ata.block, crash_first_lba) ==
-                        PROS_CRASH_RECORD_OK) {
+                int crash_attach_rc = crash_slot_safe
+                    ? pros_crash_record_attach(&native_ata.block, crash_first_lba)
+                    : PROS_CRASH_RECORD_EINVAL;
+                if (crash_attach_rc == PROS_CRASH_RECORD_OK) {
                     struct pros_crash_record previous;
                     int crash_rc = pros_crash_record_consume(&previous);
                     if (crash_rc == PROS_CRASH_RECORD_OK) {
+                        health_previous_crash_sequence = previous.sequence;
+                        health_previous_crash_rip = previous.rip;
+                        health_previous_crash_pending = 1u;
                         (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_RECOVERED,
                                                           previous.sequence);
                         (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_VECTOR,
@@ -1226,6 +1233,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                             (uint64_t)(uint32_t)(-crash_rc));
                         serial_write("ProsenjitOS: persistent crash record unavailable or invalid; continuing\n");
                     }
+                } else if (crash_attach_rc == PROS_CRASH_RECORD_ECORRUPT) {
+                    (void)pros_health_record_recovery(
+                        PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_INVALID, crash_first_lba);
+                    serial_write("ProsenjitOS: persistent crash record is corrupt; ignoring it\n");
                 } else {
                     (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_UNAVAILABLE,
                                                       crash_first_lba);
@@ -1255,6 +1266,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             } else {
                 (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
                                     0x4C4F4742u, 1u, timer_ticks());
+                if (health_previous_crash_pending) {
+                    (void)pros_log_emit(PROS_HEALTH_WARN, PROS_HEALTH_RECOVERY,
+                                        PROS_CRASH_HEALTH_SOURCE,
+                                        PROS_CRASH_HEALTH_RECOVERED,
+                                        health_previous_crash_rip);
+                    health_previous_crash_pending = 0u;
+                }
                 (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
                                     0x52454356u, 2u, timer_ticks()); /* storage ready */
                 (void)pros_health_watchdog_kick(1u);
