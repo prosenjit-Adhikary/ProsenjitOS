@@ -62,21 +62,28 @@ static void ledger_record(const struct pros_process *process,
 }
 
 int security_manager_init(void) {
-    if (pros_file_security_selftest() != 0) return -1;
-    if (pros_sha512_selftest() != 0) return -11;
-    if (pros_ed25519_fe_selftest() != 0) return -12;
-    if (pros_ed25519_point_selftest() != 0) return -13;
-    if (pros_ed25519_scalar_selftest() != 0) return -14;
-    if (pros_security_signature_selftest() != 0) return -15;
-    if (pros_security_provider_selftest() != 0) return -2;
-    if (pros_file_admission_selftest() != 0) return -3;
-    if (vfs_security_selftest() != 0) return -4;
-    if (fat32_selftest() != 0) return -5;
-        { int exfat_status = exfat_selftest(); if (exfat_status != 0) return -6000 + exfat_status; }
-    { int ntfs_status = ntfs_selftest(); if (ntfs_status != 0) return -700 + ntfs_status; }
-    if (partition_selftest() != 0) return -8;
-    if (pros_security_quarantine_selftest() != 0) return -9;
-    if (pros_security_exec_selftest() != 0) return -10;
+    /*
+     * Keep the last failing security/filesystem self-test observable by the
+     * boot diagnostics.  Several filesystem self-tests intentionally return
+     * negative, subsystem-specific codes; collapsing those through a small
+     * wrapper code made a real boot failure difficult to identify.
+     */
+    int rc;
+    rc = pros_file_security_selftest(); if (rc != 0) return -1000 + rc;
+    rc = pros_sha512_selftest(); if (rc != 0) return -1100 + rc;
+    rc = pros_ed25519_fe_selftest(); if (rc != 0) return -1200 + rc;
+    rc = pros_ed25519_point_selftest(); if (rc != 0) return -1300 + rc;
+    rc = pros_ed25519_scalar_selftest(); if (rc != 0) return -1400 + rc;
+    rc = pros_security_signature_selftest(); if (rc != 0) return -1500 + rc;
+    rc = pros_security_provider_selftest(); if (rc != 0) return -2000 + rc;
+    rc = pros_file_admission_selftest(); if (rc != 0) return -3000 + rc;
+    rc = vfs_security_selftest(); if (rc != 0) return -4000 + rc;
+    rc = fat32_selftest(); if (rc != 0) return -5000 + rc;
+    rc = exfat_selftest(); if (rc != 0) return -6000 + rc;
+    rc = ntfs_selftest(); if (rc != 0) return -7000 + rc;
+    rc = partition_selftest(); if (rc != 0) return -8000 + rc;
+    rc = pros_security_quarantine_selftest(); if (rc != 0) return -9000 + rc;
+    rc = pros_security_exec_selftest(); if (rc != 0) return -10000 + rc;
     next_intent_id = 1;
     ledger_sequence = 0;
     ledger_count_value = 0;
