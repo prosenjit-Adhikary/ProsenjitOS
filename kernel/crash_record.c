@@ -85,10 +85,12 @@ static int crash_find_latest(struct pros_crash_record *latest,
     int va, vb;
     if (!crash_attached || !latest)
         return PROS_CRASH_RECORD_EINVAL;
-    va = crash_slot_read(0u, &a) == PROS_CRASH_RECORD_OK &&
-         crash_record_valid(&a);
-    vb = crash_slot_read(1u, &b) == PROS_CRASH_RECORD_OK &&
-         crash_record_valid(&b);
+    int ra = crash_slot_read(0u, &a);
+    int rb = crash_slot_read(1u, &b);
+    if (ra != PROS_CRASH_RECORD_OK || rb != PROS_CRASH_RECORD_OK)
+        return PROS_CRASH_RECORD_EIO;
+    va = crash_record_valid(&a);
+    vb = crash_record_valid(&b);
     if (!va && !vb)
         return PROS_CRASH_RECORD_ENOENT;
     if (va && (!vb || a.sequence >= b.sequence)) {
@@ -133,6 +135,16 @@ int pros_crash_record_attach(struct pros_block_device *device,
 int pros_crash_record_available(void)
 {
     return crash_attached ? 1 : 0;
+}
+
+void pros_crash_record_detach(void)
+{
+    crash_device = 0;
+    crash_first_lba = 0u;
+    crash_sequence = 0u;
+    crash_next_slot = 0u;
+    crash_attached = 0u;
+    crash_capture_active = 0u;
 }
 
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
@@ -260,7 +272,10 @@ int pros_crash_record_selftest(void)
         return PROS_CRASH_RECORD_ECORRUPT;
 
     if (pros_crash_record_clear() != PROS_CRASH_RECORD_OK ||
-        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT)
+        pros_crash_record_peek(&record) != PROS_CRASH_RECORD_ENOENT) {
+        pros_crash_record_detach();
         return PROS_CRASH_RECORD_EIO;
+    }
+    pros_crash_record_detach();
     return PROS_CRASH_RECORD_OK;
 }
