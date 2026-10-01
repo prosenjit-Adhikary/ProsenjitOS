@@ -73,7 +73,7 @@ int security_manager_init(void) {
     if (vfs_security_selftest() != 0) return -10009;
     if (fat32_selftest() != 0) return -10010;
     { int exfat_status = exfat_selftest(); if (exfat_status != 0) return -10011; }
-    { int ntfs_status = ntfs_selftest(); if (ntfs_status != 0) return -10012; }
+    { int ntfs_status = ntfs_selftest(); if (ntfs_status != 0) return ntfs_status; }
     if (partition_selftest() != 0) return -10013;
     if (pros_security_quarantine_selftest() != 0) return -10014;
     if (pros_security_exec_selftest() != 0) return -10015;
