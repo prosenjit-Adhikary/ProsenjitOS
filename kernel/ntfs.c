@@ -6169,12 +6169,13 @@ int ntfs_selftest(void)
                     }
                 }
 
-                if (ntfs_index_allocation_write(&fs, index_runs,
-                                                index_run_count, 0u,
-                                                write_index_record,
-                                                sizeof(write_index_record)) !=
-                    PROS_NTFS_OK)
-                    return -121;
+                {
+                    int write_rc = ntfs_index_allocation_write(
+                        &fs, index_runs, index_run_count, 0u,
+                        write_index_record, sizeof(write_index_record));
+                    if (write_rc != PROS_NTFS_OK)
+                        return -11000 + write_rc;
+                }
                 for (uint32_t i = 0u; i < sizeof(write_index_record); ++i)
                     read_index_record[i] = 0u;
                 if (ntfs_index_allocation_read(&fs, index_runs,
