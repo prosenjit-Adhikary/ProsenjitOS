@@ -6905,7 +6905,8 @@ int ntfs_selftest(void)
             disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
             disk.root_record[29u] = 0x01u;
             disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u; /* 352-byte value */
-            disk.root_record[68u] = 248u;
+            /* One 96-byte child entry plus the 16-byte END entry. */
+            disk.root_record[68u] = 144u;
             disk.root_record[69u] = 0u;
             disk.root_record[72u] = 0x60u;
             disk.root_record[73u] = 0x01u;
