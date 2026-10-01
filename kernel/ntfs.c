@@ -6441,10 +6441,11 @@ int ntfs_selftest(void)
                 'd', 0u, 'e', 0u, 'm', 0u, 'o', 0u
             };
             uint64_t reference = 0u;
-            if (ntfs_index_allocation_lookup(
+            int lookup_status = ntfs_index_allocation_lookup(
                     &fs, r, sizeof(disk.root_record), root_attr, a0,
-                    demo_name, 4u, &reference) != PROS_NTFS_OK)
-                return -135;
+                    demo_name, 4u, &reference);
+            if (lookup_status != PROS_NTFS_OK)
+                return -135 + lookup_status;
         }
 
         for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
