@@ -7657,7 +7657,7 @@ int ntfs_selftest(void)
 
             for (uint32_t i = 0u; i < sizeof(new_key); ++i)
                 new_key[i] = split_key[i];
-            new_key[70u] = '1';
+            new_key[70u] = '2';
             new_key[68u] = '4';
             new_key[64u] = 3u;
 
