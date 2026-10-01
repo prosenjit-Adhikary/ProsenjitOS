@@ -2169,6 +2169,14 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
             return mirror_status;
     }
 
+    /*
+     * Treat the metadata write as committed only after the block device
+     * durability barrier. Devices without a flush callback explicitly do
+     * not claim persistence; a real flush failure makes the write fail.
+     */
+    if (block_device_flush(fs->mount.device) != PROS_BLOCK_OK)
+        return PROS_NTFS_EIO;
+
     return PROS_NTFS_OK;
 }
 
@@ -2724,6 +2732,11 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             write_status = PROS_NTFS_EIO;
             goto write_fail;
         }
+    }
+
+    if (block_device_flush(fs->mount.device) != PROS_BLOCK_OK) {
+        write_status = PROS_NTFS_EIO;
+        goto write_fail;
     }
 
     *bytes_written = copied;
