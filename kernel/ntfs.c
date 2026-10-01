@@ -3058,6 +3058,120 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
 
 
 
+int ntfs_index_root_remove(struct pros_ntfs *fs,
+                           uint64_t directory_record_number,
+                           uint64_t child_record_number)
+{
+    static uint8_t directory_record[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t child_record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t index_root_offset, child_name_offset;
+    const uint8_t *root_data, *child_name;
+    uint32_t root_size, child_name_size;
+    struct pros_ntfs_index_root root;
+    uint32_t offset;
+    uint32_t remove_offset = 0u;
+    uint32_t remove_size = 0u;
+    uint64_t wanted_reference;
+
+    if (!fs || directory_record_number > 0x0000FFFFFFFFFFFFull ||
+        child_record_number > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record > sizeof(directory_record))
+        return PROS_NTFS_EINVAL;
+    if (!fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_NTFS_ENOTSUP;
+
+    if (ntfs_read_file_record(fs, directory_record_number, directory_record,
+                              sizeof(directory_record)) != PROS_NTFS_OK ||
+        ntfs_read_file_record(fs, child_record_number, child_record,
+                              sizeof(child_record)) != PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0x90u, &index_root_offset) != PROS_NTFS_OK ||
+        ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
+                               index_root_offset, &root) != PROS_NTFS_OK ||
+        ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
+                            index_root_offset, &root_data, &root_size) !=
+                            PROS_NTFS_OK ||
+        root.allocated_size < root.entries_size)
+        return PROS_NTFS_ECORRUPT;
+
+    if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
+                            0x30u, &child_name_offset) != PROS_NTFS_OK ||
+        ntfs_attribute_data(child_record, fs->bytes_per_file_record,
+                            child_name_offset, &child_name,
+                            &child_name_size) != PROS_NTFS_OK ||
+        child_name_size < 66u ||
+        66u + (uint32_t)child_name[64u] * 2u > child_name_size)
+        return PROS_NTFS_ECORRUPT;
+
+    wanted_reference = ((uint64_t)le16(child_record + 16u) << 48) |
+                       (child_record_number & 0x0000FFFFFFFFFFFFull);
+
+    offset = root.first_entry_offset;
+    while (offset < root.entries_size) {
+        uint64_t reference;
+        const uint8_t *key;
+        uint16_t key_size;
+        uint8_t flags;
+        uint32_t next;
+
+        if (ntfs_index_root_entry(directory_record, fs->bytes_per_file_record,
+                                   index_root_offset, offset, &reference,
+                                   &key, &key_size, &flags,
+                                   &next) != PROS_NTFS_OK)
+            return PROS_NTFS_ECORRUPT;
+
+        if ((flags & 2u) != 0u)
+            break;
+
+        if (reference == wanted_reference) {
+            remove_offset = offset;
+            remove_size = le16(root_data + offset + 8u);
+            if (remove_size < 16u || remove_size > root.entries_size - offset)
+                return PROS_NTFS_ECORRUPT;
+            break;
+        }
+
+        if (next == 0u || next <= offset || next > root.entries_size)
+            return PROS_NTFS_ECORRUPT;
+        offset = next;
+    }
+
+    if (remove_size == 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    /*
+     * A resident INDEX_ROOT end marker must remain the final entry. Removing
+     * an entry is therefore a byte-range compaction, not a blind zeroing.
+     * INDEX_ALLOCATION-backed trees are deliberately rejected here until
+     * internal-node deletion/rebalancing is implemented.
+     */
+    if ((root.flags & 1u) != 0u)
+        return PROS_NTFS_ENOTSUP;
+
+    for (uint32_t i = remove_offset;
+         i + remove_size < root.entries_size; ++i)
+        ((uint8_t *)root_data)[i] = root_data[i + remove_size];
+
+    for (uint32_t i = root.entries_size - remove_size;
+         i < root.entries_size; ++i)
+        ((uint8_t *)root_data)[i] = 0u;
+
+    {
+        uint32_t new_entries_size = root.entries_size - remove_size;
+        ((uint8_t *)root_data)[20u] = (uint8_t)new_entries_size;
+        ((uint8_t *)root_data)[21u] = (uint8_t)(new_entries_size >> 8);
+        ((uint8_t *)root_data)[22u] = (uint8_t)(new_entries_size >> 16);
+        ((uint8_t *)root_data)[23u] = (uint8_t)(new_entries_size >> 24);
+    }
+
+    return ntfs_write_file_record(fs, directory_record_number,
+                                  directory_record);
+}
+
+
 int ntfs_index_root_lookup(const void *record, uint32_t record_size,
                            uint32_t attr_offset,
                            const uint8_t *name_utf16le, uint8_t name_length,
