@@ -4363,7 +4363,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             if (esize < 16u || esize > root_entries_size - off ||
                 (esize & 7u) != 0u || (flags & ~3u) != 0u ||
                 ksize > esize - 16u - ((flags & 1u) ? 8u : 0u))
-                return -18100 - __LINE__;
+                return -26000 - (int)esize - ((int)ksize << 8) -
+                       ((int)flags << 16);
             if (flags & 2u) {
                 parent_insert_offset = absolute;
                 break;
