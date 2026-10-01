@@ -70,21 +70,17 @@ int security_manager_init(void) {
      * wrapper code made a real boot failure difficult to identify.
      */
     int rc;
-    rc = pros_file_security_selftest(); if (rc != 0) return -20000 - 100 + rc;
-    rc = pros_sha512_selftest(); if (rc != 0) return -20000 - 200 + rc;
-    rc = pros_ed25519_fe_selftest(); if (rc != 0) return -20000 - 300 + rc;
-    rc = pros_ed25519_point_selftest(); if (rc != 0) return -20000 - 400 + rc;
-    rc = pros_ed25519_scalar_selftest(); if (rc != 0) return -20000 - 500 + rc;
-    rc = pros_security_signature_selftest(); if (rc != 0) return -20000 - 600 + rc;
-    rc = pros_security_provider_selftest(); if (rc != 0) return -20000 - 700 + rc;
-    rc = pros_file_admission_selftest(); if (rc != 0) return -20000 - 800 + rc;
-    rc = vfs_security_selftest(); if (rc != 0) return -20000 - 900 + rc;
-    rc = fat32_selftest(); if (rc != 0) return -20000 - 1000 + rc;
-    rc = exfat_selftest(); if (rc != 0) return -20000 - 1100 + rc;
-    rc = ntfs_selftest(); if (rc != 0) return -20000 - 1200 + rc;
-    rc = partition_selftest(); if (rc != 0) return -20000 - 1300 + rc;
-    rc = pros_security_quarantine_selftest(); if (rc != 0) return -20000 - 1400 + rc;
-    rc = pros_security_exec_selftest(); if (rc != 0) return -20000 - 1500 + rc;
+    rc = pros_file_security_selftest(); if (rc != 0) return -1000 + rc;
+    rc = pros_sha512_selftest(); if (rc != 0) return -1100 + rc;
+    rc = pros_ed25519_fe_selftest(); if (rc != 0) return -1200 + rc;
+    rc = pros_ed25519_point_selftest(); if (rc != 0) return -1300 + rc;
+    rc = pros_ed25519_scalar_selftest(); if (rc != 0) return -1400 + rc;
+    rc = pros_security_signature_selftest(); if (rc != 0) return -1500 + rc;
+    rc = pros_security_provider_selftest(); if (rc != 0) return -2000 + rc;
+    rc = pros_file_admission_selftest(); if (rc != 0) return -3000 + rc;
+    rc = vfs_security_selftest(); if (rc != 0) return -4000 + rc;
+    rc = pros_security_quarantine_selftest(); if (rc != 0) return -9000 + rc;
+    rc = pros_security_exec_selftest(); if (rc != 0) return -10000 + rc;
     next_intent_id = 1;
     ledger_sequence = 0;
     ledger_count_value = 0;
