@@ -621,6 +621,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
+    {
+        int ntfs_status = ntfs_selftest();
+        if (ntfs_status != 0) {
+            serial_write("ProsenjitOS: ERROR NTFS self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)ntfs_status);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
     serial_write("ProsenjitOS: NTFS directory path traversal test passed\n");
     serial_write("ProsenjitOS: NTFS UpCase case-folding test passed\n");
     serial_write("ProsenjitOS: NTFS file-data read test passed\n");
