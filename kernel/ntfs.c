@@ -3712,11 +3712,11 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                                  .sparse = 0u },
         1u, 0u, node, index_block_size);
     if (rc != PROS_NTFS_OK)
-        goto rollback;
+        return -15032;
 
     rc = ntfs_write_file_record(fs, directory_record_number, record);
     if (rc != PROS_NTFS_OK)
-        goto rollback;
+        return -15033;
 
     *allocated_lcn = lcn;
     *allocated_clusters = cluster_count;
