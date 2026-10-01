@@ -7778,6 +7778,41 @@ int ntfs_selftest(void)
                                     break;
                                 roff += es;
                             }
+                            {
+                                static uint8_t left_probe[4096];
+                                struct pros_ntfs_index_record left_info;
+                                if (ntfs_index_allocation_read(
+                                        &fs, (const struct pros_ntfs_run[])
+                                        {{8u, 2u, 0u}}, 1u, 0u,
+                                        left_probe, sizeof(left_probe)) !=
+                                        PROS_NTFS_OK)
+                                    return -22100;
+                                if (ntfs_index_record_header(left_probe,
+                                        sizeof(left_probe), 512u, 0u,
+                                        &left_info) != PROS_NTFS_OK)
+                                    return -22101;
+                                {
+                                    uint32_t loff = left_info.first_entry_offset;
+                                    while (loff < left_info.entries_size) {
+                                        uint16_t les = le16(left_probe + loff + 8u);
+                                        uint16_t lks = le16(left_probe + loff + 10u);
+                                        uint8_t lfl = left_probe[loff + 12u];
+                                        if (les < 16u ||
+                                            les > left_info.entries_size - loff ||
+                                            (les & 7u) != 0u)
+                                            break;
+                                        if ((lfl & 2u) == 0u && lks >= 72u &&
+                                            left_probe[loff + 16u + 64u] == 3u &&
+                                            left_probe[loff + 16u + 66u] == 'u' &&
+                                            left_probe[loff + 16u + 68u] == '4' &&
+                                            left_probe[loff + 16u + 70u] == '1')
+                                            return -22102;
+                                        if (lfl & 2u)
+                                            break;
+                                        loff += les;
+                                    }
+                                }
+                            }
                             return -22000 - (int)(count * 100u +
                                                  (uint32_t)(last_tens - '0') * 10u +
                                                  (uint32_t)(last_ones - '0'));
