@@ -3129,7 +3129,7 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     }
 
     for (uint32_t i = root.entries_size; i > insert_offset; --i)
-        ((uint8_t *)root_data)[i + entry_size - 1u] =
+        root_mutable_data[i + entry_size - 1u] =
             root_data[i - 1u];
     for (uint32_t i = 0u; i < entry_size; ++i)
         ((uint8_t *)root_data)[insert_offset + i] = 0u;
@@ -4352,6 +4352,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     struct pros_ntfs_run grown_runs[PROS_NTFS_MFT_RUN_MAX];
     struct pros_ntfs_index_root root;
     const uint8_t *root_data;
+    uint8_t *root_mutable_data;
     const uint8_t *runlist;
     uint32_t root_attr, alloc_attr, root_size;
     uint32_t runlist_size, grown_count;
@@ -4743,6 +4744,16 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                             root_attr, &root_data, &root_size) != PROS_NTFS_OK)
         goto rollback;
     {
+        uint16_t value_offset =
+            le16(rebuilt_directory_record + root_attr + 20u);
+        if ((uint32_t)value_offset + root_size >
+                le32(rebuilt_directory_record + root_attr + 4u) ||
+            root_attr + (uint32_t)value_offset + root_size >
+                fs->bytes_per_file_record)
+            goto rollback;
+        root_mutable_data = rebuilt_directory_record + root_attr + value_offset;
+    }
+    {
         uint32_t old_root_entries = le32(root_data + 20u);
         uint32_t old_terminal;
         uint32_t new_root_entries;
@@ -4846,8 +4857,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
      * pointer has been assembled. The pointer is the VCN of the newly
      * allocated right-hand INDX node.
      */
-    if (le64(root_data + parent_insert_offset + parent_entry_size - 8u) !=
-            new_vcn)
+    if (le64(root_mutable_data + parent_insert_offset +
+             parent_entry_size - 8u) != new_vcn)
         goto rollback;
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         directory_record[i] = rebuilt_directory_record[i];
