@@ -5942,7 +5942,7 @@ int ntfs_selftest(void)
             int write_rc = ntfs_file_write(&fs, 12u, 8192u, fragmented,
                                            sizeof(fragmented), &written);
             if (write_rc != PROS_NTFS_OK)
-                return -1271;
+                return -12000 + write_rc;
         }
         if (written != sizeof(fragmented))
             return -1272;
