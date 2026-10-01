@@ -1,4 +1,6 @@
 #include "security_provider.h"
+#include "security_admission.h"
+#include "health.h"
 
 #include <stdint.h>
 
