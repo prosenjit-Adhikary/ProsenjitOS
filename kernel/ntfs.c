@@ -4732,9 +4732,31 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         goto rollback;
     {
         uint32_t old_root_entries = le32(root_data + 20u);
-        for (uint32_t i = old_root_entries; i > parent_insert_offset; --i)
+        uint32_t old_terminal;
+        uint32_t new_root_entries;
+
+        /*
+         * The INDEX_ROOT entry array is variable-sized and its terminal entry
+         * is part of entries_size. Build the new array with a byte-for-byte
+         * overlap-safe move, then recreate the terminal entry from scratch.
+         * This avoids relying on the direction of an in-place shift when the
+         * parent entry is inserted immediately before the terminal.
+         */
+        if (old_root_entries < root_first_entry_offset + 16u ||
+            parent_insert_offset < root_first_entry_offset ||
+            parent_insert_offset > old_root_entries - 16u ||
+            parent_entry_size > root_allocated_size - old_root_entries)
+            goto rollback;
+
+        old_terminal = old_root_entries - 16u;
+        new_root_entries = old_root_entries + parent_entry_size;
+
+        for (uint32_t i = old_terminal; i < old_root_entries; ++i)
+            ((uint8_t *)root_data)[i + parent_entry_size] = root_data[i];
+        for (uint32_t i = old_terminal; i > parent_insert_offset; --i)
             ((uint8_t *)root_data)[i + parent_entry_size - 1u] =
                 root_data[i - 1u];
+
         for (uint32_t i = 0u; i < parent_entry_size; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + i] = 0u;
         for (uint32_t i = 0u; i < 8u; ++i)
@@ -4755,19 +4777,14 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         for (uint32_t i = 0u; i < 8u; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + parent_entry_size - 8u + i] =
                 (uint8_t)(new_vcn >> (8u * i));
-        old_root_entries += parent_entry_size;
-        ((uint8_t *)root_data)[20u]=(uint8_t)old_root_entries;
-        ((uint8_t *)root_data)[21u]=(uint8_t)(old_root_entries >> 8);
-        ((uint8_t *)root_data)[22u]=(uint8_t)(old_root_entries >> 16);
-        ((uint8_t *)root_data)[23u]=(uint8_t)(old_root_entries >> 24);
 
-        /*
-         * Rebuild the terminal INDEX_ROOT entry explicitly after insertion.
-         * The separator insertion shifts the old terminal entry, but the
-         * destination bytes must be canonical regardless of fixture state.
-         */
+        ((uint8_t *)root_data)[20u]=(uint8_t)new_root_entries;
+        ((uint8_t *)root_data)[21u]=(uint8_t)(new_root_entries >> 8);
+        ((uint8_t *)root_data)[22u]=(uint8_t)(new_root_entries >> 16);
+        ((uint8_t *)root_data)[23u]=(uint8_t)(new_root_entries >> 24);
+
         {
-            uint32_t terminal = old_root_entries - 16u;
+            uint32_t terminal = new_root_entries - 16u;
             for (uint32_t i = 0u; i < 16u; ++i)
                 ((uint8_t *)root_data)[terminal + i] = 0u;
             ((uint8_t *)root_data)[terminal + 8u] = 16u;
