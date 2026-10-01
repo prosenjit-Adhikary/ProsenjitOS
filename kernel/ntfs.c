@@ -4781,6 +4781,9 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
         } else if (sector == 32u || sector == 33u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->mft_record[(sector - 32u) * 512u + i] = src[i];
+        } else if (sector == 42u || sector == 43u) {
+            for (uint32_t i = 0u; i < 512u; ++i)
+                disk->root_record[(sector - 42u) * 512u + i] = src[i];
         } else if (sector == 54u || sector == 55u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->file_record[(sector - 54u) * 512u + i] = src[i];
