@@ -7667,10 +7667,22 @@ int ntfs_selftest(void)
                     le64(disk.root_record + 184u + 104u + 16u) != 1u)
                     split_mask |= 32u;
                 if (split_mask & 16u) {
-                    uint64_t observed_280 = le64(disk.root_record + 280u);
-                    uint64_t observed_232 = le64(disk.root_record + 232u);
-                    return -26000 - (int)(observed_232 & 0xFFu) -
-                           (int)((observed_280 & 0xFFu) << 8);
+                    uint32_t found_one = 0xFFFFFFFFu;
+                    for (uint32_t probe = 0u; probe + 8u <=
+                         sizeof(disk.root_record); ++probe) {
+                        if (disk.root_record[probe] == 1u) {
+                            uint8_t all_zero = 1u;
+                            for (uint32_t q = 1u; q < 8u; ++q)
+                                if (disk.root_record[probe + q] != 0u)
+                                    all_zero = 0u;
+                            if (all_zero) {
+                                found_one = probe;
+                                break;
+                            }
+                        }
+                    }
+                    return found_one == 0xFFFFFFFFu ?
+                           -27000 : -27000 - (int)found_one;
                 }
                 if (split_mask != 0u)
                     return -24000 - (int)split_mask;
