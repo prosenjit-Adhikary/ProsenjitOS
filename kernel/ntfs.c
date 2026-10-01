@@ -7598,7 +7598,7 @@ int ntfs_selftest(void)
                             (flags & ~3u) != 0u ||
                             key_size > entry_size - 16u -
                                        ((flags & 1u) ? 8u : 0u))
-                            return -24108;
+                            return -24200 - (int)off;
                         if ((flags & 1u) != 0u &&
                             key_size == 74u &&
                             le64(root_data_check + off + entry_size - 8u) == 1u)
