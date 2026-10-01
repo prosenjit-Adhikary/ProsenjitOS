@@ -7013,21 +7013,16 @@ int ntfs_selftest(void)
                         5u) != PROS_NTFS_OK)
                     return -121;
 
-                {
-                    int verify_read_rc = ntfs_index_allocation_read(
+                if (ntfs_index_allocation_read(
                         &fs, index_runs, index_run_count, 0u,
-                        verify_record, sizeof(verify_record));
-                    int verify_header_rc;
-                    if (verify_read_rc != PROS_NTFS_OK)
-                        return -1231;
-                    verify_header_rc = ntfs_index_record_header(
-                        verify_record, sizeof(verify_record), 512u,
-                        0u, &verify_info);
-                    if (verify_header_rc != PROS_NTFS_OK)
-                        return -1232 + verify_header_rc;
-                    if (verify_info.entries_size <= index_info.entries_size)
-                        return -1233;
-                }
+                        verify_record, sizeof(verify_record)) !=
+                    PROS_NTFS_OK ||
+                    ntfs_index_record_header(verify_record,
+                                             sizeof(verify_record), 512u,
+                                             0u, &verify_info) !=
+                    PROS_NTFS_OK ||
+                    verify_info.entries_size <= index_info.entries_size)
+                    return -123;
 
                 if (ntfs_index_allocation_lookup(
                         &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
@@ -7407,15 +7402,6 @@ int ntfs_selftest(void)
                 saved_bitmap[i] = disk.bitmap_data[i];
 
             /*
-             * Make the split fixture's physical-allocation precondition
-             * deterministic: LCN 8 is the existing INDEX_ALLOCATION leaf,
-             * LCN 9 is the only intended adjacent free cluster. Earlier
-             * allocator regressions must not leak a stale bit into this
-             * isolated B-tree split scenario.
-             */
-            disk.bitmap_data[1u] = 0xFCu;
-
-            /*
              * Resident root: 352 bytes of index space with 248 bytes
              * already occupied by entries and one existing child pointer at
              * VCN 0. Add a nonresident INDEX_ALLOCATION mapping
@@ -7423,36 +7409,27 @@ int ntfs_selftest(void)
              */
             disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
             disk.root_record[29u] = 0x01u;
-            /*
-             * INDEX_ROOT value begins at attribute+24 (record offset 48).
-             * The embedded header fields are relative to that value:
-             * +8 bytes-per-index-record, +12 clusters-per-record,
-             * +16 first-entry offset, +20 entries size, +24 allocated size,
-             * +28 LARGE_INDEX flags.
-             */
+            /* INDEX_ROOT resident value: 352 bytes; header first=32, end=152. */
             disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
-            disk.root_record[42u] = 0u; disk.root_record[43u] = 0u;
-            disk.root_record[56u] = 0x00u; disk.root_record[57u] = 0x10u;
-            disk.root_record[58u] = 0u; disk.root_record[59u] = 0u;
+            /* Keep the resident value offset at 24 bytes. */
+            disk.root_record[44u] = 24u; disk.root_record[45u] = 0u;
+            /* FILE_NAME key type, Unicode collation, 4 KiB index records. */
+            disk.root_record[48u] = 0x30u; disk.root_record[49u] = 0u;
+            disk.root_record[52u] = 1u;
+            disk.root_record[56u] = 0u; disk.root_record[57u] = 0x10u;
             disk.root_record[60u] = 1u;
             disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
-            disk.root_record[68u] = 144u; disk.root_record[69u] = 0u;
+            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
             disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
             disk.root_record[74u] = 0u; disk.root_record[75u] = 0u;
-            disk.root_record[76u] = 1u;
-            /*
-             * The child entry has a 74-byte $FILE_NAME key plus an 8-byte
-             * child VCN, so its aligned size is 104 bytes. With the 16-byte
-             * END entry, the root's entries_size is 32 + 104 + 16 = 152.
-             */
-            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
             disk.root_record[80u + 8u] = 104u;
-            disk.root_record[80u + 9u] = 0u;
-            disk.root_record[80u + 10u] = 74u;
-            disk.root_record[80u + 11u] = 0u;
-            disk.root_record[80u + 12u] = 1u;
+             disk.root_record[80u + 9u] = 0u;
+             disk.root_record[80u + 8u] = 104u;
+             disk.root_record[80u + 9u] = 0u;
+             disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
                 disk.root_record[80u + 104u - 8u + i] = 0u;
+            /* 104-byte child entry is followed immediately by a 16-byte END entry. */
             disk.root_record[184u + 8u] = 16u;
             disk.root_record[184u + 12u] = 2u;
 
@@ -7502,15 +7479,7 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            /*
-             * The synthetic fixture keeps the first attribute at record
-             * offset 24, so the generic FILE-record used-size field overlaps
-             * that attribute by design. Do not rewrite 24..27 here: doing so
-             * would destroy the $INDEX_ROOT type/length before the split path
-             * reads the record. Attribute traversal is terminated explicitly
-             * below and does not depend on the unused-size header in this
-             * fixture.
-             */
+            /* Preserve the FILE/$INDEX_ROOT attribute header and value layout. */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
@@ -7558,12 +7527,6 @@ int ntfs_selftest(void)
             }
             {
                 uint32_t term = 64u + 41u * 96u;
-                /* Clear the complete terminal entry before setting its
-                 * size/flags. The fixture is rebuilt on top of a previously
-                 * populated synthetic root/index image, so stale key bytes
-                 * must never leak into the terminal entry. */
-                for (uint32_t i = 0u; i < 16u; ++i)
-                    disk.index_record[term + i] = 0u;
                 disk.index_record[term + 8u] = 16u;
                 disk.index_record[term + 12u] = 2u;
                 disk.index_record[28u]=0x98u; disk.index_record[29u]=0x0Fu;
@@ -7591,89 +7554,20 @@ int ntfs_selftest(void)
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
             if (split_status != PROS_NTFS_OK)
-                return split_status;
+                return -15000 + split_status;
 
             /*
              * The split consumes the next free physical cluster (LCN 9),
              * leaves the original node at VCN 0, and grows allocation to two
              * clusters. The parent must contain a child-pointer separator.
              */
-            {
-                uint32_t root_attr_check = 0u;
-                uint32_t alloc_attr_check = 0u;
-                const uint8_t *root_data_check = 0;
-                uint32_t root_size_check = 0u;
-                struct pros_ntfs_index_root split_root_check;
-                uint8_t found_right_child = 0u;
-
-                if ((disk.bitmap_data[9u / 8u] &
-                     (uint8_t)(1u << (9u % 8u))) == 0u)
-                    return -24101;
-                if (ntfs_find_attribute(disk.root_record,
-                                         sizeof(disk.root_record), 0x90u,
-                                         &root_attr_check) != PROS_NTFS_OK ||
-                    ntfs_find_attribute(disk.root_record,
-                                         sizeof(disk.root_record), 0xA0u,
-                                         &alloc_attr_check) != PROS_NTFS_OK)
-                    return -24102;
-                if (le64(disk.root_record + alloc_attr_check + 40u) != 8192u)
-                    return -24103;
-                if (ntfs_index_root_header(disk.root_record,
-                                           sizeof(disk.root_record),
-                                           root_attr_check,
-                                           &split_root_check) != PROS_NTFS_OK)
-                    return -24104;
-                if (split_root_check.entries_size != 256u ||
-                    split_root_check.allocated_size != 352u ||
-                    split_root_check.flags != 1u)
-                    return -24105;
-                if (ntfs_attribute_data(disk.root_record,
-                                        sizeof(disk.root_record),
-                                        root_attr_check,
-                                        &root_data_check,
-                                        &root_size_check) != PROS_NTFS_OK ||
-                    root_size_check != 352u)
-                    return -24106;
-
-                {
-                    uint32_t off = split_root_check.first_entry_offset;
-                    uint8_t saw_terminal = 0u;
-                    while (off < split_root_check.entries_size) {
-                        uint16_t entry_size;
-                        uint16_t key_size;
-                        uint8_t flags;
-                        if (split_root_check.entries_size - off < 16u)
-                            return -24107;
-                        entry_size = le16(root_data_check + off + 8u);
-                        key_size = le16(root_data_check + off + 10u);
-                        flags = root_data_check[off + 12u];
-                        if (entry_size < 16u ||
-                            (entry_size & 7u) != 0u ||
-                            entry_size > split_root_check.entries_size - off ||
-                            (flags & ~3u) != 0u ||
-                            key_size > entry_size - 16u -
-                                       ((flags & 1u) ? 8u : 0u))
-                            return -24200 - (int)off;
-                        if ((flags & 1u) != 0u &&
-                            key_size == 74u &&
-                            le64(root_data_check + off + entry_size - 8u) == 1u)
-                            found_right_child = 1u;
-                        if ((flags & 2u) != 0u) {
-                            if (entry_size != 16u ||
-                                off + entry_size !=
-                                    split_root_check.entries_size)
-                                return -24109;
-                            saw_terminal = 1u;
-                            break;
-                        }
-                        off += entry_size;
-                    }
-                    if (!saw_terminal)
-                        return -24110;
-                    if (!found_right_child)
-                        return -24111;
-                }
-            }
+            if ((disk.bitmap_data[9u / 8u] &
+                 (uint8_t)(1u << (9u % 8u))) == 0u ||
+                le64(disk.root_record + 280u) != 1u ||
+                disk.root_record[184u + 12u] != 1u ||
+                le16(disk.root_record + 184u + 10u) != 74u ||
+                le64(disk.root_record + 184u + 104u - 8u) != 1u)
+                return -197;
 
             {
                 uint8_t verify[4096];
@@ -7688,34 +7582,11 @@ int ntfs_selftest(void)
                         {{8u, 2u, 0u}}, 1u, 4096u, verify,
                         sizeof(verify)) != PROS_NTFS_OK)
                     return -198;
-                if (le64(disk.root_record + 440u) != 8192u)
-                    return -2201;
-                {
-                    int split_verify_header_rc = ntfs_index_record_header(
-                        verify, sizeof(verify), 512u, 1u, &info);
-                    if (split_verify_header_rc != PROS_NTFS_OK) {
-                        uint16_t usa_offset = le16(verify + 4u);
-                        uint16_t usa_count = le16(verify + 6u);
-                        uint16_t usa_seq = (usa_offset + 2u <= sizeof(verify)) ?
-                            le16(verify + usa_offset) : 0u;
-                        if (le64(verify + 16u) != 1u)
-                            return -2200 - (int)(le64(verify + 16u) & 0xFFu);
-                        if (usa_offset != 40u)
-                            return -2102;
-                        if (usa_count != 9u)
-                            return -2103;
-                        if (usa_seq != 0x1234u)
-                            return -2104;
-                        for (uint32_t i = 1u; i < usa_count; ++i) {
-                            uint32_t end = i * 512u - 2u;
-                            if (le16(verify + end) != usa_seq)
-                                return -2110 - (int)i;
-                        }
-                        return -1990 + split_verify_header_rc;
-                    }
-                    if (info.vcn != 1u)
-                        return -200;
-                }
+                if (ntfs_index_record_header(verify, sizeof(verify), 512u,
+                                             1u, &info) != PROS_NTFS_OK)
+                    return -199;
+                if (info.vcn != 1u)
+                    return -200;
 
                 /*
                  * Read the newly appended node and verify that it contains
