@@ -1328,11 +1328,12 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                                             uint64_t *allocated_lcn,
                                             uint64_t *allocated_clusters);
 
-int ntfs_create_file(struct pros_ntfs *fs,
-                     uint64_t parent_record_number,
-                     uint64_t *record_number,
-                     const uint16_t *name_utf16le,
-                     uint8_t name_length)
+static int ntfs_create_entry(struct pros_ntfs *fs,
+                         uint64_t parent_record_number,
+                         uint64_t *record_number,
+                         const uint16_t *name_utf16le,
+                         uint8_t name_length,
+                         uint8_t directory)
 {
     uint64_t allocated_record = 0u;
     uint64_t parent_reference;
@@ -1453,14 +1454,19 @@ int ntfs_create_file(struct pros_ntfs *fs,
     if (rc != PROS_NTFS_OK)
         goto create_rollback;
 
-    rc = ntfs_mft_initialize_record(fs, allocated_record, 0u);
+    rc = ntfs_mft_initialize_record(fs, allocated_record, directory);
     if (rc == PROS_NTFS_OK)
-        rc = ntfs_mft_add_standard_information(fs, allocated_record, 0x80u);
+        rc = ntfs_mft_add_standard_information(
+            fs, allocated_record, directory ? 0x10000000u : 0x80u);
     if (rc == PROS_NTFS_OK)
         rc = ntfs_mft_add_file_name(fs, allocated_record, parent_reference,
                                     name_utf16le, name_length, 1u);
-    if (rc == PROS_NTFS_OK)
-        rc = ntfs_mft_add_empty_data(fs, allocated_record);
+    if (rc == PROS_NTFS_OK) {
+        if (directory)
+            rc = ntfs_mft_add_empty_index_root(fs, allocated_record);
+        else
+            rc = ntfs_mft_add_empty_data(fs, allocated_record);
+    }
     if (rc == PROS_NTFS_OK) {
         if (root_needs_allocation_insert)
             rc = ntfs_index_allocation_insert_child(fs,
@@ -1492,6 +1498,106 @@ create_rollback:
         ntfs_mft_free_record(fs, allocated_record) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
     return rc;
+}
+
+int ntfs_create_file(struct pros_ntfs *fs,
+                     uint64_t parent_record_number,
+                     uint64_t *record_number,
+                     const uint16_t *name_utf16le,
+                     uint8_t name_length)
+{
+    return ntfs_create_entry(fs, parent_record_number, record_number,
+                             name_utf16le, name_length, 0u);
+}
+
+int ntfs_create_directory(struct pros_ntfs *fs,
+                          uint64_t parent_record_number,
+                          uint64_t *record_number,
+                          const uint16_t *name_utf16le,
+                          uint8_t name_length)
+{
+    return ntfs_create_entry(fs, parent_record_number, record_number,
+                             name_utf16le, name_length, 1u);
+}
+
+int ntfs_mft_add_empty_index_root(struct pros_ntfs *fs,
+                                   uint64_t record_number)
+{
+    static uint8_t record[PROS_NTFS_RECORD_WORK_MAX];
+    uint32_t first, pos, len, new_used;
+    uint16_t attr_id = 0u;
+    const uint32_t value_len = 48u;
+    const uint32_t attr_len = 72u;
+
+    if (!fs || record_number > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record > sizeof(record))
+        return PROS_NTFS_EINVAL;
+    if (ntfs_read_file_record(fs, record_number, record, sizeof(record)) !=
+            PROS_NTFS_OK)
+        return PROS_NTFS_EIO;
+    if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x90u, &pos) ==
+        PROS_NTFS_OK)
+        return PROS_NTFS_EINVAL;
+
+    first = le16(record + 20u);
+    if (first < 24u || first + 8u > fs->bytes_per_file_record)
+        return PROS_NTFS_ECORRUPT;
+    pos = first;
+    while (pos + 8u <= fs->bytes_per_file_record) {
+        uint32_t type = le32(record + pos);
+        len = le32(record + pos + 4u);
+        if (type == 0xFFFFFFFFu)
+            break;
+        if (len < 16u || (len & 7u) != 0u ||
+            pos > fs->bytes_per_file_record - len)
+            return PROS_NTFS_ECORRUPT;
+        {
+            uint16_t id = le16(record + pos + 14u);
+            if (id >= attr_id)
+                attr_id = (uint16_t)(id + 1u);
+        }
+        pos += len;
+    }
+    if (pos > fs->bytes_per_file_record - attr_len - 8u)
+        return PROS_NTFS_EOVERFLOW;
+
+    for (uint32_t i = 0u; i < attr_len + 8u; ++i)
+        record[pos + i] = 0u;
+    record[pos + 0u] = 0x90u;
+    record[pos + 4u] = (uint8_t)attr_len;
+    record[pos + 5u] = (uint8_t)(attr_len >> 8);
+    record[pos + 16u] = (uint8_t)value_len;
+    record[pos + 20u] = 24u;
+    record[pos + 14u] = (uint8_t)attr_id;
+    record[pos + 15u] = (uint8_t)(attr_id >> 8);
+
+    {
+        uint8_t *v = record + pos + 24u;
+        v[0u] = 0x30u; v[1u] = 0u; v[2u] = 0u; v[3u] = 0u;
+        v[4u] = 1u; v[5u] = 0u; v[6u] = 0u; v[7u] = 0u;
+        uint32_t index_size = fs->bytes_per_sector * fs->sectors_per_cluster;
+        if (index_size == 0u || index_size > 0xFFFFFFFFu)
+            return PROS_NTFS_EOVERFLOW;
+        v[8u] = (uint8_t)index_size;
+        v[9u] = (uint8_t)(index_size >> 8);
+        v[10u] = (uint8_t)(index_size >> 16);
+        v[11u] = (uint8_t)(index_size >> 24);
+        v[12u] = 1u;
+        v[16u] = 32u; v[20u] = 48u; v[24u] = 48u; v[28u] = 0u;
+        v[32u + 8u] = 16u;
+        v[32u + 12u] = 2u;
+    }
+
+    new_used = pos + attr_len + 8u;
+    record[24u] = (uint8_t)new_used;
+    record[25u] = (uint8_t)(new_used >> 8);
+    record[26u] = (uint8_t)(new_used >> 16);
+    record[27u] = (uint8_t)(new_used >> 24);
+    record[pos + attr_len] = 0xFFu;
+    record[pos + attr_len + 1u] = 0xFFu;
+    record[pos + attr_len + 2u] = 0xFFu;
+    record[pos + attr_len + 3u] = 0xFFu;
+    return ntfs_write_file_record(fs, record_number, record);
 }
 
 int ntfs_mft_initialize_record(struct pros_ntfs *fs,
