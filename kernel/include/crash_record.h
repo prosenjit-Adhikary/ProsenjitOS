@@ -43,6 +43,8 @@ int pros_crash_record_available(void);
 void pros_crash_record_detach(void);
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                               uint64_t rip, uint64_t cr2, uint64_t timestamp);
+/* Persist a previously captured in-memory crash record from safe context only. */
+int pros_crash_record_flush_pending(void);
 int pros_crash_record_peek(struct pros_crash_record *record);
 int pros_crash_record_consume(struct pros_crash_record *record);
 int pros_crash_record_clear(void);
