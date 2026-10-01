@@ -4,14 +4,10 @@
 
 #define PROSENJIT_PIT_BASE_HZ 1193182u
 
-#define PROSENJIT_PIT_BASE_HZ 1193182u
-
 static volatile uint64_t ticks;
 static uint64_t last_preempt_tick;
 static volatile uint64_t irq_count;
 static volatile uint64_t preempt_count;
-static uint32_t timer_hz;
-static uint32_t timer_divisor;
 static uint32_t timer_hz;
 static uint32_t timer_divisor;
 static inline void timer_out8(uint16_t port, uint8_t value) {
@@ -23,8 +19,6 @@ int timer_init(uint32_t hz) {
     uint32_t divisor = PROSENJIT_PIT_BASE_HZ / hz;
     if (divisor == 0 || divisor > 65535u) return -1;
     ticks = 0;
-    timer_divisor = divisor;
-    timer_hz = PROSENJIT_PIT_BASE_HZ / divisor;
     timer_divisor = divisor;
     timer_hz = PROSENJIT_PIT_BASE_HZ / divisor;
     last_preempt_tick = 0;
