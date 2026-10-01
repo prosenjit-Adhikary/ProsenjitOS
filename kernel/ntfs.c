@@ -4732,9 +4732,31 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         goto rollback;
     {
         uint32_t old_root_entries = le32(root_data + 20u);
-        for (uint32_t i = old_root_entries; i > parent_insert_offset; --i)
+        uint32_t old_terminal;
+        uint32_t new_root_entries;
+
+        /*
+         * The INDEX_ROOT entry array is variable-sized and its terminal entry
+         * is part of entries_size. Build the new array with a byte-for-byte
+         * overlap-safe move, then recreate the terminal entry from scratch.
+         * This avoids relying on the direction of an in-place shift when the
+         * parent entry is inserted immediately before the terminal.
+         */
+        if (old_root_entries < root_first_entry_offset + 16u ||
+            parent_insert_offset < root_first_entry_offset ||
+            parent_insert_offset > old_root_entries - 16u ||
+            parent_entry_size > root_allocated_size - old_root_entries)
+            goto rollback;
+
+        old_terminal = old_root_entries - 16u;
+        new_root_entries = old_root_entries + parent_entry_size;
+
+        for (uint32_t i = old_terminal; i < old_root_entries; ++i)
+            ((uint8_t *)root_data)[i + parent_entry_size] = root_data[i];
+        for (uint32_t i = old_terminal; i > parent_insert_offset; --i)
             ((uint8_t *)root_data)[i + parent_entry_size - 1u] =
                 root_data[i - 1u];
+
         for (uint32_t i = 0u; i < parent_entry_size; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + i] = 0u;
         for (uint32_t i = 0u; i < 8u; ++i)
@@ -4755,11 +4777,19 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         for (uint32_t i = 0u; i < 8u; ++i)
             ((uint8_t *)root_data)[parent_insert_offset + parent_entry_size - 8u + i] =
                 (uint8_t)(new_vcn >> (8u * i));
-        old_root_entries += parent_entry_size;
-        ((uint8_t *)root_data)[20u]=(uint8_t)old_root_entries;
-        ((uint8_t *)root_data)[21u]=(uint8_t)(old_root_entries >> 8);
-        ((uint8_t *)root_data)[22u]=(uint8_t)(old_root_entries >> 16);
-        ((uint8_t *)root_data)[23u]=(uint8_t)(old_root_entries >> 24);
+
+        ((uint8_t *)root_data)[20u]=(uint8_t)new_root_entries;
+        ((uint8_t *)root_data)[21u]=(uint8_t)(new_root_entries >> 8);
+        ((uint8_t *)root_data)[22u]=(uint8_t)(new_root_entries >> 16);
+        ((uint8_t *)root_data)[23u]=(uint8_t)(new_root_entries >> 24);
+
+        {
+            uint32_t terminal = new_root_entries - 16u;
+            for (uint32_t i = 0u; i < 16u; ++i)
+                ((uint8_t *)root_data)[terminal + i] = 0u;
+            ((uint8_t *)root_data)[terminal + 8u] = 16u;
+            ((uint8_t *)root_data)[terminal + 12u] = 2u;
+        }
     }
 
     rc = ntfs_write_file_record(fs, directory_record_number,
@@ -7370,6 +7400,15 @@ int ntfs_selftest(void)
                 saved_bitmap[i] = disk.bitmap_data[i];
 
             /*
+             * Make the split fixture's physical-allocation precondition
+             * deterministic: LCN 8 is the existing INDEX_ALLOCATION leaf,
+             * LCN 9 is the only intended adjacent free cluster. Earlier
+             * allocator regressions must not leak a stale bit into this
+             * isolated B-tree split scenario.
+             */
+            disk.bitmap_data[1u] = 0xFCu;
+
+            /*
              * Resident root: 352 bytes of index space with 248 bytes
              * already occupied by entries and one existing child pointer at
              * VCN 0. Add a nonresident INDEX_ALLOCATION mapping
@@ -7512,6 +7551,12 @@ int ntfs_selftest(void)
             }
             {
                 uint32_t term = 64u + 41u * 96u;
+                /* Clear the complete terminal entry before setting its
+                 * size/flags. The fixture is rebuilt on top of a previously
+                 * populated synthetic root/index image, so stale key bytes
+                 * must never leak into the terminal entry. */
+                for (uint32_t i = 0u; i < 16u; ++i)
+                    disk.index_record[term + i] = 0u;
                 disk.index_record[term + 8u] = 16u;
                 disk.index_record[term + 12u] = 2u;
                 disk.index_record[28u]=0x98u; disk.index_record[29u]=0x0Fu;
@@ -7539,7 +7584,7 @@ int ntfs_selftest(void)
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
             if (split_status != PROS_NTFS_OK)
-                return -15000 + split_status;
+                return split_status;
 
             /*
              * The split consumes the next free physical cluster (LCN 9),
