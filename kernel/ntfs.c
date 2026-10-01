@@ -7200,13 +7200,22 @@ int ntfs_selftest(void)
              * leaves the original node at VCN 0, and grows allocation to two
              * clusters. The parent must contain a child-pointer separator.
              */
-            if ((disk.bitmap_data[9u / 8u] &
-                 (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 440u) != 8192u ||
-                disk.root_record[176u + 12u] != 1u ||
-                le16(disk.root_record + 176u + 10u) != 74u ||
-                le64(disk.root_record + 176u + 104u - 8u) != 1u)
-                return -197;
+            {
+                uint32_t split_mask = 0u;
+                if ((disk.bitmap_data[9u / 8u] &
+                     (uint8_t)(1u << (9u % 8u))) == 0u)
+                    split_mask |= 1u;
+                if (le64(disk.root_record + 440u) != 8192u)
+                    split_mask |= 2u;
+                if (disk.root_record[176u + 12u] != 1u)
+                    split_mask |= 4u;
+                if (le16(disk.root_record + 176u + 10u) != 74u)
+                    split_mask |= 8u;
+                if (le64(disk.root_record + 176u + 104u - 8u) != 1u)
+                    split_mask |= 16u;
+                if (split_mask != 0u)
+                    return -24000 - (int)split_mask;
+            }
 
             {
                 uint8_t verify[4096];
