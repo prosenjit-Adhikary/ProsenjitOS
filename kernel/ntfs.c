@@ -7320,8 +7320,10 @@ int ntfs_selftest(void)
                 entry.name[4] != '\0')
                 return -196;
             if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
-                    PROS_VFS_ENOENT || cookie != 12u)
+                    PROS_VFS_ENOENT)
                 return -197;
+            if (cookie != 12u)
+                return -198;
         }
 
         /*
