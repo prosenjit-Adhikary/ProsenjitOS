@@ -7011,16 +7011,21 @@ int ntfs_selftest(void)
                         5u) != PROS_NTFS_OK)
                     return -121;
 
-                if (ntfs_index_allocation_read(
+                {
+                    int verify_read_rc = ntfs_index_allocation_read(
                         &fs, index_runs, index_run_count, 0u,
-                        verify_record, sizeof(verify_record)) !=
-                    PROS_NTFS_OK ||
-                    ntfs_index_record_header(verify_record,
-                                             sizeof(verify_record), 512u,
-                                             0u, &verify_info) !=
-                    PROS_NTFS_OK ||
-                    verify_info.entries_size <= index_info.entries_size)
-                    return -123;
+                        verify_record, sizeof(verify_record));
+                    int verify_header_rc;
+                    if (verify_read_rc != PROS_NTFS_OK)
+                        return -1231;
+                    verify_header_rc = ntfs_index_record_header(
+                        verify_record, sizeof(verify_record), 512u,
+                        0u, &verify_info);
+                    if (verify_header_rc != PROS_NTFS_OK)
+                        return -1232 + verify_header_rc;
+                    if (verify_info.entries_size <= index_info.entries_size)
+                        return -1233;
+                }
 
                 if (ntfs_index_allocation_lookup(
                         &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
