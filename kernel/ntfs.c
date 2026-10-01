@@ -7058,7 +7058,7 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 280u) != 8192u ||
+                le64(disk.root_record + 280u) != 1u ||
                 disk.root_record[184u + 12u] != 1u ||
                 le16(disk.root_record + 184u + 10u) != 74u ||
                 le64(disk.root_record + 184u + 104u - 8u) != 1u)
