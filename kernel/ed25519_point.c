@@ -49,7 +49,7 @@ static void fe_pow_p3_over_8(struct pros_ed25519_fe *r,
         0xfe,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
-        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x0f
+        0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x10
     };
     struct pros_ed25519_fe result, base;
     pros_ed25519_fe_one(&result);
@@ -73,13 +73,15 @@ void pros_ed25519_point_identity(struct pros_ed25519_point *p) {
 }
 
 int pros_ed25519_point_is_identity(const struct pros_ed25519_point *p) {
-    struct pros_ed25519_fe one, zero;
+    struct pros_ed25519_fe zero;
     if (!p) return 0;
-    pros_ed25519_fe_one(&one);
     pros_ed25519_fe_zero(&zero);
+    /*
+     * Extended Edwards coordinates are projective: every (0:Y:Y:0)
+     * represents the identity, not only the normalized (0:1:1:0).
+     */
     return pros_ed25519_fe_equal(&p->x, &zero) &&
-           pros_ed25519_fe_equal(&p->y, &one) &&
-           pros_ed25519_fe_equal(&p->z, &one) &&
+           pros_ed25519_fe_equal(&p->y, &p->z) &&
            pros_ed25519_fe_equal(&p->t, &zero);
 }
 
@@ -274,7 +276,10 @@ int pros_ed25519_point_selftest(void) {
     if (pros_ed25519_point_from_bytes(&decoded, encoded) != 0) return -5;
     if (!pros_ed25519_point_is_identity(&decoded)) return -6;
 
-    if (pros_ed25519_point_from_bytes(&decoded, base_encoding) != 0) return -7;
+    {
+        int decode_rc = pros_ed25519_point_from_bytes(&decoded, base_encoding);
+        if (decode_rc != 0) return -700 + decode_rc;
+    }
     if (!pros_ed25519_point_on_curve(&decoded)) return -8;
     pros_ed25519_point_to_bytes(encoded, &decoded);
     for (uint32_t i = 0; i < 32u; ++i)

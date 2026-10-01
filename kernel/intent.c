@@ -65,7 +65,10 @@ int security_manager_init(void) {
     if (pros_file_security_selftest() != 0) return -1;
     if (pros_sha512_selftest() != 0) return -11;
     if (pros_ed25519_fe_selftest() != 0) return -12;
-    if (pros_ed25519_point_selftest() != 0) return -13;
+    {
+        int point_rc = pros_ed25519_point_selftest();
+        if (point_rc != 0) return -13000 + point_rc;
+    }
     if (pros_ed25519_scalar_selftest() != 0) return -14;
     if (pros_ed25519_scalar_selftest() != 0) return -14;
     if (pros_security_signature_selftest() != 0) return -15;

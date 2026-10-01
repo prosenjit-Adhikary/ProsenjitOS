@@ -133,7 +133,7 @@ int pros_device_broker_selftest(void)
     };
     uint32_t device_id;
 
-    if (!broker_ready && pros_device_broker_init() != PROS_DRIVER_OK ||
+    if ((!broker_ready && pros_device_broker_init() != PROS_DRIVER_OK) ||
         pros_driver_register(&driver) != PROS_DRIVER_OK ||
         pros_device_register(&device) != PROS_DRIVER_OK)
         return PROS_DRIVER_EINVAL;

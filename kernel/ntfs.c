@@ -3169,6 +3169,91 @@ int ntfs_index_record_header(const void *record, uint32_t record_size,
     return PROS_NTFS_OK;
 }
 
+static int ntfs_index_allocation_read(const struct pros_ntfs *fs,
+                                     const struct pros_ntfs_run *runs,
+                                     uint32_t run_count,
+                                     uint64_t byte_offset,
+                                     uint8_t *buffer,
+                                     uint32_t size)
+{
+    uint32_t read = 0u;
+    uint64_t cluster_bytes;
+    if (!fs || !runs || run_count == 0u || !buffer || size == 0u ||
+        fs->bytes_per_sector < 512u || fs->bytes_per_sector > 4096u ||
+        fs->sectors_per_cluster == 0u ||
+        byte_offset % fs->bytes_per_sector != 0u ||
+        size % fs->bytes_per_sector != 0u)
+        return PROS_NTFS_EINVAL;
+    cluster_bytes = (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
+    if (cluster_bytes == 0u)
+        return PROS_NTFS_EOVERFLOW;
+    while (read < size) {
+        uint64_t logical_cluster = byte_offset / cluster_bytes;
+        uint64_t cluster_offset = byte_offset % cluster_bytes;
+        uint64_t cumulative = 0u;
+        uint64_t physical_lcn = 0u;
+        uint8_t sparse = 0u;
+        uint8_t found = 0u;
+        uint32_t sector_index;
+        uint64_t lba;
+        for (uint32_t r = 0u; r < run_count; ++r) {
+            const struct pros_ntfs_run *run = &runs[r];
+            if (logical_cluster >= cumulative &&
+                logical_cluster - cumulative < run->clusters) {
+                physical_lcn = run->lcn + (logical_cluster - cumulative);
+                if (physical_lcn < run->lcn)
+                    return PROS_NTFS_EOVERFLOW;
+                sparse = run->sparse;
+                found = 1u;
+                break;
+            }
+            if (run->clusters > UINT64_MAX - cumulative)
+                return PROS_NTFS_EOVERFLOW;
+            cumulative += run->clusters;
+        }
+        sector_index = (uint32_t)(cluster_offset / fs->bytes_per_sector);
+        if (!found || sector_index >= fs->sectors_per_cluster ||
+            ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
+            return PROS_NTFS_EIO;
+        lba += sector_index;
+        if (sparse) {
+            for (uint32_t i = 0u; i < fs->bytes_per_sector; ++i)
+                buffer[read + i] = 0u;
+        } else if (block_device_read(fs->mount.device, lba, 1u,
+                                     buffer + read) != PROS_BLOCK_OK) {
+            return PROS_NTFS_EIO;
+        }
+        read += fs->bytes_per_sector;
+        if (byte_offset > UINT64_MAX - fs->bytes_per_sector)
+            return PROS_NTFS_EOVERFLOW;
+        byte_offset += fs->bytes_per_sector;
+    }
+    return PROS_NTFS_OK;
+}
+
+static int ntfs_index_record_geometry(const struct pros_ntfs *fs,
+                                      const struct pros_ntfs_index_root *root,
+                                      uint32_t *record_clusters)
+{
+    uint64_t cluster_bytes;
+    if (!fs || !root || !record_clusters ||
+        fs->bytes_per_sector < 512u || fs->bytes_per_sector > 4096u ||
+        fs->sectors_per_cluster == 0u ||
+        root->bytes_per_index_record == 0u ||
+        root->clusters_per_index_record == 0u)
+        return PROS_NTFS_EINVAL;
+    cluster_bytes = (uint64_t)fs->bytes_per_sector * fs->sectors_per_cluster;
+    if (cluster_bytes == 0u ||
+        root->bytes_per_index_record > PROS_NTFS_RECORD_WORK_MAX ||
+        root->bytes_per_index_record % fs->bytes_per_sector != 0u)
+        return PROS_NTFS_ECORRUPT;
+    if ((uint64_t)root->clusters_per_index_record * cluster_bytes !=
+        root->bytes_per_index_record)
+        return PROS_NTFS_ECORRUPT;
+    *record_clusters = root->clusters_per_index_record;
+    return PROS_NTFS_OK;
+}
+
 static int ntfs_index_allocation_write(const struct pros_ntfs *fs,
                                       const struct pros_ntfs_run *runs,
                                       uint32_t run_count,
@@ -3784,7 +3869,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     if (!fs || !runs || run_count == 0u ||
         directory_record_number > 0x0000FFFFFFFFFFFFull ||
         !key || key_size < 66u ||
-        key_size > 0xFFFFu || record_size > sizeof(leaf) ||
+        record_size > sizeof(leaf) ||
         record_size < fs->bytes_per_sector ||
         record_size % fs->bytes_per_sector != 0u ||
         vcn > 0x0000FFFFFFFFFFFFull)
@@ -3975,8 +4060,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         uint16_t sep_entry_size = le16(expanded + sep_offset + 8u);
         uint16_t sep_key_size = le16(expanded + sep_offset + 10u);
         if (sep_entry_size < 16u || sep_key_size < 66u ||
-            sep_key_size > sep_entry_size - 16u ||
-            sep_key_size > sizeof(separator_key))
+            sep_key_size > sep_entry_size - 16u)
             return PROS_NTFS_ECORRUPT;
         separator_reference = le64(expanded + sep_offset);
         separator_key_size = sep_key_size;

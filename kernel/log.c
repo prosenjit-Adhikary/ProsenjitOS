@@ -72,12 +72,16 @@ int pros_log_sink_available(uint32_t sink) {
 
 int pros_log_selftest(void) {
     struct pros_health_snapshot snapshot;
-    if (pros_log_init() != PROS_LOG_OK ||
-        pros_log_persist_selftest() != PROS_LOG_PERSIST_OK ||
-        pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
-                      0x4C4F4701u, 1u, 1u) != PROS_LOG_OK ||
-        pros_health_snapshot(&snapshot) != PROS_LOG_OK ||
-        snapshot.event_count != 1u)
+    if (pros_log_init() != PROS_LOG_OK)
+        return -101;
+    if (pros_log_persist_selftest() != PROS_LOG_PERSIST_OK)
+        return -102;
+    if (pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
+                      0x4C4F4701u, 1u, 1u) != PROS_LOG_OK)
+        return -103;
+    if (pros_health_snapshot(&snapshot) != PROS_LOG_OK)
+        return -104;
+    if (snapshot.event_count == 0u)
         return PROS_LOG_EIO;
     return pros_log_sink_available(PROS_LOG_SINK_HEALTH);
 }

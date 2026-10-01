@@ -55,6 +55,15 @@ enum pros_driver_origin {
     PROS_DRIVER_ORIGIN_COMPAT
 };
 
+/* Stable health-event codes emitted by the driver registry. */
+enum pros_driver_health_code {
+    PROS_DRIVER_HEALTH_REGISTER_FAILURE = 1u,
+    PROS_DRIVER_HEALTH_REGISTRY_EXHAUSTED = 2u,
+    PROS_DRIVER_HEALTH_DEVICE_REGISTER_FAILURE = 3u,
+    PROS_DRIVER_HEALTH_UNSUPPORTED_CLASS = 4u,
+    PROS_DRIVER_HEALTH_REMOVE_FAILURE = 5u
+};
+
 struct pros_driver_id {
     enum pros_driver_bus bus;
     uint16_t vendor_id;

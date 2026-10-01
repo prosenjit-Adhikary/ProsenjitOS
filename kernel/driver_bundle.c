@@ -62,9 +62,16 @@ int pros_driver_bundle_add(uint32_t id, enum pros_driver_bundle_source s,uint32_
     e->version[0] = 0;
     return PROS_DRIVER_OK;
 }
-int pros_driver_bundle_find(uint32_t id, struct pros_driver_bundle_entry *out) {
-    if(!id||!out)return PROS_DRIVER_EINVAL; struct pros_driver_bundle_entry *e=find(id);
-    if(!e)return PROS_DRIVER_ENODEV; *out=*e; return PROS_DRIVER_OK;
+int pros_driver_bundle_find(uint32_t id, struct pros_driver_bundle_entry *out)
+{
+    struct pros_driver_bundle_entry *e;
+    if (!id || !out)
+        return PROS_DRIVER_EINVAL;
+    e = find(id);
+    if (!e)
+        return PROS_DRIVER_ENODEV;
+    *out = *e;
+    return PROS_DRIVER_OK;
 }
 int pros_driver_bundle_remove(uint32_t package_id)
 {
@@ -147,12 +154,29 @@ int pros_driver_bundle_retire(uint32_t package_id)
     return pros_driver_bundle_remove(package_id);
 }
 
-int pros_driver_bundle_compare_version(uint32_t a,uint32_t b,int *out) {
-    if(!a||!b||!out)return PROS_DRIVER_EINVAL; struct pros_driver_bundle_entry *x=find(a),*y=find(b);
-    if(!x||!y)return PROS_DRIVER_ENODEV;
-    if(x->version_major!=y->version_major)*out=x->version_major>y->version_major?1:-1;
-    else if(x->version_minor!=y->version_minor)*out=x->version_minor>y->version_minor?1:-1;
-    else if(x->version_patch!=y->version_patch)*out=x->version_patch>y->version_patch?1:-1; else *out=0;
+int pros_driver_bundle_compare_version(uint32_t a, uint32_t b, int *out)
+{
+    struct pros_driver_bundle_entry *x;
+    struct pros_driver_bundle_entry *y;
+    if (!a || !b || !out)
+        return PROS_DRIVER_EINVAL;
+    x = find(a);
+    y = find(b);
+    if (!x || !y)
+        return PROS_DRIVER_ENODEV;
+    if (x->version_major != y->version_major) {
+        *out = x->version_major < y->version_major ? -1 : 1;
+        return PROS_DRIVER_OK;
+    }
+    if (x->version_minor != y->version_minor) {
+        *out = x->version_minor < y->version_minor ? -1 : 1;
+        return PROS_DRIVER_OK;
+    }
+    if (x->version_patch != y->version_patch) {
+        *out = x->version_patch < y->version_patch ? -1 : 1;
+        return PROS_DRIVER_OK;
+    }
+    *out = 0;
     return PROS_DRIVER_OK;
 }
 int pros_driver_bundle_admit_package(
@@ -350,7 +374,10 @@ int pros_driver_bundle_selftest(void) {
     if(pros_driver_bundle_add(2,PROS_DRIVER_BUNDLE_REMOVABLE,1,3,0,b)!=0)return -3;
     if(pros_driver_bundle_add(3,(enum pros_driver_bundle_source)-1,1,0,0,a)!=PROS_DRIVER_EINVAL)return -4;
     int cmp=0;if(pros_driver_bundle_compare_version(1,2,&cmp)!=0||cmp>=0)return -5;
-    struct pros_driver_bundle_entry e;if(pros_driver_bundle_find(1,&e)!=0)return -6;
+    struct pros_driver_bundle_entry e;
+    struct pros_driver_bundle_entry entry_v2;
+    if (pros_driver_bundle_find(1, &e) != 0)
+        return -6;
     for(uint32_t i=0;i<PROS_FILE_SHA256_BYTES;++i)if(e.content_sha256[i]!=a[i])return -7;
 
     /*
@@ -665,6 +692,9 @@ int pros_driver_bundle_selftest(void) {
                 &child_package) != PROS_DRIVER_OK ||
             pros_driver_compat_add_dependency(
                 child_package, parent_package) != PROS_DRIVER_OK ||
+            pros_driver_bundle_add(
+                child_package, PROS_DRIVER_BUNDLE_LOCAL,
+                1u, 0u, 0u, child_digest) != PROS_DRIVER_OK ||
             pros_driver_bundle_add(
                 parent_package, PROS_DRIVER_BUNDLE_LOCAL,
                 1u, 0u, 0u, parent_digest) != PROS_DRIVER_OK ||

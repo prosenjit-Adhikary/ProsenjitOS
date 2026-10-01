@@ -1,5 +1,9 @@
 #include "nt_compat.h"
 
+static struct pros_nt_compat_image images[PROS_NT_COMPAT_MAX_HANDLES];
+static struct pros_nt_compat_dispatch_table dispatch[PROS_NT_COMPAT_MAX_HANDLES];
+static struct pros_nt_device_object devices[PROS_NT_COMPAT_MAX_HANDLES];
+
 static int nt_compat_validate_capabilities(uint32_t package_id, uint32_t required)
 {
     if (package_id == 0 || package_id > PROS_NT_COMPAT_MAX_HANDLES)
@@ -95,10 +99,6 @@ static int nt_compat_pnp_test_handler(uint32_t package_id, uint32_t irp_major,
         return PROS_DRIVER_EINVAL;
     return PROS_DRIVER_OK;
 }
-
-static struct pros_nt_compat_image images[PROS_NT_COMPAT_MAX_HANDLES];
-static struct pros_nt_compat_dispatch_table dispatch[PROS_NT_COMPAT_MAX_HANDLES];
-static struct pros_nt_device_object devices[PROS_NT_COMPAT_MAX_HANDLES];
 
 int pros_nt_compat_init(void)
 {

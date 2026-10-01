@@ -70,3 +70,16 @@ The deterministic native-filesystem self-test now covers persistent inode/data-b
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
+
+
+## Native ProsenjitFS final-hardening additions — 2026-10-01
+
+- Metadata-region ordering/non-overlap and redundant-superblock consistency.
+- Multi-mutation bitmap staging in one transaction.
+- Binary data coverage: 00 01 7F 80 A5 D6 FF.
+- Journal-image failure and post-commit target-write failure recovery.
+- Existing journal replay, torn-transaction discard, and checksum-failure
+  fail-closed tests.
+- Physical-LBA/extent/VFS 0xD6 regression and remount persistence.
+- Complete project build remains a gate because ProsenjitFS is linked into the
+  kernel and native BIOS/QEMU image.

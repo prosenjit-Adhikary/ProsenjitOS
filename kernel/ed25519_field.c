@@ -85,7 +85,7 @@ void pros_ed25519_fe_sub(struct pros_ed25519_fe *r,const struct pros_ed25519_fe 
      * The final reduction returns the canonical representative.
      */
     static const uint64_t two_p[5] = {
-        (1ULL<<51)-38ULL, (1ULL<<52)-2ULL, (1ULL<<52)-2ULL,
+        (1ULL<<52)-38ULL, (1ULL<<52)-2ULL, (1ULL<<52)-2ULL,
         (1ULL<<52)-2ULL, (1ULL<<52)-2ULL
     };
     uint64_t borrow=0;
@@ -274,7 +274,10 @@ int pros_ed25519_fe_selftest(void) {
     if (pros_ed25519_fe_invert(&r, &a) != 0) return -11;
     pros_ed25519_fe_mul(&r, &r, &a);
     pros_ed25519_fe_one(&expected);
-    if (!pros_ed25519_fe_equal(&r, &expected)) return -12;
+    if (!pros_ed25519_fe_equal(&r, &expected)) {
+        pros_ed25519_fe_to_bytes(out, &r);
+        return -1200 - (int)out[0];
+    }
 
     /* Zero has no inverse and must fail closed. */
     pros_ed25519_fe_zero(&a);
