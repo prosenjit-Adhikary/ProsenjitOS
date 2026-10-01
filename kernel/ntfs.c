@@ -7081,7 +7081,7 @@ int ntfs_selftest(void)
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
             if (split_status != PROS_NTFS_OK)
-                return -15000 + split_status;
+                return -25000 + split_status;
 
             /*
              * The split consumes the next free physical cluster (LCN 9),
