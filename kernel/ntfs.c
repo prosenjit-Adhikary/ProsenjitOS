@@ -908,6 +908,9 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 break;
             }
             bitmap_byte = bitmap_sector[in_sector];
+            if (candidate == start_lcn && lcn == start_lcn &&
+                (bitmap_byte & 0x01u) != 0u)
+                return -16000 - (int)bitmap_byte;
             if ((bitmap_byte & (uint8_t)(1u << (lcn & 7u))) != 0u) {
                 free_run = 0u;
                 break;
