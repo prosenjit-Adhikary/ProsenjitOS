@@ -6921,7 +6921,10 @@ int ntfs_selftest(void)
              disk.root_record[80u + 9u] = 0u;
              disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
-                disk.root_record[80u + 96u - 8u + i] = 0u;
+                disk.root_record[80u + 104u - 8u + i] = 0u;
+            /* 104-byte child entry is followed immediately by a 16-byte END entry. */
+            disk.root_record[184u + 8u] = 16u;
+            disk.root_record[184u + 12u] = 2u;
 
             {
                 uint32_t a = 400u;
@@ -6969,10 +6972,7 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            disk.root_record[24u] = 0x08u;
-            disk.root_record[25u] = 0x02u;
-            disk.root_record[26u] = 0u;
-            disk.root_record[27u] = 0u;
+            /* Preserve the FILE/$INDEX_ROOT attribute header and value layout. */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
@@ -7056,10 +7056,10 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 272u) != 8192u ||
-                disk.root_record[176u + 12u] != 1u ||
-                le16(disk.root_record + 176u + 10u) != 74u ||
-                le64(disk.root_record + 176u + 104u - 8u) != 1u)
+                le64(disk.root_record + 280u) != 8192u ||
+                disk.root_record[184u + 12u] != 1u ||
+                le16(disk.root_record + 184u + 10u) != 74u ||
+                le64(disk.root_record + 184u + 104u - 8u) != 1u)
                 return -197;
 
             {
