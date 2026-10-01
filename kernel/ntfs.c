@@ -6969,10 +6969,7 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            disk.root_record[24u] = 0x08u;
-            disk.root_record[25u] = 0x02u;
-            disk.root_record[26u] = 0u;
-            disk.root_record[27u] = 0u;
+            /* Keep offset 24 as the $INDEX_ROOT attribute type (0x90). */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
