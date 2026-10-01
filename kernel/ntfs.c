@@ -6388,9 +6388,13 @@ int ntfs_selftest(void)
         r[entry + 16u + 64u] = 4u;
         r[entry + 16u + 65u] = 1u;
         r[entry + 16u + 66u] = 'd';
+        r[entry + 16u + 67u] = 0u;
         r[entry + 16u + 68u] = 'e';
+        r[entry + 16u + 69u] = 0u;
         r[entry + 16u + 70u] = 'm';
+        r[entry + 16u + 71u] = 0u;
         r[entry + 16u + 72u] = 'o';
+        r[entry + 16u + 73u] = 0u;
         r[terminal + 8u] = 16u;
         r[terminal + 10u] = 0u;
         r[terminal + 12u] = 2u;
@@ -6501,7 +6505,7 @@ int ntfs_selftest(void)
                 return -145;
             if (disk.index_record[152u] != 'o')
                 return -146;
-            if (!ntfs_name_key_matches(disk.index_record + 96u, 74u,
+            if (!ntfs_name_key_matches(disk.index_record + 80u, 74u,
                                        demo_name, 4u))
                 return -147;
             int lookup_status = ntfs_index_allocation_lookup(
