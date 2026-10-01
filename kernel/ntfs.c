@@ -3347,6 +3347,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     uint32_t bitmap_len = 32u;
     uint32_t new_used;
     uint64_t lcn = 0u;
+    uint64_t allocation_start_lcn = 0u;
     uint64_t cluster_count;
     uint32_t lcn_bytes;
     uint32_t map_len;
@@ -3501,7 +3502,28 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
      * volume bitmap is updated transactionally by the allocator.
      */
     cluster_count = index_block_clusters;
-    rc = ntfs_bitmap_allocate_clusters(fs, cluster_count, &lcn);
+
+    /*
+     * Bootstrap storage is metadata-adjacent. Start the volume allocation
+     * scan immediately after the highest existing $MFT extent rather than
+     * treating low-numbered clusters as ordinary data space. The bitmap is
+     * still authoritative for actual occupancy; this lower bound only keeps
+     * bootstrap from selecting the reserved/metadata region before $MFT.
+     */
+    for (uint32_t i = 0u; i < fs->mft_run_count; ++i) {
+        uint64_t run_end = fs->mft_runs[i].lcn + fs->mft_runs[i].clusters;
+        if (run_end < fs->mft_runs[i].lcn)
+            return PROS_NTFS_EOVERFLOW;
+        if (run_end > allocation_start_lcn)
+            allocation_start_lcn = run_end;
+    }
+    if (allocation_start_lcn >= fs->total_sectors / fs->sectors_per_cluster ||
+        cluster_count > fs->total_sectors / fs->sectors_per_cluster -
+                         allocation_start_lcn)
+        return PROS_NTFS_EOVERFLOW;
+
+    rc = ntfs_bitmap_allocate_clusters_from(fs, allocation_start_lcn,
+                                             cluster_count, &lcn);
     if (rc != PROS_NTFS_OK)
         return rc;
     if (lcn > 0x7FFFFFFFFFFFFFFFull) {
