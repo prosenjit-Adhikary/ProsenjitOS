@@ -7089,12 +7089,16 @@ int ntfs_selftest(void)
              * clusters. The parent must contain a child-pointer separator.
              */
             if ((disk.bitmap_data[9u / 8u] &
-                 (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 440u) != 8192u ||
-                disk.root_record[184u + 12u] != 1u ||
-                le16(disk.root_record + 184u + 10u) != 74u ||
-                le64(disk.root_record + 184u + 104u - 8u) != 1u)
-                return -197;
+                 (uint8_t)(1u << (9u % 8u))) == 0u)
+                return -22201;
+            if (le64(disk.root_record + 440u) != 8192u)
+                return -22202;
+            if (disk.root_record[184u + 12u] != 1u)
+                return -22203;
+            if (le16(disk.root_record + 184u + 10u) != 74u)
+                return -22204;
+            if (le64(disk.root_record + 184u + 104u - 8u) != 1u)
+                return -22205;
 
             {
                 uint8_t verify[4096];
