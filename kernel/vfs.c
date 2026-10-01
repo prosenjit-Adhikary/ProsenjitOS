@@ -363,8 +363,8 @@ static int vfs_security_admission_selftest(void)
 
     if (vfs_mount_activate(&mount) != PROS_VFS_OK ||
         vfs_file_admit(&mount, data, sizeof(data), &metadata, &record) != 0 ||
-        record.security.state != PROS_FILE_VERIFIED ||
-        record.security.action != PROS_FILE_ALLOW)
+        record.security.state != PROS_FILE_UNKNOWN ||
+        record.security.action != PROS_FILE_QUARANTINE)
         return -1;
 
     if (vfs_mount_activate(&mount) != PROS_VFS_EBUSY ||

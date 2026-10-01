@@ -3,8 +3,8 @@
 /* d = -121665 / 121666 mod (2^255 - 19), little-endian. */
 static const uint8_t ed25519_d_bytes[32] = {
     0xa3,0x78,0x59,0x13,0xca,0x4d,0xeb,0x75,
-    0xab,0xd8,0x41,0x41,0x4d,0x0a,0x70,0x80,
-    0x98,0x9e,0x77,0x77,0x79,0x40,0xc7,0x8c,
+    0xab,0xd8,0x41,0x41,0x4d,0x0a,0x70,0x00,
+    0x98,0xe8,0x79,0x77,0x79,0x40,0xc7,0x8c,
     0x73,0xfe,0x6f,0x2b,0xee,0x6c,0x03,0x52
 };
 
@@ -43,10 +43,10 @@ static void fe_neg(struct pros_ed25519_fe *r,
 }
 
 /* Exponentiation by (p+3)/8 = 2^252 - 2. */
-static void fe_pow_p3_over_8(struct pros_ed25519_fe *r,
-                             const struct pros_ed25519_fe *a) {
+static void fe_pow_p_minus_5_over_8(struct pros_ed25519_fe *r,
+                                     const struct pros_ed25519_fe *a) {
     static const uint8_t exponent[32] = {
-        0xfe,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+        0xfd,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x0f
@@ -54,7 +54,6 @@ static void fe_pow_p3_over_8(struct pros_ed25519_fe *r,
     struct pros_ed25519_fe result, base;
     pros_ed25519_fe_one(&result);
     base = *a;
-
     for (int32_t bit = 254; bit >= 0; --bit) {
         pros_ed25519_fe_square(&result, &result);
         if ((exponent[(uint32_t)bit >> 3] >>
@@ -73,19 +72,21 @@ void pros_ed25519_point_identity(struct pros_ed25519_point *p) {
 }
 
 int pros_ed25519_point_is_identity(const struct pros_ed25519_point *p) {
-    struct pros_ed25519_fe one, zero;
+    struct pros_ed25519_fe zero;
     if (!p) return 0;
-    pros_ed25519_fe_one(&one);
     pros_ed25519_fe_zero(&zero);
+    /*
+     * Extended Edwards coordinates are projective: every (0:Y:Y:0)
+     * represents the identity, not only the normalized (0:1:1:0).
+     */
     return pros_ed25519_fe_equal(&p->x, &zero) &&
-           pros_ed25519_fe_equal(&p->y, &one) &&
-           pros_ed25519_fe_equal(&p->z, &one) &&
+           pros_ed25519_fe_equal(&p->y, &p->z) &&
            pros_ed25519_fe_equal(&p->t, &zero);
 }
 
 int pros_ed25519_point_from_bytes(struct pros_ed25519_point *p,
                                   const uint8_t in[32]) {
-    struct pros_ed25519_fe y, y2, u, v, inv_v, x, check;
+    struct pros_ed25519_fe y, y2, u, v, v2, v3, v7, uv7, x, check;
     struct pros_ed25519_fe d, one, sqrt_m1;
     uint8_t y_bytes[32], canonical[32];
     uint8_t sign;
@@ -121,19 +122,37 @@ int pros_ed25519_point_from_bytes(struct pros_ed25519_point *p,
     pros_ed25519_fe_mul(&v, &d, &y2);
     pros_ed25519_fe_add(&v, &v, &one);
 
-    if (fe_is_zero(&v) || pros_ed25519_fe_invert(&inv_v, &v) != 0) {
+    if (fe_is_zero(&v)) {
         point_zero(p);
         return -3;
     }
 
-    pros_ed25519_fe_mul(&check, &u, &inv_v);
-    fe_pow_p3_over_8(&x, &check);
+    /*
+     * RFC 8032's square-root recovery avoids division:
+     * x = u * v^3 * (u * v^7)^((p-5)/8), where x^2 = u/v
+     * for quadratic residues. This is also the reference-friendly
+     * formulation used by Ed25519 implementations.
+     */
+    pros_ed25519_fe_square(&v2, &v);
+    pros_ed25519_fe_mul(&v3, &v2, &v);
+    pros_ed25519_fe_mul(&v7, &v3, &v2);
+    pros_ed25519_fe_mul(&v7, &v7, &v2);
+    pros_ed25519_fe_mul(&uv7, &u, &v7);
+    fe_pow_p_minus_5_over_8(&check, &uv7);
+    pros_ed25519_fe_mul(&x, &u, &v3);
+    pros_ed25519_fe_mul(&x, &x, &check);
 
+    /*
+     * The ratio check is x^2 * v == u; testing x^2 directly against u
+     * would be incorrect because x is a square root of u/v.
+     */
     pros_ed25519_fe_square(&check, &x);
+    pros_ed25519_fe_mul(&check, &check, &v);
     if (!pros_ed25519_fe_equal(&check, &u)) {
         pros_ed25519_fe_from_bytes(&sqrt_m1, ed25519_sqrt_m1_bytes);
         pros_ed25519_fe_mul(&x, &x, &sqrt_m1);
         pros_ed25519_fe_square(&check, &x);
+        pros_ed25519_fe_mul(&check, &check, &v);
         if (!pros_ed25519_fe_equal(&check, &u)) {
             point_zero(p);
             return -4;

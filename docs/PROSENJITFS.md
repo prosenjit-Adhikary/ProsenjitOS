@@ -94,3 +94,19 @@ Self-healing is a planned reliability layer, not an excuse to hide corruption. R
 - Destructive repair is disabled by default and requires an explicit recovery-mode decision.
 - Every recovery action must be recorded in the system recovery/security log.
 - A future system health manager may consume these filesystem health signals, but filesystem recovery must remain safe when the rest of the OS is unavailable.
+
+## Final Native ProsenjitFS verification/hardening — 2026-10-01
+
+The native provider now validates metadata-region ordering/non-overlap before
+mounting and requires both redundant superblock copies to agree when both
+validate. Transaction staging preserves previously modified bitmap images when
+multiple allocations or frees share one bitmap block.
+
+The deterministic self-test covers the known 0xD6 physical-LBA regression,
+explicit binary bytes 00 01 7F 80 A5 D6 FF, allocation-bit persistence,
+remount persistence, journal replay/discard/checksum rejection,
+fault-injected journal-image and post-commit target failures, and checksummed
+metadata-layout corruption.
+
+A requested read-only mount never mutates a dirty journal. Recovery of a dirty
+journal therefore requires a writable mount.

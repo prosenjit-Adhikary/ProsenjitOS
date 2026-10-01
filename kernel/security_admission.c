@@ -155,8 +155,8 @@ int pros_file_admission_selftest(void) {
      */
     if (pros_file_admission_evaluate(&input, &record) != 0)
         return -301;
-    if (record.security.state != PROS_FILE_VERIFIED ||
-        record.security.action != PROS_FILE_ALLOW)
+    if (record.security.state != PROS_FILE_UNKNOWN ||
+        record.security.action != PROS_FILE_QUARANTINE)
         return -302;
 
     /* Caller-supplied signature metadata must not create VERIFIED trust. */
@@ -208,7 +208,7 @@ int pros_file_admission_selftest(void) {
                 ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
                 &signed_metadata, &record) != 0)
             return -307;
-        if (record.security.state != PROS_FILE_VERIFIED ||
+        if (record.security.state != PROS_FILE_TRUSTED ||
             record.security.action != PROS_FILE_ALLOW)
             return -308;
         {

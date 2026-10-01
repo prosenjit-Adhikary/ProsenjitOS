@@ -179,6 +179,7 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
                                     const char *name, uint32_t *device_id_out)
 {
     struct pros_driver_device *device = 0;
+    (void)bus;
 
     if (!manager_ready)
         return PROS_DRIVER_EINVAL;
@@ -236,7 +237,8 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
     int rc = pros_device_register(device);
     if (rc != PROS_DRIVER_OK) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
-                                 device->id, 1u, (uint64_t)(uint32_t)(-rc));
+                                 device->id, PROS_DRIVER_HEALTH_DEVICE_REGISTER_FAILURE,
+                                 (uint64_t)(uint32_t)(-rc));
         return rc;
     }
 

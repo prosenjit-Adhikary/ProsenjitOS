@@ -8,6 +8,8 @@ static uint8_t attached;
 static uint32_t bytes_written;
 static char persist_path[PROS_LOG_PERSIST_PATH_MAX];
 
+static int persist_rotate(const char *path);
+
 static uint32_t bounded_strlen(const char *s, uint32_t max) {
     uint32_t n = 0u;
     if (!s) return 0u;
