@@ -62,21 +62,21 @@ static void ledger_record(const struct pros_process *process,
 }
 
 int security_manager_init(void) {
-    if (pros_file_security_selftest() != 0) return -1;
-    if (pros_sha512_selftest() != 0) return -11;
-    if (pros_ed25519_fe_selftest() != 0) return -12;
-    if (pros_ed25519_point_selftest() != 0) return -13;
-    if (pros_ed25519_scalar_selftest() != 0) return -14;
-    if (pros_security_signature_selftest() != 0) return -15;
-    if (pros_security_provider_selftest() != 0) return -2;
-    if (pros_file_admission_selftest() != 0) return -3;
-    if (vfs_security_selftest() != 0) return -4;
-    if (fat32_selftest() != 0) return -5;
-        { int exfat_status = exfat_selftest(); if (exfat_status != 0) return -6000 + exfat_status; }
-    { int ntfs_status = ntfs_selftest(); if (ntfs_status != 0) return -700 + ntfs_status; }
-    if (partition_selftest() != 0) return -8;
-    if (pros_security_quarantine_selftest() != 0) return -9;
-    if (pros_security_exec_selftest() != 0) return -10;
+    if (pros_file_security_selftest() != 0) return -10001;
+    if (pros_sha512_selftest() != 0) return -10002;
+    if (pros_ed25519_fe_selftest() != 0) return -10003;
+    if (pros_ed25519_point_selftest() != 0) return -10004;
+    if (pros_ed25519_scalar_selftest() != 0) return -10005;
+    if (pros_security_signature_selftest() != 0) return -10006;
+    if (pros_security_provider_selftest() != 0) return -10007;
+    if (pros_file_admission_selftest() != 0) return -10008;
+    if (vfs_security_selftest() != 0) return -10009;
+    if (fat32_selftest() != 0) return -10010;
+    { int exfat_status = exfat_selftest(); if (exfat_status != 0) return -10011; }
+    { int ntfs_status = ntfs_selftest(); if (ntfs_status != 0) return -10012; }
+    if (partition_selftest() != 0) return -10013;
+    if (pros_security_quarantine_selftest() != 0) return -10014;
+    if (pros_security_exec_selftest() != 0) return -10015;
     next_intent_id = 1;
     ledger_sequence = 0;
     ledger_count_value = 0;
