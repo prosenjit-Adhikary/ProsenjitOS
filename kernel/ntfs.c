@@ -3377,7 +3377,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
 
     if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x90u,
                             &root_attr) != PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+        return -9201;
     if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0xA0u,
                             &alloc_attr) == PROS_NTFS_OK ||
         ntfs_find_attribute(record, fs->bytes_per_file_record, 0xB0u,
@@ -3393,7 +3393,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                                    root_attr, &root) != PROS_NTFS_OK ||
             ntfs_attribute_data(record, fs->bytes_per_file_record, root_attr,
                                 &root_data, &root_size) != PROS_NTFS_OK)
-            return PROS_NTFS_ECORRUPT;
+            return -9202;
 
         if ((root.flags & 1u) != 0u ||
             root.bytes_per_index_record < cluster_bytes ||
@@ -3413,7 +3413,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             root_entries_size < root.first_entry_offset ||
             root_entries_size > root_allocated_size ||
             root_allocated_size > root_size - 16u)
-            return PROS_NTFS_ECORRUPT;
+            return -9203;
 
         entries_len = root_entries_size - root.first_entry_offset;
         if (entries_len < 16u ||
@@ -3432,12 +3432,12 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                 uint16_t esize;
                 uint8_t flags;
                 if (remaining < 16u)
-                    return PROS_NTFS_ECORRUPT;
+                    return -9204;
                 esize = le16(root_data + off + 8u);
                 flags = root_data[off + 12u];
                 if (esize < 16u || (esize & 7u) != 0u ||
                     esize > remaining || (flags & ~3u) != 0u)
-                    return PROS_NTFS_ECORRUPT;
+                    return -9205;
                 if (flags & 1u)
                     return PROS_NTFS_ENOTSUP;
                 for (uint32_t i = 0u; i < esize; ++i)
@@ -3445,9 +3445,9 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                         root_data[off + i];
                 if (flags & 2u) {
                     if (esize != 16u)
-                        return PROS_NTFS_ECORRUPT;
+                        return -9206;
                     if (remaining != esize)
-                        return PROS_NTFS_ECORRUPT;
+                        return -9207;
                     break;
                 }
                 off += esize;
@@ -3465,7 +3465,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     used = le32(record + 24u);
     if (first < 24u || first + 8u > fs->bytes_per_file_record ||
         used < first + 8u || used > fs->bytes_per_file_record)
-        return PROS_NTFS_ECORRUPT;
+        return -9208;
     pos = first;
     while (pos + 8u <= used) {
         uint32_t type = le32(record + pos);
@@ -3474,13 +3474,13 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             break;
         if (len < 16u || (len & 7u) != 0u ||
             pos + len > used)
-            return PROS_NTFS_ECORRUPT;
+            return -9209;
         if (le16(record + pos + 14u) >= attr_id)
             attr_id = (uint32_t)le16(record + pos + 14u) + 1u;
         pos += len;
     }
     if (pos != used - 8u)
-        return PROS_NTFS_ECORRUPT;
+        return -92010;
 
     new_used = pos + alloc_len + bitmap_len + 8u;
     if (new_used > fs->bytes_per_file_record)
