@@ -6486,6 +6486,9 @@ int ntfs_selftest(void)
                 'd', 0u, 'e', 0u, 'm', 0u, 'o', 0u
             };
             uint64_t reference = 0u;
+            if (ntfs_upcase_load(&fs) != PROS_NTFS_OK)
+                return -148;
+            ntfs_active_upcase = ntfs_upcase_data;
             if (disk.index_record[144u] != 4u)
                 return -141;
             if (disk.index_record[145u] != 1u)
@@ -6505,11 +6508,13 @@ int ntfs_selftest(void)
                     &fs, r, sizeof(disk.root_record), root_attr, a0,
                     demo_name, 4u, &reference);
             if (lookup_status != PROS_NTFS_OK) {
+                ntfs_active_upcase = 0;
                 if (lookup_status == PROS_NTFS_ECORRUPT &&
                     ntfs_lookup_debug_stage != 0u)
                     return -200 - (int)ntfs_lookup_debug_stage;
                 return -135 + lookup_status;
             }
+            ntfs_active_upcase = 0;
         }
 
         for (uint32_t i = 0u; i < sizeof(saved_root); ++i)
