@@ -6501,7 +6501,7 @@ int ntfs_selftest(void)
                 return -145;
             if (disk.index_record[152u] != 'o')
                 return -146;
-            if (!ntfs_name_key_matches(disk.index_record + 80u, 74u,
+            if (!ntfs_name_key_matches(disk.index_record + 96u, 74u,
                                        demo_name, 4u))
                 return -147;
             int lookup_status = ntfs_index_allocation_lookup(
