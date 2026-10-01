@@ -6225,11 +6225,14 @@ int ntfs_selftest(void)
                 for (uint32_t i = 0u; i < sizeof(second_name); ++i)
                     second_key[66u + i] = second_name[i];
 
-                if (ntfs_index_allocation_insert(
+                {
+                    int insert_rc = ntfs_index_allocation_insert(
                         &fs, index_runs, index_run_count, 0u, 4096u,
                         0x4000u, second_key, sizeof(second_key),
-                        5u) != PROS_NTFS_OK)
-                    return -121;
+                        5u);
+                    if (insert_rc != PROS_NTFS_OK)
+                        return -14000 + insert_rc;
+                }
 
                 if (ntfs_index_allocation_read(
                         &fs, index_runs, index_run_count, 0u,
