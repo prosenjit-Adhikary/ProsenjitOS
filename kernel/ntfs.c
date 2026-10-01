@@ -843,7 +843,7 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
         if (ntfs_file_read(fs, 6u, byte_offset, bitmap_chunk,
                            (uint32_t)byte_count, &got) != PROS_NTFS_OK ||
             got != (uint32_t)byte_count)
-            return PROS_NTFS_EIO;
+            return -15030;
 
         {
             uint8_t free_run = 1u;
@@ -859,7 +859,7 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 if (ntfs_bitmap_update_clusters(fs, scan_lcn,
                                                 cluster_count, 1u) !=
                     PROS_NTFS_OK)
-                    return PROS_NTFS_EIO;
+                    return -15031;
                 *first_lcn = scan_lcn;
                 return PROS_NTFS_OK;
             }
