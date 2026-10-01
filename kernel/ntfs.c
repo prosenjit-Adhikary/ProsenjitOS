@@ -3384,7 +3384,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     rc = ntfs_read_file_record(fs, directory_record_number,
                                record, sizeof(record));
     if (rc != PROS_NTFS_OK)
-        return rc;
+        return -15038;
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_record[i] = record[i];
 
