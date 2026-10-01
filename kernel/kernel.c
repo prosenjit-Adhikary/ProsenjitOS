@@ -1544,6 +1544,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Enter the real CPL3 test only after all kernel-side regressions have
      * completed. The user test validates the INT 0x80 ABI, capability/IPC
      * syscalls, user-memory access, and returns through the kernel trampoline. */
+    serial_write("ProsenjitOS: switching to CPL3 user address space\\n");
+    if (address_space_switch(user_space) != 0) {
+        serial_write("ProsenjitOS: ERROR final user address-space switch failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\\n");
     enter_user_mode((uint64_t)PROSENJIT_USER_CODE_VA,
                     (uint64_t)PROSENJIT_USER_STACK_VA + PROSENJIT_PAGE_SIZE,
