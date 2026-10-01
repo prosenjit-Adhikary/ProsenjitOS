@@ -6423,9 +6423,13 @@ int ntfs_selftest(void)
             disk.index_record[1u] != 'N' ||
             disk.index_record[2u] != 'D' ||
             disk.index_record[3u] != 'X' ||
+            le16(disk.index_record + 4u) != 0x28u ||
+            le16(disk.index_record + 6u) != 9u ||
             le64(disk.index_record + 16u) != 0u ||
-            le32(disk.index_record + 28u) != 128u ||
-            le32(disk.index_record + 32u) != 4072u)
+            le32(disk.index_record + 24u) != 16u ||
+            le32(disk.index_record + 28u) != 136u ||
+            le32(disk.index_record + 32u) != 4072u ||
+            disk.index_record[36u] != 0u)
             return -134;
 
         /*
