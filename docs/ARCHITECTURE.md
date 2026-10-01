@@ -256,4 +256,4 @@ Handle duplication is now routed through the same intent-aware security pipeline
 
 ## IPC
 
-The kernel now has a bounded non-blocking IPC channel object (`PROS_OBJECT_IPC`) with eight 64-byte message slots. Existing capability handles can authorize READ, WRITE, DUPLICATE, and TRANSFER access to the channel. User-facing IPC syscalls, user-buffer validation, blocking/wakeup, and explicit endpoint-transfer syscall semantics remain future work.
+The kernel now has a bounded IPC channel object (`PROS_OBJECT_IPC`) with eight 64-byte message slots. Existing capability handles authorize READ, WRITE, DUPLICATE, and TRANSFER access to the channel. CPL3 capability-mediated send/receive syscalls, complete user-range validation, blocking receive with scheduler handoff/wakeup, endpoint transfer, queue/waiter locking, and fault-recoverable user-copy are implemented and covered by kernel/QEMU regression markers. User-space channel creation and lifecycle ownership remain future work.
