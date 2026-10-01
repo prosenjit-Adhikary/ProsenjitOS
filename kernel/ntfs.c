@@ -3432,7 +3432,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             index_block_clusters > 128u)
             return PROS_NTFS_ENOTSUP;
 
-        root_first_entry_offset = root.first_entry_offset;
         root_entries_size = root.entries_size;
         root_allocated_size = root.allocated_size;
         if (root.first_entry_offset < 16u ||
@@ -3961,6 +3960,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                                    fs->bytes_per_file_record,
                                    root_attr, &root) != PROS_NTFS_OK)
             return PROS_NTFS_ECORRUPT;
+        root_first_entry_offset = root.first_entry_offset;
         root_entries_size = root.entries_size;
         root_allocated_size = root.allocated_size;
     }
