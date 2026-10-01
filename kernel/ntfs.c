@@ -4647,6 +4647,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     right[4]=0x28u; right[6]=(uint8_t)(record_size / fs->bytes_per_sector + 1u);
     for (uint32_t i = 0u; i < 8u; ++i)
         right[8u + i] = leaf[8u + i];
+    if (new_vcn == 0u)
+        return -2301;
     for (uint32_t i = 0u; i < 8u; ++i)
         right[16u + i] = (uint8_t)(new_vcn >> (8u * i));
     right[0x18u]=0x28u;
