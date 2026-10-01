@@ -23,8 +23,11 @@ static enum pros_file_reputation merge_reputation(
 int pros_security_provider_register(
     const struct pros_security_provider *provider) {
     if (!provider || !provider->name || !provider->query ||
-        provider_count >= PROS_SECURITY_MAX_PROVIDERS)
+        provider_count >= PROS_SECURITY_MAX_PROVIDERS) {
+        (void)pros_health_record_security(0x53454350u,
+                                          PROS_SECURITY_HEALTH_PROVIDER, 0u);
         return -1;
+    }
     providers[provider_count] = *provider;
     ++provider_count;
     return (int)(provider_count - 1u);
@@ -50,8 +53,12 @@ enum pros_file_reputation pros_security_provider_reputation(
         if (!providers[i].enabled)
             continue;
         if (providers[i].query(digest, &candidate) !=
-            PROS_SECURITY_PROVIDER_OK)
+            PROS_SECURITY_PROVIDER_OK) {
+            (void)pros_health_record_security(0x53454350u,
+                                              PROS_SECURITY_HEALTH_PROVIDER,
+                                              i);
             continue;
+        }
         if (candidate > PROS_FILE_REPUTATION_MALICIOUS)
             candidate = PROS_FILE_REPUTATION_UNAVAILABLE;
         result = merge_reputation(result, candidate);
