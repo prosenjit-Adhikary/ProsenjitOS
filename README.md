@@ -566,3 +566,6 @@ ProsenjitFS is now integrated as the native ProsenjitOS filesystem through the e
 The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata, persistent extent-backed file I/O, transactional file and directory mutation (create/mkdir/unlink/rmdir/rename/move), directory-parent cycle protection, and a redo journal. Deterministic memory-backed regression now covers committed replay, torn transactions, journal checksum corruption, and metadata corruption rejection. Physical power-loss validation and real QEMU storage-device integration remain subsequent milestones.
 
 See docs/PROSENJITFS.md and docs/FILESYSTEM-INTEGRATION.md for the format contract and integration boundary.
+
+
+<!-- NTFS CPL3 final CI verification checkpoint -->
