@@ -4154,10 +4154,13 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         !fs->mount.device || !fs->mount.device->write)
         return PROS_NTFS_ENOTSUP;
 
-    if (ntfs_read_file_record(fs, directory_record_number,
-                               directory_record,
-                               sizeof(directory_record)) != PROS_NTFS_OK)
-        return -18005;
+    {
+        int directory_status = ntfs_read_file_record(
+            fs, directory_record_number, directory_record,
+            sizeof(directory_record));
+        if (directory_status != PROS_NTFS_OK)
+            return -18000 + directory_status;
+    }
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_directory_record[i] = directory_record[i];
 
