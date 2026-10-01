@@ -7334,9 +7334,9 @@ int ntfs_selftest(void)
          * without that terminator, a later INDEX_ALLOCATION probe treats
          * the zero-filled bytes as a malformed attribute.
          */
-        disk.root_record[176u] = 16u;
-        disk.root_record[178u] = 0u;
-        disk.root_record[180u] = 2u;
+        disk.root_record[184u] = 16u;
+        disk.root_record[186u] = 0u;
+        disk.root_record[188u] = 2u;
         disk.root_record[192u] = 0xFFu;
         disk.root_record[193u] = 0xFFu;
         disk.root_record[194u] = 0xFFu;
@@ -7359,17 +7359,16 @@ int ntfs_selftest(void)
                                        root_attr_probe, path_name, 4u,
                                        &path_reference) != PROS_NTFS_OK)
                 return -182;
+            /* Temporary strict diagnostic: prove the low-level root
+             * miss path returns ENOTSUP for a valid UTF-16 name that is not
+             * present. */
             {
-                static const uint8_t unicode_miss[] = {
-                    0xACu, 0x20u
-                };
-                {
-                    int unicode_miss_status = ntfs_index_root_lookup(
-                        root_probe, sizeof(root_probe), root_attr_probe,
-                        unicode_miss, 1u, &path_reference);
-                    if (unicode_miss_status != PROS_NTFS_ENOTSUP)
-                        return -18000 - unicode_miss_status;
-                }
+                static const uint8_t unicode_miss[] = { 0xACu, 0x20u };
+                int unicode_miss_status = ntfs_index_root_lookup(
+                    root_probe, sizeof(root_probe), root_attr_probe,
+                    unicode_miss, 1u, &path_reference);
+                if (unicode_miss_status != PROS_NTFS_ENOTSUP)
+                    return -18000 - unicode_miss_status;
             }
 
             {
