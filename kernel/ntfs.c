@@ -6205,6 +6205,16 @@ int ntfs_selftest(void)
                             512u, 0u, &diagnostic_info);
                         if (header_rc != PROS_NTFS_OK)
                             return -10200 + header_rc;
+                        if (diagnostic_info.first_entry_offset != 64u ||
+                            diagnostic_info.entries_size != 176u ||
+                            diagnostic_record[72u] != 96u ||
+                            diagnostic_record[73u] != 0u ||
+                            diagnostic_record[74u] != 74u ||
+                            diagnostic_record[75u] != 0u ||
+                            diagnostic_record[76u] != 0u ||
+                            !ntfs_name_key_matches(diagnostic_record + 80u,
+                                                    74u, lookup_name, 4u))
+                            return -10300;
                     }
                     return -10000 + lookup_rc;
                 }
