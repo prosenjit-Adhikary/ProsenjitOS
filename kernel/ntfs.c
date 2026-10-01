@@ -5512,6 +5512,10 @@ static int ntfs_vfs_readdir(struct pros_vfs_vnode *vnode, uint64_t *cookie,
         return PROS_VFS_EIO;
 
     record_number = *cookie;
+    /* EOF must be a stable, non-mutating result: callers may probe again
+     * after the final entry without advancing the directory cookie. */
+    if (record_number >= max_records)
+        return PROS_VFS_ENOENT;
     while (record_number < max_records) {
         uint16_t record_flags;
         uint32_t attr_pos;
