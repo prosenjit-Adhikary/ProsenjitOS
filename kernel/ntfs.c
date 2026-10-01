@@ -3123,6 +3123,11 @@ int ntfs_index_record_fixup(void *record, uint32_t record_size,
     return PROS_NTFS_OK;
 }
 
+/*
+ * Validate an on-disk INDX record and apply its USA read-side fixup.
+ * Callers must not invoke ntfs_index_record_fixup() separately before this
+ * helper, because the fixup consumes the on-disk sector trailers.
+ */
 int ntfs_index_record_header(const void *record, uint32_t record_size,
                              uint32_t bytes_per_sector, uint64_t expected_vcn,
                              struct pros_ntfs_index_record *info)
@@ -3919,9 +3924,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < record_size; ++i)
         old_leaf[i] = leaf[i];
 
-    if (ntfs_index_record_fixup(leaf, record_size, fs->bytes_per_sector) !=
-            PROS_NTFS_OK ||
-        ntfs_index_record_header(leaf, record_size, fs->bytes_per_sector,
+    if (ntfs_index_record_header(leaf, record_size, fs->bytes_per_sector,
                                  vcn,
                                  &(struct pros_ntfs_index_record){0}) !=
             PROS_NTFS_OK)
@@ -4321,9 +4324,6 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
     if (ntfs_index_allocation_read(fs, runs, run_count, byte_offset,
                                    record, record_size) != PROS_NTFS_OK)
         return PROS_NTFS_EIO;
-    if (ntfs_index_record_fixup(record, record_size, fs->bytes_per_sector) !=
-        PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
     if (ntfs_index_record_header(record, record_size, fs->bytes_per_sector,
                                  vcn, &(struct pros_ntfs_index_record){0}) !=
         PROS_NTFS_OK)
@@ -5643,18 +5643,11 @@ int ntfs_selftest(void)
             disk.file_record[1023u] != disk.file_record[9u])
             return -1136;
 
-        {
-            int first_write_rc = ntfs_file_write(
-                &fs, 11u, 0u, replacement, sizeof(replacement), &written);
-            if (first_write_rc != PROS_NTFS_OK)
-                return -13000 + first_write_rc;
-            {
-                int overflow_rc = ntfs_file_write(
-                    &fs, 11u, 4u, replacement, 2u, &written);
-                if (overflow_rc != PROS_NTFS_EOVERFLOW)
-                    return -12000 + overflow_rc;
-            }
-        }
+        if (ntfs_file_write(&fs, 11u, 0u, replacement,
+                            sizeof(replacement), &written) != PROS_NTFS_OK ||
+            ntfs_file_write(&fs, 11u, 4u, replacement, 2u, &written) !=
+                PROS_NTFS_EOVERFLOW)
+            return -121;
     }
 
     /*
@@ -6225,21 +6218,15 @@ int ntfs_selftest(void)
                 for (uint32_t i = 0u; i < sizeof(second_name); ++i)
                     second_key[66u + i] = second_name[i];
 
-                {
-                    int insert_rc = ntfs_index_allocation_insert(
+                if (ntfs_index_allocation_insert(
                         &fs, index_runs, index_run_count, 0u, 4096u,
                         0x4000u, second_key, sizeof(second_key),
-                        5u);
-                    if (insert_rc != PROS_NTFS_OK)
-                        return -14000 + insert_rc;
-                }
+                        5u) != PROS_NTFS_OK)
+                    return -121;
 
                 if (ntfs_index_allocation_read(
                         &fs, index_runs, index_run_count, 0u,
                         verify_record, sizeof(verify_record)) !=
-                    PROS_NTFS_OK ||
-                    ntfs_index_record_fixup(verify_record,
-                                             sizeof(verify_record), 512u) !=
                     PROS_NTFS_OK ||
                     ntfs_index_record_header(verify_record,
                                              sizeof(verify_record), 512u,
@@ -6690,9 +6677,7 @@ int ntfs_selftest(void)
                         {{8u, 2u, 0u}}, 1u, 4096u, verify,
                         sizeof(verify)) != PROS_NTFS_OK)
                     return -198;
-                if (ntfs_index_record_fixup(verify, sizeof(verify), 512u) !=
-                        PROS_NTFS_OK ||
-                    ntfs_index_record_header(verify, sizeof(verify), 512u,
+                if (ntfs_index_record_header(verify, sizeof(verify), 512u,
                                              1u, &info) != PROS_NTFS_OK)
                     return -199;
                 if (info.vcn != 1u)
