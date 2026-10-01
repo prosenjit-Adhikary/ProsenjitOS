@@ -33,5 +33,6 @@ uint64_t block_write_count(void);
 uint64_t block_error_count(void);
 uint64_t block_flush_count(void);
 uint64_t block_flush_error_count(void);
+int block_device_selftest(void);
 
 #endif
