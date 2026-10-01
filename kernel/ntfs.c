@@ -4165,12 +4165,14 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         old_directory_record[i] = directory_record[i];
 
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
-                            0x90u, &root_attr) != PROS_NTFS_OK ||
-        ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
-                               root_attr, &root) != PROS_NTFS_OK ||
-        ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
+                            0x90u, &root_attr) != PROS_NTFS_OK)
+        return -22101;
+    if (ntfs_index_root_header(directory_record, fs->bytes_per_file_record,
+                               root_attr, &root) != PROS_NTFS_OK)
+        return -22102;
+    if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0xA0u, &alloc_attr) != PROS_NTFS_OK)
-        return -18100 - __LINE__;
+        return -22103;
 
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
                             root_attr, &root_data, &root_size) !=
