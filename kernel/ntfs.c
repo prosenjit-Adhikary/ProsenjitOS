@@ -6904,24 +6904,31 @@ int ntfs_selftest(void)
              */
             disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
             disk.root_record[29u] = 0x01u;
-            /* Root index header: first entry at 32, 144 bytes used, 352 allocated. */
-            disk.root_record[40u] = 32u; disk.root_record[41u] = 0u;
-            disk.root_record[44u] = 144u; disk.root_record[45u] = 0u;
-            disk.root_record[48u] = 0x60u; disk.root_record[49u] = 0x01u;
-            /* One 96-byte child entry plus the 16-byte END entry. */
-            disk.root_record[68u] = 144u;
-            disk.root_record[69u] = 0u;
-            disk.root_record[72u] = 0x60u;
-            disk.root_record[73u] = 0x01u;
-            disk.root_record[74u] = 0u;
-            disk.root_record[75u] = 0u;
+            /* INDEX_ROOT resident value: 352 bytes; header first=32, end=152. */
+            disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
+            /* Keep the resident value offset at 24 bytes. */
+            disk.root_record[44u] = 24u; disk.root_record[45u] = 0u;
+            /* FILE_NAME key type, Unicode collation, 4 KiB index records. */
+            disk.root_record[48u] = 0x30u; disk.root_record[49u] = 0u;
+            disk.root_record[52u] = 1u;
+            disk.root_record[56u] = 0u; disk.root_record[57u] = 0x10u;
+            disk.root_record[60u] = 1u;
+            disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
+            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
+            disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
+            disk.root_record[74u] = 0u; disk.root_record[75u] = 0u;
             disk.root_record[80u + 8u] = 104u;
-             disk.root_record[80u + 9u] = 0u;
-             disk.root_record[80u + 8u] = 104u;
-             disk.root_record[80u + 9u] = 0u;
-             disk.root_record[80u + 12u] = 1u;
+            disk.root_record[80u + 9u] = 0u;
+            /* Existing child is the keyless fallback; new separator follows it. */
+            disk.root_record[80u + 10u] = 0u;
+            disk.root_record[80u + 11u] = 0u;
+            disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
-                disk.root_record[80u + 96u - 8u + i] = 0u;
+                disk.root_record[80u + 104u - 8u + i] = 0u;
+            /* 104-byte child entry is followed immediately by a 16-byte END entry. */
+            disk.root_record[184u + 8u] = 16u;
+            disk.root_record[184u + 10u] = 0u;
+            disk.root_record[184u + 12u] = 2u;
 
             {
                 uint32_t a = 400u;
@@ -6969,10 +6976,7 @@ int ntfs_selftest(void)
              * with the rebuilt record before it is read through the normal
              * FILE fixup path.
              */
-            disk.root_record[24u] = 0x08u;
-            disk.root_record[25u] = 0x02u;
-            disk.root_record[26u] = 0u;
-            disk.root_record[27u] = 0u;
+            /* Preserve the FILE/$INDEX_ROOT attribute header and value layout. */
             disk.root_record[10u] = 0u;
             disk.root_record[11u] = 0u;
             disk.root_record[12u] = 0u;
@@ -7056,10 +7060,10 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 272u) != 8192u ||
-                disk.root_record[176u + 12u] != 1u ||
-                le16(disk.root_record + 176u + 10u) != 74u ||
-                le64(disk.root_record + 176u + 104u - 8u) != 1u)
+                le64(disk.root_record + 280u) != 1u ||
+                disk.root_record[184u + 12u] != 1u ||
+                le16(disk.root_record + 184u + 10u) != 74u ||
+                le64(disk.root_record + 184u + 104u - 8u) != 1u)
                 return -197;
 
             {
@@ -7296,6 +7300,10 @@ int ntfs_selftest(void)
             disk.mft_record[97u] = 0x30u;
             disk.mft_record[98u] = 0x00u;
             disk.mft_record[99u] = 0x00u;
+            disk.mft_record[100u] = 0u;
+            disk.mft_record[101u] = 0u;
+            disk.mft_record[102u] = 0u;
+            disk.mft_record[103u] = 0u;
 
             if (!fs.mount.root || !fs.mount.root->ops ||
                 !fs.mount.root->ops->readdir)
@@ -7307,9 +7315,12 @@ int ntfs_selftest(void)
                 entry.name[2] != 's' || entry.name[3] != 't' ||
                 entry.name[4] != '\0')
                 return -196;
-            if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
-                    PROS_VFS_ENOENT || cookie != 12u)
-                return -197;
+            {
+                int rr = fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry);
+                if (rr != PROS_VFS_ENOENT || cookie != 12u)
+                    return -25000 - ((rr < 0 ? -rr : rr) & 0xFF) -
+                           (int)((cookie & 0xFFu) << 8u);
+            }
         }
 
         /*
