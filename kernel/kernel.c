@@ -357,6 +357,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR initial health sample failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (pros_crash_record_selftest() != PROS_CRASH_RECORD_OK) {
+        serial_write("ProsenjitOS: ERROR persistent crash record self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: persistent crash record self-test passed\n");
     serial_write("ProsenjitOS: system health monitor initialized\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
                         0x52454356u, 1u, timer_ticks()); /* boot begin */
@@ -1220,7 +1225,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     (void)pros_health_record_recovery(0x43525348u, 5u,
                                                       crash_first_lba);
                 }
-            }            pfs_rc = prosenjitfs_probe(&pfs_device.device);
+            }
+            pfs_rc = prosenjitfs_probe(&pfs_device.device);
             if (pfs_rc == PROSENJITFS_ENOTSUP) {
                 if (prosenjitfs_format(&pfs_device.device) != PROSENJITFS_OK)
                     pfs_rc = PROSENJITFS_EIO;
