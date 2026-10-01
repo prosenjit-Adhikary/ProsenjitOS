@@ -6904,17 +6904,19 @@ int ntfs_selftest(void)
              */
             disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
             disk.root_record[29u] = 0x01u;
-            /* Root index header: first entry at 32, 144 bytes used, 352 allocated. */
-            disk.root_record[40u] = 32u; disk.root_record[41u] = 0u;
-            disk.root_record[44u] = 144u; disk.root_record[45u] = 0u;
-            disk.root_record[48u] = 0x60u; disk.root_record[49u] = 0x01u;
-            /* One 96-byte child entry plus the 16-byte END entry. */
-            disk.root_record[68u] = 144u;
-            disk.root_record[69u] = 0u;
-            disk.root_record[72u] = 0x60u;
-            disk.root_record[73u] = 0x01u;
-            disk.root_record[74u] = 0u;
-            disk.root_record[75u] = 0u;
+            /* INDEX_ROOT resident value: 352 bytes; header first=32, end=152. */
+            disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
+            /* Keep the resident value offset at 24 bytes. */
+            disk.root_record[44u] = 24u; disk.root_record[45u] = 0u;
+            /* FILE_NAME key type, Unicode collation, 4 KiB index records. */
+            disk.root_record[48u] = 0x30u; disk.root_record[49u] = 0u;
+            disk.root_record[52u] = 1u;
+            disk.root_record[56u] = 0u; disk.root_record[57u] = 0x10u;
+            disk.root_record[60u] = 1u;
+            disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
+            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
+            disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
+            disk.root_record[74u] = 0u; disk.root_record[75u] = 0u;
             disk.root_record[80u + 8u] = 104u;
              disk.root_record[80u + 9u] = 0u;
              disk.root_record[80u + 8u] = 104u;
