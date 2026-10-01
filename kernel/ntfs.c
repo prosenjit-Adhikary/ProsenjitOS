@@ -7315,9 +7315,12 @@ int ntfs_selftest(void)
                 entry.name[2] != 's' || entry.name[3] != 't' ||
                 entry.name[4] != '\0')
                 return -196;
-            if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
-                    PROS_VFS_ENOENT || cookie != 12u)
-                return -197;
+            {
+                int rr = fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry);
+                if (rr != PROS_VFS_ENOENT || cookie != 12u)
+                    return -25000 - ((rr < 0 ? -rr : rr) & 0xFF) -
+                           (int)((cookie & 0xFFu) << 8u);
+            }
         }
 
         /*
