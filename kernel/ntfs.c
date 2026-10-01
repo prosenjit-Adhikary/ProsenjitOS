@@ -9,8 +9,6 @@
 /* Shared NTFS UpCase table state used by index name comparison/insertion. */
 static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
 static const uint8_t *ntfs_active_upcase = 0;
-/* Bootstrap failure detail is consumed only by the deterministic self-test. */
-static uint32_t ntfs_bootstrap_debug_stage;
 static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
                                       const uint8_t *name_utf16le,
@@ -3361,7 +3359,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         return PROS_NTFS_EINVAL;
     *allocated_lcn = 0u;
     *allocated_clusters = 0u;
-    ntfs_bootstrap_debug_stage = 0u;
     if (!fs->mount.active || fs->mount.read_only ||
         !fs->mount.device || !fs->mount.device->write)
         return PROS_NTFS_ENOTSUP;
@@ -3377,7 +3374,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         old_record[i] = record[i];
 
-    ntfs_bootstrap_debug_stage = 1u;
     {
         int status = ntfs_find_attribute(record,
                                          fs->bytes_per_file_record,
@@ -3396,8 +3392,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         const uint8_t *root_data;
         uint32_t root_size;
 
-        ntfs_bootstrap_debug_stage = 2u;
-        {
+            {
             int status = ntfs_index_root_header(record,
                                                 fs->bytes_per_file_record,
                                                 root_attr, &root);
@@ -3410,8 +3405,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                 return status;
         }
 
-        ntfs_bootstrap_debug_stage = 3u;
-        if ((root.flags & 1u) != 0u ||
+            if ((root.flags & 1u) != 0u ||
             root.bytes_per_index_record < cluster_bytes ||
             root.bytes_per_index_record > sizeof(node) ||
             root.bytes_per_index_record % cluster_bytes != 0u)
@@ -3444,8 +3438,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         {
             uint32_t off = root.first_entry_offset;
             uint32_t remaining = entries_len;
-            ntfs_bootstrap_debug_stage = 4u;
-            while (remaining != 0u) {
+                    while (remaining != 0u) {
                 uint16_t esize;
                 uint8_t flags;
                 if (remaining < 16u)
@@ -3478,14 +3471,12 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
      * This implementation deliberately refuses to relocate the directory
      * record or introduce an attribute-list extent.
      */
-    ntfs_bootstrap_debug_stage = 5u;
     first = le16(record + 20u);
     used = le32(record + 24u);
     if (first < 24u || first + 8u > fs->bytes_per_file_record ||
         used < first + 8u || used > fs->bytes_per_file_record)
         return PROS_NTFS_ECORRUPT;
     pos = first;
-    ntfs_bootstrap_debug_stage = 6u;
     while (pos + 8u <= used) {
         uint32_t type = le32(record + pos);
         uint32_t len = le32(record + pos + 4u);
@@ -3498,7 +3489,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             attr_id = (uint32_t)le16(record + pos + 14u) + 1u;
         pos += len;
     }
-    ntfs_bootstrap_debug_stage = 10u;
     if (pos != used - 8u)
         return PROS_NTFS_ECORRUPT;
 
@@ -3511,7 +3501,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
      * volume bitmap is updated transactionally by the allocator.
      */
     cluster_count = index_block_clusters;
-    ntfs_bootstrap_debug_stage = 7u;
     rc = ntfs_bitmap_allocate_clusters(fs, cluster_count, &lcn);
     if (rc != PROS_NTFS_OK)
         return rc;
@@ -3678,7 +3667,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     record[pos + alloc_len + bitmap_len + 2u] = 0xFFu;
     record[pos + alloc_len + bitmap_len + 3u] = 0xFFu;
 
-    ntfs_bootstrap_debug_stage = 8u;
     rc = ntfs_index_allocation_write(
         fs,
         &(struct pros_ntfs_run){ .lcn = lcn, .clusters = cluster_count,
@@ -3687,7 +3675,6 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     if (rc != PROS_NTFS_OK)
         goto rollback;
 
-    ntfs_bootstrap_debug_stage = 9u;
     rc = ntfs_write_file_record(fs, directory_record_number, record);
     if (rc != PROS_NTFS_OK)
         goto rollback;
@@ -6289,13 +6276,12 @@ int ntfs_selftest(void)
     {
         uint8_t saved_root[1024];
         uint8_t saved_index[4096];
-        uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
-        uint32_t root_attr = 24u;
+        uint32_t root_attr = 56u;
         uint32_t root_value = 168u;
         uint32_t entry = root_attr + 24u + 32u;
         uint32_t terminal = entry + 104u;
-        uint32_t used = 224u;
+        uint32_t used = 256u;
         uint32_t alloc_offset = 200u;
         uint32_t bitmap_offset = 280u;
         uint64_t bootstrap_lcn = 0u;
@@ -6325,7 +6311,7 @@ int ntfs_selftest(void)
          */
         r[510] = 0x78u; r[511] = 0x56u;
         r[1022] = 0x78u; r[1023] = 0x56u;
-        r[20] = 24u;
+        r[20] = 56u;
         r[22] = 3u;
         r[24] = (uint8_t)used;
         r[25] = (uint8_t)(used >> 8);
@@ -6368,12 +6354,8 @@ int ntfs_selftest(void)
         {
             int bootstrap_status = ntfs_index_allocation_bootstrap(
                 &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
-            if (bootstrap_status != PROS_NTFS_OK) {
-                if (bootstrap_status == PROS_NTFS_ECORRUPT &&
-                    ntfs_bootstrap_debug_stage != 0u)
-                    return -15010 - (int)ntfs_bootstrap_debug_stage;
+            if (bootstrap_status != PROS_NTFS_OK)
                 return -15000 + bootstrap_status;
-            }
             if (bootstrap_clusters != 1u)
                 return -15001;
             if (bootstrap_lcn != 8u)
