@@ -6648,7 +6648,7 @@ int ntfs_selftest(void)
             if (bootstrap_clusters != 1u)
                 return -50000 - __LINE__;
             if (bootstrap_lcn != 8u)
-                return -50000 - __LINE__;
+                return -15022 + (int)bootstrap_lcn;
         }
 
         if (ntfs_find_attribute(r, sizeof(disk.root_record), 0xA0u,
