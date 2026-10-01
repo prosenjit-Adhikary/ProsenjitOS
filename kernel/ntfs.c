@@ -6191,8 +6191,23 @@ int ntfs_selftest(void)
                 int lookup_rc = ntfs_index_allocation_lookup(
                     &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
                     lookup_name, 4u, &child_reference);
-                if (lookup_rc != PROS_NTFS_OK)
+                if (lookup_rc != PROS_NTFS_OK) {
+                    uint8_t diagnostic_record[4096];
+                    struct pros_ntfs_index_record diagnostic_info;
+                    int read_rc = ntfs_index_allocation_read(
+                        &fs, index_runs, index_run_count, 0u,
+                        diagnostic_record, sizeof(diagnostic_record));
+                    if (read_rc != PROS_NTFS_OK)
+                        return -10100 + read_rc;
+                    {
+                        int header_rc = ntfs_index_record_header(
+                            diagnostic_record, sizeof(diagnostic_record),
+                            512u, 0u, &diagnostic_info);
+                        if (header_rc != PROS_NTFS_OK)
+                            return -10200 + header_rc;
+                    }
                     return -10000 + lookup_rc;
+                }
             }
             if (child_reference != 0x3000u)
                 return -115;
