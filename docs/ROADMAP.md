@@ -228,7 +228,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Package manager
 
 ## Phase 8 — GUI
-- [ ] Graphics abstraction
+- [x] Graphics abstraction (validated kernel display-surface contract; no window system)
 - [ ] Framebuffer
 - [ ] Input subsystem
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
