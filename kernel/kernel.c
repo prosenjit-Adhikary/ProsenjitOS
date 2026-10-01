@@ -220,24 +220,18 @@ void exception_dispatch(uint64_t *frame) {
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
     if (vector != 128 && !usercopy_fault_active()) {
+        /*
+         * Exception context is capture-only. Do not enter the block/ATA stack
+         * here: device polling can consume a large bounded wait and storage
+         * health logging can recurse back into the observability path.
+         * Persistence must be performed only from a safe, non-fault context.
+         */
         int crash_rc = pros_crash_record_capture(vector, frame[1],
                                                   frame[2], cr2,
                                                   timer_ticks());
-        if (crash_rc == PROS_CRASH_RECORD_OK &&
-            pros_crash_record_available()) {
-            /*
-             * The crash backend is attached only after raw storage/partition
-             * discovery has established a non-overlapping reserved location.
-             * The ATA PIO backend is polling-only and bounded, so this path
-             * does not recurse through VFS/filesystem logging.
-             */
-            int persist_rc = pros_crash_record_flush_pending();
-            if (persist_rc != PROS_CRASH_RECORD_OK)
-                crash_rc = persist_rc;
-        }
-        if (crash_rc != PROS_CRASH_RECORD_OK &&
-            pros_crash_record_available())
-            (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_CAPTURE_FAILED,
+        if (crash_rc != PROS_CRASH_RECORD_OK)
+            (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE,
+                                              PROS_CRASH_HEALTH_CAPTURE_FAILED,
                                               (uint64_t)(uint32_t)(-crash_rc));
         (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
     }
