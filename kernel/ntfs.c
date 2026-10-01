@@ -3557,10 +3557,10 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     node[18] = 0u;
     node[19] = 0u;
     node[0x18u] = 0x28u;
-    node[0x1Cu] = (uint8_t)(entries_len + 16u);
-    node[0x1Du] = (uint8_t)((entries_len + 16u) >> 8);
-    node[0x1Eu] = (uint8_t)((entries_len + 16u) >> 16);
-    node[0x1Fu] = (uint8_t)((entries_len + 16u) >> 24);
+    node[0x1Cu] = (uint8_t)(entries_len + 40u);
+    node[0x1Du] = (uint8_t)((entries_len + 40u) >> 8);
+    node[0x1Eu] = (uint8_t)((entries_len + 40u) >> 16);
+    node[0x1Fu] = (uint8_t)((entries_len + 40u) >> 24);
     node[0x20u] = (uint8_t)(index_block_size - 0x18u);
     node[0x21u] = (uint8_t)((index_block_size - 0x18u) >> 8);
     node[0x22u] = (uint8_t)((index_block_size - 0x18u) >> 16);
@@ -4195,8 +4195,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < 8u; ++i)
         right[16u + i] = (uint8_t)(new_vcn >> (8u * i));
     right[0x18u]=0x28u;
-    right[0x1Cu]=(uint8_t)(right_bytes + 16u);
-    right[0x1Du]=(uint8_t)((right_bytes + 16u) >> 8);
+    right[0x1Cu]=(uint8_t)(right_bytes + 40u);
+    right[0x1Du]=(uint8_t)((right_bytes + 40u) >> 8);
     right[0x20u]=(uint8_t)(record_size - 0x18u);
     right[0x21u]=(uint8_t)((record_size - 0x18u) >> 8);
     right[0x22u]=(uint8_t)((record_size - 0x18u) >> 16);
@@ -4219,10 +4219,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         leaf[entries_start + i] = expanded[entries_start + i];
     for (uint32_t i = entries_start + left_bytes; i < record_size; ++i)
         leaf[i] = 0u;
-    leaf[0x1Cu]=(uint8_t)(left_bytes + 16u);
-    leaf[0x1Du]=(uint8_t)((left_bytes + 16u) >> 8);
-    leaf[0x1Eu]=(uint8_t)((left_bytes + 16u) >> 16);
-    leaf[0x1Fu]=(uint8_t)((left_bytes + 16u) >> 24);
+    leaf[0x1Cu]=(uint8_t)(left_bytes + 40u);
+    leaf[0x1Du]=(uint8_t)((left_bytes + 40u) >> 8);
+    leaf[0x1Eu]=(uint8_t)((left_bytes + 40u) >> 16);
+    leaf[0x1Fu]=(uint8_t)((left_bytes + 40u) >> 24);
     leaf[0x24u]=0u;
 
     /* Re-seal USA fixups for both nodes. */
