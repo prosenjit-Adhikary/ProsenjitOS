@@ -7201,23 +7201,71 @@ int ntfs_selftest(void)
              * clusters. The parent must contain a child-pointer separator.
              */
             {
-                uint32_t split_mask = 0u;
+                uint32_t root_attr_check = 0u;
+                uint32_t alloc_attr_check = 0u;
+                const uint8_t *root_data_check = 0;
+                uint32_t root_size_check = 0u;
+                struct pros_ntfs_index_root split_root_check;
+                uint8_t found_right_child = 0u;
+
                 if ((disk.bitmap_data[9u / 8u] &
-                     (uint8_t)(1u << (9u % 8u))) == 0u)
-                    split_mask |= 1u;
-                if (le64(disk.root_record + 440u) != 8192u)
-                    split_mask |= 2u;
-                /* The promoted separator is inserted before the old 16-byte
-                 * terminal entry at absolute offset 184. Its aligned
-                 * $FILE_NAME key entry is 104 bytes long. */
-                if (disk.root_record[184u + 12u] != 1u)
-                    split_mask |= 4u;
-                if (le16(disk.root_record + 184u + 10u) != 74u)
-                    split_mask |= 8u;
-                if (le64(disk.root_record + 184u + 104u - 8u) != 1u)
-                    split_mask |= 16u;
-                if (split_mask != 0u)
-                    return -24000 - (int)split_mask;
+                     (uint8_t)(1u << (9u % 8u))) == 0u ||
+                    ntfs_find_attribute(disk.root_record,
+                                         sizeof(disk.root_record), 0x90u,
+                                         &root_attr_check) != PROS_NTFS_OK ||
+                    ntfs_find_attribute(disk.root_record,
+                                         sizeof(disk.root_record), 0xA0u,
+                                         &alloc_attr_check) != PROS_NTFS_OK ||
+                    le64(disk.root_record + alloc_attr_check + 40u) != 8192u ||
+                    ntfs_index_root_header(disk.root_record,
+                                           sizeof(disk.root_record),
+                                           root_attr_check,
+                                           &split_root_check) != PROS_NTFS_OK ||
+                    split_root_check.entries_size != 256u ||
+                    split_root_check.allocated_size != 352u ||
+                    split_root_check.flags != 1u ||
+                    ntfs_attribute_data(disk.root_record,
+                                        sizeof(disk.root_record),
+                                        root_attr_check,
+                                        &root_data_check,
+                                        &root_size_check) != PROS_NTFS_OK ||
+                    root_size_check != 352u)
+                    return -197;
+
+                {
+                    uint32_t off = split_root_check.first_entry_offset;
+                    while (off < split_root_check.entries_size) {
+                        uint16_t entry_size;
+                        uint16_t key_size;
+                        uint8_t flags;
+                        if (split_root_check.entries_size - off < 16u)
+                            return -197;
+                        entry_size = le16(root_data_check + off + 8u);
+                        key_size = le16(root_data_check + off + 10u);
+                        flags = root_data_check[off + 12u];
+                        if (entry_size < 16u ||
+                            (entry_size & 7u) != 0u ||
+                            entry_size > split_root_check.entries_size - off ||
+                            (flags & ~3u) != 0u ||
+                            key_size > entry_size - 16u -
+                                       ((flags & 1u) ? 8u : 0u))
+                            return -197;
+                        if ((flags & 1u) != 0u &&
+                            key_size == 74u &&
+                            le64(root_data_check + off + entry_size - 8u) == 1u)
+                            found_right_child = 1u;
+                        if ((flags & 2u) != 0u) {
+                            if (entry_size != 16u ||
+                                off + entry_size !=
+                                    split_root_check.entries_size)
+                                return -197;
+                            break;
+                        }
+                        off += entry_size;
+                    }
+                    if (!found_right_child)
+                        return -197;
+                }
             }
 
             {
