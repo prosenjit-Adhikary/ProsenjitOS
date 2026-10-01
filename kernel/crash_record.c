@@ -10,6 +10,7 @@ static uint8_t crash_attached;
 static uint8_t crash_capture_active;
 static struct pros_crash_record pending_record;
 static uint8_t pending_valid;
+static uint8_t pending_flush_required;
 
 static void crash_zero(void *buffer, uint32_t size)
 {
@@ -161,6 +162,7 @@ void pros_crash_record_detach(void)
     crash_capture_active = 0u;
     pending_record = (struct pros_crash_record){0};
     pending_valid = 0u;
+    pending_flush_required = 0u;
 }
 
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
@@ -183,6 +185,7 @@ int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
     pending_record.checksum = crash_crc32c((const uint8_t *)&pending_record,
                                            sizeof(pending_record));
     pending_valid = 1u;
+    pending_flush_required = 1u;
     crash_capture_active = 0u;
     return PROS_CRASH_RECORD_OK;
 }
@@ -200,6 +203,7 @@ int pros_crash_record_flush_pending(void)
     crash_sequence = pending_record.sequence;
     crash_next_slot ^= 1u;
     pending_valid = 0u;
+    pending_flush_required = 0u;
     return PROS_CRASH_RECORD_OK;
 }
 
