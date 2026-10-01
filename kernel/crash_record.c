@@ -207,6 +207,8 @@ int pros_crash_record_clear(void)
     crash_zero(&empty, sizeof(empty));
     if (!crash_attached)
         return PROS_CRASH_RECORD_ENOTSUP;
+    pending_record = (struct pros_crash_record){0};
+    pending_valid = 0u;
     for (uint32_t slot = 0u; slot < PROS_CRASH_RECORD_SLOT_COUNT; ++slot)
         if (crash_slot_write(slot, &empty) != PROS_CRASH_RECORD_OK)
             return PROS_CRASH_RECORD_EIO;
@@ -286,7 +288,9 @@ int pros_crash_record_selftest(void)
         return PROS_CRASH_RECORD_EIO;
 
     if (pros_crash_record_capture(13u, 1u, 2u, 3u, 4u) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_capture(12u, 5u, 6u, 7u, 8u) != PROS_CRASH_RECORD_OK ||
+        pros_crash_record_flush_pending() != PROS_CRASH_RECORD_OK ||
         pros_crash_record_peek(&record) != PROS_CRASH_RECORD_OK ||
         record.vector != 12u)
         return PROS_CRASH_RECORD_EIO;
