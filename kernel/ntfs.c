@@ -5643,11 +5643,18 @@ int ntfs_selftest(void)
             disk.file_record[1023u] != disk.file_record[9u])
             return -1136;
 
-        if (ntfs_file_write(&fs, 11u, 0u, replacement,
-                            sizeof(replacement), &written) != PROS_NTFS_OK ||
-            ntfs_file_write(&fs, 11u, 4u, replacement, 2u, &written) !=
-                PROS_NTFS_EOVERFLOW)
-            return -121;
+        {
+            int first_write_rc = ntfs_file_write(
+                &fs, 11u, 0u, replacement, sizeof(replacement), &written);
+            if (first_write_rc != PROS_NTFS_OK)
+                return -121;
+            {
+                int overflow_rc = ntfs_file_write(
+                    &fs, 11u, 4u, replacement, 2u, &written);
+                if (overflow_rc != PROS_NTFS_EOVERFLOW)
+                    return -12000 + overflow_rc;
+            }
+        }
     }
 
     /*
