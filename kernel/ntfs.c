@@ -6955,10 +6955,20 @@ int ntfs_selftest(void)
             }
 
             /*
-             * The synthetic INDEX_ALLOCATION/$BITMAP attributes occupy the
-             * first-sector trailer area, so re-seal the FILE record USA after
-             * constructing them.
+             * The synthetic INDEX_ALLOCATION/$BITMAP attributes extend the
+             * FILE record through the 8-byte end marker at offset 512.
+             * Keep the header's used-size and USA replacement slots in sync
+             * with the rebuilt record before it is read through the normal
+             * FILE fixup path.
              */
+            disk.root_record[24u] = 0x08u;
+            disk.root_record[25u] = 0x02u;
+            disk.root_record[26u] = 0u;
+            disk.root_record[27u] = 0u;
+            disk.root_record[10u] = 0u;
+            disk.root_record[11u] = 0u;
+            disk.root_record[12u] = 0u;
+            disk.root_record[13u] = 0u;
             disk.root_record[510u] = 0x34u;
             disk.root_record[511u] = 0x12u;
             disk.root_record[1022u] = 0x34u;
