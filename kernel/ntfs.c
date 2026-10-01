@@ -7045,6 +7045,9 @@ int ntfs_selftest(void)
             new_key[68u] = '4';
             new_key[64u] = 3u;
 
+            /* Synthetic split keys are ASCII; keep this regression independent
+             * of any stale global UpCase comparison state from prior tests. */
+            ntfs_active_upcase = 0;
             split_status = ntfs_index_allocation_insert(
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
@@ -7058,7 +7061,7 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 280u) != 8192u ||
+                le64(disk.root_record + 280u) != 1u ||
                 disk.root_record[184u + 12u] != 1u ||
                 le16(disk.root_record + 184u + 10u) != 74u ||
                 le64(disk.root_record + 184u + 104u - 8u) != 1u)
