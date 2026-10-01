@@ -7211,8 +7211,12 @@ int ntfs_selftest(void)
                 return -22203;
             if (le16(disk.root_record + 184u + 10u) != 74u)
                 return -22204;
-            if (le64(disk.root_record + 184u + 104u - 8u) != 1u)
-                return -22205;
+            {
+                uint64_t actual_separator_vcn =
+                    le64(disk.root_record + 184u + 104u - 8u);
+                if (actual_separator_vcn != 1u)
+                    return -23000 - (int)(actual_separator_vcn & 0xFFu);
+            }
 
             {
                 uint8_t verify[4096];
