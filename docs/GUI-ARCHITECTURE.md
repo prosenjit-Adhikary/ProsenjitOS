@@ -53,11 +53,21 @@ a falsely "working" GUI.
 
 1. Implement a real framebuffer/display provider for the boot graphics handoff.
 2. Connect display discovery/binding to the driver manager.
-3. Add a real input provider, starting with keyboard and mouse/HID.
+3. Add hardware input providers (keyboard and mouse/HID) feeding the input-event queue contract now implemented.
 4. Complete ELF/process startup and init/service management.
 5. Build the userspace/session boundary needed by an Xorg-compatible stack.
 6. Package and integrate XFCE only after the lower layers are executable.
 7. Verify boot -> userspace -> display -> desktop in QEMU before marking GUI
    milestones complete.
+
+## Implemented foundation additions
+
+- A bounded input-event queue provides deterministic kernel-to-userspace event
+  buffering semantics and has a boot-time self-test.
+- Framebuffer validation rejects arithmetic overflow in the minimum row-size
+  calculation.
+
+These are contracts/foundations only; no hardware keyboard/mouse driver or
+bootable Xorg/XFCE session is claimed yet.
 
 The custom window-system/compositor path remains intentionally deferred.
