@@ -84,17 +84,23 @@ int pros_driver_register(const struct pros_driver *driver)
         driver->abi_version != PROS_DRIVER_ABI_VERSION ||
         !driver->ids || driver->id_count == 0u ||
         driver->id_count > PROS_DRIVER_MAX_IDS || !driver->ops ||
-        !driver->ops->probe)
+        !driver->ops->probe) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
+                                 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE,
+                                 PROS_DRIVER_EINVAL);
         return PROS_DRIVER_EINVAL;
+    }
 
     if (driver->origin == PROS_DRIVER_ORIGIN_NATIVE &&
         (driver->flags & PROS_DRIVER_FLAG_NATIVE) == 0u)
-        return PROS_DRIVER_EPERM;
+        { (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE, PROS_DRIVER_EPERM); return PROS_DRIVER_EPERM; }
     if (driver->origin == PROS_DRIVER_ORIGIN_COMPAT &&
         (driver->flags & PROS_DRIVER_FLAG_COMPAT) == 0u)
-        return PROS_DRIVER_EPERM;
-    if (driver_registered(driver))
+        { (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE, PROS_DRIVER_EPERM); return PROS_DRIVER_EPERM; }
+    if (driver_registered(driver)) {
+        (void)pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE, PROS_DRIVER_EBUSY);
         return PROS_DRIVER_EBUSY;
+    }
 
     for (uint32_t i = 0u; i < PROS_DRIVER_MAX; ++i) {
         if (!drivers[i].used) {
@@ -103,6 +109,7 @@ int pros_driver_register(const struct pros_driver *driver)
             return PROS_DRIVER_OK;
         }
     }
+    (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTRY_EXHAUSTED, PROS_DRIVER_MAX);
     return PROS_DRIVER_ENOSPC;
 }
 
@@ -126,10 +133,16 @@ int pros_driver_unregister(const struct pros_driver *driver)
 
 int pros_device_register(struct pros_driver_device *device)
 {
-    if (!manager_ready || !device || device->state == PROS_DEVICE_REMOVED)
+    if (!manager_ready || !device || device->state == PROS_DEVICE_REMOVED) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, device ? device->id : 0u,
+                                 PROS_DRIVER_HEALTH_DEVICE_REGISTER_FAILURE, PROS_DRIVER_EINVAL);
         return PROS_DRIVER_EINVAL;
-    if (device->id != 0u && device_id_used(device->id))
+    }
+    if (device->id != 0u && device_id_used(device->id)) {
+        (void)pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_DRIVER, device->id,
+                                 PROS_DRIVER_HEALTH_DEVICE_REGISTER_FAILURE, PROS_DRIVER_EBUSY);
         return PROS_DRIVER_EBUSY;
+    }
 
     for (uint32_t i = 0u; i < PROS_DEVICE_MAX; ++i) {
         if (!devices[i].used) {
@@ -146,6 +159,8 @@ int pros_device_register(struct pros_driver_device *device)
             return PROS_DRIVER_OK;
         }
     }
+    (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, device->id,
+                             PROS_DRIVER_HEALTH_REGISTRY_EXHAUSTED, PROS_DEVICE_MAX);
     return PROS_DRIVER_ENOSPC;
 }
 
@@ -166,8 +181,11 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
             break;
         }
     }
-    if (!device)
+    if (!device) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
+                                 PROS_DRIVER_HEALTH_REGISTRY_EXHAUSTED, PROS_DEVICE_MAX);
         return PROS_DRIVER_ENOSPC;
+    }
 
     device->id = 0u;
     device->bus = PROS_DRIVER_BUS_PCI;
@@ -365,6 +383,9 @@ int pros_driver_class_is_supported(enum pros_device_class class_id)
         return PROS_DRIVER_ENOTSUP;
     case PROS_DEVICE_CLASS_OTHER:
     default:
+        (void)pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_DRIVER, 0u,
+                                 PROS_DRIVER_HEALTH_UNSUPPORTED_CLASS,
+                                 (uint64_t)class_id);
         return PROS_DRIVER_EINVAL;
     }
 }
@@ -400,8 +421,12 @@ int pros_driver_unbind(uint32_t device_id)
     driver = device->driver;
     if (!driver)
         return PROS_DRIVER_ENODEV;
-    if (driver->ops->remove && driver->ops->remove(device) != PROS_DRIVER_OK)
+    if (driver->ops->remove && driver->ops->remove(device) != PROS_DRIVER_OK) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, device->id,
+                                 PROS_DRIVER_HEALTH_REMOVE_FAILURE,
+                                 (uint64_t)device->class_id);
         return PROS_DRIVER_EBUSY;
+    }
 
     pros_device_broker_drop_device(device_id);
     device->driver = 0;
