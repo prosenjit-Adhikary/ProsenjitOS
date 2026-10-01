@@ -92,11 +92,19 @@ int pros_driver_register(const struct pros_driver *driver)
     }
 
     if (driver->origin == PROS_DRIVER_ORIGIN_NATIVE &&
-        (driver->flags & PROS_DRIVER_FLAG_NATIVE) == 0u)
-        { (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE, PROS_DRIVER_EPERM); return PROS_DRIVER_EPERM; }
+        (driver->flags & PROS_DRIVER_FLAG_NATIVE) == 0u) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
+                                 PROS_DRIVER_HEALTH_REGISTER_FAILURE,
+                                 PROS_DRIVER_EPERM);
+        return PROS_DRIVER_EPERM;
+    }
     if (driver->origin == PROS_DRIVER_ORIGIN_COMPAT &&
-        (driver->flags & PROS_DRIVER_FLAG_COMPAT) == 0u)
-        { (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE, PROS_DRIVER_EPERM); return PROS_DRIVER_EPERM; }
+        (driver->flags & PROS_DRIVER_FLAG_COMPAT) == 0u) {
+        (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
+                                 PROS_DRIVER_HEALTH_REGISTER_FAILURE,
+                                 PROS_DRIVER_EPERM);
+        return PROS_DRIVER_EPERM;
+    }
     if (driver_registered(driver)) {
         (void)pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_DRIVER, 0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE, PROS_DRIVER_EBUSY);
         return PROS_DRIVER_EBUSY;
