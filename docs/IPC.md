@@ -23,14 +23,13 @@ An IPC channel can already use the existing capability-handle system.
 - DUPLICATE allows attenuated capability duplication.
 - TRANSFER allows the existing copy/move capability-transfer primitives.
 
-The current kernel API is now exposed to CPL3 through capability-mediated send/receive syscalls. The syscall layer validates user ranges before copying data and checks READ/WRITE authority through the security intent pipeline. Blocking/wakeup and IPC creation from user space are still deferred.
+The current kernel API is exposed to CPL3 through capability-mediated send/receive syscalls. The syscall layer validates user ranges before copying data and checks READ/WRITE authority through the security intent pipeline. Blocking receive, scheduler handoff/wakeup, concurrency locking, fault-recoverable user-copy, and per-CPU fault state are implemented. User-space channel creation/lifecycle ownership remains outside this milestone.
 
 ## Next IPC milestones
 
 1. Add user-space IPC channel creation and lifecycle ownership.
-2. Expose blocking receive through the syscall scheduler handoff.
-3. Add explicit cross-process endpoint transfer syscall semantics.
-4. Add stronger fault-safe user-copy primitives and concurrency locking.
+2. Add broader multi-process endpoint-transfer integration tests and production lifecycle handling.
+3. Continue hardening SMP/process-lifecycle interactions around IPC.
 
 
 ## Blocking foundation
