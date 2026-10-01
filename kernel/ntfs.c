@@ -6433,6 +6433,25 @@ int ntfs_selftest(void)
             return -134;
 
         /*
+         * Validate the rebuilt INDX through the same parser used by lookup.
+         * This catches USA/header geometry regressions before collation or
+         * tree traversal can obscure the actual failure.
+         */
+        {
+            struct pros_ntfs_index_record rebuilt_info;
+            int rebuilt_status = ntfs_index_record_header(
+                disk.index_record, sizeof(disk.index_record),
+                fs.bytes_per_sector, 0u, &rebuilt_info);
+            if (rebuilt_status != PROS_NTFS_OK)
+                return -136 + rebuilt_status;
+            if (rebuilt_info.first_entry_offset != 40u ||
+                rebuilt_info.entries_size != 160u ||
+                rebuilt_info.allocated_size != 4096u ||
+                rebuilt_info.flags != 0u)
+                return -140;
+        }
+
+        /*
          * The bootstrap must leave the directory usable through the normal
          * INDEX_ALLOCATION lookup path, not merely produce parseable bytes.
          */
