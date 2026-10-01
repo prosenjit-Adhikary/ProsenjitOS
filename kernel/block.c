@@ -92,3 +92,52 @@ uint64_t block_write_count(void) { return write_count; }
 uint64_t block_error_count(void) { return error_count; }
 uint64_t block_flush_count(void) { return flush_count; }
 uint64_t block_flush_error_count(void) { return flush_error_count; }
+
+
+static int block_selftest_read_fail(struct pros_block_device *device,
+                                    uint64_t lba, uint32_t count, void *buffer)
+{
+    (void)device; (void)lba; (void)count; (void)buffer;
+    return PROS_BLOCK_EIO;
+}
+
+static int block_selftest_write_fail(struct pros_block_device *device,
+                                     uint64_t lba, uint32_t count,
+                                     const void *buffer)
+{
+    (void)device; (void)lba; (void)count; (void)buffer;
+    return PROS_BLOCK_EIO;
+}
+
+static int block_selftest_flush_fail(struct pros_block_device *device)
+{
+    (void)device;
+    return PROS_BLOCK_EIO;
+}
+
+int block_device_selftest(void)
+{
+    struct pros_block_device device;
+    uint8_t sector[512];
+    uint64_t errors_before = error_count;
+    uint64_t flush_errors_before = flush_error_count;
+
+    if (block_device_init(&device, 512u, 4u,
+                          block_selftest_read_fail,
+                          block_selftest_write_fail,
+                          0) != PROS_BLOCK_OK ||
+        block_device_set_flush(&device, block_selftest_flush_fail) !=
+            PROS_BLOCK_OK)
+        return PROS_BLOCK_EINVAL;
+
+    if (block_device_read(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
+        block_device_write(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
+        block_device_read(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
+        block_device_write(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
+        block_device_flush(&device) != PROS_BLOCK_EIO ||
+        error_count < errors_before + 3u ||
+        flush_error_count < flush_errors_before + 1u)
+        return PROS_BLOCK_EIO;
+
+    return PROS_BLOCK_OK;
+}
