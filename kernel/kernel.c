@@ -362,6 +362,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: persistent crash record self-test passed\n");
+    if (block_device_selftest() != PROS_BLOCK_OK) {
+        serial_write("ProsenjitOS: ERROR block storage health self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: block storage health self-test passed\n");
     serial_write("ProsenjitOS: system health monitor initialized\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
                         0x52454356u, 1u, timer_ticks()); /* boot begin */
