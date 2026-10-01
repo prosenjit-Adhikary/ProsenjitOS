@@ -7370,6 +7370,15 @@ int ntfs_selftest(void)
                 saved_bitmap[i] = disk.bitmap_data[i];
 
             /*
+             * Make the split fixture's physical-allocation precondition
+             * deterministic: LCN 8 is the existing INDEX_ALLOCATION leaf,
+             * LCN 9 is the only intended adjacent free cluster. Earlier
+             * allocator regressions must not leak a stale bit into this
+             * isolated B-tree split scenario.
+             */
+            disk.bitmap_data[1u] = 0xFCu;
+
+            /*
              * Resident root: 352 bytes of index space with 248 bytes
              * already occupied by entries and one existing child pointer at
              * VCN 0. Add a nonresident INDEX_ALLOCATION mapping
