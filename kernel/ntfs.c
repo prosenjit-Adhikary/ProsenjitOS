@@ -6991,7 +6991,7 @@ int ntfs_selftest(void)
              * The synthetic block device maps LCN 8 to the INDX storage.
              */
             {
-                uint8_t write_index_record[4096];
+                static uint8_t write_index_record[4096];
                 for (uint32_t i = 0u; i < sizeof(write_index_record); ++i)
                     write_index_record[i] = read_index_record[i];
                 write_index_record[4000u] = 0x78u;
@@ -7075,7 +7075,7 @@ int ntfs_selftest(void)
                 static const uint8_t second_lookup[8] = {
                     'b',0u,'e',0u,'t',0u,'a',0u
                 };
-                uint8_t verify_record[4096];
+                static uint8_t verify_record[4096];
                 struct pros_ntfs_index_record verify_info;
 
                 for (uint32_t i = 0u; i < sizeof(second_key); ++i)
@@ -7423,7 +7423,7 @@ int ntfs_selftest(void)
         disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
 
         {
-            uint8_t root_probe[1024];
+            static uint8_t root_probe[1024];
             uint32_t root_attr_probe = 0u;
             for (uint32_t i = 0u; i < sizeof(root_probe); ++i)
                 root_probe[i] = disk.root_record[i];
@@ -7699,7 +7699,7 @@ int ntfs_selftest(void)
             }
 
             {
-                uint8_t verify[4096];
+                static uint8_t verify[4096];
                 struct pros_ntfs_index_record info;
                 uint32_t entry = 0u;
                 uint8_t found_right = 0u;
