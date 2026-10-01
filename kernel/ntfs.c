@@ -6812,7 +6812,7 @@ int ntfs_selftest(void)
         disk.root_record[57u] = 0x10u;
         disk.root_record[60u] = 1u;
         disk.root_record[64u] = 32u;
-        disk.root_record[68u] = 144u;
+        disk.root_record[68u] = 152u;
         disk.root_record[72u] = 144u;
         disk.root_record[80u] = 0x00u;
         disk.root_record[81u] = 0x20u;
@@ -6913,6 +6913,8 @@ int ntfs_selftest(void)
             disk.root_record[74u] = 0u;
             disk.root_record[75u] = 0u;
             disk.root_record[80u + 8u] = 104u;
+             disk.root_record[80u + 9u] = 0u;
+             disk.root_record[80u + 8u] = 104u;
              disk.root_record[80u + 9u] = 0u;
              disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
