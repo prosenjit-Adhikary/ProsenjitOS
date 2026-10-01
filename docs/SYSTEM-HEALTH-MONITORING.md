@@ -1,6 +1,6 @@
 # ProsenjitOS — System Health Monitoring
 
-Status: implementation batch in progress 2026-09-30; monotonic time, typed kernel telemetry, expanded VFS counters, persistent-sink lifecycle integration, and bounded rotation/retention code are implemented. End-to-end crash-survival validation, broader collectors, fault-injection/QEMU observability regression and CI verification remain gated.
+Status: implementation batch hardened 2026-10-01; monotonic time, typed kernel telemetry, expanded VFS counters, persistent-sink lifecycle integration, bounded rotation/retention, non-blocking emergency crash capture, and deferred crash persistence are implemented. Full end-to-end crash reproduction and fresh CI/QEMU verification remain dependent on available build/runner execution.
 
 ## Purpose
 
@@ -28,7 +28,7 @@ Collect discovered block devices, device online/offline state, read/write operat
 ### Filesystem
 Collect mount/unmount events, read/write/truncate errors, journal transaction failures, replay/recovery results, corruption/integrity failures, free-space and inode/block exhaustion indicators, and read-only/degraded transitions.
 
-Current VFS telemetry records mount/unmount, successful file read/write/truncate operations, successful unlink/mkdir/rmdir/rename and directory open/read operations, plus classified lookup/I/O/permission/overflow error counters.
+Current VFS telemetry records mount/unmount, successful file read/write/truncate operations, successful unlink/mkdir/rmdir/rename and directory open/read operations, plus classified lookup/I/O/permission/corruption error counters. Generic overflow/path-size failures are not treated as corruption.
 
 ### Kernel
 Collect warnings, exceptions/faults, failed assertions/self-tests, lockup/deadlock indicators when implemented, panic/crash events, boot health markers, and subsystem health transitions.
@@ -74,13 +74,13 @@ Use a hybrid model:
 - threshold triggers for critical conditions
 - on-demand detailed diagnostics
 
-Suggested baseline sampling (design only; not implemented by the current batch):
+Suggested sampling schedules remain design-only and are NOT implemented by the current batch. No interval-based health sampling is performed:
 - 1s: lightweight health counters/scheduler/memory pressure summary
 - 5s: storage/filesystem/device summary
 - 30s: hardware/thermal inventory where supported
 - immediate: panic, crash, I/O failure, corruption, OOM, watchdog and critical state transitions
 
-Intervals must be configurable and bounded.
+Any future interval scheduler must be separately designed, bounded, and explicitly introduced; it is outside this batch.
 
 ## 5. Resource-pressure model
 
@@ -148,7 +148,7 @@ A GUI consumer may present the same semantic data but must not become the source
 
 ## 10. Tests and CI gates
 
-The batch is not implementation-complete until tests cover:
+The implementation is not called production-complete until the remaining environment-dependent gates are verified. Current deterministic tests cover:
 - healthy baseline
 - missing/unsupported sensor
 - counter overflow/rollover
@@ -180,8 +180,8 @@ Network telemetry remains event-hook capable but is not fabricated: the current 
 7. Filesystem/VFS health events.
 8. Bounded telemetry ring/event transport.
 9. User-space system-health collector.
-10. Structured persistent diagnostic store foundation (VFS-backed bounded sink is implemented; end-to-end attachment/boot history still pending).
-11. Rotation/retention integration.
+10. Structured persistent diagnostic store foundation (VFS-backed bounded sink is implemented and attached opportunistically after native writable storage is ready).
+11. Rotation/retention integration — implemented with bounded file count/size and deterministic rotation.
 12. CLI/API.
 13. Fault-injection and QEMU regression suite.
 14. SMP/per-platform sensor extensions.
