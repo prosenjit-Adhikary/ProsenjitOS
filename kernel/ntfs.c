@@ -3995,6 +3995,8 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             expanded_used > sizeof(expanded) - entries_start - incoming_size)
             return PROS_NTFS_EOVERFLOW;
 
+        if (insert_at == 0xFFFFFFFFu)
+            insert_at = expanded_used;
         for (uint32_t i = expanded_used; i > insert_at; --i)
             expanded[entries_start + i + incoming_size - 1u] =
                 expanded[entries_start + i - 1u];
@@ -4013,29 +4015,33 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             expanded[entries_start + insert_at + i] = incoming[i];
         expanded_used += incoming_size;
         entry_count++;
-        if (insert_at == 0xFFFFFFFFu)
-            insert_at = expanded_used - incoming_size;
     }
 
-    if (entry_count < 3u)
+    if (entry_count < 2u)
         return PROS_NTFS_ENOTSUP;
 
     /*
-     * Pick a separator such that both children retain at least one entry
-     * after the separator itself is promoted to the parent.
+     * Split a leaf at an entry boundary. NTFS directory indexes are B+
+     * trees: the separator is a copy of the first entry in the right leaf,
+     * so that entry must remain in the right child after promotion.
      */
     {
         uint32_t pos = 0u;
         uint32_t candidate = 0u;
         uint32_t candidate_left = 0u;
         uint32_t candidate_right = 0u;
-        for (uint32_t n = 0u; n < entry_count; ++n) {
+        for (uint32_t n = 1u; n < entry_count; ++n) {
             uint16_t esize = le16(expanded + entries_start + pos + 8u);
-            if (n >= 1u && n <= entry_count - 2u) {
+            pos += esize;
+            if (n < 1u || n >= entry_count)
+                continue;
+
+            {
                 uint32_t lb = pos;
-                uint32_t rb = expanded_used - pos - esize;
-                if (lb + 16u <= record_size - entries_start &&
-                    rb + 16u <= record_size - entries_start) {
+                uint32_t rb = expanded_used - pos;
+                if (lb >= 16u && rb >= 16u &&
+                    lb <= record_size - entries_start &&
+                    rb <= record_size - entries_start) {
                     uint32_t balance = lb > rb ? lb - rb : rb - lb;
                     if (balance < best_balance) {
                         best_balance = balance;
@@ -4045,18 +4051,14 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                     }
                 }
             }
-            pos += esize;
         }
-        if (best_balance == 0xFFFFFFFFu)
+
+        if (best_balance == 0xFFFFFFFFu || candidate == 0u)
             return PROS_NTFS_ENOTSUP;
-        pos = 0u;
-        for (uint32_t n = 0u; n < candidate; ++n)
-            pos += le16(expanded + entries_start + pos + 8u);
-        sep_offset = entries_start + pos;
+
+        sep_offset = entries_start + candidate_left;
         left_bytes = candidate_left;
         right_bytes = candidate_right;
-        if (right_bytes == 0u)
-            return PROS_NTFS_ENOTSUP;
     }
 
     {
@@ -4155,7 +4157,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     right[0x24u]=0u;
     for (uint32_t i = 0u; i < right_bytes; ++i)
         right[entries_start + i] =
-            expanded[sep_offset + le16(expanded + sep_offset + 8u) + i];
+            expanded[sep_offset + i];
     {
         uint32_t term = entries_start + right_bytes;
         right[term + 8u]=16u;
