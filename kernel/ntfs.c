@@ -993,12 +993,56 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
             if (!free_run)
                 continue;
 
-            {
-                int update_status =
-                    ntfs_bitmap_update_clusters(fs, candidate,
-                                                 cluster_count, 1u);
-                if (update_status != PROS_NTFS_OK)
-                    return update_status;
+            for (uint64_t i = 0u; i < cluster_count; ++i) {
+                uint64_t lcn = candidate + i;
+                uint64_t byte_offset = lcn / 8u;
+                uint64_t logical_cluster =
+                    byte_offset /
+                    ((uint64_t)fs->bytes_per_sector *
+                     fs->sectors_per_cluster);
+                uint32_t cluster_offset =
+                    (uint32_t)(byte_offset %
+                               ((uint64_t)fs->bytes_per_sector *
+                                fs->sectors_per_cluster));
+                uint64_t cumulative = 0u, physical_lcn = 0u, lba = 0u;
+                uint8_t found = 0u, sparse = 0u;
+                uint32_t sector_index, in_sector;
+
+                for (uint32_t r = 0u; r < run_count; ++r) {
+                    if (logical_cluster >= cumulative &&
+                        logical_cluster - cumulative < runs[r].clusters) {
+                        physical_lcn = runs[r].lcn +
+                                       logical_cluster - cumulative;
+                        if (physical_lcn < runs[r].lcn)
+                            return PROS_NTFS_EOVERFLOW;
+                        sparse = runs[r].sparse;
+                        found = 1u;
+                        break;
+                    }
+                    if (runs[r].clusters >
+                        0xFFFFFFFFFFFFFFFFull - cumulative)
+                        return PROS_NTFS_EOVERFLOW;
+                    cumulative += runs[r].clusters;
+                }
+                if (!found || sparse)
+                    return PROS_NTFS_EIO;
+                if (fs->bytes_per_sector > sizeof(bitmap_sector) ||
+                    ntfs_cluster_lba(fs, physical_lcn, &lba) !=
+                        PROS_NTFS_OK)
+                    return PROS_NTFS_EIO;
+                sector_index = cluster_offset / fs->bytes_per_sector;
+                in_sector = cluster_offset % fs->bytes_per_sector;
+                if (sector_index >= fs->sectors_per_cluster ||
+                    block_device_read(fs->mount.device,
+                                      lba + sector_index, 1u,
+                                      bitmap_sector) != PROS_BLOCK_OK)
+                    return PROS_NTFS_EIO;
+                bitmap_sector[in_sector] |=
+                    (uint8_t)(1u << (lcn & 7u));
+                if (block_device_write(fs->mount.device,
+                                       lba + sector_index, 1u,
+                                       bitmap_sector) != PROS_BLOCK_OK)
+                    return PROS_NTFS_EIO;
             }
             *first_lcn = candidate;
             return PROS_NTFS_OK;
