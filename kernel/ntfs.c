@@ -4129,7 +4129,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
 
     /* Locate the separator insertion point in the resident parent. */
     {
-        uint32_t off = 0u;
+        uint32_t off = root.first_entry_offset;
         while (off < root_entries_size) {
             uint32_t absolute = off;
             uint16_t esize, ksize;
