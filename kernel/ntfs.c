@@ -1031,15 +1031,21 @@ static int ntfs_bitmap_allocate_clusters_exact(struct pros_ntfs *fs,
                        (uint32_t)(end_byte - start_byte + 1u), &got) !=
             PROS_NTFS_OK ||
         got != (uint32_t)(end_byte - start_byte + 1u))
-        return PROS_NTFS_EIO;
+        return -17001;
 
     for (uint64_t lcn = first_lcn; lcn < first_lcn + cluster_count; ++lcn) {
         uint32_t byte = (uint32_t)((lcn - start_byte * 8u) / 8u);
         uint32_t bit = (uint32_t)(lcn & 7u);
         if ((bitmap_chunk[byte] & (uint8_t)(1u << bit)) != 0u)
-            return PROS_NTFS_EIO;
+            return -17002;
     }
-    return ntfs_bitmap_update_clusters(fs, first_lcn, cluster_count, 1u);
+    {
+        int update_status =
+            ntfs_bitmap_update_clusters(fs, first_lcn, cluster_count, 1u);
+        if (update_status != PROS_NTFS_OK)
+            return -17100 + update_status;
+    }
+    return PROS_NTFS_OK;
 }
 
 int ntfs_bitmap_allocate_clusters(struct pros_ntfs *fs,
