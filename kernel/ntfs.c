@@ -6664,25 +6664,26 @@ int ntfs_selftest(void)
                 saved_bitmap[i] = disk.bitmap_data[i];
 
             /*
-             * Resident root: 248 bytes of index space, one existing child
-             * pointer at VCN 0. Add a nonresident INDEX_ALLOCATION mapping
+             * Resident root: 352 bytes of index space with 248 bytes
+             * already occupied by entries and one existing child pointer at
+             * VCN 0. Add a nonresident INDEX_ALLOCATION mapping
              * for the synthetic 4 KiB INDX page at LCN 8.
              */
-            disk.root_record[28u] = 0x10u; /* root attribute length low */
-            disk.root_record[29u] = 0x01u; /* 272 bytes total */
-            disk.root_record[40u] = 0x00u; disk.root_record[41u] = 0x10u;
+            disk.root_record[28u] = 0x78u; /* root attribute: 376 bytes */
+            disk.root_record[29u] = 0x01u;
+            disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u; /* 352-byte value */
             disk.root_record[68u] = 248u;
             disk.root_record[69u] = 0u;
             disk.root_record[72u] = 248u;
             disk.root_record[73u] = 0u;
-            disk.root_record[74u] = 0u;
-            disk.root_record[75u] = 0u;
+            disk.root_record[74u] = 0x60u;
+            disk.root_record[75u] = 0x01u;
             disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
                 disk.root_record[80u + 96u - 8u + i] = 0u;
 
             {
-                uint32_t a = 296u;
+                uint32_t a = 400u;
                 for (uint32_t i = a; i < a + 68u; ++i)
                     disk.root_record[i] = 0u;
                 disk.root_record[a + 0u] = 0xA0u;
@@ -6717,7 +6718,7 @@ int ntfs_selftest(void)
                 disk.root_record[a + 33u] = 0xFFu;
                 disk.root_record[a + 34u] = 0xFFu;
                 disk.root_record[a + 35u] = 0xFFu;
-                disk.root_record[400u] = 1u;
+                disk.root_record[504u] = 1u;
             }
 
             /* 41 existing 96-byte entries + 16-byte terminal. */
