@@ -6308,8 +6308,8 @@ int ntfs_selftest(void)
         r[root_attr + 33u] = 0x10u;
         r[root_attr + 36u] = 1u;
         r[root_attr + 40u] = 32u;
-        r[root_attr + 44u] = (uint8_t)root_value;
-        r[root_attr + 48u] = (uint8_t)root_value;
+        r[root_attr + 44u] = 152u;
+        r[root_attr + 48u] = 152u;
 
         /* One ordinary $FILE_NAME index entry plus the END marker. */
         r[entry + 0u] = 0x00u; r[entry + 1u] = 0x10u;
