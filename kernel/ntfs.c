@@ -6850,10 +6850,13 @@ int ntfs_selftest(void)
             if (ntfs_find_attribute(root_probe, sizeof(root_probe), 0x90u,
                                      &root_attr_probe) != PROS_NTFS_OK)
                 return -181;
-            if (ntfs_index_root_lookup(root_probe, sizeof(root_probe),
-                                       root_attr_probe, path_name, 4u,
-                                       &path_reference) != PROS_NTFS_OK)
-                return -182;
+            {
+                int root_lookup_status = ntfs_index_root_lookup(
+                    root_probe, sizeof(root_probe), root_attr_probe,
+                    path_name, 4u, &path_reference);
+                if (root_lookup_status != PROS_NTFS_OK)
+                    return root_lookup_status;
+            }
 
             {
                 int directory_status = ntfs_directory_lookup(
