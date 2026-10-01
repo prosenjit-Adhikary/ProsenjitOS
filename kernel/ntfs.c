@@ -3649,12 +3649,17 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
 
     if (allocation_start_lcn != 8u)
         return PROS_NTFS_ECORRUPT;
-    rc = ntfs_bitmap_allocate_clusters_from(fs, allocation_start_lcn,
-                                             cluster_count, &lcn);
+
+    /*
+     * Bootstrap has an exact, metadata-derived placement target. Reuse the
+     * tested exact bitmap transaction instead of the general scanner so the
+     * allocation probe and the bitmap mutation share one authoritative path.
+     */
+    rc = ntfs_bitmap_allocate_clusters_exact(fs, allocation_start_lcn,
+                                              cluster_count);
     if (rc != PROS_NTFS_OK)
         return rc;
-    if (lcn != 8u)
-        return PROS_NTFS_EIO;
+    lcn = allocation_start_lcn;
     if (lcn > 0x7FFFFFFFFFFFFFFFull) {
         (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
         return PROS_NTFS_ENOTSUP;
