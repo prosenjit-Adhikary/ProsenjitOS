@@ -4394,7 +4394,7 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
     if (ntfs_index_record_header(record, record_size, fs->bytes_per_sector,
                                  vcn, &(struct pros_ntfs_index_record){0}) !=
         PROS_NTFS_OK)
-        return PROS_NTFS_ECORRUPT;
+        return -15070;
 
     entries_offset = le32(record + 0x18u);
     entries_size = le32(record + 0x1Cu);
