@@ -6142,8 +6142,8 @@ int ntfs_selftest(void)
                                                read_index_record,
                                                sizeof(read_index_record)) !=
                     PROS_NTFS_OK ||
-                    read_index_record[40u] != 0x78u ||
-                    read_index_record[41u] != 0x56u)
+                    read_index_record[4000u] != 0x78u ||
+                    read_index_record[4001u] != 0x56u)
                     return -122;
             }
 
