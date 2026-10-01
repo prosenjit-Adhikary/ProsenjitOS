@@ -23,7 +23,7 @@ This matrix records the automated validation layers that should remain green whi
 | exFAT | Geometry, FAT-chain, Unicode/Up-case, VFS read regression | Required CI gate |
 | NTFS | Path/read/write regression and malformed-metadata rejection | Required CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
-| Real disk | ATA/AHCI/NVMe/USB-visible block-device QEMU test | Pending |
+| Real disk | ATA PIO -> MBR -> ProsenjitFS persistent QEMU test | Required CI gate |
 
 ## ProsenjitFS crash/recovery coverage
 
@@ -58,7 +58,7 @@ A change that affects one subsystem should preserve all unrelated regression mar
 
 The following work remains intentionally dependent on lower layers:
 
-- Real ProsenjitFS QEMU disk testing requires a kernel-visible storage controller/block-device driver.
+- Native ProsenjitFS QEMU disk testing uses the kernel-visible ATA PIO controller path and is a required CI gate.
 - Native filesystem-aware boot requires a stable boot protocol plus storage/partition discovery.
 - NTFS journal-aware metadata writes require safe allocation and directory-index mutation first.
 - UEFI boot validation requires the native UEFI loader before Secure Boot/verified-boot work can be meaningfully tested.
