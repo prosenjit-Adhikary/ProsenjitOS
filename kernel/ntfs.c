@@ -7361,7 +7361,7 @@ int ntfs_selftest(void)
                 return -182;
             {
                 static const uint8_t unicode_miss[] = {
-                    0xE2u, 0x82u, 0xACu, 0u
+                    0xACu, 0x20u
                 };
                 if (ntfs_index_root_lookup(root_probe, sizeof(root_probe),
                                            root_attr_probe, unicode_miss, 1u,
