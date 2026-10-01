@@ -6293,6 +6293,14 @@ int ntfs_selftest(void)
         r[0] = 'F'; r[1] = 'I'; r[2] = 'L'; r[3] = 'E';
         r[4] = 8u; r[6] = 3u;
         r[8] = 0x78u; r[9] = 0x56u;
+        /*
+         * The fixture is read through ntfs_read_file_record(), so its
+         * multi-sector USA must already be sealed with the FILE-record
+         * sequence value 0x5678. The USA entries at 0x0A/0x0C preserve the
+         * original trailer words (zero in this synthetic record).
+         */
+        r[510] = 0x78u; r[511] = 0x56u;
+        r[1022] = 0x78u; r[1023] = 0x56u;
         r[20] = 24u;
         r[22] = 3u;
         r[24] = (uint8_t)used;
