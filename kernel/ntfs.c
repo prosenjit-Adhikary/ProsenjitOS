@@ -7686,11 +7686,14 @@ int ntfs_selftest(void)
                         {{8u, 2u, 0u}}, 1u, 4096u, verify,
                         sizeof(verify)) != PROS_NTFS_OK)
                     return -198;
-                if (ntfs_index_record_header(verify, sizeof(verify), 512u,
-                                             1u, &info) != PROS_NTFS_OK)
-                    return -199;
-                if (info.vcn != 1u)
-                    return -200;
+                {
+                    int split_verify_header_rc = ntfs_index_record_header(
+                        verify, sizeof(verify), 512u, 1u, &info);
+                    if (split_verify_header_rc != PROS_NTFS_OK)
+                        return -1990 + split_verify_header_rc;
+                    if (info.vcn != 1u)
+                        return -200;
+                }
 
                 /*
                  * Read the newly appended node and verify that it contains
