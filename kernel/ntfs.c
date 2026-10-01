@@ -4732,15 +4732,19 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
      * the rollback-protected directory image. The original is already saved
      * in old_directory_record, so no second 64 KiB scratch image is needed. */
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
-                            root_attr, &root_data, &root_size) != PROS_NTFS_OK)
+                            root_attr, &root_data, &root_size) != PROS_NTFS_OK) {
+        rc = PROS_NTFS_ECORRUPT;
         goto rollback;
+    }
     {
         uint16_t value_offset = le16(directory_record + root_attr + 20u);
         if ((uint32_t)value_offset + root_size >
                 le32(directory_record + root_attr + 4u) ||
             root_attr + (uint32_t)value_offset + root_size >
-                fs->bytes_per_file_record)
+                fs->bytes_per_file_record) {
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
+        }
         root_mutable_data = directory_record + root_attr + value_offset;
     }
     {
@@ -4858,8 +4862,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
      */
     {
         uint32_t final_root_entries = le32(root_mutable_data + 20u);
-        if (final_root_entries < 24u)
+        if (final_root_entries < 24u) {
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
+        }
         uint32_t terminal = final_root_entries - 24u;
         if (le64(root_mutable_data + terminal + 16u) != new_vcn) {
             rc = PROS_NTFS_ECORRUPT;
