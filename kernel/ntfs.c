@@ -3005,6 +3005,9 @@ static int ntfs_upcase_load(const struct pros_ntfs *fs)
     cluster_bytes = fs->bytes_per_sector * fs->sectors_per_cluster;
     if (cluster_bytes == 0u)
         return PROS_NTFS_EOVERFLOW;
+    total_clusters = fs->total_sectors / fs->sectors_per_cluster;
+    if (total_clusters == 0u)
+        return PROS_NTFS_ECORRUPT;
 
     while (copied < PROS_NTFS_UPCASE_BYTES) {
         uint64_t logical_cluster = byte_offset / cluster_bytes;
@@ -3409,6 +3412,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     uint64_t lcn = 0u;
     uint64_t allocation_start_lcn = 0u;
     uint64_t cluster_count;
+    uint64_t total_clusters;
     uint32_t lcn_bytes;
     uint32_t map_len;
     int rc;
