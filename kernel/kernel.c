@@ -388,7 +388,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: block storage health self-test passed\n");
     serial_write("ProsenjitOS: system health monitor initialized\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
-                        0x52454356u, 1u, timer_ticks()); /* boot begin */
+                        0x52454356u, PROS_HEALTH_RECOVERY_BOOT_BEGIN, timer_ticks());
     if (pros_health_watchdog_register(1u, 3000u) != PROS_HEALTH_OK) {
         serial_write("ProsenjitOS: ERROR kernel health watchdog registration failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1290,7 +1290,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     health_previous_crash_pending = 0u;
                 }
                 (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
-                                    0x52454356u, 2u, timer_ticks()); /* storage ready */
+                                    0x52454356u, PROS_HEALTH_RECOVERY_STORAGE_READY, timer_ticks());
                 (void)pros_health_watchdog_kick(1u);
                 serial_write("ProsenjitOS: persistent health log attached\n");
             }
@@ -1457,7 +1457,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
-                        0x44525648u, 1u, timer_ticks());
+                        0x44525648u, PROS_HEALTH_RECOVERY_DRIVER_READY, timer_ticks());
     (void)pros_health_watchdog_kick(1u);
     (void)pros_health_watchdog_poll();
 
