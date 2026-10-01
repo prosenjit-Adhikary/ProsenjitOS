@@ -37,6 +37,15 @@ static uint32_t crash_crc32c(const uint8_t *data, uint32_t length)
     return ~crc;
 }
 
+static int crash_record_empty(const struct pros_crash_record *record)
+{
+    const uint8_t *bytes = (const uint8_t *)record;
+    for (uint32_t i = 0u; i < sizeof(*record); ++i)
+        if (bytes[i] != 0u)
+            return 0;
+    return 1;
+}
+
 static int crash_record_valid(const struct pros_crash_record *record)
 {
     if (!record ||
@@ -93,8 +102,11 @@ static int crash_find_latest(struct pros_crash_record *latest,
         return PROS_CRASH_RECORD_EIO;
     va = crash_record_valid(&a);
     vb = crash_record_valid(&b);
-    if (!va && !vb)
+    if (!va && !vb) {
+        if (!crash_record_empty(&a) || !crash_record_empty(&b))
+            return PROS_CRASH_RECORD_ECORRUPT;
         return PROS_CRASH_RECORD_ENOENT;
+    }
     if (va && (!vb || a.sequence >= b.sequence)) {
         *latest = a;
         if (slot_out) *slot_out = 0u;
