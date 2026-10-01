@@ -6129,6 +6129,46 @@ int ntfs_selftest(void)
                     write_index_record[i] = read_index_record[i];
                 write_index_record[4000u] = 0x78u;
                 write_index_record[4001u] = 0x56u;
+
+                /*
+                 * ntfs_index_record_header() applies the read-side USA
+                 * fixup and restores the original sector trailers in the
+                 * caller's buffer. Re-seal the modified image before
+                 * persisting it, matching the production index mutation
+                 * path. The previous self-test wrote the read-normalized
+                 * image directly, which correctly triggered USA corruption
+                 * on the subsequent lookup.
+                 */
+                {
+                    uint16_t usa_offset = le16(write_index_record + 4u);
+                    uint16_t usa_count = le16(write_index_record + 6u);
+                    uint16_t sequence;
+                    if (usa_count < 2u ||
+                        (uint32_t)usa_offset + (uint32_t)usa_count * 2u >
+                            sizeof(write_index_record) ||
+                        (uint32_t)usa_count !=
+                            sizeof(write_index_record) / 512u + 1u)
+                        return -1201;
+                    sequence = (uint16_t)(le16(write_index_record + usa_offset) + 1u);
+                    if (sequence == 0u || sequence == 0xFFFFu)
+                        sequence = 1u;
+                    write_index_record[usa_offset] = (uint8_t)sequence;
+                    write_index_record[usa_offset + 1u] =
+                        (uint8_t)(sequence >> 8);
+                    for (uint32_t i = 1u; i < usa_count; ++i) {
+                        uint32_t end = i * 512u - 2u;
+                        if (end + 2u > sizeof(write_index_record))
+                            return -1202;
+                        write_index_record[usa_offset + i * 2u] =
+                            write_index_record[end];
+                        write_index_record[usa_offset + i * 2u + 1u] =
+                            write_index_record[end + 1u];
+                        write_index_record[end] = (uint8_t)sequence;
+                        write_index_record[end + 1u] =
+                            (uint8_t)(sequence >> 8);
+                    }
+                }
+
                 if (ntfs_index_allocation_write(&fs, index_runs,
                                                 index_run_count, 0u,
                                                 write_index_record,
