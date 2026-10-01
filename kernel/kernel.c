@@ -220,7 +220,7 @@ void exception_dispatch(uint64_t *frame) {
                                                   timer_ticks());
         if (crash_rc != PROS_CRASH_RECORD_OK &&
             pros_crash_record_available())
-            (void)pros_health_record_recovery(0x43525348u, 4u,
+            (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_CAPTURE_FAILED,
                                               (uint64_t)(uint32_t)(-crash_rc));
         (void)pros_health_record_exception(vector, frame[1], frame[2], cr2);
     }
@@ -1208,21 +1208,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     struct pros_crash_record previous;
                     int crash_rc = pros_crash_record_consume(&previous);
                     if (crash_rc == PROS_CRASH_RECORD_OK) {
-                        (void)pros_health_record_recovery(0x43525348u, 1u,
+                        (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_RECOVERED,
                                                           previous.sequence);
-                        (void)pros_health_record_recovery(0x43525348u, 2u,
+                        (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_VECTOR,
                                                           previous.vector);
                         (void)pros_log_emit(PROS_HEALTH_WARN, PROS_HEALTH_RECOVERY,
-                                            0x43525348u, 1u, previous.rip);
+                                            PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_RECOVERED, previous.rip);
                         serial_write("ProsenjitOS: previous persistent crash record recovered\n");
                     } else if (crash_rc != PROS_CRASH_RECORD_ENOENT) {
                         (void)pros_health_record_recovery(
-                            0x43525348u, 3u,
+                            PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_INVALID,
                             (uint64_t)(uint32_t)(-crash_rc));
                         serial_write("ProsenjitOS: persistent crash record unavailable or invalid; continuing\n");
                     }
                 } else {
-                    (void)pros_health_record_recovery(0x43525348u, 5u,
+                    (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_UNAVAILABLE,
                                                       crash_first_lba);
                 }
             }
