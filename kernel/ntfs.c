@@ -4639,8 +4639,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             PROS_NTFS_OK ||
         ntfs_decode_runlist(runlist, runlist_size, grown_runs,
                             PROS_NTFS_MFT_RUN_MAX, &grown_count) !=
-            PROS_NTFS_OK)
+            PROS_NTFS_OK) {
+        rc = PROS_NTFS_ECORRUPT;
         goto rollback;
+    }
 
     for (uint32_t i = 0u; i < record_size; ++i)
         right[i] = 0u;
@@ -4689,8 +4691,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         uint16_t usa_count = le16(leaf + 6u);
         uint16_t sequence = le16(leaf + usa_offset);
         if (usa_count < 2u ||
-            (uint32_t)usa_offset + (uint32_t)usa_count * 2u > record_size)
+            (uint32_t)usa_offset + (uint32_t)usa_count * 2u > record_size) {
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
+        }
         for (uint32_t i = 1u; i < usa_count; ++i) {
             uint32_t end = i * fs->bytes_per_sector - 2u;
             leaf[usa_offset + i * 2u] = leaf[end];
@@ -4767,8 +4771,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         if (old_root_entries < root_first_entry_offset + 16u ||
             parent_insert_offset < root_first_entry_offset ||
             parent_insert_offset > old_root_entries - 16u ||
-            parent_entry_size > root_allocated_size - old_root_entries)
+            parent_entry_size > root_allocated_size - old_root_entries) {
+            rc = PROS_NTFS_ECORRUPT;
             goto rollback;
+        }
 
         old_terminal = old_root_entries - 16u;
 
@@ -4788,22 +4794,30 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                 uint16_t esize = le16(root_data + previous + 8u);
                 uint8_t flags = root_data[previous + 12u];
                 if (esize < 16u || (esize & 7u) != 0u ||
-                    esize > parent_insert_offset - previous)
+                    esize > parent_insert_offset - previous) {
+                    rc = PROS_NTFS_ECORRUPT;
                     goto rollback;
+                }
                 if (flags & 1u) {
-                    if (esize < 24u)
+                    if (esize < 24u) {
+                        rc = PROS_NTFS_ECORRUPT;
                         goto rollback;
+                    }
                     old_child_vcn = le64(root_data + previous + esize - 8u);
                     found_previous = 1u;
                 }
                 previous += esize;
             }
-            if (!found_previous || old_child_vcn > 0x0000FFFFFFFFFFFFull)
+            if (!found_previous || old_child_vcn > 0x0000FFFFFFFFFFFFull) {
+                rc = PROS_NTFS_ECORRUPT;
                 goto rollback;
+            }
 
             new_root_entries = old_root_entries + parent_entry_size + 8u;
-            if (new_root_entries > root_allocated_size)
+            if (new_root_entries > root_allocated_size) {
+                rc = PROS_NTFS_ECORRUPT;
                 goto rollback;
+            }
 
             /* Shift the existing entries and END marker to make room. */
             for (uint32_t i = old_terminal; i > parent_insert_offset; --i)
@@ -4857,8 +4871,10 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
      * allocated right-hand INDX node.
      */
     if (le64(root_mutable_data + parent_insert_offset +
-             parent_entry_size - 8u) != new_vcn)
+             parent_entry_size - 8u) != new_vcn) {
+        rc = PROS_NTFS_ECORRUPT;
         goto rollback;
+    }
     for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
         directory_record[i] = rebuilt_directory_record[i];
 
