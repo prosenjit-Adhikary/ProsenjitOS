@@ -5880,20 +5880,20 @@ int ntfs_selftest(void)
         fs.mft_run_count != 1u || fs.mft_runs[0].lcn != 4u ||
         fs.mft_runs[0].clusters != 4u || fs.mft_runs[0].sparse != 0u ||
         ntfs_cluster_lba(&fs,4u,&lba) != PROS_NTFS_OK || lba != 32u)
-        return -101;
+        return -50000 - __LINE__;
 
     if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 3u, &run_count) !=
             PROS_NTFS_OK || run_count != 3u ||
         runs[0].lcn != 4u || runs[0].clusters != 3u || runs[0].sparse != 0u ||
         runs[1].lcn != 2u || runs[1].clusters != 1u || runs[1].sparse != 0u ||
         runs[2].lcn != 0u || runs[2].clusters != 2u || runs[2].sparse != 1u)
-        return -102;
+        return -50000 - __LINE__;
     if (ntfs_decode_runlist(unterminated, sizeof(unterminated), runs, 3u,
                             &run_count) != PROS_NTFS_ECORRUPT)
-        return -103;
+        return -50000 - __LINE__;
     if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 2u, &run_count) !=
             PROS_NTFS_EOVERFLOW)
-        return -104;
+        return -50000 - __LINE__;
 
     /*
      * Safe NTFS write regression: overwrite an existing resident $DATA
@@ -5908,27 +5908,27 @@ int ntfs_selftest(void)
 
         if (ntfs_file_write(&fs, 11u, 0u, replacement,
                             sizeof(replacement), &written) != PROS_NTFS_OK)
-            return -1131;
+            return -50000 - __LINE__;
         if (written != sizeof(replacement))
-            return -1132;
+            return -50000 - __LINE__;
         if (ntfs_file_read(&fs, 11u, 0u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK)
-            return -1133;
+            return -50000 - __LINE__;
         if (read_back != 5u ||
             verify[0] != 'B' || verify[1] != 'y' || verify[2] != 'e')
-            return -1134;
+            return -50000 - __LINE__;
         if (disk.file_record[510u] != disk.file_record[8u] ||
             disk.file_record[511u] != disk.file_record[9u])
-            return -1135;
+            return -50000 - __LINE__;
         if (disk.file_record[1022u] != disk.file_record[8u] ||
             disk.file_record[1023u] != disk.file_record[9u])
-            return -1136;
+            return -50000 - __LINE__;
 
         if (ntfs_file_write(&fs, 11u, 0u, replacement,
                             sizeof(replacement), &written) != PROS_NTFS_OK ||
             ntfs_file_write(&fs, 11u, 4u, replacement, 2u, &written) !=
                 PROS_NTFS_EOVERFLOW)
-            return -121;
+            return -50000 - __LINE__;
     }
 
     /*
@@ -5944,21 +5944,21 @@ int ntfs_selftest(void)
         if (ntfs_file_write(&fs, 12u, 510u, replacement, 2u,
                             &written) != PROS_NTFS_OK ||
             written != 2u)
-            return -1221;
+            return -50000 - __LINE__;
         if (ntfs_file_write(&fs, 12u, 512u, replacement + 2u, 2u,
                             &written) != PROS_NTFS_OK ||
             written != 2u)
-            return -1222;
+            return -50000 - __LINE__;
         if (ntfs_file_read(&fs, 12u, 510u, verify, sizeof(replacement),
                            &read_back) != PROS_NTFS_OK)
-            return -1223;
+            return -50000 - __LINE__;
         if (read_back != sizeof(replacement) ||
             verify[0] != 'X' || verify[1] != 'Y' ||
             verify[2] != 'Z' || verify[3] != '!')
-            return -1224;
+            return -50000 - __LINE__;
         if (disk.nonresident_data[509u] != 'p' ||
             disk.nonresident_data[514u] != 'u')
-            return -1225;
+            return -50000 - __LINE__;
     }
 
 
@@ -5983,13 +5983,13 @@ int ntfs_selftest(void)
             le64(disk.nonresident_record + 88u) != 8192u ||
             le64(disk.nonresident_record + 96u) != 1028u ||
             le64(disk.nonresident_record + 104u) != 1028u)
-            return -123;
+            return -50000 - __LINE__;
         if (ntfs_file_read(&fs, 12u, 1024u, verify, sizeof(verify),
                            &read_back) != PROS_NTFS_OK ||
             read_back != sizeof(growth) ||
             verify[0] != 'G' || verify[1] != 'R' ||
             verify[2] != 'O' || verify[3] != 'W')
-            return -124;
+            return -50000 - __LINE__;
 
         if (ntfs_file_write(&fs, 12u, 1030u, second,
                             sizeof(second), &written) != PROS_NTFS_OK ||
@@ -6001,11 +6001,11 @@ int ntfs_selftest(void)
             verify[2] != 'O' || verify[3] != 'W' ||
             verify[4] != 0u || verify[5] != 0u ||
             verify[6] != 'O' || verify[7] != 'K')
-            return -125;
+            return -50000 - __LINE__;
         if (le64(disk.nonresident_record + 88u) != 8192u ||
             le64(disk.nonresident_record + 96u) != 1032u ||
             le64(disk.nonresident_record + 104u) != 1032u)
-            return -126;
+            return -50000 - __LINE__;
     }
 
     /*
@@ -6024,27 +6024,27 @@ int ntfs_selftest(void)
             int write_rc = ntfs_file_write(&fs, 12u, 8192u, fragmented,
                                            sizeof(fragmented), &written);
             if (write_rc != PROS_NTFS_OK)
-                return -1271;
+                return -50000 - __LINE__;
         }
         if (written != sizeof(fragmented))
-            return -1272;
+            return -50000 - __LINE__;
         if (le64(disk.nonresident_record + 88u) != 12288u)
-            return -1273;
+            return -50000 - __LINE__;
         if (le64(disk.nonresident_record + 96u) != 8196u)
-            return -1274;
+            return -50000 - __LINE__;
         if (le64(disk.nonresident_record + 104u) != 8196u)
-            return -1275;
+            return -50000 - __LINE__;
         if (disk.nonresident_record[112u] != 0x11u ||
             disk.nonresident_record[113u] != 2u ||
             disk.nonresident_record[114u] != 42u)
-            return -1276;
+            return -50000 - __LINE__;
         if (disk.nonresident_record[115u] != 0x11u ||
             disk.nonresident_record[116u] != 1u ||
             disk.nonresident_record[117u] != 3u)
-            return -1277;
+            return -50000 - __LINE__;
         if ((disk.bitmap_data[45u / 8u] &
              (uint8_t)(1u << (45u % 8u))) == 0u)
-            return -1278;
+            return -50000 - __LINE__;
     }
 
     /*
@@ -6058,22 +6058,22 @@ int ntfs_selftest(void)
         const uint8_t before = disk.bitmap_data[test_lcn / 8u];
 
         if ((before & (uint8_t)(1u << (test_lcn % 8u))) != 0u)
-            return -1279;
+            return -50000 - __LINE__;
         if (ntfs_bitmap_allocate_clusters_exact(&fs, test_lcn, 1u) !=
             PROS_NTFS_OK)
-            return -1280;
+            return -50000 - __LINE__;
         if ((disk.bitmap_data[test_lcn / 8u] &
              (uint8_t)(1u << (test_lcn % 8u))) == 0u)
-            return -1281;
+            return -50000 - __LINE__;
         if ((disk.bitmap_data[test_lcn / 8u] &
              (uint8_t)~(1u << (test_lcn % 8u))) !=
             (before & (uint8_t)~(1u << (test_lcn % 8u))))
-            return -1282;
+            return -50000 - __LINE__;
         if (ntfs_bitmap_update_clusters(&fs, test_lcn, 1u, 0u) !=
             PROS_NTFS_OK)
-            return -1283;
+            return -50000 - __LINE__;
         if (disk.bitmap_data[test_lcn / 8u] != before)
-            return -1284;
+            return -50000 - __LINE__;
     }
 
     /*
@@ -6088,7 +6088,7 @@ int ntfs_selftest(void)
                             sizeof(one), &written) !=
                 PROS_NTFS_EOVERFLOW ||
             written != 0u)
-            return -128;
+            return -50000 - __LINE__;
     }
 
 
@@ -6103,7 +6103,7 @@ int ntfs_selftest(void)
     if (ntfs_file_record_fixup(record, sizeof(record), 512u) != PROS_NTFS_OK ||
         record[510] != 0x78u || record[511] != 0x56u ||
         record[1022] != 0x00u || record[1023] != 0x00u)
-        return -105;
+        return -50000 - __LINE__;
 
     for (uint32_t i=0u; i<sizeof(attr_record); ++i) attr_record[i]=0u;
     attr_record[0]='F'; attr_record[1]='I'; attr_record[2]='L'; attr_record[3]='E';
@@ -6118,7 +6118,7 @@ int ntfs_selftest(void)
         ntfs_attribute_data(attr_record, sizeof(attr_record), attr_offset,
                             &data, &data_size) != PROS_NTFS_OK ||
         data_size != 3u || data[0] != 'a' || data[1] != 'b' || data[2] != 'c')
-        return -106;
+        return -50000 - __LINE__;
 
 
     /*
@@ -6182,7 +6182,7 @@ int ntfs_selftest(void)
             le16(name_info.name_utf16le) != 't' ||
             le16(name_info.name_utf16le + 2u) != 'e' ||
             le16(name_info.name_utf16le + 6u) != 't')
-            return -107;
+            return -50000 - __LINE__;
 
         /* Resident $INDEX_ROOT with one filename entry and a terminator. */
         directory_record[index_root_offset + 0u] = 0x90u;
@@ -6218,7 +6218,7 @@ int ntfs_selftest(void)
             index_info.entries_size != 144u ||
             index_info.allocated_size != 144u ||
             index_info.flags != 0u)
-            return -108;
+            return -50000 - __LINE__;
 
         if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
                                   index_root_offset, 32u, &reference, &key,
@@ -6227,20 +6227,20 @@ int ntfs_selftest(void)
             reference != 0x1000u || key_size != 74u || entry_flags != 0u ||
             next_entry != 128u ||
             le16(key + 66u) != 't' || le16(key + 72u) != 't')
-            return -109;
+            return -50000 - __LINE__;
 
         if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
                                   index_root_offset, 128u, &reference, &key,
                                   &key_size, &entry_flags, &next_entry) !=
                 PROS_NTFS_OK ||
             entry_flags != 2u || key_size != 0u || next_entry != 0u)
-            return -110;
+            return -50000 - __LINE__;
 
         if (ntfs_index_root_entry(directory_record, sizeof(directory_record),
                                   index_root_offset, 129u, &reference, &key,
                                   &key_size, &entry_flags, &next_entry) !=
                 PROS_NTFS_ECORRUPT)
-            return -111;
+            return -50000 - __LINE__;
 
         {
             static const uint8_t lookup_name[] = {
@@ -6250,7 +6250,7 @@ int ntfs_selftest(void)
                                        index_root_offset, lookup_name, 4u,
                                        &reference) != PROS_NTFS_OK ||
                 reference != 0x1000u)
-                return -112;
+                return -50000 - __LINE__;
 
         }
     }
@@ -6386,21 +6386,21 @@ int ntfs_selftest(void)
                                         200u, &index_runlist_data,
                                         &index_runlist_size) !=
                     PROS_NTFS_OK)
-                return -116;
+                return -50000 - __LINE__;
             if (ntfs_decode_runlist(index_runlist_data, index_runlist_size, index_runs, 2u,
                                     &index_run_count) != PROS_NTFS_OK ||
                 index_run_count != 1u || index_runs[0].lcn != 8u ||
                 index_runs[0].clusters != 1u)
-                return -117;
+                return -50000 - __LINE__;
             if (ntfs_index_allocation_read(&fs, index_runs, index_run_count,
                                            0u, read_index_record,
                                            sizeof(read_index_record)) !=
                     PROS_NTFS_OK)
-                return -118;
+                return -50000 - __LINE__;
             if (ntfs_index_record_header(read_index_record,
                                          sizeof(read_index_record), 512u, 0u,
                                          &index_info) != PROS_NTFS_OK)
-                return -119;
+                return -50000 - __LINE__;
 
             /*
              * Mutation regression: write the validated INDX image back
@@ -6432,7 +6432,7 @@ int ntfs_selftest(void)
                             sizeof(write_index_record) ||
                         (uint32_t)usa_count !=
                             sizeof(write_index_record) / 512u + 1u)
-                        return -1201;
+                        return -50000 - __LINE__;
                     sequence = (uint16_t)(le16(write_index_record + usa_offset) + 1u);
                     if (sequence == 0u || sequence == 0xFFFFu)
                         sequence = 1u;
@@ -6442,7 +6442,7 @@ int ntfs_selftest(void)
                     for (uint32_t i = 1u; i < usa_count; ++i) {
                         uint32_t end = i * 512u - 2u;
                         if (end + 2u > sizeof(write_index_record))
-                            return -1202;
+                            return -50000 - __LINE__;
                         write_index_record[usa_offset + i * 2u] =
                             write_index_record[end];
                         write_index_record[usa_offset + i * 2u + 1u] =
@@ -6458,7 +6458,7 @@ int ntfs_selftest(void)
                         &fs, index_runs, index_run_count, 0u,
                         write_index_record, sizeof(write_index_record));
                     if (write_rc != PROS_NTFS_OK)
-                        return -11000 + write_rc;
+                        return -50000 - __LINE__;
                 }
                 for (uint32_t i = 0u; i < sizeof(write_index_record); ++i)
                     read_index_record[i] = 0u;
@@ -6469,15 +6469,15 @@ int ntfs_selftest(void)
                     PROS_NTFS_OK ||
                     read_index_record[4000u] != 0x78u ||
                     read_index_record[4001u] != 0x56u)
-                    return -122;
+                    return -50000 - __LINE__;
             }
 
             if (ntfs_index_allocation_lookup(
                     &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
                     lookup_name, 4u, &child_reference) != PROS_NTFS_OK)
-                return -114;
+                return -50000 - __LINE__;
             if (child_reference != 0x3000u)
-                return -115;
+                return -50000 - __LINE__;
 
             /*
              * Writable INDEX_ALLOCATION regression: insert a second leaf
@@ -6506,7 +6506,7 @@ int ntfs_selftest(void)
                         &fs, index_runs, index_run_count, 0u, 4096u,
                         0x4000u, second_key, sizeof(second_key),
                         5u) != PROS_NTFS_OK)
-                    return -121;
+                    return -50000 - __LINE__;
 
                 if (ntfs_index_allocation_read(
                         &fs, index_runs, index_run_count, 0u,
@@ -6517,14 +6517,14 @@ int ntfs_selftest(void)
                                              0u, &verify_info) !=
                     PROS_NTFS_OK ||
                     verify_info.entries_size <= index_info.entries_size)
-                    return -123;
+                    return -50000 - __LINE__;
 
                 if (ntfs_index_allocation_lookup(
                         &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
                         second_lookup, 4u, &child_reference) !=
                     PROS_NTFS_OK ||
                     child_reference != 0x4000u)
-                    return -124;
+                    return -50000 - __LINE__;
             }
         }
 
@@ -6533,7 +6533,7 @@ int ntfs_selftest(void)
         if (ntfs_index_record_header(disk.index_record,
                                      sizeof(disk.index_record), 512u, 0u,
                                      &index_info) != PROS_NTFS_ECORRUPT)
-            return -120;
+            return -50000 - __LINE__;
     }
 
     /*
@@ -6629,26 +6629,26 @@ int ntfs_selftest(void)
                 fs.mft_runs[0].lcn != 4u ||
                 fs.mft_runs[0].clusters != 4u ||
                 fs.mft_runs[0].sparse != 0u)
-                return -15010;
+                return -50000 - __LINE__;
             if (disk.bitmap_data[0u] != 0xFFu ||
                 disk.bitmap_data[1u] != 0xFCu)
-                return -15011;
+                return -50000 - __LINE__;
             {
                 uint8_t bitmap_probe = 0u;
                 uint32_t bitmap_probe_read = 0u;
                 if (ntfs_file_read(&fs, 6u, 1u, &bitmap_probe, 1u,
                                    &bitmap_probe_read) != PROS_NTFS_OK ||
                     bitmap_probe_read != 1u || bitmap_probe != 0xFCu)
-                    return -15039;
+                    return -50000 - __LINE__;
             }
             int bootstrap_status = ntfs_index_allocation_bootstrap(
                 &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
             if (bootstrap_status != PROS_NTFS_OK)
-                return -20000 + bootstrap_status;
+                return -50000 - __LINE__;
             if (bootstrap_clusters != 1u)
-                return -15001;
+                return -50000 - __LINE__;
             if (bootstrap_lcn != 8u)
-                return -15022 + (int)bootstrap_lcn;
+                return -50000 - __LINE__;
         }
 
         if (ntfs_find_attribute(r, sizeof(disk.root_record), 0xA0u,
@@ -6658,7 +6658,7 @@ int ntfs_selftest(void)
             r[a0 + 8u] != 1u ||
             r[a0 + 64u] == 0u ||
             (r[b0 + 24u] & 1u) == 0u)
-            return -130;
+            return -50000 - __LINE__;
 
         if (ntfs_index_root_header(r, sizeof(disk.root_record),
                                    root_attr, &root_info) != PROS_NTFS_OK ||
@@ -6668,7 +6668,7 @@ int ntfs_selftest(void)
             root_info.first_entry_offset != 32u ||
             root_info.entries_size != 56u ||
             root_info.allocated_size != 56u)
-            return -131;
+            return -50000 - __LINE__;
 
         if (ntfs_attribute_data(r, sizeof(disk.root_record), root_attr,
                                 &root_data, &root_size) != PROS_NTFS_OK ||
@@ -6677,10 +6677,10 @@ int ntfs_selftest(void)
             le16(root_data + 40u) != 24u ||
             root_data[44u] != 3u ||
             le64(root_data + 48u) != 0u)
-            return -132;
+            return -50000 - __LINE__;
 
         if ((disk.bitmap_data[8u / 8u] & (uint8_t)(1u << (8u % 8u))) == 0u)
-            return -133;
+            return -50000 - __LINE__;
 
         if (disk.index_record[0u] != 'I' ||
             disk.index_record[1u] != 'N' ||
@@ -6693,7 +6693,7 @@ int ntfs_selftest(void)
             le32(disk.index_record + 28u) != 160u ||
             le32(disk.index_record + 32u) != 4072u ||
             disk.index_record[36u] != 0u)
-            return -134;
+            return -50000 - __LINE__;
 
         /*
          * Validate the rebuilt INDX through the same parser used by lookup.
@@ -6709,12 +6709,12 @@ int ntfs_selftest(void)
                 rebuilt_copy, sizeof(rebuilt_copy),
                 fs.bytes_per_sector, 0u, &rebuilt_info);
             if (rebuilt_status != PROS_NTFS_OK)
-                return -136 + rebuilt_status;
+                return -50000 - __LINE__;
             if (rebuilt_info.first_entry_offset != 64u ||
                 rebuilt_info.entries_size != 184u ||
                 rebuilt_info.allocated_size != 4096u ||
                 rebuilt_info.flags != 0u)
-                return -140;
+                return -50000 - __LINE__;
         }
 
         /*
@@ -6727,29 +6727,29 @@ int ntfs_selftest(void)
             };
             uint64_t reference = 0u;
             if (ntfs_upcase_load(&fs) != PROS_NTFS_OK)
-                return -148;
+                return -50000 - __LINE__;
             ntfs_active_upcase = ntfs_upcase_data;
             if (disk.index_record[144u] != 4u)
-                return -141;
+                return -50000 - __LINE__;
             if (disk.index_record[145u] != 1u)
-                return -142;
+                return -50000 - __LINE__;
             if (disk.index_record[146u] != 'd')
-                return -143;
+                return -50000 - __LINE__;
             if (disk.index_record[148u] != 'e')
-                return -144;
+                return -50000 - __LINE__;
             if (disk.index_record[150u] != 'm')
-                return -145;
+                return -50000 - __LINE__;
             if (disk.index_record[152u] != 'o')
-                return -146;
+                return -50000 - __LINE__;
             if (!ntfs_name_key_matches(disk.index_record + 80u, 74u,
                                        demo_name, 4u))
-                return -147;
+                return -50000 - __LINE__;
             int lookup_status = ntfs_index_allocation_lookup(
                     &fs, r, sizeof(disk.root_record), root_attr, a0,
                     demo_name, 4u, &reference);
             if (lookup_status != PROS_NTFS_OK) {
                 ntfs_active_upcase = 0;
-                return lookup_status;
+                return -50000 - __LINE__;
             }
             ntfs_active_upcase = 0;
         }
@@ -6846,29 +6846,29 @@ int ntfs_selftest(void)
                 root_probe[i] = disk.root_record[i];
             if (ntfs_file_record_fixup(root_probe, sizeof(root_probe), 512u) !=
                     PROS_NTFS_OK)
-                return -180;
+                return -50000 - __LINE__;
             if (ntfs_find_attribute(root_probe, sizeof(root_probe), 0x90u,
                                      &root_attr_probe) != PROS_NTFS_OK)
-                return -181;
+                return -50000 - __LINE__;
             if (ntfs_index_root_lookup(root_probe, sizeof(root_probe),
                                        root_attr_probe, path_name, 4u,
                                        &path_reference) != PROS_NTFS_OK)
-                return -182;
+                return -50000 - __LINE__;
 
             {
                 int directory_status = ntfs_directory_lookup(
                     &fs, 5u, path_name, 4u, &path_reference);
                 if (directory_status != PROS_NTFS_OK)
-                    return -30000 + directory_status;
+                    return -50000 - __LINE__;
             if (path_reference != 0x2000u)
-                return -150;
+                return -50000 - __LINE__;
             {
                 int path_status = ntfs_path_lookup(
                     &fs, components, lengths, 1u, &path_reference);
                 if (path_status != PROS_NTFS_OK)
-                    return -40000 + path_status;
+                    return -50000 - __LINE__;
                 if (path_reference != 0x2000u)
-                    return -170;
+                    return -50000 - __LINE__;
             }
             }
         }
@@ -7044,7 +7044,7 @@ int ntfs_selftest(void)
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
             if (split_status != PROS_NTFS_OK)
-                return -15000 + split_status;
+                return -50000 - __LINE__;
 
             /*
              * The split consumes the next free physical cluster (LCN 9),
@@ -7057,7 +7057,7 @@ int ntfs_selftest(void)
                 disk.root_record[176u + 12u] != 1u ||
                 le16(disk.root_record + 176u + 10u) != 74u ||
                 le64(disk.root_record + 176u + 104u - 8u) != 1u)
-                return -197;
+                return -50000 - __LINE__;
 
             {
                 uint8_t verify[4096];
@@ -7071,12 +7071,12 @@ int ntfs_selftest(void)
                         &fs, (const struct pros_ntfs_run[])
                         {{8u, 2u, 0u}}, 1u, 4096u, verify,
                         sizeof(verify)) != PROS_NTFS_OK)
-                    return -198;
+                    return -50000 - __LINE__;
                 if (ntfs_index_record_header(verify, sizeof(verify), 512u,
                                              1u, &info) != PROS_NTFS_OK)
-                    return -199;
+                    return -50000 - __LINE__;
                 if (info.vcn != 1u)
-                    return -200;
+                    return -50000 - __LINE__;
 
                 /*
                  * Read the newly appended node and verify that it contains
@@ -7086,10 +7086,10 @@ int ntfs_selftest(void)
                 entry = info.first_entry_offset + 0x18u;
                 if (entry + 16u > sizeof(verify) ||
                     le16(verify + entry + 8u) < 16u)
-                    return -201;
+                    return -50000 - __LINE__;
                 found_right = 1u;
                 if (!found_right)
-                    return -202;
+                    return -50000 - __LINE__;
                 {
                     static const uint8_t routed_name[] = {
                         'u', 0u, '4', 0u, '1', 0u
@@ -7099,7 +7099,7 @@ int ntfs_selftest(void)
                                                &routed_reference) !=
                             PROS_NTFS_OK ||
                         routed_reference != 0x4029u)
-                        return -203;
+                        return -50000 - __LINE__;
                 }
             }
 
@@ -7117,7 +7117,7 @@ int ntfs_selftest(void)
         disk.root_record[96u + 65u] = 2u;
         if (ntfs_path_lookup(&fs, components, lengths, 1u,
                              &path_reference) != PROS_NTFS_ENOTSUP)
-            return -183;
+            return -50000 - __LINE__;
         disk.root_record[96u + 65u] = 1u;
 
         {
@@ -7126,7 +7126,7 @@ int ntfs_selftest(void)
                     PROS_NTFS_OK ||
                 allocated_lcn != 8u ||
                 (disk.bitmap_data[1u] & 0x03u) != 0x03u)
-                return -194;
+                return -50000 - __LINE__;
         }
 
         {
@@ -7137,10 +7137,10 @@ int ntfs_selftest(void)
                 file_bytes != 3u ||
                 file_data[0] != 'y' || file_data[1] != 'e' ||
                 file_data[2] != 'l')
-                return -184;
+                return -50000 - __LINE__;
             if (ntfs_file_read(&fs, 11u, 99u, file_data, 1u,
                                &file_bytes) != PROS_NTFS_EINVAL)
-                return -185;
+                return -50000 - __LINE__;
         }
 
         /*
@@ -7206,24 +7206,24 @@ int ntfs_selftest(void)
             uint32_t vfs_fn_offset = 0u;
             if (le32(disk.file_record + 120u) != 0x30u ||
                 le32(disk.file_record + 124u) != 128u)
-                return -1839;
+                return -50000 - __LINE__;
             struct pros_ntfs_file_name vfs_fn_info;
             if (ntfs_read_file_record(&fs, 11u, vfs_child_record,
                                       sizeof(vfs_child_record)) != PROS_NTFS_OK)
-                return -1851;
+                return -50000 - __LINE__;
             if (le16(vfs_child_record + 20u) != 48u)
-                return -1841;
+                return -50000 - __LINE__;
             if (le32(vfs_child_record + 48u) != 0x80u ||
                 le32(vfs_child_record + 52u) != 72u)
-                return -1842;
+                return -50000 - __LINE__;
             if (le32(vfs_child_record + 120u) != 0x30u)
-                return -1844;
+                return -50000 - __LINE__;
             if (le32(vfs_child_record + 124u) != 128u)
-                return -1845;
+                return -50000 - __LINE__;
             if (ntfs_find_attribute(vfs_child_record,
                                     fs.bytes_per_file_record, 0x30u,
                                     &vfs_fn_offset) != PROS_NTFS_OK)
-                return -1852;
+                return -50000 - __LINE__;
             if (ntfs_file_name_attribute(vfs_child_record,
                                           fs.bytes_per_file_record,
                                           vfs_fn_offset,
@@ -7231,7 +7231,7 @@ int ntfs_selftest(void)
                 vfs_fn_info.name_length != 4u ||
                 vfs_fn_info.namespace_id != 1u ||
                 vfs_fn_info.data_size != 5u)
-                return -1853;
+                return -50000 - __LINE__;
         }
 
         {
@@ -7243,25 +7243,25 @@ int ntfs_selftest(void)
             if (vfs_path_lookup(&fs.mount, "/test", &node) != PROS_VFS_OK ||
                 !node || node->type != PROS_VFS_NODE_FILE ||
                 node->size != 5u)
-                return -186;
+                return -50000 - __LINE__;
             if (vfs_file_open(&fs.mount, "/test", PROS_VFS_O_READ, &file) !=
                     PROS_VFS_OK)
-                return -187;
+                return -50000 - __LINE__;
             if (vfs_file_read(&file, data, 5u, &got) != PROS_VFS_OK ||
                 got != 5u || data[0] != 'B' || data[1] != 'y' ||
                 data[2] != 'e' || data[3] != 'l' || data[4] != 'o')
-                return -188;
+                return -50000 - __LINE__;
             if (vfs_file_read(&file, data, 1u, &got) != PROS_VFS_OK ||
                 got != 0u)
-                return -189;
+                return -50000 - __LINE__;
             if (vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
                 vfs_file_read(&file, data, 2u, &got) != PROS_VFS_OK ||
                 got != 2u || data[0] != 'y' || data[1] != 'e')
-                return -190;
+                return -50000 - __LINE__;
             if (vfs_file_close(&file) != PROS_VFS_OK ||
                 vfs_file_open(&fs.mount, "/test",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
-                return -191;
+                return -50000 - __LINE__;
             {
                 static const uint8_t replacement[] = { 'O', 'K' };
                 uint32_t written = 0u;
@@ -7270,7 +7270,7 @@ int ntfs_selftest(void)
                         PROS_VFS_OK ||
                     written != sizeof(replacement) ||
                     vfs_file_close(&file) != PROS_VFS_OK)
-                    return -192;
+                    return -50000 - __LINE__;
             }
             if (vfs_file_open(&fs.mount, "/test",
                               PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
@@ -7279,7 +7279,7 @@ int ntfs_selftest(void)
                 data[2] != 'e' ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
                 vfs_vnode_put(node) != PROS_VFS_OK)
-                return -193;
+                return -50000 - __LINE__;
         }
 
         /* End-to-end VFS directory enumeration regression. */
@@ -7296,17 +7296,17 @@ int ntfs_selftest(void)
 
             if (!fs.mount.root || !fs.mount.root->ops ||
                 !fs.mount.root->ops->readdir)
-                return -195;
+                return -50000 - __LINE__;
             if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
                     PROS_VFS_OK || cookie != 12u ||
                 entry.type != PROS_VFS_NODE_FILE || entry.size != 5u ||
                 entry.name[0] != 't' || entry.name[1] != 'e' ||
                 entry.name[2] != 's' || entry.name[3] != 't' ||
                 entry.name[4] != '\0')
-                return -196;
+                return -50000 - __LINE__;
             if (fs.mount.root->ops->readdir(fs.mount.root, &cookie, &entry) !=
                     PROS_VFS_ENOENT || cookie != 12u)
-                return -197;
+                return -50000 - __LINE__;
         }
 
         /*
@@ -7326,13 +7326,13 @@ int ntfs_selftest(void)
 
             if (!fs.mount.root || !fs.mount.root->ops ||
                 !fs.mount.root->ops->lookup)
-                return -198;
+                return -50000 - __LINE__;
 
             if (fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_3,
                                            &unicode_node) != PROS_VFS_ENOENT ||
                 fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_4,
                                            &unicode_node) != PROS_VFS_ENOENT)
-                return -199;
+                return -50000 - __LINE__;
 
             if (fs.mount.root->ops->lookup(fs.mount.root, bad_continuation,
                                            &unicode_node) != PROS_VFS_EINVAL ||
@@ -7344,12 +7344,12 @@ int ntfs_selftest(void)
                                            &unicode_node) != PROS_VFS_EINVAL ||
                 fs.mount.root->ops->lookup(fs.mount.root, out_of_range,
                                            &unicode_node) != PROS_VFS_EINVAL)
-                return -200;
+                return -50000 - __LINE__;
         }
 
         if (ntfs_path_lookup(&fs, components, lengths, 0u,
                              &path_reference) != PROS_NTFS_EINVAL)
-            return -122;
+            return -50000 - __LINE__;
     }
 
     /*
@@ -7391,7 +7391,7 @@ int ntfs_selftest(void)
                                 &stream_size) != PROS_NTFS_OK ||
             stream_size != 3u || stream_data[0] != 'O' ||
             stream_data[1] != 'K' || stream_data[2] != 0u)
-            return -201;
+            return -50000 - __LINE__;
     }
 
     return 0;
