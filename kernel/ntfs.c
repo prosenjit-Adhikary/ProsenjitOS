@@ -9,6 +9,7 @@
 /* Shared NTFS UpCase table state used by index name comparison/insertion. */
 static uint8_t ntfs_upcase_data[PROS_NTFS_UPCASE_BYTES];
 static const uint8_t *ntfs_active_upcase = 0;
+static uint32_t ntfs_bootstrap_debug_stage;
 static uint8_t ntfs_name_key_matches(const uint8_t *key,
                                       uint16_t key_size,
                                       const uint8_t *name_utf16le,
@@ -3359,6 +3360,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         return PROS_NTFS_EINVAL;
     *allocated_lcn = 0u;
     *allocated_clusters = 0u;
+    ntfs_bootstrap_debug_stage = 0u;
     if (!fs->mount.active || fs->mount.read_only ||
         !fs->mount.device || !fs->mount.device->write)
         return PROS_NTFS_ENOTSUP;
@@ -3501,6 +3503,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
      * volume bitmap is updated transactionally by the allocator.
      */
     cluster_count = index_block_clusters;
+    ntfs_bootstrap_debug_stage = 7u;
     rc = ntfs_bitmap_allocate_clusters(fs, cluster_count, &lcn);
     if (rc != PROS_NTFS_OK)
         return rc;
@@ -3667,6 +3670,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     record[pos + alloc_len + bitmap_len + 2u] = 0xFFu;
     record[pos + alloc_len + bitmap_len + 3u] = 0xFFu;
 
+    ntfs_bootstrap_debug_stage = 8u;
     rc = ntfs_index_allocation_write(
         fs,
         &(struct pros_ntfs_run){ .lcn = lcn, .clusters = cluster_count,
@@ -3675,6 +3679,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     if (rc != PROS_NTFS_OK)
         goto rollback;
 
+    ntfs_bootstrap_debug_stage = 9u;
     rc = ntfs_write_file_record(fs, directory_record_number, record);
     if (rc != PROS_NTFS_OK)
         goto rollback;
@@ -6355,8 +6360,11 @@ int ntfs_selftest(void)
         {
             int bootstrap_status = ntfs_index_allocation_bootstrap(
                 &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
-            if (bootstrap_status != PROS_NTFS_OK)
+            if (bootstrap_status != PROS_NTFS_OK) {
+                if (ntfs_bootstrap_debug_stage != 0u)
+                    return -15010 - (int)ntfs_bootstrap_debug_stage;
                 return -15000 + bootstrap_status;
+            }
             if (bootstrap_clusters != 1u)
                 return -15001;
             if (bootstrap_lcn != 8u)
