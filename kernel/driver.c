@@ -243,6 +243,11 @@ int pros_driver_register_pci_device(uint8_t bus, uint8_t slot, uint8_t function,
     if (device_id_out)
         *device_id_out = device->id;
 
+    if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
+        (void)pros_health_record_network(device->id,
+                                         PROS_HEALTH_NETWORK_DEVICE_DISCOVERED,
+                                         ((uint64_t)vendor_id << 16) | device_id);
+
     return PROS_DRIVER_OK;
 }
 
@@ -257,6 +262,10 @@ int pros_device_unregister(uint32_t id)
         if (devices[i].device->driver)
             return PROS_DRIVER_EBUSY;
         pros_device_broker_drop_device(id);
+        if (devices[i].device->class_id == PROS_DEVICE_CLASS_NETWORK)
+            (void)pros_health_record_network(id,
+                                             PROS_HEALTH_NETWORK_DEVICE_REMOVED,
+                                             0u);
         devices[i].device->state = PROS_DEVICE_REMOVED;
         devices[i].device = 0;
         devices[i].used = 0u;
@@ -367,6 +376,10 @@ int pros_driver_bind(uint32_t device_id)
         device->driver_data = 0;
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
                                  device->id, 3u, (uint64_t)device->class_id);
+        if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
+            (void)pros_health_record_network(device->id,
+                                             PROS_HEALTH_NETWORK_PROBE_FAILED,
+                                             (uint64_t)(uint32_t)PROS_DRIVER_EIO);
         return PROS_DRIVER_EIO;
     }
 
@@ -374,6 +387,10 @@ int pros_driver_bind(uint32_t device_id)
     device->state = PROS_DEVICE_BOUND;
     (void)pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
                              device->id, 2u, (uint64_t)device->class_id);
+    if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
+        (void)pros_health_record_network(device->id,
+                                         PROS_HEALTH_NETWORK_DRIVER_BOUND,
+                                         1u);
     return PROS_DRIVER_OK;
 }
 
@@ -385,6 +402,10 @@ int pros_driver_class_is_supported(enum pros_device_class class_id)
     case PROS_DEVICE_CLASS_INPUT:
     case PROS_DEVICE_CLASS_DISPLAY:
     case PROS_DEVICE_CLASS_NETWORK:
+        (void)pros_health_record_network(0u,
+                                         PROS_HEALTH_NETWORK_STACK_UNAVAILABLE,
+                                         PROS_DRIVER_ENOTSUP);
+        return PROS_DRIVER_ENOTSUP;
     case PROS_DEVICE_CLASS_SERIAL:
     case PROS_DEVICE_CLASS_USB:
     case PROS_DEVICE_CLASS_AUDIO:
@@ -442,6 +463,10 @@ int pros_driver_unbind(uint32_t device_id)
     device->state = PROS_DEVICE_DISCOVERED;
     (void)pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
                              device->id, 4u, (uint64_t)device->class_id);
+    if (device->class_id == PROS_DEVICE_CLASS_NETWORK)
+        (void)pros_health_record_network(device->id,
+                                         PROS_HEALTH_NETWORK_DRIVER_UNBOUND,
+                                         0u);
     return PROS_DRIVER_OK;
 }
 
