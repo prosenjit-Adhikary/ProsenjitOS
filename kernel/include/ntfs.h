@@ -64,6 +64,13 @@ int ntfs_create_file(struct pros_ntfs *fs,
                      uint64_t *record_number,
                      const uint16_t *name_utf16le,
                      uint8_t name_length);
+int ntfs_create_directory(struct pros_ntfs *fs,
+                          uint64_t parent_record_number,
+                          uint64_t *record_number,
+                          const uint16_t *name_utf16le,
+                          uint8_t name_length);
+int ntfs_mft_add_empty_index_root(struct pros_ntfs *fs,
+                                   uint64_t record_number);
 
 int ntfs_mft_initialize_record(struct pros_ntfs *fs,
                                 uint64_t record_number,
