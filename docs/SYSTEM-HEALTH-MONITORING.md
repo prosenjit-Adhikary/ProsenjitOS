@@ -202,3 +202,7 @@ FreeBSD documentation:
 
 OpenBSD documentation:
 - systat/vmstat provide continuously refreshed views of load, memory, scheduling, interrupts and I/O statistics.
+
+### Crash persistence safety boundary
+
+Fatal exception handling performs bounded in-memory crash capture only. It does not enter the VFS, block layer, or ATA PIO path from exception context. Persistent crash-record flushing is therefore a safe-context operation; a fatal fault that occurs before a safe flush can run is not guaranteed to survive reboot. The implementation does not claim NVRAM or reserved-memory persistence that the platform does not provide.
