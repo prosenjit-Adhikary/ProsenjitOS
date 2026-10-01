@@ -69,12 +69,6 @@ void timer_dispatch(uint64_t *frame) {
      * service or a periodic polling thread that may itself be unhealthy.
      * Service 1 is the kernel health monitor registered during boot.
      */
-    if ((ticks % 100u) == 0u) {
-        (void)pros_health_watchdog_kick(1u);
-        (void)pros_health_watchdog_poll();
-    }
-    if ((ticks % 1000u) == 0u)
-        (void)pros_health_sample();
 }
 
 int timer_should_preempt(void) {
