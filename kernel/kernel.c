@@ -129,6 +129,7 @@ extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
+extern void user_test_entry(void);
 
 struct gdtr_snapshot {
     uint16_t limit;
@@ -1530,5 +1531,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\\n");
     }
 
+    /* Enter the real CPL3 test only after all kernel-side regressions have
+     * completed. The user test validates the INT 0x80 ABI, capability/IPC
+     * syscalls, user-memory access, and returns through the kernel trampoline. */
+    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\\n");
+    enter_user_mode((uint64_t)(uintptr_t)user_test_entry,
+                    (uint64_t)PROSENJIT_USER_STACK_VA + PROSENJIT_PAGE_SIZE,
+                    user_mode_handle);
 
+    for (;;) __asm__ volatile ("cli; hlt");
 }
