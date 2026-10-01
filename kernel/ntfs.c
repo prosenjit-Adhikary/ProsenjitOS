@@ -839,7 +839,7 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
         got = 0u;
         if (ntfs_file_read(fs, 6u, byte_offset, bitmap_chunk, want,
                            &got) != PROS_NTFS_OK || got != want)
-            return -18001;
+            return PROS_NTFS_EIO;
 
         for (uint32_t b = 0u; b < want && scan_lcn < total_clusters; ++b) {
             uint8_t value = bitmap_chunk[b];
@@ -856,12 +856,10 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                         candidate = lcn;
                     ++candidate_len;
                     if (candidate_len == cluster_count) {
-                        {
-                            int update_status = ntfs_bitmap_update_clusters(
-                                fs, candidate, cluster_count, 1u);
-                            if (update_status != PROS_NTFS_OK)
-                                return -17000 + update_status;
-                        }
+                        if (ntfs_bitmap_update_clusters(fs, candidate,
+                                                        cluster_count, 1u) !=
+                            PROS_NTFS_OK)
+                            return PROS_NTFS_EIO;
                         *first_lcn = candidate;
                         return PROS_NTFS_OK;
                     }
@@ -6308,7 +6306,7 @@ int ntfs_selftest(void)
         r[22] = 3u;
         r[24] = (uint8_t)used;
         r[25] = (uint8_t)(used >> 8);
-        r[28] = 0x00u; r[29] = 0x04u; /* 1024-byte FILE record allocation. */
+        r[28] = 0x00u; r[29] = 0x04u;
 
         r[root_attr + 0u] = 0x90u;
         r[root_attr + 4u] = 192u;
