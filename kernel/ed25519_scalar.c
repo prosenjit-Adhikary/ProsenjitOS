@@ -15,16 +15,6 @@ static int scalar_cmp(const uint8_t a[32], const uint8_t b[32]) {
     return 0;
 }
 
-static void scalar_sub_l32(uint8_t a[32]) {
-    uint16_t borrow = 0;
-    for (uint32_t i = 0; i < 32u; ++i) {
-        uint16_t ai = a[i];
-        uint16_t bi = (uint16_t)scalar_l[i] + borrow;
-        a[i] = (uint8_t)(ai - bi);
-        borrow = (ai < bi) ? 1u : 0u;
-    }
-}
-
 static int scalar_cmp33(const uint8_t a[33], const uint8_t b[33]) {
     for (int32_t i = 32; i >= 0; --i) {
         if (a[(uint32_t)i] < b[(uint32_t)i]) return -1;
