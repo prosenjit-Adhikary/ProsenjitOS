@@ -91,3 +91,8 @@ These should be added only with corresponding metadata validation and regression
 
 - File creation now rejects inactive/read-only mounts at the public NTFS create API boundary.
 - VFS create and lookup enforce the same UTF-8 filename control/reserved-character rules.
+
+
+### Journal compatibility boundary
+
+The repository does not yet contain an NTFS-compatible `$LogFile` transaction engine. NTFS identifies `$LogFile` as the transactional logging file, and its recovery state is represented by restart pages, LSNs and NTFS client log records. This project must not describe a generic write-ahead log as NTFS `$LogFile` compatibility. The current write path therefore remains a durability-ordered metadata/data path, not crash-recovery-complete.
