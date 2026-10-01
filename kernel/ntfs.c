@@ -4335,6 +4335,8 @@ rollback:
     (void)ntfs_write_file_record(fs, directory_record_number,
                                  old_directory_record);
     (void)ntfs_bitmap_free_clusters(fs, new_lcn, 1u);
+    if (rc == PROS_NTFS_ECORRUPT)
+        return -15060;
     return rc == PROS_NTFS_OK ? PROS_NTFS_EIO : rc;
 }
 
