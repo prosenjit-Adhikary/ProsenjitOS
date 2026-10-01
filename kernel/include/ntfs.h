@@ -128,6 +128,12 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
                            const uint8_t *name_utf16le, uint8_t name_length,
                            uint64_t *file_reference);
 
+/* Remove a child from a resident $INDEX_ROOT. Trees backed by
+ * $INDEX_ALLOCATION are rejected until delete/rebalance is implemented. */
+int ntfs_index_root_remove(struct pros_ntfs *fs,
+                           uint64_t directory_record_number,
+                           uint64_t child_record_number);
+
 struct pros_ntfs_index_record {
     uint64_t vcn;
     uint32_t first_entry_offset;
