@@ -7758,8 +7758,30 @@ int ntfs_selftest(void)
                                 break;
                             roff += es;
                         }
-                        if (!raw_found)
-                            return -206;
+                        if (!raw_found) {
+                            uint32_t count = 0u;
+                            uint8_t last_tens = 0u;
+                            uint8_t last_ones = 0u;
+                            roff = info.first_entry_offset;
+                            while (roff < info.entries_size) {
+                                uint16_t es = le16(verify + roff + 8u);
+                                uint8_t fl = verify[roff + 12u];
+                                if (es < 16u || es > info.entries_size - roff ||
+                                    (es & 7u) != 0u)
+                                    break;
+                                if ((fl & 2u) == 0u && le16(verify + roff + 10u) >= 72u) {
+                                    count++;
+                                    last_tens = verify[roff + 16u + 68u];
+                                    last_ones = verify[roff + 16u + 70u];
+                                }
+                                if (fl & 2u)
+                                    break;
+                                roff += es;
+                            }
+                            return -22000 - (int)(count * 100u +
+                                                 (uint32_t)(last_tens - '0') * 10u +
+                                                 (uint32_t)(last_ones - '0'));
+                        }
                     }
                     {
                         int routed_status = ntfs_directory_lookup(
