@@ -8,6 +8,7 @@
 
 extern uint64_t kernel_exception_count(void);
 extern uint64_t kernel_page_fault_count(void);
+extern uint64_t kernel_recovered_page_fault_count(void);
 extern uint64_t kernel_last_exception_vector(void);
 extern uint64_t kernel_last_exception_rip(void);
 
@@ -94,6 +95,7 @@ int pros_health_snapshot(struct pros_health_snapshot *out) {
         .block_flush_error_count = block_flush_error_count(),
         .exception_count = kernel_exception_count(),
         .page_fault_count = kernel_page_fault_count(),
+        .recovered_page_fault_count = kernel_recovered_page_fault_count(),
         .last_exception_vector = kernel_last_exception_vector(),
         .last_exception_rip = kernel_last_exception_rip(),
         .memory_pressure = (physical_memory_total_pages() != 0 &&
