@@ -6346,11 +6346,11 @@ int ntfs_selftest(void)
         {
             uint8_t bitmap_probe = 0u;
             uint32_t bitmap_probe_read = 0u;
-            if (ntfs_file_read(&fs, 6u, 0u, &bitmap_probe, 1u,
+            if (ntfs_file_read(&fs, 6u, 1u, &bitmap_probe, 1u,
                                &bitmap_probe_read) != PROS_NTFS_OK ||
                 bitmap_probe_read != 1u)
                 return -15010;
-            if (bitmap_probe != disk.bitmap_data[0u])
+            if (bitmap_probe != disk.bitmap_data[1u])
                 return -15020 + (int)bitmap_probe;
         }
 
