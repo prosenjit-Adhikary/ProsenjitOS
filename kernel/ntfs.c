@@ -1156,7 +1156,6 @@ int ntfs_create_file(struct pros_ntfs *fs,
     uint8_t parent_record[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t rollback_parent_record[PROS_NTFS_RECORD_WORK_MAX];
     int rc;
-    int rollback_stage = 0;
     uint8_t root_needs_allocation_insert = 0u;
     uint8_t root_bootstrapped = 0u;
     uint64_t bootstrap_lcn = 0u;
@@ -3352,6 +3351,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
     uint32_t lcn_bytes;
     uint32_t map_len;
     int rc;
+    int rollback_stage = 0;
 
     if (!fs || !allocated_lcn || !allocated_clusters ||
         directory_record_number > 0x0000FFFFFFFFFFFFull ||
