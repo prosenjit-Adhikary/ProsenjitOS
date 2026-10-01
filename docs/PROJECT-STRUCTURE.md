@@ -197,7 +197,7 @@ debugging features.
 
 
 - The health monitor now exposes a bounded deterministic text export of retained structured events and expanded VFS mutation/directory counters.
-- Security authorization decisions and driver bind/unbind/failure transitions now emit bounded health events; no unsupported network metrics are synthesized.
+- Security authorization decisions and driver bind/unbind/failure transitions now emit bounded health events. Network-class PCI device lifecycle transitions now emit bounded network telemetry events for discovery/removal, bind/unbind, and probe failure; unsupported link/packet metrics remain explicit rather than fabricated.
 - Export is caller-buffer bounded and does not allocate dynamically.
 - The export is diagnostic transport only; persistent logs and reboot-surviving crash records are separate bounded transports and are not boot/corruption dependencies.
 
