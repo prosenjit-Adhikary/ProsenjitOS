@@ -4761,46 +4761,83 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
             goto rollback;
 
         old_terminal = old_root_entries - 16u;
-        new_root_entries = old_root_entries + parent_entry_size;
 
-        for (uint32_t i = old_terminal; i < old_root_entries; ++i)
-            ((uint8_t *)root_data)[i + parent_entry_size] = root_data[i];
-        for (uint32_t i = old_terminal; i > parent_insert_offset; --i)
-            ((uint8_t *)root_data)[i + parent_entry_size - 1u] =
-                root_data[i - 1u];
-
-        for (uint32_t i = 0u; i < parent_entry_size; ++i)
-            ((uint8_t *)root_data)[parent_insert_offset + i] = 0u;
-        for (uint32_t i = 0u; i < 8u; ++i)
-            ((uint8_t *)root_data)[parent_insert_offset + i] =
-                (uint8_t)(separator_reference >> (8u * i));
-        ((uint8_t *)root_data)[parent_insert_offset + 8u] =
-            (uint8_t)parent_entry_size;
-        ((uint8_t *)root_data)[parent_insert_offset + 9u] =
-            (uint8_t)(parent_entry_size >> 8);
-        ((uint8_t *)root_data)[parent_insert_offset + 10u] =
-            (uint8_t)separator_key_size;
-        ((uint8_t *)root_data)[parent_insert_offset + 11u] =
-            (uint8_t)(separator_key_size >> 8);
-        ((uint8_t *)root_data)[parent_insert_offset + 12u] = 1u;
-        for (uint32_t i = 0u; i < separator_key_size; ++i)
-            ((uint8_t *)root_data)[parent_insert_offset + 16u + i] =
-                separator_key[i];
-        for (uint32_t i = 0u; i < 8u; ++i)
-            ((uint8_t *)root_data)[parent_insert_offset + parent_entry_size - 8u + i] =
-                (uint8_t)(new_vcn >> (8u * i));
-
-        ((uint8_t *)root_data)[20u]=(uint8_t)new_root_entries;
-        ((uint8_t *)root_data)[21u]=(uint8_t)(new_root_entries >> 8);
-        ((uint8_t *)root_data)[22u]=(uint8_t)(new_root_entries >> 16);
-        ((uint8_t *)root_data)[23u]=(uint8_t)(new_root_entries >> 24);
-
+        /*
+         * NTFS child VCNs identify the subtree immediately preceding the
+         * indexed separator.  When the insertion point is the END entry,
+         * that END entry currently carries no VCN; the previous NODE entry
+         * owns the old (left) child VCN.  The END entry becomes the right
+         * child after the split and therefore grows by one VCN field.
+         */
         {
-            uint32_t terminal = new_root_entries - 16u;
-            for (uint32_t i = 0u; i < 16u; ++i)
-                ((uint8_t *)root_data)[terminal + i] = 0u;
-            ((uint8_t *)root_data)[terminal + 8u] = 16u;
-            ((uint8_t *)root_data)[terminal + 12u] = 2u;
+            uint64_t old_child_vcn = 0u;
+            uint32_t previous = root_first_entry_offset;
+            uint8_t found_previous = 0u;
+
+            while (previous < parent_insert_offset) {
+                uint16_t esize = le16(root_data + previous + 8u);
+                uint8_t flags = root_data[previous + 12u];
+                if (esize < 16u || (esize & 7u) != 0u ||
+                    esize > parent_insert_offset - previous)
+                    goto rollback;
+                if (flags & 1u) {
+                    if (esize < 24u)
+                        goto rollback;
+                    old_child_vcn = le64(root_data + previous + esize - 8u);
+                    found_previous = 1u;
+                }
+                previous += esize;
+            }
+            if (!found_previous || old_child_vcn > 0x0000FFFFFFFFFFFFull)
+                goto rollback;
+
+            new_root_entries = old_root_entries + parent_entry_size + 8u;
+            if (new_root_entries > root_allocated_size)
+                goto rollback;
+
+            /* Shift the existing entries and END marker to make room. */
+            for (uint32_t i = old_terminal; i > parent_insert_offset; --i)
+                ((uint8_t *)root_data)[i + parent_entry_size - 1u] =
+                    root_data[i - 1u];
+
+            for (uint32_t i = 0u; i < parent_entry_size; ++i)
+                ((uint8_t *)root_data)[parent_insert_offset + i] = 0u;
+
+            for (uint32_t i = 0u; i < 8u; ++i)
+                ((uint8_t *)root_data)[parent_insert_offset + i] =
+                    (uint8_t)(separator_reference >> (8u * i));
+            ((uint8_t *)root_data)[parent_insert_offset + 8u] =
+                (uint8_t)parent_entry_size;
+            ((uint8_t *)root_data)[parent_insert_offset + 9u] =
+                (uint8_t)(parent_entry_size >> 8);
+            ((uint8_t *)root_data)[parent_insert_offset + 10u] =
+                (uint8_t)separator_key_size;
+            ((uint8_t *)root_data)[parent_insert_offset + 11u] =
+                (uint8_t)(separator_key_size >> 8);
+            ((uint8_t *)root_data)[parent_insert_offset + 12u] = 1u;
+            for (uint32_t i = 0u; i < separator_key_size; ++i)
+                ((uint8_t *)root_data)[parent_insert_offset + 16u + i] =
+                    separator_key[i];
+            for (uint32_t i = 0u; i < 8u; ++i)
+                ((uint8_t *)root_data)[parent_insert_offset + parent_entry_size - 8u + i] =
+                    (uint8_t)(old_child_vcn >> (8u * i));
+
+            /* Rebuild the rightmost END entry as END|NODE -> new_vcn. */
+            {
+                uint32_t terminal = new_root_entries - 24u;
+                for (uint32_t i = 0u; i < 24u; ++i)
+                    ((uint8_t *)root_data)[terminal + i] = 0u;
+                ((uint8_t *)root_data)[terminal + 8u] = 24u;
+                ((uint8_t *)root_data)[terminal + 12u] = 3u;
+                for (uint32_t i = 0u; i < 8u; ++i)
+                    ((uint8_t *)root_data)[terminal + 16u + i] =
+                        (uint8_t)(new_vcn >> (8u * i));
+            }
+
+            ((uint8_t *)root_data)[20u]=(uint8_t)new_root_entries;
+            ((uint8_t *)root_data)[21u]=(uint8_t)(new_root_entries >> 8);
+            ((uint8_t *)root_data)[22u]=(uint8_t)(new_root_entries >> 16);
+            ((uint8_t *)root_data)[23u]=(uint8_t)(new_root_entries >> 24);
         }
     }
 
@@ -7613,19 +7650,20 @@ int ntfs_selftest(void)
                     split_mask |= 4u;
                 if (le16(disk.root_record + 184u + 10u) != 74u)
                     split_mask |= 8u;
-                if (le64(disk.root_record + 184u + 104u - 8u) != 1u)
+                if (le64(disk.root_record + 184u + 104u - 8u) != 0u)
                     split_mask |= 16u;
+                if (le16(disk.root_record + 184u + 104u + 8u) != 24u ||
+                    disk.root_record[184u + 104u + 104u] != 0u ||
+                    le64(disk.root_record + 184u + 104u + 16u) != 1u)
+                    split_mask |= 32u;
                 if (split_mask & 16u) {
                     uint64_t observed_280 = le64(disk.root_record + 280u);
                     uint64_t observed_232 = le64(disk.root_record + 232u);
                     return -26000 - (int)(observed_232 & 0xFFu) -
                            (int)((observed_280 & 0xFFu) << 8);
                 }
-                if (split_mask != 0u) {
-                    if (split_mask == 16u)
-                        return -25000 - (int)(le64(disk.root_record + 184u + 104u - 8u) & 0xFFFFu);
+                if (split_mask != 0u)
                     return -24000 - (int)split_mask;
-                }
             }
 
             {
