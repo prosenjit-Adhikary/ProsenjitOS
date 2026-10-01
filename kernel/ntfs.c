@@ -618,9 +618,12 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
         cluster_count > total_clusters - first_lcn)
         return PROS_NTFS_EOVERFLOW;
 
-    if (ntfs_read_file_record(fs, 6u, record, sizeof(record)) !=
-        PROS_NTFS_OK)
-        return PROS_NTFS_EIO;
+    {
+        int bitmap_record_status =
+            ntfs_read_file_record(fs, 6u, record, sizeof(record));
+        if (bitmap_record_status != PROS_NTFS_OK)
+            return -16005 + bitmap_record_status;
+    }
     if (ntfs_find_unnamed_attribute(record, fs->bytes_per_file_record,
                                     0x80u, &attr_offset) != PROS_NTFS_OK)
         return PROS_NTFS_ECORRUPT;
