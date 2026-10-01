@@ -223,6 +223,18 @@ void exception_dispatch(uint64_t *frame) {
         int crash_rc = pros_crash_record_capture(vector, frame[1],
                                                   frame[2], cr2,
                                                   timer_ticks());
+        if (crash_rc == PROS_CRASH_RECORD_OK &&
+            pros_crash_record_available()) {
+            /*
+             * The crash backend is attached only after raw storage/partition
+             * discovery has established a non-overlapping reserved location.
+             * The ATA PIO backend is polling-only and bounded, so this path
+             * does not recurse through VFS/filesystem logging.
+             */
+            int persist_rc = pros_crash_record_flush_pending();
+            if (persist_rc != PROS_CRASH_RECORD_OK)
+                crash_rc = persist_rc;
+        }
         if (crash_rc != PROS_CRASH_RECORD_OK &&
             pros_crash_record_available())
             (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_CAPTURE_FAILED,
