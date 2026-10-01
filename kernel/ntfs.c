@@ -3316,7 +3316,7 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
          */
         if (key_size >= 66u) {
             uint32_t key_name_bytes = (uint32_t)key[64u] * 2u;
-            if (key[65u] != 2u && key[65u] <= 3u && key_name_bytes == want_bytes &&
+            if ((key[65u] == 1u || key[65u] == 3u) && key_name_bytes == want_bytes &&
                 66u + key_name_bytes <= key_size) {
                 uint8_t equal = ntfs_active_upcase ?
                     ntfs_name_key_matches(key, key_size, name_utf16le,
@@ -3963,13 +3963,12 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                          allocation_start_lcn)
         return PROS_NTFS_EOVERFLOW;
 
-    if (allocation_start_lcn != 8u)
-        return PROS_NTFS_ECORRUPT;
-
     /*
-     * Bootstrap has an exact, metadata-derived placement target. Reuse the
-     * tested exact bitmap transaction instead of the general scanner so the
-     * allocation probe and the bitmap mutation share one authoritative path.
+     * Bootstrap uses the first cluster immediately after the existing MFT
+     * extent as its deterministic placement target. The bitmap remains
+     * authoritative: if that exact range is occupied, fail rather than
+     * silently selecting unrelated storage and changing the fixture's
+     * metadata geometry.
      */
     rc = ntfs_bitmap_allocate_clusters_exact(fs, allocation_start_lcn,
                                               cluster_count);
@@ -4152,16 +4151,12 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
         &(struct pros_ntfs_run){ .lcn = lcn, .clusters = cluster_count,
                                  .sparse = 0u },
         1u, 0u, node, index_block_size);
-    if (rc != PROS_NTFS_OK) {
-        rc = PROS_NTFS_EIO;
+    if (rc != PROS_NTFS_OK)
         goto rollback;
-    }
 
     rc = ntfs_write_file_record(fs, directory_record_number, record);
-    if (rc != PROS_NTFS_OK) {
-        rc = PROS_NTFS_EIO;
+    if (rc != PROS_NTFS_OK)
         goto rollback;
-    }
 
     *allocated_lcn = lcn;
     *allocated_clusters = cluster_count;
