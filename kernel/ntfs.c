@@ -3965,11 +3965,26 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     for (uint32_t i = 0u; i < record_size; ++i)
         old_leaf[i] = leaf[i];
 
-    if (ntfs_index_record_header(leaf, record_size, fs->bytes_per_sector,
-                                 vcn,
-                                 &(struct pros_ntfs_index_record){0}) !=
-            PROS_NTFS_OK)
-        return -15001 - 4;
+    {
+        struct pros_ntfs_index_record leaf_info;
+        int leaf_header_status = ntfs_index_record_header(
+            leaf, record_size, fs->bytes_per_sector, vcn, &leaf_info);
+        if (leaf_header_status != PROS_NTFS_OK) {
+            if (ntfs_index_record_fixup(leaf, record_size,
+                                         fs->bytes_per_sector) != PROS_NTFS_OK)
+                return -15020;
+            if (le64(leaf + 16u) != vcn)
+                return -15021;
+            if ((uint32_t)le16(leaf + 4u) +
+                    (uint32_t)le16(leaf + 6u) * 2u > record_size)
+                return -15022;
+            if (24u + le32(leaf + 24u) > record_size ||
+                24u + le32(leaf + 28u) > record_size ||
+                24u + le32(leaf + 32u) > record_size)
+                return -15023;
+            return -15024;
+        }
+    }
 
     {
         uint32_t entries_offset = le32(leaf + 0x18u);
