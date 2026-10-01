@@ -962,9 +962,6 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 break;
             }
             bitmap_byte = bitmap_sector[in_sector];
-            if (candidate == start_lcn && lcn == start_lcn &&
-                (bitmap_byte & 0x01u) != 0u)
-                return -16000 - (int)bitmap_byte;
             if ((bitmap_byte & (uint8_t)(1u << (lcn & 7u))) != 0u) {
                 free_run = 0u;
                 break;
@@ -5942,7 +5939,7 @@ int ntfs_selftest(void)
             int write_rc = ntfs_file_write(&fs, 12u, 8192u, fragmented,
                                            sizeof(fragmented), &written);
             if (write_rc != PROS_NTFS_OK)
-                return -12000 + write_rc;
+                return -1271;
         }
         if (written != sizeof(fragmented))
             return -1272;
