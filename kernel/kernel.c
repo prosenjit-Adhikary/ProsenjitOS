@@ -23,6 +23,7 @@
 #include "fat32.h"
 #include "exfat.h"
 #include "prosenjitfs.h"
+#include "ntfs.h"
 #include "exfat_upcase.h"
 #include "../include/abi/syscall.h"
 
