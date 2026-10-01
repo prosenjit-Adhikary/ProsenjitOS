@@ -3537,10 +3537,14 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
                          allocation_start_lcn)
         return PROS_NTFS_EOVERFLOW;
 
+    if (allocation_start_lcn != 8u)
+        return -15020;
     rc = ntfs_bitmap_allocate_clusters_from(fs, allocation_start_lcn,
                                              cluster_count, &lcn);
     if (rc != PROS_NTFS_OK)
         return rc;
+    if (lcn != 8u)
+        return -15021;
     if (lcn > 0x7FFFFFFFFFFFFFFFull) {
         (void)ntfs_bitmap_free_clusters(fs, lcn, cluster_count);
         return PROS_NTFS_ENOTSUP;
