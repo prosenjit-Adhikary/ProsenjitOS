@@ -6906,9 +6906,9 @@ int ntfs_selftest(void)
             disk.root_record[29u] = 0x01u;
             /* Root attribute value is 352 bytes; INDEX_ROOT header starts at value+0. */
             disk.root_record[40u] = 0x60u; disk.root_record[41u] = 0x01u;
-            /* first entry=32, entries used=144, allocated=352. */
+            /* first entry=32, entries end=152, allocated=352. */
             disk.root_record[64u] = 32u; disk.root_record[65u] = 0u;
-            disk.root_record[68u] = 144u; disk.root_record[69u] = 0u;
+            disk.root_record[68u] = 152u; disk.root_record[69u] = 0u;
             disk.root_record[72u] = 0x60u; disk.root_record[73u] = 0x01u;
             disk.root_record[69u] = 0u;
             disk.root_record[72u] = 0x60u;
@@ -6921,7 +6921,10 @@ int ntfs_selftest(void)
              disk.root_record[80u + 9u] = 0u;
              disk.root_record[80u + 12u] = 1u;
             for (uint32_t i = 0u; i < 8u; ++i)
-                disk.root_record[80u + 96u - 8u + i] = 0u;
+                disk.root_record[80u + 104u - 8u + i] = 0u;
+            /* 104-byte child entry is followed immediately by a 16-byte END entry. */
+            disk.root_record[184u + 8u] = 16u;
+            disk.root_record[184u + 12u] = 2u;
 
             {
                 uint32_t a = 400u;
@@ -7053,10 +7056,10 @@ int ntfs_selftest(void)
              */
             if ((disk.bitmap_data[9u / 8u] &
                  (uint8_t)(1u << (9u % 8u))) == 0u ||
-                le64(disk.root_record + 272u) != 8192u ||
-                disk.root_record[176u + 12u] != 1u ||
-                le16(disk.root_record + 176u + 10u) != 74u ||
-                le64(disk.root_record + 176u + 104u - 8u) != 1u)
+                le64(disk.root_record + 280u) != 8192u ||
+                disk.root_record[184u + 12u] != 1u ||
+                le16(disk.root_record + 184u + 10u) != 74u ||
+                le64(disk.root_record + 184u + 104u - 8u) != 1u)
                 return -197;
 
             {
