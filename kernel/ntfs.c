@@ -6187,10 +6187,13 @@ int ntfs_selftest(void)
                     return -122;
             }
 
-            if (ntfs_index_allocation_lookup(
+            {
+                int lookup_rc = ntfs_index_allocation_lookup(
                     &fs, lookup_record, sizeof(lookup_record), 24u, 200u,
-                    lookup_name, 4u, &child_reference) != PROS_NTFS_OK)
-                return -114;
+                    lookup_name, 4u, &child_reference);
+                if (lookup_rc != PROS_NTFS_OK)
+                    return -10000 + lookup_rc;
+            }
             if (child_reference != 0x3000u)
                 return -115;
 
