@@ -69,6 +69,9 @@ The deterministic native-filesystem self-test now covers persistent inode/data-b
 
 ## Completion principle
 
+The final acceptance gate is the post-change GitHub Actions build-and-boot workflow. A source-level pass or deterministic self-test alone does not mark the milestone CI-verified.
+
+
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
 
 
