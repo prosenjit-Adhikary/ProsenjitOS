@@ -6021,6 +6021,9 @@ static int ntfs_vfs_mkdir(struct pros_vfs_vnode *parent, const char *name,
     return PROS_VFS_OK;
 }
 
+static int ntfs_vfs_rmdir(struct pros_vfs_vnode *parent, const char *name);
+static int ntfs_vfs_unlink(struct pros_vfs_vnode *parent, const char *name);
+
 static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops = {
     .lookup = ntfs_vfs_lookup,
     .readdir = ntfs_vfs_readdir,
