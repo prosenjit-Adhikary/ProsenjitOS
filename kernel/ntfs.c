@@ -6025,8 +6025,133 @@ static const struct pros_vfs_vnode_ops ntfs_vfs_vnode_ops = {
     .lookup = ntfs_vfs_lookup,
     .readdir = ntfs_vfs_readdir,
     .create = ntfs_vfs_create,
-    .mkdir = ntfs_vfs_mkdir
+    .mkdir = ntfs_vfs_mkdir,
+    .rmdir = ntfs_vfs_rmdir,
+    .unlink = ntfs_vfs_unlink
 };
+
+
+static int ntfs_vfs_delete_child(struct pros_vfs_vnode *parent,
+                                  const char *name, uint8_t directory_only)
+{
+    struct pros_ntfs_vfs_node *parent_node;
+    struct pros_ntfs_vfs_node *child_node;
+    struct pros_vfs_vnode *child = 0;
+    struct pros_ntfs *fs;
+    static uint8_t parent_backup[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t child_backup[PROS_NTFS_RECORD_WORK_MAX];
+    static uint8_t child_record[PROS_NTFS_RECORD_WORK_MAX];
+    uint64_t child_record_number;
+    uint16_t flags;
+    uint64_t cookie = 0u;
+    struct pros_vfs_dirent entry;
+    int rc;
+
+    if (!parent || !name || !parent->mount ||
+        parent->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    parent_node = (struct pros_ntfs_vfs_node *)parent->private_data;
+    fs = parent_node ? (struct pros_ntfs *)parent->mount->private_data : 0;
+    if (!fs || !fs->mount.active || fs->mount.read_only ||
+        !fs->mount.device || !fs->mount.device->write)
+        return PROS_VFS_ENOTSUP;
+
+    rc = ntfs_vfs_lookup(parent, name, &child);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    child_node = (struct pros_ntfs_vfs_node *)child->private_data;
+    if (!child_node) {
+        vfs_vnode_put(child);
+        return PROS_VFS_EIO;
+    }
+
+    if ((directory_only && child->type != PROS_VFS_NODE_DIRECTORY) ||
+        (!directory_only && child->type == PROS_VFS_NODE_DIRECTORY)) {
+        vfs_vnode_put(child);
+        return directory_only ? PROS_VFS_ENOTDIR : PROS_VFS_EISDIR;
+    }
+
+    if (directory_only) {
+        rc = child->ops && child->ops->readdir ?
+            child->ops->readdir(child, &cookie, &entry) : PROS_VFS_ENOSYS;
+        if (rc == PROS_VFS_OK) {
+            vfs_vnode_put(child);
+            return PROS_VFS_ENOTEMPTY;
+        }
+        if (rc != PROS_VFS_ENOENT) {
+            vfs_vnode_put(child);
+            return rc;
+        }
+    }
+
+    child_record_number = child_node->record_number;
+    if (child_record_number < 24u ||
+        child_record_number > 0x0000FFFFFFFFFFFFull ||
+        fs->bytes_per_file_record > sizeof(child_record)) {
+        vfs_vnode_put(child);
+        return PROS_VFS_EINVAL;
+    }
+
+    if (ntfs_read_file_record(fs, parent_node->record_number,
+                              parent_backup, sizeof(parent_backup)) !=
+            PROS_NTFS_OK ||
+        ntfs_read_file_record(fs, child_record_number,
+                              child_record, sizeof(child_record)) !=
+            PROS_NTFS_OK) {
+        vfs_vnode_put(child);
+        return PROS_VFS_EIO;
+    }
+    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
+        child_backup[i] = child_record[i];
+
+    flags = le16(child_record + 22u);
+    if ((flags & 1u) == 0u) {
+        vfs_vnode_put(child);
+        return PROS_VFS_ENOENT;
+    }
+
+    rc = ntfs_index_root_remove(fs, parent_node->record_number,
+                                child_record_number);
+    if (rc != PROS_NTFS_OK) {
+        vfs_vnode_put(child);
+        return rc == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOSYS :
+               (rc == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL : PROS_VFS_EIO);
+    }
+
+    /*
+     * Mark the MFT record inactive before releasing its allocation bit.
+     * If either metadata operation fails, restore both records so the parent
+     * index and child record remain mutually consistent.
+     */
+    child_record[22u] &= (uint8_t)~1u;
+    if (ntfs_write_file_record(fs, child_record_number, child_record) !=
+            PROS_NTFS_OK ||
+        ntfs_mft_free_record(fs, child_record_number) != PROS_NTFS_OK) {
+        (void)ntfs_write_file_record(fs, parent_node->record_number,
+                                     parent_backup);
+        (void)ntfs_write_file_record(fs, child_record_number, child_backup);
+        vfs_vnode_put(child);
+        return PROS_VFS_EIO;
+    }
+
+    /*
+     * Keep the VFS node table reusable after the destructive operation. The
+     * on-disk MFT slot has already been made inactive and freed.
+     */
+    vfs_vnode_put(child);
+    child_node->used = 0u;
+    return PROS_VFS_OK;
+}
+
+static int ntfs_vfs_unlink(struct pros_vfs_vnode *parent, const char *name)
+{
+    return ntfs_vfs_delete_child(parent, name, 0u);
+}
+
+static int ntfs_vfs_rmdir(struct pros_vfs_vnode *parent, const char *name)
+{
+    return ntfs_vfs_delete_child(parent, name, 1u);
+}
 
 static int ntfs_vfs_mount(struct pros_ntfs *fs)
 {
