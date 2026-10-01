@@ -7512,6 +7512,12 @@ int ntfs_selftest(void)
             }
             {
                 uint32_t term = 64u + 41u * 96u;
+                /* Clear the complete terminal entry before setting its
+                 * size/flags. The fixture is rebuilt on top of a previously
+                 * populated synthetic root/index image, so stale key bytes
+                 * must never leak into the terminal entry. */
+                for (uint32_t i = 0u; i < 16u; ++i)
+                    disk.index_record[term + i] = 0u;
                 disk.index_record[term + 8u] = 16u;
                 disk.index_record[term + 12u] = 2u;
                 disk.index_record[28u]=0x98u; disk.index_record[29u]=0x0Fu;
