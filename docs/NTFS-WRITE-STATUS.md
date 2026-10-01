@@ -37,13 +37,17 @@ The synthetic NTFS disk exercises:
 
 The build workflow requires the NTFS file-data write marker during the QEMU regression boot.
 
+## Durability boundary
+
+The NTFS metadata/data write path now issues a block-device flush barrier before reporting a successful MFT/data write. This closes the device-cache durability boundary when the underlying device provides a real flush primitive. A device without a flush callback still provides no physical durability guarantee.
+
 ## Important transaction boundary
 
 The current metadata/data write path is **not journaled**. Allocation is rolled back when a pre-commit metadata operation fails, but a failure after physical data sectors have already been written can leave stale data in clusters that are subsequently returned to the free bitmap.
 
 That is acceptable for the current controlled milestone only because the driver does not claim crash-safe filesystem transactions.
 
-Full crash-safe write support requires `$LogFile` transaction handling and a recovery model.
+Full crash-safe write support still requires NTFS `$LogFile` transaction handling, restart-page/log-page validation, redo/undo transaction replay, and a recovery model.
 
 ## Next implementation milestones
 
@@ -73,7 +77,7 @@ The current path does not yet write:
 - arbitrary attribute-list expansion
 - root→`$INDEX_ALLOCATION` conversion and recursive internal-node splitting
 - security descriptors
-- `$LogFile` journal transactions
+- `$LogFile` journal transactions and crash-recovery replay
 
 These should be added only with corresponding metadata validation and regression tests.
 
