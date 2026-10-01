@@ -3036,11 +3036,6 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
     root_mutable_data = (uint8_t *)root_data;
 
     if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
-        ntfs_active_upcase = 0;
-        return PROS_NTFS_ECORRUPT;
-    }
-
-    if (ntfs_find_attribute(child_record, fs->bytes_per_file_record,
                             0x30u, &file_name_offset) != PROS_NTFS_OK ||
         ntfs_attribute_data(child_record, fs->bytes_per_file_record,
                             file_name_offset, &child_name,
