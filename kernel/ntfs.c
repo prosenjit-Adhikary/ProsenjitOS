@@ -3498,6 +3498,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             attr_id = (uint32_t)le16(record + pos + 14u) + 1u;
         pos += len;
     }
+    ntfs_bootstrap_debug_stage = 10u;
     if (pos != used - 8u)
         return PROS_NTFS_ECORRUPT;
 
