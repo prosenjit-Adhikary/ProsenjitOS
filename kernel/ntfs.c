@@ -7751,7 +7751,7 @@ int ntfs_selftest(void)
                                 verify[roff + 16u + 68u] == '4' &&
                                 verify[roff + 16u + 70u] == '1') {
                                 raw_found = 1u;
-                                if (le64(verify + roff) != 0x4029u)
+                                if (le64(verify + roff) != 0x5000u)
                                     return -205;
                             }
                             if (fl & 2u)
@@ -7766,7 +7766,7 @@ int ntfs_selftest(void)
                             &fs, 5u, routed_name, 3u, &routed_reference);
                         if (routed_status != PROS_NTFS_OK)
                             return -21000 + routed_status;
-                        if (routed_reference != 0x4029u)
+                        if (routed_reference != 0x5000u)
                             return -207;
                     }
                 }
