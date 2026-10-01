@@ -2037,7 +2037,8 @@ static int ntfs_extend_last_run(uint8_t *record, uint32_t record_size,
     }
 
     if (!terminated || length_bytes == 0u ||
-        run_vcn != new_allocated_clusters)
+        new_allocated_clusters < added_clusters ||
+        run_vcn != new_allocated_clusters - added_clusters)
         return PROS_NTFS_ECORRUPT;
     if (last_run->sparse ||
         last_run->clusters > 0xFFFFFFFFFFFFFFFFull - added_clusters)
