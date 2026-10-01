@@ -4342,7 +4342,6 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     static uint8_t leaf[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t old_leaf[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t directory_record[PROS_NTFS_RECORD_WORK_MAX];
-    static uint8_t rebuilt_directory_record[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t old_directory_record[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t right[PROS_NTFS_RECORD_WORK_MAX];
     static uint8_t expanded[PROS_NTFS_RECORD_WORK_MAX * 2u];
@@ -4733,28 +4732,20 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         goto rollback;
     }
 
-    /*
-     * Build the parent metadata in an isolated image. This makes the
-     * variable-sized INDEX_ROOT shift deterministic and prevents the
-     * terminal-entry move from aliasing the entry being inserted.
-     */
-    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
-        rebuilt_directory_record[i] = directory_record[i];
-
-    /* Insert the promoted separator and the new right-child VCN. */
-    if (ntfs_attribute_data(rebuilt_directory_record,
-                            fs->bytes_per_file_record,
+    /* Insert the promoted separator and the new right-child VCN directly into
+     * the rollback-protected directory image. The original is already saved
+     * in old_directory_record, so no second 64 KiB scratch image is needed. */
+    if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
                             root_attr, &root_data, &root_size) != PROS_NTFS_OK)
         goto rollback;
     {
-        uint16_t value_offset =
-            le16(rebuilt_directory_record + root_attr + 20u);
+        uint16_t value_offset = le16(directory_record + root_attr + 20u);
         if ((uint32_t)value_offset + root_size >
-                le32(rebuilt_directory_record + root_attr + 4u) ||
+                le32(directory_record + root_attr + 4u) ||
             root_attr + (uint32_t)value_offset + root_size >
                 fs->bytes_per_file_record)
             goto rollback;
-        root_mutable_data = rebuilt_directory_record + root_attr + value_offset;
+        root_mutable_data = directory_record + root_attr + value_offset;
     }
     {
         uint32_t old_root_entries = le32(root_data + 20u);
@@ -4875,9 +4866,6 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
         rc = PROS_NTFS_ECORRUPT;
         goto rollback;
     }
-    for (uint32_t i = 0u; i < fs->bytes_per_file_record; ++i)
-        directory_record[i] = rebuilt_directory_record[i];
-
     rc = ntfs_write_file_record(fs, directory_record_number,
                                 directory_record);
     if (rc == PROS_NTFS_OK)
