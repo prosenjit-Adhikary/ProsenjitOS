@@ -33,6 +33,7 @@ struct pros_crash_record {
 int pros_crash_record_attach(struct pros_block_device *device,
                              uint64_t first_lba);
 int pros_crash_record_available(void);
+void pros_crash_record_detach(void);
 int pros_crash_record_capture(uint64_t vector, uint64_t error_code,
                               uint64_t rip, uint64_t cr2, uint64_t timestamp);
 int pros_crash_record_peek(struct pros_crash_record *record);
