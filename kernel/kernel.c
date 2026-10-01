@@ -17,6 +17,7 @@
 #include "pci.h"
 #include "driver.h"
 #include "device_broker.h"
+#include "input.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -309,6 +310,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         vga_write("ProsenjitOS: memory initialization failed", 0x4F);
         for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    if (pros_input_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR input queue self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: input event queue self-test passed\n");
 
     serial_write("ProsenjitOS: physical memory manager online\n");
     serial_write("ProsenjitOS: free pages = ");
