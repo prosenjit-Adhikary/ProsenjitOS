@@ -3432,6 +3432,7 @@ static int ntfs_index_allocation_bootstrap(struct pros_ntfs *fs,
             index_block_clusters > 128u)
             return PROS_NTFS_ENOTSUP;
 
+        root_first_entry_offset = root.first_entry_offset;
         root_entries_size = root.entries_size;
         root_allocated_size = root.allocated_size;
         if (root.first_entry_offset < 16u ||
@@ -3913,6 +3914,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     uint16_t separator_key_size = 0u;
     uint32_t parent_entry_size;
     uint32_t parent_insert_offset = 0u;
+    uint32_t root_first_entry_offset;
     uint32_t root_entries_size;
     uint32_t root_allocated_size;
     uint32_t terminal_offset = 0u;
@@ -4129,7 +4131,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
 
     /* Locate the separator insertion point in the resident parent. */
     {
-        uint32_t off = root.first_entry_offset;
+        uint32_t off = root_first_entry_offset;
         while (off < root_entries_size) {
             uint32_t absolute = off;
             uint16_t esize, ksize;
