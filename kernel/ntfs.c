@@ -6268,7 +6268,7 @@ int ntfs_selftest(void)
         uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
         uint32_t root_attr = 24u;
-        uint32_t root_value = 144u;
+        uint32_t root_value = 152u;
         uint32_t entry = root_attr + 24u + 32u;
         uint32_t terminal = entry + 104u;
         uint32_t used = 200u;
@@ -6333,14 +6333,13 @@ int ntfs_selftest(void)
         r[root_attr + 170u] = 0xFFu;
         r[root_attr + 171u] = 0xFFu;
 
-        {
-            int bootstrap_status = ntfs_index_allocation_bootstrap(
-                &fs, 5u, &bootstrap_lcn, &bootstrap_clusters);
-            if (bootstrap_status != PROS_NTFS_OK)
-                return -15000 + bootstrap_status;
-            if (bootstrap_clusters != 1u || bootstrap_lcn != 8u)
-                return -15001;
-        }
+        if (ntfs_index_allocation_bootstrap(&fs, 5u,
+                                            &bootstrap_lcn,
+                                            &bootstrap_clusters) !=
+                PROS_NTFS_OK ||
+            bootstrap_clusters != 1u ||
+            bootstrap_lcn != 8u)
+            return -129;
 
         if (ntfs_find_attribute(r, sizeof(disk.root_record), 0xA0u,
                                  &a0) != PROS_NTFS_OK ||
