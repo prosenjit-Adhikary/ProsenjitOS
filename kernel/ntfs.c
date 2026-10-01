@@ -4343,12 +4343,14 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
     rc = ntfs_index_allocation_grow_one(fs, directory_record_number,
                                         &new_vcn, &new_lcn);
     if (rc != PROS_NTFS_OK)
-        return rc;
+        return -18000 + rc;
 
     grown_count = 0u;
     if (ntfs_read_file_record(fs, directory_record_number, directory_record,
-                              sizeof(directory_record)) != PROS_NTFS_OK)
+                              sizeof(directory_record)) != PROS_NTFS_OK) {
+        rc = -18004;
         goto rollback;
+    }
     if (ntfs_find_attribute(directory_record, fs->bytes_per_file_record,
                             0xA0u, &alloc_attr) != PROS_NTFS_OK ||
         ntfs_attribute_runlist(directory_record, fs->bytes_per_file_record,
@@ -4431,14 +4433,18 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                                      vcn * (uint64_t)fs->bytes_per_sector *
                                      fs->sectors_per_cluster,
                                      leaf, record_size);
-    if (rc != PROS_NTFS_OK)
+    if (rc != PROS_NTFS_OK) {
+        rc = -18001 + rc;
         goto rollback;
+    }
     rc = ntfs_index_allocation_write(fs, grown_runs, grown_count,
                                      new_vcn * (uint64_t)fs->bytes_per_sector *
                                      fs->sectors_per_cluster,
                                      right, record_size);
-    if (rc != PROS_NTFS_OK)
+    if (rc != PROS_NTFS_OK) {
+        rc = -18002 + rc;
         goto rollback;
+    }
 
     /* Insert the promoted separator and the new right-child VCN. */
     if (ntfs_attribute_data(directory_record, fs->bytes_per_file_record,
@@ -4480,6 +4486,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                                 directory_record);
     if (rc == PROS_NTFS_OK)
         return PROS_NTFS_OK;
+    rc = -18003 + rc;
 
 rollback:
     /* Restore the pre-split leaf and directory metadata, then release the
