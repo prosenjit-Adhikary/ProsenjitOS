@@ -29,34 +29,12 @@ The VFS must not depend on a specific disk controller or filesystem format.
 
 ## Supported filesystem targets
 
-### FAT32
+### Compatibility filesystem providers
 
-FAT32 is required for broad interoperability with older removable media and boot/recovery media.
+FAT32, exFAT and NTFS are not kernel filesystems. Their previous in-kernel implementations have been removed. Future compatibility support will be delivered as external filesystem providers behind the VFS/provider boundary.
 
-### exFAT
 
-exFAT is required for modern flash drives and SD/removable media.
 
-### NTFS
-
-NTFS is a mandatory compatibility target, not an optional future filesystem. Windows uses NTFS as its default modern filesystem and NTFS supports richer metadata, ACLs, journaling and large files than FAT32/exFAT.
-
-The ProsenjitOS NTFS implementation will be staged:
-
-1. NTFS boot-sector validation
-2. volume geometry and cluster calculations
-3. MFT record parsing
-4. resident/non-resident attribute parsing
-5. directory index traversal
-6. Unicode filename handling
-7. resident directory name lookup
-8. read-only file access
-9. security metadata exposure through the VFS
-10. safe write support
-11. journal/recovery handling
-12. advanced NTFS features where justified
-
-The first NTFS milestone will deliberately be read-only. This prevents an incomplete driver from corrupting a Windows data volume.
 
 ### Current NTFS directory metadata milestone
 
@@ -117,14 +95,14 @@ The partition layer performs explicit LBA bounds checks and non-destructive meta
 
 The kernel enforces the resulting policy but does not make external reputation-network calls itself.
 
-For NTFS, Windows ACL/security metadata will not automatically become unrestricted ProsenjitOS privileges. The VFS/security layer will translate foreign filesystem metadata into the ProsenjitOS permission model according to an explicit compatibility policy.
+Future external filesystem providers must translate foreign filesystem metadata through the ProsenjitOS VFS/security policy rather than bypassing the security layer.
 
 ## Data-safety rules
 
 - Unknown filesystem signatures are never mounted as a guessed filesystem.
 - Out-of-range metadata is rejected.
 - Integer overflow in sector/cluster calculations is rejected.
-- NTFS is initially mounted read-only.
+- Compatibility filesystems are currently not mounted by the kernel; provider integration is a future milestone.
 - Failed journal/recovery state must not trigger destructive repair automatically.
 - Untrusted removable media is subject to the file-admission/security pipeline.
 - Critical ProsenjitOS files are protected from automatic destructive deletion.
@@ -136,9 +114,8 @@ For NTFS, Windows ACL/security metadata will not automatically become unrestrict
 2. Partition discovery
 3. VFS core
 4. In-memory/RAM-backed VFS regression backend
-5. FAT32 read-only driver
-6. exFAT read-only driver
-7. NTFS read-only driver
+5. external filesystem-provider interface
+6. external FAT32/exFAT/NTFS compatibility providers
 8. ATA/USB/NVMe storage drivers
 9. Writable filesystem support
 10. Native ProsenjitFS
