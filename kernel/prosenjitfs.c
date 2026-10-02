@@ -2781,9 +2781,14 @@ static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
 {
     if (!fs || !image || target < 2u || target >= fs->sb.total_blocks)
         return PROSENJITFS_EINVAL;
-    if (target >= fs->sb.journal_start &&
-        target < fs->sb.journal_start + fs->sb.journal_blocks)
-        return PROSENJITFS_EINVAL;
+    {
+        uint64_t journal_end;
+        if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+                           &journal_end) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        if (target >= fs->sb.journal_start && target < journal_end)
+            return PROSENJITFS_EINVAL;
+    }
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         if (fs->tx.targets[i] == target) {
             pfs_copy(fs->tx.images + (uint64_t)i * fs->sb.block_size,
@@ -2953,12 +2958,15 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                         header) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     pfs_tx_diag_stage = 3u;
-    for (uint32_t i = 0; i < fs->tx.count; ++i)
-        if (pfs_write_block(fs->mount.device,
-                            fs->sb.journal_start + 1u + i,
+    for (uint32_t i = 0; i < fs->tx.count; ++i) {
+        uint64_t journal_lba;
+        if (pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                        1u + i, &journal_lba) != PROSENJITFS_OK ||
+            pfs_write_block(fs->mount.device, journal_lba,
                             fs->tx.images + (uint64_t)i * fs->sb.block_size) !=
-            PROSENJITFS_OK)
-            return PROSENJITFS_EIO;
+                PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+    }
     pfs_tx_diag_stage = 4u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
@@ -2973,11 +2981,15 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     c.checksum = checksum;
     pfs_copy(commit, &c, sizeof(c));
     pfs_tx_diag_stage = 5u;
-    if (pfs_write_block(fs->mount.device,
-                        fs->sb.journal_start + 1u + fs->tx.count,
-                        commit) != PROSENJITFS_OK ||
-        pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        uint64_t commit_lba;
+        if (pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                        1u + fs->tx.count, &commit_lba) != PROSENJITFS_OK ||
+            pfs_write_block(fs->mount.device, commit_lba, commit) !=
+                PROSENJITFS_OK ||
+            pfs_flush(fs->mount.device) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+    }
 
     pfs_tx_diag_stage = 6u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
