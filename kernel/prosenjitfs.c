@@ -1368,7 +1368,40 @@ mkdir_out:
     if (entry_block) kfree(entry_block);
     if (inode_block) kfree(inode_block);
     if (child_dir_block) kfree(child_dir_block);
-    return rc == PROSENJITFS_OK ? PROS_VFS_OK : PROS_VFS_EIO;
+    if (rc == PROSENJITFS_OK)
+        return PROS_VFS_OK;
+
+    /*
+     * Preserve the VFS-visible error class instead of collapsing every
+     * filesystem failure to EIO.  In particular, allocation/journal
+     * validation failures must remain distinguishable from actual I/O
+     * failures so callers and the mkdir regression can identify the
+     * failing contract.
+     */
+    switch (rc) {
+    case PROSENJITFS_EINVAL:
+        return PROS_VFS_EINVAL;
+    case PROSENJITFS_EIO:
+        return PROS_VFS_EIO;
+    case PROSENJITFS_ENOTSUP:
+        return PROS_VFS_ENOTSUP;
+    case PROSENJITFS_ENOSPC:
+        return PROS_VFS_EOVERFLOW;
+    case PROSENJITFS_ENOENT:
+        return PROS_VFS_ENOENT;
+    case PROSENJITFS_EEXIST:
+        return PROS_VFS_EEXIST;
+    case PROSENJITFS_EOVERFLOW:
+        return PROS_VFS_EOVERFLOW;
+    case PROSENJITFS_ENOTDIR:
+        return PROS_VFS_ENOTDIR;
+    case PROSENJITFS_ENOTEMPTY:
+        return PROS_VFS_ENOTEMPTY;
+    case PROSENJITFS_EPERM:
+        return PROS_VFS_EPERM;
+    default:
+        return PROS_VFS_EIO;
+    }
 }
 
 static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
