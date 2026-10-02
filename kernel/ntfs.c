@@ -8094,11 +8094,16 @@ int ntfs_selftest(void)
                 !fs.mount.root->ops->lookup)
                 return -198;
 
-            if (fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_3,
-                                           &unicode_node) != PROS_VFS_ENOENT ||
-                fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_4,
-                                           &unicode_node) != PROS_VFS_ENOENT)
-                return -199;
+            {
+                int unicode_status_3 = fs.mount.root->ops->lookup(
+                    fs.mount.root, valid_utf8_3, &unicode_node);
+                if (unicode_status_3 != PROS_VFS_ENOENT)
+                    return -19000 - unicode_status_3;
+                int unicode_status_4 = fs.mount.root->ops->lookup(
+                    fs.mount.root, valid_utf8_4, &unicode_node);
+                if (unicode_status_4 != PROS_VFS_ENOENT)
+                    return -19100 - unicode_status_4;
+            }
 
             if (fs.mount.root->ops->lookup(fs.mount.root, bad_continuation,
                                            &unicode_node) != PROS_VFS_EINVAL ||
