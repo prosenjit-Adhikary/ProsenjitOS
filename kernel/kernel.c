@@ -11,6 +11,7 @@
 #include "process.h"
 #include "thread.h"
 #include "timer.h"
+#include "pic.h"
 #include "intent.h"
 #include "ipc.h"
 #include "usercopy.h"
@@ -80,6 +81,17 @@ static inline uint8_t io_in8(uint16_t port) {
     __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
     return value;
 }
+
+void keyboard_dispatch(void)
+{
+    uint8_t scancode = io_in8(0x60u);
+    struct pros_input_event event = {
+        .type = PROS_INPUT_EVENT_SCANCODE,
+        .code = (uint16_t)(scancode & 0x7Fu),
+        .value = (scancode & 0x80u) ? 0 : 1
+    };
+    (void)pros_input_device_push(&event);
+}
 #define COM1_PORT 0x3F8u
 
 static uint16_t vga_entry(char c, uint8_t color) {
@@ -132,6 +144,7 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
+extern void isr33(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
@@ -193,6 +206,7 @@ void idt_init(void) {
     idt_set_gate(13, handlers[13], 0);
     idt_set_gate(14, handlers[14], 0);
     idt_set_gate(32, isr32, 0);
+    idt_set_gate(33, isr33, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
      * keeping syscall entry on IST1 makes the privilege transition robust
@@ -346,7 +360,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR input queue self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: input event queue self-test passed\n");
+    if (pros_input_device_init() != PROS_DRIVER_OK || pic_enable_irq(1u) != 0) {
+        serial_write("ProsenjitOS: ERROR PS/2 keyboard input initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: input event queue self-test passed; PS/2 keyboard IRQ1 enabled\n");
 
     serial_write("ProsenjitOS: physical memory manager online\n");
     serial_write("ProsenjitOS: free pages = ");
