@@ -598,20 +598,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     {
         int security_init_status = security_manager_init();
         if (security_init_status != 0) {
-            /*
-             * security_manager_init() propagates the NTFS self-test as
-             * -700 + ntfs_status. Preserve the generic stage diagnostic, but
-             * also expose the exact filesystem return code so a boot failure
-             * cannot hide the violated NTFS invariant behind the security
-             * initialization wrapper.
-             */
-            if (security_init_status <= -15700 &&
-                security_init_status >= -15720) {
-                int ntfs_status = security_init_status + 700;
-                serial_write("ProsenjitOS: ERROR NTFS self-test failed rc=");
-                serial_hex64((uint64_t)(int64_t)ntfs_status);
-                serial_write("\n");
-            }
             serial_write("ProsenjitOS: ERROR security manager initialization failed, stage = ");
             serial_hex64((uint64_t)(int64_t)security_init_status);
             serial_write("\n");
