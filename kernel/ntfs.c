@@ -6522,8 +6522,9 @@ int ntfs_selftest(void)
      * shifts or wrap the accumulated LCN. */
     {
         const uint8_t overflowing_runlist[] = {
-            0x11u, 1u, 0x7Fu,
-            0x81u, 1u, 0x80u, 0x00u, 0x00u, 0x00u,
+            0x81u, 1u,
+            0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0x7Fu,
+            0x11u, 1u, 1u,
             0x00u
         };
         if (ntfs_decode_runlist(overflowing_runlist,
