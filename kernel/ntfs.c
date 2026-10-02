@@ -6991,7 +6991,7 @@ int ntfs_selftest(void)
              * The synthetic block device maps LCN 8 to the INDX storage.
              */
             {
-                uint8_t write_index_record[4096];
+                static uint8_t write_index_record[4096];
                 for (uint32_t i = 0u; i < sizeof(write_index_record); ++i)
                     write_index_record[i] = read_index_record[i];
                 write_index_record[4000u] = 0x78u;
@@ -7075,7 +7075,7 @@ int ntfs_selftest(void)
                 static const uint8_t second_lookup[8] = {
                     'b',0u,'e',0u,'t',0u,'a',0u
                 };
-                uint8_t verify_record[4096];
+                static uint8_t verify_record[4096];
                 struct pros_ntfs_index_record verify_info;
 
                 for (uint32_t i = 0u; i < sizeof(second_key); ++i)
@@ -7125,9 +7125,9 @@ int ntfs_selftest(void)
      * both attribute creation and the migrated leaf, then restore the fixture.
      */
     {
-        uint8_t saved_root[1024];
-        uint8_t saved_index[4096];
-        uint8_t saved_bitmap[512];
+        static uint8_t saved_root[1024];
+        static uint8_t saved_index[4096];
+        static uint8_t saved_bitmap[512];
         uint8_t *r = disk.root_record;
         uint32_t root_attr = 56u;
         uint32_t root_value = 168u;
@@ -7423,7 +7423,7 @@ int ntfs_selftest(void)
         disk.root_record[1022u] = 0x34u; disk.root_record[1023u] = 0x12u;
 
         {
-            uint8_t root_probe[1024];
+            static uint8_t root_probe[1024];
             uint32_t root_attr_probe = 0u;
             for (uint32_t i = 0u; i < sizeof(root_probe); ++i)
                 root_probe[i] = disk.root_record[i];
@@ -7657,13 +7657,22 @@ int ntfs_selftest(void)
 
             for (uint32_t i = 0u; i < sizeof(new_key); ++i)
                 new_key[i] = split_key[i];
-            new_key[70u] = '2';
+            new_key[70u] = '1';
             new_key[68u] = '4';
             new_key[64u] = 3u;
 
+            if (ntfs_upcase_load(&fs) != PROS_NTFS_OK)
+                return -22020;
+            ntfs_active_upcase = ntfs_upcase_data;
+            if (ntfs_name_key_compare(split_key, sizeof(split_key),
+                                      new_key, new_key[64u]) >= 0) {
+                ntfs_active_upcase = 0;
+                return -22021;
+            }
             split_status = ntfs_index_allocation_insert(
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
+            ntfs_active_upcase = 0;
             if (split_status != PROS_NTFS_OK)
                 return -15000 + split_status;
 
@@ -7699,7 +7708,7 @@ int ntfs_selftest(void)
             }
 
             {
-                uint8_t verify[4096];
+                static uint8_t verify[4096];
                 struct pros_ntfs_index_record info;
                 uint32_t entry = 0u;
                 uint8_t found_right = 0u;
@@ -7735,11 +7744,97 @@ int ntfs_selftest(void)
                         'u', 0u, '4', 0u, '1', 0u
                     };
                     uint64_t routed_reference = 0u;
-                    if (ntfs_directory_lookup(&fs, 5u, routed_name, 3u,
-                                               &routed_reference) !=
-                            PROS_NTFS_OK ||
-                        routed_reference != 0x4029u)
-                        return -203;
+                    {
+                        uint8_t raw_found = 0u;
+                        uint32_t roff = info.first_entry_offset;
+                        while (roff < info.entries_size) {
+                            uint16_t es = le16(verify + roff + 8u);
+                            uint16_t ks = le16(verify + roff + 10u);
+                            uint8_t fl = verify[roff + 12u];
+                            if (es < 16u || es > info.entries_size - roff ||
+                                (es & 7u) != 0u)
+                                return -204;
+                            if ((fl & 2u) == 0u && ks >= 72u &&
+                                verify[roff + 16u + 64u] == 3u &&
+                                verify[roff + 16u + 66u] == 'u' &&
+                                verify[roff + 16u + 68u] == '4' &&
+                                verify[roff + 16u + 70u] == '1') {
+                                raw_found = 1u;
+                                if (le64(verify + roff) != 0x5000u)
+                                    return -205;
+                            }
+                            if (fl & 2u)
+                                break;
+                            roff += es;
+                        }
+                        if (!raw_found) {
+                            uint32_t count = 0u;
+                            uint8_t last_tens = 0u;
+                            uint8_t last_ones = 0u;
+                            roff = info.first_entry_offset;
+                            while (roff < info.entries_size) {
+                                uint16_t es = le16(verify + roff + 8u);
+                                uint8_t fl = verify[roff + 12u];
+                                if (es < 16u || es > info.entries_size - roff ||
+                                    (es & 7u) != 0u)
+                                    break;
+                                if ((fl & 2u) == 0u && le16(verify + roff + 10u) >= 72u) {
+                                    count++;
+                                    last_tens = verify[roff + 16u + 68u];
+                                    last_ones = verify[roff + 16u + 70u];
+                                }
+                                if (fl & 2u)
+                                    break;
+                                roff += es;
+                            }
+                            {
+                                static uint8_t left_probe[4096];
+                                struct pros_ntfs_index_record left_info;
+                                if (ntfs_index_allocation_read(
+                                        &fs, (const struct pros_ntfs_run[])
+                                        {{8u, 2u, 0u}}, 1u, 0u,
+                                        left_probe, sizeof(left_probe)) !=
+                                        PROS_NTFS_OK)
+                                    return -22100;
+                                if (ntfs_index_record_header(left_probe,
+                                        sizeof(left_probe), 512u, 0u,
+                                        &left_info) != PROS_NTFS_OK)
+                                    return -22101;
+                                {
+                                    uint32_t loff = left_info.first_entry_offset;
+                                    while (loff < left_info.entries_size) {
+                                        uint16_t les = le16(left_probe + loff + 8u);
+                                        uint16_t lks = le16(left_probe + loff + 10u);
+                                        uint8_t lfl = left_probe[loff + 12u];
+                                        if (les < 16u ||
+                                            les > left_info.entries_size - loff ||
+                                            (les & 7u) != 0u)
+                                            break;
+                                        if ((lfl & 2u) == 0u && lks >= 72u &&
+                                            left_probe[loff + 16u + 64u] == 3u &&
+                                            left_probe[loff + 16u + 66u] == 'u' &&
+                                            left_probe[loff + 16u + 68u] == '4' &&
+                                            left_probe[loff + 16u + 70u] == '1')
+                                            return -22102;
+                                        if (lfl & 2u)
+                                            break;
+                                        loff += les;
+                                    }
+                                }
+                            }
+                            return -22000 - (int)(count * 100u +
+                                                 (uint32_t)(last_tens - '0') * 10u +
+                                                 (uint32_t)(last_ones - '0'));
+                        }
+                    }
+                    {
+                        int routed_status = ntfs_directory_lookup(
+                            &fs, 5u, routed_name, 3u, &routed_reference);
+                        if (routed_status != PROS_NTFS_OK)
+                            return -21000 + routed_status;
+                        if (routed_reference != 0x5000u)
+                            return -207;
+                    }
                 }
             }
 
