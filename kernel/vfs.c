@@ -82,69 +82,21 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
     return vfs_mount_init(mount, type, &view->device, private_data, read_only);
 }
 
-static uint16_t vfs_le16(const uint8_t *p)
-{
-    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-}
-
-static int vfs_power_of_two(uint32_t value)
-{
-    return value != 0u && (value & (value - 1u)) == 0u;
-}
-
 int vfs_probe_filesystem(struct pros_block_device *device,
                          enum pros_filesystem_type *type)
 {
-    uint8_t sector[PROS_VFS_PROBE_SECTOR_MAX];
-    uint32_t bytes_per_sector;
-    uint32_t sectors_per_cluster;
-
-    if (!device || !type || device->sector_size < 512u ||
-        device->sector_size > PROS_VFS_PROBE_SECTOR_MAX)
+    if (!device || !type)
         return PROS_VFS_EINVAL;
-    if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
-        return PROS_VFS_EIO;
 
     *type = PROS_FS_UNKNOWN;
 
-    /* ProsenjitFS has its own versioned/checksummed superblock format and
-     * must be validated independently of legacy BPB signatures. */
+    /*
+     * ProsenjitFS is the only filesystem implemented in the kernel.
+     * Compatibility filesystems live outside the kernel and must not add
+     * parser-specific logic to the VFS.
+     */
     if (prosenjitfs_probe(device) == PROSENJITFS_OK) {
         *type = PROS_FS_PROSENJIT;
-        return PROS_VFS_OK;
-    }
-
-    if (sector[510] != 0x55u || sector[511] != 0xAAu)
-        return PROS_VFS_ENOSYS;
-
-    bytes_per_sector = vfs_le16(&sector[11]);
-    sectors_per_cluster = sector[13];
-    if (!vfs_power_of_two(bytes_per_sector) ||
-        bytes_per_sector != device->sector_size ||
-        bytes_per_sector > PROS_VFS_PROBE_SECTOR_MAX ||
-        !vfs_power_of_two(sectors_per_cluster))
-        return PROS_VFS_ENOSYS;
-
-    /* NTFS: OEM ID plus a sane BPB geometry. */
-    if (sector[3] == 'N' && sector[4] == 'T' && sector[5] == 'F' &&
-        sector[6] == 'S' && sector[7] == ' ' && sector[8] == ' ' &&
-        sector[9] == ' ' && sector[10] == ' ') {
-        *type = PROS_FS_NTFS;
-        return PROS_VFS_OK;
-    }
-
-    /* exFAT: the complete eight-byte OEM ID is "EXFAT   ". */
-    if (sector[3] == 'E' && sector[4] == 'X' && sector[5] == 'F' &&
-        sector[6] == 'A' && sector[7] == 'T' && sector[8] == ' ' &&
-        sector[9] == ' ' && sector[10] == ' ') {
-        *type = PROS_FS_EXFAT;
-        return PROS_VFS_OK;
-    }
-
-    /* FAT32: filesystem type label is at BPB offset 82. */
-    if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' &&
-        sector[85] == '3' && sector[86] == '2') {
-        *type = PROS_FS_FAT32;
         return PROS_VFS_OK;
     }
 
@@ -1113,135 +1065,6 @@ static int vfs_vnode_api_selftest(void)
 
     if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
         return -1;
-    return 0;
-}
-
-static uint8_t vfs_probe_test_sector[512];
-
-
-static uint8_t vfs_probe_test_disk[3u * 512u];
-
-static int vfs_probe_test_disk_read(struct pros_block_device *device,
-                                    uint64_t lba, uint32_t count, void *buffer)
-{
-    (void)device;
-    if (!buffer || lba > 3u || count > 3u - lba)
-        return PROS_BLOCK_EINVAL;
-    for (uint32_t i = 0u; i < count * 512u; ++i)
-        ((uint8_t *)buffer)[i] = vfs_probe_test_disk[lba * 512u + i];
-    return PROS_BLOCK_OK;
-}
-
-static int vfs_probe_selftest(void)
-{
-    struct pros_block_device device;
-    struct pros_partition_device partition;
-    struct pros_partition part;
-    enum pros_filesystem_type type;
-
-    if (block_device_init(&device, 512u, 3u, vfs_probe_test_disk_read, 0, 0) !=
-        PROS_BLOCK_OK)
-        return -1;
-
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_disk); ++i)
-        vfs_probe_test_disk[i] = 0u;
-    vfs_probe_test_disk[510] = 0x55u;
-    vfs_probe_test_disk[511] = 0xAAu;
-    vfs_probe_test_disk[446 + 4] = 0x0Bu;
-    vfs_probe_test_disk[446 + 8] = 1u;
-    vfs_probe_test_disk[446 + 12] = 2u;
-
-    uint32_t count = 0u;
-    struct pros_partition partitions[4];
-    if (partition_probe(&device, &(enum pros_partition_type){PROS_PARTITION_NONE}) !=
-        PROS_PARTITION_OK)
-        return -2;
-    if (partition_read_mbr(&device, partitions, 4u, &count) !=
-            PROS_PARTITION_OK ||
-        count != 1u || partitions[0].first_lba != 1u ||
-        partitions[0].sector_count != 2u)
-        return -3;
-    part = partitions[0];
-    if (partition_device_init(&partition, &device, &part) != PROS_PARTITION_OK)
-        return -4;
-
-    uint8_t *boot = vfs_probe_test_disk + 512u;
-    boot[510] = 0x55u;
-    boot[511] = 0xAAu;
-    boot[11] = 0x00u;
-    boot[12] = 0x02u;
-    boot[13] = 0x01u;
-    boot[82] = 'F';
-    boot[83] = 'A';
-    boot[84] = 'T';
-    boot[85] = '3';
-    boot[86] = '2';
-
-    if (vfs_probe_filesystem(&partition.device, &type) != PROS_VFS_OK ||
-        type != PROS_FS_FAT32)
-        return -5;
-    if (partition.device.sector_count != 2u)
-        return -6;
-
-    /* Keep the signature test on a standalone sector as well. */
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        vfs_probe_test_sector[i] = 0u;
-    vfs_probe_test_sector[510] = 0x55u;
-    vfs_probe_test_sector[511] = 0xAAu;
-    vfs_probe_test_sector[11] = 0x00u;
-    vfs_probe_test_sector[12] = 0x02u;
-    vfs_probe_test_sector[13] = 0x01u;
-    const char ntfs_oem[8] = {'N','T','F','S',' ',' ',' ',' '};
-    for (uint32_t i = 0u; i < 8u; ++i)
-        vfs_probe_test_sector[3u + i] = (uint8_t)ntfs_oem[i];
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
-    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
-        type != PROS_FS_NTFS)
-        return -7;
-
-    const char exfat_oem[8] = {'E','X','F','A','T',' ',' ',' '};
-    for (uint32_t i = 0u; i < 8u; ++i)
-        vfs_probe_test_sector[3u + i] = (uint8_t)exfat_oem[i];
-    /* exFAT geometry lives in the shift fields, not BPB byte 13. */
-    vfs_probe_test_sector[72] = 3u;
-    vfs_probe_test_sector[108] = 9u;  /* 512-byte sectors */
-    vfs_probe_test_sector[109] = 0u;  /* one sector per cluster */
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
-    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
-        type != PROS_FS_EXFAT)
-        return -8;
-
-    for (uint32_t i = 0u; i < 8u; ++i)
-        vfs_probe_test_sector[3u + i] = 0u;
-    vfs_probe_test_sector[82] = 'F';
-    vfs_probe_test_sector[83] = 'A';
-    vfs_probe_test_sector[84] = 'T';
-    vfs_probe_test_sector[85] = '3';
-    vfs_probe_test_sector[86] = '2';
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
-    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_OK ||
-        type != PROS_FS_FAT32)
-        return -9;
-
-    vfs_probe_test_sector[11] = 0x00u;
-    vfs_probe_test_sector[12] = 0x04u;
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
-    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
-        type != PROS_FS_UNKNOWN)
-        return -10;
-    vfs_probe_test_sector[11] = 0x00u;
-    vfs_probe_test_sector[12] = 0x02u;
-    vfs_probe_test_sector[13] = 0u;
-    for (uint32_t i = 0u; i < sizeof(vfs_probe_test_sector); ++i)
-        vfs_probe_test_disk[i] = vfs_probe_test_sector[i];
-    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
-        type != PROS_FS_UNKNOWN)
-        return -11;
-
     return 0;
 }
 
