@@ -221,3 +221,22 @@ The currently inspected `pfs_tx_commit()` sets stage 9 immediately before callin
 ### No patch made
 
 No mkdir, VFS, transaction, or rename logic was changed as a result of this inspection. The next step is to inspect the complete `vfs_mkdir()` implementation and correlate the **actual QEMU failure line/value** with these diagnostic fields.
+
+
+## Latest verified VFS mkdir inspection — 2026-10-02 15:21:52Z
+
+User supplied kernel/vfs.c:591-651 for vfs_mkdir().
+
+### Confirmed dispatch path
+
+For /dir1, VFS constructs parent path /, performs vfs_path_lookup(mount, "/", &parent), validates the returned vnode as a directory with a mkdir operation, then directly calls parent->ops->mkdir(parent, "dir1", &created). Any negative return is propagated unchanged after vnode cleanup and health accounting.
+
+Therefore VFS mkdir does not transform a ProsenjitFS mkdir error. The next diagnostic target is the exact PFS mkdir callback return path and the raw self-test output.
+
+### No patch made
+
+No source logic was changed during this inspection.
+
+### Next action
+
+Inspect the remaining pfs_vnode_mkdir() return mapping around lines 1440-1465, then capture the exact QEMU self-test failure line containing the encoded value and diagnostic fields. Do not patch until the raw failure is correlated.
