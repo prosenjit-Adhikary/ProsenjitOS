@@ -2067,8 +2067,15 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         }
     }
 
-    if (data->inode_number == new_data->inode_number &&
-        old_bucket == new_bucket) {
+    /*
+     * The directory-entry payload must be updated for every same-directory
+     * rename, not only when the hash bucket stays unchanged. When the bucket
+     * changes, the entry block has already been linked into the destination
+     * bucket above, but it still contains the old name unless it is rewritten
+     * here. Without this update, lookup of the new name hashes to the new
+     * bucket and finds an entry whose stored name is still the old name.
+     */
+    if (data->inode_number == new_data->inode_number) {
         entry.name_hash = pfs_name_hash((const uint8_t *)new_name, new_length);
         entry.name_length = (uint16_t)new_length;
         pfs_zero(entry.name, sizeof(entry.name));
