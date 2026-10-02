@@ -220,7 +220,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [ ] ELF loader
+- [~] ELF loader (validated ET_EXEC x86-64 PT_LOAD loader with user mappings and boot self-test; filesystem-backed exec, ET_DYN/PIE, and dynamic linking remain pending)
 - [ ] Process startup
 - [ ] Init/service manager
 - [ ] Secure shell
