@@ -35,6 +35,11 @@ int block_device_read(struct pros_block_device *, uint64_t, uint32_t, void *);
 int block_device_write(struct pros_block_device *, uint64_t, uint32_t, const void *);
 int block_device_set_flush(struct pros_block_device *, pros_block_flush_fn);
 int block_device_flush(struct pros_block_device *);
+/* LBA values are always sector indices in the device-local address space. */
+int block_device_lba_range_valid(const struct pros_block_device *, uint64_t,
+                                 uint32_t);
+int block_device_lba_add(const struct pros_block_device *, uint64_t, uint64_t,
+                         uint64_t *);
 
 uint64_t block_read_count(void);
 uint64_t block_write_count(void);
