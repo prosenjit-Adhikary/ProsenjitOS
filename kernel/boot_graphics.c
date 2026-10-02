@@ -121,3 +121,54 @@ int pros_boot_graphics_selftest(void)
 
     return PROS_DRIVER_OK;
 }
+
+static struct pros_graphics_surface bound_surface;
+
+static int boot_display_get_mode(struct pros_driver_device *device,
+                                 struct pros_display_mode *mode)
+{
+    if (!device || !mode || device->driver_data == 0)
+        return PROS_DRIVER_EINVAL;
+    *mode = (struct pros_display_mode){
+        .width = bound_surface.width,
+        .height = bound_surface.height,
+        .pitch = bound_surface.pitch,
+        .bpp = bound_surface.bpp,
+        .framebuffer = bound_surface.framebuffer
+    };
+    return PROS_DRIVER_OK;
+}
+
+static int boot_display_present(struct pros_driver_device *device)
+{
+    (void)device;
+    /* The boot framebuffer is a memory surface; no hardware flip is defined. */
+    return PROS_DRIVER_ENOTSUP;
+}
+
+static const struct pros_display_ops boot_display_ops = {
+    .get_mode = boot_display_get_mode,
+    .present = boot_display_present
+};
+
+int pros_boot_graphics_bind(const struct pros_graphics_surface *surface,
+                            struct pros_driver_device *device)
+{
+    if (!surface || !device ||
+        pros_graphics_validate_surface(surface) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EINVAL;
+
+    bound_surface = *surface;
+    *device = (struct pros_driver_device){
+        .id = 0u,
+        .bus = PROS_DRIVER_BUS_PLATFORM,
+        .class_id = PROS_DEVICE_CLASS_DISPLAY,
+        .state = PROS_DEVICE_BOUND,
+        .hwid = { .bus = PROS_DRIVER_BUS_PLATFORM },
+        .name = "multiboot2-framebuffer",
+        .driver = 0,
+        .driver_data = (void *)&boot_display_ops,
+        .bus_data = 0
+    };
+    return PROS_DRIVER_OK;
+}
