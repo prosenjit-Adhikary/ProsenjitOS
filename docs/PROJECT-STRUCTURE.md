@@ -19,7 +19,8 @@ Firmware
   -> Block-device layer
   -> Partition layer (MBR/GPT)
   -> VFS
-  -> FAT32 / exFAT / NTFS / ProsenjitFS
+  -> ProsenjitFS
+  -> future external filesystem providers
   -> File-security admission/quarantine
   -> System services
   -> User processes / ELF loader / init
@@ -81,9 +82,8 @@ kernel/
 ├── block device
 ├── partition discovery
 ├── VFS
-├── FAT32
-├── exFAT + Up-case
-├── NTFS
+├── ProsenjitFS
+├── future external filesystem providers
 ├── ProsenjitFS
 ├── storage discovery
 ├── security admission/quarantine
