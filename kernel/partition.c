@@ -204,12 +204,15 @@ static int partition_device_read(struct pros_block_device *device,
     if (!device || !buffer || !device->private_data)
         return PROS_BLOCK_EINVAL;
     view = (struct pros_partition_device *)device->private_data;
-    if (!view->parent || lba > device->sector_count ||
-        count > device->sector_count - lba)
+    if (!view->parent || !block_device_lba_range_valid(device, lba, count))
         return PROS_BLOCK_EINVAL;
-    partition_trace_record(view, lba, view->first_lba + lba, count, 0u);
-    return block_device_read(view->parent, view->first_lba + lba,
-                             count, buffer);
+    uint64_t parent_lba;
+    if (block_device_lba_add(view->parent, view->first_lba, lba,
+                             &parent_lba) != PROS_BLOCK_OK ||
+        !block_device_lba_range_valid(view->parent, parent_lba, count))
+        return PROS_BLOCK_EINVAL;
+    partition_trace_record(view, lba, parent_lba, count, 0u);
+    return block_device_read(view->parent, parent_lba, count, buffer);
 }
 
 static int partition_device_flush(struct pros_block_device *device)
@@ -232,11 +235,15 @@ static int partition_device_write(struct pros_block_device *device,
         return PROS_BLOCK_EINVAL;
     view = (struct pros_partition_device *)device->private_data;
     if (!view->parent || !view->parent->write ||
-        lba > device->sector_count || count > device->sector_count - lba)
+        !block_device_lba_range_valid(device, lba, count))
         return PROS_BLOCK_EINVAL;
-    partition_trace_record(view, lba, view->first_lba + lba, count, 1u);
-    return block_device_write(view->parent, view->first_lba + lba,
-                              count, buffer);
+    uint64_t parent_lba;
+    if (block_device_lba_add(view->parent, view->first_lba, lba,
+                             &parent_lba) != PROS_BLOCK_OK ||
+        !block_device_lba_range_valid(view->parent, parent_lba, count))
+        return PROS_BLOCK_EINVAL;
+    partition_trace_record(view, lba, parent_lba, count, 1u);
+    return block_device_write(view->parent, parent_lba, count, buffer);
 }
 
 int partition_device_init(struct pros_partition_device *view,
