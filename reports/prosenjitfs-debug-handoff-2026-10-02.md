@@ -499,3 +499,30 @@ Current verification state at handoff:
 ### CI result after native-only filesystem split
 
 GitHub Actions was triggered by the architecture changes. The latest Build and Security workflow runs for commit `89f7ee018a18e8b204a7f12267250ebd8954145d` both ended in `failure`, but GitHub exposed neither step data nor a logs URL for the failed jobs (`steps=null`, `logs_url=null`). The failures therefore cannot currently be attributed to a compile error, test failure, or this filesystem split. No test was changed to hide the failure, and no CI-green claim is made.
+
+
+## 2026-10-03 production-hardening continuation
+
+### Current HEAD audit findings
+
+The current main tree was re-read before changes. Kernel-core currently exposes only `PROS_FS_PROSENJIT`; the legacy FAT32, exFAT, exFAT Up-case, and NTFS source/header files are absent from the current main tree and the current build script links only `prosenjitfs.o`.
+
+### Decisive static root-cause finding for the historical mkdir -780 boundary
+
+The VFS/provider vnode lifetime contract contained a real ownership bug: `pfs_make_vnode()` stored `parent` in the child vnode without acquiring a reference. `vfs_path_lookup()` intentionally drops its current vnode reference immediately after lookup returns the next vnode. For nested paths, that could free the parent while the child retained a dangling `parent` pointer. Later `..` traversal or nested directory operations could therefore dereference freed memory and produce an arbitrary return value, including a value not represented by any native filesystem error constant.
+
+The fix is now implemented: child vnodes acquire a parent reference during construction; vnode release drops that parent reference after detaching the pointer. A self-test regression now exercises `/dir1/subdir`, `/dir1/subdir/..`, and `/dir1/subdir/../..`.
+
+This is a source-level root-cause finding; final acceptance still requires the clean CI/QEMU runtime result.
+
+### Additional hardening implemented
+
+- Added an explicit VFS `ENOSPC` error and preserved native ENOSPC through mkdir and file-write paths.
+- Added checked block-device LBA addition for native inode-table and bitmap address derivation.
+- Hardened format geometry cursor arithmetic.
+- Hardened journal target-range arithmetic and journal record LBA construction.
+- Guarded transaction-sequence wraparound.
+- Guarded inode allocated-byte counter overflow.
+- Added inode-record-in-block bounds validation.
+
+No test assertion was weakened and no compatibility filesystem was reintroduced into kernel-core.
