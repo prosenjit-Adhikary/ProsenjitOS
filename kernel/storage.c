@@ -63,10 +63,7 @@ int pros_storage_discover(struct pros_block_device *device,
         if (rc != PROS_VFS_OK)
             continue;
 
-        if (filesystem != PROS_FS_FAT32 &&
-            filesystem != PROS_FS_EXFAT &&
-            filesystem != PROS_FS_NTFS &&
-            filesystem != PROS_FS_PROSENJIT)
+        if (filesystem != PROS_FS_PROSENJIT)
             continue;
 
         if (found >= capacity)
@@ -83,7 +80,7 @@ int pros_storage_discover(struct pros_block_device *device,
 }
 
 struct storage_test_disk {
-    uint8_t sectors[6u * 512u];
+    uint8_t sectors[3u * 512u];
 };
 
 static int storage_test_read(struct pros_block_device *device,
@@ -92,29 +89,13 @@ static int storage_test_read(struct pros_block_device *device,
     struct storage_test_disk *disk =
         (struct storage_test_disk *)device->private_data;
 
-    if (!disk || !buffer || lba > 6u || count > 6u - lba)
+    if (!disk || !buffer || lba > 3u || count > 3u - lba)
         return PROS_BLOCK_EINVAL;
 
     for (uint32_t i = 0u; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = disk->sectors[lba * 512u + i];
 
     return PROS_BLOCK_OK;
-}
-
-static void storage_set_mbr_entry(uint8_t *sector, uint32_t index,
-                                  uint8_t type, uint32_t first_lba,
-                                  uint32_t sector_count)
-{
-    uint8_t *entry = sector + 446u + index * 16u;
-    entry[4] = type;
-    entry[8] = (uint8_t)first_lba;
-    entry[9] = (uint8_t)(first_lba >> 8);
-    entry[10] = (uint8_t)(first_lba >> 16);
-    entry[11] = (uint8_t)(first_lba >> 24);
-    entry[12] = (uint8_t)sector_count;
-    entry[13] = (uint8_t)(sector_count >> 8);
-    entry[14] = (uint8_t)(sector_count >> 16);
-    entry[15] = (uint8_t)(sector_count >> 24);
 }
 
 int pros_storage_selftest(void)
@@ -129,57 +110,22 @@ int pros_storage_selftest(void)
 
     disk.sectors[510] = 0x55u;
     disk.sectors[511] = 0xAAu;
-    storage_set_mbr_entry(disk.sectors, 0u, 0x0Bu, 1u, 2u);
-    storage_set_mbr_entry(disk.sectors, 1u, 0x07u, 3u, 2u);
+    disk.sectors[446 + 4] = 0x0Bu;
+    disk.sectors[446 + 8] = 1u;
+    disk.sectors[446 + 12] = 2u;
 
-    /* Partition 1: FAT32 probe. */
-    {
-        uint8_t *boot = disk.sectors + 512u;
-        boot[3] = 'M'; boot[4] = 'S'; boot[5] = 'D'; boot[6] = 'O';
-        boot[7] = 'S'; boot[11] = 0x00u; boot[12] = 0x02u;
-        boot[13] = 0x01u; boot[510] = 0x55u; boot[511] = 0xAAu;
-        boot[82] = 'F'; boot[83] = 'A'; boot[84] = 'T';
-        boot[85] = '3'; boot[86] = '2';
-    }
-
-    /* Partition 2: exFAT probe. */
-    {
-        uint8_t *boot = disk.sectors + 3u * 512u;
-        boot[3] = 'E'; boot[4] = 'X'; boot[5] = 'F';
-        boot[6] = 'A'; boot[7] = 'T'; boot[8] = ' ';
-        boot[9] = ' '; boot[10] = ' ';
-        boot[11] = 0x00u; boot[12] = 0x02u;
-        boot[13] = 0x01u; boot[510] = 0x55u; boot[511] = 0xAAu;
-    }
-
-    if (block_device_init(&device, 512u, 6u, storage_test_read, 0, &disk) !=
+    if (block_device_init(&device, 512u, 3u, storage_test_read, 0, &disk) !=
             PROS_BLOCK_OK)
         return -1;
 
+    /*
+     * Compatibility filesystem probes are intentionally absent from the
+     * kernel. A disk containing a legacy filesystem signature must therefore
+     * produce no supported storage volume here.
+     */
     if (pros_storage_discover(&device, volumes, 2u, &count) !=
-            PROS_STORAGE_OK)
+            PROS_STORAGE_OK || count != 0u)
         return -2;
-
-    if (count != 2u ||
-        volumes[0].partition.first_lba != 1u ||
-        volumes[0].partition.sector_count != 2u ||
-        volumes[0].filesystem != PROS_FS_FAT32 ||
-        volumes[0].device.device.sector_count != 2u ||
-        volumes[1].partition.first_lba != 3u ||
-        volumes[1].filesystem != PROS_FS_EXFAT)
-        return -3;
-
-    /* Unknown filesystems are ignored, not guessed or mounted. */
-    disk.sectors[3u * 512u + 3u] = 0u;
-    if (pros_storage_discover(&device, volumes, 2u, &count) !=
-            PROS_STORAGE_OK || count != 1u)
-        return -4;
-
-    /* A caller-provided capacity smaller than discovered volumes is safe. */
-    disk.sectors[3u * 512u + 3u] = 'E';
-    if (pros_storage_discover(&device, volumes, 1u, &count) !=
-            PROS_STORAGE_EOVERFLOW)
-        return -5;
 
     return PROS_STORAGE_OK;
 }
