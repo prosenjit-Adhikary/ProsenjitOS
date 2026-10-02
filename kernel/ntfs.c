@@ -243,8 +243,9 @@ int ntfs_read_file_record(const struct pros_ntfs *fs, uint64_t record_number,
                 if (sector_index >= fs->sectors_per_cluster ||
                     ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
                     return PROS_NTFS_EIO;
-                lba += sector_index;
-                if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                if (block_device_lba_add(fs->mount.device, lba,
+                                         sector_index, &lba) != PROS_BLOCK_OK ||
+                    block_device_read(fs->mount.device, lba, 1u, sector) !=
                     PROS_BLOCK_OK)
                     return PROS_NTFS_EIO;
                 for (uint32_t i = 0u; i < take; ++i)
@@ -273,7 +274,8 @@ int ntfs_cluster_lba(const struct pros_ntfs *fs, uint64_t lcn,
     offset = lcn * fs->sectors_per_cluster;
     if (offset > fs->total_sectors ||
         fs->sectors_per_cluster > fs->total_sectors - offset ||
-        offset + fs->sectors_per_cluster > fs->mount.device->sector_count)
+        !block_device_lba_range_valid(fs->mount.device, offset,
+                                      fs->sectors_per_cluster))
         return PROS_NTFS_EIO;
     *lba = offset;
     return PROS_NTFS_OK;
@@ -564,8 +566,9 @@ int ntfs_file_read(const struct pros_ntfs *fs, uint64_t record_number,
                 if (ntfs_cluster_lba(fs, physical_lcn, &lba) !=
                     PROS_NTFS_OK)
                     return PROS_NTFS_EIO;
-                lba += sector_index;
-                if (block_device_read(fs->mount.device, lba, 1u, sector) !=
+                if (block_device_lba_add(fs->mount.device, lba,
+                                         sector_index, &lba) != PROS_BLOCK_OK ||
+                    block_device_read(fs->mount.device, lba, 1u, sector) !=
                     PROS_BLOCK_OK)
                     return PROS_NTFS_EIO;
                 for (uint32_t i = 0u; i < take; ++i)
