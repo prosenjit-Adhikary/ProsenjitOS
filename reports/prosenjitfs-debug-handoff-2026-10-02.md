@@ -240,3 +240,14 @@ No source logic was changed during this inspection.
 ### Next action
 
 Inspect the remaining pfs_vnode_mkdir() return mapping around lines 1440-1465, then capture the exact QEMU self-test failure line containing the encoded value and diagnostic fields. Do not patch until the raw failure is correlated.
+
+
+## Latest verified mkdir transaction mapping — 2026-10-02 15:22:51Z
+
+User supplied kernel/prosenjitfs.c:1380-1445. Confirmed the normal mkdir path reaches pfs_tx_commit() at line 1427 after four pfs_tx_add() calls. If pfs_tx_commit() returns non-OK, pfs_mkdir_diag_stage is set to 15 and pfs_mkdir_diag_rc receives the exact transaction return code. The final VFS mapping then preserves known PFS errors; EIO maps to PROS_VFS_EIO and unknown errors also map to EIO.
+
+This means a failure with mkdir_stage=15 and tx_stage=9 specifically means pfs_tx_commit() returned an error after entering the journal-clear phase. It does not yet identify whether journal-clear write or flush failed, because pfs_journal_clear() changes tx_diag_stage to 90+i or 200 on those failures. Therefore the exact runtime diagnostic line is required before any patch.
+
+No source patch made.
+
+Next action: run the existing mkdir QEMU test and capture the exact self-test failure/diagnostic output, especially mkdir_stage, mkdir_rc, tx_stage, and tx_count.
