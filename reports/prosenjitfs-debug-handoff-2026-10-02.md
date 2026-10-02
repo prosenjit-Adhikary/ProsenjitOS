@@ -357,3 +357,41 @@ Until that chain is captured, **do not attribute the failure to allocator, journ
 - Source patch from this diagnostic: **NONE**
 - Test weakening/skipping: **NONE**
 
+
+## 2026-10-03 00:05 IST update — LBA contract hardening for NTFS and native storage
+
+The LBA path was reviewed end-to-end before the next NTFS runtime attempt. The repository already had LBA tracing in the native PFS, partition, and ATA layers; this work does not claim to have created the original LBA implementation. The goal here was to make the LBA contract explicit and checked so NTFS uses the same device-local sector addressing rules without relying on unchecked arithmetic.
+
+### LBA contract now made explicit
+
+- A block-device LBA is a device-local sector index.
+- The partition layer translates local partition LBA to parent-device LBA by adding the partition's first_lba.
+- ATA receives the parent-device LBA and validates the complete requested range before programming the controller.
+- NTFS cluster-to-LBA conversion produces a volume-device-local LBA; sector-within-cluster addition is now checked through the common block-device LBA helper.
+- Range and addition checks reject overflow/out-of-device requests instead of allowing wrapped LBA values.
+
+### Implemented changes
+
+1. kernel/include/block.h — added block_device_lba_range_valid() and block_device_lba_add().
+2. kernel/block.c — implemented the checked helpers and extended the block self-test with valid-boundary and invalid-range cases.
+3. kernel/partition.c — partition read/write now uses the common range validation and checked local-to-parent LBA addition.
+4. kernel/ata_pio.c — ATA request validation now uses the common block-device LBA range check.
+5. kernel/ntfs.c — ntfs_cluster_lba() validates the complete cluster span, and sector-within-cluster LBA addition is checked instead of using unchecked arithmetic.
+
+### Why this matters for NTFS
+
+NTFS operates on a partition-local block device. Its MFT, MFTMirr, runlist, index allocation, and file-data accesses therefore need consistent volume-local LBA calculations, while the partition layer owns translation to the parent disk LBA. The hardened path preserves that separation instead of making NTFS aware of the partition offset.
+
+This is defensive correctness work, not evidence that LBA was the previously proven cause of the -780 mkdir failure or the native byte-mismatch failure. The earlier native LBA diagnostic already showed that the partition and ATA read-LBA chain could be consistent while the returned data byte was still wrong.
+
+### CI status at this update
+
+The latest LBA hardening commits have triggered GitHub Actions. Earlier LBA diagnostic commit 62a1dce... completed with failure in both Build and Security workflows; the failure logs were not retrievable through the connector at this time. The newest hardening commit db8b4fd... was queued when this update was recorded. Therefore the new LBA hardening is not yet CI-verified.
+
+### Next runtime proof
+
+When the system is available again, run the existing native LBA trace and NTFS bootstrap/index tests without changing expected values. Required evidence:
+
+NTFS logical cluster -> NTFS volume-local LBA -> partition parent LBA -> ATA LBA -> physical sector -> returned data
+
+Any mismatch must be fixed at the first boundary where the value/data diverges. NTFS should not be disabled merely to hide an LBA failure; temporary NTFS isolation remains a separate fallback only if runtime evidence shows NTFS itself is the blocker.
