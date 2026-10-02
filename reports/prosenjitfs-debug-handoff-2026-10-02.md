@@ -145,3 +145,47 @@ Build: PASS in recent run.
 QEMU execution: completed/diagnostics available in recent runs.
 ProsenjitFS self-test: FAIL.
 Primary unresolved area: correlate rename transaction staging with tx_stage=9 and its return code.
+
+
+## Verified local working-tree changes — 2026-10-02 14:44:31Z
+
+User supplied `git status`, `git diff --stat`, and full `git diff`. The following uncommitted local changes are VERIFIED from that output:
+
+### Modified files
+- `kernel/prosenjitfs.c`
+- `setup-prosenjitos-agent.sh`
+
+### Diff summary
+- `kernel/prosenjitfs.c`: 24 insertions, 11 deletions
+- `setup-prosenjitos-agent.sh`: mode changed from `100644` to `100755`, with no content change
+- Overall: 2 files changed, 24 insertions, 11 deletions.
+
+### kernel/prosenjitfs.c — exact verified changes
+1. In `pfs_vnode_rename()`:
+   - Removed unused local `uint64_t current`.
+   - Removed local `uint64_t steps`.
+   - Added allocation of `inode_block`.
+   - Expanded the allocation failure check to include `inode_block`.
+
+2. In `pfs_journal_clear()`:
+   - Journal-block writes are now enclosed in braces.
+   - On journal-block write failure, sets `pfs_tx_diag_stage = 90u + i` before returning `PROSENJITFS_EIO`.
+   - Flush is now checked explicitly.
+   - On flush failure, sets `pfs_tx_diag_stage = 200u` before returning `PROSENJITFS_EIO`.
+   - Successful flush returns `PROSENJITFS_OK`.
+
+3. In `prosenjitfs_selftest()` around the `/dir2/subdir` and `/dir2` lookups:
+   - Replaced the combined short-circuit lookup condition with separate `moved_rc` and `parent_rc` variables.
+   - Failure encoding now includes both lookup return codes and whether either vnode pointer is null.
+   - This is diagnostic instrumentation only; it does not change the success condition.
+
+### Important local-change distinction
+These changes were already present in the user's local working tree when the supplied `git diff` was captured. They are recorded here as VERIFIED LOCAL UNCOMMITTED CHANGES, not as changes made by this assistant.
+
+No evidence was supplied that these changes are committed or pushed to GitHub.
+
+### Files not modified by this step
+The supplied diff shows no modification to other files. In particular, the rename source inspected earlier is currently carrying the local allocation change described above, but no further rename logic patch was made in this step.
+
+## Next action remains
+Before changing rename logic, inspect the `pfs_tx_*` implementation and correlate `tx_stage=9` with the exact transaction operation that fails.
