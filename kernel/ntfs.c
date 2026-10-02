@@ -7112,11 +7112,18 @@ int ntfs_selftest(void)
         }
 
         /* USA corruption must reject the child node rather than guess. */
-        disk.index_record[510u] = 0xFFu;
-        if (ntfs_index_record_header(disk.index_record,
-                                     sizeof(disk.index_record), 512u, 0u,
-                                     &index_info) != PROS_NTFS_ECORRUPT)
-            return -120;
+        {
+            uint8_t saved_trailer0 = disk.index_record[510u];
+            uint8_t saved_trailer1 = disk.index_record[511u];
+            disk.index_record[510u] = 0xFFu;
+            if (ntfs_index_record_header(disk.index_record,
+                                         sizeof(disk.index_record), 512u, 0u,
+                                         &index_info) != PROS_NTFS_ECORRUPT)
+                return -120;
+            /* The negative-path probe must not poison later self-test fixtures. */
+            disk.index_record[510u] = saved_trailer0;
+            disk.index_record[511u] = saved_trailer1;
+        }
     }
 
     /*
