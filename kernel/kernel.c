@@ -1474,8 +1474,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     {
         int prosenjitfs_rc = prosenjitfs_selftest();
         if (prosenjitfs_rc != PROSENJITFS_OK) {
+            uint32_t mkdir_stage = 0u, tx_stage = 0u, tx_count = 0u;
+            int mkdir_rc = PROSENJITFS_OK;
+            (void)prosenjitfs_mkdir_diag_get(&mkdir_stage, &mkdir_rc,
+                                             &tx_stage, &tx_count);
             serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed rc=");
             serial_hex64((uint64_t)(int64_t)prosenjitfs_rc);
+            serial_write(" mkdir_stage=");
+            serial_hex64(mkdir_stage);
+            serial_write(" mkdir_rc=");
+            serial_hex64((uint64_t)(int64_t)mkdir_rc);
+            serial_write(" tx_stage=");
+            serial_hex64(tx_stage);
+            serial_write(" tx_count=");
+            serial_hex64(tx_count);
             serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
