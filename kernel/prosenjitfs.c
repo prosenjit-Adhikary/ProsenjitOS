@@ -1368,7 +1368,7 @@ mkdir_out:
     if (entry_block) kfree(entry_block);
     if (inode_block) kfree(inode_block);
     if (child_dir_block) kfree(child_dir_block);
-    return rc == PROSENJITFS_OK ? PROS_VFS_OK : PROS_VFS_EIO;
+    return rc == PROSENJITFS_OK ? PROS_VFS_OK : (PROS_VFS_EIO + rc);
 }
 
 static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
