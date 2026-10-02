@@ -5401,9 +5401,14 @@ static int ntfs_test_write(struct pros_block_device *device, uint64_t lba,
     if (!disk || !buffer || count == 0u)
         return PROS_BLOCK_EIO;
 
+    if (!block_device_lba_range_valid(device, lba, count))
+        return PROS_BLOCK_EINVAL;
+
     for (uint32_t s = 0u; s < count; ++s) {
         const uint8_t *src = (const uint8_t *)buffer + s * 512u;
-        uint64_t sector = lba + s;
+        uint64_t sector;
+        if (block_device_lba_add(device, lba, s, &sector) != PROS_BLOCK_OK)
+            return PROS_BLOCK_EINVAL;
         if (sector == 0u) {
             for (uint32_t i = 0u; i < 512u; ++i)
                 disk->boot[i] = src[i];
