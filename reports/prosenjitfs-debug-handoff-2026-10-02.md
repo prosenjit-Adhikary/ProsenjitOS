@@ -94,51 +94,7 @@ Complete disassembly shows explicit return values:
 
 There is no `mov eax,-780` or equivalent literal in this function.
 
-Source definition is at `kernel/prosenjitfs.c:2484` and is:
-
-```
-static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
-                              const struct pros_prosenjitfs_inode *dir_inode,
-                              const char *name,
-                              struct pros_prosenjitfs_dir_entry *found)
-{
-    struct pros_prosenjitfs_dir_index index;
-    struct pros_prosenjitfs_dir_entry entry;
-    uint32_t name_length;
-    uint32_t hash;
-    uint64_t current;
-    uint64_t steps = 0u;
-    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
-        return PROSENJITFS_EINVAL;
-    if (pfs_read_dir_index(fs, dir_inode, &index) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
-    hash = pfs_name_hash((const uint8_t *)name, name_length);
-    current = index.heads[hash % PROSENJITFS_DIR_BUCKETS];
-    while (current != 0u) {
-        if (++steps > fs->sb.total_blocks)
-            return PROSENJITFS_ECORRUPT;
-        if (pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
-            return PROSENJITFS_ECORRUPT;
-        if (entry.name_hash == hash && entry.name_length == name_length) {
-            uint32_t equal = 1u;
-            for (uint32_t i = 0u; i < name_length; ++i)
-                if (entry.name[i] != (uint8_t)name[i]) {
-                    equal = 0u;
-                    break;
-                }
-            if (equal) {
-                if (found)
-                    pfs_copy(found, &entry, sizeof(*found));
-                return PROSENJITFS_OK;
-            }
-        }
-        current = entry.next;
-    }
-    return PROSENJITFS_ENOENT;
-}
-```
-
-Thus the source-level function also has no -780 return path.
+Source definition is at `kernel/prosenjitfs.c:2484` and is the current implementation previously recorded in this log.
 
 ## Important revised diagnosis
 
@@ -197,8 +153,6 @@ The immediate objective is to determine whether any buffer/size mismatch can cor
 
 After that, use a narrowly targeted runtime/disassembly check around the `pfs_find_dir_entry()` call to prove the actual `eax` value at return.
 
-
-
 ## 2026-10-02 22:25 IST update
 
 ### New findings
@@ -239,7 +193,6 @@ For this specific -780 mkdir failure, a realistic estimate is:
 - 15–45 additional minutes to patch, rebuild, and test once the concrete corruption/return-path bug is identified.
 
 Overall: roughly 45–120 minutes to identify and fix this specific failure, assuming it remains confined to the currently traced mkdir path. Completion will only be claimed after a clean rebuild and QEMU self-test confirms the fix.
-
 
 ## 2026-10-02 23:10 IST update — native LBA readback mismatch
 
@@ -326,4 +279,81 @@ The first boundary where the byte changes is the responsible layer to investigat
 The native LBA trace mismatch is a **real data-integrity/readback failure**, but this evidence alone does not prove allocator or journal corruption. The previous -780 mkdir investigation and this LBA readback failure must remain separate until their causal relationship is demonstrated.
 
 No source weakening, skipped test, changed expected value, or completion claim is justified yet.
+
+## 2026-10-02 23:40 IST update — decisive QEMU/GDB runtime proof
+
+A clean rebuild was performed from HEAD `e9a9afae13933945684cbbfe41a18f19398fdaad`.
+
+ELF symbols after the clean build remained:
+- `vfs_mkdir = 0x10d5e0`
+- `pfs_find_dir_entry = 0x121f60`
+- `pfs_vnode_mkdir = 0x126100`
+
+The full compiled disassembly of `pfs_find_dir_entry()` was inspected. Its explicit return instructions are:
+- `0x1220c7: mov eax,0xffffffff` = -1
+- `0x122090: mov eax,0xfffffffc` = -4
+- `0x1220b0: mov eax,0xfffffffa` = -6
+- `0x1220b7: mov eax,0x5` = +5
+
+There is still no compiled literal or explicit return of -780.
+
+A QEMU instance was started paused with a GDB stub, and GDB used a **symbol breakpoint** on `pfs_find_dir_entry` rather than the earlier hard-coded return address.
+
+Runtime result:
+
+```
+Breakpoint 1, 0x0000000000121f60 in pfs_find_dir_entry ()
+
+=== ENTERED pfs_find_dir_entry ===
+rax = 0x0
+eax = 0x0
+
+=== RETURNED FROM pfs_find_dir_entry ===
+rax = 0xfffffffa
+eax = 0xfffffffa
+signed EAX = -6
+
+caller:
+0x1277df <pfs_vnode_lookup+223>: cmp $0xfffffffa,%eax
+0x1277e2 <pfs_vnode_lookup+226>: je ...
+```
+
+### Decisive correction to the earlier model
+
+The runtime proof **disproves the previous assumption that the failing mkdir call itself receives -780 directly from `pfs_find_dir_entry()`**.
+
+The observed invocation of `pfs_find_dir_entry()` was from **`pfs_vnode_lookup()`**, not `pfs_vnode_mkdir()`.
+
+The function correctly returned **-6 (`PROSENJITFS_ENOENT`)**, which is a valid source-level and compiled return value.
+
+Therefore:
+- `pfs_find_dir_entry()` is not producing -780.
+- The earlier static call-site at `pfs_vnode_mkdir+0x144` is not, by itself, proof that the runtime failure came through that call; the same helper is used from multiple filesystem paths.
+- The -780 source remains unresolved.
+- The GDB session also confirms QEMU itself stayed alive with no host-side error; the previous apparent QEMU exit was not reproduced in this run.
+
+### Current root-cause boundary
+
+The investigation must now move **up one level** and identify the exact runtime caller/instance that eventually returns -780 to `vfs_mkdir()`.
+
+The next required proof is:
+1. break at `pfs_vnode_mkdir`;
+2. capture its entry registers/arguments;
+3. break at its actual `pfs_find_dir_entry` call/return;
+4. capture the returned EAX for that specific invocation;
+5. capture the final `pfs_vnode_mkdir` return value;
+6. capture `vfs_mkdir` return value immediately before self-test encoding.
+
+Until that chain is captured, **do not attribute the failure to allocator, journal, extent, ATA, or directory corruption**.
+
+### Status
+
+- Clean rebuild: PASS
+- ELF/layout consistency: PASS
+- GDB runtime connection: PASS
+- `pfs_find_dir_entry()` runtime return proof: PASS
+- `pfs_find_dir_entry() -> -780`: **DISPROVEN**
+- Actual -780 root cause: **NOT YET PROVEN**
+- Source patch from this diagnostic: **NONE**
+- Test weakening/skipping: **NONE**
 
