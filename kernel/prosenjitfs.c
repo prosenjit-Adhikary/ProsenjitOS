@@ -26,6 +26,11 @@ static int pfs_find_dir_entry(const struct pros_prosenjitfs *,
                               const struct pros_prosenjitfs_inode *,
                               const char *,
                               struct pros_prosenjitfs_dir_entry *);
+static int pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
+                                  const struct pros_prosenjitfs_inode *,
+                                  const char *,
+                                  struct pros_prosenjitfs_dir_entry *,
+                                  uint64_t *, uint64_t *);
 static int pfs_tx_reset(struct pros_prosenjitfs *);
 static int pfs_tx_add(struct pros_prosenjitfs *, uint64_t, const void *);
 static int pfs_tx_commit(struct pros_prosenjitfs *);
