@@ -82,6 +82,7 @@ static struct pfs_write_diag pfs_diag;
 /* Temporary mkdir regression trace: stage identifies the first failing operation. */
 static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
+static uint32_t pfs_tx_diag_stage;
 
 
 void prosenjitfs_write_diag_reset(void)
@@ -2793,6 +2794,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_commit c;
     uint32_t checksum;
 
+    pfs_tx_diag_stage = 1u;
     if (!fs || !fs->scratch || !fs->tx.images ||
         fs->read_only || fs->tx.count == 0u ||
         fs->tx.count + 2u > fs->sb.journal_blocks)
@@ -2816,15 +2818,18 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                                          checksum));
     pfs_copy(header, &h, sizeof(h));
 
+    pfs_tx_diag_stage = 2u;
     if (pfs_write_block(fs->mount.device, fs->sb.journal_start,
                         header) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+    pfs_tx_diag_stage = 3u;
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         if (pfs_write_block(fs->mount.device,
                             fs->sb.journal_start + 1u + i,
                             fs->tx.images + (uint64_t)i * fs->sb.block_size) !=
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
+    pfs_tx_diag_stage = 4u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
@@ -2837,12 +2842,14 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                                     fs->sb.block_size, fs->tx.count, commit);
     c.checksum = checksum;
     pfs_copy(commit, &c, sizeof(c));
+    pfs_tx_diag_stage = 5u;
     if (pfs_write_block(fs->mount.device,
                         fs->sb.journal_start + 1u + fs->tx.count,
                         commit) != PROSENJITFS_OK ||
         pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
 
+    pfs_tx_diag_stage = 6u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
         uint8_t *tx_image =
             fs->tx.images + (uint64_t)i * fs->sb.block_size;
@@ -2859,10 +2866,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
     }
+    pfs_tx_diag_stage = 7u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     if (pfs_diag.found) {
         uint8_t verify[4096];
+        pfs_tx_diag_stage = 8u;
         if (pfs_read_block(fs->mount.device, pfs_diag.physical_lba,
                            verify) != PROSENJITFS_OK)
             return PROSENJITFS_EIO;
@@ -2871,6 +2880,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             return PROSENJITFS_EIO;
     }
 
+    pfs_tx_diag_stage = 9u;
     return pfs_journal_clear(fs);
 }
 
@@ -3639,7 +3649,8 @@ int prosenjitfs_selftest(void)
         if (mkdir_rc != PROS_VFS_OK) {
             /* Encode the PFS mkdir stage/raw rc into the self-test result. */
             uint32_t raw = pfs_mkdir_diag_rc < 0 ? (uint32_t)(-pfs_mkdir_diag_rc) : 0u;
-            return -(123000 + pfs_mkdir_diag_stage * 100u + raw);
+            return -(123000 + pfs_mkdir_diag_stage * 1000u +
+                     pfs_tx_diag_stage * 10u + raw);
         }
         mkdir_rc = vfs_mkdir(&fs.mount, "/dir2");
         if (mkdir_rc != PROS_VFS_OK)
