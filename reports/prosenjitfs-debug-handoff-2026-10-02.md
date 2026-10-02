@@ -405,3 +405,57 @@ A test-only use of the new LBA helper was also corrected immediately: the block 
 Latest NTFS LBA audit commit: `0a3d02b0341a990c9df7756acd421a5d7ce5b558`.
 
 This is still implementation/hardening, not runtime proof. GitHub Actions for the preceding commits were completing with failure and their job logs were unavailable through the connector. The newest commit has triggered fresh workflows and requires CI verification before it is treated as validated.
+
+## 2026-10-03 — LBA/NTFS semantic contract verification
+
+### Microsoft NTFS semantic basis
+
+Microsoft documentation defines LCN (Logical Cluster Number) as the cluster number relative to the beginning of the volume; the first cluster is LCN 0. VCN is the cluster number relative to the beginning of a file/directory/stream. The NTFS volume data structure separately exposes NumberSectors, TotalClusters, BytesPerSector, BytesPerCluster, MftStartLcn and Mft2StartLcn. Microsoft also documents a retrieval-pointer base as the sector offset to the first LCN relative to the start of the volume.
+
+References:
+- Microsoft Learn, NTFS volume data: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-ntfs_volume_data_buffer
+- Microsoft Learn, MS-FSCC glossary (LCN/VCN): https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/8ac44452-328c-4d7b-a784-d72afd19bd9f
+- Microsoft Learn, volume management control codes / FSCTL_GET_RETRIEVAL_POINTER_BASE: https://learn.microsoft.com/en-us/windows/win32/fileio/volume-management-control-codes
+
+### Established address hierarchy
+
+    NTFS file offset
+      -> VCN / file-relative cluster
+      -> NTFS runlist
+      -> LCN / volume-relative logical cluster
+      -> LCN * sectors_per_cluster
+      -> NTFS volume-relative LBA
+      -> partition-relative LBA
+      -> parent-device LBA
+      -> ATA
+
+**LCN != physical LBA.** NTFS computes a volume/device-local sector location. The partition view is responsible for adding its first_lba exactly once when translating to the parent device.
+
+### Actual mount-device semantics
+
+ntfs_mount() receives the block device passed by its caller and stores that pointer through vfs_mount_init(). There is no hidden partition offset inside NTFS. When a filesystem is mounted from a partition view, fs->mount.device is therefore partition-relative and partition translation occurs exactly once below it.
+
+### Hardening performed
+
+- NTFS sector-within-cluster additions use block_device_lba_add().
+- NTFS LCN-to-LBA multiplication is checked before multiplication and the complete cluster span is range-validated.
+- NTFS runlist parser length/offset arithmetic is checked without wrapping uint32_t values.
+- NTFS signed runlist LCN deltas are checked for int64_t overflow before accumulation; 8-byte sign extension avoids a shift-by-64 undefined operation.
+- Partition entry-array and local-to-parent translation paths use checked LBA operations.
+- Partition trace reverse translation is checked rather than performing unchecked parent-LBA addition.
+- ATA multi-sector chunk advancement uses the common checked LBA helper.
+
+### Verification added
+
+- LCN 0 -> volume LBA 0.
+- LCN 1 -> volume LBA 8 for the synthetic 512-byte/8-sector-cluster geometry.
+- Highest valid synthetic LCN 511 -> volume LBA 4088.
+- LCN 512 is rejected because its complete cluster lies outside the 4096-sector volume.
+- Last sector within a cluster (sector index 7) is accepted; sector index 8 is rejected.
+- Independent multiplication-overflow guard test.
+- NTFS runlist malformed-length and signed-delta overflow coverage.
+- Partition local LBA 0 -> parent LBA 1 and local LBA 1 -> parent LBA 2 are traced explicitly, proving the partition offset is applied once in the test path.
+
+### CI/runtime status
+
+Implementation hardening has been committed, but a fresh build, filesystem regression, ISO/QEMU/native-BIOS verification, security checks, and GitHub Actions results are still required before the LBA/NTFS work can be declared complete. The separate ProsenjitFS -780 mkdir investigation remains unresolved and is not attributed to this LBA work without runtime evidence.
