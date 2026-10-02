@@ -18,6 +18,7 @@
 #include "driver.h"
 #include "device_broker.h"
 #include "input.h"
+#include "boot_graphics.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -309,6 +310,36 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR physical memory initialization failed\n");
         vga_write("ProsenjitOS: memory initialization failed", 0x4F);
         for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    if (pros_boot_graphics_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR Multiboot2 framebuffer self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: Multiboot2 framebuffer parser self-test passed\n");
+
+    if (boot_magic == MULTIBOOT2_BOOT_MAGIC) {
+        struct pros_graphics_surface boot_surface;
+        int graphics_status = pros_boot_graphics_from_multiboot2(
+            (uint64_t)boot_info, &boot_surface);
+        if (graphics_status == PROS_DRIVER_OK) {
+            uint64_t framebuffer_bytes =
+                (uint64_t)boot_surface.pitch * boot_surface.height;
+            if (physical_memory_reserve(boot_surface.framebuffer,
+                                        framebuffer_bytes) != 0) {
+                serial_write("ProsenjitOS: ERROR framebuffer reservation failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: Multiboot2 framebuffer handoff validated and reserved\n");
+            serial_write("ProsenjitOS: framebuffer address = ");
+            serial_hex64((uint64_t)boot_surface.framebuffer);
+            serial_write("\n");
+        } else if (graphics_status == PROS_DRIVER_ENODEV) {
+            serial_write("ProsenjitOS: no Multiboot2 framebuffer tag; graphical session unavailable\n");
+        } else {
+            serial_write("ProsenjitOS: ERROR invalid/unsupported Multiboot2 framebuffer handoff\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
 
     if (pros_input_selftest() != PROS_DRIVER_OK) {
