@@ -3493,10 +3493,20 @@ int prosenjitfs_selftest(void)
             vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
                 PROS_VFS_OK ||
             !hidden ||
-            vfs_vnode_put(hidden) != PROS_VFS_OK ||
-            vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin") !=
-                PROS_VFS_OK)
+            vfs_vnode_put(hidden) != PROS_VFS_OK)
             return -(120000 + __LINE__);
+
+        /*
+         * Keep the round-trip rename check separate so a failure identifies
+         * the exact VFS return code instead of collapsing it into the generic
+         * self-test stage code. This is especially important after remount,
+         * where the directory-index persistence path is being exercised.
+         */
+        {
+            int rename_rc = vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin");
+            if (rename_rc != PROS_VFS_OK)
+                return -(150000 + (uint32_t)(-rename_rc));
+        }
     }
     /*
      * Directory mutation regression:
