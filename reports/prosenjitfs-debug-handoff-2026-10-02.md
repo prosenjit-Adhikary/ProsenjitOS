@@ -5,11 +5,13 @@ Repository: prosenjit-Adhikary/ProsenjitOS
 Area: ProsenjitFS rename/unlink transaction debugging
 
 ## Current objective
+
 Continue debugging the ProsenjitFS rename/self-test failure without weakening or skipping tests.
 
 ## What was checked
 
 ### 1. VFS return-code mapping
+
 Checked VFS status definitions and rename dispatch.
 
 Known codes:
@@ -22,12 +24,13 @@ Known codes:
 The VFS rename path delegates to pfs_vnode_rename() in kernel/prosenjitfs.c.
 
 ### 2. ProsenjitFS self-test / transaction diagnostics
+
 Recent QEMU self-test results:
 - Build completed successfully.
 - Other self-tests passed.
 - ProsenjitFS self-test failed.
 - Observed diagnostic examples:
-  - rc = 0xFFFFFFFFFFFD2740 (also reported as a negative value in decimal)
+  - rc = 0xFFFFFFFFFFFD2740
   - mkdir_stage = 0
   - mkdir_rc = 0
   - tx_stage = 9
@@ -36,6 +39,7 @@ Recent QEMU self-test results:
 The important interpretation is that mkdir itself succeeded. The failure is in a later transaction path.
 
 ### 3. Journal-clear implementation
+
 Checked pfs_journal_clear().
 
 It clears/writes all journal blocks starting at journal_start, then flushes.
@@ -46,60 +50,86 @@ Diagnostic conventions found:
 Therefore an observed tx_stage = 9 is NOT a journal-clear failure. The failure occurs before the journal-clear diagnostic stages.
 
 ### 4. Unlink implementation
+
 Inspected pfs_vnode_unlink() around kernel/prosenjitfs.c:1660-1859.
 
-Important verified flow:
+Verified flow:
 1. Validate parent/name/mount.
 2. Read parent inode and directory index.
-3. Walk the hashed directory-entry chain.
+3. Walk hashed directory-entry chain.
 4. Locate target entry and inode.
 5. Reject self-reference and directory targets.
-6. Read the child inode block.
-7. Reset the transaction.
+6. Read child inode block.
+7. Reset transaction.
 8. Stage directory-index or previous-entry update.
 9. Stage zeroed child inode.
 10. Stage inode bitmap clear.
 11. Stage target directory-entry block allocation clear.
 12. Walk child extents and stage physical blocks and extent blocks for release.
-13. Commit the transaction.
+13. Commit transaction.
 14. Reset transaction on pre-commit error.
 
-The displayed unlink implementation is transaction-based and does not by itself explain the current rename self-test failure.
+No unlink patch was made during this inspection.
 
-### 5. Rename implementation
-The rename function begins at kernel/prosenjitfs.c:1862.
+### 5. Rename implementation — inspected 2026-10-02
 
-The next required inspection is the complete function through approximately line 2240, including every:
-- lookup
-- transaction reset
-- transaction add
-- allocator/bitmap stage
-- commit
-- return/goto path
+Inspected the local working-tree source output for pfs_vnode_rename(), kernel/prosenjitfs.c:1862-2207.
 
-Do NOT patch rename yet based only on the unlink code.
+Verified high-level flow:
+1. Validate old/new parents and names.
+2. Require both parents to belong to the same filesystem.
+3. Reject read-only/inactive source mount.
+4. Treat same parent + identical name as a no-op returning PROS_VFS_OK.
+5. Read source and destination parent inode/index.
+6. Reject an existing destination entry with PROS_VFS_EEXIST.
+7. Locate source directory entry and its LBA.
+8. Read source entry block.
+9. Read child inode.
+10. For cross-directory directory moves, walk ancestors to prevent moving a directory into its own descendant.
+11. Allocate transaction buffers and reset transaction.
+12. Same-directory rename:
+    - Same bucket retains the existing entry block.
+    - Different bucket removes the old link and links the entry block into the new bucket.
+    - Entry name/hash/length is rewritten and staged.
+13. Cross-directory rename:
+    - Remove source link.
+    - Stage source directory index.
+    - Rewrite entry name/hash/length.
+    - Stage the same entry block at target LBA.
+    - Link it into destination directory index.
+    - For directories, update child inode parent_inode and stage its inode block.
+14. Commit via pfs_tx_commit().
+15. Return PROS_VFS_OK on successful commit; reset transaction on pre-commit failure.
 
-## Current code evidence
+### 6. Important rename observations
 
-The inspected unlink code contains:
-- target directory-entry removal
-- inode zeroing
-- inode bitmap release
-- directory-entry block release
-- extent/physical-block release
-- pfs_tx_commit()
+The inspected source contains several points that must be checked before any patch:
 
-The transaction is deliberately all-or-nothing: if staging cannot represent the complete operation, the transaction is reset and nothing should be committed.
+- At lines 2022-2024, when old_bucket == new_bucket, the code contains the no-op assignment entry.next = entry.next. It should not be changed blindly.
+- Same-directory rename eventually rewrites the existing entry block at lines 2176-2190, including new name_hash, name_length, name payload, and checksum.
+- Cross-directory rename reuses target_lba for the renamed entry block and stages it after removing the source link.
+- The transaction can receive multiple writes to the same LBA. Same-directory different-bucket rename can stage previous/dir-index changes and then the entry block; cross-directory rename can stage source index, entry block, destination index, and possibly child inode.
+- Several failure paths use goto out_reset without explicitly assigning rc immediately before the goto. This may preserve an earlier rc value when a low-level operation fails. Compare this against pfs_tx_* return conventions.
+- The observed tx_stage=9 from earlier diagnostics must be mapped against the actual pfs_tx_* implementation before concluding which rename operation failed.
+- No rename patch was made in this inspection.
+
+## Local working-tree change status
+
+The local source shown in the 2026-10-02 terminal output is the current working-tree content for pfs_vnode_rename(). This log records what was observed in that local source, but does NOT claim that the rename code was modified during this inspection. No local git diff/status output was provided in this step, so no unverified local modification is attributed to this inspection.
 
 ## Next AI action
 
-Run:
+Inspect the transaction implementation and diagnostics next, then correlate tx_stage=9 with the rename staging sequence.
+
+Useful command:
 
     cd ~/Projects/ProsenjitOS && \
-    echo "===== RENAME FUNCTION =====" && \
-    nl -ba kernel/prosenjitfs.c | sed -n '1862,2240p'
+    echo "===== TX IMPLEMENTATION =====" && \
+    grep -nE 'static int pfs_tx_|int pfs_tx_|pfs_tx_stage|tx_stage|pfs_tx_add|pfs_tx_commit|pfs_tx_reset' kernel/prosenjitfs.c | head -220
 
-Then inspect the full pfs_vnode_rename() implementation before changing code.
+Then inspect the relevant pfs_tx_* function bodies with line numbers.
+
+Do NOT patch rename until the transaction return/stage mapping is established.
 
 ## Constraints
 
@@ -114,4 +144,4 @@ Then inspect the full pfs_vnode_rename() implementation before changing code.
 Build: PASS in recent run.
 QEMU execution: completed/diagnostics available in recent runs.
 ProsenjitFS self-test: FAIL.
-Primary unresolved area: pfs_vnode_rename() transaction/return path.
+Primary unresolved area: correlate rename transaction staging with tx_stage=9 and its return code.
