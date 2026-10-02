@@ -1299,7 +1299,7 @@ static int ntfs_index_allocation_insert_child(struct pros_ntfs *fs,
                 chosen_vcn = vcn;
             if ((flags & 2u) == 0u && key_size != 0u &&
                 ntfs_name_key_compare(root_data + offset + 16u, key_size,
-                                      key, key[64u]) <= 0)
+                                      key + 66u, key[64u]) <= 0)
                 chosen_vcn = vcn;
             chosen = 1u;
         }
@@ -3098,7 +3098,7 @@ int ntfs_index_root_insert(struct pros_ntfs *fs,
         }
 
         if (insert_offset == 0u &&
-            ntfs_name_key_compare(key, key_size, key_copy,
+            ntfs_name_key_compare(key, key_size, key_copy + 66u,
                                   key_copy[64u]) > 0)
             insert_offset = offset;
 
@@ -4471,7 +4471,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
 
                 if (insert_at == 0xFFFFFFFFu &&
                     ntfs_name_key_compare(leaf + absolute + 16u, ksize,
-                                          key, key[64u]) > 0)
+                                          key + 66u, key[64u]) > 0)
                     insert_at = expanded_used;
                 expanded_used += esize;
                 entry_count++;
@@ -5003,7 +5003,7 @@ int ntfs_index_allocation_insert(struct pros_ntfs *fs,
             if (insert_offset == 0u &&
                 current_key_size >= 66u &&
                 ntfs_name_key_compare(record + absolute + 16u,
-                                      current_key_size, key,
+                                      current_key_size, key + 66u,
                                       key[64u]) > 0)
                 insert_offset = absolute;
 
@@ -7665,7 +7665,7 @@ int ntfs_selftest(void)
                 return -22020;
             ntfs_active_upcase = ntfs_upcase_data;
             if (ntfs_name_key_compare(split_key, sizeof(split_key),
-                                      new_key, new_key[64u]) >= 0) {
+                                      new_key + 66u, new_key[64u]) >= 0) {
                 ntfs_active_upcase = 0;
                 return -22021;
             }
