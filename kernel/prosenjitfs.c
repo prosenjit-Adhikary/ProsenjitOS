@@ -350,6 +350,8 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
     if (!bitmap || pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
     for (uint64_t b = region_start; b < end; ++b) {
+        if (bitmap_base > UINT64_MAX - bits_per_block)
+            return PROSENJITFS_EOVERFLOW;
         if (b < bitmap_base || b >= bitmap_base + bits_per_block)
             continue;
         uint64_t local = b - bitmap_base;
@@ -433,14 +435,33 @@ int prosenjitfs_format(struct pros_block_device *device)
                     block_size - 1u) / block_size);
 
     cursor = 2u;
-    if (cursor + journal_blocks + bitmap_blocks + inode_bitmap_blocks +
-        inode_table_blocks + 1u >= total)
-        return PROSENJITFS_ENOSPC;
     pfs_zero(&sb, sizeof(sb));
-    sb.journal_start = cursor; sb.journal_blocks = journal_blocks; cursor += journal_blocks;
-    sb.block_bitmap_start = cursor; sb.block_bitmap_blocks = bitmap_blocks; cursor += bitmap_blocks;
-    sb.inode_bitmap_start = cursor; sb.inode_bitmap_blocks = inode_bitmap_blocks; cursor += inode_bitmap_blocks;
-    sb.inode_table_start = cursor; sb.inode_table_blocks = inode_table_blocks; cursor += inode_table_blocks;
+    sb.journal_start = cursor;
+    sb.journal_blocks = journal_blocks;
+    if ((uint64_t)journal_blocks > total - cursor)
+        return PROSENJITFS_ENOSPC;
+    cursor += journal_blocks;
+
+    sb.block_bitmap_start = cursor;
+    sb.block_bitmap_blocks = bitmap_blocks;
+    if ((uint64_t)bitmap_blocks > total - cursor)
+        return PROSENJITFS_ENOSPC;
+    cursor += bitmap_blocks;
+
+    sb.inode_bitmap_start = cursor;
+    sb.inode_bitmap_blocks = inode_bitmap_blocks;
+    if ((uint64_t)inode_bitmap_blocks > total - cursor)
+        return PROSENJITFS_ENOSPC;
+    cursor += inode_bitmap_blocks;
+
+    sb.inode_table_start = cursor;
+    sb.inode_table_blocks = inode_table_blocks;
+    if ((uint64_t)inode_table_blocks > total - cursor)
+        return PROSENJITFS_ENOSPC;
+    cursor += inode_table_blocks;
+
+    if (cursor >= total - 1u)
+        return PROSENJITFS_ENOSPC;
     sb.data_start = cursor + 1u;
     pfs_copy(sb.magic, PROSENJITFS_MAGIC, PROSENJITFS_MAGIC_LEN);
     sb.version = PROSENJITFS_VERSION;
