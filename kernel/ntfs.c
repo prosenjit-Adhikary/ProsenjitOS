@@ -7414,7 +7414,7 @@ int ntfs_selftest(void)
          */
         disk.root_record[176u] = 16u;
         disk.root_record[178u] = 0u;
-        disk.root_record[180u] = 2u;
+        disk.root_record[188u] = 2u;
         disk.root_record[192u] = 0xFFu;
         disk.root_record[193u] = 0xFFu;
         disk.root_record[194u] = 0xFFu;
@@ -7850,12 +7850,9 @@ int ntfs_selftest(void)
 
         /* DOS-only aliases must not satisfy a normal path lookup. */
         disk.root_record[96u + 65u] = 2u;
-        {
-            int dos_lookup_status = ntfs_path_lookup(
-                &fs, components, lengths, 1u, &path_reference);
-            if (dos_lookup_status != PROS_NTFS_ENOTSUP)
-                return -1830 + dos_lookup_status;
-        }
+        if (ntfs_path_lookup(&fs, components, lengths, 1u,
+                             &path_reference) != PROS_NTFS_ENOTSUP)
+            return -183;
         disk.root_record[96u + 65u] = 1u;
 
         {
