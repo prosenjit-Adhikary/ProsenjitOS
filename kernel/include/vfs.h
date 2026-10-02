@@ -29,9 +29,6 @@
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
-    PROS_FS_FAT32,
-    PROS_FS_EXFAT,
-    PROS_FS_NTFS,
     PROS_FS_PROSENJIT
 };
 
