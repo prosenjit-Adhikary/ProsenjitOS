@@ -164,7 +164,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies + deterministic bundle version/source/package-ID selection + active-package immutability + safe staged update sequence + guarded package retirement/stale-locator cleanup implemented; persistent package/update lifecycle remains pending)
   - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
-- [ ] Keyboard
+- [~] Keyboard (PS/2 IRQ1 scancode path implemented; userspace input ABI and USB HID remain pending)
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
 - [x] Display abstraction
