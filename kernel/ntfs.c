@@ -8094,6 +8094,14 @@ int ntfs_selftest(void)
             if (!fs.mount.root || !fs.mount.root->ops ||
                 !fs.mount.root->ops->lookup)
                 return -198;
+            {
+                uint8_t euro16[] = { 0xACu, 0x20u };
+                uint64_t unicode_ref = 0u;
+                int unicode_dir_status = ntfs_directory_lookup(
+                    &fs, 5u, euro16, 1u, &unicode_ref);
+                if (unicode_dir_status != PROS_NTFS_ENOTFOUND)
+                    return -19200 - unicode_dir_status;
+            }
 
             if (fs.mount.root->ops->lookup(fs.mount.root, valid_utf8_3,
                                            &unicode_node) != PROS_VFS_ENOENT ||
