@@ -123,6 +123,7 @@ int pros_boot_graphics_selftest(void)
 }
 
 static struct pros_graphics_surface bound_surface;
+static const struct pros_display_ops boot_display_ops;
 
 static int boot_display_probe(struct pros_driver_device *device)
 {
