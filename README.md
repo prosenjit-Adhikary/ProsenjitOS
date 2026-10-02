@@ -258,40 +258,21 @@ ProsenjitOS is being designed to access common removable and internal storage wi
 
 Target filesystem set:
 
-- **FAT32** — broad legacy/removable-media compatibility
-- **exFAT** — modern flash/removable-media compatibility
-- **NTFS** — Windows data-volume and removable-storage compatibility
 - **ProsenjitFS** — native filesystem for ProsenjitOS
+- **Compatibility filesystems** — planned as external filesystem providers, not part of the kernel image
 
-NTFS is a mandatory compatibility target. The first NTFS implementation will be read-only so an incomplete parser cannot accidentally modify a Windows volume. Later stages will add safe write support and journal/recovery handling.
+NTFS, FAT32 and exFAT are no longer kernel filesystems. Their previous in-kernel implementations have been removed from the kernel image; future compatibility support will be provided as external filesystem providers through the VFS/provider boundary.
 
 The planned removable-media path is:
 
-`USB mass storage -> block device -> MBR/GPT -> filesystem probe -> FAT32/exFAT/NTFS -> VFS`
+`USB mass storage -> block device -> MBR/GPT -> filesystem provider -> VFS -> ProsenjitFS`
 
 Filesystem implementations are isolated behind the VFS and block-device contracts. This allows the same filesystem code to work with USB, SATA and NVMe storage drivers. Filesystem metadata is also subject to the ProsenjitOS security/admission model.
 
-### NTFS implementation progress
+### Filesystem-provider architecture
 
-The read-only NTFS driver now includes:
+The kernel now contains only the native ProsenjitFS implementation. FAT32, exFAT and NTFS compatibility parsers are intentionally outside the kernel image. Future compatibility filesystems must attach through a narrow VFS/provider interface so adding a filesystem does not require parser code in the kernel core.
 
-- validated NTFS boot geometry
-- FILE-record multi-sector USA/fixup validation
-- resident attribute discovery and data access
-- nonresident attribute runlist extraction
-- multi-run and sparse-run decoding with bounded validation
-- MFT record 0 bootstrap from its $DATA runlist
-- fragmented MFT record mapping for subsequent record reads
-- bounded MFT run storage to keep the freestanding kernel deterministic
-- resident $FILE_NAME metadata parsing with UTF-16LE filename exposure
-- resident $INDEX_ROOT header and entry validation, including terminal/sub-node flags
-- exact UTF-16LE resident directory-name lookup returning the target MFT reference
-- read-only `$INDEX_ALLOCATION` child-node traversal with INDX USA/VCN validation and bounded cycle protection
-- NTFS `$Root` (MFT record 5) directory lookup and component-by-component path traversal
-
-The MFT and directory-index paths remain metadata-read-only. `$INDEX_ROOT` and `$INDEX_ALLOCATION` traversal now reach child INDX nodes, while NTFS `$UpCase` case-folding, alternate `$FILE_NAME` namespaces, and general file-data streaming are supported. Writable NTFS mounts now support safe overwrite of existing unnamed `$DATA` and growth inside already allocated non-sparse space. Growth zero-fills gaps and updates the nonresident `$DATA` real/initialized sizes plus MFT `$FILE_NAME` data-size copies. Cluster allocation, directory-index metadata updates and journal/recovery writes remain later milestones.
-
-See [docs/FILESYSTEM.md](docs/FILESYSTEM.md) for the detailed filesystem architecture and implementation order.
 
 ## Compatibility strategy
 
@@ -394,7 +375,7 @@ and, for cloud-backed files:
 
 ### Future filesystem extensibility
 
-Existing filesystem implementations should remain independent of this desktop strategy. FAT32, exFAT, NTFS and ProsenjitFS will continue through the existing VFS/storage architecture.
+The native ProsenjitFS implementation remains in the kernel. Future compatibility filesystem providers will remain independent of the kernel core and attach through the VFS/provider architecture.
 
 Future filesystems should be addable through a filesystem-provider/registration boundary rather than requiring changes to the kernel's core file API. This reserved extension path is intended to make future support for filesystems such as APFS, Btrfs or other formats possible without redesigning the kernel core.
 
@@ -502,9 +483,9 @@ Completed or substantially implemented:
 - exFAT geometry/mount regression foundation
 
 Next, in order:
-1. real partition/filesystem integration and FAT32 end-to-end storage flow
-2. read-only exFAT directory/file support
-3. NTFS directory-index mutation, broader allocation, and journal/recovery
+1. complete native ProsenjitFS production verification
+2. establish the external filesystem-provider ABI/boundary
+3. add compatibility providers later without linking their parsers into the kernel
 4. filesystem-backed security admission plus replaceable reputation adapters
 5. driver model/device broker and keyboard/display/network device abstractions
 6. ELF loader, process startup, init/service manager and basic CUI
@@ -561,7 +542,7 @@ MIT
 
 ## Native ProsenjitFS
 
-ProsenjitFS is now integrated as the native ProsenjitOS filesystem through the existing block-device, partition and VFS layers. FAT32, exFAT and NTFS remain compatibility filesystems.
+ProsenjitFS is the only filesystem currently linked into the kernel. FAT32, exFAT and NTFS are intentionally removed from the kernel and are future external compatibility-provider targets.
 
 The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata, persistent extent-backed file I/O, transactional file and directory mutation (create/mkdir/unlink/rmdir/rename/move), directory-parent cycle protection, and a redo journal. Deterministic regression covers committed replay, torn transactions, journal checksum corruption, metadata-layout corruption, binary-byte coverage, remount persistence, and injected journal/home-write failures. The native BIOS QEMU path also contains the ATA PIO -> MBR -> ProsenjitFS persistence diagnostic. Final completion remains gated on a successful post-change GitHub Actions run; physical power-loss durability is not claimed.
 
