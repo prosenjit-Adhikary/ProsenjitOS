@@ -22,6 +22,7 @@
 #define PROS_VFS_EEXIST -11
 #define PROS_VFS_ENOTEMPTY -12
 #define PROS_VFS_ENOTSUP -13
+#define PROS_VFS_ENOSPC -14
 #define PROS_VFS_O_READ  (1u << 0)
 #define PROS_VFS_O_WRITE (1u << 1)
 #define PROS_VFS_O_DIRECTORY (1u << 2)
