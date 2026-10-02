@@ -13,7 +13,6 @@ Continue debugging the ProsenjitFS rename/self-test failure without weakening or
 ### 1. VFS return-code mapping
 
 Checked VFS status definitions and rename dispatch.
-
 Known codes:
 - PROS_VFS_OK = 0
 - PROS_VFS_EINVAL = -1
@@ -29,107 +28,136 @@ Recent QEMU self-test results:
 - Build completed successfully.
 - Other self-tests passed.
 - ProsenjitFS self-test failed.
-- Observed diagnostic examples:
-  - rc = 0xFFFFFFFFFFFD2740
+- Latest exact runtime:
+  - rc = 0xFFFFFFFFFFFE1C7C
+  - signed rc = -123780
   - mkdir_stage = 0
   - mkdir_rc = 0
   - tx_stage = 9
-  - tx_count was 3 in one run and 4 in a later run.
+  - tx_count = 4
 
-The important interpretation is that mkdir itself succeeded. The failure is in a later transaction path.
+The 123000-series encoding is confirmed to originate from the first /dir1 mkdir failure check.
 
 ### 3. Journal-clear implementation
 
 Checked pfs_journal_clear().
-
 It clears/writes all journal blocks starting at journal_start, then flushes.
-Diagnostic conventions found:
+Diagnostic conventions:
 - journal-block write failure: tx diagnostic stage 90 + i
 - flush failure: tx diagnostic stage 200
-
-Therefore an observed tx_stage = 9 is NOT a journal-clear failure. The failure occurs before the journal-clear diagnostic stages.
+Therefore tx_stage=9 means execution reached the journal-clear call; it does not by itself prove journal clear failed.
 
 ### 4. Unlink implementation
 
 Inspected pfs_vnode_unlink() around kernel/prosenjitfs.c:1660-1859.
-
-Verified flow:
-1. Validate parent/name/mount.
-2. Read parent inode and directory index.
-3. Walk hashed directory-entry chain.
-4. Locate target entry and inode.
-5. Reject self-reference and directory targets.
-6. Read child inode block.
-7. Reset transaction.
-8. Stage directory-index or previous-entry update.
-9. Stage zeroed child inode.
-10. Stage inode bitmap clear.
-11. Stage target directory-entry block allocation clear.
-12. Walk child extents and stage physical blocks and extent blocks for release.
-13. Commit transaction.
-14. Reset transaction on pre-commit error.
-
-No unlink patch was made during this inspection.
+Verified validation, directory-chain lookup, child inode handling, transaction staging, commit, and reset-on-precommit-error flow.
+No unlink patch was made.
 
 ### 5. Rename implementation — inspected 2026-10-02
 
-Inspected the local working-tree source output for pfs_vnode_rename(), kernel/prosenjitfs.c:1862-2207.
-
-Verified high-level flow:
-1. Validate old/new parents and names.
-2. Require both parents to belong to the same filesystem.
-3. Reject read-only/inactive source mount.
-4. Treat same parent + identical name as a no-op returning PROS_VFS_OK.
-5. Read source and destination parent inode/index.
-6. Reject an existing destination entry with PROS_VFS_EEXIST.
-7. Locate source directory entry and its LBA.
-8. Read source entry block.
-9. Read child inode.
-10. For cross-directory directory moves, walk ancestors to prevent moving a directory into its own descendant.
-11. Allocate transaction buffers and reset transaction.
-12. Same-directory rename:
-    - Same bucket retains the existing entry block.
-    - Different bucket removes the old link and links the entry block into the new bucket.
-    - Entry name/hash/length is rewritten and staged.
-13. Cross-directory rename:
-    - Remove source link.
-    - Stage source directory index.
-    - Rewrite entry name/hash/length.
-    - Stage the same entry block at target LBA.
-    - Link it into destination directory index.
-    - For directories, update child inode parent_inode and stage its inode block.
-14. Commit via pfs_tx_commit().
-15. Return PROS_VFS_OK on successful commit; reset transaction on pre-commit failure.
-
-### 6. Important rename observations
-
-The inspected source contains several points that must be checked before any patch:
-
-- At lines 2022-2024, when old_bucket == new_bucket, the code contains the no-op assignment entry.next = entry.next. It should not be changed blindly.
-- Same-directory rename eventually rewrites the existing entry block at lines 2176-2190, including new name_hash, name_length, name payload, and checksum.
-- Cross-directory rename reuses target_lba for the renamed entry block and stages it after removing the source link.
-- The transaction can receive multiple writes to the same LBA. Same-directory different-bucket rename can stage previous/dir-index changes and then the entry block; cross-directory rename can stage source index, entry block, destination index, and possibly child inode.
-- Several failure paths use goto out_reset without explicitly assigning rc immediately before the goto. This may preserve an earlier rc value when a low-level operation fails. Compare this against pfs_tx_* return conventions.
-- The observed tx_stage=9 from earlier diagnostics must be mapped against the actual pfs_tx_* implementation before concluding which rename operation failed.
-- No rename patch was made in this inspection.
+Inspected pfs_vnode_rename(), kernel/prosenjitfs.c:1862-2207.
+Verified validation, same-filesystem checks, destination collision handling, source lookup, directory-cycle prevention, transaction staging for same-directory and cross-directory rename, child parent update for directory moves, commit, and reset-on-precommit-error flow.
+Important observations:
+- Same-directory same-bucket path contains entry.next = entry.next and should not be changed blindly.
+- Transactions can stage multiple writes to the same LBA.
+- Some goto out_reset paths may preserve an earlier rc if a low-level operation fails; this must be checked against pfs_tx_* conventions.
+No rename patch was made.
 
 ## Local working-tree change status
 
-The local source shown in the 2026-10-02 terminal output is the current working-tree content for pfs_vnode_rename(). This log records what was observed in that local source, but does NOT claim that the rename code was modified during this inspection. No local git diff/status output was provided in this step, so no unverified local modification is attributed to this inspection.
+Verified earlier from user-supplied git diff:
+- kernel/prosenjitfs.c: 24 insertions, 11 deletions
+- setup-prosenjitos-agent.sh: mode 100644 -> 100755, no content change
+These were pre-existing local changes, not made by this assistant.
+No evidence supplied that these changes are committed/pushed.
 
-## Next AI action
+## Detailed mkdir investigation
 
-Inspect the transaction implementation and diagnostics next, then correlate tx_stage=9 with the rename staging sequence.
+### Mkdir source flow
 
-Useful command:
+pfs_vnode_mkdir() starts at kernel/prosenjitfs.c:1283.
+At entry it resets:
+- pfs_mkdir_diag_stage = 0
+- pfs_mkdir_diag_rc = PROSENJITFS_OK
+- pfs_tx_diag_stage = 0
+- pfs_tx_diag_count = 0
 
-    cd ~/Projects/ProsenjitOS && \
-    echo "===== TX IMPLEMENTATION =====" && \
-    grep -nE 'static int pfs_tx_|int pfs_tx_|pfs_tx_stage|tx_stage|pfs_tx_add|pfs_tx_commit|pfs_tx_reset' kernel/prosenjitfs.c | head -220
+Early validation/read/lookup failures at lines ~1299-1321 return standard VFS errors without setting mkdir diagnostic stage.
+Allocation failures use stages 3-6.
+Inode-location/read failure is stage 7.
+Transaction staging failures are stages 8-14.
+pfs_tx_commit() failure is stage 15.
+Vnode creation failure is stage 16.
+Final mapping converts successful PFS status to PROS_VFS_OK and maps known/unknown failures to VFS errors.
 
-Then inspect the relevant pfs_tx_* function bodies with line numbers.
+### VFS dispatch
 
-Do NOT patch rename until the transaction return/stage mapping is established.
+vfs_mkdir() in kernel/vfs.c:591-651:
+- resolves parent "/"
+- validates parent directory and mkdir operation
+- calls parent->ops->mkdir(parent, "dir1", &created)
+- returns that callback rc unchanged after cleanup/health accounting
+
+Therefore VFS does not transform a PFS mkdir error.
+
+### First mkdir self-test encoding
+
+The source at lines ~3697-3703 contains:
+- mkdir_rc = vfs_mkdir(&fs.mount, "/dir1");
+- if (mkdir_rc != PROS_VFS_OK) return -(123000 + (uint32_t)(-mkdir_rc));
+
+Later checks use 124000 and 125000.
+A fresh grep found the 123000 encoding only at the first /dir1 mkdir failure site.
+
+### Build/binary correlation
+
+Latest build inspection:
+- build/prosenjit.elf timestamp: 2026-10-02 21:19:52 +0530
+- symbols:
+  - vfs_mkdir = 0x10d5e0
+  - prosenjitfs_mkdir_diag_get = 0x122bc0
+  - pfs_vnode_mkdir = 0x126100
+- current kernel/prosenjitfs.c SHA-256:
+  030e9f797c8209c4d08c407256a57d5b30a95f32bee96751714c42365adc0b2d
+- scripts/build.sh compiles kernel/prosenjitfs.c into build/obj/prosenjitfs.o and links it into the ELF.
+This rules out an obvious stale-ELF timestamp mismatch, but source-to-binary semantic correlation still needs runtime proof.
+
+### pfs_vnode_mkdir() disassembly
+
+Disassembly of pfs_vnode_mkdir() starting at 0x126100 was inspected through 0x126500.
+Confirmed machine code resets all four diagnostics at entry.
+Confirmed visible return constants correspond to standard VFS/PFS error mappings such as -7, -9, -5, -11, -12, -13, and -4.
+No visible -780 return constant appeared in the inspected first portion.
+IMPORTANT: the function continues beyond 0x126500 and contains jumps to later addresses (including 0x126b05 and 0x126cf2), so the complete function has NOT yet been ruled out as the source of an unusual return. Do not claim that -780 is impossible until the remainder is inspected.
+
+### Latest self-test machine-code inspection — 2026-10-02 15:59:40Z
+
+User supplied objdump around prosenjitfs_selftest().
+Confirmed:
+- prosenjitfs_selftest starts at 0x129490.
+- kernel_main calls it at 0x1032a0 and stores its return in ebx at 0x1032a5.
+- On nonzero return, kernel_main calls prosenjitfs_mkdir_diag_get at 0x122bc0 and prints the returned diagnostics.
+- The call sequence is:
+  - 0x1032a0 call prosenjitfs_selftest
+  - 0x1032a5 mov ebx,eax
+  - 0x1032a7 test eax,eax
+  - failure path calls prosenjitfs_mkdir_diag_get
+  - then prints ebx as the self-test rc and the four diagnostics
+This proves the printed rc is the actual return value from prosenjitfs_selftest() as seen by kernel_main.
+
+The self-test disassembly shown begins at 0x129490 and reaches the early format setup, but the first /dir1 mkdir machine-code region was not yet reached in the supplied excerpt. Therefore the next step is to inspect the exact machine code from the first mkdir call through its failure encoding and the diagnostic getter call. This is now the critical correlation point.
+
+## Current conclusion
+
+The runtime result is still internally inconsistent:
+- selftest return = -123780
+- this must come from the first 123000-series failure encoding
+- printed mkdir diagnostics are all zero except tx_stage=9, tx_count=4
+- VFS forwards the PFS mkdir callback return unchanged
+- pfs_vnode_mkdir() entry resets diagnostics
+- the inspected portion of its machine code shows normal error constants, but the complete function remains uninspected
+
+The strongest next hypothesis is a control-flow/ABI/source-runtime mismatch around the first mkdir call or a return value produced in the uninspected tail of pfs_vnode_mkdir(), not a journal-clear failure.
 
 ## Constraints
 
@@ -139,135 +167,13 @@ Do NOT patch rename until the transaction return/stage mapping is established.
 - Preserve transaction atomicity.
 - Record new findings in this handoff log so another AI agent can continue without repeating the investigation.
 
-## Status
+## Next action
 
-Build: PASS in recent run.
-QEMU execution: completed/diagnostics available in recent runs.
-ProsenjitFS self-test: FAIL.
-Primary unresolved area: correlate rename transaction staging with tx_stage=9 and its return code.
+Inspect the exact first /dir1 mkdir machine-code sequence inside prosenjitfs_selftest(), including:
+1. the call to vfs_mkdir()
+2. the instruction that tests its return
+3. the 123000 + (-mkdir_rc) encoding
+4. the branch to the common failure return
+5. the nearby diagnostic getter/output path
 
-
-## Verified local working-tree changes — 2026-10-02 14:44:31Z
-
-User supplied `git status`, `git diff --stat`, and full `git diff`. The following uncommitted local changes are VERIFIED from that output:
-
-### Modified files
-- `kernel/prosenjitfs.c`
-- `setup-prosenjitos-agent.sh`
-
-### Diff summary
-- `kernel/prosenjitfs.c`: 24 insertions, 11 deletions
-- `setup-prosenjitos-agent.sh`: mode changed from `100644` to `100755`, with no content change
-- Overall: 2 files changed, 24 insertions, 11 deletions.
-
-### kernel/prosenjitfs.c — exact verified changes
-1. In `pfs_vnode_rename()`:
-   - Removed unused local `uint64_t current`.
-   - Removed local `uint64_t steps`.
-   - Added allocation of `inode_block`.
-   - Expanded the allocation failure check to include `inode_block`.
-
-2. In `pfs_journal_clear()`:
-   - Journal-block writes are now enclosed in braces.
-   - On journal-block write failure, sets `pfs_tx_diag_stage = 90u + i` before returning `PROSENJITFS_EIO`.
-   - Flush is now checked explicitly.
-   - On flush failure, sets `pfs_tx_diag_stage = 200u` before returning `PROSENJITFS_EIO`.
-   - Successful flush returns `PROSENJITFS_OK`.
-
-3. In `prosenjitfs_selftest()` around the `/dir2/subdir` and `/dir2` lookups:
-   - Replaced the combined short-circuit lookup condition with separate `moved_rc` and `parent_rc` variables.
-   - Failure encoding now includes both lookup return codes and whether either vnode pointer is null.
-   - This is diagnostic instrumentation only; it does not change the success condition.
-
-### Important local-change distinction
-These changes were already present in the user's local working tree when the supplied `git diff` was captured. They are recorded here as VERIFIED LOCAL UNCOMMITTED CHANGES, not as changes made by this assistant.
-
-No evidence was supplied that these changes are committed or pushed to GitHub.
-
-### Files not modified by this step
-The supplied diff shows no modification to other files. In particular, the rename source inspected earlier is currently carrying the local allocation change described above, but no further rename logic patch was made in this step.
-
-## Next action remains
-Before changing rename logic, inspect the `pfs_tx_*` implementation and correlate `tx_stage=9` with the exact transaction operation that fails.
-
-
-## Latest verified local inspection — 2026-10-02 15:20:37Z
-
-User supplied the current local output for `pfs_vnode_mkdir()` (`kernel/prosenjitfs.c:1283-1445`). This is the working-tree source shown by the user; it is not treated as proof of the GitHub default-branch source.
-
-### Mkdir diagnostic flow confirmed
-
-- `pfs_mkdir_diag_stage` and `pfs_mkdir_diag_rc` are reset to zero/OK at entry.
-- Early validation/read/lookup failures at lines 1299-1321 do **not** set a mkdir diagnostic stage; they leave stage=0, rc=0.
-- Allocation failures are staged as 3/4/5/6.
-- Inode-location/read failure is stage 7.
-- Transaction staging failures are stages 8-14.
-- `pfs_tx_commit()` failure is stage 15.
-- Vnode creation failure after a successful transaction is stage 16.
-- `pfs_tx_diag_stage` and `pfs_tx_diag_count` are also reset at mkdir entry.
-
-### Important encoding correction
-
-The mkdir self-test encoding is:
-
-`123000 + mkdir_stage * 1000 + tx_stage * 10 + raw`, where `raw = -pfs_mkdir_diag_rc` when the diagnostic rc is negative.
-
-Therefore an observed value of `123780` cannot be interpreted as mkdir stage 7 + raw 8. That combination would encode `123078`. If `123780` is the exact observed failure value, the arithmetic must be rechecked against the actual printed QEMU diagnostic fields before any code change.
-
-### Transaction path implication
-
-The currently inspected `pfs_tx_commit()` sets stage 9 immediately before calling `pfs_journal_clear()`. A journal-block write failure changes the stage to `90 + i` and a journal flush failure changes it to `200`. Thus a final tx stage of exactly 9 means execution reached the journal-clear call, but does not by itself prove that journal clearing failed; the returned rc and final diagnostic output are required.
-
-### No patch made
-
-No mkdir, VFS, transaction, or rename logic was changed as a result of this inspection. The next step is to inspect the complete `vfs_mkdir()` implementation and correlate the **actual QEMU failure line/value** with these diagnostic fields.
-
-
-## Latest verified VFS mkdir inspection — 2026-10-02 15:21:52Z
-
-User supplied kernel/vfs.c:591-651 for vfs_mkdir().
-
-### Confirmed dispatch path
-
-For /dir1, VFS constructs parent path /, performs vfs_path_lookup(mount, "/", &parent), validates the returned vnode as a directory with a mkdir operation, then directly calls parent->ops->mkdir(parent, "dir1", &created). Any negative return is propagated unchanged after vnode cleanup and health accounting.
-
-Therefore VFS mkdir does not transform a ProsenjitFS mkdir error. The next diagnostic target is the exact PFS mkdir callback return path and the raw self-test output.
-
-### No patch made
-
-No source logic was changed during this inspection.
-
-### Next action
-
-Inspect the remaining pfs_vnode_mkdir() return mapping around lines 1440-1465, then capture the exact QEMU self-test failure line containing the encoded value and diagnostic fields. Do not patch until the raw failure is correlated.
-
-
-## Latest verified mkdir transaction mapping — 2026-10-02 15:22:51Z
-
-User supplied kernel/prosenjitfs.c:1380-1445. Confirmed the normal mkdir path reaches pfs_tx_commit() at line 1427 after four pfs_tx_add() calls. If pfs_tx_commit() returns non-OK, pfs_mkdir_diag_stage is set to 15 and pfs_mkdir_diag_rc receives the exact transaction return code. The final VFS mapping then preserves known PFS errors; EIO maps to PROS_VFS_EIO and unknown errors also map to EIO.
-
-This means a failure with mkdir_stage=15 and tx_stage=9 specifically means pfs_tx_commit() returned an error after entering the journal-clear phase. It does not yet identify whether journal-clear write or flush failed, because pfs_journal_clear() changes tx_diag_stage to 90+i or 200 on those failures. Therefore the exact runtime diagnostic line is required before any patch.
-
-No source patch made.
-
-Next action: run the existing mkdir QEMU test and capture the exact self-test failure/diagnostic output, especially mkdir_stage, mkdir_rc, tx_stage, and tx_count.
-
-
-## Exact runtime correlation — 2026-10-02 15:24:10Z
-
-Fresh clean build/QEMU run completed. ProsenjitFS self-test failed with rc=0xFFFFFFFFFFFE1C7C, mkdir_stage=0, mkdir_rc=0, tx_stage=9, tx_count=4.
-
-Decoded signed rc: -123780. The existing encoding is 123000 + mkdir_stage*1000 + tx_stage*10 + raw, so with mkdir_stage=0 and tx_stage=9, the displayed 123780 implies raw=690. That is inconsistent with the current pfs_mkdir_diag_rc convention if raw is only the negated mkdir diagnostic rc, because mkdir_rc is simultaneously reported as 0. Therefore this runtime value is not a valid direct encoding of a mkdir failure under the currently inspected formula; it strongly indicates the failing self-test return is coming from a later test/return path that reuses the same 123000 encoding but combines stale/current transaction diagnostics.
-
-The tx_count=4 confirms four transaction blocks were staged before the observed tx_stage=9 state. No source patch made.
-
-Next action: inspect the exact self-test code surrounding every return that emits the 123000-series diagnostic, including the second mkdir and subsequent mkdir/rename/rmdir checks, to identify which operation produced -123780. Do not patch until that return site is identified.
-
-
-## Exact 123000-series return-site search — 2026-10-02 15:25:01Z
-
-Fresh grep shows the 123000 encoding exists only at the first /dir1 mkdir failure check (lines 3697-3703). The later mkdir checks use 124000 for /dir2 and 125000 for /dir1/subdir. Therefore the -123780 runtime result does originate from the first mkdir failure return, despite the printed mkdir diagnostics showing stage=0 and rc=0.
-
-This exposes the key issue: the first mkdir failure condition can be true while pfs_mkdir_diag_stage and pfs_mkdir_diag_rc remain zero. The only currently visible paths that leave those diagnostics zero are early pfs_vnode_mkdir() failures before stage 3, or a VFS-level failure before the callback; VFS dispatch was already confirmed to call the PFS mkdir callback directly and preserve its return.
-
-However, -123780 still cannot be explained by the displayed encoding using tx_stage=9 and raw=0. The next inspection must capture the exact self-test block and nearby diagnostic getter/output code together, looking for an ABI/type mismatch, stale binary/source mismatch, or another modification between source and printed values. No patch made.
+Do not patch source until this machine-code correlation is established.
