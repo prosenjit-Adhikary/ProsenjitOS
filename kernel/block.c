@@ -161,6 +161,7 @@ int block_device_selftest(void)
     uint8_t sector[512];
     uint64_t errors_before = error_count;
     uint64_t flush_errors_before = flush_error_count;
+    uint64_t lba_result = 0u;
 
     if (block_device_init(&device, 512u, 4u,
                           block_selftest_read_fail,
@@ -174,10 +175,10 @@ int block_device_selftest(void)
         !block_device_lba_range_valid(&device, 3u, 1u) ||
         block_device_lba_range_valid(&device, 4u, 1u) ||
         block_device_lba_range_valid(&device, 3u, 2u) ||
-        block_device_lba_add(&device, 3u, 0u, &errors_before) != PROS_BLOCK_OK ||
-        errors_before != 3u ||
-        block_device_lba_add(&device, 3u, 1u, &errors_before) != PROS_BLOCK_EINVAL ||
-        block_device_lba_add(&device, 4u, 0u, &errors_before) != PROS_BLOCK_EINVAL)
+        block_device_lba_add(&device, 3u, 0u, &lba_result) != PROS_BLOCK_OK ||
+        lba_result != 3u ||
+        block_device_lba_add(&device, 3u, 1u, &lba_result) != PROS_BLOCK_EINVAL ||
+        block_device_lba_add(&device, 4u, 0u, &lba_result) != PROS_BLOCK_EINVAL)
         return PROS_BLOCK_EINVAL;
 
     if (block_device_read(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
