@@ -107,8 +107,7 @@ ATA PIO -> MBR -> ProsenjitFS -> mount/unmount -> rediscovery.
 Required future providers:
 AHCI, NVMe, USB mass storage.
 
-FAT32, exFAT and NTFS must remain available; ProsenjitFS must not replace
-them or become a requirement for ordinary removable-media access.
+ProsenjitFS is the only filesystem currently linked into the kernel. FAT32, exFAT and NTFS compatibility support is intentionally externalized and must not be reintroduced into kernel-core.
 
 ## 5. Security path
 
