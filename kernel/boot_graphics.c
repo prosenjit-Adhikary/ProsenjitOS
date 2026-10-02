@@ -129,8 +129,11 @@ int pros_boot_graphics_selftest(void)
     fb->framebuffer_blue_field_position = 0u;
     fb->framebuffer_blue_mask_size = 8u;
 
-    *(uint32_t *)(void *)(buffer + 8u + sizeof(*fb)) = MULTIBOOT2_TAG_END;
-    *(uint32_t *)(void *)(buffer + 12u + sizeof(*fb)) = 8u;
+    {
+        uint32_t end_offset = (uint32_t)((8u + sizeof(*fb) + 7u) & ~7u);
+        *(uint32_t *)(void *)(buffer + end_offset) = MULTIBOOT2_TAG_END;
+        *(uint32_t *)(void *)(buffer + end_offset + 4u) = 8u;
+    }
 
     if (pros_boot_graphics_from_multiboot2((uint64_t)(uintptr_t)buffer,
                                             &surface) != PROS_DRIVER_OK)
