@@ -69,6 +69,7 @@ struct pfs_write_diag {
     uint8_t found;
     uint8_t read_enabled;
     uint8_t read_found;
+    uint8_t verify_pending;
     uint8_t tx_byte;
     uint8_t post_commit_byte;
     uint8_t direct_byte;
@@ -2860,6 +2861,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             pfs_diag.found = 1u;
             pfs_diag.tx_byte = tx_image[188u];
             pfs_diag.physical_lba = fs->tx.targets[i];
+            pfs_diag.verify_pending = 1u;
             pfs_diag.enabled = 0u;
         }
         if (pfs_write_block(fs->mount.device, fs->tx.targets[i], tx_image) !=
@@ -2869,7 +2871,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_tx_diag_stage = 7u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
-    if (pfs_diag.found) {
+    if (pfs_diag.verify_pending) {
         uint8_t verify[4096];
         pfs_tx_diag_stage = 8u;
         if (pfs_read_block(fs->mount.device, pfs_diag.physical_lba,
@@ -2878,6 +2880,10 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         pfs_diag.post_commit_byte = verify[188u];
         if (pfs_diag.post_commit_byte != 0xD6u)
             return PROSENJITFS_EIO;
+        /* Verify the diagnostic block only for the transaction that created
+         * the diagnostic marker. Later transactions may legitimately free
+         * and reuse that block (for example during truncate tests). */
+        pfs_diag.verify_pending = 0u;
     }
 
     pfs_tx_diag_stage = 9u;
