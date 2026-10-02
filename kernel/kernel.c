@@ -320,19 +320,32 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     if (boot_magic == MULTIBOOT2_BOOT_MAGIC) {
         struct pros_graphics_surface boot_surface;
+        struct pros_driver_device boot_display;
         int graphics_status = pros_boot_graphics_from_multiboot2(
             (uint64_t)boot_info, &boot_surface);
         if (graphics_status == PROS_DRIVER_OK) {
+            if (pros_boot_graphics_bind(&boot_surface, &boot_display) != PROS_DRIVER_OK) {
+                serial_write("ProsenjitOS: ERROR framebuffer display binding failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            struct pros_graphics_surface bound_surface;
+            if (pros_graphics_from_display(&boot_display, &bound_surface) != PROS_DRIVER_OK) {
+                serial_write("ProsenjitOS: ERROR display-class surface validation failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
             uint64_t framebuffer_bytes =
-                (uint64_t)boot_surface.pitch * boot_surface.height;
-            if (physical_memory_reserve(boot_surface.framebuffer,
+                (uint64_t)bound_surface.pitch * bound_surface.height;
+            if (physical_memory_reserve(bound_surface.framebuffer,
                                         framebuffer_bytes) != 0) {
                 serial_write("ProsenjitOS: ERROR framebuffer reservation failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
             serial_write("ProsenjitOS: Multiboot2 framebuffer handoff validated and reserved\n");
+            serial_write("ProsenjitOS: framebuffer display device bound = ");
+            serial_write(boot_display.name);
+            serial_write("\n");
             serial_write("ProsenjitOS: framebuffer address = ");
-            serial_hex64((uint64_t)boot_surface.framebuffer);
+            serial_hex64((uint64_t)bound_surface.framebuffer);
             serial_write("\n");
         } else if (graphics_status == PROS_DRIVER_ENODEV) {
             serial_write("ProsenjitOS: no Multiboot2 framebuffer tag; graphical session unavailable\n");
