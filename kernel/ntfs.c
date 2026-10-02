@@ -301,7 +301,8 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
             break;
         }
         if (len_bytes == 0u || len_bytes > 8u || off_bytes > 8u ||
-            pos + len_bytes + off_bytes > length)
+            len_bytes > length - pos ||
+            off_bytes > length - pos - len_bytes)
             return PROS_NTFS_ECORRUPT;
         for (uint32_t i=0u;i<len_bytes;++i)
             run_len |= (uint64_t)runlist[pos+i] << (8u*i);
@@ -309,9 +310,12 @@ int ntfs_decode_runlist(const uint8_t *runlist, uint32_t length,
         if (off_bytes) {
             for (uint32_t i=0u;i<off_bytes;++i)
                 raw |= (uint64_t)runlist[pos+i] << (8u*i);
-            if (raw & (1ull << (off_bytes*8u-1u)))
-                raw |= ~0ull << (off_bytes*8u);
+            if (off_bytes < 8u && (raw & (1ull << (off_bytes * 8u - 1u))))
+                raw |= ~0ull << (off_bytes * 8u);
             delta = (int64_t)raw;
+            if ((delta > 0 && current_lcn > INT64_MAX - delta) ||
+                (delta < 0 && current_lcn < INT64_MIN - delta))
+                return PROS_NTFS_EOVERFLOW;
             current_lcn += delta;
             if (current_lcn < 0) return PROS_NTFS_ECORRUPT;
         }
@@ -6486,6 +6490,47 @@ int ntfs_selftest(void)
         fs.mft_runs[0].clusters != 4u || fs.mft_runs[0].sparse != 0u ||
         ntfs_cluster_lba(&fs,4u,&lba) != PROS_NTFS_OK || lba != 32u)
         return -101;
+
+    /* LCN is volume-relative: with 8 sectors/cluster, the final valid
+     * synthetic cluster is LCN 511 -> volume-relative LBA 4088. */
+    if (ntfs_cluster_lba(&fs,0u,&lba) != PROS_NTFS_OK || lba != 0u ||
+        ntfs_cluster_lba(&fs,1u,&lba) != PROS_NTFS_OK || lba != 8u ||
+        ntfs_cluster_lba(&fs,511u,&lba) != PROS_NTFS_OK || lba != 4088u ||
+        ntfs_cluster_lba(&fs,512u,&lba) == PROS_NTFS_OK)
+        return -105;
+
+    /* Sector-within-cluster is checked as an LBA addition, including the
+     * last valid sector and the first invalid sector. */
+    if (block_device_lba_add(fs.mount.device, 4088u, 7u, &lba) !=
+            PROS_BLOCK_OK || lba != 4095u ||
+        block_device_lba_add(fs.mount.device, 4088u, 8u, &lba) ==
+            PROS_BLOCK_OK)
+        return -106;
+
+    /* Exercise the multiplication overflow guard independently of NTFS's
+     * normal geometry limits. */
+    {
+        uint32_t saved_spc = fs.sectors_per_cluster;
+        fs.sectors_per_cluster = 0xFFFFFFFFu;
+        if (ntfs_cluster_lba(&fs, UINT64_MAX / 0xFFFFFFFFu + 1u, &lba) !=
+                PROS_NTFS_EOVERFLOW)
+            return -107;
+        fs.sectors_per_cluster = saved_spc;
+    }
+
+    /* An 8-byte signed LCN delta must not invoke undefined sign-extension
+     * shifts or wrap the accumulated LCN. */
+    {
+        const uint8_t overflowing_runlist[] = {
+            0x11u, 1u, 0x7Fu,
+            0x81u, 1u, 0x80u, 0x00u, 0x00u, 0x00u,
+            0x00u
+        };
+        if (ntfs_decode_runlist(overflowing_runlist,
+                                sizeof(overflowing_runlist),
+                                runs, 3u, &run_count) != PROS_NTFS_EOVERFLOW)
+            return -108;
+    }
 
     if (ntfs_decode_runlist(runlist, sizeof(runlist), runs, 3u, &run_count) !=
             PROS_NTFS_OK || run_count != 3u ||
