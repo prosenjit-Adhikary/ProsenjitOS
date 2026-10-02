@@ -1480,7 +1480,7 @@ mkdir_out:
     case PROSENJITFS_ENOTSUP:
         return PROS_VFS_ENOTSUP;
     case PROSENJITFS_ENOSPC:
-        return PROS_VFS_EOVERFLOW;
+        return PROS_VFS_ENOSPC;
     case PROSENJITFS_ENOENT:
         return PROS_VFS_ENOENT;
     case PROSENJITFS_EEXIST:
