@@ -262,3 +262,12 @@ Decoded signed rc: -123780. The existing encoding is 123000 + mkdir_stage*1000 +
 The tx_count=4 confirms four transaction blocks were staged before the observed tx_stage=9 state. No source patch made.
 
 Next action: inspect the exact self-test code surrounding every return that emits the 123000-series diagnostic, including the second mkdir and subsequent mkdir/rename/rmdir checks, to identify which operation produced -123780. Do not patch until that return site is identified.
+
+
+## Exact 123000-series return-site search — 2026-10-02 15:25:01Z
+
+Fresh grep shows the 123000 encoding exists only at the first /dir1 mkdir failure check (lines 3697-3703). The later mkdir checks use 124000 for /dir2 and 125000 for /dir1/subdir. Therefore the -123780 runtime result does originate from the first mkdir failure return, despite the printed mkdir diagnostics showing stage=0 and rc=0.
+
+This exposes the key issue: the first mkdir failure condition can be true while pfs_mkdir_diag_stage and pfs_mkdir_diag_rc remain zero. The only currently visible paths that leave those diagnostics zero are early pfs_vnode_mkdir() failures before stage 3, or a VFS-level failure before the callback; VFS dispatch was already confirmed to call the PFS mkdir callback directly and preserve its return.
+
+However, -123780 still cannot be explained by the displayed encoding using tx_stage=9 and raw=0. The next inspection must capture the exact self-test block and nearby diagnostic getter/output code together, looking for an ABI/type mismatch, stale binary/source mismatch, or another modification between source and printed values. No patch made.
