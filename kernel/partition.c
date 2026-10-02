@@ -61,6 +61,9 @@ int partition_read_mbr(struct pros_block_device *device,
         uint32_t sectors = le32(entry + 12);
         if (entry[4] == 0 || sectors == 0)
             continue;
+        if (first >= device->sector_count ||
+            (uint64_t)sectors > device->sector_count - first)
+            return PROS_PARTITION_EINVAL;
         partitions[found].first_lba = first;
         partitions[found].sector_count = sectors;
         partitions[found].mbr_type = entry[4];
@@ -120,13 +123,15 @@ int partition_read_gpt(struct pros_block_device *device,
         return PROS_PARTITION_EINVAL;
     for (uint32_t i = 0; i < entry_count && found < capacity; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
-        uint64_t lba = entries_lba + byte_offset / device->sector_size;
+        uint64_t lba;
         uint32_t offset = (uint32_t)(byte_offset % device->sector_size);
-        if (lba >= device->sector_count)
+        if (block_device_lba_add(device, entries_lba,
+                                 byte_offset / device->sector_size,
+                                 &lba) != PROS_BLOCK_OK)
             return PROS_PARTITION_EINVAL;
         uint32_t sectors_to_read =
             (offset + entry_size > device->sector_size) ? 2u : 1u;
-        if (sectors_to_read == 2u && lba + 1u >= device->sector_count)
+        if (!block_device_lba_range_valid(device, lba, sectors_to_read))
             return PROS_PARTITION_EINVAL;
         if (block_device_read(device, lba, sectors_to_read, entry) != PROS_BLOCK_OK)
             return PROS_PARTITION_EIO;
@@ -189,7 +194,10 @@ int partition_trace_find(const struct pros_partition_device *view, uint64_t lba,
         const struct pros_partition_trace_event *event = &view->trace[index];
         if (event->write == write && lba >= event->local_lba &&
             lba - event->local_lba < event->count) {
-            *parent_lba = event->parent_lba + (lba - event->local_lba);
+            if (block_device_lba_add(view->parent, event->parent_lba,
+                                     lba - event->local_lba,
+                                     parent_lba) != PROS_BLOCK_OK)
+                return PROS_PARTITION_EINVAL;
             *trace_count = event->count;
             return PROS_PARTITION_OK;
         }
@@ -325,8 +333,21 @@ int partition_selftest(void)
         return -1;
     if (buffer[0] != partition_test_media[512])
         return -1;
+    {
+        uint64_t translated = 0u;
+        uint32_t trace_count = 0u;
+        if (partition_trace_find(&view, 0u, 0u, &translated,
+                                 &trace_count) != PROS_PARTITION_OK ||
+            translated != 1u || trace_count != 1u)
+            return -2;
+        if (block_device_read(&view.device, 1u, 1u, buffer) != PROS_BLOCK_OK ||
+            partition_trace_find(&view, 1u, 0u, &translated,
+                                 &trace_count) != PROS_PARTITION_OK ||
+            translated != 2u)
+            return -3;
+    }
     if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
-        return -1;
+        return -4;
 
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
