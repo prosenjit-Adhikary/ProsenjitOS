@@ -494,3 +494,8 @@ Current verification state at handoff:
 - Main branch contains the architecture change at commit `b0525062012b02285d50a0229a7f161f4f09ed1b`.
 - GitHub Actions Build and Security workflows for that latest commit were queued at the time of this report update; green CI has **not** yet been claimed.
 - The native ProsenjitFS runtime/LBA investigation remains independent: the previously unresolved mkdir self-test return `-780` has not been attributed to NTFS/FAT32/exFAT code.
+
+
+### CI result after native-only filesystem split
+
+GitHub Actions was triggered by the architecture changes. The latest Build and Security workflow runs for commit `89f7ee018a18e8b204a7f12267250ebd8954145d` both ended in `failure`, but GitHub exposed neither step data nor a logs URL for the failed jobs (`steps=null`, `logs_url=null`). The failures therefore cannot currently be attributed to a compile error, test failure, or this filesystem split. No test was changed to hide the failure, and no CI-green claim is made.
