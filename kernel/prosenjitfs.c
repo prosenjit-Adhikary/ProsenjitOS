@@ -686,6 +686,30 @@ static int pfs_inode_block_location(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
+static int pfs_file_write_error(uint32_t done, int rc)
+{
+    if (done != 0u)
+        return (int)done;
+    switch (rc) {
+    case PROSENJITFS_ENOSPC:
+        return PROS_VFS_ENOSPC;
+    case PROSENJITFS_EOVERFLOW:
+        return PROS_VFS_EOVERFLOW;
+    case PROSENJITFS_EINVAL:
+        return PROS_VFS_EINVAL;
+    case PROSENJITFS_EPERM:
+        return PROS_VFS_EPERM;
+    case PROSENJITFS_ENOTSUP:
+        return PROS_VFS_ENOTSUP;
+    case PROSENJITFS_ENOENT:
+        return PROS_VFS_ENOENT;
+    case PROSENJITFS_EEXIST:
+        return PROS_VFS_EEXIST;
+    default:
+        return PROS_VFS_EIO;
+    }
+}
+
 static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
                          uint32_t length, void *buffer)
 {
@@ -802,11 +826,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         if (rc == PROSENJITFS_ENOENT) {
             rc = pfs_find_free_data_block_except(data->fs, 0u, &physical);
             if (rc != PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
             rc = pfs_find_free_data_block_except(data->fs, physical,
                                                  &new_extent_lba);
             if (rc != PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
             pfs_zero(data_image, data->fs->sb.block_size);
             pfs_zero(extent_image, data->fs->sb.block_size);
             pfs_zero(tail_image, data->fs->sb.block_size);
@@ -840,15 +864,15 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (pfs_inode_block_location(data->fs, data->inode_number,
                                          &inode_lba, &inode_offset) !=
                 PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
             if (pfs_read_block(data->fs->mount.device, inode_lba, inode_image) !=
                 PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
 
             if (tail_lba != 0u) {
                 if (pfs_read_block(data->fs->mount.device, tail_lba, tail_image) !=
                     PROSENJITFS_OK)
-                    return done ? (int)done : PROS_VFS_EIO;
+                    return pfs_file_write_error(done, rc);
                 struct pros_prosenjitfs_extent tail;
                 pfs_copy(&tail, tail_image, sizeof(tail));
                 tail.next = new_extent_lba;
@@ -888,16 +912,16 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                  pfs_tx_add(data->fs, tail_lba, tail_image) != PROSENJITFS_OK) ||
                 pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK ||
                 pfs_tx_commit(data->fs) != PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
             uint8_t inode_changed = 0u;
             physical = extent.physical_block + delta;
             if (physical >= data->fs->sb.total_blocks)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
             if (pfs_read_block(data->fs->mount.device, physical, data_image) !=
                 PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
@@ -910,7 +934,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     PROSENJITFS_OK ||
                     pfs_read_block(data->fs->mount.device, inode_lba,
                                    inode_image) != PROSENJITFS_OK)
-                    return done ? (int)done : PROS_VFS_EIO;
+                    return pfs_file_write_error(done, rc);
                 pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
                 pfs_put32(inode_image + inode_offset +
                           offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -926,9 +950,9 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 (inode_changed &&
                  pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK) ||
                 pfs_tx_commit(data->fs) != PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EIO;
+                return pfs_file_write_error(done, rc);
         } else {
-            return done ? (int)done : PROS_VFS_EIO;
+            return pfs_file_write_error(done, rc);
         }
 
         done += want;
