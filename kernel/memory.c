@@ -82,6 +82,13 @@ static void mark_available(uint64_t base, uint64_t length) {
     }
 }
 
+int physical_memory_reserve(uint64_t base, uint64_t length) {
+    if (length == 0 || base >= PROSENJIT_PHYS_LIMIT)
+        return -1;
+    reserve_range(base, length);
+    return 0;
+}
+
 int physical_memory_init(uint64_t multiboot_info_address) {
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) page_bitmap[i] = 0;
     total_pages = 0;

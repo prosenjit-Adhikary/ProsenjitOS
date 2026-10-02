@@ -1,4 +1,6 @@
 #include "process.h"
+#include "elf.h"
+#include "memory.h"
 #include "../../include/abi/syscall.h"
 
 static struct pros_process *current_process;
@@ -107,6 +109,51 @@ int process_create(struct pros_process *parent,
         (void)process_release_resources(child);
         return -1;
     }
+    return 0;
+}
+
+int process_exec_image(struct pros_process *process,
+                         const void *image,
+                         uint64_t image_size,
+                         uint64_t *entry_out,
+                         uint64_t *stack_top_out) {
+    uint64_t stack_page = 0;
+    uint64_t entry = 0;
+
+    if (!process_is_live(process) || !image || image_size == 0 ||
+        !entry_out || !stack_top_out ||
+        (process->state != PROS_PROCESS_NEW &&
+         process->state != PROS_PROCESS_READY))
+        return -1;
+
+    /* exec_image is intentionally restricted to a freshly created process.
+     * That keeps replacement transactional: the existing address space is
+     * not destroyed until a future, explicit replacement primitive exists. */
+    stack_page = physical_page_alloc();
+    if (!stack_page)
+        return -2;
+    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
+        ((uint8_t *)(uintptr_t)stack_page)[i] = 0;
+
+    if (address_space_map_user_page(&process->address_space,
+                                    PROSENJIT_USER_STACK_VA,
+                                    stack_page,
+                                    PROSENJIT_PAGE_WRITABLE |
+                                    PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(stack_page);
+        return -3;
+    }
+
+    if (pros_elf64_load(image, image_size, &process->address_space, &entry) != PROS_ELF_OK) {
+        (void)address_space_unmap_user_page(&process->address_space,
+                                            PROSENJIT_USER_STACK_VA);
+        physical_page_free(stack_page);
+        return -4;
+    }
+
+    *entry_out = entry;
+    *stack_top_out = PROSENJIT_USER_STACK_TOP;
+    process->state = PROS_PROCESS_READY;
     return 0;
 }
 

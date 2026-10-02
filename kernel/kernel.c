@@ -11,12 +11,16 @@
 #include "process.h"
 #include "thread.h"
 #include "timer.h"
+#include "pic.h"
 #include "intent.h"
 #include "ipc.h"
 #include "usercopy.h"
 #include "pci.h"
 #include "driver.h"
 #include "device_broker.h"
+#include "input.h"
+#include "elf.h"
+#include "boot_graphics.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -42,6 +46,9 @@ static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 static struct pros_ipc_channel user_ipc_channel;
+static struct pros_graphics_surface boot_graphics_surface;
+static struct pros_driver_device boot_graphics_device;
+static uint8_t boot_graphics_available;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -74,6 +81,17 @@ static inline uint8_t io_in8(uint16_t port) {
     uint8_t value;
     __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
     return value;
+}
+
+void keyboard_dispatch(void)
+{
+    uint8_t scancode = io_in8(0x60u);
+    struct pros_input_event event = {
+        .type = PROS_INPUT_EVENT_SCANCODE,
+        .code = (uint16_t)(scancode & 0x7Fu),
+        .value = (scancode & 0x80u) ? 0 : 1
+    };
+    (void)pros_input_device_push(&event);
 }
 #define COM1_PORT 0x3F8u
 
@@ -127,6 +145,7 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
+extern void isr33(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
@@ -188,6 +207,7 @@ void idt_init(void) {
     idt_set_gate(13, handlers[13], 0);
     idt_set_gate(14, handlers[14], 0);
     idt_set_gate(32, isr32, 0);
+    idt_set_gate(33, isr33, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
      * keeping syscall entry on IST1 makes the privilege transition robust
@@ -310,6 +330,43 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    if (pros_boot_graphics_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR Multiboot2 framebuffer self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: Multiboot2 framebuffer parser self-test passed\n");
+
+    if (boot_magic == MULTIBOOT2_BOOT_MAGIC) {
+        int graphics_status = pros_boot_graphics_from_multiboot2(
+            (uint64_t)boot_info, &boot_graphics_surface);
+        if (graphics_status == PROS_DRIVER_OK) {
+            uint64_t framebuffer_bytes =
+                (uint64_t)boot_graphics_surface.pitch * boot_graphics_surface.height;
+            if (physical_memory_reserve(boot_graphics_surface.framebuffer,
+                                        framebuffer_bytes) != 0) {
+                serial_write("ProsenjitOS: ERROR framebuffer reservation failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            boot_graphics_available = 1u;
+            serial_write("ProsenjitOS: Multiboot2 framebuffer handoff validated and reserved\n");
+        } else if (graphics_status == PROS_DRIVER_ENODEV) {
+            serial_write("ProsenjitOS: no Multiboot2 framebuffer tag; graphical session unavailable\n");
+        } else {
+            serial_write("ProsenjitOS: ERROR invalid/unsupported Multiboot2 framebuffer handoff\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    if (pros_input_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR input queue self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (pros_input_device_init() != PROS_DRIVER_OK || pic_enable_irq(1u) != 0) {
+        serial_write("ProsenjitOS: ERROR PS/2 keyboard input initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: input event queue self-test passed; PS/2 keyboard IRQ1 enabled\n");
+
     serial_write("ProsenjitOS: physical memory manager online\n");
     serial_write("ProsenjitOS: free pages = ");
     serial_hex64(physical_memory_free_pages());
@@ -364,6 +421,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
+    if (pros_elf64_selftest() != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF64 loader self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF64 PT_LOAD loader self-test passed\n");
     if (pros_log_selftest() != PROS_LOG_OK) {
         serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1489,6 +1551,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
+    if (boot_graphics_available) {
+        if (pros_boot_graphics_register_driver() != PROS_DRIVER_OK ||
+            pros_boot_graphics_bind(&boot_graphics_surface, &boot_graphics_device) != PROS_DRIVER_OK ||
+            pros_device_register(&boot_graphics_device) != PROS_DRIVER_OK ||
+            pros_driver_bind(boot_graphics_device.id) != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR framebuffer driver-model registration/binding failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        struct pros_graphics_surface bound_surface;
+        if (pros_graphics_from_display(&boot_graphics_device, &bound_surface) != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR registered display surface validation failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: framebuffer display device registered/bound = ");
+        serial_write(boot_graphics_device.name);
+        serial_write("\\n");
+        serial_write("ProsenjitOS: framebuffer address = ");
+        serial_hex64((uint64_t)bound_surface.framebuffer);
+        serial_write("\\n");
+    }
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
                         0x44525648u, PROS_HEALTH_RECOVERY_DRIVER_READY, timer_ticks());
     (void)pros_health_watchdog_kick(1u);

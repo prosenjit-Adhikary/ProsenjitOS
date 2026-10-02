@@ -46,6 +46,8 @@ int process_unregister(struct pros_process *process);
 int process_exit(struct pros_process *process, int32_t exit_code);
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code);
 
+int process_exec_image(struct pros_process *process, const void *image, uint64_t image_size, uint64_t *entry_out, uint64_t *stack_top_out);
+
 int process_create(struct pros_process *parent,
                    struct pros_process *child,
                    uint64_t pid,

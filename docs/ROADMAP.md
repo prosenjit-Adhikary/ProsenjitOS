@@ -164,10 +164,10 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies + deterministic bundle version/source/package-ID selection + active-package immutability + safe staged update sequence + guarded package retirement/stale-locator cleanup implemented; persistent package/update lifecycle remains pending)
   - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
-- [ ] Keyboard
+- [~] Keyboard (PS/2 IRQ1 scancode path implemented; userspace input ABI and USB HID remain pending)
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
-- [ ] Display abstraction
+- [x] Display abstraction
 - [ ] Network device abstraction
 
 ## Phase 6 — Storage and networking
@@ -220,7 +220,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [ ] ELF loader
+- [~] ELF loader (validated ET_EXEC x86-64 PT_LOAD loader with user mappings and boot self-test; filesystem-backed exec, ET_DYN/PIE, and dynamic linking remain pending)
 - [ ] Process startup
 - [ ] Init/service manager
 - [ ] Secure shell
@@ -228,9 +228,9 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Package manager
 
 ## Phase 8 — GUI
-- [ ] Graphics abstraction
-- [ ] Framebuffer
-- [ ] Input subsystem
+- [x] Graphics abstraction (validated kernel display-surface contract; no window system)
+- [~] Framebuffer (Multiboot2 provider, driver-model registration, validation, and physical reservation implemented; native hardware scanout and mode-setting remain pending)
+- [~] Input subsystem (bounded kernel event queue implemented; hardware keyboard/mouse providers remain pending)
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
 - [ ] ProsenjitOS-specific window manager/compositor (future, optional)

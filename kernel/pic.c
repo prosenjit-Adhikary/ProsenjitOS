@@ -51,3 +51,15 @@ int pic_init_for_timer(void) {
 void pic_eoi_master(void) {
     pic_out8(0x20, 0x20);
 }
+
+
+int pic_enable_irq(uint8_t irq)
+{
+    if (irq >= 8u)
+        return -1;
+
+    uint8_t mask = pic_in8(0x21);
+    mask &= (uint8_t)~(1u << irq);
+    pic_out8(0x21, mask);
+    return 0;
+}
