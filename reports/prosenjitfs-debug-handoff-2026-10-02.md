@@ -189,3 +189,35 @@ The supplied diff shows no modification to other files. In particular, the renam
 
 ## Next action remains
 Before changing rename logic, inspect the `pfs_tx_*` implementation and correlate `tx_stage=9` with the exact transaction operation that fails.
+
+
+## Latest verified local inspection — 2026-10-02 15:20:37Z
+
+User supplied the current local output for `pfs_vnode_mkdir()` (`kernel/prosenjitfs.c:1283-1445`). This is the working-tree source shown by the user; it is not treated as proof of the GitHub default-branch source.
+
+### Mkdir diagnostic flow confirmed
+
+- `pfs_mkdir_diag_stage` and `pfs_mkdir_diag_rc` are reset to zero/OK at entry.
+- Early validation/read/lookup failures at lines 1299-1321 do **not** set a mkdir diagnostic stage; they leave stage=0, rc=0.
+- Allocation failures are staged as 3/4/5/6.
+- Inode-location/read failure is stage 7.
+- Transaction staging failures are stages 8-14.
+- `pfs_tx_commit()` failure is stage 15.
+- Vnode creation failure after a successful transaction is stage 16.
+- `pfs_tx_diag_stage` and `pfs_tx_diag_count` are also reset at mkdir entry.
+
+### Important encoding correction
+
+The mkdir self-test encoding is:
+
+`123000 + mkdir_stage * 1000 + tx_stage * 10 + raw`, where `raw = -pfs_mkdir_diag_rc` when the diagnostic rc is negative.
+
+Therefore an observed value of `123780` cannot be interpreted as mkdir stage 7 + raw 8. That combination would encode `123078`. If `123780` is the exact observed failure value, the arithmetic must be rechecked against the actual printed QEMU diagnostic fields before any code change.
+
+### Transaction path implication
+
+The currently inspected `pfs_tx_commit()` sets stage 9 immediately before calling `pfs_journal_clear()`. A journal-block write failure changes the stage to `90 + i` and a journal flush failure changes it to `200`. Thus a final tx stage of exactly 9 means execution reached the journal-clear call, but does not by itself prove that journal clearing failed; the returned rc and final diagnostic output are required.
+
+### No patch made
+
+No mkdir, VFS, transaction, or rename logic was changed as a result of this inspection. The next step is to inspect the complete `vfs_mkdir()` implementation and correlate the **actual QEMU failure line/value** with these diagnostic fields.
