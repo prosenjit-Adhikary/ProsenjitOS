@@ -1332,9 +1332,23 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                  * previous diagnostic file first so every boot exercises the intended
                  * new-file/new-data-block allocation path rather than reusing old extents. */
                 {
-                    int unlink_rc = vfs_unlink(&native_fs.mount, "/.__pfs_lba_trace");
-                    if (unlink_rc != PROS_VFS_OK && unlink_rc != PROS_VFS_ENOENT) {
-                        serial_write("ProsenjitOS: ERROR native LBA trace cleanup failed\\n");
+                    struct pros_vfs_vnode *old_trace = 0;
+                    int lookup_rc = vfs_path_lookup(&native_fs.mount,
+                                                    "/.__pfs_lba_trace",
+                                                    &old_trace);
+                    if (lookup_rc == PROS_VFS_OK) {
+                        int unlink_rc;
+                        if (old_trace)
+                            vfs_vnode_put(old_trace);
+                        unlink_rc = vfs_unlink(&native_fs.mount,
+                                               "/.__pfs_lba_trace");
+                        if (unlink_rc != PROS_VFS_OK &&
+                            unlink_rc != PROS_VFS_ENOENT) {
+                            serial_write("ProsenjitOS: ERROR native LBA trace cleanup failed\\n");
+                            for (;;) __asm__ volatile ("cli; hlt");
+                        }
+                    } else if (lookup_rc != PROS_VFS_ENOENT) {
+                        serial_write("ProsenjitOS: ERROR native LBA trace lookup cleanup failed\\n");
                         for (;;) __asm__ volatile ("cli; hlt");
                     }
                 }
