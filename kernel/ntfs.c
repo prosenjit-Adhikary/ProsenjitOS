@@ -4600,7 +4600,7 @@ static int ntfs_index_allocation_split_leaf(struct pros_ntfs *fs,
                 return -18100 - __LINE__;
             if (ksize >= 66u &&
                 ntfs_name_key_compare(root_data + absolute + 16u, ksize,
-                                      separator_key,
+                                      separator_key + 66u,
                                       separator_key[64u]) > 0) {
                 parent_insert_offset = absolute;
                 break;
