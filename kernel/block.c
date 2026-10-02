@@ -181,6 +181,19 @@ int block_device_selftest(void)
         block_device_lba_add(&device, 4u, 0u, &lba_result) != PROS_BLOCK_EINVAL)
         return PROS_BLOCK_EINVAL;
 
+    /* UINT64_MAX must never wrap through the checked addition path. */
+    {
+        struct pros_block_device wide = device;
+        wide.sector_count = UINT64_MAX;
+        if (block_device_lba_range_valid(&wide, UINT64_MAX, 1u) ||
+            block_device_lba_add(&wide, UINT64_MAX, 1u, &lba_result) !=
+                PROS_BLOCK_EINVAL ||
+            block_device_lba_add(&wide, UINT64_MAX - 1u, 1u, &lba_result) !=
+                PROS_BLOCK_EINVAL ||
+            block_device_lba_range_valid(&wide, UINT64_MAX - 1u, 2u))
+            return PROS_BLOCK_EINVAL;
+    }
+
     if (block_device_read(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
         block_device_write(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
         block_device_read(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
