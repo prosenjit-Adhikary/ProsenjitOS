@@ -982,8 +982,9 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 sector_index = cluster_offset / fs->bytes_per_sector;
                 in_sector = cluster_offset % fs->bytes_per_sector;
                 if (sector_index >= fs->sectors_per_cluster ||
-                    block_device_read(fs->mount.device,
-                                      lba + sector_index, 1u,
+                    block_device_lba_add(fs->mount.device, lba,
+                                         sector_index, &lba) != PROS_BLOCK_OK ||
+                    block_device_read(fs->mount.device, lba, 1u,
                                       bitmap_sector) != PROS_BLOCK_OK) {
                     free_run = 0u;
                     break;
@@ -1040,14 +1041,14 @@ static int ntfs_bitmap_allocate_clusters_from(struct pros_ntfs *fs,
                 sector_index = cluster_offset / fs->bytes_per_sector;
                 in_sector = cluster_offset % fs->bytes_per_sector;
                 if (sector_index >= fs->sectors_per_cluster ||
-                    block_device_read(fs->mount.device,
-                                      lba + sector_index, 1u,
+                    block_device_lba_add(fs->mount.device, lba,
+                                         sector_index, &lba) != PROS_BLOCK_OK ||
+                    block_device_read(fs->mount.device, lba, 1u,
                                       bitmap_sector) != PROS_BLOCK_OK)
                     return PROS_NTFS_EIO;
                 bitmap_sector[in_sector] |=
                     (uint8_t)(1u << (lcn & 7u));
-                if (block_device_write(fs->mount.device,
-                                       lba + sector_index, 1u,
+                if (block_device_write(fs->mount.device, lba, 1u,
                                        bitmap_sector) != PROS_BLOCK_OK)
                     return PROS_NTFS_EIO;
             }
