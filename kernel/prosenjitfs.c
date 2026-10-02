@@ -3744,6 +3744,46 @@ int prosenjitfs_selftest(void)
             return -(125000 + (uint32_t)(-mkdir_rc));
     }
     {
+        /*
+         * Vnode-lifetime regression: a nested vnode must retain its parent
+         * after vfs_path_lookup() releases the previous current vnode.
+         * Without that ownership edge, resolving ".." from a nested path
+         * dereferences a freed parent and can return an arbitrary error/code.
+         */
+        struct pros_vfs_vnode *nested = 0;
+        struct pros_vfs_vnode *parent_dir = 0;
+        struct pros_vfs_vnode *root_dir = 0;
+        struct pfs_vnode_data *nested_data;
+        struct pfs_vnode_data *parent_data;
+        struct pfs_vnode_data *root_data;
+
+        if (vfs_path_lookup(&fs.mount, "/dir1/subdir", &nested) !=
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir1/subdir/..", &parent_dir) !=
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir1/subdir/../..", &root_dir) !=
+                PROS_VFS_OK ||
+            !nested || !parent_dir || !root_dir)
+            return -(120000 + __LINE__);
+
+        nested_data = (struct pfs_vnode_data *)nested->private_data;
+        parent_data = (struct pfs_vnode_data *)parent_dir->private_data;
+        root_data = (struct pfs_vnode_data *)root_dir->private_data;
+        if (!nested_data || !parent_data || !root_data ||
+            nested_data->inode_number == parent_data->inode_number ||
+            parent_data->inode_number == root_data->inode_number ||
+            root_data->inode_number != fs.sb.root_inode) {
+            vfs_vnode_put(nested);
+            vfs_vnode_put(parent_dir);
+            vfs_vnode_put(root_dir);
+            return -(120000 + __LINE__);
+        }
+
+        vfs_vnode_put(nested);
+        vfs_vnode_put(parent_dir);
+        vfs_vnode_put(root_dir);
+    }
+    {
         struct pros_vfs_file moved_file;
         struct pros_vfs_vnode *hidden = 0;
         uint8_t marker = 0x5Au, verify = 0u;
