@@ -395,3 +395,13 @@ When the system is available again, run the existing native LBA trace and NTFS b
 NTFS logical cluster -> NTFS volume-local LBA -> partition parent LBA -> ATA LBA -> physical sector -> returned data
 
 Any mismatch must be fixed at the first boundary where the value/data diverges. NTFS should not be disabled merely to hide an LBA failure; temporary NTFS isolation remains a separate fallback only if runtime evidence shows NTFS itself is the blocker.
+
+## 2026-10-03 00:20 IST update — NTFS LBA audit extended
+
+The first LBA hardening pass exposed additional unchecked NTFS sector-index additions in metadata/data paths. These were audited and converted to the common checked device-local LBA addition helper, including bitmap, MFT mirror, metadata write, file growth, file write/read, UpCase, index allocation read/write, and other production paths that previously used `lba += sector_index` or `lba + sector_index` directly.
+
+A test-only use of the new LBA helper was also corrected immediately: the block self-test now stores the helper result in a dedicated `lba_result` variable rather than reusing the health-counter baseline. This keeps the LBA assertions independent of the existing error-counter assertions.
+
+Latest NTFS LBA audit commit: `0a3d02b0341a990c9df7756acd421a5d7ce5b558`.
+
+This is still implementation/hardening, not runtime proof. GitHub Actions for the preceding commits were completing with failure and their job logs were unavailable through the connector. The newest commit has triggered fresh workflows and requires CI verification before it is treated as validated.
