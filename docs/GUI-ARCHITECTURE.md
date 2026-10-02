@@ -55,9 +55,10 @@ a falsely "working" GUI.
 
 1. Add hardware input providers (keyboard and mouse/HID) feeding the input-event queue contract now implemented.
 2. Complete ELF/process startup and init/service management.
-3. Build the userspace/session boundary needed by an Xorg-compatible stack.
-4. Package and integrate XFCE only after the lower layers are executable.
-5. Verify boot -> userspace -> display -> desktop in QEMU before marking GUI
+3. Complete the ELF64 process-image loader and connect it to process startup from filesystem-backed executable data.
+4. Build the userspace/session boundary needed by an Xorg-compatible stack.
+5. Package and integrate XFCE only after the lower layers are executable.
+6. Verify boot -> userspace -> display -> desktop in QEMU before marking GUI
    milestones complete.
 
 ## Implemented foundation additions
@@ -66,6 +67,10 @@ a falsely "working" GUI.
   buffering semantics and has a boot-time self-test.
 - The legacy PS/2 keyboard IRQ1 path now reads hardware scancodes and feeds the
   queue; the queue consumer/userspace input ABI and USB HID support remain pending.
+- A validated ELF64 PT_LOAD loader now creates an executable process image in a
+  fresh user address space, copies initialized bytes, zero-fills BSS, and applies
+  W^X-oriented page permissions. Dynamic linking, ET_DYN/PIE, interpreter loading,
+  and filesystem-backed exec are still pending.
 - Framebuffer validation rejects arithmetic overflow in the minimum row-size
   calculation.
 
