@@ -170,6 +170,16 @@ int block_device_selftest(void)
             PROS_BLOCK_OK)
         return PROS_BLOCK_EINVAL;
 
+    if (!block_device_lba_range_valid(&device, 0u, 1u) ||
+        !block_device_lba_range_valid(&device, 3u, 1u) ||
+        block_device_lba_range_valid(&device, 4u, 1u) ||
+        block_device_lba_range_valid(&device, 3u, 2u) ||
+        block_device_lba_add(&device, 3u, 0u, &errors_before) != PROS_BLOCK_OK ||
+        errors_before != 3u ||
+        block_device_lba_add(&device, 3u, 1u, &errors_before) != PROS_BLOCK_EINVAL ||
+        block_device_lba_add(&device, 4u, 0u, &errors_before) != PROS_BLOCK_EINVAL)
+        return PROS_BLOCK_EINVAL;
+
     if (block_device_read(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
         block_device_write(&device, 4u, 1u, sector) != PROS_BLOCK_EINVAL ||
         block_device_read(&device, 0u, 1u, sector) != PROS_BLOCK_EIO ||
