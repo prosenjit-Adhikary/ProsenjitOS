@@ -124,6 +124,47 @@ int pros_boot_graphics_selftest(void)
 
 static struct pros_graphics_surface bound_surface;
 
+static int boot_display_probe(struct pros_driver_device *device)
+{
+    if (!device || !device->bus_data)
+        return PROS_DRIVER_EINVAL;
+    bound_surface = *(const struct pros_graphics_surface *)device->bus_data;
+    if (pros_graphics_validate_surface(&bound_surface) != PROS_DRIVER_OK)
+        return PROS_DRIVER_EINVAL;
+    device->driver_data = (void *)&boot_display_ops;
+    return PROS_DRIVER_OK;
+}
+
+static int boot_display_remove(struct pros_driver_device *device)
+{
+    if (!device)
+        return PROS_DRIVER_EINVAL;
+    device->driver_data = 0;
+    return PROS_DRIVER_OK;
+}
+
+static const struct pros_driver_id boot_display_ids[] = {
+    { PROS_DRIVER_BUS_PLATFORM, 0u, 0u, 0x03u, 0u, 0u }
+};
+
+static const struct pros_driver_ops boot_display_driver_ops = {
+    .probe = boot_display_probe,
+    .remove = boot_display_remove,
+    .suspend = 0,
+    .resume = 0
+};
+
+static const struct pros_driver boot_display_driver = {
+    .name = "multiboot2-framebuffer",
+    .version = "1.0",
+    .abi_version = PROS_DRIVER_ABI_VERSION,
+    .flags = PROS_DRIVER_FLAG_NATIVE,
+    .origin = PROS_DRIVER_ORIGIN_NATIVE,
+    .ids = boot_display_ids,
+    .id_count = 1u,
+    .ops = &boot_display_driver_ops
+};
+
 static int boot_display_get_mode(struct pros_driver_device *device,
                                  struct pros_display_mode *mode)
 {
@@ -151,6 +192,11 @@ static const struct pros_display_ops boot_display_ops = {
     .present = boot_display_present
 };
 
+int pros_boot_graphics_register_driver(void)
+{
+    return pros_driver_register(&boot_display_driver);
+}
+
 int pros_boot_graphics_bind(const struct pros_graphics_surface *surface,
                             struct pros_driver_device *device)
 {
@@ -163,12 +209,13 @@ int pros_boot_graphics_bind(const struct pros_graphics_surface *surface,
         .id = 0u,
         .bus = PROS_DRIVER_BUS_PLATFORM,
         .class_id = PROS_DEVICE_CLASS_DISPLAY,
-        .state = PROS_DEVICE_BOUND,
-        .hwid = { .bus = PROS_DRIVER_BUS_PLATFORM },
+        .state = PROS_DEVICE_DISCOVERED,
+        .hwid = { .bus = PROS_DRIVER_BUS_PLATFORM,
+                  .class_code = 0x03u },
         .name = "multiboot2-framebuffer",
         .driver = 0,
-        .driver_data = (void *)&boot_display_ops,
-        .bus_data = 0
+        .driver_data = 0,
+        .bus_data = &bound_surface
     };
     return PROS_DRIVER_OK;
 }
