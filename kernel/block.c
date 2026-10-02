@@ -85,6 +85,31 @@ int block_device_set_flush(struct pros_block_device *device,
     return PROS_BLOCK_OK;
 }
 
+static int block_lba_range_valid(const struct pros_block_device *device,
+                                 uint64_t lba, uint32_t count)
+{
+    if (!device || count == 0u || lba >= device->sector_count ||
+        (uint64_t)count > device->sector_count - lba)
+        return 0;
+    return 1;
+}
+
+int block_device_lba_range_valid(const struct pros_block_device *device,
+                                 uint64_t lba, uint32_t count)
+{
+    return block_lba_range_valid(device, lba, count);
+}
+
+int block_device_lba_add(const struct pros_block_device *device,
+                         uint64_t lba, uint64_t offset, uint64_t *result)
+{
+    if (!device || !result || lba >= device->sector_count ||
+        offset >= device->sector_count - lba)
+        return PROS_BLOCK_EINVAL;
+    *result = lba + offset;
+    return PROS_BLOCK_OK;
+}
+
 int block_device_flush(struct pros_block_device *device)
 {
     if (!device)
