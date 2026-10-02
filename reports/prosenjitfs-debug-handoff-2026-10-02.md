@@ -251,3 +251,14 @@ This means a failure with mkdir_stage=15 and tx_stage=9 specifically means pfs_t
 No source patch made.
 
 Next action: run the existing mkdir QEMU test and capture the exact self-test failure/diagnostic output, especially mkdir_stage, mkdir_rc, tx_stage, and tx_count.
+
+
+## Exact runtime correlation — 2026-10-02 15:24:10Z
+
+Fresh clean build/QEMU run completed. ProsenjitFS self-test failed with rc=0xFFFFFFFFFFFE1C7C, mkdir_stage=0, mkdir_rc=0, tx_stage=9, tx_count=4.
+
+Decoded signed rc: -123780. The existing encoding is 123000 + mkdir_stage*1000 + tx_stage*10 + raw, so with mkdir_stage=0 and tx_stage=9, the displayed 123780 implies raw=690. That is inconsistent with the current pfs_mkdir_diag_rc convention if raw is only the negated mkdir diagnostic rc, because mkdir_rc is simultaneously reported as 0. Therefore this runtime value is not a valid direct encoding of a mkdir failure under the currently inspected formula; it strongly indicates the failing self-test return is coming from a later test/return path that reuses the same 123000 encoding but combines stale/current transaction diagnostics.
+
+The tx_count=4 confirms four transaction blocks were staged before the observed tx_stage=9 state. No source patch made.
+
+Next action: inspect the exact self-test code surrounding every return that emits the 123000-series diagnostic, including the second mkdir and subsequent mkdir/rename/rmdir checks, to identify which operation produced -123780. Do not patch until that return site is identified.
