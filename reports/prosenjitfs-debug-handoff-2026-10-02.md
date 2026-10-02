@@ -239,3 +239,91 @@ For this specific -780 mkdir failure, a realistic estimate is:
 - 15–45 additional minutes to patch, rebuild, and test once the concrete corruption/return-path bug is identified.
 
 Overall: roughly 45–120 minutes to identify and fix this specific failure, assuming it remains confined to the currently traced mkdir path. Completion will only be claimed after a clean rebuild and QEMU self-test confirms the fix.
+
+
+## 2026-10-02 23:10 IST update — native LBA readback mismatch
+
+The exact failure string reported from the local tree is:
+
+```
+kernel/kernel.c:1410: serial_write("ProsenjitOS: ERROR native LBA trace readback data mismatch\\n");
+```
+
+The current `main` source around this path was inspected. The diagnostic performs the following checks before the mismatch comparison:
+
+1. Opens `/.__pfs_lba_trace` for read.
+2. Reads the complete `trace_read` buffer.
+3. Closes the file.
+4. Retrieves the filesystem-reported physical read LBA.
+5. Verifies the partition-layer parent LBA.
+6. Verifies the ATA-layer read LBA.
+7. Requires the ATA read LBA to equal the partition parent read LBA.
+
+Only after all of those checks succeed does the code execute the byte-for-byte comparison:
+
+```
+for (uint32_t i = 0u; i < sizeof(trace_read); ++i)
+    if (trace_read[i] != trace_write[i]) {
+        serial_write("ProsenjitOS: ERROR native LBA trace readback data mismatch\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+```
+
+### Analysis
+
+This separates the failure from an LBA-boundary mismatch.
+
+If the observed failure is specifically `native LBA trace readback data mismatch`, the diagnostic has already passed the physical-LBA/partition-LBA/ATA-LBA consistency checks immediately before the byte comparison.
+
+Therefore **do not currently identify LBA mapping as the root cause**.
+
+The direct proven condition is:
+
+```
+trace_read[i] != trace_write[i]
+```
+
+for at least one byte.
+
+The remaining data-path possibilities include:
+- write-side buffer/data preparation;
+- transaction commit/journal persistence;
+- block-device/ATA write;
+- block-device/ATA read;
+- filesystem extent/block mapping;
+- VFS read reconstruction;
+- buffer corruption between layers.
+
+### Required next evidence
+
+Before changing allocator, journal, extent, or device code, capture:
+
+- first mismatching byte index;
+- expected byte from `trace_write[]`;
+- actual byte from `trace_read[]`;
+- physical write LBA;
+- partition-parent write LBA;
+- ATA write LBA;
+- physical read LBA;
+- partition-parent read LBA;
+- ATA read LBA.
+
+Then compare the same block at progressively lower boundaries:
+
+```
+write buffer
+  -> transaction/commit
+  -> physical block storage
+  -> direct physical read
+  -> filesystem/extent read
+  -> VFS read buffer
+```
+
+The first boundary where the byte changes is the responsible layer to investigate.
+
+### Current conclusion
+
+The native LBA trace mismatch is a **real data-integrity/readback failure**, but this evidence alone does not prove allocator or journal corruption. The previous -780 mkdir investigation and this LBA readback failure must remain separate until their causal relationship is demonstrated.
+
+No source weakening, skipped test, changed expected value, or completion claim is justified yet.
+
