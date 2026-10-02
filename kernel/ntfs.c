@@ -7742,9 +7742,26 @@ int ntfs_selftest(void)
                         {{8u, 2u, 0u}}, 1u, 4096u, verify,
                         sizeof(verify)) != PROS_NTFS_OK)
                     return -198;
-                if (ntfs_index_record_header(verify, sizeof(verify), 512u,
-                                             1u, &info) != PROS_NTFS_OK)
-                    return -199;
+                {
+                    int header_status = ntfs_index_record_header(
+                        verify, sizeof(verify), 512u, 1u, &info);
+                    if (header_status != PROS_NTFS_OK) {
+                        if (le64(verify + 16u) != 1u)
+                            return -19101;
+                        if (le16(verify + 4u) != 40u)
+                            return -19102;
+                        if (le16(verify + 6u) != 9u)
+                            return -19103;
+                        if (le16(verify + 40u) == 0u)
+                            return -19104;
+                        for (uint32_t si = 1u; si < 9u; ++si) {
+                            if (le16(verify + si * 512u - 2u) !=
+                                le16(verify + 40u))
+                                return -19100 - (int)si;
+                        }
+                        return -19000 + header_status;
+                    }
+                }
                 if (info.vcn != 1u)
                     return -200;
 
