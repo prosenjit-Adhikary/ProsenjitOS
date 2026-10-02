@@ -62,7 +62,9 @@ static void pfs_copy(void *dst, const void *src, uint32_t size)
  * Isolated ProsenjitFS write-path diagnostic.
  * The self-test enables this only for the first 512-byte file-data block.
  * It records the transaction image byte, the immediate post-commit physical
- * read, the extent-mapped physical LBA, and the later VFS read byte.
+ * read, the extent-mapped physical LBA, and the later VFS read byte. The read
+ * phase also records the byte observed immediately after the physical block
+ * read, so a mismatch can be localized below or above the VFS buffer.
  */
 struct pfs_write_diag {
     uint8_t enabled;
@@ -74,6 +76,8 @@ struct pfs_write_diag {
     uint8_t post_commit_byte;
     uint8_t direct_byte;
     uint8_t vfs_byte;
+    uint8_t read_block_byte;
+    uint8_t read_block_found;
     uint64_t physical_lba;
     uint64_t read_physical_lba;
 };
@@ -140,6 +144,16 @@ int prosenjitfs_write_diag_get_read_lba(uint64_t *physical_lba)
     if (!pfs_diag.read_found)
         return PROSENJITFS_ENOENT;
     *physical_lba = pfs_diag.read_physical_lba;
+    return PROSENJITFS_OK;
+}
+
+int prosenjitfs_write_diag_get_read_byte(uint8_t *read_block_byte)
+{
+    if (!read_block_byte)
+        return PROSENJITFS_EINVAL;
+    if (!pfs_diag.read_block_found)
+        return PROSENJITFS_ENOENT;
+    *read_block_byte = pfs_diag.read_block_byte;
     return PROSENJITFS_OK;
 }
 
@@ -728,6 +742,8 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
                 return done ? (int)done : PROS_VFS_EIO;
             if (pfs_diag.read_enabled && !pfs_diag.read_found) {
                 pfs_diag.read_physical_lba = physical;
+                pfs_diag.read_block_byte = block[188u];
+                pfs_diag.read_block_found = 1u;
                 pfs_diag.read_found = 1u;
                 pfs_diag.read_enabled = 0u;
             }
