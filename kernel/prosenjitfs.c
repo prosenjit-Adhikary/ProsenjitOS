@@ -1154,25 +1154,35 @@ static int pfs_find_free_inode(const struct pros_prosenjitfs *fs,
                                uint64_t *inode_number)
 {
     uint64_t bits_per_block;
-    uint8_t block[4096];
+    uint8_t *block;
 
-    if (!fs || !inode_number || fs->sb.block_size > sizeof(block))
+    if (!fs || !inode_number || fs->sb.block_size < 512u ||
+        fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
+    block = (uint8_t *)kmalloc(fs->sb.block_size);
+    if (!block)
+        return PROSENJITFS_EIO;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     for (uint64_t inode = 1u; inode < fs->sb.inode_count; ++inode) {
         uint64_t bi = inode / bits_per_block;
         uint64_t within = inode % bits_per_block;
-        if (bi >= fs->sb.inode_bitmap_blocks)
+        if (bi >= fs->sb.inode_bitmap_blocks) {
+            kfree(block);
             return PROSENJITFS_ECORRUPT;
+        }
         if (pfs_read_block(fs->mount.device,
                            fs->sb.inode_bitmap_start + bi, block) !=
-            PROSENJITFS_OK)
+            PROSENJITFS_OK) {
+            kfree(block);
             return PROSENJITFS_EIO;
+        }
         if (!pfs_bitmap_bit(block, within)) {
             *inode_number = inode;
+            kfree(block);
             return PROSENJITFS_OK;
         }
     }
+    kfree(block);
     return PROSENJITFS_ENOSPC;
 }
 
@@ -1180,21 +1190,29 @@ static int pfs_find_free_data_block(const struct pros_prosenjitfs *fs,
                                     uint64_t *block_number)
 {
     uint64_t bits_per_block;
-    uint8_t block[4096];
+    uint8_t *block;
 
-    if (!fs || !block_number || fs->sb.block_size > sizeof(block))
+    if (!fs || !block_number || fs->sb.block_size < 512u ||
+        fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
+    block = (uint8_t *)kmalloc(fs->sb.block_size);
+    if (!block)
+        return PROSENJITFS_EIO;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
         uint64_t bitmap_lba = fs->sb.block_bitmap_start + b / bits_per_block;
         if (pfs_read_block(fs->mount.device, bitmap_lba, block) !=
-            PROSENJITFS_OK)
+            PROSENJITFS_OK) {
+            kfree(block);
             return PROSENJITFS_EIO;
+        }
         if (!pfs_bitmap_bit(block, b % bits_per_block)) {
             *block_number = b;
+            kfree(block);
             return PROSENJITFS_OK;
         }
     }
+    kfree(block);
     return PROSENJITFS_ENOSPC;
 }
 
@@ -1205,23 +1223,31 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
                                               uint64_t *block_number)
 {
     uint64_t bits_per_block;
-    uint8_t block[4096];
+    uint8_t *block;
 
-    if (!fs || !block_number || fs->sb.block_size > sizeof(block))
+    if (!fs || !block_number || fs->sb.block_size < 512u ||
+        fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
+    block = (uint8_t *)kmalloc(fs->sb.block_size);
+    if (!block)
+        return PROSENJITFS_EIO;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
         if (b == excluded)
             continue;
         uint64_t bitmap_lba = fs->sb.block_bitmap_start + b / bits_per_block;
         if (pfs_read_block(fs->mount.device, bitmap_lba, block) !=
-            PROSENJITFS_OK)
+            PROSENJITFS_OK) {
+            kfree(block);
             return PROSENJITFS_EIO;
+        }
         if (!pfs_bitmap_bit(block, b % bits_per_block)) {
             *block_number = b;
+            kfree(block);
             return PROSENJITFS_OK;
         }
     }
+    kfree(block);
     return PROSENJITFS_ENOSPC;
 }
 
