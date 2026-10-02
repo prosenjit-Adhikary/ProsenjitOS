@@ -1323,6 +1323,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 uint64_t ata_write_lba = 0u, ata_read_lba = 0u;
                 uint8_t tx_byte = 0u, post_commit_byte = 0u;
                 uint8_t direct_byte = 0u, vfs_byte = 0u;
+                uint8_t read_block_byte = 0u;
 
                 for (uint32_t i = 0u; i < sizeof(trace_write); ++i)
                     trace_write[i] = (uint8_t)((i * 13u) ^ 0x5Au);
@@ -1397,6 +1398,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     vfs_file_close(&trace_file) != PROS_VFS_OK ||
                     prosenjitfs_write_diag_get_read_lba(&read_physical_lba) != PROSENJITFS_OK ||
                     read_physical_lba != physical_lba ||
+                    prosenjitfs_write_diag_get_read_byte(&read_block_byte) != PROSENJITFS_OK ||
                     partition_trace_find(&pfs_device, read_physical_lba, 0u,
                                          &parent_read_lba, &trace_count) != PROS_PARTITION_OK ||
                     pros_ata_pio_trace_find(&native_ata, parent_read_lba, 0u,
@@ -1408,6 +1410,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 for (uint32_t i = 0u; i < sizeof(trace_read); ++i)
                     if (trace_read[i] != trace_write[i]) {
                         serial_write("ProsenjitOS: ERROR native LBA trace readback data mismatch\n");
+                        serial_write("ProsenjitOS: mismatch index = ");
+                        serial_hex64(i);
+                        serial_write(", expected = ");
+                        serial_hex64(trace_write[i]);
+                        serial_write(", VFS actual = ");
+                        serial_hex64(trace_read[i]);
+                        serial_write(", physical block[188] = ");
+                        serial_hex64(read_block_byte);
+                        serial_write(", tx[188] = ");
+                        serial_hex64(tx_byte);
+                        serial_write(", post-commit[188] = ");
+                        serial_hex64(post_commit_byte);
+                        serial_write(", direct-write[188] = ");
+                        serial_hex64(direct_byte);
+                        serial_write(", vfs-write[188] = ");
+                        serial_hex64(vfs_byte);
+                        serial_write("\n");
+                        serial_write("ProsenjitOS: read LBA chain PFS=");
+                        serial_hex64(read_physical_lba);
+                        serial_write(", partition=");
+                        serial_hex64(parent_read_lba);
+                        serial_write(", ATA=");
+                        serial_hex64(ata_read_lba);
+                        serial_write("\n");
                         for (;;) __asm__ volatile ("cli; hlt");
                     }
 
