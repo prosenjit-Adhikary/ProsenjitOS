@@ -196,8 +196,7 @@ static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
                        uint32_t count, uint8_t command)
 {
     if (!ata || count == 0u || count > 256u ||
-        lba >= ata->block.sector_count ||
-        (uint64_t)count > ata->block.sector_count - lba)
+        !block_device_lba_range_valid(&ata->block, lba, count))
         return PROS_ATA_EINVAL;
 
     if (!ata->lba48 && lba > 0x0FFFFFFFu)
