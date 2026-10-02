@@ -5145,6 +5145,9 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
             if ((flags & 2u) == 0u && stream_size != 0u &&
                 stream_size <= entry_size - 16u -
                 ((flags & 1u) ? 8u : 0u) &&
+                stream_size >= 66u &&
+                (data[offset + 16u + 65u] == 1u ||
+                 data[offset + 16u + 65u] == 3u) &&
                 ntfs_name_key_matches(data + offset + 16u, stream_size,
                                       name_utf16le, name_length)) {
                 *file_reference = le64(data + offset) &
@@ -5232,6 +5235,9 @@ int ntfs_index_allocation_lookup(const struct pros_ntfs *fs,
                     if ((flags & 2u) == 0u && stream_size != 0u &&
                         stream_size <= entry_size - 16u -
                         ((flags & 1u) ? 8u : 0u) &&
+                        stream_size >= 66u &&
+                        (index_record[offset + 16u + 65u] == 1u ||
+                         index_record[offset + 16u + 65u] == 3u) &&
                         ntfs_name_key_matches(index_record + offset + 16u,
                                               stream_size, name_utf16le,
                                               name_length)) {
