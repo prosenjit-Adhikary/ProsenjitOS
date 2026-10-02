@@ -2,12 +2,12 @@
 
 ## Current status — 2026-09-30
 
-The repository has moved beyond the original boot/kernel-only milestone. Recent work has completed the PCI enumeration foundation, expanded FAT32 and exFAT geometry regression coverage, added an exFAT FAT-chain/file-stream read foundation, completed exFAT read-only directory entry-set parsing/lookup (including UTF-16 ASCII-subset decoding, NameLength handling, checksum validation, and case-insensitive lookup), integrated exFAT read-only root lookup/file read/directory enumeration into the VFS with vnode lifetime handling, and documented the firewall-inspired unknown-threat handling model. The repository is private.
+The repository has moved beyond the original boot/kernel-only milestone. The current kernel filesystem scope is intentionally narrowed to native ProsenjitFS; legacy FAT32, exFAT and NTFS implementations were removed from the kernel image so compatibility support can later be supplied through external filesystem providers.
 
 ### Current engineering focus
-1. **Storage integration:** complete real partition/filesystem discovery and connect the existing FAT32/VFS path to realistic block-device flows.
-2. **exFAT:** harden the read-only VFS integration; Up-case table discovery, checksum validation, compressed/uncompressed parsing, UTF-16 filename decoding, UTF-8 lookup, and Unicode case-folded VFS lookup are now integrated, with broader real-volume regression coverage remaining.
-3. **NTFS:** continue from the current safe file-data write path toward directory-index mutation, cluster allocation, and journal/recovery; keep destructive metadata writes out until each stage is regression-tested.
+1. **Native filesystem production verification:** finish ProsenjitFS storage, transaction, crash, recovery and LBA verification.
+2. **Filesystem-provider boundary:** define a stable external provider ABI without linking compatibility parsers into kernel-core.
+3. **Compatibility providers:** later add NTFS/exFAT/FAT32 providers outside the kernel image.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing File admission/security broker and quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** the driver model foundation is now implemented around the PCI enumeration layer; next work is the device permission broker and concrete keyboard/display/network device abstractions.
 6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
@@ -173,14 +173,11 @@ The repository contains build/boot and security-architecture GitHub Actions work
 ## Phase 6 — Storage and networking
 - [ ] VFS
   - [x] VFS mount object foundation
-  - [x] Filesystem type contract for FAT32/exFAT/NTFS/ProsenjitFS
+  - [x] Native ProsenjitFS filesystem type contract
   - [x] Path, vnode/inode, file and directory APIs
   - [x] Filesystem probe and partition integration
   - [x] Native ATA -> MBR -> ProsenjitFS persistent mount regression
-- [ ] FAT32 filesystem support
-  - [x] Read-only FAT32 BPB mount/parser foundation
-  - [x] Read-only FAT32 directory/file reader
-  - [ ] FAT32 write support
+- [ ] External compatibility filesystem providers\n  - [ ] Provider ABI/registration boundary\n  - [ ] NTFS provider (external to kernel)\n  - [ ] exFAT provider (external to kernel)\n  - [ ] FAT32 provider (external to kernel)
 - [ ] exFAT filesystem support
   - [x] Read-only exFAT mount/parser and FAT-chain/file-stream read foundation
   - [x] exFAT read-only directory/file VFS integration (root vnode, lookup, read, readdir, vnode lifetime)
@@ -306,7 +303,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - **Release hardening:** reduce unnecessary production information exposure (debug symbols, internal metadata and unnecessary exports) without sacrificing auditability or maintainability.
 - **Desktop:** use mature existing desktop/window-system technology first; a new ProsenjitOS windowing stack is not an immediate development target.
 - **Boot:** prefer an original ProsenjitOS bootloader and stable boot protocol; MBR/GPT remain partition-layer concerns, and GRUB/other traditional loaders are optional adapters rather than kernel dependencies.
-- **Filesystem extensibility:** future filesystem providers should attach through the VFS/provider boundary without requiring kernel-core redesign; existing FAT32/exFAT/NTFS/ProsenjitFS implementations remain protected from unnecessary architectural churn.
+- **Filesystem extensibility:** future filesystem providers should attach through the VFS/provider boundary without requiring kernel-core redesign; the native ProsenjitFS implementation remains in kernel-core while future FAT32/exFAT/NTFS providers stay outside the kernel image.
 - **Compatibility:** Windows Office and OneDrive support are engineering targets to be validated incrementally, not current guarantees.
 - **Driver compatibility:** maximize practical hardware coverage without attempting to author every vendor driver natively. Native ProsenjitOS drivers remain the primary path; a controlled Windows-driver import/compatibility subsystem is a critical long-term feature. ReactOS is an architectural/reference point for understanding NT/WDM compatibility, but ProsenjitOS will use an independently implemented compatibility layer by default. ReactOS source is GPL-licensed, so direct source reuse requires an explicit license review before any reuse. Vendor `.exe` installers should be treated as packages to extract and inspect (when technically possible), not executed blindly. The importer should recognize common package forms such as `.exe`, `.zip`, `.cab`, and `.inf`, inspect hardware IDs and metadata, verify package trust/signatures where available, and install only through the ProsenjitOS driver model/compatibility layer. Windows `.sys` binaries must not be assumed to be directly loadable by the ProsenjitOS kernel.
 
