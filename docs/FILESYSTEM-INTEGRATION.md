@@ -8,11 +8,11 @@ Final CI verification is currently pending because recent GitHub Actions jobs fa
 
 ## Frozen dependency direction
 
-Firmware -> native BIOS/UEFI loader or GRUB compatibility adapter -> ProsenjitOS boot protocol / kernel entry -> Kernel -> Block-device layer -> Partition layer (MBR/GPT) -> VFS -> FAT32 / exFAT / NTFS / ProsenjitFS
+Firmware -> native BIOS/UEFI loader or GRUB compatibility adapter -> ProsenjitOS boot protocol / kernel entry -> Kernel -> Block-device layer -> Partition layer (MBR/GPT) -> VFS/provider boundary -> ProsenjitFS
 
 ### Bootloader boundary
 
-The native BIOS loader must not parse MBR/GPT, probe FAT32/exFAT/NTFS/ProsenjitFS, mount a filesystem, depend on VFS symbols, or depend on a physical storage driver.
+The native BIOS loader must not parse MBR/GPT, probe filesystems, mount a filesystem, depend on VFS symbols, or depend on a physical storage driver.
 
 Its current fixed-LBA layout is only a bootstrap mechanism for loading the kernel. MBR/GPT and filesystem discovery remain below the bootloader boundary.
 
@@ -60,9 +60,7 @@ Every filesystem integration change must preserve:
 2. Native BIOS disk-image build.
 3. Native BIOS QEMU boot and native boot-handoff marker.
 4. Partition discovery self-test.
-5. FAT32 self-test.
-6. exFAT self-test, including Up-case/Unicode coverage.
-7. NTFS read/path/write regression markers already required by CI.
+5. ProsenjitFS native format/mount/allocation/journal/recovery regression.
 8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in, including allocation/reclamation and directory mutation regression.
 9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
 
@@ -74,7 +72,7 @@ Do not move ProsenjitFS logic into boot/native_stage1.asm, boot/native_stage2.as
 
 Do not duplicate VFS path/file semantics inside ProsenjitFS when an existing VFS operation can provide the contract.
 
-Do not remove or bypass FAT32/exFAT/NTFS providers to make ProsenjitFS work.
+Do not reintroduce compatibility filesystem parsers into the kernel merely to make ProsenjitFS work. Compatibility providers belong outside the kernel image.
 
 ## Merge gate
 
