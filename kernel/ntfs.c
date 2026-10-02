@@ -5887,11 +5887,64 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
     if (status != PROS_NTFS_OK)
         return PROS_VFS_EIO;
     {
-        uint32_t attr_offset = 0u;
-        if (ntfs_find_attribute(record, fs->bytes_per_file_record, 0x30u,
-                                &attr_offset) != PROS_NTFS_OK ||
-            ntfs_file_name_attribute(record, fs->bytes_per_file_record,
-                                     attr_offset, &info) != PROS_NTFS_OK)
+        uint16_t first = le16(record + 20u);
+        uint32_t attr_offset = first;
+        uint8_t found_name = 0u;
+
+        /*
+         * A file can have multiple $FILE_NAME attributes (hard links).
+         * The directory index tells us which parent/name was actually
+         * resolved, so do not blindly consume the first $FILE_NAME record.
+         * Select the resident Win32/Win32+DOS entry whose parent and name
+         * match the lookup target; otherwise metadata such as type/size can
+         * come from an unrelated hard link.
+         */
+        if (ntfs_upcase_load(fs) != PROS_NTFS_OK)
+            return PROS_VFS_EIO;
+        ntfs_active_upcase = ntfs_upcase_data;
+
+        while (attr_offset + 24u <= fs->bytes_per_file_record) {
+            uint32_t attr_type = le32(record + attr_offset);
+            uint32_t attr_len = le32(record + attr_offset + 4u);
+
+            if (attr_type == 0xFFFFFFFFu)
+                break;
+            if (attr_len < 24u ||
+                attr_offset > fs->bytes_per_file_record - attr_len)
+                break;
+
+            if (attr_type == 0x30u && record[attr_offset + 8u] == 0u) {
+                const uint8_t *data;
+                uint32_t data_size;
+
+                if (ntfs_attribute_data(record, fs->bytes_per_file_record,
+                                        attr_offset, &data,
+                                        &data_size) == PROS_NTFS_OK &&
+                    data_size >= 66u &&
+                    (data[65u] == 1u || data[65u] == 3u) &&
+                    (le64(data) & 0x0000FFFFFFFFFFFFull) ==
+                        (parent_node->record_number &
+                         0x0000FFFFFFFFFFFFull) &&
+                    ntfs_name_key_matches(data, (uint16_t)data_size,
+                                          name_utf16le,
+                                          (uint8_t)name_length)) {
+                    if (ntfs_file_name_attribute(record,
+                                                 fs->bytes_per_file_record,
+                                                 attr_offset, &info) !=
+                        PROS_NTFS_OK) {
+                        ntfs_active_upcase = 0;
+                        return PROS_VFS_EIO;
+                    }
+                    found_name = 1u;
+                    break;
+                }
+            }
+
+            attr_offset += attr_len;
+        }
+
+        ntfs_active_upcase = 0;
+        if (!found_name)
             return PROS_VFS_EIO;
     }
 
