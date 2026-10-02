@@ -1260,9 +1260,12 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
         return PROS_VFS_EIO;
-    if (pfs_find_free_inode(data->fs, &inode_number) != PROSENJITFS_OK ||
-        pfs_find_free_data_block(data->fs, &entry_lba) != PROSENJITFS_OK)
-        return PROS_VFS_EOVERFLOW;
+    rc = pfs_find_free_inode(data->fs, &inode_number);
+    if (rc != PROSENJITFS_OK)
+        goto mkdir_out;
+    rc = pfs_find_free_data_block(data->fs, &entry_lba);
+    if (rc != PROSENJITFS_OK)
+        goto mkdir_out;
     /*
      * entry_lba and child_dir_lba are committed together. Exclude the first
      * allocation so both logical objects never target the same physical block.
