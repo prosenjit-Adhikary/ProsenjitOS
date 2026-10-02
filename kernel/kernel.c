@@ -19,6 +19,7 @@
 #include "driver.h"
 #include "device_broker.h"
 #include "input.h"
+#include "elf.h"
 #include "boot_graphics.h"
 #include "ata_pio.h"
 #include "partition.h"
@@ -420,6 +421,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
+    if (pros_elf64_selftest() != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF64 loader self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF64 PT_LOAD loader self-test passed\n");
     if (pros_log_selftest() != PROS_LOG_OK) {
         serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
