@@ -712,7 +712,9 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                     ntfs_cluster_lba(fs, physical_lcn, &lba) !=
                         PROS_NTFS_OK)
                     return PROS_NTFS_EIO;
-                lba += sector_index;
+                if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
                 if (block_device_read(fs->mount.device, lba, 1u,
                                       bitmap_sector) != PROS_BLOCK_OK)
                     return PROS_NTFS_EIO;
@@ -798,7 +800,9 @@ static int ntfs_bitmap_update_clusters(struct pros_ntfs *fs,
                     ntfs_cluster_lba(fs, physical_lcn, &lba) !=
                         PROS_NTFS_OK)
                     return PROS_NTFS_EIO;
-                lba += sector_index;
+                if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
 
                 if (in_sector != 0u || take != fs->bytes_per_sector) {
                     if (block_device_read(fs->mount.device, lba, 1u,
@@ -2160,7 +2164,9 @@ static int ntfs_write_mft_mirror_record(const struct pros_ntfs *fs,
 
         if (ntfs_cluster_lba(fs, mirror_lcn, &lba) != PROS_NTFS_OK)
             return PROS_NTFS_EIO;
-        lba += sector_index;
+        if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
         if (block_device_write(fs->mount.device, lba, 1u,
                                record + written) != PROS_BLOCK_OK)
             return PROS_NTFS_EIO;
@@ -2262,7 +2268,9 @@ static int ntfs_write_file_record(struct pros_ntfs *fs,
         if (ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK ||
             sector_index >= fs->sectors_per_cluster)
             return PROS_NTFS_EIO;
-        lba += sector_index;
+        if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
         if (block_device_write(fs->mount.device, lba, 1u,
                                record + written) != PROS_BLOCK_OK)
             return PROS_NTFS_EIO;
@@ -2698,7 +2706,9 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             write_status = PROS_NTFS_EIO;
             goto write_fail;
         }
-        lba += sector_index;
+        if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
 
         if (block_device_read(fs->mount.device, lba, 1u, growth_sector) !=
             PROS_BLOCK_OK) {
@@ -2759,7 +2769,9 @@ int ntfs_file_write(struct pros_ntfs *fs, uint64_t record_number,
             write_status = PROS_NTFS_EIO;
             goto write_fail;
         }
-        lba += sector_index;
+        if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
 
         if (in_sector != 0u || take != fs->bytes_per_sector) {
             if (block_device_read(fs->mount.device, lba, 1u, data_sector) !=
@@ -3429,7 +3441,9 @@ static int ntfs_upcase_load(const struct pros_ntfs *fs)
         } else {
             if (ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
                 return PROS_NTFS_EIO;
-            lba += sector_index;
+            if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
             if (block_device_read(fs->mount.device, lba, 1u, sector) !=
                 PROS_BLOCK_OK)
                 return PROS_NTFS_EIO;
@@ -3664,7 +3678,9 @@ static int ntfs_index_allocation_read(const struct pros_ntfs *fs,
         if (!found || sector_index >= fs->sectors_per_cluster ||
             ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
             return PROS_NTFS_EIO;
-        lba += sector_index;
+        if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
         if (sparse) {
             for (uint32_t i = 0u; i < fs->bytes_per_sector; ++i)
                 buffer[read + i] = 0u;
@@ -3758,7 +3774,9 @@ static int ntfs_index_allocation_write(const struct pros_ntfs *fs,
             ntfs_cluster_lba(fs, physical_lcn, &lba) != PROS_NTFS_OK)
             return PROS_NTFS_EIO;
 
-        lba += sector_index;
+        if (block_device_lba_add(fs->mount.device, lba, sector_index,
+                                 &lba) != PROS_BLOCK_OK)
+            return PROS_NTFS_EIO;
         if (block_device_write(fs->mount.device, lba, 1u,
                                buffer + written) != PROS_BLOCK_OK)
             return PROS_NTFS_EIO;
