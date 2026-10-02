@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "graphics.h"
+#include "driver.h"
 
 /*
  * Parse the Multiboot2 framebuffer tag supplied by the real GRUB boot
@@ -12,5 +13,7 @@
 int pros_boot_graphics_from_multiboot2(uint64_t multiboot_info_address,
                                        struct pros_graphics_surface *surface);
 int pros_boot_graphics_selftest(void);
+int pros_boot_graphics_bind(const struct pros_graphics_surface *surface,
+                            struct pros_driver_device *device);
 
 #endif
