@@ -7669,6 +7669,11 @@ int ntfs_selftest(void)
                 ntfs_active_upcase = 0;
                 return -22021;
             }
+            if (ntfs_name_key_compare(split_key, sizeof(split_key),
+                                      split_key + 66u, split_key[64u]) != 0) {
+                ntfs_active_upcase = 0;
+                return -22022;
+            }
             split_status = ntfs_index_allocation_insert(
                 &fs, (const struct pros_ntfs_run[]){{8u, 1u, 0u}}, 1u,
                 0u, 4096u, 0x5000u, new_key, sizeof(new_key), 5u);
