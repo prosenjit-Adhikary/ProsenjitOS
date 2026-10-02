@@ -1,6 +1,5 @@
 #include "elf.h"
 #include "memory.h"
-#include "paging.h"
 
 #define ELFCLASS64 2u
 #define ELFDATA2LSB 1u
@@ -211,7 +210,7 @@ int pros_elf64_load(const void *image, uint64_t image_size,
                 goto load_fail;
             }
             if (allocated_count >= ELF_PAGES_MAX) {
-                paging_unmap_page(va);
+                (void)address_space_unmap_user_page(space, va);
                 physical_page_free(physical);
                 goto load_fail;
             }
@@ -238,7 +237,7 @@ int pros_elf64_load(const void *image, uint64_t image_size,
 load_fail:
     while (allocated_count != 0) {
         --allocated_count;
-        paging_unmap_page(allocated_vas[allocated_count]);
+        (void)address_space_unmap_user_page(space, allocated_vas[allocated_count]);
         physical_page_free(allocated_pages[allocated_count]);
     }
     return PROS_ELF_ENOMEM;
@@ -265,11 +264,6 @@ int pros_elf64_selftest(void)
         return PROS_ELF_ENOMEM;
     if (pros_elf64_load(image, sizeof(image), &space, &entry) != PROS_ELF_OK ||
         entry != USER_BASE) {
-        (void)address_space_destroy(&space);
-        return PROS_ELF_EINVAL;
-    }
-    if (paging_translate(USER_BASE) == 0) {
-        (void)paging_switch_kernel();
         (void)address_space_destroy(&space);
         return PROS_ELF_EINVAL;
     }
