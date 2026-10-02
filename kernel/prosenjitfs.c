@@ -1930,52 +1930,18 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     if (!entry_block || !dir_block)
         goto out;
 
-    current = dir_index.heads[old_bucket];
-    while (current != 0u) {
-        if (++steps > data->fs->sb.total_blocks) {
-            rc = PROSENJITFS_ECORRUPT;
-            goto out;
-        }
-        if (current < data->fs->sb.data_start ||
-            current >= data->fs->sb.total_blocks) {
-            rc = PROSENJITFS_ECORRUPT;
-            goto out;
-        }
-        if (pfs_read_block(data->fs->mount.device, current, entry_block) !=
-            PROSENJITFS_OK) {
-            rc = PROSENJITFS_EIO;
-            goto out;
-        }
-        pfs_copy(&entry, entry_block, sizeof(entry));
-        if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
-            entry.name_length == 0u ||
-            entry.name_length > PROSENJITFS_MAX_NAME ||
-            pfs_crc_with_zero32(entry_block, sizeof(entry),
-                                (uint32_t)offsetof(
-                                    struct pros_prosenjitfs_dir_entry,
-                                    checksum)) != entry.checksum ||
-            entry.next >= data->fs->sb.total_blocks ||
-            (entry.next != 0u && entry.next < data->fs->sb.data_start)) {
-            rc = PROSENJITFS_ECORRUPT;
-            goto out;
-        }
-        if (entry.name_length == old_length &&
-            pfs_name_hash(entry.name, entry.name_length) ==
-                pfs_name_hash((const uint8_t *)old_name, old_length)) {
-            uint32_t i = 0u;
-            while (i < old_length && entry.name[i] == (uint8_t)old_name[i])
-                ++i;
-            if (i == old_length) {
-                target_lba = current;
-                break;
-            }
-        }
-        previous = current;
-        current = entry.next;
+    rc = pfs_find_dir_entry_lba(data->fs, &parent_inode, old_name,
+                                 &entry, &target_lba, &previous);
+    if (rc != PROSENJITFS_OK)
+        goto out;
+    if (target_lba < data->fs->sb.data_start ||
+        target_lba >= data->fs->sb.total_blocks) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto out;
     }
-
-    if (target_lba == 0u) {
-        rc = PROSENJITFS_ENOENT;
+    if (pfs_read_block(data->fs->mount.device, target_lba, entry_block) !=
+        PROSENJITFS_OK) {
+        rc = PROSENJITFS_EIO;
         goto out;
     }
 
@@ -2556,6 +2522,50 @@ static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
             ++seen;
             current = entry.next;
         }
+    }
+    return PROSENJITFS_ENOENT;
+}
+
+static int pfs_find_dir_entry_lba(const struct pros_prosenjitfs *fs,
+                                   const struct pros_prosenjitfs_inode *dir_inode,
+                                   const char *name,
+                                   struct pros_prosenjitfs_dir_entry *found,
+                                   uint64_t *found_lba,
+                                   uint64_t *previous_lba)
+{
+    struct pros_prosenjitfs_dir_index index;
+    struct pros_prosenjitfs_dir_entry entry;
+    uint32_t name_length, hash;
+    uint64_t current, previous = 0u, steps = 0u;
+    if (!fs || !dir_inode || !name || !found_lba || !previous_lba)
+        return PROSENJITFS_EINVAL;
+    *found_lba = 0u;
+    *previous_lba = 0u;
+    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
+        return PROSENJITFS_EINVAL;
+    if (pfs_read_dir_index(fs, dir_inode, &index) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+    hash = pfs_name_hash((const uint8_t *)name, name_length);
+    current = index.heads[hash % PROSENJITFS_DIR_BUCKETS];
+    while (current != 0u) {
+        if (++steps > fs->sb.total_blocks)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        if (entry.name_hash == hash && entry.name_length == name_length) {
+            uint32_t equal = 1u;
+            for (uint32_t i = 0u; i < name_length; ++i) {
+                if (entry.name[i] != (uint8_t)name[i]) { equal = 0u; break; }
+            }
+            if (equal) {
+                if (found) pfs_copy(found, &entry, sizeof(*found));
+                *found_lba = current;
+                *previous_lba = previous;
+                return PROSENJITFS_OK;
+            }
+        }
+        previous = current;
+        current = entry.next;
     }
     return PROSENJITFS_ENOENT;
 }
