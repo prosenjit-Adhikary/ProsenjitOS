@@ -176,7 +176,17 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [ ] NTFS provider (external to kernel)
   - [ ] exFAT provider (external to kernel)
   - [ ] FAT32 provider (external to kernel)
-- [ ] Native filesystem design- [ ] Ethernet
+- [ ] Native filesystem design
+  - [x] ProsenjitFS persistent file create/read/write/truncate
+  - [x] ProsenjitFS bitmap-backed inode/data-block allocation and reclamation
+  - [x] ProsenjitFS hash-indexed directory lookup/readdir/create
+  - [x] ProsenjitFS transactional mkdir/rmdir with directory-index allocation/reclamation
+  - [x] ProsenjitFS transactional unlink with inode/block reclamation
+  - [x] ProsenjitFS same-directory rename, including dot-prefixed hidden names
+  - [x] ProsenjitFS cross-directory file/directory move with directory-parent cycle protection
+  - [x] ProsenjitFS directory mutation regression: nested directories, move, non-empty rmdir rejection, empty rmdir reclamation
+  - [x] ProsenjitFS crash/corruption recovery coverage (deterministic journal replay, torn-transaction discard, checksum-corruption fail-closed, and mount metadata corruption rejection)
+- [ ] Ethernet
 - [ ] ARP
 - [ ] IPv4
 - [ ] UDP/TCP
