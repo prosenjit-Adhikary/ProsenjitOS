@@ -1,0 +1,359 @@
+#!/usr/bin/env bash
+# prosenjitos-agent: local, allowlisted ProsenjitOS diagnostic runner.
+# It never accepts an arbitrary command string. Mutating source requires an
+# explicit, structured operation plus an interactive local confirmation.
+set -u
+set -o pipefail
+
+APP="prosenjitos-agent"
+DEFAULT_REPO="$HOME/ProsenjitOS"
+CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/prosenjitos-agent/config"
+
+usage() {
+    cat <<USAGE
+Usage:
+  $APP diagnose
+  $APP handoff
+  $APP fix apply-patch <patch-file>
+
+Environment:
+  PROSENJITOS_REPO=/path/to/ProsenjitOS
+
+No arbitrary command execution is supported.
+USAGE
+}
+
+load_config() {
+    local cfg_repo=""
+    if [[ -f "$CONFIG_FILE" ]]; then
+        # Setup writes only a quoted PROSENJITOS_REPO_CONFIG assignment.
+        # shellcheck disable=SC1090
+        . "$CONFIG_FILE"
+        cfg_repo="${PROSENJITOS_REPO_CONFIG:-}"
+    fi
+    REPO="${PROSENJITOS_REPO:-${cfg_repo:-$DEFAULT_REPO}}"
+}
+
+verify_repo() {
+    [[ -d "$REPO" ]] || { echo "ERROR: repository not found: $REPO" >&2; return 1; }
+    local top remote expected
+    top="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)" || {
+        echo "ERROR: not a Git repository: $REPO" >&2; return 1;
+    }
+    top="$(cd "$top" && pwd -P)"
+    expected="$(cd "$REPO" && pwd -P)"
+    [[ "$top" == "$expected" ]] || { echo "ERROR: repository root mismatch" >&2; return 1; }
+    [[ -f "$REPO/kernel/prosenjitfs.c" && -f "$REPO/kernel/include/prosenjitfs.h" && -f "$REPO/scripts/build.sh" ]] || {
+        echo "ERROR: ProsenjitOS repository markers are missing" >&2; return 1;
+    }
+    remote="$(git -C "$REPO" remote get-url origin 2>/dev/null || true)"
+    if [[ -n "$remote" && "$remote" != *"prosenjit-Adhikary/ProsenjitOS"* ]]; then
+        echo "ERROR: origin is not prosenjit-Adhikary/ProsenjitOS: $remote" >&2; return 1;
+    fi
+    return 0
+}
+
+json_escape() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\r'/\\r}
+    s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
+
+stage_name() {
+    case "$1" in
+        1) echo "validation";;
+        2) echo "journal-header write";;
+        3) echo "journal-image write";;
+        4) echo "journal flush";;
+        5) echo "commit-record write/flush";;
+        6) echo "target-block write";;
+        7) echo "target-block flush";;
+        8) echo "physical readback";;
+        9) echo "journal clear";;
+        90) echo "journal-clear block 0 write";;
+        91) echo "journal-clear block 1 write";;
+        92) echo "journal-clear block 2 write";;
+        93) echo "journal-clear block 3 write";;
+        94) echo "journal-clear block 4 write";;
+        95) echo "journal-clear block 5 write";;
+        96) echo "journal-clear block 6 write";;
+        97) echo "journal-clear block 7 write";;
+        98) echo "journal-clear block 8 write";;
+        99) echo "journal-clear block 9 write";;
+        200) echo "journal-clear flush";;
+        *) echo "unknown";;
+    esac
+}
+
+extract_field() {
+    local key="$1" file="$2"
+    grep -oE "${key}=(-?[0-9]+|0x[0-9A-Fa-f]+)" "$file" 2>/dev/null | tail -1 | sed "s/^${key}=//" || true
+}
+
+collect_diagnose() {
+    load_config
+    verify_repo || return 1
+
+    local top branch head status remote start_ts end_ts stamp report_dir
+    top="$(git -C "$REPO" rev-parse --show-toplevel)"
+    branch="$(git -C "$REPO" branch --show-current 2>/dev/null || true)"
+    head="$(git -C "$REPO" rev-parse HEAD)"
+    status="$(git -C "$REPO" status --short 2>&1)"
+    remote="$(git -C "$REPO" remote get-url origin 2>/dev/null || true)"
+    start_ts="$(date -Is)"
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    report_dir="$REPO/reports"
+    mkdir -p "$report_dir"
+
+    local tmp build_log qemu_log
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/prosenjitos-agent.XXXXXX")"
+    build_log="$tmp/build.log"
+    qemu_log="$tmp/qemu.log"
+
+    local build_rc=0 qemu_rc=125
+    {
+        echo '=== COMMAND ==='
+        echo './scripts/build.sh clean'
+        if [[ -x "$REPO/scripts/build.sh" ]]; then
+            (cd "$REPO" && ./scripts/build.sh clean)
+        else
+            (cd "$REPO" && bash ./scripts/build.sh clean)
+        fi
+    } >"$build_log" 2>&1 || build_rc=$?
+
+    local qemu_cmd='timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -display none -no-reboot -no-shutdown'
+    if [[ $build_rc -eq 0 && -f "$REPO/build/prosenjitOS.iso" && -n "$(command -v qemu-system-x86_64 || true)" && -n "$(command -v timeout || true)" ]]; then
+        (cd "$REPO" && timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -display none -no-reboot -no-shutdown) >"$qemu_log" 2>&1 || qemu_rc=$?
+    else
+        printf 'QEMU not run: build failed or required QEMU/timeout/ISO is unavailable.\n' >"$qemu_log"
+    fi
+
+    local pfs_result="NOT_OBSERVED" mkdir_stage="" mkdir_rc="" tx_stage="" tx_count=""
+    if grep -q 'ProsenjitFS format/mount/allocation/journal/recovery self-test passed' "$qemu_log"; then
+        pfs_result="PASS"
+    elif grep -q 'ERROR ProsenjitFS self-test failed' "$qemu_log"; then
+        pfs_result="FAIL"
+        mkdir_stage="$(extract_field mkdir_stage "$qemu_log")"
+        mkdir_rc="$(extract_field mkdir_rc "$qemu_log")"
+        tx_stage="$(extract_field tx_stage "$qemu_log")"
+        tx_count="$(extract_field tx_count "$qemu_log")"
+    fi
+
+    local qemu_result="NOT_RUN"
+    case "$qemu_rc" in
+        0) qemu_result="EXITED_0";;
+        124)
+            if grep -q 'ERROR ' "$qemu_log"; then qemu_result="FAIL_TIMEOUT_WITH_ERROR"; else qemu_result="TIMEOUT_EXPECTED_OR_INCOMPLETE"; fi
+            ;;
+        125) qemu_result="NOT_RUN";;
+        *) qemu_result="FAIL_EXIT_$qemu_rc";;
+    esac
+
+    local security_result="NOT_OBSERVED" regression_result="NOT_OBSERVED"
+    grep -q 'intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed' "$qemu_log" && security_result="PASS"
+    grep -q 'ProsenjitFS format/mount/allocation/journal/recovery self-test passed' "$qemu_log" && regression_result="PASS"
+
+    local category="unknown" first_error="" suggested=""
+    first_error="$(grep -E 'ERROR |panic|Panic|exception|fatal|FAILED|failed' "$qemu_log" | head -1 || true)"
+    if [[ -z "$first_error" ]]; then first_error="$(grep -E 'error:|Error:|FAILED|failed' "$build_log" | head -1 || true)"; fi
+    if [[ $build_rc -ne 0 ]]; then category="build"
+    elif grep -qi 'invalid boot handoff\|bootloader' "$qemu_log"; then category="bootloader"
+    elif grep -qi 'CPU exception\|exception RIP\|page fault' "$qemu_log"; then category="CPU/architecture"
+    elif grep -qi 'ProsenjitFS self-test' "$qemu_log"; then category="filesystem"
+    elif grep -qi 'VFS' "$qemu_log"; then category="VFS"
+    elif grep -qi 'out of memory\|heap\|physical memory' "$qemu_log"; then category="memory"
+    elif [[ $qemu_rc -ne 0 && $qemu_rc -ne 124 && $qemu_rc -ne 125 ]]; then category="QEMU configuration"
+    elif [[ $qemu_rc -eq 124 ]]; then category="timeout"; fi
+
+    if [[ -n "$tx_stage" ]]; then
+        suggested="Inspect transaction stage $tx_stage ($(stage_name "$tx_stage")); preserve observed diagnostic values and inspect the corresponding implementation path."
+    elif [[ "$pfs_result" == "FAIL" ]]; then
+        suggested="Inspect the first ProsenjitFS failure and the immediately preceding serial milestone."
+    elif [[ $build_rc -ne 0 ]]; then
+        suggested="Inspect the first build error; do not attribute it to QEMU or ProsenjitFS."
+    elif [[ "$qemu_result" == "TIMEOUT_EXPECTED_OR_INCOMPLETE" ]]; then
+        suggested="Inspect the last successful serial milestone to distinguish an intentional kernel loop from an incomplete boot."
+    else
+        suggested="No additional evidence-based target was selected."
+    fi
+
+    end_ts="$(date -Is)"
+    local history workflows tools hostinfo
+    history="$(git -C "$REPO" log -12 --oneline 2>&1)"
+    workflows="$(find "$REPO/.github/workflows" -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort || true)"
+    tools="$(for c in uname lscpu free df lsblk git gcc nasm grub-file grub-mkrescue qemu-system-x86_64 objdump readelf nm file grep sed awk find stat timeout; do if command -v "$c" >/dev/null 2>&1; then printf '%s=%s\n' "$c" "$(command -v "$c")"; else printf '%s=UNAVAILABLE\n' "$c"; fi; done)"
+    hostinfo="$(uname -a 2>&1; lscpu 2>/dev/null | grep -E 'Architecture:|CPU\(s\):|Model name:' || true; free -h 2>&1; df -h "$REPO" 2>&1; lsblk -o NAME,SIZE,TYPE,MOUNTPOINT 2>&1)"
+
+    local latest_txt="$report_dir/latest.txt"
+    local latest_json="$report_dir/latest.json"
+    local timestamp_txt="$report_dir/prosenjitos-report-$stamp.txt"
+    local timestamp_json="$report_dir/prosenjitos-report-$stamp.json"
+    local ai_handoff="$report_dir/ai-handoff.txt"
+
+    {
+        echo 'PROSENJITOS DIAGNOSTIC REPORT'
+        echo
+        echo 'Repository'
+        echo "  Path: $top"
+        echo "  Origin: ${remote:-NOT_SET}"
+        echo "  HEAD: $head"
+        echo "  Branch: ${branch:-DETACHED}"
+        echo "  Working tree: ${status//$'\n'/$' | '}"
+        echo "  Started: $start_ts"
+        echo "  Finished: $end_ts"
+        echo
+        echo 'Build result'
+        echo "  Exit code: $build_rc"
+        echo '  Command: ./scripts/build.sh clean'
+        echo
+        echo 'ProsenjitFS result'
+        echo "  Result: $pfs_result"
+        echo "  mkdir_stage: ${mkdir_stage:-NOT_REPORTED}"
+        echo "  mkdir_rc: ${mkdir_rc:-NOT_REPORTED}"
+        echo "  tx_stage: ${tx_stage:-NOT_REPORTED}"
+        echo "  tx_count: ${tx_count:-NOT_REPORTED}"
+        [[ -n "$tx_stage" ]] && echo "  tx_stage_mapping: $(stage_name "$tx_stage")"
+        echo
+        echo 'QEMU result'
+        echo "  Exit code: $qemu_rc"
+        echo "  Result: $qemu_result"
+        echo "  Command: $qemu_cmd"
+        echo
+        echo 'Security-test result'
+        echo "  $security_result"
+        echo
+        echo 'Regression-test result'
+        echo "  $regression_result"
+        echo
+        echo 'Failures'
+        echo '  Test: build + QEMU baseline'
+        echo "  Exit code: build=$build_rc qemu=$qemu_rc"
+        echo "  Category: $category"
+        echo "  First relevant error: ${first_error:-NONE_OBSERVED}"
+        echo "  Diagnostic values: mkdir_stage=${mkdir_stage:-N/A} mkdir_rc=${mkdir_rc:-N/A} tx_stage=${tx_stage:-N/A} tx_count=${tx_count:-N/A}"
+        echo '  Relevant source: kernel/prosenjitfs.c; kernel/kernel.c; scripts/build.sh'
+        echo "  Suggested next inspection: $suggested"
+        echo
+        echo 'Diagnostics'
+        echo "  Structured ProsenjitFS diagnostic API present: $(grep -q 'prosenjitfs_mkdir_diag_get' "$REPO/kernel/include/prosenjitfs.h" && echo yes || echo no)"
+        echo "  Last 300 QEMU lines:"
+        tail -300 "$qemu_log" 2>/dev/null || true
+        echo
+        echo '  Last 200 build lines:'
+        tail -200 "$build_log" 2>/dev/null || true
+        echo
+        echo 'Relevant commits'
+        echo "$history"
+        echo
+        echo 'CI workflow files available locally'
+        echo "${workflows:-NONE}"
+        echo
+        echo 'Host/tool availability'
+        echo "$tools"
+        echo
+        echo 'Host system'
+        echo "$hostinfo"
+    } >"$latest_txt"
+    cp "$latest_txt" "$timestamp_txt"
+
+    {
+        printf '{\n'
+        printf '  "report": "PROSENJITOS DIAGNOSTIC REPORT",\n'
+        printf '  "repository": {"path":"%s","origin":"%s","head":"%s","branch":"%s","working_tree":"%s"},\n'             "$(json_escape "$top")" "$(json_escape "$remote")" "$(json_escape "$head")" "$(json_escape "$branch")" "$(json_escape "$status")"
+        printf '  "timing": {"started":"%s","finished":"%s"},\n' "$(json_escape "$start_ts")" "$(json_escape "$end_ts")"
+        printf '  "build": {"command":"./scripts/build.sh clean","exit_code":%s,"result":"%s"},\n' "$build_rc" "$([[ $build_rc -eq 0 ]] && echo PASS || echo FAIL)"
+        printf '  "prosenjitfs": {"result":"%s","mkdir_stage":%s,"mkdir_rc":%s,"tx_stage":%s,"tx_count":%s,"tx_stage_mapping":"%s"},\n'             "$pfs_result" "${mkdir_stage:-null}" "${mkdir_rc:-null}" "${tx_stage:-null}" "${tx_count:-null}" "$(json_escape "$(stage_name "${tx_stage:-0}")")"
+        printf '  "qemu": {"command":"%s","exit_code":%s,"result":"%s"},\n' "$(json_escape "$qemu_cmd")" "$qemu_rc" "$qemu_result"
+        printf '  "security_test": {"result":"%s"},\n' "$security_result"
+        printf '  "regression_test": {"result":"%s"},\n' "$regression_result"
+        printf '  "failure": {"category":"%s","first_relevant_error":"%s","suggested_next_inspection":"%s"},\n'             "$(json_escape "$category")" "$(json_escape "$first_error")" "$(json_escape "$suggested")"
+        printf '  "relevant_commits":"%s",\n' "$(json_escape "$history")"
+        printf '  "ci_workflow_files":"%s",\n' "$(json_escape "$workflows")"
+        printf '  "log_files": {"report":"%s"}\n' "$(json_escape "$latest_txt")"
+        printf '}\n'
+    } >"$latest_json"
+    cp "$latest_json" "$timestamp_json"
+
+    {
+        echo 'You are debugging the CURRENT ProsenjitOS HEAD.'
+        echo 'Use the supplied diagnostic evidence.'
+        echo 'Do not assume the filesystem is responsible for unrelated failures.'
+        echo 'Inspect the real implementation. Fix root causes. Rebuild. Rerun the failed test.'
+        echo 'Continue until the relevant verification passes.'
+        echo 'Do not weaken, skip, mask, or alter tests merely to obtain green status.'
+        echo
+        echo "CURRENT HEAD: $head"
+        echo "BRANCH: ${branch:-DETACHED}"
+        echo "BUILD: $build_rc"
+        echo "PROSENJITFS: $pfs_result mkdir_stage=${mkdir_stage:-N/A} mkdir_rc=${mkdir_rc:-N/A} tx_stage=${tx_stage:-N/A} tx_count=${tx_count:-N/A}"
+        echo "QEMU: $qemu_result (exit $qemu_rc)"
+        echo "FAILURE CATEGORY: $category"
+        echo "FIRST RELEVANT ERROR: ${first_error:-NONE_OBSERVED}"
+        echo "SUGGESTED NEXT INSPECTION: $suggested"
+        echo
+        echo "Complete report: $latest_txt"
+    } >"$ai_handoff"
+
+    # Remove only the two known temporary files, never arbitrary paths.
+    rm -f "$build_log" "$qemu_log"
+    rmdir "$tmp" 2>/dev/null || true
+
+    echo "Reports written:"
+    echo "  $latest_txt"
+    echo "  $latest_json"
+    echo "  $ai_handoff"
+    echo "  $timestamp_txt"
+    echo "  $timestamp_json"
+    echo "Result: build=$build_rc prosenjitfs=$pfs_result qemu=$qemu_result"
+    return 0
+}
+
+handoff() {
+    load_config
+    verify_repo || return 1
+    [[ -f "$REPO/reports/ai-handoff.txt" ]] || {
+        echo "ERROR: no handoff report; run: $APP diagnose" >&2
+        return 1
+    }
+    cat "$REPO/reports/ai-handoff.txt"
+}
+
+fix_apply_patch() {
+    load_config
+    verify_repo || return 1
+    local patch="${1:-}"
+    [[ -n "$patch" && -f "$patch" ]] || {
+        echo "ERROR: fix apply-patch requires an existing local patch file" >&2
+        return 1
+    }
+    local patch_abs
+    patch_abs="$(cd "$(dirname "$patch")" && pwd -P)/$(basename "$patch")"
+    git -C "$REPO" apply --check "$patch_abs" || {
+        echo 'ERROR: git apply --check rejected the patch; no changes made.' >&2
+        return 1
+    }
+    echo "PROPOSED MODIFICATION: git apply $patch_abs"
+    git -C "$REPO" apply --stat "$patch_abs" || return 1
+    printf 'Apply this patch inside the configured ProsenjitOS repository? [y/N] '
+    local answer
+    read -r answer
+    [[ "$answer" == y || "$answer" == Y ]] || { echo 'Cancelled; no changes made.'; return 0; }
+    git -C "$REPO" apply "$patch_abs" || return 1
+    echo 'Patch applied. No reset/clean/commit/force-push was performed.'
+}
+
+case "${1:-}" in
+    diagnose) collect_diagnose;;
+    handoff) handoff;;
+    fix)
+        case "${2:-}" in
+            apply-patch) fix_apply_patch "${3:-}";;
+            *) usage; exit 2;;
+        esac;;
+    --help|-h) usage;;
+    *) usage; exit 2;;
+esac
