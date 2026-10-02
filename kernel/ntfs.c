@@ -5478,7 +5478,7 @@ int ntfs_directory_lookup(const struct pros_ntfs *fs,
                                  0xA0u, &index_allocation_offset);
     if (status != PROS_NTFS_OK) {
         ntfs_active_upcase = 0;
-        return status;
+        return status == PROS_NTFS_ENOTSUP ? PROS_NTFS_ENOTFOUND : status;
     }
 
     status = ntfs_index_allocation_lookup(fs, record,
@@ -5874,7 +5874,8 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
                                     name_utf16le, (uint8_t)name_length,
                                     &record_number);
     if (status != PROS_NTFS_OK)
-        return status == PROS_NTFS_ENOTSUP ? PROS_VFS_ENOENT :
+        return (status == PROS_NTFS_ENOTSUP ||
+                status == PROS_NTFS_ENOTFOUND) ? PROS_VFS_ENOENT :
                (status == PROS_NTFS_EINVAL ? PROS_VFS_EINVAL :
                 PROS_VFS_EIO);
 
