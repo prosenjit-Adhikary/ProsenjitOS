@@ -3241,9 +3241,12 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
 
         if (bi >= fs->sb.inode_bitmap_blocks)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_block(fs->mount.device,
-                           fs->sb.inode_bitmap_start + bi, block) !=
-                PROSENJITFS_OK)
+        {
+            uint64_t bitmap_lba;
+            if (pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
+                            bi, &bitmap_lba) != PROSENJITFS_OK ||
+                pfs_read_block(fs->mount.device, bitmap_lba, block) !=
+                    PROSENJITFS_OK)
                 return PROSENJITFS_EIO;
         }
         if (!pfs_bitmap_bit(block, within)) {
