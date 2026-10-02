@@ -1,7 +1,7 @@
 # ProsenjitFS Design and Implementation Plan
 
 ## Status
-This document is the implementation contract for the native ProsenjitFS filesystem. It is intentionally separate from the compatibility FAT32, exFAT and NTFS drivers.
+This document is the implementation contract for the native ProsenjitFS filesystem. It is the only filesystem implementation currently linked into the kernel. FAT32, exFAT and NTFS compatibility support is intentionally externalized.
 
 ## Current implementation scope — 2026-09-30
 
@@ -13,7 +13,7 @@ This is still not a claim of physical power-loss validation. The native QEMU dis
 
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
-FAT32, exFAT and NTFS remain compatibility filesystem providers. Filesystem parsing stays in the kernel filesystem layer; the bootloader does not parse ProsenjitFS.
+ProsenjitFS is the kernel filesystem. Future FAT32, exFAT and NTFS compatibility providers must attach outside kernel-core through the filesystem-provider boundary; the bootloader does not parse ProsenjitFS.
 
 ## Version 1 on-disk layout
 All filesystem blocks equal the underlying block-device sector size. Supported sizes are powers of two from 512 through 4096 bytes.
@@ -73,7 +73,7 @@ Mount validates magic/version, feature flags, block size and volume bounds, all 
 12. Add host-side format tests.
 13. Add ProsenjitFS filesystem probing/storage discovery. **Completed in the native BIOS storage path.**
 14. Run the mandatory QEMU regression using the native ProsenjitFS disk image and verify the ATA -> MBR -> ProsenjitFS path.
-15. Run complete existing CI regression and preserve FAT32/exFAT/NTFS behavior.
+15. Run complete native ProsenjitFS CI regression and preserve the external filesystem-provider boundary.
 16. Add ProsenjitFS self-healing hooks: integrity scan, journal-first recovery, conservative orphan reclamation, degraded-metadata handling, and post-repair verification.
 17. Add fault-injection tests for torn writes, corrupted metadata, interrupted recovery, and rollback; automatic destructive repair must remain disabled outside explicit recovery mode.
 
