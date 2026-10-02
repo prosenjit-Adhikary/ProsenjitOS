@@ -13,7 +13,9 @@ The kernel now exposes a small display handoff contract:
 - width and height;
 - pitch;
 - bits per pixel;
-- a display-driver present operation.
+- a display-driver present operation;
+- a real Multiboot2 framebuffer provider registered through the kernel driver model;
+- physical framebuffer reservation before the page allocator is used.
 
 The contract lives below any window system. It intentionally does not define
 X11, Wayland, a compositor, a window manager, or an application toolkit.
@@ -51,13 +53,11 @@ a falsely "working" GUI.
 
 ## Remaining implementation
 
-1. Implement a real framebuffer/display provider for the boot graphics handoff.
-2. Connect display discovery/binding to the driver manager.
-3. Add hardware input providers (keyboard and mouse/HID) feeding the input-event queue contract now implemented.
-4. Complete ELF/process startup and init/service management.
-5. Build the userspace/session boundary needed by an Xorg-compatible stack.
-6. Package and integrate XFCE only after the lower layers are executable.
-7. Verify boot -> userspace -> display -> desktop in QEMU before marking GUI
+1. Add hardware input providers (keyboard and mouse/HID) feeding the input-event queue contract now implemented.
+2. Complete ELF/process startup and init/service management.
+3. Build the userspace/session boundary needed by an Xorg-compatible stack.
+4. Package and integrate XFCE only after the lower layers are executable.
+5. Verify boot -> userspace -> display -> desktop in QEMU before marking GUI
    milestones complete.
 
 ## Implemented foundation additions
