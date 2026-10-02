@@ -7426,7 +7426,8 @@ int ntfs_selftest(void)
          */
         disk.root_record[176u] = 16u;
         disk.root_record[178u] = 0u;
-        disk.root_record[180u] = 2u;
+        disk.root_record[180u] = 0u;
+        disk.root_record[188u] = 2u;
         disk.root_record[192u] = 0xFFu;
         disk.root_record[193u] = 0xFFu;
         disk.root_record[194u] = 0xFFu;
