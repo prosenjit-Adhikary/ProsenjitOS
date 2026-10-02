@@ -64,6 +64,8 @@ a falsely "working" GUI.
 
 - A bounded input-event queue provides deterministic kernel-to-userspace event
   buffering semantics and has a boot-time self-test.
+- The legacy PS/2 keyboard IRQ1 path now reads hardware scancodes and feeds the
+  queue; the queue consumer/userspace input ABI and USB HID support remain pending.
 - Framebuffer validation rejects arithmetic overflow in the minimum row-size
   calculation.
 
