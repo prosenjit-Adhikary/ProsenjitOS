@@ -13,7 +13,7 @@
 #define PF_R 4u
 #define ELF_PAGES_MAX 4096ULL
 #define USER_BASE 0x0000008000000000ULL
-#define USER_LIMIT 0x0000800000000000ULL
+#define USER_LIMIT 0x0000010000000000ULL
 
 struct elf64_ehdr {
     uint8_t ident[16];
@@ -96,7 +96,6 @@ int pros_elf64_load(const void *image, uint64_t image_size,
                     uint64_t *entry_out)
 {
     const struct elf64_ehdr *eh;
-    uint64_t ph_end;
     uint32_t load_count = 0;
     uint64_t total_pages = 0;
     uint64_t entry;
@@ -121,7 +120,6 @@ int pros_elf64_load(const void *image, uint64_t image_size,
         (uint64_t)eh->phnum * eh->phentsize > image_size - eh->phoff)
         return PROS_ELF_EBOUNDS;
 
-    ph_end = eh->phoff + (uint64_t)eh->phnum * eh->phentsize;
     entry = eh->entry;
 
     for (i = 0; i < eh->phnum; ++i) {
@@ -132,7 +130,6 @@ int pros_elf64_load(const void *image, uint64_t image_size,
         uint64_t first;
         uint64_t pages;
 
-        (void)ph_end;
         if (validate_segment(ph, image_size, &end) != PROS_ELF_OK)
             return validate_segment(ph, image_size, &end);
         if (ph->type != PT_LOAD || ph->memsz == 0)
@@ -162,7 +159,7 @@ int pros_elf64_load(const void *image, uint64_t image_size,
             return PROS_ELF_EINVAL;
 
         for (va = ph->vaddr; va < end; va += PROSENJIT_PAGE_SIZE) {
-            uint64_t physical = physical_page_alloc();
+            uint64_t physical;
             uint64_t copy_start = va > ph->vaddr ? va : ph->vaddr;
             uint64_t seg_file_end = ph->vaddr + ph->filesz;
             uint64_t copy_end = seg_file_end < va + PROSENJIT_PAGE_SIZE ?
@@ -170,8 +167,14 @@ int pros_elf64_load(const void *image, uint64_t image_size,
             uint64_t flags = (ph->flags & PF_W) ? PROSENJIT_PAGE_WRITABLE : 0;
             if (!(ph->flags & PF_X))
                 flags |= PROSENJIT_PAGE_NX;
-            if (!physical || address_space_map_user_page(space, va, physical, flags) != 0)
+            if (address_space_validate_user_range(space, va, 1u, 0) == 0)
+                return PROS_ELF_EINVAL;
+            physical = physical_page_alloc();
+            if (!physical || address_space_map_user_page(space, va, physical, flags) != 0) {
+                if (physical)
+                    physical_page_free(physical);
                 return PROS_ELF_ENOMEM;
+            }
 
             for (uint64_t j = 0; j < PROSENJIT_PAGE_SIZE; ++j)
                 ((uint8_t *)(uintptr_t)physical)[j] = 0;
@@ -192,7 +195,7 @@ int pros_elf64_load(const void *image, uint64_t image_size,
 
 int pros_elf64_selftest(void)
 {
-    uint8_t image[0x100] = {0};
+    uint8_t image[0x1100] = {0};
     struct elf64_ehdr *eh = (struct elf64_ehdr *)image;
     struct elf64_phdr *ph = (struct elf64_phdr *)(image + 64);
     struct pros_address_space space = {0};
@@ -204,10 +207,10 @@ int pros_elf64_selftest(void)
     eh->type = ET_EXEC; eh->machine = EM_X86_64; eh->version = EV_CURRENT;
     eh->entry = USER_BASE; eh->phoff = 64u; eh->ehsize = sizeof(*eh);
     eh->phentsize = sizeof(*ph); eh->phnum = 1u;
-    ph->type = PT_LOAD; ph->flags = PF_R | PF_X; ph->offset = 0x80u;
+    ph->type = PT_LOAD; ph->flags = PF_R | PF_X; ph->offset = 0x1000u;
     ph->vaddr = USER_BASE; ph->filesz = 4u; ph->memsz = 0x1000u;
     ph->align = PROSENJIT_PAGE_SIZE;
-    image[0x80] = 0xC3; image[0x81] = 0x90; image[0x82] = 0xCC; image[0x83] = 0xF4;
+    image[0x1000] = 0xC3; image[0x1001] = 0x90; image[0x1002] = 0xCC; image[0x1003] = 0xF4;
 
     if (address_space_create(&space) != 0)
         return PROS_ELF_ENOMEM;
@@ -216,8 +219,11 @@ int pros_elf64_selftest(void)
         (void)address_space_destroy(&space);
         return PROS_ELF_EINVAL;
     }
-    physical = paging_translate_from_root ? 0 : 0;
-    (void)physical;
+    if (paging_translate(USER_BASE) == 0) {
+        (void)paging_switch_kernel();
+        (void)address_space_destroy(&space);
+        return PROS_ELF_EINVAL;
+    }
     if (address_space_switch(&space) != 0 ||
         ((volatile uint8_t *)(uintptr_t)USER_BASE)[0] != 0xC3 ||
         ((volatile uint8_t *)(uintptr_t)USER_BASE)[3] != 0xF4 ||
