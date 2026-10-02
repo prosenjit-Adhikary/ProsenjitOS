@@ -143,6 +143,16 @@ int pros_boot_graphics_selftest(void)
         surface.bpp != 32u)
         return -2;
 
+    fb->framebuffer_red_field_position = 31u;
+    if (pros_boot_graphics_from_multiboot2((uint64_t)(uintptr_t)buffer,
+                                            &surface) != PROS_DRIVER_EINVAL)
+        return -3;
+    fb->framebuffer_red_field_position = 16u;
+    fb->framebuffer_type = 2u;
+    if (pros_boot_graphics_from_multiboot2((uint64_t)(uintptr_t)buffer,
+                                            &surface) != PROS_DRIVER_ENOTSUP)
+        return -4;
+
     return PROS_DRIVER_OK;
 }
 
