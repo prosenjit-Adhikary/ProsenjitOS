@@ -7865,8 +7865,14 @@ int ntfs_selftest(void)
             (void)split_ref;
         }
 
-        /* DOS-only aliases must not satisfy a normal path lookup. */
+        /*
+         * DOS-only aliases must not satisfy a normal path lookup.  The
+         * synthetic directory has the same "test" name in both the resident
+         * root and its INDEX_ALLOCATION leaf, so convert both copies to the
+         * DOS-only namespace for this negative-path probe.
+         */
         disk.root_record[96u + 65u] = 2u;
+        disk.index_record[64u + 16u + 65u] = 2u;
         {
             int dos_lookup_status = ntfs_path_lookup(
                 &fs, components, lengths, 1u, &path_reference);
@@ -7874,6 +7880,7 @@ int ntfs_selftest(void)
                 return -18000 - dos_lookup_status;
         }
         disk.root_record[96u + 65u] = 1u;
+        disk.index_record[64u + 16u + 65u] = 1u;
 
         {
             uint64_t allocated_lcn = 0u;
