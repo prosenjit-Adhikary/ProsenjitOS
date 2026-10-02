@@ -812,6 +812,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 struct pros_prosenjitfs_extent tail;
                 pfs_copy(&tail, tail_image, sizeof(tail));
                 tail.next = new_extent_lba;
+                pfs_copy(tail_image, &tail, sizeof(tail));
                 pfs_put32(tail_image +
                           offsetof(struct pros_prosenjitfs_extent, checksum),
                           pfs_crc_with_zero32(tail_image, sizeof(tail),
