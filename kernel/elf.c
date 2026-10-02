@@ -200,8 +200,6 @@ int pros_elf64_selftest(void)
     struct elf64_phdr *ph = (struct elf64_phdr *)(image + 64);
     struct pros_address_space space = {0};
     uint64_t entry = 0;
-    uint64_t physical;
-
     eh->ident[0] = 0x7F; eh->ident[1] = 'E'; eh->ident[2] = 'L'; eh->ident[3] = 'F';
     eh->ident[4] = ELFCLASS64; eh->ident[5] = ELFDATA2LSB; eh->ident[6] = EV_CURRENT;
     eh->type = ET_EXEC; eh->machine = EM_X86_64; eh->version = EV_CURRENT;
