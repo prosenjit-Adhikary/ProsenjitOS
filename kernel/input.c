@@ -84,3 +84,39 @@ int pros_input_selftest(void)
 
     return PROS_DRIVER_OK;
 }
+
+
+static struct pros_input_queue input_device_queue;
+static uint8_t input_device_ready;
+
+int pros_input_device_init(void)
+{
+    int rc = pros_input_queue_init(&input_device_queue);
+    if (rc != PROS_DRIVER_OK)
+        return rc;
+    input_device_ready = 1u;
+    return PROS_DRIVER_OK;
+}
+
+int pros_input_device_push(const struct pros_input_event *event)
+{
+    if (!input_device_ready)
+        return PROS_DRIVER_EINVAL;
+    return pros_input_queue_push(&input_device_queue, event);
+}
+
+int pros_input_device_read(struct pros_input_event *events,
+                           uint32_t capacity, uint32_t *count_out)
+{
+    uint64_t flags;
+    int rc;
+
+    if (!input_device_ready)
+        return PROS_DRIVER_EINVAL;
+
+    __asm__ volatile ("pushfq; pop %0; cli" : "=r"(flags) : : "memory");
+    rc = pros_input_queue_read(&input_device_queue, events, capacity, count_out);
+    if (flags & (1ULL << 9))
+        __asm__ volatile ("sti" : : : "memory");
+    return rc;
+}
