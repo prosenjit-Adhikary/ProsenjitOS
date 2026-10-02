@@ -1200,6 +1200,31 @@ static int pfs_find_free_data_block(const struct pros_prosenjitfs *fs,
 
 
 
+static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
+                                              uint64_t excluded,
+                                              uint64_t *block_number)
+{
+    uint64_t bits_per_block;
+    uint8_t block[4096];
+
+    if (!fs || !block_number || fs->sb.block_size > sizeof(block))
+        return PROSENJITFS_EINVAL;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
+        if (b == excluded)
+            continue;
+        uint64_t bitmap_lba = fs->sb.block_bitmap_start + b / bits_per_block;
+        if (pfs_read_block(fs->mount.device, bitmap_lba, block) !=
+            PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (!pfs_bitmap_bit(block, b % bits_per_block)) {
+            *block_number = b;
+            return PROSENJITFS_OK;
+        }
+    }
+    return PROSENJITFS_ENOSPC;
+}
+
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result)
 {
@@ -1238,7 +1263,12 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     if (pfs_find_free_inode(data->fs, &inode_number) != PROSENJITFS_OK ||
         pfs_find_free_data_block(data->fs, &entry_lba) != PROSENJITFS_OK)
         return PROS_VFS_EOVERFLOW;
-    if (pfs_find_free_data_block(data->fs, &child_dir_lba) != PROSENJITFS_OK)
+    /*
+     * entry_lba and child_dir_lba are committed together. Exclude the first
+     * allocation so both logical objects never target the same physical block.
+     */
+    if (pfs_find_free_data_block_excluding(data->fs, entry_lba,
+                                           &child_dir_lba) != PROSENJITFS_OK)
         return PROS_VFS_EOVERFLOW;
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
