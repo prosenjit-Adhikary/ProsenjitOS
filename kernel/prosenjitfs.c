@@ -3558,10 +3558,18 @@ int prosenjitfs_selftest(void)
      *  - directory moves update parent_inode and reject cycles.
      *  - rmdir rejects non-empty directories and reclaims empty directories.
      */
-    if (vfs_mkdir(&fs.mount, "/dir1") != PROS_VFS_OK ||
-        vfs_mkdir(&fs.mount, "/dir2") != PROS_VFS_OK ||
-        vfs_mkdir(&fs.mount, "/dir1/subdir") != PROS_VFS_OK)
-        return -(120000 + __LINE__);
+    {
+        int mkdir_rc;
+        mkdir_rc = vfs_mkdir(&fs.mount, "/dir1");
+        if (mkdir_rc != PROS_VFS_OK)
+            return -(123000 + (uint32_t)(-mkdir_rc));
+        mkdir_rc = vfs_mkdir(&fs.mount, "/dir2");
+        if (mkdir_rc != PROS_VFS_OK)
+            return -(124000 + (uint32_t)(-mkdir_rc));
+        mkdir_rc = vfs_mkdir(&fs.mount, "/dir1/subdir");
+        if (mkdir_rc != PROS_VFS_OK)
+            return -(125000 + (uint32_t)(-mkdir_rc));
+    }
     {
         struct pros_vfs_file moved_file;
         struct pros_vfs_vnode *hidden = 0;
