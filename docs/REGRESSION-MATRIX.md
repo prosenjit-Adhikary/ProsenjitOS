@@ -19,10 +19,7 @@ This matrix records the automated validation layers that should remain green whi
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
 | Partition | MBR/GPT discovery self-test | Required CI gate |
-| FAT32 | Geometry/mount/read regression | Required CI gate |
-| exFAT | Geometry, FAT-chain, Unicode/Up-case, VFS read regression | Required CI gate |
-| NTFS | Path/read/write regression and malformed-metadata rejection | Required CI gate |
-| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
+| External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |\n| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | Real disk | ATA PIO -> MBR -> ProsenjitFS persistent QEMU test | Required CI gate |
 
 ## ProsenjitFS crash/recovery coverage
@@ -60,7 +57,7 @@ The following work remains intentionally dependent on lower layers:
 
 - Native ProsenjitFS QEMU disk testing uses the kernel-visible ATA PIO controller path and is a required CI gate.
 - Native filesystem-aware boot requires a stable boot protocol plus storage/partition discovery.
-- NTFS journal-aware metadata writes require safe allocation and directory-index mutation first.
+- Future compatibility filesystem providers must not couple their parsers to kernel-core; provider I/O must use the common block/device contract.
 - UEFI boot validation requires the native UEFI loader before Secure Boot/verified-boot work can be meaningfully tested.
 
 ### ProsenjitFS mutation regression
