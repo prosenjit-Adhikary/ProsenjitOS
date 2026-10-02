@@ -197,3 +197,45 @@ The immediate objective is to determine whether any buffer/size mismatch can cor
 
 After that, use a narrowly targeted runtime/disassembly check around the `pfs_find_dir_entry()` call to prove the actual `eax` value at return.
 
+
+
+## 2026-10-02 22:25 IST update
+
+### New findings
+
+The directory-format definitions and read helpers were inspected.
+
+- `pros_prosenjitfs_dir_index` is a packed 284-byte structure.
+- `pros_prosenjitfs_dir_entry` is a packed 292-byte structure.
+- Both are smaller than the 4096-byte local read buffers.
+- `pfs_read_dir_index()` copies exactly `sizeof(*index)` and validates the structure/checksum.
+- `pfs_read_dir_entry()` copies exactly `sizeof(*entry)`, validates the fields/checksum, and then validates the UTF-8 name.
+- `pfs_copy()` is a bounded byte-copy loop with no visible overrun mechanism.
+- `pfs_utf8_name_valid()` only writes through its caller-provided `length_out` pointer and has no visible out-of-bounds write.
+
+### Revised diagnosis
+
+The proven chain remains:
+
+selftest -> vfs_mkdir() -> pfs_vnode_mkdir() -> pfs_find_dir_entry() result -> -780
+
+However, neither the source nor compiled explicit return paths of `pfs_find_dir_entry()` contain -780. The struct sizes and copy sizes also do not reveal an obvious overflow.
+
+The investigation is therefore narrowed to:
+1. the actual runtime EAX value immediately after the `pfs_find_dir_entry()` call;
+2. stack/register corruption around that call/return;
+3. ABI/prototype or compiled-object mismatch;
+4. a lower-level callee in the read path, especially `pfs_read_block()` or the device layer.
+
+### Next exact action
+
+Do not patch source yet. Inspect the exact compiled call site around `pfs_find_dir_entry()` and its entry/exit, then verify the ABI/prototype. If needed, use a narrowly targeted QEMU/GDB check to capture EAX immediately after the call. Only after that will we trace into the specific lower-level callee.
+
+### Time estimate
+
+For this specific -780 mkdir failure, a realistic estimate is:
+- 10–20 minutes for call-site/ABI verification;
+- 20–45 minutes for targeted runtime/disassembly isolation;
+- 15–45 additional minutes to patch, rebuild, and test once the concrete corruption/return-path bug is identified.
+
+Overall: roughly 45–120 minutes to identify and fix this specific failure, assuming it remains confined to the currently traced mkdir path. Completion will only be claimed after a clean rebuild and QEMU self-test confirms the fix.
