@@ -7531,6 +7531,17 @@ int ntfs_selftest(void)
             disk.root_record[80u + 10u] = 74u;
             disk.root_record[80u + 11u] = 0u;
             disk.root_record[80u + 12u] = 1u;
+            /* Keep a real $FILE_NAME key in the resident parent so the
+             * namespace regression exercises a valid lookup entry rather
+             * than an otherwise empty synthetic key. */
+            disk.root_record[80u + 16u + 64u] = 4u;
+            disk.root_record[80u + 16u + 65u] = 1u;
+            disk.root_record[80u + 16u + 66u] = 't';
+            disk.root_record[80u + 16u + 68u] = 'e';
+            disk.root_record[80u + 16u + 70u] = 's';
+            disk.root_record[80u + 16u + 72u] = 't';
+            disk.root_record[80u + 0u] = 0x00u;
+            disk.root_record[80u + 1u] = 0x30u;
             for (uint32_t i = 0u; i < 8u; ++i)
                 disk.root_record[80u + 104u - 8u + i] = 0u;
             disk.root_record[184u + 8u] = 16u;
