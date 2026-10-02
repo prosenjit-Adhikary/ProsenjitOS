@@ -459,3 +459,38 @@ ntfs_mount() receives the block device passed by its caller and stores that poin
 ### CI/runtime status
 
 Implementation hardening has been committed, but a fresh build, filesystem regression, ISO/QEMU/native-BIOS verification, security checks, and GitHub Actions results are still required before the LBA/NTFS work can be declared complete. The separate ProsenjitFS -780 mkdir investigation remains unresolved and is not attributed to this LBA work without runtime evidence.
+
+
+## 2026-10-03 — Kernel filesystem scope deliberately narrowed to native ProsenjitFS
+
+A new architectural decision was applied after reviewing the Linux NTFS3/ntfs-3g model and the ProsenjitOS storage/VFS boundaries:
+
+- The kernel image now contains **only native ProsenjitFS** as a filesystem implementation.
+- The previous in-kernel FAT32, exFAT, exFAT Up-case, and NTFS implementations were removed from the kernel source tree and build.
+- The VFS filesystem-type contract was reduced to `UNKNOWN` and `PROS_FS_PROSENJIT`.
+- `vfs_probe_filesystem()` now probes only ProsenjitFS; legacy BPB/OEM probing was removed.
+- Storage discovery now accepts only `PROS_FS_PROSENJIT`.
+- FAT32/exFAT/NTFS self-tests and their CI-required serial markers were removed because those implementations are no longer kernel components.
+- The build script no longer compiles or links the removed filesystem objects.
+- Stale NTFS-specific boot diagnostics were removed from `kernel/kernel.c`.
+- Documentation and roadmap were updated to define FAT32/exFAT/NTFS as **future external filesystem providers**, not kernel filesystems.
+
+This does **not** mean FAT32/exFAT/NTFS support is abandoned permanently. The intended future architecture is:
+
+```
+VFS
+ |
+ +-- native ProsenjitFS (kernel)
+ |
+ +-- filesystem-provider boundary
+      +-- future NTFS provider
+      +-- future exFAT provider
+      +-- future FAT32 provider
+```
+
+The compatibility providers must use the common block-device/partition contract and must not put parser-specific filesystem code back into kernel-core.
+
+Current verification state at handoff:
+- Main branch contains the architecture change at commit `b0525062012b02285d50a0229a7f161f4f09ed1b`.
+- GitHub Actions Build and Security workflows for that latest commit were queued at the time of this report update; green CI has **not** yet been claimed.
+- The native ProsenjitFS runtime/LBA investigation remains independent: the previously unresolved mkdir self-test return `-780` has not been attributed to NTFS/FAT32/exFAT code.
