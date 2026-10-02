@@ -7665,7 +7665,7 @@ int ntfs_selftest(void)
                 return -22020;
             ntfs_active_upcase = ntfs_upcase_data;
             if (ntfs_name_key_compare(split_key, sizeof(split_key),
-                                      new_key, new_key[64u]) >= 0) {
+                                      new_key + 66u, new_key[64u]) >= 0) {
                 ntfs_active_upcase = 0;
                 return -22021;
             }
