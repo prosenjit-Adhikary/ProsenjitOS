@@ -5349,44 +5349,49 @@ static int ntfs_test_read(struct pros_block_device *device, uint64_t lba,
         (struct ntfs_test_disk *)device->private_data;
     if (!disk || !buffer || count == 0u)
         return PROS_BLOCK_EIO;
+    if (!block_device_lba_range_valid(device, lba, count))
+        return PROS_BLOCK_EINVAL;
     for (uint32_t s = 0; s < count; ++s) {
         uint8_t *dst = (uint8_t *)buffer + s * 512u;
+        uint64_t sector;
+        if (block_device_lba_add(device, lba, s, &sector) != PROS_BLOCK_OK)
+            return PROS_BLOCK_EINVAL;
         for (uint32_t i = 0; i < 512u; ++i) dst[i] = 0;
-        if (lba + s == 0u)
+        if (sector == 0u)
             for (uint32_t i = 0; i < 512u; ++i) dst[i] = disk->boot[i];
-        else if (lba + s == 32u || lba + s == 33u)
+        else if (sector == 32u || sector == 33u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->mft_record[(lba + s - 32u) * 512u + i];
-        else if (lba + s == 96u || lba + s == 97u)
+                dst[i] = disk->mft_record[(sector - 32u) * 512u + i];
+        else if (sector == 96u || sector == 97u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->mft_mirror_record[(lba + s - 96u) * 512u + i];
-        else if (lba + s == 54u || lba + s == 55u)
+                dst[i] = disk->mft_mirror_record[(sector - 96u) * 512u + i];
+        else if (sector == 54u || sector == 55u)
             for (uint32_t i = 0u; i < 512u; ++i)
-                dst[i] = disk->file_record[(lba + s - 54u) * 512u + i];
-        else if (lba + s == 56u || lba + s == 57u)
+                dst[i] = disk->file_record[(sector - 54u) * 512u + i];
+        else if (sector == 56u || sector == 57u)
             for (uint32_t i = 0u; i < 512u; ++i)
-                dst[i] = disk->nonresident_record[(lba + s - 56u) * 512u + i];
-        else if (lba + s == 42u || lba + s == 43u)
+                dst[i] = disk->nonresident_record[(sector - 56u) * 512u + i];
+        else if (sector == 42u || sector == 43u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->root_record[(lba + s - 42u) * 512u + i];
-        else if (lba + s == 44u || lba + s == 45u)
+                dst[i] = disk->root_record[(sector - 42u) * 512u + i];
+        else if (sector == 44u || sector == 45u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->bitmap_record[(lba + s - 44u) * 512u + i];
-        else if (lba + s >= 336u && lba + s < 368u)
+                dst[i] = disk->bitmap_record[(sector - 44u) * 512u + i];
+        else if (sector >= 336u && sector < 368u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->nonresident_data[(lba + s - 336u) * 512u + i];
-        else if (lba + s >= 368u && lba + s < 369u)
+                dst[i] = disk->nonresident_data[(sector - 336u) * 512u + i];
+        else if (sector >= 368u && sector < 369u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->bitmap_data[(lba + s - 368u) * 512u + i];
-        else if (lba + s == 52u || lba + s == 53u)
+                dst[i] = disk->bitmap_data[(sector - 368u) * 512u + i];
+        else if (sector == 52u || sector == 53u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->upcase_record[(lba + s - 52u) * 512u + i];
-        else if (lba + s >= 80u && lba + s < 336u)
+                dst[i] = disk->upcase_record[(sector - 52u) * 512u + i];
+        else if (sector >= 80u && sector < 336u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->upcase_data[(lba + s - 80u) * 512u + i];
-        else if (lba + s >= 64u && lba + s < 80u)
+                dst[i] = disk->upcase_data[(sector - 80u) * 512u + i];
+        else if (sector >= 64u && sector < 80u)
             for (uint32_t i = 0; i < 512u; ++i)
-                dst[i] = disk->index_record[(lba + s - 64u) * 512u + i];
+                dst[i] = disk->index_record[(sector - 64u) * 512u + i];
     }
     return PROS_BLOCK_OK;
 }
