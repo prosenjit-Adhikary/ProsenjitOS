@@ -44,6 +44,9 @@ static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 static struct pros_ipc_channel user_ipc_channel;
+static struct pros_graphics_surface boot_graphics_surface;
+static struct pros_driver_device boot_graphics_device;
+static uint8_t boot_graphics_available;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -319,34 +322,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: Multiboot2 framebuffer parser self-test passed\n");
 
     if (boot_magic == MULTIBOOT2_BOOT_MAGIC) {
-        struct pros_graphics_surface boot_surface;
-        struct pros_driver_device boot_display;
         int graphics_status = pros_boot_graphics_from_multiboot2(
-            (uint64_t)boot_info, &boot_surface);
+            (uint64_t)boot_info, &boot_graphics_surface);
         if (graphics_status == PROS_DRIVER_OK) {
-            if (pros_boot_graphics_bind(&boot_surface, &boot_display) != PROS_DRIVER_OK) {
-                serial_write("ProsenjitOS: ERROR framebuffer display binding failed\\n");
-                for (;;) __asm__ volatile ("cli; hlt");
-            }
-            struct pros_graphics_surface bound_surface;
-            if (pros_graphics_from_display(&boot_display, &bound_surface) != PROS_DRIVER_OK) {
-                serial_write("ProsenjitOS: ERROR display-class surface validation failed\\n");
-                for (;;) __asm__ volatile ("cli; hlt");
-            }
             uint64_t framebuffer_bytes =
-                (uint64_t)bound_surface.pitch * bound_surface.height;
-            if (physical_memory_reserve(bound_surface.framebuffer,
+                (uint64_t)boot_graphics_surface.pitch * boot_graphics_surface.height;
+            if (physical_memory_reserve(boot_graphics_surface.framebuffer,
                                         framebuffer_bytes) != 0) {
                 serial_write("ProsenjitOS: ERROR framebuffer reservation failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
+            boot_graphics_available = 1u;
             serial_write("ProsenjitOS: Multiboot2 framebuffer handoff validated and reserved\n");
-            serial_write("ProsenjitOS: framebuffer display device bound = ");
-            serial_write(boot_display.name);
-            serial_write("\n");
-            serial_write("ProsenjitOS: framebuffer address = ");
-            serial_hex64((uint64_t)bound_surface.framebuffer);
-            serial_write("\n");
         } else if (graphics_status == PROS_DRIVER_ENODEV) {
             serial_write("ProsenjitOS: no Multiboot2 framebuffer tag; graphical session unavailable\n");
         } else {
@@ -1526,6 +1513,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
+    if (boot_graphics_available) {
+        if (pros_boot_graphics_register_driver() != PROS_DRIVER_OK ||
+            pros_boot_graphics_bind(&boot_graphics_surface, &boot_graphics_device) != PROS_DRIVER_OK ||
+            pros_device_register(&boot_graphics_device) != PROS_DRIVER_OK ||
+            pros_driver_bind(boot_graphics_device.id) != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR framebuffer driver-model registration/binding failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        struct pros_graphics_surface bound_surface;
+        if (pros_graphics_from_display(&boot_graphics_device, &bound_surface) != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR registered display surface validation failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: framebuffer display device registered/bound = ");
+        serial_write(boot_graphics_device.name);
+        serial_write("\\n");
+        serial_write("ProsenjitOS: framebuffer address = ");
+        serial_hex64((uint64_t)bound_surface.framebuffer);
+        serial_write("\\n");
+    }
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
                         0x44525648u, PROS_HEALTH_RECOVERY_DRIVER_READY, timer_ticks());
     (void)pros_health_watchdog_kick(1u);
