@@ -7860,9 +7860,12 @@ int ntfs_selftest(void)
 
         /* DOS-only aliases must not satisfy a normal path lookup. */
         disk.root_record[96u + 65u] = 2u;
-        if (ntfs_path_lookup(&fs, components, lengths, 1u,
-                             &path_reference) != PROS_NTFS_ENOTSUP)
-            return -183;
+        {
+            int dos_lookup_status = ntfs_path_lookup(
+                &fs, components, lengths, 1u, &path_reference);
+            if (dos_lookup_status != PROS_NTFS_ENOTSUP)
+                return -18000 - dos_lookup_status;
+        }
         disk.root_record[96u + 65u] = 1u;
 
         {
