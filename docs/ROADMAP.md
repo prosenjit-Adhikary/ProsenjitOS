@@ -167,7 +167,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
-- [ ] Display abstraction
+- [x] Display abstraction
 - [ ] Network device abstraction
 
 ## Phase 6 — Storage and networking
@@ -229,8 +229,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 8 — GUI
 - [x] Graphics abstraction (validated kernel display-surface contract; no window system)
-- [ ] Framebuffer
-- [ ] Input subsystem
+- [~] Framebuffer (Multiboot2 provider, driver-model registration, validation, and physical reservation implemented; native hardware scanout and mode-setting remain pending)
+- [~] Input subsystem (bounded kernel event queue implemented; hardware keyboard/mouse providers remain pending)
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
 - [ ] ProsenjitOS-specific window manager/compositor (future, optional)
