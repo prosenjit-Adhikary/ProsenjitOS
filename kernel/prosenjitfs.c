@@ -3691,9 +3691,11 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&moved_file) != PROS_VFS_OK)
             return -(120000 + __LINE__);
     }
-    if (vfs_rename(&fs.mount, "/dir1/subdir", "/dir2/subdir") !=
-            PROS_VFS_OK)
-        return -(120000 + __LINE__);
+    {
+        int rename_rc = vfs_rename(&fs.mount, "/dir1/subdir", "/dir2/subdir");
+        if (rename_rc != PROS_VFS_OK)
+            return -(150000 + (uint32_t)(-rename_rc));
+    }
     {
         struct pros_vfs_vnode *moved_dir = 0;
         struct pros_vfs_vnode *parent_dir = 0;
