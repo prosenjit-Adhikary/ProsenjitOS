@@ -7425,9 +7425,9 @@ int ntfs_selftest(void)
          * without that terminator, a later INDEX_ALLOCATION probe treats
          * the zero-filled bytes as a malformed attribute.
          */
-        disk.root_record[176u] = 16u;
-        disk.root_record[178u] = 0u;
-        disk.root_record[180u] = 2u;
+        disk.root_record[184u] = 16u;
+        disk.root_record[186u] = 0u;
+        disk.root_record[188u] = 2u;
         disk.root_record[192u] = 0xFFu;
         disk.root_record[193u] = 0xFFu;
         disk.root_record[194u] = 0xFFu;
