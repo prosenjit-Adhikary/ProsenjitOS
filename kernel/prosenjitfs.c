@@ -929,6 +929,9 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 inode.extent_head = new_extent_lba;
             inode.size = ((uint64_t)offset + done + want > inode.size)
                        ? (uint64_t)offset + done + want : inode.size;
+            if (inode.allocated_bytes >
+                UINT64_MAX - data->fs->sb.block_size)
+                return pfs_file_write_error(done, PROSENJITFS_EOVERFLOW);
             inode.allocated_bytes += data->fs->sb.block_size;
             pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
             pfs_put32(inode_image + inode_offset +
@@ -2962,6 +2965,8 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_zero(header, fs->sb.block_size);
     pfs_zero(commit, fs->sb.block_size);
     pfs_zero(&h, sizeof(h));
+    if (fs->sb.transaction_sequence == UINT64_MAX)
+        return PROSENJITFS_EOVERFLOW;
     h.magic = PROSENJITFS_JOURNAL_MAGIC;
     h.record_count = fs->tx.count;
     h.transaction_id = fs->sb.transaction_sequence++;
