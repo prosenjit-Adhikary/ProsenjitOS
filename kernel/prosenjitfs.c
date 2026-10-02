@@ -3485,16 +3485,28 @@ int prosenjitfs_selftest(void)
         if (after.ctime != before.ctime)
             return -(144000 + __LINE__);
 
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
-                PROS_VFS_ENOENT ||
-            hidden != 0 ||
-            vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
-                PROS_VFS_OK ||
-            !hidden ||
-            vfs_vnode_put(hidden) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
+        {
+            int rc;
+            rc = prosenjitfs_unmount(&fs);
+            if (rc != PROSENJITFS_OK)
+                return -160001;
+            rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (rc != PROSENJITFS_OK)
+                return -160002;
+            hidden = 0;
+            rc = vfs_path_lookup(&fs.mount, "/hello.bin", &hidden);
+            if (rc != PROS_VFS_ENOENT || hidden != 0)
+                return -160003 - (rc < 0 ? (uint32_t)(-rc) : (uint32_t)rc);
+            hidden = 0;
+            rc = vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden);
+            if (rc != PROS_VFS_OK)
+                return -160004 - (rc < 0 ? (uint32_t)(-rc) : (uint32_t)rc);
+            if (!hidden)
+                return -160005;
+            rc = vfs_vnode_put(hidden);
+            if (rc != PROS_VFS_OK)
+                return -160006 - (rc < 0 ? (uint32_t)(-rc) : (uint32_t)rc);
+        }
 
         /*
          * Keep the round-trip rename check separate so a failure identifies
