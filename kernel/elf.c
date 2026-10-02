@@ -61,6 +61,21 @@ static int is_power_of_two(uint64_t value)
     return value != 0 && (value & (value - 1ULL)) == 0;
 }
 
+static int segments_overlap(const struct elf64_phdr *a,
+                            const struct elf64_phdr *b)
+{
+    uint64_t a_end;
+    uint64_t b_end;
+
+    if (a->type != PT_LOAD || b->type != PT_LOAD ||
+        a->memsz == 0 || b->memsz == 0)
+        return 0;
+    if (add_overflow_u64(a->vaddr, a->memsz, &a_end) ||
+        add_overflow_u64(b->vaddr, b->memsz, &b_end))
+        return 1;
+    return a->vaddr < b_end && b->vaddr < a_end;
+}
+
 static int validate_segment(const struct elf64_phdr *ph,
                             uint64_t image_size, uint64_t *end_out)
 {
@@ -100,6 +115,9 @@ int pros_elf64_load(const void *image, uint64_t image_size,
     uint64_t total_pages = 0;
     uint64_t entry;
     uint16_t i;
+    uint64_t allocated_pages[ELF_PAGES_MAX];
+    uint64_t allocated_vas[ELF_PAGES_MAX];
+    uint64_t allocated_count = 0;
 
     if (!image || !space || !space->root || !entry_out ||
         image_size < sizeof(struct elf64_ehdr))
@@ -131,7 +149,7 @@ int pros_elf64_load(const void *image, uint64_t image_size,
         uint64_t pages;
 
         if (validate_segment(ph, image_size, &end) != PROS_ELF_OK)
-            return validate_segment(ph, image_size, &end);
+            return PROS_ELF_EINVAL;
         if (ph->type != PT_LOAD || ph->memsz == 0)
             continue;
         first = ph->vaddr;
@@ -141,6 +159,23 @@ int pros_elf64_load(const void *image, uint64_t image_size,
             return PROS_ELF_ENOMEM;
         total_pages += pages;
         ++load_count;
+    }
+
+    /* PT_LOAD memory ranges must not overlap. Rejecting them up front keeps
+     * the page ownership model deterministic and prevents one segment from
+     * silently changing another segment's permissions or contents. */
+    for (i = 0; i < eh->phnum; ++i) {
+        const struct elf64_phdr *a =
+            (const struct elf64_phdr *)((const uint8_t *)image +
+                                        eh->phoff + (uint64_t)i * eh->phentsize);
+        uint16_t j;
+        for (j = (uint16_t)(i + 1u); j < eh->phnum; ++j) {
+            const struct elf64_phdr *b =
+                (const struct elf64_phdr *)((const uint8_t *)image +
+                                            eh->phoff + (uint64_t)j * eh->phentsize);
+            if (segments_overlap(a, b))
+                return PROS_ELF_EINVAL;
+        }
     }
 
     if (load_count == 0 || entry < USER_BASE || entry >= USER_LIMIT)
@@ -173,8 +208,16 @@ int pros_elf64_load(const void *image, uint64_t image_size,
             if (!physical || address_space_map_user_page(space, va, physical, flags) != 0) {
                 if (physical)
                     physical_page_free(physical);
-                return PROS_ELF_ENOMEM;
+                goto load_fail;
             }
+            if (allocated_count >= ELF_PAGES_MAX) {
+                paging_unmap_page(va);
+                physical_page_free(physical);
+                goto load_fail;
+            }
+            allocated_pages[allocated_count] = physical;
+            allocated_vas[allocated_count] = va;
+            ++allocated_count;
 
             for (uint64_t j = 0; j < PROSENJIT_PAGE_SIZE; ++j)
                 ((uint8_t *)(uintptr_t)physical)[j] = 0;
@@ -191,6 +234,14 @@ int pros_elf64_load(const void *image, uint64_t image_size,
 
     *entry_out = entry;
     return PROS_ELF_OK;
+
+load_fail:
+    while (allocated_count != 0) {
+        --allocated_count;
+        paging_unmap_page(allocated_vas[allocated_count]);
+        physical_page_free(allocated_pages[allocated_count]);
+    }
+    return PROS_ELF_ENOMEM;
 }
 
 int pros_elf64_selftest(void)
