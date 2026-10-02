@@ -5920,7 +5920,7 @@ static int ntfs_vfs_lookup(struct pros_vfs_vnode *parent, const char *name,
                 if (ntfs_attribute_data(record, fs->bytes_per_file_record,
                                         attr_offset, &data,
                                         &data_size) == PROS_NTFS_OK &&
-                    data_size >= 66u &&
+                    data_size >= 66u && data_size <= 0xFFFFu &&
                     (data[65u] == 1u || data[65u] == 3u) &&
                     (le64(data) & 0x0000FFFFFFFFFFFFull) ==
                         (parent_node->record_number &
