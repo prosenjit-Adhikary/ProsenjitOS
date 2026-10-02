@@ -3306,8 +3306,8 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
             return PROS_NTFS_ECORRUPT;
 
         if ((flags & 2u) != 0u) {
-            /* End marker: no key and no child node to inspect here. */
-            return PROS_NTFS_ENOTSUP;
+            /* End marker: the requested name is absent from INDEX_ROOT. */
+            return PROS_NTFS_ENOTFOUND;
         }
 
         /*
@@ -3316,20 +3316,26 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
          */
         if (key_size >= 66u) {
             uint32_t key_name_bytes = (uint32_t)key[64u] * 2u;
-            if ((key[65u] == 1u || key[65u] == 3u) && key_name_bytes == want_bytes &&
+            if (key_name_bytes == want_bytes &&
                 66u + key_name_bytes <= key_size) {
-                uint8_t equal = ntfs_active_upcase ?
-                    ntfs_name_key_matches(key, key_size, name_utf16le,
-                                          name_length) : 1u;
-                if (!ntfs_active_upcase) {
-                    for (uint32_t i = 0u; i < key_name_bytes; ++i) {
-                        if (key[66u + i] != name_utf16le[i]) {
-                            equal = 0u;
-                            break;
-                        }
+                uint8_t equal = 1u;
+                for (uint32_t i = 0u; i < name_length; ++i) {
+                    uint16_t stored = le16(key + 66u + i * 2u);
+                    uint16_t wanted = le16(name_utf16le + i * 2u);
+                    if (ntfs_active_upcase) {
+                        stored = le16(ntfs_active_upcase +
+                                      (uint32_t)stored * 2u);
+                        wanted = le16(ntfs_active_upcase +
+                                      (uint32_t)wanted * 2u);
+                    }
+                    if (stored != wanted) {
+                        equal = 0u;
+                        break;
                     }
                 }
                 if (equal) {
+                    if (key[65u] != 1u && key[65u] != 3u)
+                        return PROS_NTFS_ENOTSUP;
                     *file_reference = reference & 0x0000FFFFFFFFFFFFull;
                     return PROS_NTFS_OK;
                 }
@@ -3342,7 +3348,7 @@ int ntfs_index_root_lookup(const void *record, uint32_t record_size,
             return PROS_NTFS_ECORRUPT;
         offset = next;
     }
-    return PROS_NTFS_ENOTSUP;
+    return PROS_NTFS_ENOTFOUND;
 }
 
 
@@ -5457,7 +5463,13 @@ int ntfs_directory_lookup(const struct pros_ntfs *fs,
         ntfs_active_upcase = 0;
         return PROS_NTFS_OK;
     }
-    if (status != PROS_NTFS_ENOTSUP) {
+    if (status == PROS_NTFS_ENOTSUP) {
+        /* A matching filename with an unsupported namespace must not fall
+         * through to INDEX_ALLOCATION; reject it at the root boundary. */
+        ntfs_active_upcase = 0;
+        return status;
+    }
+    if (status != PROS_NTFS_ENOTFOUND) {
         ntfs_active_upcase = 0;
         return status;
     }
