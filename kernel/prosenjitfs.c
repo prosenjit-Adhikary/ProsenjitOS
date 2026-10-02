@@ -3441,26 +3441,42 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_ENOENT ||
             hidden != 0)
             return -(120000 + __LINE__);
-        if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
-                PROS_VFS_OK ||
-            !hidden ||
-            vfs_vnode_put(hidden) != PROS_VFS_OK ||
-            prosenjitfs_read_inode(&fs, 1u, &after) != PROSENJITFS_OK ||
-            after.type != before.type ||
-            after.mode != before.mode ||
-            after.uid != before.uid ||
-            after.gid != before.gid ||
-            after.links != before.links ||
-            after.generation != before.generation ||
-            after.size != before.size ||
-            after.allocated_bytes != before.allocated_bytes ||
-            after.parent_inode != before.parent_inode ||
-            after.extent_head != before.extent_head ||
-            after.dir_index != before.dir_index ||
-            after.atime != before.atime ||
-            after.mtime != before.mtime ||
-            after.ctime != before.ctime)
-            return -(120000 + __LINE__);
+        if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) != PROS_VFS_OK)
+            return -(130000 + __LINE__);
+        if (!hidden)
+            return -(130000 + __LINE__);
+        if (vfs_vnode_put(hidden) != PROS_VFS_OK)
+            return -(130000 + __LINE__);
+        if (prosenjitfs_read_inode(&fs, 1u, &after) != PROSENJITFS_OK)
+            return -(130000 + __LINE__);
+        if (after.type != before.type)
+            return -(131000 + __LINE__);
+        if (after.mode != before.mode)
+            return -(132000 + __LINE__);
+        if (after.uid != before.uid)
+            return -(133000 + __LINE__);
+        if (after.gid != before.gid)
+            return -(134000 + __LINE__);
+        if (after.links != before.links)
+            return -(135000 + __LINE__);
+        if (after.generation != before.generation)
+            return -(136000 + __LINE__);
+        if (after.size != before.size)
+            return -(137000 + __LINE__);
+        if (after.allocated_bytes != before.allocated_bytes)
+            return -(138000 + __LINE__);
+        if (after.parent_inode != before.parent_inode)
+            return -(139000 + __LINE__);
+        if (after.extent_head != before.extent_head)
+            return -(140000 + __LINE__);
+        if (after.dir_index != before.dir_index)
+            return -(141000 + __LINE__);
+        if (after.atime != before.atime)
+            return -(142000 + __LINE__);
+        if (after.mtime != before.mtime)
+            return -(143000 + __LINE__);
+        if (after.ctime != before.ctime)
+            return -(144000 + __LINE__);
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
