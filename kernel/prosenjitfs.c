@@ -2746,11 +2746,21 @@ static uint32_t pfs_journal_checksum(const uint8_t *header,
 static int pfs_journal_clear(struct pros_prosenjitfs *fs)
 {
     pfs_zero(fs->scratch, fs->sb.block_size);
-    for (uint32_t i = 0; i < fs->sb.journal_blocks; ++i)
+    for (uint32_t i = 0; i < fs->sb.journal_blocks; ++i) {
         if (pfs_write_block(fs->mount.device, fs->sb.journal_start + i,
-                            fs->scratch) != PROSENJITFS_OK)
+                            fs->scratch) != PROSENJITFS_OK) {
+            /* Stage 9 means the commit reached journal-clear; preserve the
+             * exact clear failure instead of leaving the caller with an
+             * ambiguous stage-9 snapshot. */
+            pfs_tx_diag_stage = 90u + i;
             return PROSENJITFS_EIO;
-    return pfs_flush(fs->mount.device);
+        }
+    }
+    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK) {
+        pfs_tx_diag_stage = 200u;
+        return PROSENJITFS_EIO;
+    }
+    return PROSENJITFS_OK;
 }
 
 static int pfs_journal_recover(struct pros_prosenjitfs *fs)
