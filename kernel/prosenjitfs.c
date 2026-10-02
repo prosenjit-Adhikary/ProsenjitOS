@@ -84,12 +84,29 @@ static struct pfs_write_diag pfs_diag;
 static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
 static uint32_t pfs_tx_diag_stage;
+static uint32_t pfs_tx_diag_count;
 
 
 void prosenjitfs_write_diag_reset(void)
 {
     pfs_zero(&pfs_diag, sizeof(pfs_diag));
     pfs_diag.enabled = 1u;
+    pfs_mkdir_diag_stage = 0u;
+    pfs_mkdir_diag_rc = PROSENJITFS_OK;
+    pfs_tx_diag_stage = 0u;
+    pfs_tx_diag_count = 0u;
+}
+
+int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
+                               uint32_t *tx_stage, uint32_t *tx_count)
+{
+    if (!mkdir_stage || !mkdir_rc || !tx_stage || !tx_count)
+        return PROSENJITFS_EINVAL;
+    *mkdir_stage = pfs_mkdir_diag_stage;
+    *mkdir_rc = pfs_mkdir_diag_rc;
+    *tx_stage = pfs_tx_diag_stage;
+    *tx_count = pfs_tx_diag_count;
+    return PROSENJITFS_OK;
 }
 
 void prosenjitfs_write_diag_begin_read(void)
@@ -1261,6 +1278,10 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result)
 {
+    pfs_mkdir_diag_stage = 0u;
+    pfs_mkdir_diag_rc = PROSENJITFS_OK;
+    pfs_tx_diag_stage = 0u;
+    pfs_tx_diag_count = 0u;
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
@@ -1356,8 +1377,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     entry.type = PROSENJITFS_INODE_DIR;
     entry.name_length = (uint16_t)name_length;
     pfs_copy(entry.name, name, name_length);
-    entry.checksum = prosenjitfs_crc32c(&entry, sizeof(entry));
-    /* Recompute using the on-disk checksum convention. */
+    /* Compute using the on-disk checksum convention (checksum field zeroed). */
     entry.checksum = pfs_crc_with_zero32((const uint8_t *)&entry, sizeof(entry),
         (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
     pfs_zero(entry_block, data->fs->sb.block_size);
@@ -2806,10 +2826,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     uint32_t checksum;
 
     pfs_tx_diag_stage = 1u;
+    pfs_tx_diag_count = 0u;
     if (!fs || !fs->scratch || !fs->tx.images ||
         fs->read_only || fs->tx.count == 0u ||
         fs->tx.count + 2u > fs->sb.journal_blocks)
         return PROSENJITFS_EINVAL;
+    pfs_tx_diag_count = fs->tx.count;
 
     header = fs->scratch;
     commit = fs->tx.images + (uint64_t)PROSENJITFS_MAX_TX_BLOCKS *
