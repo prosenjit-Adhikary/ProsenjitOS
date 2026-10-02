@@ -79,6 +79,11 @@ struct pfs_write_diag {
 
 static struct pfs_write_diag pfs_diag;
 
+/* Temporary mkdir regression trace: stage identifies the first failing operation. */
+static uint32_t pfs_mkdir_diag_stage;
+static int pfs_mkdir_diag_rc;
+
+
 void prosenjitfs_write_diag_reset(void)
 {
     pfs_zero(&pfs_diag, sizeof(pfs_diag));
@@ -1287,24 +1292,23 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     if (rc != PROSENJITFS_ENOENT)
         return PROS_VFS_EIO;
     rc = pfs_find_free_inode(data->fs, &inode_number);
-    if (rc != PROSENJITFS_OK)
-        goto mkdir_out;
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 3u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
-    if (rc != PROSENJITFS_OK)
-        goto mkdir_out;
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 4u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
     /*
      * entry_lba and child_dir_lba are committed together. Exclude the first
      * allocation so both logical objects never target the same physical block.
      */
-    if (pfs_find_free_data_block_excluding(data->fs, entry_lba,
-                                           &child_dir_lba) != PROSENJITFS_OK)
-        return PROS_VFS_EOVERFLOW;
+    rc = pfs_find_free_data_block_excluding(data->fs, entry_lba,
+                                           &child_dir_lba);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 5u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     inode_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     child_dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     if (!dir_block || !entry_block || !inode_block || !child_dir_block) {
+        pfs_mkdir_diag_stage = 6u; pfs_mkdir_diag_rc = PROSENJITFS_EIO;
         if (dir_block) kfree(dir_block);
         if (entry_block) kfree(entry_block);
         if (inode_block) kfree(inode_block);
@@ -1369,7 +1373,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                                  &inode_offset) != PROSENJITFS_OK ||
         pfs_read_block(data->fs->mount.device, inode_lba, inode_block) !=
             PROSENJITFS_OK)
-        { rc = PROS_VFS_EIO; goto mkdir_out; }
+        { rc = PROSENJITFS_EIO; pfs_mkdir_diag_stage = 7u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
     pfs_copy(inode_block + inode_offset, &child_inode, sizeof(child_inode));
     pfs_put32(inode_block + inode_offset +
               offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -1380,15 +1384,24 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
 
     rc = pfs_tx_reset(data->fs);
     if (rc == PROSENJITFS_OK) rc = pfs_inode_bitmap_stage(data->fs, inode_number, 1u);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 8u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_allocator_stage(data->fs, entry_lba, 1u, 1u);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 9u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_allocator_stage(data->fs, child_dir_lba, 1u, 1u);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 10u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_tx_add(data->fs, inode_lba, inode_block);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 11u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 12u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_tx_add(data->fs, entry_lba, entry_block);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 13u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_tx_add(data->fs, child_dir_lba, child_dir_block);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 14u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK) rc = pfs_tx_commit(data->fs);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 15u; pfs_mkdir_diag_rc = rc; }
     if (rc == PROSENJITFS_OK)
         rc = pfs_make_vnode(data->fs, inode_number, parent, result);
+    if (rc != PROSENJITFS_OK && pfs_mkdir_diag_stage == 0u) { pfs_mkdir_diag_stage = 16u; pfs_mkdir_diag_rc = rc; }
     if (rc != PROSENJITFS_OK && data->fs->tx.count != 0u)
         pfs_tx_reset(data->fs);
 
@@ -3623,8 +3636,11 @@ int prosenjitfs_selftest(void)
     {
         int mkdir_rc;
         mkdir_rc = vfs_mkdir(&fs.mount, "/dir1");
-        if (mkdir_rc != PROS_VFS_OK)
-            return -(123000 + (uint32_t)(-mkdir_rc));
+        if (mkdir_rc != PROS_VFS_OK) {
+            /* Encode the PFS mkdir stage/raw rc into the self-test result. */
+            uint32_t raw = pfs_mkdir_diag_rc < 0 ? (uint32_t)(-pfs_mkdir_diag_rc) : 0u;
+            return -(123000 + pfs_mkdir_diag_stage * 100u + raw);
+        }
         mkdir_rc = vfs_mkdir(&fs.mount, "/dir2");
         if (mkdir_rc != PROS_VFS_OK)
             return -(124000 + (uint32_t)(-mkdir_rc));
