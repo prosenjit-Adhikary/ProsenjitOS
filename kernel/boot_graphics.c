@@ -21,7 +21,13 @@ struct multiboot_tag_framebuffer {
     uint8_t framebuffer_bpp;
     uint8_t framebuffer_type;
     uint16_t reserved;
-};
+    uint8_t framebuffer_red_field_position;
+    uint8_t framebuffer_red_mask_size;
+    uint8_t framebuffer_green_field_position;
+    uint8_t framebuffer_green_mask_size;
+    uint8_t framebuffer_blue_field_position;
+    uint8_t framebuffer_blue_mask_size;
+} __attribute__((packed));
 
 static int validate_boot_range(const struct multiboot_tag_framebuffer *tag)
 {
@@ -37,6 +43,15 @@ static int validate_boot_range(const struct multiboot_tag_framebuffer *tag)
         return PROS_DRIVER_EINVAL;
     if (tag->framebuffer_type != MULTIBOOT2_FRAMEBUFFER_RGB)
         return PROS_DRIVER_ENOTSUP;
+    if (tag->framebuffer_bpp == 0u || tag->framebuffer_bpp > 64u)
+        return PROS_DRIVER_EINVAL;
+    if (tag->framebuffer_red_mask_size == 0u ||
+        tag->framebuffer_green_mask_size == 0u ||
+        tag->framebuffer_blue_mask_size == 0u ||
+        (uint16_t)tag->framebuffer_red_field_position + tag->framebuffer_red_mask_size > tag->framebuffer_bpp ||
+        (uint16_t)tag->framebuffer_green_field_position + tag->framebuffer_green_mask_size > tag->framebuffer_bpp ||
+        (uint16_t)tag->framebuffer_blue_field_position + tag->framebuffer_blue_mask_size > tag->framebuffer_bpp)
+        return PROS_DRIVER_EINVAL;
 
     bytes = (uint64_t)tag->framebuffer_pitch * tag->framebuffer_height;
     if (bytes == 0 || bytes > PROS_GRAPHICS_PHYS_LIMIT ||
@@ -107,6 +122,12 @@ int pros_boot_graphics_selftest(void)
     fb->framebuffer_height = 1u;
     fb->framebuffer_bpp = 32u;
     fb->framebuffer_type = MULTIBOOT2_FRAMEBUFFER_RGB;
+    fb->framebuffer_red_field_position = 16u;
+    fb->framebuffer_red_mask_size = 8u;
+    fb->framebuffer_green_field_position = 8u;
+    fb->framebuffer_green_mask_size = 8u;
+    fb->framebuffer_blue_field_position = 0u;
+    fb->framebuffer_blue_mask_size = 8u;
 
     *(uint32_t *)(void *)(buffer + 8u + sizeof(*fb)) = MULTIBOOT2_TAG_END;
     *(uint32_t *)(void *)(buffer + 12u + sizeof(*fb)) = 8u;
