@@ -79,3 +79,12 @@ This is now a source-level root-cause fix, not a stale-build or error-code misma
 ## Next action
 
 Focus only on the `prosenjitfs_selftest()` `-12` range-check path. Do not repeat the already-fixed storage geometry, stack-overflow, CPL3, or declaration investigations. Resolve the actual runtime mismatch, rebuild, rerun QEMU, and continue until the ProsenjitFS self-test and subsequent self-tests succeed. Keep this log updated at each completed milestone and sync completed source changes to GitHub.
+
+
+## Synchronization update — 2026-10-03 14:05 IST
+
+GitHub main now contains the actual ProsenjitFS `-12` root-cause fix in `f6c64ce` (`fs: preserve LBA result on rejected range`) and the analysis was verified against the self-test contract.
+
+The local checkout has four modified files and is still based on `ea22517`; the attempted `git pull --ff-only origin main` was safely aborted because local `kernel/prosenjitfs.c` would be overwritten. Current local modifications are `kernel/kernel.c`, `kernel/prosenjitfs.c`, `kernel/storage.c`, and `kernel/vfs.c`. No local work was lost.
+
+Do not force-reset or discard these files. Reconcile the local changes with GitHub `main` first, then perform a clean build and QEMU runtime test. The post-fix runtime has not yet been verified, so ProsenjitFS must not yet be marked PASS.
