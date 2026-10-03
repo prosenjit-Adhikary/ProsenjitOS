@@ -1078,7 +1078,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 return pfs_file_write_error(done, PROSENJITFS_ECORRUPT);
             rc = pfs_read_block(data->fs->mount.device, physical, data_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, PROSENJITFS_EIO);
+                return pfs_file_write_error(done, rc);
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
@@ -2062,9 +2062,12 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     }
     inode_offset = (uint32_t)(inode_byte_offset %
                               parent_data->fs->sb.block_size);
-    if (pfs_read_block(parent_data->fs->mount.device, inode_lba,
-                       inode_block) != PROSENJITFS_OK)
-        { rc = PROSENJITFS_EIO; goto out; }
+    {
+        int io_rc = pfs_read_block(parent_data->fs->mount.device, inode_lba,
+                                   inode_block);
+        if (io_rc != PROSENJITFS_OK)
+            { rc = io_rc; goto out; }
+    }
 
     rc = pfs_tx_reset(parent_data->fs);
     if (rc != PROSENJITFS_OK)
@@ -2089,9 +2092,12 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         rc = pfs_tx_add(parent_data->fs, parent_inode.dir_index, dir_block);
         if (rc != PROSENJITFS_OK) goto out_reset;
     } else {
-        if (pfs_read_block(parent_data->fs->mount.device, previous,
-                           prev_block) != PROSENJITFS_OK)
-            { rc = PROSENJITFS_EIO; goto out_reset; }
+        {
+            int io_rc = pfs_read_block(parent_data->fs->mount.device, previous,
+                                       prev_block);
+            if (io_rc != PROSENJITFS_OK)
+                { rc = io_rc; goto out_reset; }
+        }
         {
             struct pros_prosenjitfs_dir_entry prev;
             pfs_copy(&prev, prev_block, sizeof(prev));
@@ -3217,11 +3223,12 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     if (expected != c.checksum)
         return PROSENJITFS_ECORRUPT;
 
-    for (uint32_t i = 0; i < h.record_count; ++i)
-        if (pfs_write_block(fs->mount.device, h.targets[i],
-                            images + (uint64_t)i * fs->sb.block_size) !=
-            PROSENJITFS_OK)
-            return PROSENJITFS_EIO;
+    for (uint32_t i = 0; i < h.record_count; ++i) {
+        int rc = pfs_write_block(fs->mount.device, h.targets[i],
+                                 images + (uint64_t)i * fs->sb.block_size);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     {
         int rc = pfs_flush(fs->mount.device);
         if (rc != PROSENJITFS_OK)
