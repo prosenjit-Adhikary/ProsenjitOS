@@ -801,7 +801,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         PROSENJITFS_OK)
         return PROS_VFS_EIO;
 
-    while (done < length && offset + done < inode.size) {
+    while (done < length && (uint64_t)offset + done < inode.size) {
         uint64_t position = (uint64_t)offset + done;
         uint64_t logical_block = position / data->fs->sb.block_size;
         uint32_t in_block = (uint32_t)(position % data->fs->sb.block_size);
@@ -830,8 +830,12 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
 
         {
             uint64_t delta = logical_block - extent.logical_block;
-            uint64_t physical = extent.physical_block + delta;
-            if (physical >= data->fs->sb.total_blocks ||
+            uint64_t physical;
+            if (pfs_lba_add(data->fs->mount.device, extent.physical_block,
+                            delta, &physical) != PROSENJITFS_OK)
+                return done ? (int)done : PROS_VFS_EOVERFLOW;
+            if (physical < data->fs->sb.data_start ||
+                physical >= data->fs->sb.total_blocks ||
                 pfs_read_block(data->fs->mount.device, physical, block) !=
                     PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
