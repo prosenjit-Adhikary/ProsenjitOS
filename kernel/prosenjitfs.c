@@ -1,3 +1,4 @@
+/* CI verification: Native ProsenjitFS hardened-tree regression run. */
 /* Native ProsenjitFS: all on-disk address arithmetic must remain checked. */
 #include "prosenjitfs.h"
 #include "heap.h"
