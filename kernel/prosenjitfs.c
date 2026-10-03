@@ -1919,9 +1919,11 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         (name_length == 1u && name[0] == '.') ||
         (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
-    if (prosenjitfs_read_inode(parent_data->fs, parent_data->inode_number,
-                               &parent_inode) != PROSENJITFS_OK ||
-        parent_inode.type != PROSENJITFS_INODE_DIR)
+    rc = prosenjitfs_read_inode(parent_data->fs, parent_data->inode_number,
+                                 &parent_inode);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    if (parent_inode.type != PROSENJITFS_INODE_DIR)
         return PROS_VFS_ENOTDIR;
     { int dir_read_rc = pfs_read_dir_index(parent_data->fs, &parent_inode, &dir_index);
         if (dir_read_rc != PROSENJITFS_OK)
@@ -3514,11 +3516,13 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
             return PROSENJITFS_ECORRUPT;
         {
             uint64_t bitmap_lba;
-            if (pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                            bi, &bitmap_lba) != PROSENJITFS_OK ||
-                pfs_read_block(fs->mount.device, bitmap_lba, block) !=
-                    PROSENJITFS_OK)
-                return PROSENJITFS_EIO;
+            int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
+                                 bi, &bitmap_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            rc = pfs_read_block(fs->mount.device, bitmap_lba, block);
+            if (rc != PROSENJITFS_OK)
+                return rc;
         }
         if (!pfs_bitmap_bit(block, within)) {
             *inode_number = inode;
@@ -3586,18 +3590,26 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
     offset = (uint32_t)(byte_offset % fs->sb.block_size);
     if ((uint64_t)offset + sizeof(*inode) > fs->sb.block_size)
         return PROSENJITFS_ECORRUPT;
-    if (pfs_read_block(fs->mount.device, block_lba, block) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(fs->mount.device, block_lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     pfs_copy(block + offset, inode, sizeof(*inode));
     pfs_put32(block + offset +
               offsetof(struct pros_prosenjitfs_inode, checksum),
               pfs_crc_with_zero32(block + offset, sizeof(*inode),
                                  (uint32_t)offsetof(
                                      struct pros_prosenjitfs_inode, checksum)));
-    if (pfs_tx_reset(fs) != PROSENJITFS_OK ||
-        pfs_tx_add(fs, block_lba, block) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
-    return pfs_tx_commit(fs);
+    {
+        int rc = pfs_tx_reset(fs);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        rc = pfs_tx_add(fs, block_lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        return pfs_tx_commit(fs);
+    }
 }
 
 int prosenjitfs_mount(struct pros_prosenjitfs *fs,
