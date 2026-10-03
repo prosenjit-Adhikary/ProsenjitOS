@@ -3696,10 +3696,12 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    if (pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
-                    byte_offset / fs->sb.block_size, &block_lba) !=
-        PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
+    {
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
+                             byte_offset / fs->sb.block_size, &block_lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     offset = (uint32_t)(byte_offset % fs->sb.block_size);
     if ((uint64_t)offset + sizeof(*inode) > fs->sb.block_size)
         return PROSENJITFS_ECORRUPT;
