@@ -35,9 +35,12 @@ void pros_fs_transport_init(struct pros_fs_transport *transport,
     if (!transport) return;
     object_init(&transport->object, PROS_OBJECT_DEVICE);
     transport->device = device;
+    /* Device references must never wrap into an earlier live reference. */
+    if (next_device_ref == 0u || next_device_ref == UINT64_MAX) {
+        transport->device_ref = 0u;
+        return;
+    }
     transport->device_ref = next_device_ref++;
-    if (transport->device_ref == 0u)
-        transport->device_ref = next_device_ref++;
     for (uint32_t i = 0u; i < PROS_FS_TRANSPORT_MAX_BUFFERS; ++i) {
         transport->buffers[i].length = 0u;
         transport->buffers[i].flags = 0u;
@@ -130,9 +133,11 @@ int pros_fs_transport_buffer_write(struct pros_fs_transport *transport,
                                    uint64_t ref, uint32_t offset,
                                    const void *src, uint32_t length)
 {
-    if (!src || pros_fs_transport_buffer_bounds(transport, ref, offset, length) !=
-                    PROS_FS_TRANSPORT_OK)
+    if (!src)
         return PROS_FS_TRANSPORT_EINVAL;
+    int bounds_rc = pros_fs_transport_buffer_bounds(transport, ref, offset, length);
+    if (bounds_rc != PROS_FS_TRANSPORT_OK)
+        return bounds_rc;
     uint32_t slot = ref_slot(ref);
     struct pros_fs_transport_buffer *buffer = &transport->buffers[slot];
     if ((buffer->flags & PROS_FS_TRANSPORT_BUFFER_WRITE) == 0u)
@@ -147,9 +152,11 @@ int pros_fs_transport_buffer_read(const struct pros_fs_transport *transport,
                                   uint64_t ref, uint32_t offset,
                                   void *dst, uint32_t length)
 {
-    if (!dst || pros_fs_transport_buffer_bounds(transport, ref, offset, length) !=
-                    PROS_FS_TRANSPORT_OK)
+    if (!dst)
         return PROS_FS_TRANSPORT_EINVAL;
+    int bounds_rc = pros_fs_transport_buffer_bounds(transport, ref, offset, length);
+    if (bounds_rc != PROS_FS_TRANSPORT_OK)
+        return bounds_rc;
     uint32_t slot = ref_slot(ref);
     const struct pros_fs_transport_buffer *buffer = &transport->buffers[slot];
     if ((buffer->flags & PROS_FS_TRANSPORT_BUFFER_READ) == 0u)
