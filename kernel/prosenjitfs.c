@@ -3879,6 +3879,21 @@ int prosenjitfs_selftest(void)
         return -1;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return -2;
+    {
+        struct pros_block_device range_device = device;
+        uint64_t lba = 0u;
+        range_device.sector_count = 16u;
+        if (pfs_lba_add(&range_device, 8u, 8u, &lba) !=
+                PROSENJITFS_EINVAL ||
+            lba != 0u)
+            return -12;
+        range_device.sector_count = UINT64_MAX;
+        if (pfs_lba_add(&range_device, UINT64_MAX - 2u, 3u, &lba) !=
+                PROSENJITFS_EOVERFLOW ||
+            pfs_lba_add(&range_device, UINT64_MAX - 2u, 2u, &lba) !=
+                PROSENJITFS_EINVAL)
+            return -13;
+    }
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return -3;
