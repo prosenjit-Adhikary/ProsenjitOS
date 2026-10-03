@@ -2521,12 +2521,15 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EIO;
     }
 
-    if (pfs_read_block(data->fs->mount.device, parent_inode.dir_index, dir_block) !=
-        PROSENJITFS_OK ||
-        pfs_read_block(data->fs->mount.device, entry_lba, entry_block) !=
-        PROSENJITFS_OK) {
+    rc = pfs_read_block(data->fs->mount.device, parent_inode.dir_index, dir_block);
+    if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
-        return PROS_VFS_EIO;
+        return pfs_vfs_error(rc);
+    }
+    rc = pfs_read_block(data->fs->mount.device, entry_lba, entry_block);
+    if (rc != PROSENJITFS_OK) {
+        kfree(dir_block); kfree(entry_block); kfree(inode_block);
+        return pfs_vfs_error(rc);
     }
     pfs_zero(entry_block, data->fs->sb.block_size);
     pfs_zero(&dir_entry, sizeof(dir_entry));
