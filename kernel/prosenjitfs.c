@@ -4178,6 +4178,35 @@ int prosenjitfs_selftest(void)
             if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
                 return -(120000 + __LINE__);
 
+        /* A forged journal target must never be replayed into the
+         * journal region itself. The header/commit are otherwise valid so
+         * this specifically exercises the replay-target guard. */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(commit, sizeof(commit));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0x0102030405060708ULL;
+        h.targets[0] = journal_start;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
+        jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit);
+        pfs_copy(commit, &jc, sizeof(jc));
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -(120000 + __LINE__);
+
         /* Corrupt commit checksum must fail closed. */
         pfs_zero(header, sizeof(header));
         pfs_zero(commit, sizeof(commit));
