@@ -10,8 +10,20 @@ static int provider_valid(const struct pros_fs_provider *provider)
     if (provider->descriptor.abi_version != PROS_FS_PROVIDER_ABI_VERSION ||
         provider->descriptor.descriptor_size !=
             sizeof(struct pros_fs_provider_descriptor) ||
-        provider->descriptor.provider_type == PROS_FS_PROVIDER_UNKNOWN)
+        provider->descriptor.provider_type < PROS_FS_PROVIDER_FAT32 ||
+        provider->descriptor.provider_type > PROS_FS_PROVIDER_NTFS)
         return 0;
+
+    int terminated = 0;
+    for (uint32_t i = 0u; i < PROS_FS_PROVIDER_NAME_MAX; ++i) {
+        if (provider->descriptor.name[i] == '\0') {
+            terminated = 1;
+            break;
+        }
+    }
+    if (!terminated)
+        return 0;
+
     return 1;
 }
 
@@ -93,7 +105,12 @@ static int provider_request(const struct pros_fs_provider *provider,
                                      &request, &response) != 0)
         return PROS_FS_PROVIDER_EIO;
 
-    if (response.request_id != request.request_id)
+    if (response.size != sizeof(response) ||
+        response.request_id != request.request_id)
+        return PROS_FS_PROVIDER_EIO;
+
+    if (response.status < PROS_FS_PROVIDER_OK &&
+        response.status > PROS_FS_PROVIDER_EBUSY)
         return PROS_FS_PROVIDER_EIO;
 
     if (value0)
