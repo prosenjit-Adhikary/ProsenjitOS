@@ -2993,7 +2993,17 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         return PROSENJITFS_ECORRUPT;
 
     for (uint32_t i = 0; i < h.record_count; ++i) {
-        if (h.targets[i] >= fs->sb.total_blocks)
+        uint64_t journal_end;
+        if (h.targets[i] < 2u || h.targets[i] >= fs->sb.total_blocks)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+                           &journal_end) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        /* Journal records are never valid transaction targets. Reject a
+         * corrupted target before replay so recovery cannot overwrite the
+         * journal itself and create an unrecoverable replay loop. */
+        if (h.targets[i] >= fs->sb.journal_start &&
+            h.targets[i] < journal_end)
             return PROSENJITFS_ECORRUPT;
         if (pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
                           1u + i, images + (uint64_t)i * fs->sb.block_size) !=
@@ -3510,10 +3520,15 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
     }
-    if (pfs_journal_recover(fs) != PROSENJITFS_OK) {
-        vfs_mount_deactivate(&fs->mount);
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_ECORRUPT;
+    {
+        int rc = pfs_journal_recover(fs);
+        if (rc != PROSENJITFS_OK) {
+            vfs_mount_deactivate(&fs->mount);
+            kfree(fs->tx.images); kfree(fs->scratch);
+            fs->tx.images = 0;
+            fs->scratch = 0;
+            return rc;
+        }
     }
     struct pros_vfs_vnode *root_vnode = 0;
     if (pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode) != PROS_VFS_OK ||
