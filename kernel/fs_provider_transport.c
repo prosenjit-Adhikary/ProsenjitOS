@@ -204,21 +204,94 @@ int pros_fs_transport_write(struct pros_fs_transport *transport,
            PROS_BLOCK_OK ? PROS_FS_TRANSPORT_OK : PROS_FS_TRANSPORT_EIO;
 }
 
+struct transport_test_disk {
+    uint8_t sectors[2u * 512u];
+};
+
+static int transport_test_read(struct pros_block_device *device,
+                               uint64_t lba, uint32_t count, void *buffer)
+{
+    struct transport_test_disk *disk = device ?
+        (struct transport_test_disk *)device->private_data : 0;
+    if (!disk || !buffer || lba >= 2u || count == 0u || count > 2u - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t i = 0u; i < count * 512u; ++i)
+        ((uint8_t *)buffer)[i] = disk->sectors[lba * 512u + i];
+    return PROS_BLOCK_OK;
+}
+
+static int transport_test_write(struct pros_block_device *device,
+                                uint64_t lba, uint32_t count,
+                                const void *buffer)
+{
+    struct transport_test_disk *disk = device ?
+        (struct transport_test_disk *)device->private_data : 0;
+    if (!disk || !buffer || lba >= 2u || count == 0u || count > 2u - lba)
+        return PROS_BLOCK_EINVAL;
+    for (uint32_t i = 0u; i < count * 512u; ++i)
+        disk->sectors[lba * 512u + i] = ((const uint8_t *)buffer)[i];
+    return PROS_BLOCK_OK;
+}
+
 int pros_fs_transport_selftest(void)
 {
+    struct transport_test_disk disk = {0};
+    struct pros_block_device device;
     struct pros_fs_transport transport;
-    struct pros_block_device device = {0};
+    uint8_t src[16];
+    uint8_t dst[16] = {0};
     uint64_t ref;
-    uint8_t src[4] = { 1u, 2u, 3u, 4u };
-    uint8_t dst[4] = { 0u };
+
+    for (uint32_t i = 0u; i < sizeof(src); ++i)
+        src[i] = (uint8_t)(0xA0u + i);
+
+    if (block_device_init(&device, 512u, 2u, transport_test_read,
+                          transport_test_write, &disk) != PROS_BLOCK_OK)
+        return -1;
 
     pros_fs_transport_init(&transport, &device);
-    if (pros_fs_transport_valid(&transport) != 0) return -1;
+    if (!pros_fs_transport_valid(&transport) ||
+        pros_fs_transport_device_ref(&transport) == 0u ||
+        pros_fs_transport_check_device_ref(
+            &transport, pros_fs_transport_device_ref(&transport)) !=
+            PROS_FS_TRANSPORT_OK)
+        return -2;
 
-    ref = pros_fs_transport_buffer_alloc(&transport,
-                                         PROS_FS_TRANSPORT_BUFFER_READ |
-                                         PROS_FS_TRANSPORT_BUFFER_WRITE);
-    if (ref != 0u) return -2;
+    ref = pros_fs_transport_buffer_alloc(
+        &transport, PROS_FS_TRANSPORT_BUFFER_READ |
+                    PROS_FS_TRANSPORT_BUFFER_WRITE);
+    if (ref == 0u ||
+        pros_fs_transport_buffer_write(&transport, ref, 0u, src,
+                                       sizeof(src)) != PROS_FS_TRANSPORT_OK)
+        return -3;
+
+    if (pros_fs_transport_write(&transport, ref, 0u, 1u) !=
+            PROS_FS_TRANSPORT_OK)
+        return -4;
+
+    disk.sectors[0] = 0u;
+    if (pros_fs_transport_read(&transport, ref, 0u, 1u) !=
+            PROS_FS_TRANSPORT_OK ||
+        pros_fs_transport_buffer_read(&transport, ref, 0u, dst,
+                                      sizeof(dst)) != PROS_FS_TRANSPORT_OK)
+        return -5;
+
+    for (uint32_t i = 0u; i < sizeof(dst); ++i)
+        if (dst[i] != src[i]) return -6;
+
+    if (pros_fs_transport_buffer_bounds(&transport, ref,
+                                        PROS_FS_TRANSPORT_BUFFER_SIZE - 1u,
+                                        2u) != PROS_FS_TRANSPORT_EOVERFLOW ||
+        pros_fs_transport_check_device_ref(&transport,
+                                           pros_fs_transport_device_ref(&transport) + 1u) !=
+            PROS_FS_TRANSPORT_EPERM)
+        return -7;
+
+    if (pros_fs_transport_buffer_release(&transport, ref) !=
+            PROS_FS_TRANSPORT_OK ||
+        pros_fs_transport_buffer_read(&transport, ref, 0u, dst,
+                                      sizeof(dst)) != PROS_FS_TRANSPORT_EINVAL)
+        return -8;
 
     return PROS_FS_TRANSPORT_OK;
 }
