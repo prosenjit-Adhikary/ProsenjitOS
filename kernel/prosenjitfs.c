@@ -1621,11 +1621,15 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                                       struct pros_prosenjitfs_dir_index,
                                       checksum)));
 
-    if (pfs_inode_block_location(data->fs, inode_number, &inode_lba,
-                                 &inode_offset) != PROSENJITFS_OK ||
-        pfs_read_block(data->fs->mount.device, inode_lba, inode_block) !=
-            PROSENJITFS_OK)
-        { rc = PROSENJITFS_EIO; pfs_mkdir_diag_stage = 7u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
+    rc = pfs_inode_block_location(data->fs, inode_number, &inode_lba,
+                                   &inode_offset);
+    if (rc != PROSENJITFS_OK) {
+        pfs_mkdir_diag_stage = 7u; pfs_mkdir_diag_rc = rc; goto mkdir_out;
+    }
+    rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
+    if (rc != PROSENJITFS_OK) {
+        pfs_mkdir_diag_stage = 7u; pfs_mkdir_diag_rc = rc; goto mkdir_out;
+    }
     pfs_copy(inode_block + inode_offset, &child_inode, sizeof(child_inode));
     pfs_put32(inode_block + inode_offset +
               offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -2516,19 +2520,11 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         if (dir_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(dir_read_rc); }
     rc = pfs_find_free_inode(data->fs, &inode_number);
-    if (rc != PROSENJITFS_OK) {
-        if (rc == PROSENJITFS_ENOSPC) return PROS_VFS_ENOSPC;
-        if (rc == PROSENJITFS_EOVERFLOW) return PROS_VFS_EOVERFLOW;
-        if (rc == PROSENJITFS_EINVAL) return PROS_VFS_EINVAL;
-        return PROS_VFS_EIO;
-    }
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
-    if (rc != PROSENJITFS_OK) {
-        if (rc == PROSENJITFS_ENOSPC) return PROS_VFS_ENOSPC;
-        if (rc == PROSENJITFS_EOVERFLOW) return PROS_VFS_EOVERFLOW;
-        if (rc == PROSENJITFS_EINVAL) return PROS_VFS_EINVAL;
-        return PROS_VFS_EIO;
-    }
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
