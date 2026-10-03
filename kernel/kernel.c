@@ -1349,6 +1349,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write(", framebuffer = ");
         serial_hex64((uint64_t)display_mode.framebuffer);
         serial_write("\\n");
+
+        if (display_mode.framebuffer_size < 4u) {
+            serial_write("ProsenjitOS: ERROR display framebuffer is too small for 32-bit probe\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        {
+            volatile uint32_t *pixel =
+                (volatile uint32_t *)(uintptr_t)display_mode.framebuffer;
+            uint32_t before = *pixel;
+            uint32_t probe = before ^ 0x00010101u;
+            *pixel = probe;
+            if (*pixel != probe) {
+                serial_write("ProsenjitOS: ERROR display framebuffer write/readback failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            *pixel = before;
+        }
+        serial_write("ProsenjitOS: display framebuffer mapping/write probe passed\\n");
     } else {
         serial_write("ProsenjitOS: native boot has no framebuffer provider; display binding unavailable\\n");
     }
