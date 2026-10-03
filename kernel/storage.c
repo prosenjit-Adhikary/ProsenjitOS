@@ -55,7 +55,6 @@ int pros_storage_discover(struct pros_block_device *device,
         struct pros_partition_device view;
         enum pros_filesystem_type filesystem;
 
-
         rc = partition_device_init(&view, device, &partitions[i]);
         if (rc != PROS_PARTITION_OK)
             return rc == PROS_PARTITION_EIO ? PROS_STORAGE_EIO :
@@ -85,8 +84,10 @@ int pros_storage_discover(struct pros_block_device *device,
     return PROS_STORAGE_OK;
 }
 
+#define STORAGE_TEST_SECTORS 257u
+
 struct storage_test_disk {
-    uint8_t sectors[3u * 512u];
+    uint8_t sectors[STORAGE_TEST_SECTORS * 512u];
 };
 
 static int storage_test_read(struct pros_block_device *device,
@@ -95,7 +96,8 @@ static int storage_test_read(struct pros_block_device *device,
     struct storage_test_disk *disk =
         (struct storage_test_disk *)device->private_data;
 
-    if (!disk || !buffer || lba > 3u || count > 3u - lba)
+    if (!disk || !buffer || lba >= STORAGE_TEST_SECTORS ||
+        count > STORAGE_TEST_SECTORS - lba)
         return PROS_BLOCK_EINVAL;
 
     for (uint32_t i = 0u; i < count * 512u; ++i)
@@ -118,16 +120,27 @@ int pros_storage_selftest(void)
     disk.sectors[511] = 0xAAu;
     disk.sectors[446 + 4] = 0x0Bu;
     disk.sectors[446 + 8] = 1u;
-    disk.sectors[446 + 12] = 2u;
+    disk.sectors[446 + 12] = 0u;
+    disk.sectors[446 + 16] = 0xFFu;
+    disk.sectors[446 + 20] = 0u;
+    disk.sectors[446 + 12] = 0u;
+    disk.sectors[446 + 16] = 0x00u;
+    disk.sectors[446 + 20] = 0u;
 
-    if (block_device_init(&device, 512u, 3u, storage_test_read, 0, &disk) !=
-            PROS_BLOCK_OK)
+    /* One partition: start LBA 1, length 256 sectors. */
+    disk.sectors[446 + 8] = 1u;
+    disk.sectors[446 + 12] = 0u;
+    disk.sectors[446 + 16] = 0u;
+    disk.sectors[446 + 20] = 0u;
+
+    if (block_device_init(&device, 512u, STORAGE_TEST_SECTORS,
+                           storage_test_read, 0, &disk) != PROS_BLOCK_OK)
         return -1;
 
     /*
      * Compatibility filesystem probes are intentionally absent from the
-     * kernel. A disk containing a legacy filesystem signature must therefore
-     * produce no supported storage volume here.
+     * kernel. A partition with enough sectors but no ProsenjitFS superblock
+     * must therefore produce no supported storage volume.
      */
     if (pros_storage_discover(&device, volumes, 2u, &count) !=
             PROS_STORAGE_OK || count != 0u)
