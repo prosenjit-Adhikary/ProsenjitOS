@@ -84,3 +84,12 @@ Until the runtime layer exists, the honest status is:
 - NTFS: external-provider target; runtime unavailable
 - Generic provider wire ABI: implemented
 - Runtime VFS/provider adapter: blocked by process/service/device-capability infrastructure
+
+
+## Kernel-side integration now present
+
+The kernel contains a bounded provider registry and a transport adapter in `kernel/fs_provider.c`. The VFS calls deterministic provider discovery through this registry, and storage discovery can retain the selected provider identity. These components contain no FAT32, exFAT, or NTFS parser logic.
+
+The transport context is responsible for supplying a capability-scoped device reference. A raw `struct pros_block_device *` is never serialized into the external ABI. This prevents a future user-space provider from receiving an arbitrary kernel pointer.
+
+The registry self-test verifies registration, duplicate/provider lookup behavior, request/response correlation, mount identity validation, unsupported-provider handling, and unregister behavior. It is an adapter test only; it is not evidence that a real FAT32/exFAT/NTFS provider is executable.
