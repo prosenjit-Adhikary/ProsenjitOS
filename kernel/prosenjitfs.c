@@ -534,10 +534,14 @@ int prosenjitfs_format(struct pros_block_device *device)
                                           checksum));
     pfs_copy(block, &sb, sizeof(sb));
 
-    if (pfs_write_block(device, 0u, block) != PROSENJITFS_OK ||
-        pfs_write_block(device, 1u, block) != PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(device, 0u, block);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_write_block(device, 1u, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
     }
 
     pfs_zero(block, block_size);
