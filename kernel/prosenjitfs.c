@@ -499,11 +499,14 @@ int prosenjitfs_format(struct pros_block_device *device)
     }
 
     pfs_zero(block, block_size);
-    for (uint32_t i = 0; i < journal_blocks; ++i)
-        if (pfs_write_block(device, sb.journal_start + i, block) != PROSENJITFS_OK) {
+    for (uint32_t i = 0; i < journal_blocks; ++i) {
+        uint64_t lba;
+        if (pfs_lba_add(device, sb.journal_start, i, &lba) != PROSENJITFS_OK ||
+            pfs_write_block(device, lba, block) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EIO;
         }
+    }
 
     for (uint32_t i = 0; i < bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
@@ -512,10 +515,14 @@ int prosenjitfs_format(struct pros_block_device *device)
             kfree(block);
             return PROSENJITFS_EOVERFLOW;
         }
-        if (pfs_write_block(device, sb.block_bitmap_start + i, block) != PROSENJITFS_OK) {
+        {
+            uint64_t lba;
+            if (pfs_lba_add(device, sb.block_bitmap_start, i, &lba) != PROSENJITFS_OK ||
+                pfs_write_block(device, lba, block) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EIO;
         }
+        } 
     }
 
     pfs_zero(block, block_size);
@@ -526,9 +533,13 @@ int prosenjitfs_format(struct pros_block_device *device)
     }
     for (uint32_t i = 1u; i < inode_bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
-        if (pfs_write_block(device, sb.inode_bitmap_start + i, block) != PROSENJITFS_OK) {
+        {
+            uint64_t lba;
+            if (pfs_lba_add(device, sb.inode_bitmap_start, i, &lba) != PROSENJITFS_OK ||
+                pfs_write_block(device, lba, block) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EIO;
+        }
         }
     }
 
