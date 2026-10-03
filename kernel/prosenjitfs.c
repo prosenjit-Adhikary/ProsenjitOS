@@ -254,6 +254,16 @@ static int pfs_write_at_offset(struct pros_block_device *device,
         return PROSENJITFS_EOVERFLOW;
     return pfs_write_block(device, lba, buffer);
 }
+static int pfs_read_at_offset(struct pros_block_device *device,
+                               uint64_t base, uint64_t offset,
+                               void *buffer)
+{
+    uint64_t lba;
+    if (pfs_lba_add(device, base, offset, &lba) != PROSENJITFS_OK)
+        return PROSENJITFS_EOVERFLOW;
+    return pfs_read_block(device, lba, buffer);
+}
+
 
 
 static int pfs_superblock_decode(const uint8_t *block,
@@ -2955,15 +2965,13 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     for (uint32_t i = 0; i < h.record_count; ++i) {
         if (h.targets[i] >= fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_block(fs->mount.device,
-                           ({ uint64_t _lba; pfs_lba_add(fs->mount.device, fs->sb.journal_start, 1u + i, &_lba) == PROSENJITFS_OK ? _lba : UINT64_MAX; }),
-                           images + (uint64_t)i * fs->sb.block_size) !=
+        if (pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
+                          1u + i, images + (uint64_t)i * fs->sb.block_size) !=
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
     }
-    if (pfs_read_block(fs->mount.device,
-                       ({ uint64_t _lba; pfs_lba_add(fs->mount.device, fs->sb.journal_start, 1u + h.record_count, &_lba) == PROSENJITFS_OK ? _lba : UINT64_MAX; }),
-                       commit) != PROSENJITFS_OK)
+    if (pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
+                       1u + h.record_count, commit) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     pfs_copy(&c, commit, sizeof(c));
     if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
