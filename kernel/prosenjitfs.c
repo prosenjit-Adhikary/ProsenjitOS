@@ -1915,8 +1915,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
                                &parent_inode) != PROSENJITFS_OK ||
         parent_inode.type != PROSENJITFS_INODE_DIR)
         return PROS_VFS_ENOTDIR;
-    { int dir_read_rc = pfs_read_dir_index(parent_data->fs, &parent_inode, &dir_index) !=
-        PROSENJITFS_OK;
+    { int dir_read_rc = pfs_read_dir_index(parent_data->fs, &parent_inode, &dir_index);
         if (dir_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(dir_read_rc); }
 
@@ -2168,8 +2167,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                &parent_inode) != PROSENJITFS_OK ||
         parent_inode.type != PROSENJITFS_INODE_DIR)
         return PROS_VFS_ENOTDIR;
-    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
-        PROSENJITFS_OK;
+    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
         if (dir_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(dir_read_rc); }
 
