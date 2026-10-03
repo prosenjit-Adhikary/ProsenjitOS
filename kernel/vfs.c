@@ -96,28 +96,46 @@ int vfs_probe_filesystem(struct pros_block_device *device,
      * Compatibility filesystems live outside the kernel and must not add
      * parser-specific logic to the VFS.
      */
-    if (prosenjitfs_probe(device) == PROSENJITFS_OK) {
-        *type = PROS_FS_PROSENJIT;
-        return PROS_VFS_OK;
-    }
-
-    /* Compatibility formats are probed only through registered external
-     * providers. The VFS never inspects FAT32/exFAT/NTFS metadata itself. */
     {
-        uint32_t provider_type = PROS_FS_PROVIDER_UNKNOWN;
-        int rc = pros_fs_provider_probe_any(device, &provider_type);
-        if (rc == PROS_FS_PROVIDER_OK &&
-            provider_type != PROS_FS_PROVIDER_UNKNOWN) {
-            *type = PROS_FS_EXTERNAL_PROVIDER;
+        int rc = prosenjitfs_probe(device);
+        if (rc == PROSENJITFS_OK) {
+            *type = PROS_FS_PROSENJIT;
             return PROS_VFS_OK;
         }
-        if (rc != PROS_FS_PROVIDER_ENOENT &&
-            rc != PROS_FS_PROVIDER_ENOSYS &&
-            rc != PROS_FS_PROVIDER_ECORRUPT)
+        /*
+         * ENOTSUP means this device is simply not ProsenjitFS. Other
+         * failures are real probe failures and must not be collapsed into
+         * "filesystem unsupported", otherwise media I/O errors disappear.
+         */
+        if (rc == PROSENJITFS_ENOTSUP)
+            return PROS_VFS_ENOSYS;
+        if (rc == PROSENJITFS_EOVERFLOW)
+            return PROS_VFS_EOVERFLOW;
+        if (rc == PROSENJITFS_EINVAL)
+            return PROS_VFS_EINVAL;
+        if (rc == PROSENJITFS_EIO)
             return PROS_VFS_EIO;
+        if (rc == PROSENJITFS_ECORRUPT)
+            return PROS_VFS_ECORRUPT;
+        if (rc == PROSENJITFS_ENOTSUP) {
+            uint32_t provider_type = PROS_FS_PROVIDER_UNKNOWN;
+            int provider_rc = pros_fs_provider_probe_any(device, &provider_type);
+            if (provider_rc == PROS_FS_PROVIDER_OK &&
+                provider_type != PROS_FS_PROVIDER_UNKNOWN) {
+                *type = PROS_FS_EXTERNAL_PROVIDER;
+                return PROS_VFS_OK;
+            }
+            if (provider_rc == PROS_FS_PROVIDER_ENOENT ||
+                provider_rc == PROS_FS_PROVIDER_ENOSYS)
+                return PROS_VFS_ENOSYS;
+            if (provider_rc == PROS_FS_PROVIDER_ECORRUPT)
+                return PROS_VFS_ECORRUPT;
+            if (provider_rc == PROS_FS_PROVIDER_EOVERFLOW)
+                return PROS_VFS_EOVERFLOW;
+            return PROS_VFS_EIO;
+        }
+        return PROS_VFS_EIO;
     }
-
-    return PROS_VFS_ENOSYS;
 }
 
 int vfs_mount_set_root(struct pros_vfs_mount *mount,
