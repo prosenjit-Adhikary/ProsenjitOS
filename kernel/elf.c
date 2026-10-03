@@ -86,7 +86,8 @@ static int validate_load_segments(const struct elf64_ehdr *eh,
                                         (uint64_t)i * sizeof(*ph));
         if (ph->type != PROS_ELF_PT_LOAD) continue;
         if (ph->memsz == 0u || ph->filesz > ph->memsz ||
-            !range_ok(ph->offset, ph->filesz, size))
+            !range_ok(ph->offset, ph->filesz, size) ||
+            (ph->flags & ~(PROS_ELF_PF_R | PROS_ELF_PF_W | PROS_ELF_PF_X)) != 0u)
             return PROS_ELF_EFORMAT;
         if (ph->align != 0u &&
             (ph->align & (ph->align - 1u)) != 0u)
@@ -112,7 +113,20 @@ static int validate_load_segments(const struct elf64_ehdr *eh,
 
     if (count == 0u || start == UINT64_MAX || end <= start)
         return PROS_ELF_EFORMAT;
-    if (eh->entry < start || eh->entry >= end)
+
+    int entry_executable = 0;
+    for (uint32_t i = 0u; i < eh->phnum; ++i) {
+        const struct elf64_phdr *ph =
+            (const struct elf64_phdr *)(image + eh->phoff +
+                                        (uint64_t)i * sizeof(*ph));
+        if (ph->type != PROS_ELF_PT_LOAD || !(ph->flags & PROS_ELF_PF_X))
+            continue;
+        if (eh->entry >= ph->vaddr && eh->entry - ph->vaddr < ph->memsz) {
+            entry_executable = 1;
+            break;
+        }
+    }
+    if (eh->entry < start || eh->entry >= end || !entry_executable)
         return PROS_ELF_EFORMAT;
     *start_out = start;
     *end_out = end;
@@ -307,6 +321,11 @@ int pros_elf64_selftest(void)
     address_space_destroy(&space);
 
     ph->filesz = ph->memsz + 1u;
+    if (pros_elf64_validate(image, sizeof(image), &entry) == PROS_ELF_OK)
+        return PROS_ELF_EFORMAT;
+
+    ph->filesz = 4u;
+    ph->flags = PROS_ELF_PF_R;
     if (pros_elf64_validate(image, sizeof(image), &entry) == PROS_ELF_OK)
         return PROS_ELF_EFORMAT;
 
