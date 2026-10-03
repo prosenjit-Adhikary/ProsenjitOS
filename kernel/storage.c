@@ -116,22 +116,17 @@ int pros_storage_selftest(void)
     for (uint32_t i = 0u; i < sizeof(disk.sectors); ++i)
         disk.sectors[i] = 0u;
 
+    /* Valid MBR signature. */
     disk.sectors[510] = 0x55u;
     disk.sectors[511] = 0xAAu;
+
+    /* One partition: type 0x0B, start LBA 1, length 256 sectors. */
     disk.sectors[446 + 4] = 0x0Bu;
     disk.sectors[446 + 8] = 1u;
     disk.sectors[446 + 12] = 0u;
-    disk.sectors[446 + 16] = 0xFFu;
-    disk.sectors[446 + 20] = 0u;
-    disk.sectors[446 + 12] = 0u;
-    disk.sectors[446 + 16] = 0x00u;
-    disk.sectors[446 + 20] = 0u;
-
-    /* One partition: start LBA 1, length 256 sectors. */
-    disk.sectors[446 + 8] = 1u;
-    disk.sectors[446 + 12] = 0u;
-    disk.sectors[446 + 16] = 0u;
-    disk.sectors[446 + 20] = 0u;
+    disk.sectors[446 + 13] = 1u;
+    disk.sectors[446 + 14] = 0u;
+    disk.sectors[446 + 15] = 0u;
 
     if (block_device_init(&device, 512u, STORAGE_TEST_SECTORS,
                            storage_test_read, 0, &disk) != PROS_BLOCK_OK)
