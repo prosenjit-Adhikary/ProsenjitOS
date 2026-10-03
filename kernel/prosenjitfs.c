@@ -277,9 +277,9 @@ static int pfs_lba_add(struct pros_block_device *device,
         return PROSENJITFS_EINVAL;
     if (offset > UINT64_MAX - base)
         return PROSENJITFS_EOVERFLOW;
-    *result = base + offset;
-    if (*result >= device->sector_count)
+    if (base + offset >= device->sector_count)
         return PROSENJITFS_EINVAL;
+    *result = base + offset;
     return PROSENJITFS_OK;
 }
 static int pfs_write_at_offset(struct pros_block_device *device,
