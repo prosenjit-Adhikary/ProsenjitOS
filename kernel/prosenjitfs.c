@@ -439,15 +439,31 @@ int prosenjitfs_format(struct pros_block_device *device)
         total < PFS_MIN_BLOCKS)
         return PROSENJITFS_EINVAL;
 
-    journal_blocks = (uint32_t)(total / 16u);
-    if (journal_blocks < PFS_MIN_JOURNAL) journal_blocks = PFS_MIN_JOURNAL;
-    if (journal_blocks > PFS_MAX_JOURNAL) journal_blocks = PFS_MAX_JOURNAL;
+    {
+        uint64_t journal_count = total / 16u;
+        uint64_t bits_per_block = (uint64_t)block_size * 8u;
+        uint64_t bitmap_count = total / bits_per_block;
+        uint64_t inode_count64 = total / 32u;
 
-    bitmap_blocks = (uint32_t)((total + ((uint64_t)block_size * 8u) - 1u) /
-                               ((uint64_t)block_size * 8u));
-    inode_count = (uint32_t)(total / 32u);
-    if (inode_count < PFS_MIN_INODES) inode_count = PFS_MIN_INODES;
-    if (inode_count > PFS_MAX_INODES) inode_count = PFS_MAX_INODES;
+        if (total % 16u != 0u)
+            ++journal_count;
+        if (total % bits_per_block != 0u)
+            ++bitmap_count;
+        if (journal_count > UINT32_MAX || bitmap_count > UINT32_MAX)
+            return PROSENJITFS_EOVERFLOW;
+
+        journal_blocks = (uint32_t)journal_count;
+        if (journal_blocks < PFS_MIN_JOURNAL) journal_blocks = PFS_MIN_JOURNAL;
+        if (journal_blocks > PFS_MAX_JOURNAL) journal_blocks = PFS_MAX_JOURNAL;
+
+        bitmap_blocks = (uint32_t)bitmap_count;
+        if (inode_count64 < PFS_MIN_INODES)
+            inode_count = PFS_MIN_INODES;
+        else if (inode_count64 > PFS_MAX_INODES)
+            inode_count = PFS_MAX_INODES;
+        else
+            inode_count = (uint32_t)inode_count64;
+    }
     inode_bitmap_blocks =
         (uint32_t)(((uint64_t)inode_count + block_size * 8u - 1u) /
                    (block_size * 8u));
@@ -689,8 +705,11 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
     while (current != 0u) {
         if (++steps > fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_extent(fs, current, &extent) != PROSENJITFS_OK)
-            return PROSENJITFS_ECORRUPT;
+        {
+            int rc = pfs_read_extent(fs, current, &extent);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
         *tail_lba = current;
         if (logical_block >= extent.logical_block &&
             logical_block - extent.logical_block < extent.block_count) {
@@ -801,7 +820,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         PROSENJITFS_OK)
         return PROS_VFS_EIO;
 
-    while (done < length && offset + done < inode.size) {
+    while (done < length && (uint64_t)offset + done < inode.size) {
         uint64_t position = (uint64_t)offset + done;
         uint64_t logical_block = position / data->fs->sb.block_size;
         uint32_t in_block = (uint32_t)(position % data->fs->sb.block_size);
@@ -830,8 +849,12 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
 
         {
             uint64_t delta = logical_block - extent.logical_block;
-            uint64_t physical = extent.physical_block + delta;
-            if (physical >= data->fs->sb.total_blocks ||
+            uint64_t physical;
+            if (pfs_lba_add(data->fs->mount.device, extent.physical_block,
+                            delta, &physical) != PROSENJITFS_OK)
+                return done ? (int)done : PROS_VFS_EOVERFLOW;
+            if (physical < data->fs->sb.data_start ||
+                physical >= data->fs->sb.total_blocks ||
                 pfs_read_block(data->fs->mount.device, physical, block) !=
                     PROSENJITFS_OK)
                 return done ? (int)done : PROS_VFS_EIO;
@@ -932,18 +955,18 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                                               struct pros_prosenjitfs_extent,
                                               checksum)));
 
-            if (pfs_inode_block_location(data->fs, data->inode_number,
-                                         &inode_lba, &inode_offset) !=
-                PROSENJITFS_OK)
+            rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                          &inode_lba, &inode_offset);
+            if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            if (pfs_read_block(data->fs->mount.device, inode_lba, inode_image) !=
-                PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+            rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, PROSENJITFS_EIO);
 
             if (tail_lba != 0u) {
-                if (pfs_read_block(data->fs->mount.device, tail_lba, tail_image) !=
-                    PROSENJITFS_OK)
-                    return pfs_file_write_error(done, rc);
+                rc = pfs_read_block(data->fs->mount.device, tail_lba, tail_image);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, PROSENJITFS_EIO);
                 struct pros_prosenjitfs_extent tail;
                 pfs_copy(&tail, tail_image, sizeof(tail));
                 tail.next = new_extent_lba;
@@ -974,28 +997,44 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                                               struct pros_prosenjitfs_inode,
                                               checksum)));
 
-            if (pfs_tx_reset(data->fs) != PROSENJITFS_OK ||
-                pfs_allocator_stage(data->fs, physical, 1u, 1u) !=
-                    PROSENJITFS_OK ||
-                pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u) !=
-                    PROSENJITFS_OK ||
-                pfs_tx_add(data->fs, physical, data_image) != PROSENJITFS_OK ||
-                pfs_tx_add(data->fs, new_extent_lba, extent_image) !=
-                    PROSENJITFS_OK ||
-                (tail_lba != 0u &&
-                 pfs_tx_add(data->fs, tail_lba, tail_image) != PROSENJITFS_OK) ||
-                pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK ||
-                pfs_tx_commit(data->fs) != PROSENJITFS_OK)
+            rc = pfs_tx_reset(data->fs);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            rc = pfs_allocator_stage(data->fs, physical, 1u, 1u);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            rc = pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            rc = pfs_tx_add(data->fs, physical, data_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            rc = pfs_tx_add(data->fs, new_extent_lba, extent_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            if (tail_lba != 0u) {
+                rc = pfs_tx_add(data->fs, tail_lba, tail_image);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+            }
+            rc = pfs_tx_add(data->fs, inode_lba, inode_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, rc);
+            rc = pfs_tx_commit(data->fs);
+            if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
             uint8_t inode_changed = 0u;
-            physical = extent.physical_block + delta;
-            if (physical >= data->fs->sb.total_blocks)
-                return pfs_file_write_error(done, rc);
-            if (pfs_read_block(data->fs->mount.device, physical, data_image) !=
-                PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+            if (pfs_lba_add(data->fs->mount.device, extent.physical_block,
+                            delta, &physical) != PROSENJITFS_OK)
+                return pfs_file_write_error(done, PROSENJITFS_EOVERFLOW);
+            if (physical < data->fs->sb.data_start ||
+                physical >= data->fs->sb.total_blocks)
+                return pfs_file_write_error(done, PROSENJITFS_ECORRUPT);
+            rc = pfs_read_block(data->fs->mount.device, physical, data_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_file_write_error(done, PROSENJITFS_EIO);
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
@@ -1003,12 +1042,14 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if ((uint64_t)offset + done + want > inode.size) {
                 inode.size = (uint64_t)offset + done + want;
                 inode_changed = 1u;
-                if (pfs_inode_block_location(data->fs, data->inode_number,
-                                             &inode_lba, &inode_offset) !=
-                    PROSENJITFS_OK ||
-                    pfs_read_block(data->fs->mount.device, inode_lba,
-                                   inode_image) != PROSENJITFS_OK)
+                rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                               &inode_lba, &inode_offset);
+                if (rc != PROSENJITFS_OK)
                     return pfs_file_write_error(done, rc);
+                rc = pfs_read_block(data->fs->mount.device, inode_lba,
+                                    inode_image);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, PROSENJITFS_EIO);
                 pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
                 pfs_put32(inode_image + inode_offset +
                           offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -1024,7 +1065,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 (inode_changed &&
                  pfs_tx_add(data->fs, inode_lba, inode_image) != PROSENJITFS_OK) ||
                 pfs_tx_commit(data->fs) != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_error(done, PROSENJITFS_EIO);
         } else {
             return pfs_file_write_error(done, rc);
         }
@@ -2971,7 +3012,17 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         return PROSENJITFS_ECORRUPT;
 
     for (uint32_t i = 0; i < h.record_count; ++i) {
-        if (h.targets[i] >= fs->sb.total_blocks)
+        uint64_t journal_end;
+        if (h.targets[i] < 2u || h.targets[i] >= fs->sb.total_blocks)
+            return PROSENJITFS_ECORRUPT;
+        if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+                           &journal_end) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        /* Journal records are never valid transaction targets. Reject a
+         * corrupted target before replay so recovery cannot overwrite the
+         * journal itself and create an unrecoverable replay loop. */
+        if (h.targets[i] >= fs->sb.journal_start &&
+            h.targets[i] < journal_end)
             return PROSENJITFS_ECORRUPT;
         if (pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
                           1u + i, images + (uint64_t)i * fs->sb.block_size) !=
@@ -3154,16 +3205,20 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                         bi, &lba) != PROSENJITFS_OK)
             return PROSENJITFS_EOVERFLOW;
         uint64_t range_start = first > bitmap_base ? first - bitmap_base : 0u;
-        uint64_t range_end = last < bitmap_base + bits_per_block - 1u
+        uint64_t bitmap_end =
+            bits_per_block - 1u <= UINT64_MAX - bitmap_base
+            ? bitmap_base + bits_per_block - 1u : UINT64_MAX;
+        uint64_t range_end = last < bitmap_end
                            ? last - bitmap_base : bits_per_block - 1u;
         uint32_t slot = 0u;
 
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
         if (slot == fs->tx.count) {
-            if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK ||
-                pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
-                return PROSENJITFS_EOVERFLOW;
+            if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            if (pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
             slot = 0u;
             while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
                 ++slot;
@@ -3291,9 +3346,10 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
     while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
         ++slot;
     if (slot == fs->tx.count) {
-        if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK ||
-            pfs_tx_add(fs, lba, block) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+        if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (pfs_tx_add(fs, lba, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
         slot = 0u;
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
@@ -3483,18 +3539,21 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
     }
-    if (pfs_journal_recover(fs) != PROSENJITFS_OK) {
-        vfs_mount_deactivate(&fs->mount);
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_ECORRUPT;
+    {
+        int rc = pfs_journal_recover(fs);
+        if (rc != PROSENJITFS_OK) {
+            vfs_mount_deactivate(&fs->mount);
+            kfree(fs->tx.images); kfree(fs->scratch);
+            fs->tx.images = 0;
+            fs->scratch = 0;
+            return rc;
+        }
     }
     struct pros_vfs_vnode *root_vnode = 0;
     if (pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode) != PROS_VFS_OK ||
         vfs_mount_set_root(&fs->mount, root_vnode) != PROS_VFS_OK) {
-        if (root_vnode) {
+        if (root_vnode)
             vfs_vnode_put(root_vnode);
-            vfs_vnode_put(root_vnode);
-        }
         vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch);
         fs->tx.images = 0; fs->scratch = 0;
@@ -3504,6 +3563,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     vfs_vnode_put(root_vnode);
 
     if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
+        vfs_mount_deactivate(&fs->mount);
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_EINVAL;
     }
@@ -4136,6 +4196,35 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(verify); ++i)
             if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
                 return -(120000 + __LINE__);
+
+        /* A forged journal target must never be replayed into the
+         * journal region itself. The header/commit are otherwise valid so
+         * this specifically exercises the replay-target guard. */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(commit, sizeof(commit));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0x0102030405060708ULL;
+        h.targets[0] = journal_start;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
+        jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit);
+        pfs_copy(commit, &jc, sizeof(jc));
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return -(120000 + __LINE__);
 
         /* Corrupt commit checksum must fail closed. */
         pfs_zero(header, sizeof(header));
