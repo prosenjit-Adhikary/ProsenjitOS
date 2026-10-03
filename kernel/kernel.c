@@ -37,7 +37,6 @@ static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
-static struct pros_ipc_channel user_ipc_channel;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -713,18 +712,54 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\\n");
     }
 
-    /* Enter the real CPL3 test only after all kernel-side regressions have
-     * completed. The user test validates the INT 0x80 ABI, capability/IPC
-     * syscalls, user-memory access, and returns through the kernel trampoline. */
+    /*
+     * Build the real CPL3 test address space from the already initialized
+     * init process. The user entry point lives in .user_text in the kernel
+     * image, so map each image page into the fixed user code VA range.
+     * User stack and test-data pages are private physical pages.
+     */
+    uint64_t user_stack_page = physical_page_alloc();
+    uint64_t user_data_page = physical_page_alloc();
+    uint64_t user_text_start = (uint64_t)(uintptr_t)__user_text_start;
+    uint64_t user_text_end = (uint64_t)(uintptr_t)__user_text_end;
+
+    if (!user_stack_page || !user_data_page ||
+        user_text_end <= user_text_start ||
+        ((user_text_start | user_text_end) & 0xFFFULL) != 0) {
+        serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    uint64_t user_text_size = user_text_end - user_text_start;
+    for (uint64_t offset = 0; offset < user_text_size; offset += PROSENJIT_PAGE_SIZE) {
+        if (address_space_map_user_page(&init_process.address_space,
+                                        PROSENJIT_USER_CODE_VA + offset,
+                                        user_text_start + offset,
+                                        0) != 0) {
+            serial_write("ProsenjitOS: ERROR CPL3 user code mapping failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    if (address_space_map_user_page(&init_process.address_space,
+                                    PROSENJIT_USER_STACK_VA,
+                                    user_stack_page,
+                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        address_space_map_user_page(&init_process.address_space,
+                                    PROSENJIT_USER_TEST_VA,
+                                    user_data_page,
+                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        serial_write("ProsenjitOS: ERROR CPL3 user stack/data mapping failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     serial_write("ProsenjitOS: switching to CPL3 user address space\\n");
-    if (address_space_switch(user_space) != 0) {
+    if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\\n");
     enter_user_mode((uint64_t)PROSENJIT_USER_CODE_VA,
                     (uint64_t)PROSENJIT_USER_STACK_VA + PROSENJIT_PAGE_SIZE,
-                    user_mode_handle);
-
-    for (;;) __asm__ volatile ("cli; hlt");
+                    user_test_handle);
 }
