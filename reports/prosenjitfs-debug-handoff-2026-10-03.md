@@ -52,6 +52,18 @@ return PROSENJITFS_OK;
 
 The self-test currently expects `pfs_lba_add(&range_device, 8, 8, &lba)` with `sector_count = 16` to return `PROSENJITFS_EINVAL` and leave `lba == 0`. Source inspection shows that expectation is consistent with the implementation, so the remaining `-12` failure still requires a focused runtime/source-path correction rather than another declaration or build investigation.
 
+
+
+## Root cause identified — ProsenjitFS `-12`
+
+The `-12` self-test failure was caused by a subtle output-parameter contract bug in `pfs_lba_add()`.
+
+For the boundary case `base=8`, `offset=8`, `sector_count=16`, the function correctly detected `16 >= 16` and returned `PROSENJITFS_EINVAL`, but it wrote `16` into `*result` before performing that validity check. The self-test intentionally requires a rejected operation to leave its output unchanged (`lba` must remain `0`). Therefore the return code was correct but the output parameter was incorrectly modified, producing self-test `-12`.
+
+Fix synced in commit `f6c64ce`: validate the computed LBA against the device range before assigning it to `*result`.
+
+This is now a source-level root-cause fix, not a stale-build or error-code mismatch.
+
 ## Current status
 
 - Build: PASS
