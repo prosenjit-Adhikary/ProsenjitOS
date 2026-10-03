@@ -2943,7 +2943,7 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         if (rc == PROSENJITFS_ENOENT)
             return PROS_VFS_ENOENT;
         if (rc != PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+            return pfs_vfs_error(rc);
         return pfs_make_vnode(data->fs, disk_entry.inode, parent, result);
     }
 }
@@ -2972,6 +2972,7 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         struct pros_prosenjitfs_inode dir_inode;
         struct pros_prosenjitfs_inode child_inode;
         struct pros_prosenjitfs_dir_entry disk_entry;
+        int rc;
         uint64_t ordinal = *cookie - 2u;
         if (!directory->private_data)
             return PROS_VFS_EINVAL;
@@ -2981,9 +2982,9 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
             return pfs_vfs_error(inode_read_rc);
         if (dir_inode.type != PROSENJITFS_INODE_DIR)
             return PROS_VFS_ENOTDIR; }
-        if (pfs_dir_entry_by_ordinal(data->fs, &dir_inode, ordinal, &disk_entry) !=
-            PROSENJITFS_OK)
-            return PROS_VFS_ENOENT;
+        rc = pfs_dir_entry_by_ordinal(data->fs, &dir_inode, ordinal, &disk_entry);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
         rc = prosenjitfs_read_inode(data->fs, disk_entry.inode, &child_inode);
         if (rc != PROSENJITFS_OK)
             return pfs_vfs_error(rc);
