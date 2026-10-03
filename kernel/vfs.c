@@ -107,8 +107,6 @@ int vfs_probe_filesystem(struct pros_block_device *device,
          * failures are real probe failures and must not be collapsed into
          * "filesystem unsupported", otherwise media I/O errors disappear.
          */
-        if (rc == PROSENJITFS_ENOTSUP)
-            return PROS_VFS_ENOSYS;
         if (rc == PROSENJITFS_EOVERFLOW)
             return PROS_VFS_EOVERFLOW;
         if (rc == PROSENJITFS_EINVAL)
