@@ -21,6 +21,7 @@ mb2_header:
     dd 768                     ; height
     dd 32                      ; depth
 
+    align 8
     ; End tag
     dw 0
     dw 0
