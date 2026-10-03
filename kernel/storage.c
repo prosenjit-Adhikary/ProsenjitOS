@@ -153,5 +153,13 @@ int pros_storage_selftest(void)
             PROS_STORAGE_OK || count != 0u)
         return -2;
 
+    /* No partition signature is an unsupported disk layout, not EINVAL. */
+    disk.sectors[510] = 0u;
+    disk.sectors[511] = 0u;
+    count = 0u;
+    if (pros_storage_discover(&device, volumes, 2u, &count) !=
+            PROS_STORAGE_ENOTSUP || count != 0u)
+        return -3;
+
     return PROS_STORAGE_OK;
 }
