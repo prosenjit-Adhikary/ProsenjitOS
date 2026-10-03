@@ -172,7 +172,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] Filesystem probe and partition integration
   - [x] Native ATA -> MBR -> ProsenjitFS persistent mount regression
 - [ ] External compatibility filesystem providers
-  - [ ] Provider ABI/registration boundary
+  - [x] Provider ABI/registration boundary (kernel-neutral wire ABI, bounded registry/transport adapter, deterministic probing; runtime provider services remain dependent on user-space execution and capability-scoped storage transport)
   - [ ] NTFS provider (external to kernel)
   - [ ] exFAT provider (external to kernel)
   - [ ] FAT32 provider (external to kernel)
