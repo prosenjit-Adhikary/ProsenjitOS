@@ -103,18 +103,16 @@ int vfs_probe_filesystem(struct pros_block_device *device,
 
     /* Compatibility formats are probed only through registered external
      * providers. The VFS never inspects FAT32/exFAT/NTFS metadata itself. */
-    static const uint32_t provider_types[] = {
-        PROS_FS_PROVIDER_FAT32,
-        PROS_FS_PROVIDER_EXFAT,
-        PROS_FS_PROVIDER_NTFS
-    };
-    for (uint32_t i = 0u; i < sizeof(provider_types) / sizeof(provider_types[0]); ++i) {
-        int rc = pros_fs_provider_probe(device, provider_types[i]);
-        if (rc == PROS_FS_PROVIDER_OK) {
+    {
+        uint32_t provider_type = PROS_FS_PROVIDER_UNKNOWN;
+        int rc = pros_fs_provider_probe_any(device, &provider_type);
+        if (rc == PROS_FS_PROVIDER_OK &&
+            provider_type != PROS_FS_PROVIDER_UNKNOWN) {
             *type = PROS_FS_EXTERNAL_PROVIDER;
             return PROS_VFS_OK;
         }
-        if (rc != PROS_FS_PROVIDER_ENOSYS && rc != PROS_FS_PROVIDER_ENOENT &&
+        if (rc != PROS_FS_PROVIDER_ENOENT &&
+            rc != PROS_FS_PROVIDER_ENOSYS &&
             rc != PROS_FS_PROVIDER_ECORRUPT)
             return PROS_VFS_EIO;
     }
