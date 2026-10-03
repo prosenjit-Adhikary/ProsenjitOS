@@ -705,8 +705,11 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
     while (current != 0u) {
         if (++steps > fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_extent(fs, current, &extent) != PROSENJITFS_OK)
-            return PROSENJITFS_ECORRUPT;
+        {
+            int rc = pfs_read_extent(fs, current, &extent);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
         *tail_lba = current;
         if (logical_block >= extent.logical_block &&
             logical_block - extent.logical_block < extent.block_count) {
