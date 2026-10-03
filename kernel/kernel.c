@@ -1315,10 +1315,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
 
     if (pros_display_input_selftest() != PROS_DISPLAY_OK) {
-        serial_write("ProsenjitOS: ERROR display contract self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR display contract self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: display contract self-test passed\\n");
+    serial_write("ProsenjitOS: display contract self-test passed\n");
 
     /*
      * Multiboot2 framebuffer is a real platform display provider. Register
@@ -1337,7 +1337,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             display->driver_device->state != PROS_DEVICE_BOUND) {
             serial_write("ProsenjitOS: ERROR Multiboot2 display-device binding failed rc=");
             serial_hex64((uint64_t)(int64_t)display_rc);
-            serial_write("\\n");
+            serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: display device bound; resolution = ");
@@ -1348,10 +1348,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_hex64(display_mode.pitch);
         serial_write(", framebuffer = ");
         serial_hex64((uint64_t)display_mode.framebuffer);
-        serial_write("\\n");
+        serial_write("\n");
 
         if (display_mode.framebuffer_size < 4u) {
-            serial_write("ProsenjitOS: ERROR display framebuffer is too small for 32-bit probe\\n");
+            serial_write("ProsenjitOS: ERROR display framebuffer is too small for 32-bit probe\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         {
@@ -1361,14 +1361,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             uint32_t probe = before ^ 0x00010101u;
             *pixel = probe;
             if (*pixel != probe) {
-                serial_write("ProsenjitOS: ERROR display framebuffer write/readback failed\\n");
+                serial_write("ProsenjitOS: ERROR display framebuffer write/readback failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
             *pixel = before;
         }
-        serial_write("ProsenjitOS: display framebuffer mapping/write probe passed\\n");
+        serial_write("ProsenjitOS: display framebuffer mapping/write probe passed\n");
     } else {
-        serial_write("ProsenjitOS: native boot has no framebuffer provider; display binding unavailable\\n");
+        serial_write("ProsenjitOS: native boot has no framebuffer provider; display binding unavailable\n");
     }
 
     /*
