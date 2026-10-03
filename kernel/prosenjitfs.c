@@ -2668,9 +2668,11 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
         inode->dir_index < 2u || inode->dir_index >= fs->sb.total_blocks ||
         fs->sb.block_size > sizeof(block))
         return PROSENJITFS_ECORRUPT;
-    if (pfs_read_block(fs->mount.device, inode->dir_index, block) !=
-        PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(fs->mount.device, inode->dir_index, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     pfs_copy(index, block, sizeof(*index));
     if (index->magic != PROSENJITFS_DIR_MAGIC ||
         index->version != PROSENJITFS_VERSION ||
@@ -2736,15 +2738,21 @@ static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
     uint64_t steps = 0u;
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
-    if (pfs_read_dir_index(fs, dir_inode, &index) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
+    {
+        int rc = pfs_read_dir_index(fs, dir_inode, &index);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     hash = pfs_name_hash((const uint8_t *)name, name_length);
     current = index.heads[hash % PROSENJITFS_DIR_BUCKETS];
     while (current != 0u) {
         if (++steps > fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
-            return PROSENJITFS_ECORRUPT;
+        {
+            int rc = pfs_read_dir_entry(fs, current, &entry);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
         if (entry.name_hash == hash && entry.name_length == name_length) {
             uint32_t equal = 1u;
             for (uint32_t i = 0u; i < name_length; ++i)
@@ -2771,8 +2779,11 @@ static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
     struct pros_prosenjitfs_dir_index index;
     struct pros_prosenjitfs_dir_entry entry;
     uint64_t seen = 0u;
-    if (pfs_read_dir_index(fs, dir_inode, &index) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
+    {
+        int rc = pfs_read_dir_index(fs, dir_inode, &index);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     for (uint32_t bucket = 0u; bucket < PROSENJITFS_DIR_BUCKETS; ++bucket) {
         uint64_t current = index.heads[bucket];
         uint64_t steps = 0u;
@@ -2810,15 +2821,21 @@ static int pfs_find_dir_entry_lba(const struct pros_prosenjitfs *fs,
     *previous_lba = 0u;
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
-    if (pfs_read_dir_index(fs, dir_inode, &index) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
+    {
+        int rc = pfs_read_dir_index(fs, dir_inode, &index);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     hash = pfs_name_hash((const uint8_t *)name, name_length);
     current = index.heads[hash % PROSENJITFS_DIR_BUCKETS];
     while (current != 0u) {
         if (++steps > fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
-            return PROSENJITFS_ECORRUPT;
+        {
+            int rc = pfs_read_dir_entry(fs, current, &entry);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
         if (entry.name_hash == hash && entry.name_length == name_length) {
             uint32_t equal = 1u;
             for (uint32_t i = 0u; i < name_length; ++i) {
