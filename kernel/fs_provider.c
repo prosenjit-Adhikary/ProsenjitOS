@@ -297,8 +297,13 @@ int pros_fs_provider_selftest(void)
         PROS_FS_PROVIDER_CAP_READ | PROS_FS_PROVIDER_CAP_STAT;
     provider.transport = &transport;
 
-    if (pros_fs_provider_registry_init() != 0 ||
-        pros_fs_provider_register(&provider) != PROS_FS_PROVIDER_OK ||
+    if (pros_fs_provider_registry_init() != 0)
+        return -1;
+    provider.descriptor.capabilities |= (1ULL << 63);
+    if (pros_fs_provider_register(&provider) != PROS_FS_PROVIDER_EINVAL)
+        return -1;
+    provider.descriptor.capabilities &= ~(1ULL << 63);
+    if (pros_fs_provider_register(&provider) != PROS_FS_PROVIDER_OK ||
         pros_fs_provider_find(PROS_FS_PROVIDER_FAT32) != &provider)
         return -1;
 
