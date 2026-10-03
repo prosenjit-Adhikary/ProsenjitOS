@@ -33,6 +33,8 @@ const struct pros_fs_provider *
 pros_fs_provider_find(uint32_t provider_type);
 int pros_fs_provider_probe(struct pros_block_device *,
                            uint32_t provider_type);
+int pros_fs_provider_probe_any(struct pros_block_device *,
+                               uint32_t *provider_type);
 int pros_fs_provider_mount(struct pros_block_device *,
                            uint32_t provider_type,
                            uint64_t *provider_mount_id);
