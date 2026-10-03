@@ -210,8 +210,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Package manager
 
 ## Phase 8 — GUI
-- [ ] Graphics abstraction
-- [ ] Framebuffer
+- [x] Graphics abstraction (validated display-device contract)
+- [~] Framebuffer (Multiboot2 provider, physical reservation/mapping, platform device registration, native driver probe/bind, and runtime framebuffer write/readback verification; native hardware scanout and mode-setting remain pending)
 - [ ] Input subsystem
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
