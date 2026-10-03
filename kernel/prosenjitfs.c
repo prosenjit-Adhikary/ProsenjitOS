@@ -1529,7 +1529,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     if (rc == PROSENJITFS_OK)
         return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
-        return PROS_VFS_EIO;
+        return pfs_vfs_error(rc);
     rc = pfs_find_free_inode(data->fs, &inode_number);
     if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 3u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
@@ -1890,9 +1890,10 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
                                &parent_inode) != PROSENJITFS_OK ||
         parent_inode.type != PROSENJITFS_INODE_DIR)
         return PROS_VFS_ENOTDIR;
-    if (pfs_read_dir_index(parent_data->fs, &parent_inode, &dir_index) !=
-        PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+    { int dir_read_rc = pfs_read_dir_index(parent_data->fs, &parent_inode, &dir_index) !=
+        PROSENJITFS_OK;
+        if (dir_read_rc != PROSENJITFS_OK)
+            return pfs_vfs_error(dir_read_rc); }
 
     dir_block = (uint8_t *)kmalloc(parent_data->fs->sb.block_size);
     prev_block = (uint8_t *)kmalloc(parent_data->fs->sb.block_size);
@@ -2142,9 +2143,10 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                                &parent_inode) != PROSENJITFS_OK ||
         parent_inode.type != PROSENJITFS_INODE_DIR)
         return PROS_VFS_ENOTDIR;
-    if (pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
-        PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
+        PROSENJITFS_OK;
+        if (dir_read_rc != PROSENJITFS_OK)
+            return pfs_vfs_error(dir_read_rc); }
 
     if (data->inode_number == new_data->inode_number) {
         new_parent_inode = parent_inode;
@@ -2163,7 +2165,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     if (rc == PROSENJITFS_OK)
         return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
-        return PROS_VFS_EIO;
+        return pfs_vfs_error(rc);
 
     old_bucket = pfs_name_hash((const uint8_t *)old_name, old_length) %
                  PROSENJITFS_DIR_BUCKETS;
@@ -2467,10 +2469,11 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     if (rc == PROSENJITFS_OK)
         return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
-        return PROS_VFS_EIO;
-    if (pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
-        PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+        return pfs_vfs_error(rc);
+    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
+        PROSENJITFS_OK;
+        if (dir_read_rc != PROSENJITFS_OK)
+            return pfs_vfs_error(dir_read_rc); }
     rc = pfs_find_free_inode(data->fs, &inode_number);
     if (rc != PROSENJITFS_OK) {
         if (rc == PROSENJITFS_ENOSPC) return PROS_VFS_ENOSPC;
