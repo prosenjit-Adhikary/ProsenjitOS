@@ -3077,15 +3077,15 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
     pfs_zero(fs->scratch, fs->sb.block_size);
     for (uint32_t i = 0; i < fs->sb.journal_blocks; ++i) {
         uint64_t lba;
-        if (pfs_lba_add(fs->mount.device, fs->sb.journal_start, i, &lba) !=
-                PROSENJITFS_OK ||
-            pfs_write_block(fs->mount.device, lba, fs->scratch) !=
-                PROSENJITFS_OK) {
-            /* Stage 9 means the commit reached journal-clear; preserve the
-             * exact clear failure instead of leaving the caller with an
-             * ambiguous stage-9 snapshot. */
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, i, &lba);
+        if (rc != PROSENJITFS_OK) {
             pfs_tx_diag_stage = 90u + i;
-            return PROSENJITFS_EIO;
+            return rc;
+        }
+        rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
+        if (rc != PROSENJITFS_OK) {
+            pfs_tx_diag_stage = 90u + i;
+            return rc;
         }
     }
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK) {
@@ -3139,14 +3139,20 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         if (h.targets[i] >= fs->sb.journal_start &&
             h.targets[i] < journal_end)
             return PROSENJITFS_ECORRUPT;
-        if (pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
-                          1u + i, images + (uint64_t)i * fs->sb.block_size) !=
-            PROSENJITFS_OK)
-            return PROSENJITFS_EIO;
+        {
+            int rc = pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
+                                        1u + i,
+                                        images + (uint64_t)i * fs->sb.block_size);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
     }
-    if (pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
-                       1u + h.record_count, commit) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
+                                    1u + h.record_count, commit);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     pfs_copy(&c, commit, sizeof(c));
     if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
         c.transaction_id != h.transaction_id ||
