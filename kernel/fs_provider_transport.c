@@ -292,6 +292,12 @@ int pros_fs_transport_selftest(void)
     if (pros_fs_transport_buffer_bounds(&transport, ref,
                                         PROS_FS_TRANSPORT_BUFFER_SIZE - 1u,
                                         2u) != PROS_FS_TRANSPORT_EOVERFLOW ||
+        pros_fs_transport_buffer_write(&transport, ref,
+                                       PROS_FS_TRANSPORT_BUFFER_SIZE - 1u,
+                                       src, 2u) != PROS_FS_TRANSPORT_EOVERFLOW ||
+        pros_fs_transport_buffer_read(&transport, ref,
+                                      PROS_FS_TRANSPORT_BUFFER_SIZE - 1u,
+                                      dst, 2u) != PROS_FS_TRANSPORT_EOVERFLOW ||
         pros_fs_transport_check_device_ref(&transport,
                                            pros_fs_transport_device_ref(&transport) + 1u) !=
             PROS_FS_TRANSPORT_EPERM)
