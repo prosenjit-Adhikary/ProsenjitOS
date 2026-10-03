@@ -225,7 +225,7 @@ int pros_display_present(const struct pros_display_device *d)
      * flip here would be false. Callers render directly into the validated
      * mapped surface.
      */
-    return PROS_DISPLAY_OK;
+    return PROS_DISPLAY_ENOTSUP;
 }
 
 int pros_display_input_selftest(void)
@@ -243,7 +243,7 @@ int pros_display_input_selftest(void)
         pros_display_get_mode(&d, &mode) != PROS_DISPLAY_OK ||
         mode.width != 2u || mode.height != 2u || mode.pitch != 8u ||
         mode.bpp != 32u || mode.framebuffer != d.framebuffer ||
-        pros_display_present(&d) != PROS_DISPLAY_OK)
+        pros_display_present(&d) != PROS_DISPLAY_ENOTSUP)
         return PROS_DISPLAY_EINVAL;
 
     return PROS_DISPLAY_OK;
