@@ -29,6 +29,7 @@ struct pros_fs_transport_buffer {
 struct pros_fs_transport {
     struct pros_object object;
     struct pros_block_device *device;
+    uint64_t device_ref;
     struct pros_fs_transport_buffer buffers[PROS_FS_TRANSPORT_MAX_BUFFERS];
 };
 
