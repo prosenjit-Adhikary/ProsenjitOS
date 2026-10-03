@@ -240,18 +240,23 @@ static int pfs_flush(struct pros_block_device *device)
 static int pfs_lba_add(struct pros_block_device *device,
                          uint64_t base, uint64_t offset, uint64_t *result)
 {
-    if (!device || !result)
+    if (!device || !result || base >= device->sector_count)
         return PROSENJITFS_EINVAL;
-    return block_device_lba_add(device, base, offset, result) == PROS_BLOCK_OK
-         ? PROSENJITFS_OK : PROSENJITFS_EOVERFLOW;
+    if (offset > UINT64_MAX - base)
+        return PROSENJITFS_EOVERFLOW;
+    *result = base + offset;
+    if (*result >= device->sector_count)
+        return PROSENJITFS_EINVAL;
+    return PROSENJITFS_OK;
 }
 static int pfs_write_at_offset(struct pros_block_device *device,
                                 uint64_t base, uint64_t offset,
                                 const void *buffer)
 {
     uint64_t lba;
-    if (pfs_lba_add(device, base, offset, &lba) != PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
+    int rc = pfs_lba_add(device, base, offset, &lba);
+    if (rc != PROSENJITFS_OK)
+        return rc;
     return pfs_write_block(device, lba, buffer);
 }
 static int pfs_read_at_offset(struct pros_block_device *device,
@@ -259,8 +264,9 @@ static int pfs_read_at_offset(struct pros_block_device *device,
                                void *buffer)
 {
     uint64_t lba;
-    if (pfs_lba_add(device, base, offset, &lba) != PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
+    int rc = pfs_lba_add(device, base, offset, &lba);
+    if (rc != PROSENJITFS_OK)
+        return rc;
     return pfs_read_block(device, lba, buffer);
 }
 
