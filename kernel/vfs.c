@@ -77,8 +77,13 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
 {
     if (!mount || !view || !parent || !partition)
         return PROS_VFS_EINVAL;
-    if (partition_device_init(view, parent, partition) != PROS_PARTITION_OK)
-        return PROS_VFS_EINVAL;
+    {
+        int rc = partition_device_init(view, parent, partition);
+        if (rc != PROS_PARTITION_OK)
+            return rc == PROS_PARTITION_EIO ? PROS_VFS_EIO :
+                   rc == PROS_PARTITION_ENOTSUP ? PROS_VFS_ENOTSUP :
+                   PROS_VFS_EINVAL;
+    }
     return vfs_mount_init(mount, type, &view->device, private_data, read_only);
 }
 
