@@ -543,10 +543,14 @@ int prosenjitfs_format(struct pros_block_device *device)
     pfs_zero(block, block_size);
     for (uint32_t i = 0; i < journal_blocks; ++i) {
         uint64_t lba;
-        if (pfs_lba_add(device, sb.journal_start, i, &lba) != PROSENJITFS_OK ||
-            pfs_write_block(device, lba, block) != PROSENJITFS_OK) {
-            kfree(block);
-            return PROSENJITFS_EIO;
+        {
+            int rc = pfs_lba_add(device, sb.journal_start, i, &lba);
+            if (rc == PROSENJITFS_OK)
+                rc = pfs_write_block(device, lba, block);
+            if (rc != PROSENJITFS_OK) {
+                kfree(block);
+                return rc;
+            }
         }
     }
 
@@ -559,11 +563,15 @@ int prosenjitfs_format(struct pros_block_device *device)
         }
         {
             uint64_t lba;
-            if (pfs_lba_add(device, sb.block_bitmap_start, i, &lba) != PROSENJITFS_OK ||
-                pfs_write_block(device, lba, block) != PROSENJITFS_OK) {
-            kfree(block);
-            return PROSENJITFS_EIO;
-        }
+            {
+                int rc = pfs_lba_add(device, sb.block_bitmap_start, i, &lba);
+                if (rc == PROSENJITFS_OK)
+                    rc = pfs_write_block(device, lba, block);
+                if (rc != PROSENJITFS_OK) {
+                    kfree(block);
+                    return rc;
+                }
+            }
         } 
     }
 
@@ -577,11 +585,15 @@ int prosenjitfs_format(struct pros_block_device *device)
         pfs_zero(block, block_size);
         {
             uint64_t lba;
-            if (pfs_lba_add(device, sb.inode_bitmap_start, i, &lba) != PROSENJITFS_OK ||
-                pfs_write_block(device, lba, block) != PROSENJITFS_OK) {
-            kfree(block);
-            return PROSENJITFS_EIO;
-        }
+            {
+                int rc = pfs_lba_add(device, sb.inode_bitmap_start, i, &lba);
+                if (rc == PROSENJITFS_OK)
+                    rc = pfs_write_block(device, lba, block);
+                if (rc != PROSENJITFS_OK) {
+                    kfree(block);
+                    return rc;
+                }
+            }
         }
     }
 
@@ -777,10 +789,12 @@ static int pfs_inode_block_location(const struct pros_prosenjitfs *fs,
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    if (pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
-                    byte_offset / fs->sb.block_size, block_lba) !=
-        PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
+    {
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
+                             byte_offset / fs->sb.block_size, block_lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     *offset = (uint32_t)(byte_offset % fs->sb.block_size);
     if ((uint64_t)*offset + sizeof(struct pros_prosenjitfs_inode) >
         fs->sb.block_size)
@@ -3244,9 +3258,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_tx_diag_stage = 3u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
         uint64_t journal_lba;
-        if (pfs_lba_add(fs->mount.device, fs->sb.journal_start,
-                        1u + i, &journal_lba) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+        {
+            int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                                 1u + i, &journal_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
             {
             int rc = pfs_write_block(fs->mount.device, journal_lba,
                                      fs->tx.images + (uint64_t)i * fs->sb.block_size);
@@ -3270,9 +3287,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_tx_diag_stage = 5u;
     {
         uint64_t commit_lba;
-        if (pfs_lba_add(fs->mount.device, fs->sb.journal_start,
-                        1u + fs->tx.count, &commit_lba) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+        {
+            int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                                 1u + fs->tx.count, &commit_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
             {
             int rc = pfs_write_block(fs->mount.device, commit_lba, commit);
             if (rc == PROSENJITFS_OK)
@@ -3357,9 +3377,12 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
         uint8_t image[4096];
         uint64_t lba;
         uint64_t bitmap_base = bi * bits_per_block;
-        if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+        {
+            int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                                 bi, &lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
         uint64_t range_start = first > bitmap_base ? first - bitmap_base : 0u;
         uint64_t bitmap_end =
             bits_per_block - 1u <= UINT64_MAX - bitmap_base
@@ -3446,9 +3469,12 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
     for (uint64_t b = data_start; b < fs->sb.total_blocks; ++b) {
         uint64_t bits_per_block = (uint64_t)fs->sb.block_size * 8u;
         uint64_t bitmap_lba;
-        if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                        b / bits_per_block, &bitmap_lba) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+        {
+            int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                                 b / bits_per_block, &bitmap_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
         uint8_t bitbuf[4096];
 
         {
