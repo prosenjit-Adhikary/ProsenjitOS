@@ -3154,16 +3154,20 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
                         bi, &lba) != PROSENJITFS_OK)
             return PROSENJITFS_EOVERFLOW;
         uint64_t range_start = first > bitmap_base ? first - bitmap_base : 0u;
-        uint64_t range_end = last < bitmap_base + bits_per_block - 1u
+        uint64_t bitmap_end =
+            bits_per_block - 1u <= UINT64_MAX - bitmap_base
+            ? bitmap_base + bits_per_block - 1u : UINT64_MAX;
+        uint64_t range_end = last < bitmap_end
                            ? last - bitmap_base : bits_per_block - 1u;
         uint32_t slot = 0u;
 
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
         if (slot == fs->tx.count) {
-            if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK ||
-                pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
-                return PROSENJITFS_EOVERFLOW;
+            if (pfs_read_block(fs->mount.device, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            if (pfs_tx_add(fs, lba, image) != PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
             slot = 0u;
             while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
                 ++slot;
