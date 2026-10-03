@@ -2,6 +2,8 @@
 
 #define TRANSPORT_REF_SHIFT 16u
 #define TRANSPORT_SLOT_MASK 0xFFFFu
+#define TRANSPORT_GENERATION_MASK 0xFFFFFFFFu
+#define TRANSPORT_RESERVED_MASK 0x0000FFFF00000000ULL
 #define TRANSPORT_REF_TAG 0x4653ULL
 static uint64_t next_device_ref = 1u;
 
@@ -17,14 +19,15 @@ static uint32_t ref_slot(uint64_t ref)
     return (uint32_t)(ref & TRANSPORT_SLOT_MASK);
 }
 
-static uint16_t ref_generation(uint64_t ref)
+static uint32_t ref_generation(uint64_t ref)
 {
-    return (uint16_t)((ref >> TRANSPORT_REF_SHIFT) & 0xFFFFu);
+    return (uint32_t)((ref >> TRANSPORT_REF_SHIFT) & TRANSPORT_GENERATION_MASK);
 }
 
 static int ref_valid(uint64_t ref)
 {
     return (ref >> 48) == TRANSPORT_REF_TAG &&
+           (ref & TRANSPORT_RESERVED_MASK) == 0u &&
            ref_slot(ref) < PROS_FS_TRANSPORT_MAX_BUFFERS &&
            ref_generation(ref) != 0u;
 }
@@ -108,8 +111,14 @@ int pros_fs_transport_buffer_release(struct pros_fs_transport *transport,
     buffer->in_use = 0u;
     buffer->length = 0u;
     buffer->flags = 0u;
+    if (buffer->generation == UINT32_MAX) {
+        /* Do not wrap a generation and resurrect an ancient opaque ref. */
+        buffer->in_use = 1u;
+        buffer->flags = 0u;
+        buffer->length = 0u;
+        return PROS_FS_TRANSPORT_EBUSY;
+    }
     ++buffer->generation;
-    if (buffer->generation == 0u) buffer->generation = 1u;
     return PROS_FS_TRANSPORT_OK;
 }
 
