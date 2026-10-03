@@ -2,6 +2,7 @@
 #include "partition.h"
 #include "prosenjitfs.h"
 #include "health.h"
+#include "fs_provider.h"
 
 #define PROS_VFS_PROBE_SECTOR_MAX 4096u
 
@@ -98,6 +99,22 @@ int vfs_probe_filesystem(struct pros_block_device *device,
     if (prosenjitfs_probe(device) == PROSENJITFS_OK) {
         *type = PROS_FS_PROSENJIT;
         return PROS_VFS_OK;
+    }
+
+    /* Compatibility formats are probed only through registered external
+     * providers. The VFS never inspects FAT32/exFAT/NTFS metadata itself. */
+    {
+        uint32_t provider_type = PROS_FS_PROVIDER_UNKNOWN;
+        int rc = pros_fs_provider_probe_any(device, &provider_type);
+        if (rc == PROS_FS_PROVIDER_OK &&
+            provider_type != PROS_FS_PROVIDER_UNKNOWN) {
+            *type = PROS_FS_EXTERNAL_PROVIDER;
+            return PROS_VFS_OK;
+        }
+        if (rc != PROS_FS_PROVIDER_ENOENT &&
+            rc != PROS_FS_PROVIDER_ENOSYS &&
+            rc != PROS_FS_PROVIDER_ECORRUPT)
+            return PROS_VFS_EIO;
     }
 
     return PROS_VFS_ENOSYS;
