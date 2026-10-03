@@ -140,12 +140,11 @@ static int provider_request(const struct pros_fs_provider *provider,
 
     request.opcode = opcode;
     request.size = sizeof(request);
+    /* Never wrap request IDs: a wrapped ID could alias an outstanding
+     * request and break response correlation. Reserve zero as invalid. */
+    if (next_request_id == 0u || next_request_id == UINT64_MAX)
+        return PROS_FS_PROVIDER_EOVERFLOW;
     request.request_id = next_request_id++;
-    if (request.request_id == 0u) {
-        request.request_id = next_request_id++;
-        if (request.request_id == 0u)
-            return PROS_FS_PROVIDER_EOVERFLOW;
-    }
     request.object_id = object_id;
 
     if (provider->transport->request(provider->transport->context,
