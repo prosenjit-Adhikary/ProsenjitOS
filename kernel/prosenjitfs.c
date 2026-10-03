@@ -665,8 +665,11 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
     if (!fs || !extent || fs->sb.block_size > sizeof(block) ||
         lba < fs->sb.data_start || lba >= fs->sb.total_blocks)
         return PROSENJITFS_ECORRUPT;
-    if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(fs->mount.device, lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     pfs_copy(extent, block, sizeof(*extent));
     if (extent->magic != PROSENJITFS_EXTENT_MAGIC ||
         extent->block_count == 0u ||
@@ -816,9 +819,11 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (!data || !data->fs)
         return PROS_VFS_EIO;
-    if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
-        PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+    {
+        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        if (rc != PROSENJITFS_OK)
+            return pfs_file_write_error(0u, rc);
+    }
 
     while (done < length && (uint64_t)offset + done < inode.size) {
         uint64_t position = (uint64_t)offset + done;
@@ -891,9 +896,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (!data || !data->fs)
         return PROS_VFS_EIO;
-    if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
-        PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+    {
+        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        if (rc != PROSENJITFS_OK)
+            return pfs_file_write_error(0u, rc);
+    }
 
     uint32_t done = 0u;
     while (done < length) {
@@ -1092,10 +1099,14 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (!data || !data->fs)
         return PROS_VFS_EIO;
-    if (prosenjitfs_read_inode(data->fs, data->inode_number, &inode) !=
-        PROSENJITFS_OK)
-        return PROS_VFS_EIO;
-
+    {
+        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        if (rc != PROSENJITFS_OK)
+            return rc == PROSENJITFS_ECORRUPT ? PROS_VFS_ECORRUPT :
+                   (rc == PROSENJITFS_EOVERFLOW ? PROS_VFS_EOVERFLOW :
+                    (rc == PROSENJITFS_EINVAL ? PROS_VFS_EINVAL :
+                     PROS_VFS_EIO));
+    }
     old_size = inode.size;
     if (size == old_size)
         return PROS_VFS_OK;
@@ -1296,8 +1307,11 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
 
     if (!fs || !result || inode_number >= fs->sb.inode_count)
         return PROS_VFS_EINVAL;
-    if (prosenjitfs_read_inode(fs, inode_number, &inode) != PROSENJITFS_OK)
-        return PROS_VFS_ENOENT;
+    {
+        int rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     if (inode.type == PROSENJITFS_INODE_DIR)
         type = PROS_VFS_NODE_DIRECTORY;
     else if (inode.type == PROSENJITFS_INODE_FILE)
@@ -3441,8 +3455,11 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     offset = (uint32_t)(byte_offset % fs->sb.block_size);
     if ((uint64_t)offset + sizeof(*inode) > fs->sb.block_size)
         return PROSENJITFS_ECORRUPT;
-    if (pfs_read_block(fs->mount.device, block_lba, block) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(fs->mount.device, block_lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     pfs_copy(inode, block + offset, sizeof(*inode));
     if (inode->type == PROSENJITFS_INODE_FREE)
         return PROSENJITFS_ENOENT;
