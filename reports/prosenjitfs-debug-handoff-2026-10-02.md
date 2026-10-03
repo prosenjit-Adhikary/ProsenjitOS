@@ -499,3 +499,20 @@ Current verification state at handoff:
 ### CI result after native-only filesystem split
 
 GitHub Actions was triggered by the architecture changes. The latest Build and Security workflow runs for commit `89f7ee018a18e8b204a7f12267250ebd8954145d` both ended in `failure`, but GitHub exposed neither step data nor a logs URL for the failed jobs (`steps=null`, `logs_url=null`). The failures therefore cannot currently be attributed to a compile error, test failure, or this filesystem split. No test was changed to hide the failure, and no CI-green claim is made.
+
+
+## 2026-10-03 continuation — checked-LBA hardening
+
+Additional audit found remaining native ProsenjitFS metadata/journal address expressions. These have now been routed through checked LBA helpers, including format-time journal/bitmap/inode-bitmap writes, allocator bitmap lookup, journal clear/recovery reads, directory inode-table addressing, and journal self-test I/O.
+
+The native VFS error contract was also extended with explicit ENOSPC propagation.
+
+### Verification state
+
+The hardened source tree was exercised by PR-triggered Build and Security workflows (Build run 3275 / Security run 2771). Both workflow jobs currently report failure, but GitHub's connector exposes steps=null and logs_url=null for these failed jobs, so the failure cannot presently be attributed to compilation, QEMU, ProsenjitFS self-test, or the security contract. Failed jobs were rerun once and remained unavailable as actionable step/log evidence.
+
+Therefore these runs are not accepted as filesystem test failures, but they also cannot be counted as green evidence.
+
+### Current acceptance status
+
+Native ProsenjitFS remains not yet declared production-ready until a workflow run exposes successful Build/boot-test and Security results, including the required ProsenjitFS QEMU milestones.
