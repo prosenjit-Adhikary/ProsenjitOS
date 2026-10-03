@@ -24,44 +24,21 @@ static uint64_t *alloc_table(void) {
     return table;
 }
 
-static uint64_t *ensure_table(uint64_t *parent, uint32_t index) {
+static uint64_t *ensure_table(uint64_t *parent, uint32_t index,
+                              int *created_out) {
     uint64_t entry = parent[index];
+    if (created_out) *created_out = 0;
     if (entry & PROSENJIT_PAGE_PRESENT) {
         if (entry & LARGE_PAGE_FLAG) return 0;
         return (uint64_t *)(uintptr_t)(entry & PAGE_MASK);
     }
-
     uint64_t *table = alloc_table();
     if (!table) return 0;
     parent[index] = ((uint64_t)(uintptr_t)table & PAGE_MASK) |
                     PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
                     PROSENJIT_PAGE_USER;
+    if (created_out) *created_out = 1;
     return table;
-}
-
-int address_space_create(struct pros_address_space *space) {
-    if (!space) return -1;
-    uint64_t *root = alloc_table();
-    if (!root) return -1;
-
-    uint64_t *kernel_root = paging_kernel_root();
-    if (!kernel_root) {
-        physical_page_free((uint64_t)(uintptr_t)root);
-        return -1;
-    }
-
-    /*
-     * PML4[0] is shared with the kernel's low identity map so CPL3
-     * interrupts can still enter kernel code and use the TSS RSP0 stack.
-     * Keep this top-level entry supervisor-only: user pages live at
-     * PML4[1] (0x0000008000000000), so they do not need USER on PML4[0].
-     */ 
-    root[0] = kernel_root[0] & ~PROSENJIT_PAGE_USER;
-    for (uint32_t i = 256; i < ENTRIES; ++i)
-        root[i] = kernel_root[i];
-
-    space->root = root;
-    return 0;
 }
 
 int address_space_map_user_page(struct pros_address_space *space,
@@ -72,16 +49,48 @@ int address_space_map_user_page(struct pros_address_space *space,
     if ((virtual_address >> 47) != 0) return -1;
     if ((virtual_address & 0xFFFULL) || (physical_address & 0xFFFULL)) return -1;
 
-    uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
+    int pdpt_created = 0, pd_created = 0, pt_created = 0;
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pdi = PD_INDEX(virtual_address);
+
+    uint64_t *pdpt = ensure_table(space->root, pml4i, &pdpt_created);
     if (!pdpt) return -1;
-    uint64_t *pd = ensure_table(pdpt, PDPT_INDEX(virtual_address));
-    if (!pd) return -1;
-    uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
-    if (!pt) return -1;
-
-    if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)
+    uint64_t *pd = ensure_table(pdpt, pdpti, &pd_created);
+    if (!pd) {
+        if (pdpt_created) {
+            space->root[pml4i] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pdpt);
+        }
         return -1;
-
+    }
+    uint64_t *pt = ensure_table(pd, pdi, &pt_created);
+    if (!pt) {
+        if (pd_created) {
+            pdpt[pdpti] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pd);
+        }
+        if (pdpt_created) {
+            space->root[pml4i] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pdpt);
+        }
+        return -1;
+    }
+    if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT) {
+        if (pt_created) {
+            pd[pdi] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pt);
+        }
+        if (pd_created) {
+            pdpt[pdpti] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pd);
+        }
+        if (pdpt_created) {
+            space->root[pml4i] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pdpt);
+        }
+        return -1;
+    }
     pt[PT_INDEX(virtual_address)] =
         (physical_address & PAGE_MASK) |
         PROSENJIT_PAGE_PRESENT |
@@ -117,6 +126,7 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     if (!(pte & PROSENJIT_PAGE_PRESENT) || !(pte & PROSENJIT_PAGE_USER)) return -1;
     if (physical_address_out) *physical_address_out = pte & PAGE_MASK;
     pt[pti] = 0;
+    __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
 
     int pt_empty = 1;
     for (uint32_t i = 0; i < ENTRIES; ++i)
