@@ -1239,11 +1239,11 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             uint8_t extent_image[4096];
             struct pros_prosenjitfs_extent shortened = extent;
             if (free_count == 0u)
-                return PROS_VFS_EIO;
+                return PROS_VFS_ECORRUPT;
             shortened.block_count = (uint32_t)keep_in_extent;
-            if (pfs_read_block(data->fs->mount.device, current,
-                               extent_image) != PROSENJITFS_OK)
-                return PROS_VFS_EIO;
+            rc = pfs_read_block(data->fs->mount.device, current, extent_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_vfs_error(rc);
             pfs_copy(extent_image, &shortened, sizeof(shortened));
             pfs_put32(extent_image +
                       offsetof(struct pros_prosenjitfs_extent, checksum),
