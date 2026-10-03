@@ -3,6 +3,7 @@
 #define TRANSPORT_REF_SHIFT 16u
 #define TRANSPORT_SLOT_MASK 0xFFFFu
 #define TRANSPORT_REF_TAG 0x4653ULL
+static uint64_t next_device_ref = 1u;
 
 static uint64_t make_ref(uint32_t slot, uint16_t generation)
 {
@@ -34,6 +35,9 @@ void pros_fs_transport_init(struct pros_fs_transport *transport,
     if (!transport) return;
     object_init(&transport->object, PROS_OBJECT_DEVICE);
     transport->device = device;
+    transport->device_ref = next_device_ref++;
+    if (transport->device_ref == 0u)
+        transport->device_ref = next_device_ref++;
     for (uint32_t i = 0u; i < PROS_FS_TRANSPORT_MAX_BUFFERS; ++i) {
         transport->buffers[i].length = 0u;
         transport->buffers[i].flags = 0u;
@@ -54,7 +58,7 @@ int pros_fs_transport_valid(const struct pros_fs_transport *transport)
 uint64_t pros_fs_transport_device_ref(const struct pros_fs_transport *transport)
 {
     if (!pros_fs_transport_valid(transport)) return 0u;
-    return (uint64_t)(uintptr_t)transport;
+    return transport->device_ref;
 }
 
 int pros_fs_transport_check_device_ref(const struct pros_fs_transport *transport,
