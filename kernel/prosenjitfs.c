@@ -2576,10 +2576,10 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EOVERFLOW;
     }
     inode_offset = (uint32_t)(byte_offset % data->fs->sb.block_size);
-    if (pfs_read_block(data->fs->mount.device, inode_lba, inode_block) !=
-        PROSENJITFS_OK) {
+    rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
+    if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
-        return PROS_VFS_EIO;
+        return pfs_vfs_error(rc);
     }
     pfs_copy(inode_block + inode_offset, &child_inode, sizeof(child_inode));
     pfs_put32(inode_block + inode_offset +
@@ -2607,7 +2607,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     kfree(entry_block);
     kfree(inode_block);
     if (rc != PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+        return pfs_vfs_error(rc);
 
     return pfs_make_vnode(data->fs, inode_number, parent, result);
 }
@@ -2818,8 +2818,9 @@ static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
         while (current != 0u) {
             if (++steps > fs->sb.total_blocks)
                 return PROSENJITFS_ECORRUPT;
-            if (pfs_read_dir_entry(fs, current, &entry) != PROSENJITFS_OK)
-                return PROSENJITFS_ECORRUPT;
+            { int entry_read_rc = pfs_read_dir_entry(fs, current, &entry);
+            if (entry_read_rc != PROSENJITFS_OK)
+                return entry_read_rc; }
             if (seen == ordinal) {
                 if (found)
                     pfs_copy(found, &entry, sizeof(*found));
