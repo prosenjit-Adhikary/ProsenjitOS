@@ -884,9 +884,13 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         {
             uint64_t delta = logical_block - extent.logical_block;
             uint64_t physical;
-            if (pfs_lba_add(data->fs->mount.device, extent.physical_block,
-                            delta, &physical) != PROSENJITFS_OK)
-                return done ? (int)done : PROS_VFS_EOVERFLOW;
+            {
+                int lba_rc = pfs_lba_add(data->fs->mount.device,
+                                         extent.physical_block, delta,
+                                         &physical);
+                if (lba_rc != PROSENJITFS_OK)
+                    return done ? (int)done : pfs_vfs_error(lba_rc);
+            }
             if (physical < data->fs->sb.data_start ||
                 physical >= data->fs->sb.total_blocks ||
                 pfs_read_block(data->fs->mount.device, physical, block) !=
@@ -1062,9 +1066,13 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
             uint8_t inode_changed = 0u;
-            if (pfs_lba_add(data->fs->mount.device, extent.physical_block,
-                            delta, &physical) != PROSENJITFS_OK)
-                return pfs_file_write_error(done, PROSENJITFS_EOVERFLOW);
+            {
+                int lba_rc = pfs_lba_add(data->fs->mount.device,
+                                         extent.physical_block, delta,
+                                         &physical);
+                if (lba_rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, lba_rc);
+            }
             if (physical < data->fs->sb.data_start ||
                 physical >= data->fs->sb.total_blocks)
                 return pfs_file_write_error(done, PROSENJITFS_ECORRUPT);
@@ -2042,12 +2050,15 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         goto out;
     }
     inode_byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    if (pfs_lba_add(parent_data->fs->mount.device,
-                    parent_data->fs->sb.inode_table_start,
-                    inode_byte_offset / parent_data->fs->sb.block_size,
-                    &inode_lba) != PROSENJITFS_OK) {
-        rc = PROSENJITFS_EOVERFLOW;
-        goto out;
+    {
+        int lba_rc = pfs_lba_add(parent_data->fs->mount.device,
+                                 parent_data->fs->sb.inode_table_start,
+                                 inode_byte_offset / parent_data->fs->sb.block_size,
+                                 &inode_lba);
+        if (lba_rc != PROSENJITFS_OK) {
+            rc = lba_rc;
+            goto out;
+        }
     }
     inode_offset = (uint32_t)(inode_byte_offset %
                               parent_data->fs->sb.block_size);
@@ -2629,11 +2640,15 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EOVERFLOW;
     }
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    if (pfs_lba_add(data->fs->mount.device, data->fs->sb.inode_table_start,
-                    byte_offset / data->fs->sb.block_size, &inode_lba) !=
-        PROSENJITFS_OK) {
-        kfree(dir_block); kfree(entry_block); kfree(inode_block);
-        return PROS_VFS_EOVERFLOW;
+    {
+        int lba_rc = pfs_lba_add(data->fs->mount.device,
+                                 data->fs->sb.inode_table_start,
+                                 byte_offset / data->fs->sb.block_size,
+                                 &inode_lba);
+        if (lba_rc != PROSENJITFS_OK) {
+            kfree(dir_block); kfree(entry_block); kfree(inode_block);
+            return pfs_vfs_error(lba_rc);
+        }
     }
     inode_offset = (uint32_t)(byte_offset % data->fs->sb.block_size);
     rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
@@ -3488,7 +3503,7 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
                 *first_block = b + 1u - count;
                 if (*first_block < data_start ||
                     count > fs->sb.total_blocks - *first_block)
-                    return PROSENJITFS_EOVERFLOW;
+                    return PROSENJITFS_EINVAL;
                 return pfs_allocator_update(fs, *first_block, count, 1u);
             }
         } else {
@@ -3533,9 +3548,12 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
     if (bi >= fs->sb.inode_bitmap_blocks)
         return PROSENJITFS_EOVERFLOW;
 
-    if (pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                    bi, &lba) != PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
+    {
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
+                             bi, &lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     slot = 0u;
     while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
         ++slot;
@@ -3639,10 +3657,12 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    if (pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
-                    byte_offset / fs->sb.block_size, &block_lba) !=
-        PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
+    {
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_table_start,
+                             byte_offset / fs->sb.block_size, &block_lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     offset = (uint32_t)(byte_offset % fs->sb.block_size);
     if ((uint64_t)offset + sizeof(*inode) > fs->sb.block_size)
         return PROSENJITFS_ECORRUPT;
