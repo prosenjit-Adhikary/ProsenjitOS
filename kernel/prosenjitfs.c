@@ -2492,11 +2492,10 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
-    { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode) !=
-        PROSENJITFS_OK;
+    { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode;
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
-        if (data->fs, data->inode_number, &parent_inode.type != PROSENJITFS_INODE_DIR)
+        if (parent_inode.type != PROSENJITFS_INODE_DIR)
             return PROS_VFS_ENOTDIR; }
     rc = pfs_find_dir_entry(data->fs, &parent_inode, name, 0);
     if (rc == PROSENJITFS_OK)
@@ -2925,11 +2924,10 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         struct pros_prosenjitfs_inode dir_inode;
         struct pros_prosenjitfs_dir_entry disk_entry;
         int rc;
-        { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode) !=
-            PROSENJITFS_OK;
+        { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode;
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
-        if (data->fs, data->inode_number, &dir_inode.type != PROSENJITFS_INODE_DIR)
+        if (dir_inode.type != PROSENJITFS_INODE_DIR)
             return PROS_VFS_ENOTDIR; }
         rc = pfs_find_dir_entry(data->fs, &dir_inode, name, &disk_entry);
         if (rc == PROSENJITFS_ENOENT)
@@ -2968,11 +2966,10 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         if (!directory->private_data)
             return PROS_VFS_EINVAL;
         data = (struct pfs_vnode_data *)directory->private_data;
-        { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode) !=
-            PROSENJITFS_OK;
+        { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode;
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
-        if (data->fs, data->inode_number, &dir_inode.type != PROSENJITFS_INODE_DIR)
+        if (dir_inode.type != PROSENJITFS_INODE_DIR)
             return PROS_VFS_ENOTDIR; }
         if (pfs_dir_entry_by_ordinal(data->fs, &dir_inode, ordinal, &disk_entry) !=
             PROSENJITFS_OK)
