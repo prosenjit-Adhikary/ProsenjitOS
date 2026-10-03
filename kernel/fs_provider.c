@@ -214,9 +214,10 @@ int pros_fs_provider_probe_any(struct pros_block_device *device,
             *provider_type = order[i];
             return PROS_FS_PROVIDER_OK;
         }
+        if (rc == PROS_FS_PROVIDER_ECORRUPT)
+            return rc;
         if (rc != PROS_FS_PROVIDER_ENOSYS &&
-            rc != PROS_FS_PROVIDER_ENOENT &&
-            rc != PROS_FS_PROVIDER_ECORRUPT)
+            rc != PROS_FS_PROVIDER_ENOENT)
             return rc;
     }
     return PROS_FS_PROVIDER_ENOENT;
