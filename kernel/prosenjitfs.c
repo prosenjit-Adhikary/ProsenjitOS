@@ -439,15 +439,31 @@ int prosenjitfs_format(struct pros_block_device *device)
         total < PFS_MIN_BLOCKS)
         return PROSENJITFS_EINVAL;
 
-    journal_blocks = (uint32_t)(total / 16u);
-    if (journal_blocks < PFS_MIN_JOURNAL) journal_blocks = PFS_MIN_JOURNAL;
-    if (journal_blocks > PFS_MAX_JOURNAL) journal_blocks = PFS_MAX_JOURNAL;
+    {
+        uint64_t journal_count = total / 16u;
+        uint64_t bits_per_block = (uint64_t)block_size * 8u;
+        uint64_t bitmap_count = total / bits_per_block;
+        uint64_t inode_count64 = total / 32u;
 
-    bitmap_blocks = (uint32_t)((total + ((uint64_t)block_size * 8u) - 1u) /
-                               ((uint64_t)block_size * 8u));
-    inode_count = (uint32_t)(total / 32u);
-    if (inode_count < PFS_MIN_INODES) inode_count = PFS_MIN_INODES;
-    if (inode_count > PFS_MAX_INODES) inode_count = PFS_MAX_INODES;
+        if (total % 16u != 0u)
+            ++journal_count;
+        if (total % bits_per_block != 0u)
+            ++bitmap_count;
+        if (journal_count > UINT32_MAX || bitmap_count > UINT32_MAX)
+            return PROSENJITFS_EOVERFLOW;
+
+        journal_blocks = (uint32_t)journal_count;
+        if (journal_blocks < PFS_MIN_JOURNAL) journal_blocks = PFS_MIN_JOURNAL;
+        if (journal_blocks > PFS_MAX_JOURNAL) journal_blocks = PFS_MAX_JOURNAL;
+
+        bitmap_blocks = (uint32_t)bitmap_count;
+        if (inode_count64 < PFS_MIN_INODES)
+            inode_count = PFS_MIN_INODES;
+        else if (inode_count64 > PFS_MAX_INODES)
+            inode_count = PFS_MAX_INODES;
+        else
+            inode_count = (uint32_t)inode_count64;
+    }
     inode_bitmap_blocks =
         (uint32_t)(((uint64_t)inode_count + block_size * 8u - 1u) /
                    (block_size * 8u));
