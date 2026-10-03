@@ -3762,14 +3762,20 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         fs->scratch = 0;
         return PROSENJITFS_EIO;
     }
-    if (pfs_read_block(device, 0u, block) != PROSENJITFS_OK) {
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(device, 0u, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+            return rc;
+        }
     }
     primary_ok = pfs_superblock_valid(block, device->sector_size, &primary) == PROSENJITFS_OK;
-    if (pfs_read_block(device, 1u, block) != PROSENJITFS_OK) {
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_read_block(device, 1u, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+            return rc;
+        }
     }
     backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK;
     if (!primary_ok && !backup_ok) {
