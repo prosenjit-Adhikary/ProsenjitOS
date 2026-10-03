@@ -2875,8 +2875,11 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
 {
     pfs_zero(fs->scratch, fs->sb.block_size);
     for (uint32_t i = 0; i < fs->sb.journal_blocks; ++i) {
-        if (pfs_write_block(fs->mount.device, fs->sb.journal_start + i,
-                            fs->scratch) != PROSENJITFS_OK) {
+        uint64_t lba;
+        if (pfs_lba_add(fs->mount.device, fs->sb.journal_start, i, &lba) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(fs->mount.device, lba, fs->scratch) !=
+                PROSENJITFS_OK) {
             /* Stage 9 means the commit reached journal-clear; preserve the
              * exact clear failure instead of leaving the caller with an
              * ambiguous stage-9 snapshot. */
@@ -3174,7 +3177,10 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
 
     for (uint64_t b = data_start; b < fs->sb.total_blocks; ++b) {
         uint64_t bits_per_block = (uint64_t)fs->sb.block_size * 8u;
-        uint64_t bitmap_lba = fs->sb.block_bitmap_start + b / bits_per_block;
+        uint64_t bitmap_lba;
+        if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                        b / bits_per_block, &bitmap_lba) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
         uint8_t bitbuf[4096];
 
         if (pfs_read_block(fs->mount.device, bitmap_lba, bitbuf) != PROSENJITFS_OK)
@@ -3587,8 +3593,11 @@ int prosenjitfs_selftest(void)
         {
             uint8_t bitmap[512];
             uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
-            uint64_t bitmap_lba = fs.sb.block_bitmap_start +
-                                  pfs_diag.physical_lba / bits_per_block;
+            uint64_t bitmap_lba;
+            if (pfs_lba_add(&device, fs.sb.block_bitmap_start,
+                            pfs_diag.physical_lba / bits_per_block,
+                            &bitmap_lba) != PROSENJITFS_OK)
+                return -0x25000;
             uint64_t extent_lba = inode.extent_head;
             if (extent_lba == 0u ||
                 pfs_read_block(&device, bitmap_lba, bitmap) != PROSENJITFS_OK ||
