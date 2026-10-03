@@ -3295,9 +3295,10 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
     while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
         ++slot;
     if (slot == fs->tx.count) {
-        if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK ||
-            pfs_tx_add(fs, lba, block) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+        if (pfs_read_block(fs->mount.device, lba, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (pfs_tx_add(fs, lba, block) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
         slot = 0u;
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
