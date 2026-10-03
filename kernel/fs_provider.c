@@ -14,6 +14,16 @@ static int provider_valid(const struct pros_fs_provider *provider)
         provider->descriptor.provider_type < PROS_FS_PROVIDER_FAT32 ||
         provider->descriptor.provider_type > PROS_FS_PROVIDER_NTFS)
         return 0;
+    {
+        const uint64_t known_capabilities =
+            PROS_FS_PROVIDER_CAP_READ | PROS_FS_PROVIDER_CAP_WRITE |
+            PROS_FS_PROVIDER_CAP_CREATE | PROS_FS_PROVIDER_CAP_MKDIR |
+            PROS_FS_PROVIDER_CAP_UNLINK | PROS_FS_PROVIDER_CAP_RMDIR |
+            PROS_FS_PROVIDER_CAP_RENAME | PROS_FS_PROVIDER_CAP_READDIR |
+            PROS_FS_PROVIDER_CAP_STAT | PROS_FS_PROVIDER_CAP_SYNC;
+        if ((provider->descriptor.capabilities & ~known_capabilities) != 0u)
+            return 0;
+    }
 
     int terminated = 0;
     for (uint32_t i = 0u; i < PROS_FS_PROVIDER_NAME_MAX; ++i) {
