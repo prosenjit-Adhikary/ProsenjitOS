@@ -17,6 +17,7 @@ struct pros_storage_volume {
     struct pros_partition partition;
     struct pros_partition_device device;
     enum pros_filesystem_type filesystem;
+    uint32_t provider_type;
 };
 
 int pros_storage_discover(struct pros_block_device *device,
