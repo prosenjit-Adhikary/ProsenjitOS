@@ -57,7 +57,7 @@ static int header_ok(const struct elf64_ehdr *eh, uint64_t size)
         eh->ident[6] != ELF_VERSION_CURRENT ||
         eh->ident[7] != ELF_OSABI_SYSV)
         return 0;
-    if ((eh->type != PROS_ELF_ET_EXEC && eh->type != PROS_ELF_ET_DYN) ||
+    if (eh->type != PROS_ELF_ET_EXEC ||
         eh->machine != PROS_ELF_EM_X86_64 ||
         eh->version != ELF_VERSION_CURRENT ||
         eh->ehsize != sizeof(*eh) ||
@@ -92,7 +92,8 @@ static int validate_load_segments(const struct elf64_ehdr *eh,
             (ph->align & (ph->align - 1u)) != 0u)
             return PROS_ELF_EFORMAT;
         if (ph->align > 1u &&
-            ((ph->vaddr - ph->offset) & (ph->align - 1u)) != 0u)
+            (ph->vaddr < ph->offset ||
+             ((ph->vaddr - ph->offset) & (ph->align - 1u)) != 0u))
             return PROS_ELF_EFORMAT;
         if (!canonical_user(ph->vaddr) || ph->vaddr == 0u)
             return PROS_ELF_EFORMAT;
@@ -154,6 +155,22 @@ int pros_elf64_load(struct pros_address_space *space,
                                     &image_start, &image_end, &segment_count);
     if (rc != PROS_ELF_OK) return rc;
 
+    /* Refuse any pre-existing user mapping in the image range before changing
+     * the address space. This makes rollback ownership unambiguous. */
+    for (uint32_t i = 0u; i < eh->phnum; ++i) {
+        const struct elf64_phdr *ph =
+            (const struct elf64_phdr *)((const uint8_t *)image + eh->phoff +
+                                        (uint64_t)i * sizeof(*ph));
+        if (ph->type != PROS_ELF_PT_LOAD) continue;
+        uint64_t seg_end = ph->vaddr + ph->memsz;
+        uint64_t page_start = ph->vaddr & ELF_PAGE_MASK;
+        uint64_t page_end = (seg_end + PROSENJIT_PAGE_SIZE - 1ULL) & ELF_PAGE_MASK;
+        for (uint64_t va = page_start; va < page_end; va += PROSENJIT_PAGE_SIZE) {
+            if (address_space_user_page_mapped(space, va) != 0)
+                return PROS_ELF_EINVAL;
+        }
+    }
+
     for (uint32_t i = 0u; i < eh->phnum; ++i) {
         const struct elf64_phdr *a =
             (const struct elf64_phdr *)((const uint8_t *)image + eh->phoff +
@@ -162,7 +179,6 @@ int pros_elf64_load(struct pros_address_space *space,
         uint64_t a_end = a->vaddr + a->memsz;
         uint64_t a_start_page = a->vaddr & ELF_PAGE_MASK;
         uint64_t a_end_page = (a_end + PROSENJIT_PAGE_SIZE - 1ULL) & ELF_PAGE_MASK;
-
         for (uint32_t j = i + 1u; j < eh->phnum; ++j) {
             const struct elf64_phdr *b =
                 (const struct elf64_phdr *)((const uint8_t *)image + eh->phoff +
@@ -182,7 +198,6 @@ int pros_elf64_load(struct pros_address_space *space,
             (const struct elf64_phdr *)((const uint8_t *)image + eh->phoff +
                                         (uint64_t)i * sizeof(*ph));
         if (ph->type != PROS_ELF_PT_LOAD) continue;
-
         uint64_t seg_end = ph->vaddr + ph->memsz;
         uint64_t page_start = ph->vaddr & ELF_PAGE_MASK;
         uint64_t page_end = (seg_end + PROSENJIT_PAGE_SIZE - 1ULL) & ELF_PAGE_MASK;
@@ -192,7 +207,7 @@ int pros_elf64_load(struct pros_address_space *space,
 
         for (uint64_t va = page_start; va < page_end; va += PROSENJIT_PAGE_SIZE) {
             uint64_t physical = physical_page_alloc();
-            if (!physical) return PROS_ELF_ENOMEM;
+            if (!physical) { rc = PROS_ELF_ENOMEM; goto rollback; }
             uint8_t *dst = (uint8_t *)(uintptr_t)physical;
             for (uint64_t k = 0u; k < PROSENJIT_PAGE_SIZE; ++k) dst[k] = 0u;
 
@@ -208,10 +223,10 @@ int pros_elf64_load(struct pros_address_space *space,
                 for (uint64_t k = 0u; k < copy_end - copy_start; ++k)
                     dst[dst_off + k] = src[k];
             }
-
             if (address_space_map_user_page(space, va, physical, flags) != 0) {
                 physical_page_free(physical);
-                return PROS_ELF_EINVAL;
+                rc = PROS_ELF_EINVAL;
+                goto rollback;
             }
         }
     }
@@ -221,6 +236,23 @@ int pros_elf64_load(struct pros_address_space *space,
     result->image_end = image_end;
     result->loaded_segments = segment_count;
     return PROS_ELF_OK;
+
+rollback:
+    for (uint32_t i = 0u; i < eh->phnum; ++i) {
+        const struct elf64_phdr *ph =
+            (const struct elf64_phdr *)((const uint8_t *)image + eh->phoff +
+                                        (uint64_t)i * sizeof(*ph));
+        if (ph->type != PROS_ELF_PT_LOAD) continue;
+        uint64_t seg_end = ph->vaddr + ph->memsz;
+        uint64_t page_start = ph->vaddr & ELF_PAGE_MASK;
+        uint64_t page_end = (seg_end + PROSENJIT_PAGE_SIZE - 1ULL) & ELF_PAGE_MASK;
+        for (uint64_t va = page_start; va < page_end; va += PROSENJIT_PAGE_SIZE) {
+            uint64_t physical = 0u;
+            if (address_space_unmap_user_page(space, va, &physical) == 0)
+                physical_page_free(physical);
+        }
+    }
+    return rc;
 }
 
 int pros_elf64_selftest(void)
