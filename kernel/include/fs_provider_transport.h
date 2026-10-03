@@ -21,7 +21,7 @@ struct pros_fs_transport_buffer {
     uint8_t bytes[PROS_FS_TRANSPORT_BUFFER_SIZE];
     uint32_t length;
     uint32_t flags;
-    uint16_t generation;
+    uint32_t generation;
     uint8_t in_use;
     uint8_t reserved;
 };
