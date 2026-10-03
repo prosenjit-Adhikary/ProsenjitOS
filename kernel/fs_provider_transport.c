@@ -50,9 +50,12 @@ void pros_fs_transport_init(struct pros_fs_transport *transport,
 int pros_fs_transport_valid(const struct pros_fs_transport *transport)
 {
     return transport && transport->device &&
+           transport->device->sector_size != 0u &&
+           transport->device->sector_count != 0u &&
+           transport->device->read != 0 &&
            transport->object.type == PROS_OBJECT_DEVICE &&
            transport->object.refcount != 0u &&
-           block_device_lba_range_valid(transport->device, 0u, 0u);
+           transport->device_ref != 0u;
 }
 
 uint64_t pros_fs_transport_device_ref(const struct pros_fs_transport *transport)
