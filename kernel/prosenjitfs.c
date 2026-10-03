@@ -1681,6 +1681,8 @@ mkdir_out:
         return PROS_VFS_EINVAL;
     case PROSENJITFS_EIO:
         return PROS_VFS_EIO;
+    case PROSENJITFS_ECORRUPT:
+        return PROS_VFS_EIO;
     case PROSENJITFS_ENOTSUP:
         return PROS_VFS_ENOTSUP;
     case PROSENJITFS_ENOSPC:
