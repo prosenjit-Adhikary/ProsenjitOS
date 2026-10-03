@@ -1,4 +1,5 @@
 /* Native ProsenjitFS: all on-disk address arithmetic must remain checked. */
+/* Verification marker: this source is intentionally part of the CI test commit. */
 #include "prosenjitfs.h"
 #include "heap.h"
 #include <stddef.h>
