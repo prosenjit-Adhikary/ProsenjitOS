@@ -93,3 +93,22 @@ The kernel contains a bounded provider registry and a transport adapter in `kern
 The transport context is responsible for supplying a capability-scoped device reference. A raw `struct pros_block_device *` is never serialized into the external ABI. This prevents a future user-space provider from receiving an arbitrary kernel pointer.
 
 The registry self-test verifies registration, duplicate/provider lookup behavior, request/response correlation, mount identity validation, unsupported-provider handling, and unregister behavior. It is an adapter test only; it is not evidence that a real FAT32/exFAT/NTFS provider is executable.
+
+
+## Capability-scoped transport foundation
+
+The kernel now has a generic transport foundation in
+`kernel/fs_provider_transport.c`. It provides:
+
+- an opaque transport-scoped device reference (never a provider-visible kernel pointer);
+- a bounded fixed-size buffer pool with generation-checked references;
+- explicit read/write buffer rights;
+- overflow-safe buffer bounds checks;
+- block I/O through the existing validated block-device LBA layer;
+- stale-reference rejection after buffer release;
+- boot-time self-tests for reference validation, bounded I/O, and LBA access.
+
+This is deliberately **not** the external provider runtime. A provider service still needs a
+user-space process, a real process capability handle, and an IPC/shared-memory transport
+endpoint. Those components must be implemented before FAT32/exFAT/NTFS provider binaries are
+enabled. The kernel must not regain filesystem parsers merely to bridge that gap.
