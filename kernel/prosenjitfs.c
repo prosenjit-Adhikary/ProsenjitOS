@@ -2493,8 +2493,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EEXIST;
     if (rc != PROSENJITFS_ENOENT)
         return pfs_vfs_error(rc);
-    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
-        PROSENJITFS_OK;
+    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
         if (dir_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(dir_read_rc); }
     rc = pfs_find_free_inode(data->fs, &inode_number);
