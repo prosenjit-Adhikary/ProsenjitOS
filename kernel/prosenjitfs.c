@@ -1519,12 +1519,18 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
         (name_length == 1u && name[0] == '.') ||
         (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
-    if (prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode) !=
-            PROSENJITFS_OK ||
-        parent_inode.type != PROSENJITFS_INODE_DIR ||
-        pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
-            PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+    rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode);
+    if (rc != PROSENJITFS_OK) {
+        pfs_mkdir_diag_stage = 2u; pfs_mkdir_diag_rc = rc;
+        return pfs_vfs_error(rc);
+    }
+    if (parent_inode.type != PROSENJITFS_INODE_DIR)
+        return PROS_VFS_ENOTDIR;
+    rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
+    if (rc != PROSENJITFS_OK) {
+        pfs_mkdir_diag_stage = 2u; pfs_mkdir_diag_rc = rc;
+        return pfs_vfs_error(rc);
+    }
     rc = pfs_find_dir_entry(data->fs, &parent_inode, name, 0);
     if (rc == PROSENJITFS_OK)
         return PROS_VFS_EEXIST;
@@ -1707,12 +1713,16 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         (name_length == 1u && name[0] == '.') ||
         (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
-    if (prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode) !=
-            PROSENJITFS_OK ||
-        parent_inode.type != PROSENJITFS_INODE_DIR ||
-        pfs_read_dir_index(data->fs, &parent_inode, &dir_index) !=
-            PROSENJITFS_OK)
-        return PROS_VFS_EIO;
+    rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    if (parent_inode.type != PROSENJITFS_INODE_DIR) {
+        rc = PROS_VFS_ENOTDIR;
+        goto rmdir_out;
+    }
+    rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
+    if (rc != PROSENJITFS_OK)
+        goto rmdir_out;
 
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     if (!entry_block)
