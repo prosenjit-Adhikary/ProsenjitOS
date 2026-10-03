@@ -4,7 +4,7 @@ static struct pros_fs_provider *providers[PROS_FS_PROVIDER_REGISTRY_MAX];
 
 static int provider_valid(const struct pros_fs_provider *provider)
 {
-    if (!provider || !provider->registered ||
+    if (!provider ||
         !provider->transport || !provider->transport->request)
         return 0;
     if (provider->descriptor.abi_version != PROS_FS_PROVIDER_ABI_VERSION ||
@@ -156,6 +156,14 @@ struct provider_test_context {
     uint32_t calls;
 };
 
+static int provider_test_block_read(struct pros_block_device *device,
+                                    uint64_t lba, uint32_t count,
+                                    void *buffer)
+{
+    (void)device; (void)lba; (void)count; (void)buffer;
+    return PROS_BLOCK_OK;
+}
+
 static int provider_test_request(void *context,
                                  const struct pros_fs_provider_request *request,
                                  struct pros_fs_provider_response *response)
@@ -195,8 +203,8 @@ int pros_fs_provider_selftest(void)
         pros_fs_provider_find(PROS_FS_PROVIDER_FAT32) != &provider)
         return -1;
 
-    if (block_device_init(&device, 512u, 1u, 0, 0, 0) !=
-            PROS_BLOCK_OK)
+    if (block_device_init(&device, 512u, 1u, provider_test_block_read,
+                          0, 0) != PROS_BLOCK_OK)
         return -2;
 
     if (pros_fs_provider_probe(&device, PROS_FS_PROVIDER_FAT32) !=
