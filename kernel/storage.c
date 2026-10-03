@@ -62,11 +62,15 @@ int pros_storage_discover(struct pros_block_device *device,
                    PROS_STORAGE_EINVAL;
 
         rc = vfs_probe_filesystem(&view.device, &filesystem);
-        if (rc != PROS_VFS_OK)
+        if (rc == PROS_VFS_ENOSYS || rc == PROS_VFS_ENOENT)
             continue;
+        if (rc == PROS_VFS_EOVERFLOW)
+            return PROS_STORAGE_EOVERFLOW;
+        if (rc != PROS_VFS_OK)
+            return PROS_STORAGE_EIO;
 
         if (filesystem != PROS_FS_PROSENJIT)
-            continue;
+            return PROS_STORAGE_ENOTSUP;
 
         if (found >= capacity)
             return PROS_STORAGE_EOVERFLOW;
