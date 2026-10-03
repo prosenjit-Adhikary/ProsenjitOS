@@ -304,11 +304,19 @@ int pros_fs_provider_selftest(void)
         context.calls != 2u)
         return -3;
 
+    /* Capability and opcode errors must remain distinguishable; callers
+     * rely on ENOTSUP versus EINVAL rather than a generic I/O failure. */
+    if (provider_request(&provider, PROS_FS_PROVIDER_OP_WRITE, 0u, 0) !=
+            PROS_FS_PROVIDER_ENOTSUP ||
+        provider_request(&provider, 0xFFFFFFFFu, 0u, 0) !=
+            PROS_FS_PROVIDER_EINVAL)
+        return -4;
+
     if (pros_fs_provider_probe(&device, PROS_FS_PROVIDER_NTFS) !=
             PROS_FS_PROVIDER_ENOSYS ||
         pros_fs_provider_unregister(&provider) != PROS_FS_PROVIDER_OK ||
         pros_fs_provider_find(PROS_FS_PROVIDER_FAT32) != 0)
-        return -4;
+        return -5;
 
     return 0;
 }
