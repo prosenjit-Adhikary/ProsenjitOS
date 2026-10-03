@@ -95,12 +95,29 @@ int vfs_probe_filesystem(struct pros_block_device *device,
      * Compatibility filesystems live outside the kernel and must not add
      * parser-specific logic to the VFS.
      */
-    if (prosenjitfs_probe(device) == PROSENJITFS_OK) {
-        *type = PROS_FS_PROSENJIT;
-        return PROS_VFS_OK;
+    {
+        int rc = prosenjitfs_probe(device);
+        if (rc == PROSENJITFS_OK) {
+            *type = PROS_FS_PROSENJIT;
+            return PROS_VFS_OK;
+        }
+        /*
+         * ENOTSUP means this device is simply not ProsenjitFS. Other
+         * failures are real probe failures and must not be collapsed into
+         * "filesystem unsupported", otherwise media I/O errors disappear.
+         */
+        if (rc == PROSENJITFS_ENOTSUP)
+            return PROS_VFS_ENOSYS;
+        if (rc == PROSENJITFS_EOVERFLOW)
+            return PROS_VFS_EOVERFLOW;
+        if (rc == PROSENJITFS_EINVAL)
+            return PROS_VFS_EINVAL;
+        if (rc == PROSENJITFS_EIO)
+            return PROS_VFS_EIO;
+        if (rc == PROSENJITFS_ECORRUPT)
+            return PROS_VFS_ECORRUPT;
+        return PROS_VFS_EIO;
     }
-
-    return PROS_VFS_ENOSYS;
 }
 
 int vfs_mount_set_root(struct pros_vfs_mount *mount,
