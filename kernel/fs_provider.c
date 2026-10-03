@@ -124,6 +124,31 @@ int pros_fs_provider_probe(struct pros_block_device *device,
                             &probe_id);
 }
 
+int pros_fs_provider_probe_any(struct pros_block_device *device,
+                               uint32_t *provider_type)
+{
+    static const uint32_t order[] = {
+        PROS_FS_PROVIDER_FAT32,
+        PROS_FS_PROVIDER_EXFAT,
+        PROS_FS_PROVIDER_NTFS
+    };
+    if (!device || !provider_type)
+        return PROS_FS_PROVIDER_EINVAL;
+    *provider_type = PROS_FS_PROVIDER_UNKNOWN;
+    for (uint32_t i = 0u; i < sizeof(order) / sizeof(order[0]); ++i) {
+        int rc = pros_fs_provider_probe(device, order[i]);
+        if (rc == PROS_FS_PROVIDER_OK) {
+            *provider_type = order[i];
+            return PROS_FS_PROVIDER_OK;
+        }
+        if (rc != PROS_FS_PROVIDER_ENOSYS &&
+            rc != PROS_FS_PROVIDER_ENOENT &&
+            rc != PROS_FS_PROVIDER_ECORRUPT)
+            return rc;
+    }
+    return PROS_FS_PROVIDER_ENOENT;
+}
+
 int pros_fs_provider_mount(struct pros_block_device *device,
                            uint32_t provider_type,
                            uint64_t *provider_mount_id)
