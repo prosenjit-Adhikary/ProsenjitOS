@@ -22,6 +22,7 @@
 #include "storage.h"
 #include "fs_provider.h"
 #include "fs_provider_transport.h"
+#include "elf.h"
 #include "prosenjitfs.h"
 #include "../include/abi/syscall.h"
 
@@ -613,6 +614,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR partition discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (pros_elf64_selftest() != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF64 loader self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF64 loader validation self-test passed\\n");
+
     if (pros_fs_provider_registry_init() != 0 ||
         pros_fs_provider_selftest() != 0 ||
         pros_fs_transport_selftest() != PROS_FS_TRANSPORT_OK) {
