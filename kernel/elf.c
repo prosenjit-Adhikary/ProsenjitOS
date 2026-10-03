@@ -240,7 +240,7 @@ int pros_elf64_selftest(void)
 
     ph->type = PROS_ELF_PT_LOAD; ph->flags = PROS_ELF_PF_R | PROS_ELF_PF_X;
     ph->offset = sizeof(*eh) + sizeof(*ph); ph->vaddr = PROSENJIT_USER_CODE_VA;
-    ph->filesz = 4u; ph->memsz = PROSENJIT_PAGE_SIZE; ph->align = PROSENJIT_PAGE_SIZE;
+    ph->filesz = 4u; ph->memsz = PROSENJIT_PAGE_SIZE; ph->align = 1u;
     image[ph->offset] = 0xC3u; image[ph->offset + 1u] = 0x90u;
     image[ph->offset + 2u] = 0x90u; image[ph->offset + 3u] = 0x90u;
 
