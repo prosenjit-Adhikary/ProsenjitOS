@@ -1,3 +1,4 @@
+/* Native ProsenjitFS: all on-disk address arithmetic must remain checked. */
 #include "prosenjitfs.h"
 #include "heap.h"
 #include <stddef.h>
