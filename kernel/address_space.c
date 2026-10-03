@@ -96,8 +96,12 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     if (!space || !space->root || (virtual_address >> 47) != 0 ||
         (virtual_address & 0xFFFULL)) return -1;
 
-    uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
-    if (!pdpt) return -1;
+    uint64_t root_entry = space->root[PML4_INDEX(virtual_address)];
+    if (!(root_entry & PROSENJIT_PAGE_PRESENT) ||
+        !(root_entry & PROSENJIT_PAGE_USER) || (root_entry & LARGE_PAGE_FLAG))
+        return -1;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(root_entry & PAGE_MASK);
+
     uint64_t pdpte = pdpt[PDPT_INDEX(virtual_address)];
     if (!(pdpte & PROSENJIT_PAGE_PRESENT) || (pdpte & LARGE_PAGE_FLAG) ||
         !(pdpte & PROSENJIT_PAGE_USER)) return -1;
