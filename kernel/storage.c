@@ -42,12 +42,14 @@ int pros_storage_discover(struct pros_block_device *device,
     rc = storage_partition_table(device, &table_type);
     if (rc != PROS_PARTITION_OK)
         return rc == PROS_PARTITION_EIO ? PROS_STORAGE_EIO :
+               rc == PROS_PARTITION_ENOTSUP ? PROS_STORAGE_ENOTSUP :
                PROS_STORAGE_EINVAL;
 
     rc = storage_read_partitions(device, table_type, partitions,
                                  PROS_STORAGE_MAX_VOLUMES, &partition_count);
     if (rc != PROS_PARTITION_OK)
         return rc == PROS_PARTITION_EIO ? PROS_STORAGE_EIO :
+               rc == PROS_PARTITION_ENOTSUP ? PROS_STORAGE_ENOTSUP :
                PROS_STORAGE_EINVAL;
 
     for (uint32_t i = 0u; i < partition_count; ++i) {
