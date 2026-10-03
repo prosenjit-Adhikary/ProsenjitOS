@@ -13,6 +13,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "driver.h"
+#include "display_input.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -1312,6 +1313,45 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
+
+    if (pros_display_input_selftest() != PROS_DISPLAY_OK) {
+        serial_write("ProsenjitOS: ERROR display contract self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: display contract self-test passed\\n");
+
+    /*
+     * Multiboot2 framebuffer is a real platform display provider. Register
+     * and bind it through the same native driver model used by other devices.
+     * Native BIOS currently has no framebuffer provider in its boot protocol,
+     * so it is deliberately reported as unavailable rather than fabricated.
+     */
+    if (boot_magic == MULTIBOOT2_BOOT_MAGIC) {
+        struct pros_display_device *display = 0;
+        struct pros_display_mode display_mode;
+        int display_rc = pros_display_bind_multiboot((uint64_t)boot_info, &display);
+        if (display_rc != PROS_DISPLAY_OK ||
+            !display ||
+            pros_display_get_mode(display, &display_mode) != PROS_DISPLAY_OK ||
+            display->driver_device == 0 ||
+            display->driver_device->state != PROS_DEVICE_BOUND) {
+            serial_write("ProsenjitOS: ERROR Multiboot2 display-device binding failed rc=");
+            serial_hex64((uint64_t)(int64_t)display_rc);
+            serial_write("\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: display device bound; resolution = ");
+        serial_hex64(display_mode.width);
+        serial_write("x");
+        serial_hex64(display_mode.height);
+        serial_write(", pitch = ");
+        serial_hex64(display_mode.pitch);
+        serial_write(", framebuffer = ");
+        serial_hex64((uint64_t)display_mode.framebuffer);
+        serial_write("\\n");
+    } else {
+        serial_write("ProsenjitOS: native boot has no framebuffer provider; display binding unavailable\\n");
+    }
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
