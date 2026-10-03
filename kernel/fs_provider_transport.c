@@ -7,7 +7,7 @@
 #define TRANSPORT_REF_TAG 0x4653ULL
 static uint64_t next_device_ref = 1u;
 
-static uint64_t make_ref(uint32_t slot, uint16_t generation)
+static uint64_t make_ref(uint32_t slot, uint32_t generation)
 {
     return (TRANSPORT_REF_TAG << 48) |
            ((uint64_t)generation << TRANSPORT_REF_SHIFT) |
