@@ -144,6 +144,28 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     return 0;
 }
 
+int address_space_user_page_mapped(const struct pros_address_space *space,
+                                   uint64_t virtual_address) {
+    if (!space || !space->root || (virtual_address >> 47) != 0 ||
+        (virtual_address & 0xFFFULL)) return -1;
+
+    uint64_t pml4e = space->root[PML4_INDEX(virtual_address)];
+    if (!(pml4e & PROSENJIT_PAGE_PRESENT) ||
+        !(pml4e & PROSENJIT_PAGE_USER) || (pml4e & LARGE_PAGE_FLAG)) return 0;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
+    uint64_t pdpte = pdpt[PDPT_INDEX(virtual_address)];
+    if (!(pdpte & PROSENJIT_PAGE_PRESENT) ||
+        !(pdpte & PROSENJIT_PAGE_USER) || (pdpte & LARGE_PAGE_FLAG)) return 0;
+    uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
+    uint64_t pde = pd[PD_INDEX(virtual_address)];
+    if (!(pde & PROSENJIT_PAGE_PRESENT) ||
+        !(pde & PROSENJIT_PAGE_USER) || (pde & LARGE_PAGE_FLAG)) return 0;
+    uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
+    return (pt[PT_INDEX(virtual_address)] &
+            (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) ==
+           (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER);
+}
+
 static void destroy_table(uint64_t *table, uint32_t level) {
     if (!table) return;
 
