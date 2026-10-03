@@ -110,7 +110,7 @@ struct pros_fs_provider_response {
     uint64_t data_ref;
 };
 
-_Static_assert(sizeof(struct pros_fs_provider_descriptor) == 64,
+_Static_assert(sizeof(struct pros_fs_provider_descriptor) == 56,
                "provider descriptor ABI size changed");
 _Static_assert(sizeof(struct pros_fs_provider_request) == 64,
                "provider request ABI size changed");
