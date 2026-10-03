@@ -280,6 +280,32 @@ int pros_elf64_selftest(void)
         entry != eh->entry)
         return PROS_ELF_EFORMAT;
 
+    struct pros_address_space space = {0};
+    struct pros_elf_load_result loaded = {0};
+    if (address_space_create(&space) != 0)
+        return PROS_ELF_ENOMEM;
+    if (pros_elf64_load(&space, image, sizeof(image), &loaded) != PROS_ELF_OK ||
+        loaded.entry != eh->entry || loaded.loaded_segments != 1u ||
+        address_space_validate_user_range(&space, eh->entry, 4u, 0) != 0) {
+        address_space_destroy(&space);
+        return PROS_ELF_EFORMAT;
+    }
+    if (pros_elf64_load(&space, image, sizeof(image), &loaded) != PROS_ELF_EINVAL) {
+        uint64_t physical = 0u;
+        if (address_space_unmap_user_page(&space, eh->entry, &physical) == 0)
+            physical_page_free(physical);
+        address_space_destroy(&space);
+        return PROS_ELF_EFORMAT;
+    }
+
+    uint64_t physical = 0u;
+    if (address_space_unmap_user_page(&space, eh->entry, &physical) != 0) {
+        address_space_destroy(&space);
+        return PROS_ELF_EFORMAT;
+    }
+    physical_page_free(physical);
+    address_space_destroy(&space);
+
     ph->filesz = ph->memsz + 1u;
     if (pros_elf64_validate(image, sizeof(image), &entry) == PROS_ELF_OK)
         return PROS_ELF_EFORMAT;
