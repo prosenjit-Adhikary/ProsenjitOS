@@ -61,17 +61,33 @@ int pros_storage_discover(struct pros_block_device *device,
                    PROS_STORAGE_EINVAL;
 
         rc = vfs_probe_filesystem(&view.device, &filesystem);
-        if (rc != PROS_VFS_OK)
-            continue;
+        if (rc != PROS_VFS_OK) {
+            /*
+             * An unsupported filesystem is not an error for discovery, but
+             * real I/O, corruption, and range failures must remain visible.
+             */
+            if (rc == PROS_VFS_ENOSYS || rc == PROS_VFS_ENOENT)
+                continue;
+            if (rc == PROS_VFS_EOVERFLOW)
+                return PROS_STORAGE_EOVERFLOW;
+            return PROS_STORAGE_EIO;
+        }
 
         if (filesystem != PROS_FS_PROSENJIT &&
             filesystem != PROS_FS_EXTERNAL_PROVIDER)
             continue;
 
-        if (filesystem == PROS_FS_EXTERNAL_PROVIDER &&
-            pros_fs_provider_probe_any(&view.device, &provider_type) !=
-                PROS_FS_PROVIDER_OK)
-            continue;
+        if (filesystem == PROS_FS_EXTERNAL_PROVIDER) {
+            rc = pros_fs_provider_probe_any(&view.device, &provider_type);
+            if (rc != PROS_FS_PROVIDER_OK) {
+                if (rc == PROS_FS_PROVIDER_ENOSYS ||
+                    rc == PROS_FS_PROVIDER_ENOENT)
+                    continue;
+                if (rc == PROS_FS_PROVIDER_EOVERFLOW)
+                    return PROS_STORAGE_EOVERFLOW;
+                return PROS_STORAGE_EIO;
+            }
+        }
 
         if (found >= capacity)
             return PROS_STORAGE_EOVERFLOW;
