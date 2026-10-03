@@ -217,6 +217,7 @@ static int provider_test_request(void *context,
 
     ++test->calls;
     response->request_id = request->request_id;
+    response->size = sizeof(*response);
     response->status = PROS_FS_PROVIDER_OK;
     response->value0 = 0x50465331ULL;
     return 0;
