@@ -2,6 +2,7 @@
 
 #define MULTIBOOT2_TAG_END 0u
 #define MULTIBOOT2_TAG_MMAP 6u
+#define MULTIBOOT2_TAG_FRAMEBUFFER 8u
 #define MULTIBOOT2_MEMORY_AVAILABLE 1u
 
 #define MAX_PAGES (PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE)
@@ -32,6 +33,18 @@ extern char __kernel_end[];
 static uint64_t page_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
+
+struct multiboot_tag_framebuffer {
+    uint32_t type;
+    uint32_t size;
+    uint64_t framebuffer_addr;
+    uint32_t framebuffer_pitch;
+    uint32_t framebuffer_width;
+    uint32_t framebuffer_height;
+    uint8_t framebuffer_bpp;
+    uint8_t framebuffer_type;
+    uint16_t reserved;
+};
 
 static inline void bitmap_set(uint64_t page) {
     page_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
@@ -93,6 +106,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
+    uint64_t framebuffer_base = 0u;
+    uint64_t framebuffer_length = 0u;
 
     while (current + 8ULL <= end) {
         const struct multiboot_tag *tag = (const struct multiboot_tag *)(uintptr_t)current;
@@ -115,6 +130,32 @@ int physical_memory_init(uint64_t multiboot_info_address) {
                 if (entry->type == MULTIBOOT2_MEMORY_AVAILABLE)
                     mark_available(entry->base_addr, entry->length);
             }
+        } else if (tag->type == MULTIBOOT2_TAG_FRAMEBUFFER) {
+            const struct multiboot_tag_framebuffer *fb =
+                (const struct multiboot_tag_framebuffer *)tag;
+            uint64_t length;
+
+            if (tag->size < sizeof(struct multiboot_tag_framebuffer) ||
+                fb->framebuffer_addr == 0u ||
+                fb->framebuffer_pitch == 0u ||
+                fb->framebuffer_height == 0u ||
+                (uint64_t)fb->framebuffer_pitch >
+                    UINT64_MAX / (uint64_t)fb->framebuffer_height)
+                return -6;
+
+            length = (uint64_t)fb->framebuffer_pitch *
+                     (uint64_t)fb->framebuffer_height;
+            if (length == 0u ||
+                fb->framebuffer_addr > UINT64_MAX - length)
+                return -6;
+
+            /*
+             * Reserve the scanout surface before paging_init() can allocate
+             * page-table pages. Otherwise a low physical framebuffer could be
+             * handed to the allocator and then aliased as display memory.
+             */
+            framebuffer_base = fb->framebuffer_addr;
+            framebuffer_length = length;
         }
 
         current = (current + (uint64_t)tag->size + 7ULL) & ~7ULL;
@@ -131,6 +172,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 
     /* The Multiboot information structure must remain readable by the kernel. */
     reserve_range(multiboot_info_address, total_size);
+
+    if (framebuffer_length != 0u)
+        reserve_range(framebuffer_base, framebuffer_length);
 
     /* Report the number of pages currently managed after reservations. */
     total_pages = free_pages;
