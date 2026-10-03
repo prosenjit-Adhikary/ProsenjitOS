@@ -3374,8 +3374,13 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
                                 uint64_t first, uint32_t count,
                                 uint8_t allocate)
 {
-    if (!fs || fs->read_only || pfs_tx_reset(fs) != PROSENJITFS_OK)
+    if (!fs || fs->read_only)
         return PROSENJITFS_EINVAL;
+    {
+        int rc = pfs_tx_reset(fs);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     /* Staging must complete before commit; callers never receive a partially
      * applied allocator transaction when the journal capacity is exceeded. */
     {
@@ -3498,8 +3503,13 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
 static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
                                    uint64_t inode_number, uint8_t allocate)
 {
-    if (!fs || fs->read_only || pfs_tx_reset(fs) != PROSENJITFS_OK)
+    if (!fs || fs->read_only)
         return PROSENJITFS_EINVAL;
+    {
+        int rc = pfs_tx_reset(fs);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     {
         int rc = pfs_inode_bitmap_stage(fs, inode_number, allocate);
         if (rc != PROSENJITFS_OK)
