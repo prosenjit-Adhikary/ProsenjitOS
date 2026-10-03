@@ -1001,12 +1001,12 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 return pfs_file_write_error(done, rc);
             rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, PROSENJITFS_EIO);
+                return pfs_file_write_error(done, rc);
 
             if (tail_lba != 0u) {
                 rc = pfs_read_block(data->fs->mount.device, tail_lba, tail_image);
                 if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, PROSENJITFS_EIO);
+                    return pfs_file_write_error(done, rc);
                 struct pros_prosenjitfs_extent tail;
                 pfs_copy(&tail, tail_image, sizeof(tail));
                 tail.next = new_extent_lba;
@@ -1093,7 +1093,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 rc = pfs_read_block(data->fs->mount.device, inode_lba,
                                     inode_image);
                 if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, PROSENJITFS_EIO);
+                    return pfs_file_write_error(done, rc);
                 pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
                 pfs_put32(inode_image + inode_offset +
                           offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -3267,9 +3267,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_copy(header, &h, sizeof(h));
 
     pfs_tx_diag_stage = 2u;
-    if (pfs_write_block(fs->mount.device, fs->sb.journal_start,
-                        header) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+    {
+        int rc = pfs_write_block(fs->mount.device, fs->sb.journal_start,
+                                 header);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     pfs_tx_diag_stage = 3u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
         uint64_t journal_lba;
