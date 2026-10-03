@@ -245,6 +245,16 @@ static int pfs_lba_add(struct pros_block_device *device,
     return block_device_lba_add(device, base, offset, result) == PROS_BLOCK_OK
          ? PROSENJITFS_OK : PROSENJITFS_EOVERFLOW;
 }
+static int pfs_write_at_offset(struct pros_block_device *device,
+                                uint64_t base, uint64_t offset,
+                                const void *buffer)
+{
+    uint64_t lba;
+    if (pfs_lba_add(device, base, offset, &lba) != PROSENJITFS_OK)
+        return PROSENJITFS_EOVERFLOW;
+    return pfs_write_block(device, lba, buffer);
+}
+
 
 static int pfs_superblock_decode(const uint8_t *block,
                                  struct pros_prosenjitfs_superblock *sb)
@@ -2946,13 +2956,13 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         if (h.targets[i] >= fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
         if (pfs_read_block(fs->mount.device,
-                           fs->sb.journal_start + 1u + i,
+                           ({ uint64_t _lba; pfs_lba_add(fs->mount.device, fs->sb.journal_start, 1u + i, &_lba) == PROSENJITFS_OK ? _lba : UINT64_MAX; }),
                            images + (uint64_t)i * fs->sb.block_size) !=
             PROSENJITFS_OK)
             return PROSENJITFS_EIO;
     }
     if (pfs_read_block(fs->mount.device,
-                       fs->sb.journal_start + 1u + h.record_count,
+                       ({ uint64_t _lba; pfs_lba_add(fs->mount.device, fs->sb.journal_start, 1u + h.record_count, &_lba) == PROSENJITFS_OK ? _lba : UINT64_MAX; }),
                        commit) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
     pfs_copy(&c, commit, sizeof(c));
@@ -4068,8 +4078,8 @@ int prosenjitfs_selftest(void)
         pfs_copy(commit, &jc, sizeof(jc));
 
         if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
-            pfs_write_block(&device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
@@ -4093,7 +4103,7 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < sizeof(image); ++i)
             image[i] = (uint8_t)(0x5Au ^ (uint8_t)i);
         if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
@@ -4125,8 +4135,8 @@ int prosenjitfs_selftest(void)
         jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit) ^ 1u;
         pfs_copy(commit, &jc, sizeof(jc));
         if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
-            pfs_write_block(&device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
+            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
@@ -4134,7 +4144,7 @@ int prosenjitfs_selftest(void)
 
         pfs_zero(header, sizeof(header));
         for (uint32_t i = 0u; i < journal_blocks; ++i)
-            if (pfs_write_block(&device, journal_start + i, header) != PROSENJITFS_OK)
+            if (pfs_write_at_offset(&device, journal_start, i, header) != PROSENJITFS_OK)
                 return -(120000 + __LINE__);
         if (pfs_flush(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
