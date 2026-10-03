@@ -3737,7 +3737,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     int primary_ok, backup_ok;
     if (!fs || !device || device->sector_size < 512u ||
         device->sector_size > 4096u ||
-        (device->sector_size & (device->sector_size - 1u)) != 0u)
+        (device->sector_size & (device->sector_size - 1u)) != 0u ||
+        device->sector_count < 2u)
         return PROSENJITFS_EINVAL;
     pfs_zero(fs, sizeof(*fs));
     block = (uint8_t *)kmalloc(device->sector_size);
@@ -3879,6 +3880,13 @@ int prosenjitfs_selftest(void)
         return -1;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return -2;
+    {
+        struct pros_block_device short_device = device;
+        short_device.sector_count = 1u;
+        if (prosenjitfs_mount(&fs, &short_device, 0u) !=
+                PROSENJITFS_EINVAL)
+            return -14;
+    }
     {
         struct pros_block_device range_device = device;
         uint64_t lba = 0u;
