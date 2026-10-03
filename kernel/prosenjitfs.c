@@ -1737,12 +1737,13 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
             goto rmdir_out;
         }
         if (current < data->fs->sb.data_start ||
-            current >= data->fs->sb.total_blocks ||
-            pfs_read_block(data->fs->mount.device, current, entry_block) !=
-                PROSENJITFS_OK) {
-            /* Invalid or unreadable directory chains fail safely. */
-            break;
+            current >= data->fs->sb.total_blocks) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto rmdir_out;
         }
+        rc = pfs_read_block(data->fs->mount.device, current, entry_block);
+        if (rc != PROSENJITFS_OK)
+            goto rmdir_out;
         pfs_copy(&entry, entry_block, sizeof(entry));
         if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
             entry.name_length == 0u || entry.name_length > PROSENJITFS_MAX_NAME ||
@@ -1768,8 +1769,8 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     }
     if (target_lba == 0u) { rc = PROSENJITFS_ENOENT; goto rmdir_out; }
     if (inode_number == data->inode_number) { rc = PROS_VFS_EPERM; goto rmdir_out; }
-    if (prosenjitfs_read_inode(data->fs, inode_number, &child_inode) !=
-            PROSENJITFS_OK)
+    rc = prosenjitfs_read_inode(data->fs, inode_number, &child_inode);
+    if (rc != PROSENJITFS_OK)
         goto rmdir_out;
     if (child_inode.type != PROSENJITFS_INODE_DIR) {
         rc = PROS_VFS_ENOTDIR; goto rmdir_out;
@@ -1781,12 +1782,13 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         if (!scan) { rc = PROS_VFS_EIO; goto rmdir_out; }
         for (uint32_t b = 0u; b < PROSENJITFS_DIR_BUCKETS; ++b) {
             current = 0u; steps = 0u;
-            if (pfs_read_dir_index(data->fs, &child_inode, &dir_index) !=
-                    PROSENJITFS_OK) { kfree(scan); rc = PROS_VFS_EIO; goto rmdir_out; }
+            rc = pfs_read_dir_index(data->fs, &child_inode, &dir_index);
+            if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
             current = dir_index.heads[b];
             while (current != 0u) {
                 if (++steps > data->fs->sb.total_blocks) { kfree(scan); rc = PROSENJITFS_ECORRUPT; goto rmdir_out; }
-                if (pfs_read_block(data->fs->mount.device, current, scan) != PROSENJITFS_OK) { kfree(scan); rc = PROSENJITFS_ECORRUPT; goto rmdir_out; }
+                rc = pfs_read_block(data->fs->mount.device, current, scan);
+                if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
                 {
                     struct pros_prosenjitfs_dir_entry child_entry;
                     pfs_copy(&child_entry, scan, sizeof(child_entry));
@@ -1807,21 +1809,26 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         kfree(scan);
     }
 
-    if (pfs_inode_block_location(data->fs, inode_number, &inode_lba,
-                                 &inode_offset) != PROSENJITFS_OK)
+    rc = pfs_inode_block_location(data->fs, inode_number, &inode_lba,
+                                   &inode_offset);
+    if (rc != PROSENJITFS_OK)
         goto rmdir_out;
     inode_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     if (!inode_block || !dir_block || !prev_block)
         goto rmdir_out;
-    if (pfs_read_block(data->fs->mount.device, inode_lba, inode_block) != PROSENJITFS_OK ||
-        pfs_read_block(data->fs->mount.device, parent_inode.dir_index, dir_block) != PROSENJITFS_OK)
+    rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
+    if (rc != PROSENJITFS_OK)
+        goto rmdir_out;
+    rc = pfs_read_block(data->fs->mount.device, parent_inode.dir_index, dir_block);
+    if (rc != PROSENJITFS_OK)
         goto rmdir_out;
 
     if (previous == 0u) dir_index.heads[bucket] = entry.next;
     else {
-        if (pfs_read_block(data->fs->mount.device, previous, prev_block) != PROSENJITFS_OK)
+        rc = pfs_read_block(data->fs->mount.device, previous, prev_block);
+        if (rc != PROSENJITFS_OK)
             goto rmdir_out;
         {
             struct pros_prosenjitfs_dir_entry prev;
@@ -1845,14 +1852,22 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         pfs_crc_with_zero32(inode_block + inode_offset, sizeof(child_inode),
             (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)));
 
-    if (pfs_tx_reset(data->fs) != PROSENJITFS_OK ||
-        pfs_tx_add(data->fs, parent_inode.dir_index, dir_block) != PROSENJITFS_OK ||
-        (previous != 0u && pfs_tx_add(data->fs, previous, prev_block) != PROSENJITFS_OK) ||
-        pfs_tx_add(data->fs, inode_lba, inode_block) != PROSENJITFS_OK ||
-        pfs_inode_bitmap_stage(data->fs, inode_number, 0u) != PROSENJITFS_OK ||
-        pfs_allocator_stage(data->fs, target_lba, 1u, 0u) != PROSENJITFS_OK ||
-        pfs_allocator_stage(data->fs, child_inode.dir_index, 1u, 0u) != PROSENJITFS_OK ||
-        pfs_tx_commit(data->fs) != PROSENJITFS_OK) {
+    rc = pfs_tx_reset(data->fs);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
+    if (rc == PROSENJITFS_OK && previous != 0u)
+        rc = pfs_tx_add(data->fs, previous, prev_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_add(data->fs, inode_lba, inode_block);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_inode_bitmap_stage(data->fs, inode_number, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_allocator_stage(data->fs, target_lba, 1u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_allocator_stage(data->fs, child_inode.dir_index, 1u, 0u);
+    if (rc == PROSENJITFS_OK)
+        rc = pfs_tx_commit(data->fs);
+    if (rc != PROSENJITFS_OK) {
         pfs_tx_reset(data->fs);
         goto rmdir_out;
     }
