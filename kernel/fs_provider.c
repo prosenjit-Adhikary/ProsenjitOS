@@ -1,6 +1,7 @@
 #include "fs_provider.h"
 
 static struct pros_fs_provider *providers[PROS_FS_PROVIDER_REGISTRY_MAX];
+static uint64_t next_request_id = 1u;
 
 static int provider_valid(const struct pros_fs_provider *provider)
 {
@@ -85,6 +86,40 @@ pros_fs_provider_find(uint32_t provider_type)
     return 0;
 }
 
+static uint64_t provider_required_capability(uint32_t opcode)
+{
+    switch (opcode) {
+    case PROS_FS_PROVIDER_OP_READ:
+    case PROS_FS_PROVIDER_OP_LOOKUP:
+        return PROS_FS_PROVIDER_CAP_READ;
+    case PROS_FS_PROVIDER_OP_WRITE:
+        return PROS_FS_PROVIDER_CAP_WRITE;
+    case PROS_FS_PROVIDER_OP_CREATE:
+        return PROS_FS_PROVIDER_CAP_CREATE;
+    case PROS_FS_PROVIDER_OP_MKDIR:
+        return PROS_FS_PROVIDER_CAP_MKDIR;
+    case PROS_FS_PROVIDER_OP_UNLINK:
+        return PROS_FS_PROVIDER_CAP_UNLINK;
+    case PROS_FS_PROVIDER_OP_RMDIR:
+        return PROS_FS_PROVIDER_CAP_RMDIR;
+    case PROS_FS_PROVIDER_OP_RENAME:
+        return PROS_FS_PROVIDER_CAP_RENAME;
+    case PROS_FS_PROVIDER_OP_READDIR:
+        return PROS_FS_PROVIDER_CAP_READDIR;
+    case PROS_FS_PROVIDER_OP_STAT:
+        return PROS_FS_PROVIDER_CAP_STAT;
+    case PROS_FS_PROVIDER_OP_SYNC:
+        return PROS_FS_PROVIDER_CAP_SYNC;
+    case PROS_FS_PROVIDER_OP_PROBE:
+    case PROS_FS_PROVIDER_OP_MOUNT:
+    case PROS_FS_PROVIDER_OP_UNMOUNT:
+    case PROS_FS_PROVIDER_OP_RELEASE:
+        return 0u;
+    default:
+        return UINT64_MAX;
+    }
+}
+
 static int provider_request(const struct pros_fs_provider *provider,
                             uint32_t opcode,
                             uint64_t object_id,
@@ -96,9 +131,21 @@ static int provider_request(const struct pros_fs_provider *provider,
     if (!provider_valid(provider))
         return PROS_FS_PROVIDER_EINVAL;
 
+    uint64_t required_capability = provider_required_capability(opcode);
+    if (required_capability == UINT64_MAX)
+        return PROS_FS_PROVIDER_EINVAL;
+    if (required_capability != 0u &&
+        (provider->descriptor.capabilities & required_capability) == 0u)
+        return PROS_FS_PROVIDER_ENOTSUP;
+
     request.opcode = opcode;
     request.size = sizeof(request);
-    request.request_id = 1u;
+    request.request_id = next_request_id++;
+    if (request.request_id == 0u) {
+        request.request_id = next_request_id++;
+        if (request.request_id == 0u)
+            return PROS_FS_PROVIDER_EOVERFLOW;
+    }
     request.object_id = object_id;
 
     if (provider->transport->request(provider->transport->context,
