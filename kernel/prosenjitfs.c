@@ -2390,11 +2390,19 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         PROSENJITFS_OK)
         return PROS_VFS_EIO;
     rc = pfs_find_free_inode(data->fs, &inode_number);
-    if (rc != PROSENJITFS_OK)
-        return rc == PROSENJITFS_ENOSPC ? PROS_VFS_EOVERFLOW : PROS_VFS_EIO;
+    if (rc != PROSENJITFS_OK) {
+        if (rc == PROSENJITFS_ENOSPC) return PROS_VFS_ENOSPC;
+        if (rc == PROSENJITFS_EOVERFLOW) return PROS_VFS_EOVERFLOW;
+        if (rc == PROSENJITFS_EINVAL) return PROS_VFS_EINVAL;
+        return PROS_VFS_EIO;
+    }
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
-    if (rc != PROSENJITFS_OK)
-        return rc == PROSENJITFS_ENOSPC ? PROS_VFS_EOVERFLOW : PROS_VFS_EIO;
+    if (rc != PROSENJITFS_OK) {
+        if (rc == PROSENJITFS_ENOSPC) return PROS_VFS_ENOSPC;
+        if (rc == PROSENJITFS_EOVERFLOW) return PROS_VFS_EOVERFLOW;
+        if (rc == PROSENJITFS_EINVAL) return PROS_VFS_EINVAL;
+        return PROS_VFS_EIO;
+    }
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
@@ -3037,11 +3045,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
         uint64_t journal_lba;
         if (pfs_lba_add(fs->mount.device, fs->sb.journal_start,
-                        1u + i, &journal_lba) != PROSENJITFS_OK ||
-            pfs_write_block(fs->mount.device, journal_lba,
+                        1u + i, &journal_lba) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+        if (pfs_write_block(fs->mount.device, journal_lba,
                             fs->tx.images + (uint64_t)i * fs->sb.block_size) !=
                 PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+            return PROSENJITFS_EIO;
     }
     pfs_tx_diag_stage = 4u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
@@ -3060,11 +3069,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     {
         uint64_t commit_lba;
         if (pfs_lba_add(fs->mount.device, fs->sb.journal_start,
-                        1u + fs->tx.count, &commit_lba) != PROSENJITFS_OK ||
-            pfs_write_block(fs->mount.device, commit_lba, commit) !=
+                        1u + fs->tx.count, &commit_lba) != PROSENJITFS_OK)
+            return PROSENJITFS_EOVERFLOW;
+        if (pfs_write_block(fs->mount.device, commit_lba, commit) !=
                 PROSENJITFS_OK ||
             pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-            return PROSENJITFS_EOVERFLOW;
+            return PROSENJITFS_EIO;
     }
 
     pfs_tx_diag_stage = 6u;
@@ -3192,8 +3202,11 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
         return PROSENJITFS_EINVAL;
     /* Staging must complete before commit; callers never receive a partially
      * applied allocator transaction when the journal capacity is exceeded. */
-    if (pfs_allocator_stage(fs, first, count, allocate) != PROSENJITFS_OK)
-        return PROSENJITFS_EINVAL;
+    {
+        int rc = pfs_allocator_stage(fs, first, count, allocate);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     return pfs_tx_commit(fs);
 }
 
@@ -3310,8 +3323,11 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
 {
     if (!fs || fs->read_only || pfs_tx_reset(fs) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
-    if (pfs_inode_bitmap_stage(fs, inode_number, allocate) != PROSENJITFS_OK)
-        return PROSENJITFS_EINVAL;
+    {
+        int rc = pfs_inode_bitmap_stage(fs, inode_number, allocate);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
     return pfs_tx_commit(fs);
 }
 
