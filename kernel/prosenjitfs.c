@@ -2201,8 +2201,10 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
 
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!entry_block || !dir_block)
+    if (!entry_block || !dir_block) {
+        rc = PROSENJITFS_EIO;
         goto out;
+    }
 
     rc = pfs_find_dir_entry_lba(data->fs, &parent_inode, old_name,
                                  &entry, &target_lba, &previous);
@@ -2250,17 +2252,20 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             ancestor = ancestor_inode.parent_inode;
         }
         if (ancestor == data->inode_number) {
-            rc = PROS_VFS_EINVAL;
+            rc = PROSENJITFS_EINVAL;
             goto out;
         }
     }
 
     prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     new_dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!prev_block || !new_dir_block)
+    if (!prev_block || !new_dir_block) {
+        rc = PROSENJITFS_EIO;
         goto out;
+    }
 
-    if (pfs_tx_reset(data->fs) != PROSENJITFS_OK)
+    rc = pfs_tx_reset(data->fs);
+    if (rc != PROSENJITFS_OK)
         goto out;
 
     if (data->inode_number == new_data->inode_number) {
@@ -2442,8 +2447,6 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     }
 
     rc = pfs_tx_commit(data->fs);
-    if (rc == PROSENJITFS_OK)
-        rc = PROSENJITFS_OK;
     goto out;
 
 out_reset:
