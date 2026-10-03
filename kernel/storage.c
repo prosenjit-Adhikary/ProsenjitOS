@@ -53,7 +53,7 @@ int pros_storage_discover(struct pros_block_device *device,
     for (uint32_t i = 0u; i < partition_count; ++i) {
         struct pros_partition_device view;
         enum pros_filesystem_type filesystem;
-
+        uint32_t provider_type = PROS_FS_PROVIDER_UNKNOWN;
 
         rc = partition_device_init(&view, device, &partitions[i]);
         if (rc != PROS_PARTITION_OK)
@@ -68,13 +68,18 @@ int pros_storage_discover(struct pros_block_device *device,
             filesystem != PROS_FS_EXTERNAL_PROVIDER)
             continue;
 
+        if (filesystem == PROS_FS_EXTERNAL_PROVIDER &&
+            pros_fs_provider_probe_any(&view.device, &provider_type) !=
+                PROS_FS_PROVIDER_OK)
+            continue;
+
         if (found >= capacity)
             return PROS_STORAGE_EOVERFLOW;
 
         volumes[found].partition = partitions[i];
         volumes[found].device = view;
         volumes[found].filesystem = filesystem;
-        volumes[found].provider_type = PROS_FS_PROVIDER_UNKNOWN;
+        volumes[found].provider_type = provider_type;
         ++found;
     }
 
