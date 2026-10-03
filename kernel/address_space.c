@@ -79,11 +79,64 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
     if (!pt) return -1;
 
+    if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)
+        return -1;
+
     pt[PT_INDEX(virtual_address)] =
         (physical_address & PAGE_MASK) |
         PROSENJIT_PAGE_PRESENT |
         PROSENJIT_PAGE_USER |
         (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+    return 0;
+}
+
+int address_space_unmap_user_page(struct pros_address_space *space,
+                                  uint64_t virtual_address,
+                                  uint64_t *physical_address_out) {
+    if (!space || !space->root || (virtual_address >> 47) != 0 ||
+        (virtual_address & 0xFFFULL)) return -1;
+
+    uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
+    if (!pdpt) return -1;
+    uint64_t pdpte = pdpt[PDPT_INDEX(virtual_address)];
+    if (!(pdpte & PROSENJIT_PAGE_PRESENT) || (pdpte & LARGE_PAGE_FLAG) ||
+        !(pdpte & PROSENJIT_PAGE_USER)) return -1;
+    uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
+
+    uint64_t pde = pd[PD_INDEX(virtual_address)];
+    if (!(pde & PROSENJIT_PAGE_PRESENT) || (pde & LARGE_PAGE_FLAG) ||
+        !(pde & PROSENJIT_PAGE_USER)) return -1;
+    uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
+
+    uint32_t pti = PT_INDEX(virtual_address);
+    uint64_t pte = pt[pti];
+    if (!(pte & PROSENJIT_PAGE_PRESENT) || !(pte & PROSENJIT_PAGE_USER)) return -1;
+    if (physical_address_out) *physical_address_out = pte & PAGE_MASK;
+    pt[pti] = 0;
+
+    int pt_empty = 1;
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (pt[i] & PROSENJIT_PAGE_PRESENT) { pt_empty = 0; break; }
+    if (!pt_empty) return 0;
+
+    pd[PD_INDEX(virtual_address)] = 0;
+    physical_page_free((uint64_t)(uintptr_t)pt);
+
+    int pd_empty = 1;
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (pd[i] & PROSENJIT_PAGE_PRESENT) { pd_empty = 0; break; }
+    if (!pd_empty) return 0;
+
+    pdpt[PDPT_INDEX(virtual_address)] = 0;
+    physical_page_free((uint64_t)(uintptr_t)pd);
+
+    int pdpt_empty = 1;
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (pdpt[i] & PROSENJIT_PAGE_PRESENT) { pdpt_empty = 0; break; }
+    if (!pdpt_empty) return 0;
+
+    space->root[PML4_INDEX(virtual_address)] = 0;
+    physical_page_free((uint64_t)(uintptr_t)pdpt);
     return 0;
 }
 
