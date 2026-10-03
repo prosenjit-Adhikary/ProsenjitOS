@@ -85,6 +85,39 @@ struct pfs_write_diag {
 
 static struct pfs_write_diag pfs_diag;
 
+static int pfs_vfs_error(int rc)
+{
+    switch (rc) {
+    case PROSENJITFS_OK:
+        return PROS_VFS_OK;
+    case PROSENJITFS_EINVAL:
+        return PROS_VFS_EINVAL;
+    case PROSENJITFS_EIO:
+        return PROS_VFS_EIO;
+    case PROSENJITFS_ENOTSUP:
+        return PROS_VFS_ENOTSUP;
+    case PROSENJITFS_ECORRUPT:
+        return PROS_VFS_ECORRUPT;
+    case PROSENJITFS_ENOSPC:
+        return PROS_VFS_ENOSPC;
+    case PROSENJITFS_ENOENT:
+        return PROS_VFS_ENOENT;
+    case PROSENJITFS_EEXIST:
+        return PROS_VFS_EEXIST;
+    case PROSENJITFS_EOVERFLOW:
+        return PROS_VFS_EOVERFLOW;
+    case PROSENJITFS_ENOTDIR:
+        return PROS_VFS_ENOTDIR;
+    case PROSENJITFS_ENOTEMPTY:
+        return PROS_VFS_ENOTEMPTY;
+    case PROSENJITFS_EPERM:
+        return PROS_VFS_EPERM;
+    default:
+        return PROS_VFS_EIO;
+    }
+}
+
+
 /* Temporary mkdir regression trace: stage identifies the first failing operation. */
 static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
