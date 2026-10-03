@@ -1773,7 +1773,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     if (rc != PROSENJITFS_OK)
         goto rmdir_out;
     if (child_inode.type != PROSENJITFS_INODE_DIR) {
-        rc = PROS_VFS_ENOTDIR; goto rmdir_out;
+        rc = PROSENJITFS_ENOTDIR; goto rmdir_out;
     }
 
     /* A directory is removable only when every bucket is empty. */
@@ -2966,9 +2966,9 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         if (pfs_dir_entry_by_ordinal(data->fs, &dir_inode, ordinal, &disk_entry) !=
             PROSENJITFS_OK)
             return PROS_VFS_ENOENT;
-        if (prosenjitfs_read_inode(data->fs, disk_entry.inode, &child_inode) !=
-            PROSENJITFS_OK)
-            return PROS_VFS_EIO;
+        rc = prosenjitfs_read_inode(data->fs, disk_entry.inode, &child_inode);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
         for (uint32_t i = 0u; i < disk_entry.name_length; ++i)
             entry->name[i] = (char)disk_entry.name[i];
         entry->name[disk_entry.name_length] = '\0';
