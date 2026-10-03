@@ -3,7 +3,7 @@
 #define TRANSPORT_REF_SHIFT 16u
 #define TRANSPORT_SLOT_MASK 0xFFFFu
 #define TRANSPORT_GENERATION_MASK 0xFFFFFFFFu
-#define TRANSPORT_RESERVED_MASK 0x0000FFFF00000000ULL
+#define TRANSPORT_RESERVED_MASK 0x0000000000000000ULL
 #define TRANSPORT_REF_TAG 0x4653ULL
 static uint64_t next_device_ref = 1u;
 
@@ -317,6 +317,16 @@ int pros_fs_transport_selftest(void)
         pros_fs_transport_buffer_read(&transport, ref, 0u, dst,
                                       sizeof(dst)) != PROS_FS_TRANSPORT_EINVAL)
         return -8;
+
+    /* The generation occupies all 32 bits above the slot; verify that
+     * generations beyond 16 bits remain representable and valid. */
+    transport.buffers[0].generation = 0x00010000u;
+    ref = pros_fs_transport_buffer_alloc(
+        &transport, PROS_FS_TRANSPORT_BUFFER_READ);
+    if (ref == 0u || ref_generation(ref) != 0x00010000u ||
+        pros_fs_transport_buffer_release(&transport, ref) !=
+            PROS_FS_TRANSPORT_OK)
+        return -9;
 
     return PROS_FS_TRANSPORT_OK;
 }
