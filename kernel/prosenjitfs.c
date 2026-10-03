@@ -798,6 +798,12 @@ static int pfs_file_write_error(uint32_t done, int rc)
         return PROS_VFS_ENOENT;
     case PROSENJITFS_EEXIST:
         return PROS_VFS_EEXIST;
+    case PROSENJITFS_ECORRUPT:
+        return PROS_VFS_ECORRUPT;
+    case PROSENJITFS_ENOTDIR:
+        return PROS_VFS_ENOTDIR;
+    case PROSENJITFS_ENOTEMPTY:
+        return PROS_VFS_ENOTEMPTY;
     default:
         return PROS_VFS_EIO;
     }
