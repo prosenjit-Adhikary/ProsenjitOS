@@ -1858,9 +1858,18 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     if (child_inode.type == PROSENJITFS_INODE_DIR)
         { rc = PROS_VFS_EISDIR; goto out; }
 
+    if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE) {
+        rc = PROSENJITFS_EOVERFLOW;
+        goto out;
+    }
     inode_byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    inode_lba = parent_data->fs->sb.inode_table_start +
-                inode_byte_offset / parent_data->fs->sb.block_size;
+    if (pfs_lba_add(parent_data->fs->mount.device,
+                    parent_data->fs->sb.inode_table_start,
+                    inode_byte_offset / parent_data->fs->sb.block_size,
+                    &inode_lba) != PROSENJITFS_OK) {
+        rc = PROSENJITFS_EOVERFLOW;
+        goto out;
+    }
     inode_offset = (uint32_t)(inode_byte_offset %
                               parent_data->fs->sb.block_size);
     if (pfs_read_block(parent_data->fs->mount.device, inode_lba,
@@ -2420,9 +2429,17 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     child_inode.size = 0u;
     child_inode.allocated_bytes = 0u;
 
+    if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE) {
+        kfree(dir_block); kfree(entry_block); kfree(inode_block);
+        return PROS_VFS_EOVERFLOW;
+    }
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
-    inode_lba = data->fs->sb.inode_table_start +
-                byte_offset / data->fs->sb.block_size;
+    if (pfs_lba_add(data->fs->mount.device, data->fs->sb.inode_table_start,
+                    byte_offset / data->fs->sb.block_size, &inode_lba) !=
+        PROSENJITFS_OK) {
+        kfree(dir_block); kfree(entry_block); kfree(inode_block);
+        return PROS_VFS_EOVERFLOW;
+    }
     inode_offset = (uint32_t)(byte_offset % data->fs->sb.block_size);
     if (pfs_read_block(data->fs->mount.device, inode_lba, inode_block) !=
         PROSENJITFS_OK) {
