@@ -5,6 +5,7 @@
 #include "block.h"
 #include "security_admission.h"
 #include "partition.h"
+#include "../../include/abi/fs_provider.h"
 
 #define PROS_VFS_OK       0
 #define PROS_VFS_EINVAL  -1
@@ -30,7 +31,8 @@
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
-    PROS_FS_PROSENJIT
+    PROS_FS_PROSENJIT,
+    PROS_FS_EXTERNAL_PROVIDER
 };
 
 struct pros_vfs_file;
