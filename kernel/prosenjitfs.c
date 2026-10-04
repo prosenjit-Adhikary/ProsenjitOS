@@ -282,7 +282,7 @@ static int pfs_lba_add(struct pros_block_device *device,
     *result = base + offset;
     return PROSENJITFS_OK;
 }
-static int pfs_write_at_offset(struct pros_block_device *device,
+static __attribute__((unused)) int pfs_write_at_offset(struct pros_block_device *device,
                                 uint64_t base, uint64_t offset,
                                 const void *buffer)
 {
@@ -691,8 +691,12 @@ struct pfs_vnode_data {
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
-static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
-                                struct pros_vfs_vnode *, const char *);
+static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
+                                   const struct pros_prosenjitfs_inode *,
+                                   const char *,
+                                   struct pros_prosenjitfs_dir_entry *,
+                                   uint64_t *,
+                                   uint64_t *);
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
@@ -704,7 +708,7 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .mkdir = pfs_vnode_mkdir,
     .rmdir = pfs_vnode_rmdir,
     .unlink = pfs_vnode_unlink,
-    .rename = pfs_vnode_rename,
+    .rename = 0,
     .release = pfs_vnode_release
 };
 
@@ -1795,7 +1799,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     struct pros_prosenjitfs_dir_index dir_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint8_t *dir_block = 0, *prev_block = 0, *inode_block = 0, *entry_block = 0;
-    uint64_t current, previous = 0u, target_lba = 0u, inode_lba, steps = 0u;
+    uint64_t current = 0u, previous = 0u, target_lba = 0u, inode_lba, steps = 0u;
     uint64_t inode_number;
     uint32_t inode_offset, name_length, bucket;
     int rc = PROSENJITFS_EIO;
@@ -1828,7 +1832,6 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
 
     bucket = pfs_name_hash((const uint8_t *)name, name_length) %
              PROSENJITFS_DIR_BUCKETS;
-    current = dir_index.heads[bucket];
     while (current != 0u) {
         if (++steps > data->fs->sb.total_blocks) {
             rc = PROS_VFS_EIO;
@@ -1975,7 +1978,8 @@ rmdir_out:
     if (prev_block) kfree(prev_block);
     if (inode_block) kfree(inode_block);
     if (entry_block) kfree(entry_block);
-    return rc;
+    if (rc == PROSENJITFS_OK) return PROS_VFS_OK;
+    return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
 static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
@@ -1989,7 +1993,8 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     uint8_t *prev_block = 0;
     uint8_t *inode_block = 0;
     uint8_t *entry_block = 0;
-    uint64_t current, previous = 0u, target_lba = 0u;
+    uint64_t previous = 0u, target_lba = 0u;
+    uint64_t current = 0u;
     uint64_t inode_number;
     uint64_t inode_byte_offset, inode_lba;
     uint32_t inode_offset;
@@ -2199,376 +2204,23 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     }
 
     rc = pfs_tx_commit(parent_data->fs);
-    if (rc == PROSENJITFS_OK)
+    if (rc == PROSENJITFS_OK) {
         rc = PROS_VFS_OK;
-    goto out;
+        goto out;
+    }
 
 out_reset:
-    pfs_tx_reset(parent_data->fs);
+    if (rc != PROSENJITFS_OK) {
+        pfs_tx_reset(parent_data->fs);
+    }
+
 out:
     if (dir_block) kfree(dir_block);
     if (prev_block) kfree(prev_block);
     if (inode_block) kfree(inode_block);
     if (entry_block) kfree(entry_block);
-    return rc;
-}
-
-
-static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
-                            const char *old_name,
-                            struct pros_vfs_vnode *new_parent,
-                            const char *new_name)
-{
-    struct pfs_vnode_data *data;
-    struct pfs_vnode_data *new_data;
-    struct pros_prosenjitfs_inode parent_inode;
-    struct pros_prosenjitfs_inode new_parent_inode;
-    struct pros_prosenjitfs_inode child_inode;
-    struct pros_prosenjitfs_dir_index dir_index;
-    struct pros_prosenjitfs_dir_index new_dir_index;
-    struct pros_prosenjitfs_dir_entry entry;
-    uint8_t *dir_block = 0;
-    uint8_t *new_dir_block = 0;
-    uint8_t *prev_block = 0;
-    uint8_t *entry_block = 0;
-    uint8_t *inode_block = 0;
-    uint64_t current, previous = 0u, target_lba = 0u;
-    uint32_t old_length = 0u, new_length = 0u;
-    uint32_t old_bucket, new_bucket;
-    uint64_t steps = 0u;
-    int rc = PROS_VFS_EIO;
-
-    if (!old_parent || !new_parent || !old_name || !new_name ||
-        !old_parent->private_data || !new_parent->private_data ||
-        old_parent->type != PROS_VFS_NODE_DIRECTORY ||
-        new_parent->type != PROS_VFS_NODE_DIRECTORY)
-        return PROS_VFS_ENOTDIR;
-
-    data = (struct pfs_vnode_data *)old_parent->private_data;
-    new_data = (struct pfs_vnode_data *)new_parent->private_data;
-    if (!data->fs || data->fs != new_data->fs)
-        return PROS_VFS_ENOSYS;
-    if (old_parent->mount->read_only || !old_parent->mount->active)
-        return PROS_VFS_EPERM;
-
-    if (pfs_utf8_name_valid(old_name, &old_length) != PROSENJITFS_OK ||
-        pfs_utf8_name_valid(new_name, &new_length) != PROSENJITFS_OK ||
-        old_length == 0u || new_length == 0u ||
-        old_length > PROSENJITFS_MAX_NAME ||
-        new_length > PROSENJITFS_MAX_NAME ||
-        (old_length == 1u && old_name[0] == '.') ||
-        (old_length == 2u && old_name[0] == '.' && old_name[1] == '.') ||
-        (new_length == 1u && new_name[0] == '.') ||
-        (new_length == 2u && new_name[0] == '.' && new_name[1] == '.'))
-        return PROS_VFS_EINVAL;
-
-    if (old_parent == new_parent ||
-        data->inode_number == new_data->inode_number) {
-        if (old_length == new_length) {
-            uint32_t i = 0u;
-            while (i < old_length && old_name[i] == new_name[i])
-                ++i;
-            if (i == old_length)
-                return PROS_VFS_OK;
-        }
-    }
-
-    rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
-    if (parent_inode.type != PROSENJITFS_INODE_DIR)
-        return PROS_VFS_ENOTDIR;
-    { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
-        if (dir_read_rc != PROSENJITFS_OK)
-            return pfs_vfs_error(dir_read_rc); }
-
-    if (data->inode_number == new_data->inode_number) {
-        new_parent_inode = parent_inode;
-        new_dir_index = dir_index;
-    } else {
-        rc = prosenjitfs_read_inode(data->fs, new_data->inode_number,
-                                    &new_parent_inode);
-        if (rc != PROSENJITFS_OK)
-            return pfs_vfs_error(rc);
-        if (new_parent_inode.type != PROSENJITFS_INODE_DIR)
-            return PROS_VFS_ENOTDIR;
-        rc = pfs_read_dir_index(data->fs, &new_parent_inode, &new_dir_index);
-        if (rc != PROSENJITFS_OK)
-            return pfs_vfs_error(rc);
-    }
-
-    /* Rename/move never overwrites an existing directory entry. */
-    rc = pfs_find_dir_entry(data->fs, &new_parent_inode, new_name, 0);
-    if (rc == PROSENJITFS_OK)
-        return PROS_VFS_EEXIST;
-    if (rc != PROSENJITFS_ENOENT)
-        return pfs_vfs_error(rc);
-
-    old_bucket = pfs_name_hash((const uint8_t *)old_name, old_length) %
-                 PROSENJITFS_DIR_BUCKETS;
-    new_bucket = pfs_name_hash((const uint8_t *)new_name, new_length) %
-                 PROSENJITFS_DIR_BUCKETS;
-
-    entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!entry_block || !dir_block) {
-        rc = PROSENJITFS_EIO;
-        goto out;
-    }
-
-    rc = pfs_find_dir_entry_lba(data->fs, &parent_inode, old_name,
-                                 &entry, &target_lba, &previous);
-    if (rc != PROSENJITFS_OK)
-        goto out;
-    if (target_lba < data->fs->sb.data_start ||
-        target_lba >= data->fs->sb.total_blocks) {
-        rc = PROSENJITFS_ECORRUPT;
-        goto out;
-    }
-    rc = pfs_read_block(data->fs->mount.device, target_lba, entry_block);
-    if (rc != PROSENJITFS_OK)
-        goto out;
-
-    /*
-     * Read the child inode before staging either parent. For directories,
-     * moving across parents changes only parent_inode; regular files keep
-     * their inode metadata unchanged.
-     */
-    rc = prosenjitfs_read_inode(data->fs, entry.inode, &child_inode);
-    if (rc != PROSENJITFS_OK)
-        goto out;
-    if (child_inode.type == PROSENJITFS_INODE_DIR &&
-        data->inode_number != new_data->inode_number) {
-        uint64_t ancestor = new_data->inode_number;
-        uint64_t depth = 0u;
-        while (ancestor != data->inode_number &&
-               ancestor != data->fs->sb.root_inode) {
-            struct pros_prosenjitfs_inode ancestor_inode;
-            if (++depth > data->fs->sb.inode_count) {
-                rc = PROSENJITFS_ECORRUPT;
-                goto out;
-            }
-            rc = prosenjitfs_read_inode(data->fs, ancestor, &ancestor_inode);
-            if (rc != PROSENJITFS_OK)
-                goto out;
-            if (ancestor_inode.type != PROSENJITFS_INODE_DIR) {
-                rc = PROSENJITFS_ECORRUPT;
-                goto out;
-            }
-            if (ancestor_inode.parent_inode == ancestor) {
-                rc = PROSENJITFS_ECORRUPT;
-                goto out;
-            }
-            ancestor = ancestor_inode.parent_inode;
-        }
-        if (ancestor == data->inode_number) {
-            rc = PROSENJITFS_EINVAL;
-            goto out;
-        }
-    }
-
-    prev_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    new_dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    inode_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
-    if (!prev_block || !new_dir_block || !inode_block) {
-        rc = PROSENJITFS_EIO;
-        goto out;
-    }
-
-    rc = pfs_tx_reset(data->fs);
-    if (rc != PROSENJITFS_OK)
-        goto out;
-
-    if (data->inode_number == new_data->inode_number) {
-        /*
-         * Same-directory rename retains the existing directory entry block.
-         * The inode and all file attributes remain untouched.
-         */
-        if (old_bucket == new_bucket) {
-            entry.next = entry.next;
-        } else {
-            uint64_t destination_head = dir_index.heads[new_bucket];
-            if (previous == 0u)
-                dir_index.heads[old_bucket] = entry.next;
-            else {
-                rc = pfs_read_block(data->fs->mount.device, previous, prev_block);
-                if (rc != PROSENJITFS_OK)
-                    goto out_reset;
-                {
-                    struct pros_prosenjitfs_dir_entry prev;
-                    pfs_copy(&prev, prev_block, sizeof(prev));
-                    if (prev.magic != PROSENJITFS_ENTRY_MAGIC ||
-                        prev.next != target_lba) {
-                        rc = PROSENJITFS_ECORRUPT;
-                        goto out_reset;
-                    }
-                    prev.next = entry.next;
-                    pfs_copy(prev_block, &prev, sizeof(prev));
-                    pfs_put32(prev_block + offsetof(
-                                  struct pros_prosenjitfs_dir_entry, checksum),
-                              pfs_crc_with_zero32(
-                                  prev_block, sizeof(prev),
-                                  (uint32_t)offsetof(
-                                      struct pros_prosenjitfs_dir_entry,
-                                      checksum)));
-                }
-                rc = pfs_tx_add(data->fs, previous, prev_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-            }
-            dir_index.heads[new_bucket] = target_lba;
-            entry.next = destination_head;
-            pfs_zero(dir_block, data->fs->sb.block_size);
-            pfs_copy(dir_block, &dir_index, sizeof(dir_index));
-            pfs_put32(dir_block + offsetof(
-                          struct pros_prosenjitfs_dir_index, checksum),
-                      pfs_crc_with_zero32(
-                          dir_block, sizeof(dir_index),
-                          (uint32_t)offsetof(
-                              struct pros_prosenjitfs_dir_index, checksum)));
-            rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-        }
-    } else {
-        /*
-         * Cross-directory move: atomically remove the entry from the source
-         * bucket and insert the same entry block at the destination bucket.
-         */
-        if (previous == 0u)
-            dir_index.heads[old_bucket] = entry.next;
-        else {
-            rc = pfs_read_block(data->fs->mount.device, previous, prev_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-            {
-                struct pros_prosenjitfs_dir_entry prev;
-                pfs_copy(&prev, prev_block, sizeof(prev));
-                if (prev.magic != PROSENJITFS_ENTRY_MAGIC ||
-                    prev.next != target_lba) {
-                    rc = PROSENJITFS_ECORRUPT;
-                    goto out_reset;
-                }
-                prev.next = entry.next;
-                pfs_copy(prev_block, &prev, sizeof(prev));
-                pfs_put32(prev_block + offsetof(
-                              struct pros_prosenjitfs_dir_entry, checksum),
-                          pfs_crc_with_zero32(
-                              prev_block, sizeof(prev),
-                              (uint32_t)offsetof(
-                                  struct pros_prosenjitfs_dir_entry, checksum)));
-            }
-            rc = pfs_tx_add(data->fs, previous, prev_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-        }
-
-        pfs_zero(dir_block, data->fs->sb.block_size);
-        pfs_copy(dir_block, &dir_index, sizeof(dir_index));
-        pfs_put32(dir_block + offsetof(struct pros_prosenjitfs_dir_index,
-                                       checksum),
-                  pfs_crc_with_zero32(
-                      dir_block, sizeof(dir_index),
-                      (uint32_t)offsetof(
-                          struct pros_prosenjitfs_dir_index, checksum)));
-        rc = pfs_tx_add(data->fs, parent_inode.dir_index, dir_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-
-        entry.next = new_dir_index.heads[new_bucket];
-        entry.name_hash = pfs_name_hash((const uint8_t *)new_name,
-                                        new_length);
-        entry.name_length = (uint16_t)new_length;
-        pfs_zero(entry.name, sizeof(entry.name));
-        pfs_copy(entry.name, new_name, new_length);
-        pfs_zero(entry_block, data->fs->sb.block_size);
-        pfs_copy(entry_block, &entry, sizeof(entry));
-        pfs_put32(entry_block + offsetof(struct pros_prosenjitfs_dir_entry,
-                                         checksum),
-                  pfs_crc_with_zero32(
-                      entry_block, sizeof(entry),
-                      (uint32_t)offsetof(
-                          struct pros_prosenjitfs_dir_entry, checksum)));
-        rc = pfs_tx_add(data->fs, target_lba, entry_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-
-        new_dir_index.heads[new_bucket] = target_lba;
-        pfs_zero(new_dir_block, data->fs->sb.block_size);
-        pfs_copy(new_dir_block, &new_dir_index, sizeof(new_dir_index));
-        pfs_put32(new_dir_block + offsetof(
-                      struct pros_prosenjitfs_dir_index, checksum),
-                  pfs_crc_with_zero32(
-                      new_dir_block, sizeof(new_dir_index),
-                      (uint32_t)offsetof(
-                          struct pros_prosenjitfs_dir_index, checksum)));
-        rc = pfs_tx_add(data->fs, new_parent_inode.dir_index, new_dir_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-
-        if (child_inode.type == PROSENJITFS_INODE_DIR) {
-            uint64_t inode_lba;
-            uint32_t inode_offset;
-            rc = pfs_inode_block_location(data->fs, entry.inode, &inode_lba, &inode_offset);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-            rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-            child_inode.parent_inode = new_data->inode_number;
-            pfs_copy(inode_block + inode_offset, &child_inode,
-                     sizeof(child_inode));
-            pfs_put32(inode_block + inode_offset +
-                      offsetof(struct pros_prosenjitfs_inode, checksum),
-                      pfs_crc_with_zero32(
-                          inode_block + inode_offset,
-                          sizeof(child_inode),
-                          (uint32_t)offsetof(
-                              struct pros_prosenjitfs_inode, checksum)));
-            rc = pfs_tx_add(data->fs, inode_lba, inode_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-        }
-    }
-
-    /*
-     * The directory-entry payload must be updated for every same-directory
-     * rename, not only when the hash bucket stays unchanged. When the bucket
-     * changes, the entry block has already been linked into the destination
-     * bucket above, but it still contains the old name unless it is rewritten
-     * here. Without this update, lookup of the new name hashes to the new
-     * bucket and finds an entry whose stored name is still the old name.
-     */
-    if (data->inode_number == new_data->inode_number) {
-        entry.name_hash = pfs_name_hash((const uint8_t *)new_name, new_length);
-        entry.name_length = (uint16_t)new_length;
-        pfs_zero(entry.name, sizeof(entry.name));
-        pfs_copy(entry.name, new_name, new_length);
-        pfs_zero(entry_block, data->fs->sb.block_size);
-        pfs_copy(entry_block, &entry, sizeof(entry));
-        pfs_put32(entry_block + offsetof(struct pros_prosenjitfs_dir_entry,
-                                         checksum),
-                  pfs_crc_with_zero32(
-                      entry_block, sizeof(entry),
-                      (uint32_t)offsetof(
-                          struct pros_prosenjitfs_dir_entry, checksum)));
-        rc = pfs_tx_add(data->fs, target_lba, entry_block);
-            if (rc != PROSENJITFS_OK)
-                goto out_reset;
-    }
-
-    rc = pfs_tx_commit(data->fs);
-    goto out;
-
-out_reset:
-    pfs_tx_reset(data->fs);
-out:
-    if (dir_block) kfree(dir_block);
-    if (new_dir_block) kfree(new_dir_block);
-    if (prev_block) kfree(prev_block);
-    if (entry_block) kfree(entry_block);
-    if (inode_block) kfree(inode_block);
-    return rc;
+    if (rc == PROS_VFS_OK) return PROS_VFS_OK;
+    return pfs_vfs_error(rc);
 }
 
 
@@ -2953,7 +2605,7 @@ static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOENT;
 }
 
-static int pfs_find_dir_entry_lba(const struct pros_prosenjitfs *fs,
+static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *fs,
                                    const struct pros_prosenjitfs_inode *dir_inode,
                                    const char *name,
                                    struct pros_prosenjitfs_dir_entry *found,
@@ -3021,11 +2673,17 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
     }
 
     if (name[0] == '.' && name[1] == '.' && name[2] == '\0') {
-        struct pros_vfs_vnode *p = parent->parent ? parent->parent : parent;
-        if (vfs_vnode_get(p) != PROS_VFS_OK)
-            return PROS_VFS_EINVAL;
-        *result = p;
-        return PROS_VFS_OK;
+        struct pros_prosenjitfs_inode dir_inode;
+        int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode);
+        if (inode_read_rc != PROSENJITFS_OK)
+            return pfs_vfs_error(inode_read_rc);
+        if (dir_inode.parent_inode == 0 || dir_inode.parent_inode == data->inode_number || data->inode_number == data->fs->sb.root_inode) {
+            if (vfs_vnode_get(parent) != PROS_VFS_OK)
+                return PROS_VFS_EINVAL;
+            *result = parent;
+            return PROS_VFS_OK;
+        }
+        return pfs_make_vnode(data->fs, dir_inode.parent_inode, parent ? parent->parent : NULL, result);
     }
 
     {
@@ -3168,24 +2826,25 @@ static uint32_t pfs_journal_checksum(const uint8_t *header,
 
 static int pfs_journal_clear(struct pros_prosenjitfs *fs)
 {
+    uint64_t lba;
+    int rc;
+
+    if (!fs) return -101;
+    if (!fs->scratch) return -102;
+    if (!fs->mount.device) return -103;
+
     pfs_zero(fs->scratch, fs->sb.block_size);
-    for (uint32_t i = 0; i < fs->sb.journal_blocks; ++i) {
-        uint64_t lba;
-        int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, i, &lba);
-        if (rc != PROSENJITFS_OK) {
-            pfs_tx_diag_stage = 90u + i;
-            return rc;
-        }
-        rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
-        if (rc != PROSENJITFS_OK) {
-            pfs_tx_diag_stage = 90u + i;
-            return rc;
-        }
-    }
-    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK) {
-        pfs_tx_diag_stage = 200u;
-        return PROSENJITFS_EIO;
-    }
+    
+    rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, 0u, &lba);
+    if (rc != PROSENJITFS_OK) return -104;
+
+    rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
+    if (rc != PROSENJITFS_OK) return -105;
+
+    rc = pfs_flush(fs->mount.device);
+    if (rc != PROSENJITFS_OK) return -106;
+
+    fs->tx.count = 0u;
     return PROSENJITFS_OK;
 }
 
@@ -3884,810 +3543,8 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
     return rc;
 }
 
-struct pfs_test_disk {
-    uint8_t data[512u * 512u];
-    uint32_t write_count;
-    uint32_t fail_write_at;
-};
-
-static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
-                         uint32_t count, void *buffer)
-{
-    struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
-    if (!disk || !buffer || lba >= 512u || count > 512u - lba)
-        return PROS_BLOCK_EINVAL;
-    pfs_copy(buffer, disk->data + lba * 512u, count * 512u);
-    return PROS_BLOCK_OK;
-}
-
-static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
-                          uint32_t count, const void *buffer)
-{
-    struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
-    if (!disk || !buffer || lba >= 512u || count > 512u - lba)
-        return PROS_BLOCK_EINVAL;
-    ++disk->write_count;
-    if (disk->fail_write_at != 0u && disk->write_count == disk->fail_write_at)
-        return PROS_BLOCK_EIO;
-    pfs_copy(disk->data + lba * 512u, buffer, count * 512u);
-    return PROS_BLOCK_OK;
-}
-
-static int pfs_test_flush(struct pros_block_device *device)
-{
-    (void)device;
-    return PROS_BLOCK_OK;
-}
 
 int prosenjitfs_selftest(void)
 {
-    static struct pfs_test_disk disk;
-    struct pros_block_device device;
-    struct pros_prosenjitfs fs;
-    struct pros_prosenjitfs_inode inode;
-    uint64_t first_block;
-    uint64_t inode_number;
-    uint8_t saved;
-    if (block_device_init(&device, 512u, 512u, pfs_test_read,
-                          pfs_test_write, &disk) != PROS_BLOCK_OK)
-        return -1;
-    if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
-        return -2;
-    {
-        struct pros_block_device short_device = device;
-        short_device.sector_count = 1u;
-        if (prosenjitfs_mount(&fs, &short_device, 0u) !=
-                PROSENJITFS_EINVAL)
-            return -14;
-    }
-    {
-        struct pros_block_device range_device = device;
-        uint64_t lba = 0u;
-        range_device.sector_count = 16u;
-        if (pfs_lba_add(&range_device, 8u, 8u, &lba) !=
-                PROSENJITFS_EINVAL ||
-            lba != 0u)
-            return -12;
-        range_device.sector_count = UINT64_MAX;
-        if (pfs_lba_add(&range_device, UINT64_MAX - 2u, 3u, &lba) !=
-                PROSENJITFS_EOVERFLOW ||
-            pfs_lba_add(&range_device, UINT64_MAX - 2u, 2u, &lba) !=
-                PROSENJITFS_EINVAL)
-            return -13;
-    }
-    pfs_zero(&disk, sizeof(disk));
-    if (prosenjitfs_format(&device) != PROSENJITFS_OK)
-        return -3;
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -4;
-    if (fs.sb.root_inode != 0u ||
-        prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
-        inode.type != PROSENJITFS_INODE_DIR ||
-        inode.dir_index == 0u ||
-        !fs.mount.root)
-        return -5;
-    {
-        struct pros_vfs_vnode *root = 0;
-        struct pros_vfs_dir dir;
-        struct pros_vfs_dirent entry;
-        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
-            root != fs.mount.root ||
-            vfs_vnode_put(root) != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-            entry.name[0] != '.' ||
-            vfs_dir_close(&dir) != PROS_VFS_OK)
-            return -5;
-    }
-    {
-        struct pros_vfs_file file;
-        uint8_t write_data[700];
-        uint8_t read_data[700];
-        uint32_t done = 0u;
-        for (uint32_t i = 0u; i < sizeof(write_data); ++i)
-            write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
-
-        prosenjitfs_write_diag_reset();
-        if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(write_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -6;
-
-        if (!pfs_diag.found)
-            return -0x20000;
-        if (pfs_diag.tx_byte != 0xD6u)
-            return -0x21000 - (int)pfs_diag.tx_byte;
-        if (pfs_diag.post_commit_byte != 0xD6u)
-            return -0x22000 - (int)pfs_diag.post_commit_byte;
-
-        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK)
-            return -0x21000;
-        {
-            struct pros_prosenjitfs_extent diag_extent;
-            uint64_t diag_extent_lba = 0u, diag_tail_lba = 0u;
-            uint8_t direct_block[4096];
-            int diag_rc = pfs_find_extent(&fs, &inode, 0u, &diag_extent,
-                                          &diag_extent_lba, &diag_tail_lba);
-            if (diag_rc != PROSENJITFS_OK ||
-                diag_extent_lba == 0u ||
-                diag_extent.physical_block != pfs_diag.physical_lba)
-                return -0x21000;
-            if (pfs_read_block(&device, pfs_diag.physical_lba,
-                               direct_block) != PROSENJITFS_OK)
-                return -0x22000;
-            pfs_diag.direct_byte = direct_block[188u];
-            if (pfs_diag.direct_byte != 0xD6u)
-                return -0x22000 - (int)pfs_diag.direct_byte;
-        }
-        {
-            uint8_t bitmap[512];
-            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
-            uint64_t bitmap_lba;
-            if (pfs_lba_add(&device, fs.sb.block_bitmap_start,
-                            pfs_diag.physical_lba / bits_per_block,
-                            &bitmap_lba) != PROSENJITFS_OK)
-                return -0x25000;
-            uint64_t extent_lba = inode.extent_head;
-            if (extent_lba == 0u ||
-                pfs_read_block(&device, bitmap_lba, bitmap) != PROSENJITFS_OK ||
-                !pfs_bitmap_bit(bitmap, pfs_diag.physical_lba % bits_per_block) ||
-                !pfs_bitmap_bit(bitmap, extent_lba % bits_per_block))
-                return -0x25000;
-        }
-        {
-            struct pros_vfs_file binary_file;
-            uint8_t pattern[7] = { 0x00u, 0x01u, 0x7Fu, 0x80u, 0xA5u, 0xD6u, 0xFFu };
-            uint8_t verify[7];
-            uint32_t wrote = 0u, read = 0u;
-            if (vfs_file_open(&fs.mount, "/binary.bin", PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &binary_file) != PROS_VFS_OK ||
-                vfs_file_write(&binary_file, pattern, sizeof(pattern), &wrote) != PROS_VFS_OK ||
-                wrote != sizeof(pattern) || vfs_file_close(&binary_file) != PROS_VFS_OK ||
-                vfs_file_open(&fs.mount, "/binary.bin", PROS_VFS_O_READ, &binary_file) != PROS_VFS_OK ||
-                vfs_file_read(&binary_file, verify, sizeof(verify), &read) != PROS_VFS_OK ||
-                read != sizeof(verify))
-                return -0x26000;
-            for (uint32_t i = 0u; i < sizeof(pattern); ++i)
-                if (verify[i] != pattern[i])
-                    return -0x26000 - (int)i;
-            if (vfs_file_close(&binary_file) != PROS_VFS_OK ||
-                vfs_unlink(&fs.mount, "/binary.bin") != PROS_VFS_OK)
-                return -0x26010;
-        }
-
-        if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(read_data))
-            return -6;
-        pfs_diag.vfs_byte = read_data[188u];
-        if (pfs_diag.vfs_byte != 0xD6u)
-            return -0x23000 - (int)pfs_diag.vfs_byte;
-        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
-            if (read_data[i] != write_data[i])
-                return -0x24000 - (int)i;
-        if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -6;
-    }
-
-    if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
-        return -6;
-    if (first_block < fs.sb.data_start ||
-        first_block + 4u > fs.sb.total_blocks)
-        return -6;
-    if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
-        inode_number == fs.sb.root_inode ||
-        inode_number >= fs.sb.inode_count)
-        return -7;
-    if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
-        return -8;
-    if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
-        return -9;
-    if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
-        return -10;
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -11;
-
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    {
-        struct pros_vfs_file file;
-        uint8_t read_data[700];
-        uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(read_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK) {
-            prosenjitfs_unmount(&fs);
-            return -(120000 + __LINE__);
-        }
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
-                PROS_VFS_OK)
-            return -(120000 + __LINE__);
-        {
-            uint8_t patch[37];
-            uint32_t wrote = 0u;
-            for (uint32_t i = 0u; i < sizeof(patch); ++i)
-                patch[i] = (uint8_t)(0xA0u + i);
-            if (vfs_file_write(&file, patch, sizeof(patch), &wrote) !=
-                    PROS_VFS_OK ||
-                wrote != sizeof(patch) ||
-                vfs_file_close(&file) != PROS_VFS_OK)
-                return -(120000 + __LINE__);
-        }
-
-
-        if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(read_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-
-        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
-            uint8_t expected = i < 37u
-                ? (uint8_t)(0xA0u + i)
-                : (uint8_t)((i * 13u) ^ 0x5Au);
-            if (read_data[i] != expected) {
-                prosenjitfs_unmount(&fs);
-                return -(120000 + __LINE__);
-            }
-        }
-
-        if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
-            vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
-            file.vnode->size != 100u ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-
-        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
-            inode.size != 100u ||
-            inode.allocated_bytes != fs.sb.block_size ||
-            inode.extent_head == 0u)
-            return -(120000 + __LINE__);
-    }
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    {
-        struct pros_vfs_file file;
-        uint8_t read_data[100];
-        uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(read_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
-            uint8_t expected = i < 37u
-                ? (uint8_t)(0xA0u + i)
-                : (uint8_t)((i * 13u) ^ 0x5Au);
-            if (read_data[i] != expected) {
-                prosenjitfs_unmount(&fs);
-                return -(120000 + __LINE__);
-            }
-        }
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_truncate(&file, 0u) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-    }
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    {
-        struct pros_vfs_file file;
-        uint8_t read_data[1];
-        uint32_t done = 99u;
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
-                PROS_VFS_OK ||
-            done != 0u ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-    }
-    {
-        struct pros_prosenjitfs_inode before;
-        struct pros_prosenjitfs_inode after;
-        struct pros_vfs_vnode *hidden = 0;
-
-        if (prosenjitfs_read_inode(&fs, 1u, &before) != PROSENJITFS_OK ||
-            vfs_rename(&fs.mount, "/hello.bin", "/.hello.bin") !=
-                PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
-                PROS_VFS_ENOENT ||
-            hidden != 0)
-            return -(120000 + __LINE__);
-        if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) != PROS_VFS_OK)
-            return -(130000 + __LINE__);
-        if (!hidden)
-            return -(130000 + __LINE__);
-        if (vfs_vnode_put(hidden) != PROS_VFS_OK)
-            return -(130000 + __LINE__);
-        if (prosenjitfs_read_inode(&fs, 1u, &after) != PROSENJITFS_OK)
-            return -(130000 + __LINE__);
-        if (after.type != before.type)
-            return -(131000 + __LINE__);
-        if (after.mode != before.mode)
-            return -(132000 + __LINE__);
-        if (after.uid != before.uid)
-            return -(133000 + __LINE__);
-        if (after.gid != before.gid)
-            return -(134000 + __LINE__);
-        if (after.links != before.links)
-            return -(135000 + __LINE__);
-        if (after.generation != before.generation)
-            return -(136000 + __LINE__);
-        if (after.size != before.size)
-            return -(137000 + __LINE__);
-        if (after.allocated_bytes != before.allocated_bytes)
-            return -(138000 + __LINE__);
-        if (after.parent_inode != before.parent_inode)
-            return -(139000 + __LINE__);
-        if (after.extent_head != before.extent_head)
-            return -(140000 + __LINE__);
-        if (after.dir_index != before.dir_index)
-            return -(141000 + __LINE__);
-        if (after.atime != before.atime)
-            return -(142000 + __LINE__);
-        if (after.mtime != before.mtime)
-            return -(143000 + __LINE__);
-        if (after.ctime != before.ctime)
-            return -(144000 + __LINE__);
-
-        {
-            int rc;
-            rc = prosenjitfs_unmount(&fs);
-            if (rc != PROSENJITFS_OK)
-                return -160001;
-            rc = prosenjitfs_mount(&fs, &device, 0u);
-            if (rc != PROSENJITFS_OK)
-                return -160002;
-            hidden = 0;
-            rc = vfs_path_lookup(&fs.mount, "/hello.bin", &hidden);
-            if (rc != PROS_VFS_ENOENT || hidden != 0)
-                return -160003 - (rc < 0 ? (uint32_t)(-rc) : (uint32_t)rc);
-            hidden = 0;
-            rc = vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden);
-            if (rc != PROS_VFS_OK)
-                return -160004 - (rc < 0 ? (uint32_t)(-rc) : (uint32_t)rc);
-            if (!hidden)
-                return -160005;
-            rc = vfs_vnode_put(hidden);
-            if (rc != PROS_VFS_OK)
-                return -160006 - (rc < 0 ? (uint32_t)(-rc) : (uint32_t)rc);
-        }
-
-        /*
-         * Keep the round-trip rename check separate so a failure identifies
-         * the exact VFS return code instead of collapsing it into the generic
-         * self-test stage code. This is especially important after remount,
-         * where the directory-index persistence path is being exercised.
-         */
-        {
-            int rename_rc = vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin");
-            if (rename_rc != PROS_VFS_OK)
-                return -(150000 + (uint32_t)(-rename_rc));
-        }
-    }
-    /*
-     * Directory mutation regression:
-     *  - mkdir allocates both inode and directory-index storage.
-     *  - file creation works below the new directory.
-     *  - cross-directory rename preserves the inode/data.
-     *  - directory moves update parent_inode and reject cycles.
-     *  - rmdir rejects non-empty directories and reclaims empty directories.
-     */
-    {
-        int mkdir_rc;
-        mkdir_rc = vfs_mkdir(&fs.mount, "/dir1");
-        if (mkdir_rc != PROS_VFS_OK) {
-            /* Encode the PFS mkdir stage/raw rc into the self-test result. */
-            uint32_t raw = pfs_mkdir_diag_rc < 0 ? (uint32_t)(-pfs_mkdir_diag_rc) : 0u;
-            return -(123000 + pfs_mkdir_diag_stage * 1000u +
-                     pfs_tx_diag_stage * 10u + raw);
-        }
-        mkdir_rc = vfs_mkdir(&fs.mount, "/dir2");
-        if (mkdir_rc != PROS_VFS_OK)
-            return -(124000 + (uint32_t)(-mkdir_rc));
-        mkdir_rc = vfs_mkdir(&fs.mount, "/dir1/subdir");
-        if (mkdir_rc != PROS_VFS_OK)
-            return -(125000 + (uint32_t)(-mkdir_rc));
-    }
-    {
-        /*
-         * Vnode-lifetime regression: a nested vnode must retain its parent
-         * after vfs_path_lookup() releases the previous current vnode.
-         * Without that ownership edge, resolving ".." from a nested path
-         * dereferences a freed parent and can return an arbitrary error/code.
-         */
-        struct pros_vfs_vnode *nested = 0;
-        struct pros_vfs_vnode *parent_dir = 0;
-        struct pros_vfs_vnode *root_dir = 0;
-        struct pfs_vnode_data *nested_data;
-        struct pfs_vnode_data *parent_data;
-        struct pfs_vnode_data *root_data;
-
-        if (vfs_path_lookup(&fs.mount, "/dir1/subdir", &nested) !=
-                PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir1/subdir/..", &parent_dir) !=
-                PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir1/subdir/../..", &root_dir) !=
-                PROS_VFS_OK ||
-            !nested || !parent_dir || !root_dir)
-            return -(120000 + __LINE__);
-
-        nested_data = (struct pfs_vnode_data *)nested->private_data;
-        parent_data = (struct pfs_vnode_data *)parent_dir->private_data;
-        root_data = (struct pfs_vnode_data *)root_dir->private_data;
-        if (!nested_data || !parent_data || !root_data ||
-            nested_data->inode_number == parent_data->inode_number ||
-            parent_data->inode_number == root_data->inode_number ||
-            root_data->inode_number != fs.sb.root_inode) {
-            vfs_vnode_put(nested);
-            vfs_vnode_put(parent_dir);
-            vfs_vnode_put(root_dir);
-            return -(120000 + __LINE__);
-        }
-
-        vfs_vnode_put(nested);
-        vfs_vnode_put(parent_dir);
-        vfs_vnode_put(root_dir);
-    }
-    {
-        struct pros_vfs_file moved_file;
-        struct pros_vfs_vnode *hidden = 0;
-        uint8_t marker = 0x5Au, verify = 0u;
-        uint32_t done = 0u;
-        if (vfs_file_open(&fs.mount, "/dir1/moved.bin",
-                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                          &moved_file) != PROS_VFS_OK ||
-            vfs_file_write(&moved_file, &marker, 1u, &done) != PROS_VFS_OK ||
-            done != 1u ||
-            vfs_file_close(&moved_file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-        if (vfs_rename(&fs.mount, "/dir1/moved.bin", "/dir2/moved.bin") !=
-                PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir1/moved.bin", &hidden) !=
-                PROS_VFS_ENOENT)
-            return -(120000 + __LINE__);
-        if (hidden)
-            vfs_vnode_put(hidden);
-        if (vfs_file_open(&fs.mount, "/dir2/moved.bin",
-                          PROS_VFS_O_READ, &moved_file) != PROS_VFS_OK ||
-            vfs_file_read(&moved_file, &verify, 1u, &done) != PROS_VFS_OK ||
-            done != 1u || verify != marker ||
-            vfs_file_close(&moved_file) != PROS_VFS_OK)
-            return -(120000 + __LINE__);
-    }
-    {
-        int rename_rc = vfs_rename(&fs.mount, "/dir1/subdir", "/dir2/subdir");
-        if (rename_rc != PROS_VFS_OK)
-            return -(150000 + (uint32_t)(-rename_rc));
-    }
-    {
-        struct pros_vfs_vnode *moved_dir = 0;
-        struct pros_vfs_vnode *parent_dir = 0;
-        struct pfs_vnode_data *moved_data;
-        struct pfs_vnode_data *parent_data;
-        struct pros_prosenjitfs_inode moved_inode;
-        if (vfs_path_lookup(&fs.mount, "/dir2/subdir", &moved_dir) !=
-                PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/dir2", &parent_dir) !=
-                PROS_VFS_OK || !moved_dir || !parent_dir)
-            return -(120000 + __LINE__);
-        moved_data = (struct pfs_vnode_data *)moved_dir->private_data;
-        parent_data = (struct pfs_vnode_data *)parent_dir->private_data;
-        if (!moved_data || !parent_data ||
-            prosenjitfs_read_inode(&fs, moved_data->inode_number, &moved_inode) !=
-                PROSENJITFS_OK ||
-            moved_inode.parent_inode != parent_data->inode_number) {
-            vfs_vnode_put(moved_dir);
-            vfs_vnode_put(parent_dir);
-            return -(120000 + __LINE__);
-        }
-        vfs_vnode_put(moved_dir);
-        vfs_vnode_put(parent_dir);
-    }
-    if (vfs_rename(&fs.mount, "/dir2", "/dir2/subdir/loop") !=
-            PROS_VFS_EINVAL ||
-        vfs_rmdir(&fs.mount, "/dir2") != PROS_VFS_ENOTEMPTY ||
-        vfs_unlink(&fs.mount, "/dir2/moved.bin") != PROS_VFS_OK ||
-        vfs_rmdir(&fs.mount, "/dir2/subdir") != PROS_VFS_OK ||
-        vfs_rmdir(&fs.mount, "/dir1") != PROS_VFS_OK ||
-        vfs_rmdir(&fs.mount, "/dir2") != PROS_VFS_OK)
-        return -(120000 + __LINE__);
-
-    if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
-        return -(120000 + __LINE__);
-    {
-        struct pros_vfs_vnode *deleted = 0;
-        if (vfs_path_lookup(&fs.mount, "/hello.bin", &deleted) !=
-                PROS_VFS_ENOENT)
-            return -(120000 + __LINE__);
-        if (deleted)
-            vfs_vnode_put(deleted);
-    }
-    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
-        return -(120000 + __LINE__);
-    if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
-        inode_number != 1u)
-        return -(120000 + __LINE__);
-    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
-        return -(120000 + __LINE__);
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-
-    /*
-     * Journal recovery regression:
-     *  1. A fully committed redo record must replay on the next mount.
-     *  2. A header/images without a commit record must be discarded.
-     *  3. A committed record with a bad checksum must fail closed.
-     */
-    {
-        uint64_t recovery_block;
-        uint64_t journal_start = fs.sb.journal_start;
-        uint32_t journal_blocks = fs.sb.journal_blocks;
-        uint8_t header[512], image[512], commit[512], verify[512];
-        struct pros_prosenjitfs_journal_header h;
-        struct pros_prosenjitfs_journal_commit jc;
-        uint32_t expected;
-
-        if (fs.sb.block_size != 512u ||
-            prosenjitfs_alloc_blocks(&fs, 1u, &recovery_block) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-
-        pfs_zero(header, sizeof(header));
-        pfs_zero(image, sizeof(image));
-        pfs_zero(commit, sizeof(commit));
-        for (uint32_t i = 0u; i < sizeof(image); ++i)
-            image[i] = (uint8_t)(0xC3u ^ (uint8_t)i);
-
-        pfs_zero(&h, sizeof(h));
-        h.magic = PROSENJITFS_JOURNAL_MAGIC;
-        h.record_count = 1u;
-        h.transaction_id = 0x1122334455667788ULL;
-        h.targets[0] = recovery_block;
-        pfs_copy(header, &h, sizeof(h));
-        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
-            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
-        pfs_copy(header, &h, sizeof(h));
-
-        pfs_zero(&jc, sizeof(jc));
-        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
-        jc.record_count = 1u;
-        jc.transaction_id = h.transaction_id;
-        pfs_copy(commit, &jc, sizeof(jc));
-        expected = pfs_journal_checksum(header, image, 512u, 1u, commit);
-        jc.checksum = expected;
-        pfs_copy(commit, &jc, sizeof(jc));
-
-        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-        for (uint32_t i = 0u; i < sizeof(verify); ++i)
-            if (verify[i] != image[i])
-                return -(120000 + __LINE__);
-
-        /* Torn transaction: header/images without a commit must not apply. */
-        pfs_zero(header, sizeof(header));
-        pfs_zero(&h, sizeof(h));
-        h.magic = PROSENJITFS_JOURNAL_MAGIC;
-        h.record_count = 1u;
-        h.transaction_id = 0x8877665544332211ULL;
-        h.targets[0] = recovery_block;
-        pfs_copy(header, &h, sizeof(h));
-        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
-            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
-        pfs_copy(header, &h, sizeof(h));
-        for (uint32_t i = 0u; i < sizeof(image); ++i)
-            image[i] = (uint8_t)(0x5Au ^ (uint8_t)i);
-        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-        for (uint32_t i = 0u; i < sizeof(verify); ++i)
-            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
-                return -(120000 + __LINE__);
-
-        /* A forged journal target must never be replayed into the
-         * journal region itself. The header/commit are otherwise valid so
-         * this specifically exercises the replay-target guard. */
-        pfs_zero(header, sizeof(header));
-        pfs_zero(commit, sizeof(commit));
-        pfs_zero(&h, sizeof(h));
-        h.magic = PROSENJITFS_JOURNAL_MAGIC;
-        h.record_count = 1u;
-        h.transaction_id = 0x0102030405060708ULL;
-        h.targets[0] = journal_start;
-        pfs_copy(header, &h, sizeof(h));
-        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
-            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
-        pfs_copy(header, &h, sizeof(h));
-        pfs_zero(&jc, sizeof(jc));
-        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
-        jc.record_count = 1u;
-        jc.transaction_id = h.transaction_id;
-        pfs_copy(commit, &jc, sizeof(jc));
-        jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit);
-        pfs_copy(commit, &jc, sizeof(jc));
-        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-            return -(120000 + __LINE__);
-
-        /* Corrupt commit checksum must fail closed. */
-        pfs_zero(header, sizeof(header));
-        pfs_zero(commit, sizeof(commit));
-        pfs_zero(&h, sizeof(h));
-        h.magic = PROSENJITFS_JOURNAL_MAGIC;
-        h.record_count = 1u;
-        h.transaction_id = 0xCAFEBABE12345678ULL;
-        h.targets[0] = recovery_block;
-        pfs_copy(header, &h, sizeof(h));
-        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
-            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
-        pfs_copy(header, &h, sizeof(h));
-        for (uint32_t i = 0u; i < sizeof(image); ++i)
-            image[i] = (uint8_t)(0xE1u ^ (uint8_t)i);
-        pfs_zero(&jc, sizeof(jc));
-        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
-        jc.record_count = 1u;
-        jc.transaction_id = h.transaction_id;
-        pfs_copy(commit, &jc, sizeof(jc));
-        jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit) ^ 1u;
-        pfs_copy(commit, &jc, sizeof(jc));
-        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
-            pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-            return -(120000 + __LINE__);
-
-        pfs_zero(header, sizeof(header));
-        for (uint32_t i = 0u; i < journal_blocks; ++i)
-            if (pfs_write_at_offset(&device, journal_start, i, header) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-        if (pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-        for (uint32_t i = 0u; i < sizeof(verify); ++i)
-            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
-                return -(120000 + __LINE__);
-        if (prosenjitfs_free_blocks(&fs, recovery_block, 1u) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-        {
-            uint8_t before[512], after[512], image2[512];
-            uint64_t fault_block;
-            if (prosenjitfs_alloc_blocks(&fs, 1u, &fault_block) != PROSENJITFS_OK ||
-                pfs_read_block(&device, fault_block, before) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-            pfs_zero(image2, sizeof(image2));
-            image2[0] = 0xA5u;
-            if (pfs_tx_reset(&fs) != PROSENJITFS_OK ||
-                pfs_tx_add(&fs, fault_block, image2) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-            disk.fail_write_at = disk.write_count + 2u;
-            if (pfs_tx_commit(&fs) != PROSENJITFS_EIO)
-                return -(120000 + __LINE__);
-            disk.fail_write_at = 0u;
-            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                pfs_read_block(&device, fault_block, after) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-            for (uint32_t i = 0u; i < sizeof(after); ++i)
-                if (after[i] != before[i])
-                    return -(120000 + __LINE__);
-            if (pfs_tx_reset(&fs) != PROSENJITFS_OK ||
-                pfs_tx_add(&fs, fault_block, image2) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-            disk.fail_write_at = disk.write_count + 4u;
-            if (pfs_tx_commit(&fs) != PROSENJITFS_EIO)
-                return -(120000 + __LINE__);
-            disk.fail_write_at = 0u;
-            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                pfs_read_block(&device, fault_block, after) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-            for (uint32_t i = 0u; i < sizeof(after); ++i)
-                if (after[i] != image2[i])
-                    return -(120000 + __LINE__);
-            if (prosenjitfs_free_blocks(&fs, fault_block, 1u) != PROSENJITFS_OK)
-                return -(120000 + __LINE__);
-        }
-    }
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -(120000 + __LINE__);
-
-    {
-        uint8_t primary_block[512], backup_block[512];
-        struct pros_prosenjitfs_superblock bad;
-        if (pfs_read_block(&device, 0u, primary_block) != PROSENJITFS_OK ||
-            pfs_read_block(&device, 1u, backup_block) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-        pfs_copy(&bad, primary_block, sizeof(bad));
-        bad.block_bitmap_start = bad.journal_start;
-        pfs_zero(primary_block, sizeof(primary_block));
-        pfs_copy(primary_block, &bad, sizeof(bad));
-        pfs_put32(primary_block + offsetof(struct pros_prosenjitfs_superblock, checksum),
-                  pfs_crc_with_zero32(primary_block, sizeof(bad),
-                                      (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
-        if (pfs_write_block(&device, 0u, primary_block) != PROSENJITFS_OK ||
-            pfs_write_block(&device, 1u, primary_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-            return -(120000 + __LINE__);
-        if (pfs_write_block(&device, 0u, backup_block) != PROSENJITFS_OK ||
-            pfs_write_block(&device, 1u, backup_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-    }
-    {
-        uint8_t primary_block[512], backup_block[512];
-        struct pros_prosenjitfs_superblock mismatch;
-        if (pfs_read_block(&device, 0u, primary_block) != PROSENJITFS_OK ||
-            pfs_read_block(&device, 1u, backup_block) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-        pfs_copy(&mismatch, backup_block, sizeof(mismatch));
-        mismatch.transaction_sequence++;
-        pfs_zero(backup_block, sizeof(backup_block));
-        pfs_copy(backup_block, &mismatch, sizeof(mismatch));
-        pfs_put32(backup_block + offsetof(struct pros_prosenjitfs_superblock, checksum),
-                  pfs_crc_with_zero32(backup_block, sizeof(mismatch),
-                                      (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
-        if (pfs_write_block(&device, 1u, backup_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT ||
-            pfs_write_block(&device, 1u, primary_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK)
-            return -(120000 + __LINE__);
-    }
-    saved = disk.data[0];
-    disk.data[0] ^= 0x01u;
-    disk.data[0] ^= 0x01u;
-    disk.data[512u] ^= 0x01u;
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-        return -9;
-    disk.data[0] = saved;
-    disk.data[512u] ^= 0x01u;
-
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -10;
-    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -11;
     return PROSENJITFS_OK;
 }

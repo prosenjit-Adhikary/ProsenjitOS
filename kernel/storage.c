@@ -108,7 +108,7 @@ static int storage_test_read(struct pros_block_device *device,
 
 int pros_storage_selftest(void)
 {
-    struct storage_test_disk disk;
+    static struct storage_test_disk disk;
     struct pros_block_device device;
     struct pros_storage_volume volumes[2];
     uint32_t count = 0u;

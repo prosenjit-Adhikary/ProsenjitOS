@@ -51,6 +51,35 @@ static int vfs_selftest_read(struct pros_block_device *device,
     return PROS_BLOCK_OK;
 }
 
+static int vfs_probe_selftest(void)
+{
+    struct pros_block_device device;
+    enum pros_filesystem_type type;
+
+    if (vfs_probe_filesystem(0, &type) != PROS_VFS_EINVAL)
+        return -1;
+    if (vfs_probe_filesystem(&device, 0) != PROS_VFS_EINVAL)
+        return -2;
+
+    if (block_device_init(&device, 512u, 1u,
+                          vfs_selftest_read, 0, 0) != PROS_BLOCK_OK)
+        return -3;
+
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_EINVAL ||
+        type != PROS_FS_UNKNOWN)
+        return -4;
+
+    if (block_device_init(&device, 512u, 256u,
+                          vfs_selftest_read, 0, 0) != PROS_BLOCK_OK)
+        return -5;
+
+    if (vfs_probe_filesystem(&device, &type) != PROS_VFS_ENOSYS ||
+        type != PROS_FS_UNKNOWN)
+        return -6;
+
+    return 0;
+}
+
 int vfs_mount_init(struct pros_vfs_mount *mount,
                    enum pros_filesystem_type type,
                    struct pros_block_device *device,

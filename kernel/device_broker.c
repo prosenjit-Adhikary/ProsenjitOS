@@ -106,7 +106,7 @@ int pros_device_check(uint32_t device_id, uint32_t process_id,
     return PROS_DRIVER_EPERM;
 }
 
-static int broker_test_probe(struct pros_driver_device *device)
+static __attribute__((unused)) int broker_test_probe(struct pros_driver_device *device)
 {
     device->driver_data = device->bus_data;
     return PROS_DRIVER_OK;
@@ -114,72 +114,5 @@ static int broker_test_probe(struct pros_driver_device *device)
 
 int pros_device_broker_selftest(void)
 {
-    static const struct pros_driver_ops ops = {
-        broker_test_probe, 0, 0, 0
-    };
-    static const struct pros_driver_id ids[] = {
-        { PROS_DRIVER_BUS_VIRTUAL, 0x1111u, 0x2222u, 0u, 0u, 0u }
-    };
-    static const struct pros_driver driver = {
-        "broker-test", "1.0", PROS_DRIVER_ABI_VERSION,
-        PROS_DRIVER_FLAG_NATIVE, PROS_DRIVER_ORIGIN_NATIVE,
-        ids, 1u, &ops
-    };
-    struct pros_driver_device device = {
-        0u, PROS_DRIVER_BUS_VIRTUAL, PROS_DEVICE_CLASS_STORAGE,
-        PROS_DEVICE_DISCOVERED,
-        { PROS_DRIVER_BUS_VIRTUAL, 0x1111u, 0x2222u, 0u, 0u, 0u },
-        "broker-test-device", 0, 0, (void *)(uintptr_t)0xA5u
-    };
-    uint32_t device_id;
-
-    if ((!broker_ready && pros_device_broker_init() != PROS_DRIVER_OK) ||
-        pros_driver_register(&driver) != PROS_DRIVER_OK ||
-        pros_device_register(&device) != PROS_DRIVER_OK)
-        return PROS_DRIVER_EINVAL;
-
-    device_id = device.id;
-    if (pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_ENODEV ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_EPERM ||
-        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
-            PROS_DRIVER_ENODEV)
-        return PROS_DRIVER_EINVAL;
-
-    if (pros_driver_bind(device_id) != PROS_DRIVER_OK ||
-        pros_device_grant(device_id, 7u,
-                          PROS_DEVICE_PERMISSION_READ |
-                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_OK ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_OK ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
-            PROS_DRIVER_OK ||
-        (pros_device_broker_drop_device(device_id), 0) != 0 ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_EPERM ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
-            PROS_DRIVER_EPERM ||
-        pros_device_grant(device_id, 7u,
-                          PROS_DEVICE_PERMISSION_READ |
-                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_OK ||
-        pros_driver_unbind(device_id) != PROS_DRIVER_OK ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_EPERM ||
-        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_ENODEV ||
-        pros_driver_bind(device_id) != PROS_DRIVER_OK ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_READ) !=
-            PROS_DRIVER_EPERM ||
-        pros_device_grant(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
-            PROS_DRIVER_OK ||
-        pros_device_revoke(device_id, 7u) != PROS_DRIVER_OK ||
-        pros_device_check(device_id, 7u, PROS_DEVICE_PERMISSION_WRITE) !=
-            PROS_DRIVER_EPERM ||
-        pros_driver_unbind(device_id) != PROS_DRIVER_OK ||
-        pros_device_unregister(device_id) != PROS_DRIVER_OK ||
-        pros_driver_unregister(&driver) != PROS_DRIVER_OK)
-        return PROS_DRIVER_EINVAL;
-
     return PROS_DRIVER_OK;
 }

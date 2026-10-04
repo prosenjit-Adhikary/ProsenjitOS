@@ -128,8 +128,6 @@ user_mode_exit_trampoline:
     call paging_switch_kernel
     call user_mode_test_complete
 .user_halt:
-    cli
-    hlt
     jmp .user_halt
 
 cpu_security_init:
@@ -321,7 +319,8 @@ user_test_entry:
     mov rdi, r12
     mov rax, 3
     int 0x80
-    cmp rax, -10                  ; PROSENJIT_SYSCALL_EBADF
+    mov rbx, 0xFFFFFFFFFFFFFFF6
+    cmp rax, rbx
     jne .user_halt
 
     ; Ask the kernel to finish the CPL3 test. The kernel validates the
@@ -329,7 +328,6 @@ user_test_entry:
     mov rax, 2
     int 0x80
 .user_halt:
-    hlt
     jmp .user_halt
 
 section .data
