@@ -394,12 +394,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR process manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    struct pros_object user_test_object;
+    struct pros_ipc_channel user_test_channel;
     uint64_t user_test_handle;
-    object_init(&user_test_object, PROS_OBJECT_FILE);
-    if (process_grant_handle(&init_process, &user_test_object,
-                             PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER, &user_test_handle) != 0) {
-        serial_write("ProsenjitOS: ERROR initial process handle grant failed\n");
+    if (ipc_channel_init(&user_test_channel) != PROSENJIT_IPC_OK ||
+        process_grant_handle(&init_process, &user_test_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+                             PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER,
+                             &user_test_handle) != 0) {
+        serial_write("ProsenjitOS: ERROR initial IPC test handle grant failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
