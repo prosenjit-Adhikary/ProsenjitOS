@@ -3923,8 +3923,12 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
     }
     {
         int rc = pfs_inode_bitmap_stage(fs, inode_number, allocate);
-        if (rc != PROSENJITFS_OK)
+        if (rc != PROSENJITFS_OK) {
+            /* Staging changes the transaction image; discard it on failure
+             * so a later operation can never commit a partial bitmap update. */
+            (void)pfs_tx_reset(fs);
             return rc;
+        }
     }
     return pfs_tx_commit(fs);
 }
