@@ -20,6 +20,9 @@ struct pros_input_event {
     uint32_t device_id;
     uint16_t type;
     uint16_t code;
+    uint16_t flags;
+    int32_t x;
+    int32_t y;
     int32_t value;
     uint64_t sequence;
 };
