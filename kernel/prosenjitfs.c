@@ -3987,6 +3987,35 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
+static int pfs_inode_bitmap_is_allocated(const struct pros_prosenjitfs *fs,
+                                          uint64_t inode_number,
+                                          uint8_t *allocated)
+{
+    uint64_t bits_per_block;
+    uint64_t bi;
+    uint64_t within;
+    uint64_t lba;
+    uint8_t block[4096];
+    int rc;
+
+    if (!fs || !allocated || inode_number >= fs->sb.inode_count ||
+        fs->sb.block_size > sizeof(block))
+        return PROSENJITFS_EINVAL;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    bi = inode_number / bits_per_block;
+    within = inode_number % bits_per_block;
+    if (bi >= fs->sb.inode_bitmap_blocks)
+        return PROSENJITFS_ECORRUPT;
+    rc = pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start, bi, &lba);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_read_block(fs->mount.device, lba, block);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    *allocated = pfs_bitmap_bit(block, within) ? 1u : 0u;
+    return PROSENJITFS_OK;
+}
+
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                            uint64_t inode_number,
                            struct pros_prosenjitfs_inode *inode)
@@ -4024,6 +4053,19 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                                 struct pros_prosenjitfs_inode, checksum)) !=
         inode->checksum)
         return PROSENJITFS_ECORRUPT;
+    {
+        uint8_t allocated;
+        int rc = pfs_inode_bitmap_is_allocated(fs, inode_number, &allocated);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        /* The inode record and inode bitmap are one ownership invariant.
+         * Accept neither a live inode with a free bitmap bit nor a free inode
+         * whose bit remains allocated; either state can cause reuse/aliasing
+         * of inode metadata. */
+        if ((inode->type == PROSENJITFS_INODE_FREE && allocated) ||
+            (inode->type != PROSENJITFS_INODE_FREE && !allocated))
+            return PROSENJITFS_ECORRUPT;
+    }
     if (inode->type == PROSENJITFS_INODE_FREE)
         return PROSENJITFS_ENOENT;
     return PROSENJITFS_OK;
