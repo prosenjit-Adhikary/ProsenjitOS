@@ -763,6 +763,49 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
                                 struct pros_prosenjitfs_extent, checksum)) !=
         extent->checksum)
         return PROSENJITFS_ECORRUPT;
+
+    /*
+     * An extent is only valid when every physical block it names is also
+     * marked allocated in the persistent block bitmap. Without this check,
+     * a corrupted extent can silently alias a free block (or a block later
+     * reused by another file), turning metadata corruption into data
+     * corruption. Validate the bitmap through the same checked LBA path used
+     * by allocation; never trust the extent alone.
+     */
+    {
+        uint64_t bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+        uint64_t bitmap_index = extent->physical_block / bits_per_block;
+        uint64_t bitmap_end =
+            (extent->physical_block + extent->block_count - 1u) /
+            bits_per_block;
+        uint8_t bitmap[4096];
+
+        for (; bitmap_index <= bitmap_end; ++bitmap_index) {
+            uint64_t bitmap_lba;
+            uint64_t bitmap_base = bitmap_index * bits_per_block;
+            uint64_t start = extent->physical_block > bitmap_base
+                           ? extent->physical_block : bitmap_base;
+            uint64_t end = extent->physical_block + extent->block_count - 1u;
+            if (end > bitmap_base + bits_per_block - 1u)
+                end = bitmap_base + bits_per_block - 1u;
+            if (bitmap_index >= fs->sb.block_bitmap_blocks)
+                return PROSENJITFS_ECORRUPT;
+            if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                            bitmap_index, &bitmap_lba) != PROSENJITFS_OK ||
+                pfs_read_block(fs->mount.device, bitmap_lba, bitmap) !=
+                    PROSENJITFS_OK)
+                return PROSENJITFS_EIO;
+            for (uint64_t physical = start; physical <= end; ++physical) {
+                if (!pfs_bitmap_bit(bitmap, physical - bitmap_base)) {
+                    return PROSENJITFS_ECORRUPT;
+                }
+                if (physical == end)
+                    break;
+            }
+            if (bitmap_index == bitmap_end)
+                break;
+        }
+    }
     return PROSENJITFS_OK;
 }
 
