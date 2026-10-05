@@ -2,16 +2,19 @@
 
 ## Boundary
 
-The desktop environment is **not part of the kernel**. The kernel exposes only the
-minimum device-facing contracts needed by user-space graphical services:
+The desktop environment is **not part of the kernel**. The intended architecture is:
 
 ```
-Hardware
-  -> native driver/device layer
-  -> display + input kernel abstractions
-  -> user-space graphics/window service
-  -> X11/Xorg and/or Wayland integration
-  -> XFCE desktop session
+Firmware
+  -> native bootloader
+  -> kernel
+  -> memory/address-space/security
+  -> process/thread/syscall
+  -> ELF loader
+  -> init/service manager
+  -> userspace graphics/session service
+  -> X11/Xorg and/or Wayland
+  -> XFCE
   -> applications
 ```
 
@@ -25,72 +28,64 @@ Xorg server, or Wayland compositor is linked into the kernel image.
 - Bounded ARGB8888 graphics surfaces with clipping-safe fill/copy operations.
 - Graphics presentation through the display-device contract.
 - Deterministic graphics/display/input self-tests.
-- Hardened user-address mapping boundary: user mappings cannot target the
-  supervisor PML4 slot or silently replace an existing mapping.
-- ELF64 process-image validation/load policy is now fail-closed for integer
-  overflow, W+X mappings, invalid user addresses, ambiguous PT_LOAD page
-  overlaps and unsupported PIE/ET_DYN images.
-- A stable capability-mediated graphics-session ABI is defined in
-  include/abi/gui.h for future userspace graphics/session services.
+- Hardened user-address mapping: user mappings cannot target the supervisor
+  PML4 slot or silently replace an existing mapping.
+- Hardened ELF64 process-image validation/loading policy: arithmetic/range
+  checks, W^X enforcement, supported user-address range, conservative
+  PT_LOAD page-overlap rejection, BSS zero-fill and rollback.
+- Stable capability-mediated graphics-session ABI in `include/abi/gui.h`.
 
-These components are kernel interfaces only; they do not constitute a desktop
+These are kernel interfaces/foundations only; they do not constitute a desktop
 environment.
 
-- Bounded display-device registration and mode/present/blank lifecycle.
-- Bounded keyboard/pointer event queue with device identity and sequence numbers.
-- Bounded ARGB8888 graphics surfaces with clipping-safe fill/copy operations.
-- Graphics presentation through the display-device contract.
+## Status classification
+
+### COMPLETED
+
+- Kernel graphics/display/input abstractions.
 - Deterministic graphics/display/input self-tests.
+- User-address mapping security boundary.
+- ELF64 validation/loading primitive and fail-closed ET_DYN/PIE policy.
+- Capability-mediated GUI protocol definition.
 
-These components are kernel interfaces only; they do not constitute a desktop
-environment.
+### IMPLEMENTED BUT NOT RUNTIME VERIFIED
+
+- End-to-end execution of an ELF image loaded from a real userspace image.
+- Userspace graphics/session service implementation.
+
+The loader is integrated into the kernel build, but there is not yet a
+filesystem-backed first-process image and service-manager startup path.
+
+### BLOCKED BY EXTERNAL/PLATFORM DEPENDENCY
+
+- Real display/input hardware providers beyond the current abstraction layer.
+- X11/Xorg or Wayland execution.
+- XFCE execution.
+
+Those require a usable userspace ABI/libc/POSIX/application runtime and real
+device providers.
+
+### NOT IMPLEMENTED
+
+- Xorg/Wayland server integration.
+- Init/service manager.
+- Desktop shell.
+- File manager.
+- Terminal emulator.
+- Settings/security UI.
+- Permission prompts.
+- Full graphical session startup.
+
+A future ProsenjitOS-specific compositor or shell is optional and is not a
+prerequisite for the initial mature-desktop target.
 
 ## Remaining integration gates
 
-1. A real framebuffer/display driver must provide a validated display device.
-2. The ELF loader/process foundation must be connected to a real userspace
-   filesystem/image and first-process startup path.
-3. A real user-mode init/service manager must own the graphics/session service
-   lifecycle.
-4. Connect the capability-mediated graphics ABI to a userspace graphics/session
-   service; desktop policy must remain outside the kernel.
-5. Integrate an existing X11/Xorg and/or Wayland stack without adding a new
-   window system to the kernel.
-6. Bring up an XFCE session as the initial desktop environment.
-7. Add desktop services/UI: file manager, terminal, settings/security center
-   and permission prompts.
-8. Validate capability/device permissions and security policy across the GUI
-   boundary.
-
-### Status classification
-
-- **COMPLETED:** kernel graphics/display/input abstractions, deterministic
-  abstraction tests, hardened user mapping boundary, and ELF64 validation/load
-  policy described above.
-- **IMPLEMENTED BUT NOT RUNTIME VERIFIED:** the current branch's ELF loader
-  remains integrated as a kernel loading primitive; a real external userspace
-  image and service-manager boot chain are not yet present.
-- **BLOCKED BY EXTERNAL/PLATFORM DEPENDENCY:** real hardware display/input
-  provider coverage and execution of a mature X11/Wayland/XFCE stack require
-  the userspace ABI/libc/POSIX/application compatibility layers.
-- **NOT IMPLEMENTED:** Xorg/Wayland server, XFCE, desktop shell, file manager,
-  terminal, settings/security UI, and real graphical session startup.
-
-A future ProsenjitOS-specific compositor or shell is optional and is not a
-prerequisite for the initial desktop target.
-
-1. A real framebuffer/display driver must provide a validated display device.
-2. User-mode process startup and ELF loading must be stable enough to host
-   graphical services.
-3. A user-space graphics/window service must own windows, composition and
-   damage policy.
-4. Integrate an existing X11/Xorg and/or Wayland stack without adding a new
-   window system to the kernel.
-5. Bring up an XFCE session as the initial desktop environment.
-6. Add desktop services/UI: file manager, terminal, settings/security center
-   and permission prompts.
-7. Validate capability/device permissions and security policy across the GUI
-   boundary.
-
-A future ProsenjitOS-specific compositor or shell is optional and is not a
-prerequisite for the initial desktop target.
+1. Provide a real userspace filesystem/image mechanism.
+2. Start a real user-mode init/service manager through the ELF/process path.
+3. Start a userspace graphics/session service using capability-authorized IPC.
+4. Bind a real framebuffer/display provider and route real input events.
+5. Integrate an existing X11/Xorg and/or Wayland stack.
+6. Launch and validate an XFCE session.
+7. Validate desktop permission/security policy.
+8. Run the full QEMU/native-boot regression suite with no masked failures.
