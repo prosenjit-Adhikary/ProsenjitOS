@@ -3176,6 +3176,8 @@ static int pfs_tx_reset(struct pros_prosenjitfs *fs)
 {
     if (!fs || !fs->scratch || !fs->tx.images)
         return PROSENJITFS_EINVAL;
+    if (fs->tx_recovery_required)
+        return PROSENJITFS_EIO;
     fs->tx.count = 0u;
     for (uint32_t i = 0; i < PROSENJITFS_MAX_TX_BLOCKS; ++i)
         fs->tx.targets[i] = 0u;
@@ -3494,6 +3496,13 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                 return rc;
         }
     }
+    /*
+     * From this point the commit marker is durable. If any subsequent home
+     * write, flush, or journal-retirement step fails, the on-disk journal is
+     * the recovery authority and this mounted instance must not start a new
+     * transaction that could overwrite it.
+     */
+    fs->tx_recovery_required = 1u;
 
     pfs_tx_diag_stage = 6u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
@@ -3534,7 +3543,13 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     }
 
     pfs_tx_diag_stage = 9u;
-    return pfs_journal_clear(fs, fs->tx.count);
+    {
+        int rc = pfs_journal_clear(fs, fs->tx.count);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        fs->tx_recovery_required = 0u;
+        return PROSENJITFS_OK;
+    }
 }
 
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit)
