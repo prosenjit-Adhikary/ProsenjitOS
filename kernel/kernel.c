@@ -18,6 +18,7 @@
 #include "driver.h"
 #include "device_broker.h"
 #include "ata_pio.h"
+#include "compositor.h"
 #include "partition.h"
 #include "storage.h"
 #include "prosenjitfs.h"
@@ -332,6 +333,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: per-CPU usercopy fault state online\\n");
+    if (pros_compositor_self_test() != 0) {
+        serial_write("ProsenjitOS: ERROR compositor foundation self-test failed\\n");
+        vga_write("ProsenjitOS: compositor self-test failed", 0x4F);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: windowing/compositor foundation self-test passed\\n");
 
     uint64_t translated = paging_translate(PROSENJIT_KERNEL_TEST_VA);
     serial_write("ProsenjitOS: paging active; test VA -> ");

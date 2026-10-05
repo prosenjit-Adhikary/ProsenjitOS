@@ -202,12 +202,13 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Package manager
 
 ## Phase 8 — GUI
-- [ ] Graphics abstraction
-- [ ] Framebuffer
+- [x] Graphics abstraction (kernel surface/rectangle/compositor contract)
+- [ ] Framebuffer hardware binding
 - [ ] Input subsystem
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
-- [ ] ProsenjitOS-specific window manager/compositor (future, optional)
+- [x] ProsenjitOS software compositor foundation (surface, z-order, clipping, alpha blend, damage tracking, deterministic self-test)
+- [ ] ProsenjitOS-specific window manager/compositor shell/policy layer
 - [ ] Desktop shell integration
 - [ ] File manager
 - [ ] Terminal emulator
