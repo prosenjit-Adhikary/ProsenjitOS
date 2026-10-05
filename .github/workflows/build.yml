@@ -57,6 +57,7 @@ jobs:
           }
 
           require_log "ProsenjitOS: ELF loader contract self-test passed"
+          require_log "ProsenjitOS: real ELF userspace init executed and exited through syscall ABI"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
           require_log "ProsenjitOS: x86-64 long mode active"
           require_log "ProsenjitOS: page allocation/free test passed"
