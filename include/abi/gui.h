@@ -28,6 +28,7 @@ enum pros_gui_message_type {
     PROS_GUI_MSG_PRESENT = 7,
     PROS_GUI_MSG_DISPLAY_MODE = 8,
     PROS_GUI_MSG_INPUT_EVENT = 9,
+    PROS_GUI_MSG_SESSION_READY = 10,
 };
 
 enum pros_gui_input_type {
