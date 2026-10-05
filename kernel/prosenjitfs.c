@@ -315,6 +315,20 @@ static int pfs_superblock_decode(const uint8_t *block,
     return PROSENJITFS_OK;
 }
 
+static int pfs_superblocks_equal(const struct pros_prosenjitfs_superblock *a,
+                                  const struct pros_prosenjitfs_superblock *b)
+{
+    if (!a || !b)
+        return 0;
+    for (uint32_t i = 0; i < sizeof(*a); ++i) {
+        const uint8_t *pa = (const uint8_t *)a;
+        const uint8_t *pb = (const uint8_t *)b;
+        if (pa[i] != pb[i])
+            return 0;
+    }
+    return 1;
+}
+
 static int pfs_superblock_valid(const uint8_t *block,
                                 uint32_t block_size,
                                 struct pros_prosenjitfs_superblock *sb)
@@ -439,6 +453,10 @@ int prosenjitfs_probe(struct pros_block_device *device)
         return PROSENJITFS_EIO;
     }
     if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
+        if (sb.total_blocks > device->sector_count) {
+            kfree(block);
+            return PROSENJITFS_ECORRUPT;
+        }
         kfree(block);
         return PROSENJITFS_OK;
     }
@@ -915,8 +933,10 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
             done += want;
             continue;
         }
-        if (rc != PROSENJITFS_OK || extent_lba == 0u)
-            return done ? (int)done : PROS_VFS_EIO;
+        if (rc != PROSENJITFS_OK)
+            return done ? (int)done : pfs_vfs_error(rc);
+        if (extent_lba == 0u)
+            return done ? (int)done : PROS_VFS_ECORRUPT;
 
         {
             uint64_t delta = logical_block - extent.logical_block;
@@ -3815,6 +3835,11 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         }
     }
     backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK;
+    if (primary_ok && backup_ok && !pfs_superblocks_equal(&primary, &backup)) {
+        kfree(fs->tx.images); kfree(fs->scratch);
+        fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_ECORRUPT;
+    }
     if (!primary_ok && !backup_ok) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
