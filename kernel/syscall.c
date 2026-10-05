@@ -316,6 +316,18 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             return;
         }
 
+        case PROSENJIT_SYS_PROCESS_EXIT: {
+            struct pros_process *process = process_current();
+            if ((cpu_frame[1] & 3ULL) != 3ULL || !process ||
+                process_exit(process, (int32_t)registers[5]) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            serial_write("ProsenjitOS: ELF userspace process-exit syscall reached\n");
+            registers[0] = PROSENJIT_SYSCALL_INTERNAL_EXIT;
+            return;
+        }
+
         case PROSENJIT_SYS_USER_TEST_COMPLETE: {
             struct pros_process *process = process_current();
             if ((cpu_frame[1] & 3ULL) != 3ULL) {
