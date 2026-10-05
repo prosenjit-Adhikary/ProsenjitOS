@@ -41,6 +41,8 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->state = PROS_THREAD_NEW;
     thread->priority = 0;
     thread->entry = entry;
+    thread->user_rip = 0;
+    thread->user_rsp = 0;
     thread->interrupt_frame = 0;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;
@@ -70,6 +72,18 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->prev = 0;
     thread->registry_next = thread_registry;
     thread_registry = thread;
+    return 0;
+}
+
+int thread_init_user(struct pros_thread *thread, struct pros_process *process,
+                     uint64_t tid, uint64_t user_rip, uint64_t user_rsp,
+                     uint64_t kernel_stack_top) {
+    if (!thread || !process || user_rip == 0u || user_rsp == 0u || kernel_stack_top == 0u)
+        return -1;
+    if (thread_init(thread, process, tid, user_rip, kernel_stack_top) != 0)
+        return -1;
+    thread->user_rip = user_rip;
+    thread->user_rsp = user_rsp;
     return 0;
 }
 
