@@ -170,18 +170,39 @@ int pros_elf_selftest(void)
     if (pros_elf_validate_image(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -3;
     image[0] = 0x7F;
 
-    image[16] = 3; /* ET_DYN: explicit fail-closed policy. */
+    image[4] = 1; /* ELF32 is never accepted by the x86-64 loader. */
     if (pros_elf_validate_image(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -4;
+    image[4] = 2;
+    image[18] = 3; /* wrong machine */
+    if (pros_elf_validate_image(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -5;
+    image[18] = 62;
+
+    if (pros_elf_validate_image(image, 100u, &h) != PROS_ELF_ERANGE) return -6;
+
+    image[16] = 3; /* ET_DYN: explicit fail-closed policy. */
+    if (pros_elf_validate_image(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -7;
     image[16] = 2;
 
+    image[112] = 3; /* PT_LOAD alignment must be zero or a power of two. */
+    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -8;
+    image[112] = 0x10;
+
     image[68] = 3; /* PT_LOAD with W+X. */
-    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -5;
-    image[68] = 1;
+    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -9;
+    image[68] = 5;
 
     image[96] = 0x20; /* filesz > memsz. */
     image[104] = 0x10;
-    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_ERANGE) return -6;
+    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_ERANGE) return -10;
     image[96] = 0x10;
+
+    image[24] = 0x10; /* entry exactly at the end of the executable mapping. */
+    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -11;
+    image[24] = 0x00;
+
+    /* Force vaddr + memsz to overflow rather than wrapping into user space. */
+    for (uint32_t i = 0; i < 8u; ++i) image[80 + i] = 0xFFu;
+    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_ERANGE) return -12;
 
     return 0;
 }
