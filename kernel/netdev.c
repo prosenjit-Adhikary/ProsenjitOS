@@ -43,8 +43,12 @@ int pros_netdev_unregister(uint32_t id)
         return PROS_NETDEV_EINVAL;
     for (uint32_t i = 0; i < PROS_NETDEV_MAX; ++i)
         if (devices[i].registered && devices[i].id == id) {
-            if (devices[i].running)
-                (void)devices[i].ops->stop(devices[i].ctx);
+            if (devices[i].running) {
+                int rc = devices[i].ops->stop(devices[i].ctx);
+                if (rc != PROS_NETDEV_OK)
+                    return rc;
+                devices[i].running = 0u;
+            }
             devices[i] = (struct pros_netdev){0};
             return PROS_NETDEV_OK;
         }
