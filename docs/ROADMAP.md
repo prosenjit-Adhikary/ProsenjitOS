@@ -213,6 +213,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [x] Graphics abstraction (bounded ARGB8888 surfaces, clipping/fill/copy primitives, display-present bridge, deterministic self-test)
 - [x] Framebuffer abstraction (memory-backed ARGB8888 surface with bounded damage flush contract; hardware framebuffer provider remains driver-dependent)
 - [x] Input subsystem (kernel device/event abstraction and deterministic self-test)
+- [x] Userspace graphics-session ABI validation boundary (bounded surface/window/damage/mode/input validation and deterministic self-test)
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
 - [x] ProsenjitOS-specific window manager/compositor foundation (bounded windows, z-order, opacity, damage tracking, deterministic composition self-test; full desktop compositor remains optional)
@@ -231,7 +232,7 @@ session runs.
 
 - **Completed:** kernel graphics/display/input foundations; deterministic
   abstraction tests; user mapping boundary hardening; ELF64 validation/loading
-  policy.
+  policy; bounded graphics-session ABI validation and input-provider stale-event cleanup.
 - **Implemented but not runtime verified:** ELF loader plus real embedded
   bootstrap-process handoff; filesystem-backed init/service startup remains.
 - **Not implemented:** filesystem-backed first-process discovery, real
