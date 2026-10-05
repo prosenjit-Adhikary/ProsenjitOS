@@ -19,6 +19,7 @@
 #include "device_broker.h"
 #include "display.h"
 #include "input.h"
+#include "netdev.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -672,6 +673,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: input subsystem self-test passed\n");
+    if (pros_netdev_selftest() != PROS_NETDEV_OK) {
+        serial_write("ProsenjitOS: ERROR network device abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: network device abstraction self-test passed\n");
+
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
