@@ -3301,6 +3301,14 @@ static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
 {
     if (!fs || !image || target < 2u || target >= fs->sb.total_blocks)
         return PROSENJITFS_EINVAL;
+    /*
+     * Once a durable journal commit exists, this mounted instance is no
+     * longer allowed to stage another transaction. Recovery must first
+     * restore the journal's home blocks, otherwise a new transaction could
+     * overwrite the only durable recovery record.
+     */
+    if (fs->tx_recovery_required)
+        return PROSENJITFS_EIO;
     {
         uint64_t journal_end;
         if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
