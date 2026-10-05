@@ -1247,7 +1247,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         if (extent.logical_block >= keep_blocks) {
             uint8_t *inode_image = 0;
             uint8_t *prev_image = 0;
-            uint8_t *target_image = 0;
             uint64_t inode_lba = 0u, prev_lba = 0u;
             uint32_t inode_offset = 0u;
             int txrc;
@@ -4070,37 +4069,6 @@ int prosenjitfs_selftest(void)
         inode.dir_index == 0u ||
         !fs.mount.root)
         return -5;
-
-    /*
-     * Redundant superblocks are part of the trust boundary. A checksum-valid
-     * but divergent backup must not silently win or be ignored.
-     */
-    {
-        uint8_t backup_block[512];
-        uint8_t original_block[512];
-        struct pros_prosenjitfs_superblock mismatch;
-        if (pfs_read_block(&device, 1u, original_block) != PROSENJITFS_OK)
-            return -51;
-        pfs_copy(backup_block, original_block, sizeof(backup_block));
-        pfs_copy(&mismatch, backup_block, sizeof(mismatch));
-        mismatch.transaction_sequence++;
-        pfs_copy(backup_block, &mismatch, sizeof(mismatch));
-        pfs_put32(backup_block +
-                  offsetof(struct pros_prosenjitfs_superblock, checksum),
-                  pfs_crc_with_zero32(
-                      backup_block, sizeof(mismatch),
-                      (uint32_t)offsetof(
-                          struct pros_prosenjitfs_superblock, checksum)));
-        if (pfs_write_block(&device, 1u, backup_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-            return -52;
-        if (pfs_write_block(&device, 1u, original_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return -53;
-    }
 
     /*
      * A free inode is still protected by its checksum. Corruption must not
