@@ -117,7 +117,10 @@ int pros_display_blank(uint32_t id, uint8_t blanked)
         return PROS_DISPLAY_EINVAL;
     for (uint32_t i = 0; i < PROS_DISPLAY_MAX; ++i)
         if (devices[i].registered && devices[i].id == id)
-            return devices[i].ops->blank(devices[i].ctx, blanked);
+            int rc = devices[i].ops->blank(devices[i].ctx, blanked);
+            if (rc == PROS_DISPLAY_OK)
+                devices[i].active = blanked ? 0u : 1u;
+            return rc;
     return PROS_DISPLAY_ENODEV;
 }
 
@@ -174,11 +177,17 @@ int pros_display_selftest(void)
         return -5;
     if (pros_display_blank(device.id, 1u) != PROS_DISPLAY_OK)
         return -6;
+    if (pros_display_present(device.id, &pixel, 1u) != PROS_DISPLAY_EBUSY)
+        return -7;
     if (display_test_mode_count != 1u ||
         display_test_present_count != 1u ||
         display_test_blank_count != 1u)
-        return -7;
-    if (pros_display_unregister(device.id) != PROS_DISPLAY_OK)
         return -8;
+    if (pros_display_unregister(device.id) != PROS_DISPLAY_OK)
+        return -9;
+    if (display_test_blank_count != 1u)
+        return -10;
+    if (pros_display_present(device.id, &pixel, 1u) != PROS_DISPLAY_ENODEV)
+        return -11;
     return 0;
 }
