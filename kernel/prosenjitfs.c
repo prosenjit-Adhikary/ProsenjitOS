@@ -3340,7 +3340,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         if (rc != PROSENJITFS_OK)
             return rc;
     }
-    return pfs_journal_clear(fs, fs->tx.count);
+    return pfs_journal_clear(fs, h.record_count);
 }
 
 static int pfs_tx_commit(struct pros_prosenjitfs *fs)
@@ -3472,7 +3472,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     }
 
     pfs_tx_diag_stage = 9u;
-    return pfs_journal_clear(fs);
+    return pfs_journal_clear(fs, fs->tx.count);
 }
 
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit)
