@@ -10,12 +10,13 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 3. **Compatibility providers:** later add NTFS/exFAT/FAT32 providers outside the kernel image.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing File admission/security broker and quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** the driver model foundation is now implemented around the PCI enumeration layer; next work is the device permission broker and concrete keyboard/display/network device abstractions.
-6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
-7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone. The latest GitHub Actions runner failure occurs before workflow steps are created, so post-change CI verification remains pending.
-8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
-9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
-10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
-11. **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
+6. **Networking foundation:** Ethernet framing and ARP packet/cache contracts are implemented with deterministic self-tests; real NIC receive/transmit integration remains driver-dependent.
+7. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
+8. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone. The latest GitHub Actions runner failure occurs before workflow steps are created, so post-change CI verification remains pending.
+9. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
+10. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
+11. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
+12. **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -158,11 +159,11 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [~] Driver rollback, removal, versioning, and dependency handling (transactional rollback + bounded dependencies + deterministic bundle version/source/package-ID selection + active-package immutability + safe staged update sequence + guarded package retirement/stale-locator cleanup implemented; persistent package/update lifecycle remains pending)
   - [ ] Driver isolation/sandbox and compatibility health checks
   - [ ] Never load Windows `.sys` binaries directly as native ProsenjitOS kernel drivers; imported Windows packages require a compatible execution/adapter path
-- [ ] Keyboard
+- [x] Keyboard/input event abstraction
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
-- [ ] Display abstraction
-- [ ] Network device abstraction
+- [x] Display abstraction
+- [x] Network device abstraction (device lifecycle/transmit/stats contract)
 
 ## Phase 6 — Storage and networking
 - [ ] VFS
@@ -186,33 +187,62 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] ProsenjitFS cross-directory file/directory move with directory-parent cycle protection
   - [x] ProsenjitFS directory mutation regression: nested directories, move, non-empty rmdir rejection, empty rmdir reclamation
   - [x] ProsenjitFS crash/corruption recovery coverage (deterministic journal replay, torn-transaction discard, checksum-corruption fail-closed, and mount metadata corruption rejection)
-- [ ] Ethernet
-- [ ] ARP
+- [x] Ethernet frame header build/parse foundation
+- [x] ARP packet build/parse and bounded cache foundation
 - [ ] IPv4
 - [ ] UDP/TCP
 - [ ] Network sandbox policy
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [ ] ELF loader
-- [ ] Process startup
+- [x] ELF64 validation and transactional process-image loading foundation
+  - [x] x86-64-only validation
+  - [x] integer/range/overflow checks
+  - [x] W^X and supported user-address enforcement
+  - [x] conservative PT_LOAD page-overlap policy
+  - [x] zero-filled BSS pages
+  - [x] allocation/mapping rollback
+  - [x] explicit ET_DYN/PIE fail-closed policy pending load-bias support
+- [~] Process startup (real embedded ELF bootstrap process implemented; filesystem-backed init/service startup remains)
 - [ ] Init/service manager
 - [ ] Secure shell
 - [ ] Basic utilities
 - [ ] Package manager
 
 ## Phase 8 — GUI
-- [ ] Graphics abstraction
-- [ ] Framebuffer
-- [ ] Input subsystem
+- [x] Graphics abstraction (bounded ARGB8888 surfaces, clipping/fill/copy primitives, display-present bridge, deterministic self-test)
+- [x] Framebuffer abstraction (memory-backed ARGB8888 surface with bounded damage flush contract; hardware framebuffer provider remains driver-dependent)
+- [x] Input subsystem (kernel device/event abstraction and deterministic self-test)
+- [x] Userspace graphics-session ABI validation boundary (bounded surface/window/damage/mode/input validation and deterministic self-test)
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
-- [ ] ProsenjitOS-specific window manager/compositor (future, optional)
+- [x] ProsenjitOS-specific window manager/compositor foundation (bounded windows, z-order, opacity, damage tracking, deterministic composition self-test; full desktop compositor remains optional)
 - [ ] Desktop shell integration
 - [ ] File manager
 - [ ] Terminal emulator
 - [ ] Settings/security center
 - [ ] Permission prompts
+
+### Phase 8 userspace truth status — 2026-10-05
+
+The graphics foundation remains kernel-only by design. The branch now includes
+a capability-mediated graphics-session ABI at `include/abi/gui.h` and hardened
+ELF/address-space prerequisites, but it does not claim that a real desktop
+session runs.
+
+- **Completed:** kernel graphics/display/input foundations; deterministic
+  abstraction tests; user mapping boundary hardening; ELF64 validation/loading
+  policy; bounded graphics-session ABI validation and input-provider stale-event cleanup.
+- **Implemented but not runtime verified:** ELF loader plus real embedded
+  bootstrap-process handoff; filesystem-backed init/service startup remains.
+- **Not implemented:** filesystem-backed first-process discovery, real
+  init/service manager, userspace graphics/session service, X11/Wayland
+  execution, XFCE execution.
+- **External dependency:** mature X11/Wayland/XFCE execution additionally
+  requires a usable userspace ABI/libc/POSIX/application runtime and real
+  display/input providers.
+
+Roadmap items are not marked complete merely because an ABI or header exists.
 
 ## Phase 9 — Application compatibility
 - [ ] Native ProsenjitOS SDK
@@ -294,3 +324,25 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Full desktop environment
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
+
+
+## Phase-8/userspace truth status — 2026-10-05
+
+The graphics foundation remains kernel-only by design. The branch now includes
+a stable capability-mediated graphics-session ABI at include/abi/gui.h and
+hardens the ELF/address-space prerequisites, but it does not claim that a real
+desktop session runs.
+
+- **Completed:** kernel graphics/display/input foundations and deterministic
+  tests; user mapping boundary hardening; ELF64 validation/loading policy.
+- **Implemented but not runtime verified:** the ELF loader as a process-image
+  primitive.
+- **Not implemented:** filesystem-backed first-process image discovery, real
+  init/service manager, userspace graphics/session service implementation,
+  X11/Wayland execution, XFCE execution.
+- **External dependency:** mature X11/Wayland/XFCE execution additionally
+  requires a usable userspace ABI, libc/POSIX/application runtime and real
+  display/input providers.
+
+Roadmap items are intentionally not marked complete merely because an ABI or
+header exists.

@@ -17,6 +17,14 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t virtual_address,
                                 uint64_t physical_address,
                                 uint64_t flags);
+/* Same mapping contract, but transfers ownership of the physical page to the address space. */
+int address_space_map_user_page_owned(struct pros_address_space *space,
+                                      uint64_t virtual_address,
+                                      uint64_t physical_address,
+                                      uint64_t flags);
+int address_space_unmap_user_page(struct pros_address_space *space,
+                                  uint64_t virtual_address,
+                                  uint64_t *physical_out);
 int address_space_destroy(struct pros_address_space *space);
 int address_space_switch(struct pros_address_space *space);
 int address_space_validate_user_range(const struct pros_address_space *space,

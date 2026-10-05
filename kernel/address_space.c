@@ -9,6 +9,7 @@
 #define PDPT_INDEX(va) (((va) >> 30) & 0x1FFu)
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
+#define PAGE_OWNED_FLAG (1ULL << 9)
 
 extern uint64_t *paging_kernel_root(void);
 
@@ -51,16 +52,56 @@ int address_space_create(struct pros_address_space *space) {
     }
 
     /*
-     * PML4[0] is shared with the kernel's low identity map so CPL3
-     * interrupts can still enter kernel code and use the TSS RSP0 stack.
-     * Keep this top-level entry supervisor-only: user pages live at
-     * PML4[1] (0x0000008000000000), so they do not need USER on PML4[0].
-     */ 
+     * Share only supervisor kernel mappings. User processes get a private
+     * PML4[1..255] for their own pages; the shared low and high kernel
+     * mappings must never become user-accessible through inherited PML4 bits.
+     */
     root[0] = kernel_root[0] & ~PROSENJIT_PAGE_USER;
     for (uint32_t i = 256; i < ENTRIES; ++i)
-        root[i] = kernel_root[i];
+        root[i] = kernel_root[i] & ~PROSENJIT_PAGE_USER;
 
     space->root = root;
+    return 0;
+}
+
+static int address_space_map_user_page_internal(struct pros_address_space *space,
+                                uint64_t virtual_address,
+                                uint64_t physical_address,
+                                uint64_t flags,
+                                int owned) {
+    if (!space || !space->root) return -1;
+    if ((virtual_address >> 47) != 0 || virtual_address < PROSENJIT_USER_CODE_VA)
+        return -1;
+    if ((virtual_address & 0xFFFULL) || (physical_address & 0xFFFULL))
+        return -1;
+    if (physical_address >= PROSENJIT_PHYS_LIMIT)
+        return -1;
+
+    /*
+     * PML4[0] is supervisor-only kernel space in every user address space.
+     * User mappings therefore must live in PML4[1..255] and can never alias
+     * the kernel's low identity map.
+     */
+    uint32_t pml4_index = PML4_INDEX(virtual_address);
+    if (pml4_index == 0 || pml4_index >= 256u)
+        return -1;
+
+    uint64_t *pdpt = ensure_table(space->root, pml4_index);
+    if (!pdpt) return -1;
+    uint64_t *pd = ensure_table(pdpt, PDPT_INDEX(virtual_address));
+    if (!pd) return -1;
+    uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
+    if (!pt) return -1;
+
+    uint64_t *pte = &pt[PT_INDEX(virtual_address)];
+    if (*pte & PROSENJIT_PAGE_PRESENT)
+        return -1; /* never silently replace an existing user mapping */
+
+    *pte = (physical_address & PAGE_MASK) |
+           PROSENJIT_PAGE_PRESENT |
+           PROSENJIT_PAGE_USER |
+           (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+    if (owned) *pte |= PAGE_OWNED_FLAG;
     return 0;
 }
 
@@ -68,23 +109,22 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t virtual_address,
                                 uint64_t physical_address,
                                 uint64_t flags) {
-    if (!space || !space->root) return -1;
-    if ((virtual_address >> 47) != 0) return -1;
-    if ((virtual_address & 0xFFFULL) || (physical_address & 0xFFFULL)) return -1;
+    return address_space_map_user_page_internal(space, virtual_address,
+                                                physical_address, flags, 0);
+}
 
-    uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
-    if (!pdpt) return -1;
-    uint64_t *pd = ensure_table(pdpt, PDPT_INDEX(virtual_address));
-    if (!pd) return -1;
-    uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
-    if (!pt) return -1;
+int address_space_map_user_page_owned(struct pros_address_space *space,
+                                      uint64_t virtual_address,
+                                      uint64_t physical_address,
+                                      uint64_t flags) {
+    return address_space_map_user_page_internal(space, virtual_address,
+                                                physical_address, flags, 1);
+}
 
-    pt[PT_INDEX(virtual_address)] =
-        (physical_address & PAGE_MASK) |
-        PROSENJIT_PAGE_PRESENT |
-        PROSENJIT_PAGE_USER |
-        (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
-    return 0;
+static int table_empty(const uint64_t *table) {
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (table[i] & PROSENJIT_PAGE_PRESENT) return 0;
+    return 1;
 }
 
 static void destroy_table(uint64_t *table, uint32_t level) {
@@ -100,9 +140,64 @@ static void destroy_table(uint64_t *table, uint32_t level) {
             destroy_table(child, level - 1);
             physical_page_free((uint64_t)(uintptr_t)child);
         }
-        /* At level 1, entries are leaf mappings; their physical pages
-         * are owned by the caller and are intentionally not freed here. */
+        /* At level 1, only mappings explicitly marked as owned by this
+         * address space may be reclaimed. Kernel-backed/user-test mappings
+         * remain caller-owned and must never be freed here. */
+        if (level == 1 && (entry & PAGE_OWNED_FLAG))
+            physical_page_free(entry & PAGE_MASK);
     }
+}
+
+int address_space_unmap_user_page(struct pros_address_space *space,
+                                  uint64_t virtual_address,
+                                  uint64_t *physical_out) {
+    if (!space || !space->root || (virtual_address & 0xFFFULL) ||
+        (virtual_address >> 47) != 0 || virtual_address < PROSENJIT_USER_CODE_VA)
+        return -1;
+    uint64_t *pml4 = space->root;
+    uint64_t e1 = pml4[PML4_INDEX(virtual_address)];
+    if ((e1 & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) return -1;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(e1 & PAGE_MASK);
+    uint64_t e2 = pdpt[PDPT_INDEX(virtual_address)];
+    if ((e2 & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) return -1;
+    uint64_t *pd = (uint64_t *)(uintptr_t)(e2 & PAGE_MASK);
+    uint64_t e3 = pd[PD_INDEX(virtual_address)];
+    if ((e3 & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) return -1;
+    uint64_t *pt = (uint64_t *)(uintptr_t)(e3 & PAGE_MASK);
+    uint64_t *pte = &pt[PT_INDEX(virtual_address)];
+    if ((*pte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) return -1;
+    if (physical_out) *physical_out = *pte & PAGE_MASK;
+    *pte = 0;
+
+    /*
+     * If this address space is active, invalidate the removed user mapping
+     * before returning to user mode. Without this, a stale TLB entry could
+     * keep the unmapped page accessible until CR3 is switched.
+     */
+    __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+
+    /*
+     * Rollback/unmap must not leak page-table pages. User PML4 entries are
+     * private to this address space, so empty descendants can be reclaimed
+     * immediately without touching shared kernel mappings.
+     */
+    if (table_empty(pt)) {
+        pd[PD_INDEX(virtual_address)] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pt);
+        if (table_empty(pd)) {
+            pdpt[PDPT_INDEX(virtual_address)] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pd);
+            if (table_empty(pdpt)) {
+                pml4[PML4_INDEX(virtual_address)] = 0;
+                physical_page_free((uint64_t)(uintptr_t)pdpt);
+            }
+        }
+    }
+    return 0;
 }
 
 int address_space_destroy(struct pros_address_space *space) {
@@ -141,10 +236,12 @@ int address_space_validate_user_range(const struct pros_address_space *space,
                                       uint64_t size,
                                       int write_access) {
     if (!space || !space->root || size == 0) return -1;
+    if (virtual_address < PROSENJIT_USER_CODE_VA)
+        return -1;
 
     uint64_t end = virtual_address + size - 1ULL;
     if (end < virtual_address || (virtual_address >> 47) != 0 ||
-        (end >> 47) != 0)
+        (end >> 47) != 0 || end >= 0x0000800000000000ULL)
         return -1;
 
     for (uint64_t va = virtual_address & PAGE_MASK;; va += 0x1000ULL) {

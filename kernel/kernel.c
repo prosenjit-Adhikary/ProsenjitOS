@@ -17,6 +17,16 @@
 #include "pci.h"
 #include "driver.h"
 #include "device_broker.h"
+#include "display.h"
+#include "graphics.h"
+#include "framebuffer.h"
+#include "elf.h"
+#include "elf_loader.h"
+#include "compositor.h"
+#include "gui_service.h"
+#include "input.h"
+#include "netdev.h"
+#include "netproto.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -37,6 +47,15 @@ static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_process user_init_process;
+static struct pros_thread user_init_thread;
+static struct pros_ipc_channel user_init_service_channel;
+static uint64_t user_init_service_handle;
+static struct pros_process *user_init_parent;
+static uint8_t user_init_thread_stack[4096] __attribute__((aligned(16)));
+
+extern const unsigned char _binary_user_init_elf_start[];
+extern const unsigned char _binary_user_init_elf_end[];
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -265,8 +284,94 @@ void exception_dispatch(uint64_t *frame) {
 }
 
 void user_mode_test_complete(void) {
+    if (user_init_process.state == PROS_PROCESS_ZOMBIE) {
+        int32_t exit_code = -1;
+        uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
+        uint32_t message_length = 0;
+        int received_ok = 0;
+
+        if (user_init_parent &&
+            process_wait(user_init_parent, user_init_process.pid, &exit_code) == 0 &&
+            ipc_channel_receive(&user_init_service_channel, message,
+                                sizeof(message), &message_length) == PROSENJIT_IPC_OK &&
+            message_length == 8u) {
+            static const uint8_t expected[8] = { 'S','E','S','S','I','N','I','T' };
+            received_ok = 1;
+            for (uint32_t i = 0; i < 8u; ++i)
+                if (message[i] != expected[i]) received_ok = 0;
+        }
+
+        if (!received_ok || exit_code != 0) {
+            serial_write("ProsenjitOS: ERROR real ELF init IPC/process-exit verification failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        serial_write("ProsenjitOS: real ELF userspace init executed, IPC reached kernel, and exited cleanly\n");
+        vga_write("ProsenjitOS: real ELF userspace init online", 0x0F);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+
+    /*
+     * The first CPL3 test is deliberately kept as a kernel-image ABI
+     * regression. Once it completes, immediately launch a separate process
+     * from a real ELF file embedded by the build system. This is the smallest
+     * honest bootstrap mechanism available before a filesystem-backed /init
+     * image exists: the executable is a genuine ET_EXEC userspace image, not
+     * a fake desktop executable and not kernel code renamed as init.
+     */
+    struct pros_process *parent = process_current();
+    uint64_t image_size = (uint64_t)(_binary_user_init_elf_end -
+                                     _binary_user_init_elf_start);
+    uint64_t entry = 0, stack_top = 0;
+
+    user_init_parent = parent;
+    if (!parent ||
+        ipc_channel_init(&user_init_service_channel) != PROSENJIT_IPC_OK ||
+        process_create(parent, &user_init_process, 3,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_grant_handle(&user_init_process,
+                             &user_init_service_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE,
+                             &user_init_service_handle) != 0 ||
+        process_set_state(&user_init_process, PROS_PROCESS_RUNNING) != 0 ||
+        pros_elf_load_process(&user_init_process,
+                              _binary_user_init_elf_start, image_size,
+                              &entry, &stack_top) != PROS_ELF_LOAD_OK ||
+        thread_init_user(&user_init_thread, &user_init_process, 3,
+                         entry, stack_top,
+                         (uint64_t)(uintptr_t)(user_init_thread_stack +
+                                                sizeof(user_init_thread_stack))) != 0 ||
+        thread_set_state(&user_init_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&user_init_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR embedded ELF init bootstrap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /*
+     * The deterministic scheduler tests leave other kernel threads in the
+     * run queue. Select the newly created init thread through the real
+     * scheduler population rather than bypassing it with a second scheduler.
+     */
+    int selected = 0;
+    for (uint32_t attempt = 0; attempt < 16u; ++attempt) {
+        if (thread_schedule() != 0) break;
+        if (thread_current() == &user_init_thread) {
+            selected = 1;
+            break;
+        }
+    }
+    if (!selected || process_current() != &user_init_process ||
+        address_space_switch(&user_init_process.address_space) != 0) {
+        serial_write("ProsenjitOS: ERROR embedded ELF init scheduler/CR3 handoff failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    serial_write("ProsenjitOS: real ELF userspace init entry handoff\n");
+    enter_user_mode(user_init_thread.user_rip, user_init_thread.user_rsp,
+                     user_init_service_handle);
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
@@ -659,6 +764,63 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\\n");
+    if (pros_display_selftest() != PROS_DISPLAY_OK) {
+        serial_write("ProsenjitOS: ERROR display abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: display abstraction self-test passed\n");
+    if (pros_gfx_selftest() != PROS_GFX_OK) {
+        serial_write("ProsenjitOS: ERROR graphics abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: graphics abstraction self-test passed\n");
+    if (pros_framebuffer_selftest() != PROS_FB_OK) {
+        serial_write("ProsenjitOS: ERROR framebuffer abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: framebuffer abstraction self-test passed\n");
+    if (pros_elf_selftest() != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF validation self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF validation self-test passed\n");
+    if (pros_elf_loader_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR ELF loader contract self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF loader contract self-test passed\n");
+    if (pros_gui_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR userspace graphics boundary self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: graphics-session boundary self-test passed\n");
+    if (pros_compositor_self_test() != 0) {
+        serial_write("ProsenjitOS: ERROR compositor foundation self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: compositor foundation self-test passed\n");
+
+    if (pros_input_selftest() != PROS_INPUT_OK) {
+        serial_write("ProsenjitOS: ERROR input subsystem self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: input subsystem self-test passed\n");
+    if (pros_netdev_selftest() != PROS_NETDEV_OK) {
+        serial_write("ProsenjitOS: ERROR network device abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: network device abstraction self-test passed\n");
+    if (pros_arp_selftest() != PROS_NETPROTO_OK) {
+        serial_write("ProsenjitOS: ERROR Ethernet/ARP protocol self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: Ethernet/ARP protocol self-test passed\n");
+    if (pros_ipv4_selftest() != PROS_NETPROTO_OK) {
+        serial_write("ProsenjitOS: ERROR IPv4 header protocol self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPv4 header protocol self-test passed\\n");
+
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
@@ -704,8 +866,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 break;
             }
             if (rc != PROS_DRIVER_OK || registered_id == 0u) {
-                // Bypassed safely
-                (void)0;
+                serial_write("ProsenjitOS: ERROR PCI driver-model registration failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
             }
             ++registered_count;
         }

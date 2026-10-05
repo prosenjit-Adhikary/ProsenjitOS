@@ -74,6 +74,7 @@ kernel/
 ├── memory/paging/heap/address spaces
 ├── process/thread/scheduler
 ├── syscall/usercopy
+├── GUI boundary validation / graphics-session ABI
 ├── object/capability/intent/security
 ├── IPC
 ├── driver/device layer
@@ -124,11 +125,14 @@ AI/security services are advisory only. Kernel policy remains authoritative.
 
 ## 6. User-mode path
 
-ELF loader
+ELF64 validation/loading
   -> process creation
   -> address-space setup
   -> initial capabilities
+  -> user-mode entry
   -> init/service manager
+  -> init/service manager
+  -> graphics/session service (capability-mediated GUI ABI)
   -> shell/basic utilities
   -> package manager
   -> desktop/session
@@ -280,3 +284,16 @@ The project is now in a structure-first stabilization stage.
 8. Fix security regressions fourth.
 9. Verify observability/diagnostic regressions alongside the affected subsystem.
 10. Only after the current baseline is green, start the next dependent feature.
+
+
+### 12. Current Phase-8 boundary truth
+
+The repository deliberately stops the privileged GUI boundary at kernel
+display/input/framebuffer abstractions. The userspace graphics/session ABI is
+defined in include/abi/gui.h and is intended to be transported through
+capability-authorized IPC. No Xorg, Wayland, XFCE, desktop shell, file manager
+or terminal code is linked into the kernel.
+
+The current ELF loader is a hardened process-image primitive, with a real embedded ET_EXEC bootstrap exercised by the kernel startup path. The repository still does not have a filesystem-backed init/service-manager image. A component is not considered runtime-complete
+until an actual userspace executable can be loaded, entered at CPL3, use the
+documented syscall/IPC boundary, and continue under the process/thread model.

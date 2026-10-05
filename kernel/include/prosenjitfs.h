@@ -29,6 +29,13 @@ struct pros_prosenjitfs {
     struct pros_prosenjitfs_superblock sb;
     uint8_t read_only;
     uint8_t degraded_superblock;
+    /*
+     * Once a journal commit marker is durable, a later home-write/retirement
+     * failure requires recovery before another transaction may be started.
+     * This prevents a failed transaction from being overwritten in-memory
+     * while its durable redo record is still the only recovery authority.
+     */
+    uint8_t tx_recovery_required;
     uint8_t *scratch;
     struct pros_prosenjitfs_tx tx;
 };
