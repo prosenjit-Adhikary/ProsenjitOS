@@ -198,8 +198,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [x] ELF64 validation and transactional process-image loading foundation
   - [x] x86-64-only validation
   - [x] integer/range/overflow checks
-  - [x] W^X and user-canonical-address enforcement
-  - [x] PT_LOAD page-overlap policy
+  - [x] W^X and supported user-address enforcement
+  - [x] conservative PT_LOAD page-overlap policy
   - [x] zero-filled BSS pages
   - [x] allocation/mapping rollback
   - [x] explicit ET_DYN/PIE fail-closed policy pending load-bias support
@@ -221,6 +221,27 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Terminal emulator
 - [ ] Settings/security center
 - [ ] Permission prompts
+
+### Phase 8 userspace truth status — 2026-10-05
+
+The graphics foundation remains kernel-only by design. The branch now includes
+a capability-mediated graphics-session ABI at `include/abi/gui.h` and hardened
+ELF/address-space prerequisites, but it does not claim that a real desktop
+session runs.
+
+- **Completed:** kernel graphics/display/input foundations; deterministic
+  abstraction tests; user mapping boundary hardening; ELF64 validation/loading
+  policy.
+- **Implemented but not runtime verified:** ELF loader as a process-image
+  primitive.
+- **Not implemented:** filesystem-backed first-process discovery, real
+  init/service manager, userspace graphics/session service, X11/Wayland
+  execution, XFCE execution.
+- **External dependency:** mature X11/Wayland/XFCE execution additionally
+  requires a usable userspace ABI/libc/POSIX/application runtime and real
+  display/input providers.
+
+Roadmap items are not marked complete merely because an ABI or header exists.
 
 ## Phase 9 — Application compatibility
 - [ ] Native ProsenjitOS SDK
