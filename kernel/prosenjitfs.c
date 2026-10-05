@@ -4223,6 +4223,66 @@ int prosenjitfs_selftest(void)
             return -6;
     }
 
+    /*
+     * Corruption regression: an extent whose allocation bitmap bit is
+     * cleared must be rejected when the file is accessed. This exercises
+     * the persistent extent -> bitmap integrity contract rather than merely
+     * checking that the extent checksum itself is intact.
+     */
+    {
+        struct pros_prosenjitfs_inode corrupt_inode;
+        uint8_t bitmap[512];
+        uint64_t bitmap_lba;
+        uint64_t extent_lba;
+        uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+        uint64_t bit;
+        uint8_t saved_bit;
+
+        if (prosenjitfs_read_inode(&fs, 1u, &corrupt_inode) !=
+                PROSENJITFS_OK ||
+            corrupt_inode.extent_head == 0u ||
+            corrupt_inode.extent_head < fs.sb.data_start ||
+            corrupt_inode.extent_head >= fs.sb.total_blocks)
+            return -0x27000;
+        extent_lba = corrupt_inode.extent_head;
+        bit = extent_lba % bits_per_block;
+        if (pfs_lba_add(&device, fs.sb.block_bitmap_start,
+                        extent_lba / bits_per_block, &bitmap_lba) !=
+                PROSENJITFS_OK ||
+            pfs_read_block(&device, bitmap_lba, bitmap) != PROSENJITFS_OK)
+            return -0x27000;
+        saved_bit = bitmap[bit >> 3];
+        bitmap[bit >> 3] &= (uint8_t)~(1u << (bit & 7u));
+        if (pfs_write_block(&device, bitmap_lba, bitmap) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -0x27001;
+        {
+            struct pros_vfs_file corrupt_file;
+            uint8_t probe_byte = 0u;
+            uint32_t corrupt_read = 0u;
+            int corrupt_rc = vfs_file_open(&fs.mount, "/hello.bin",
+                                           PROS_VFS_O_READ, &corrupt_file);
+            if (corrupt_rc != PROS_VFS_OK)
+                return -0x27002;
+            corrupt_rc = vfs_file_read(&corrupt_file, &probe_byte, 1u,
+                                       &corrupt_read);
+            if (corrupt_rc != PROS_VFS_ECORRUPT || corrupt_read != 0u) {
+                (void)vfs_file_close(&corrupt_file);
+                return -0x27003;
+            }
+            if (vfs_file_close(&corrupt_file) != PROS_VFS_OK)
+                return -0x27004;
+        }
+        bitmap[bit >> 3] = saved_bit;
+        if (pfs_write_block(&device, bitmap_lba, bitmap) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -0x27005;
+    }
+
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return -6;
     if (first_block < fs.sb.data_start ||
