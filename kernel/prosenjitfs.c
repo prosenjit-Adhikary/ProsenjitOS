@@ -4032,6 +4032,20 @@ int prosenjitfs_selftest(void)
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return -3;
+    /*
+     * Probe must apply the device-capacity contract to either redundant
+     * superblock. Force the primary copy invalid so the oversized backup
+     * copy is the only candidate.
+     */
+    {
+        uint8_t saved_magic = disk.data[0];
+        struct pros_block_device short_device = device;
+        short_device.sector_count = 511u;
+        disk.data[0] ^= 0x01u;
+        if (prosenjitfs_probe(&short_device) != PROSENJITFS_ECORRUPT)
+            return -300;
+        disk.data[0] = saved_magic;
+    }
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return -4;
     if (fs.sb.root_inode != 0u ||
