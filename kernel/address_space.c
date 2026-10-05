@@ -69,21 +69,37 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t physical_address,
                                 uint64_t flags) {
     if (!space || !space->root) return -1;
-    if ((virtual_address >> 47) != 0) return -1;
-    if ((virtual_address & 0xFFFULL) || (physical_address & 0xFFFULL)) return -1;
+    if ((virtual_address >> 47) != 0 || virtual_address < PROSENJIT_USER_CODE_VA)
+        return -1;
+    if ((virtual_address & 0xFFFULL) || (physical_address & 0xFFFULL))
+        return -1;
+    if (physical_address >= PROSENJIT_PHYS_LIMIT)
+        return -1;
 
-    uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
+    /*
+     * PML4[0] is supervisor-only kernel space in every user address space.
+     * User mappings therefore must live in PML4[1..255] and can never alias
+     * the kernel's low identity map.
+     */
+    uint32_t pml4_index = PML4_INDEX(virtual_address);
+    if (pml4_index == 0 || pml4_index >= 256u)
+        return -1;
+
+    uint64_t *pdpt = ensure_table(space->root, pml4_index);
     if (!pdpt) return -1;
     uint64_t *pd = ensure_table(pdpt, PDPT_INDEX(virtual_address));
     if (!pd) return -1;
     uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
     if (!pt) return -1;
 
-    pt[PT_INDEX(virtual_address)] =
-        (physical_address & PAGE_MASK) |
-        PROSENJIT_PAGE_PRESENT |
-        PROSENJIT_PAGE_USER |
-        (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+    uint64_t *pte = &pt[PT_INDEX(virtual_address)];
+    if (*pte & PROSENJIT_PAGE_PRESENT)
+        return -1; /* never silently replace an existing user mapping */
+
+    *pte = (physical_address & PAGE_MASK) |
+           PROSENJIT_PAGE_PRESENT |
+           PROSENJIT_PAGE_USER |
+           (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
     return 0;
 }
 
