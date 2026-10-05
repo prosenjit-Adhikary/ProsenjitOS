@@ -340,9 +340,10 @@ void user_mode_test_complete(void) {
         pros_elf_load_process(&user_init_process,
                               _binary_user_init_elf_start, image_size,
                               &entry, &stack_top) != PROS_ELF_LOAD_OK ||
-        thread_init(&user_init_thread, &user_init_process, 3,
-                    entry, (uint64_t)(uintptr_t)(user_init_thread_stack +
-                                                 sizeof(user_init_thread_stack))) != 0 ||
+        thread_init_user(&user_init_thread, &user_init_process, 3,
+                         entry, stack_top,
+                         (uint64_t)(uintptr_t)(user_init_thread_stack +
+                                                sizeof(user_init_thread_stack))) != 0 ||
         thread_set_state(&user_init_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&user_init_thread) != 0) {
         serial_write("ProsenjitOS: ERROR embedded ELF init bootstrap failed\n");
@@ -369,7 +370,8 @@ void user_mode_test_complete(void) {
     }
 
     serial_write("ProsenjitOS: real ELF userspace init entry handoff\n");
-    enter_user_mode(entry, stack_top, user_init_service_handle);
+    enter_user_mode(user_init_thread.user_rip, user_init_thread.user_rsp,
+                     user_init_service_handle);
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
