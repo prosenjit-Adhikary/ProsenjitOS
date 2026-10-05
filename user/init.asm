@@ -4,14 +4,27 @@ default rel
 section .text
 global _start
 _start:
-    ; Real first userspace instruction: exercise the published ABI.
+    ; RDI is the initial capability handle granted by the kernel.
+    mov r12, rdi
+
+    ; Send a bounded SESSION_READY message through the real IPC syscall.
+    lea rsi, [rsp - 8]
+    mov rax, 0x53455353494E4954 ; "T I N I S S E S" marker, 8 bytes
+    mov [rsi], rax
+    mov rax, 5                  ; PROSENJIT_SYS_IPC_SEND
+    mov rdi, r12
+    mov rdx, 8
+    int 0x80
+    test rax, rax
+    jnz .halt
+
+    ; Exercise the published ABI before exiting.
     mov rax, 1                  ; PROSENJIT_SYS_GET_VERSION
     int 0x80
     cmp rax, 0x0000000000010000
     jne .halt
 
-    ; Exit through the real syscall boundary so the kernel can prove this
-    ; executable reached CPL3 and returned through the normal syscall path.
+    ; Exit through the real process-exit syscall.
     mov rax, 8                  ; PROSENJIT_SYS_PROCESS_EXIT
     xor rdi, rdi
     int 0x80
