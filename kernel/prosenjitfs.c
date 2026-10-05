@@ -1219,6 +1219,26 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             rc = pfs_read_block(data->fs->mount.device, physical, data_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
+
+            /*
+             * If a prior truncate shortened this file inside an allocated
+             * block, bytes beyond the new EOF may still physically exist.
+             * A later sparse extension must not expose those stale bytes in
+             * the gap before the new write. Zero only the newly-visible gap
+             * in the retained EOF block; newly allocated blocks are already
+             * zero-filled by the new-extent path.
+             */
+            if ((uint64_t)offset + done > inode.size) {
+                uint64_t old_eof_block = inode.size / data->fs->sb.block_size;
+                uint32_t old_eof_offset =
+                    (uint32_t)(inode.size % data->fs->sb.block_size);
+                if (logical_block == old_eof_block &&
+                    in_block > old_eof_offset) {
+                    for (uint32_t i = old_eof_offset; i < in_block; ++i)
+                        data_image[i] = 0u;
+                }
+            }
+
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
