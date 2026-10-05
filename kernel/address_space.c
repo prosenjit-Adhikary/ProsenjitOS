@@ -9,6 +9,7 @@
 #define PDPT_INDEX(va) (((va) >> 30) & 0x1FFu)
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
+#define PAGE_OWNED_FLAG (1ULL << 9)
 
 extern uint64_t *paging_kernel_root(void);
 
@@ -64,10 +65,11 @@ int address_space_create(struct pros_address_space *space) {
     return 0;
 }
 
-int address_space_map_user_page(struct pros_address_space *space,
+static int address_space_map_user_page_internal(struct pros_address_space *space,
                                 uint64_t virtual_address,
                                 uint64_t physical_address,
-                                uint64_t flags) {
+                                uint64_t flags,
+                                int owned) {
     if (!space || !space->root) return -1;
     if ((virtual_address >> 47) != 0 || virtual_address < PROSENJIT_USER_CODE_VA)
         return -1;
@@ -100,7 +102,24 @@ int address_space_map_user_page(struct pros_address_space *space,
            PROSENJIT_PAGE_PRESENT |
            PROSENJIT_PAGE_USER |
            (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+    if (owned) *pte |= PAGE_OWNED_FLAG;
     return 0;
+}
+
+int address_space_map_user_page(struct pros_address_space *space,
+                                uint64_t virtual_address,
+                                uint64_t physical_address,
+                                uint64_t flags) {
+    return address_space_map_user_page_internal(space, virtual_address,
+                                                physical_address, flags, 0);
+}
+
+int address_space_map_user_page_owned(struct pros_address_space *space,
+                                      uint64_t virtual_address,
+                                      uint64_t physical_address,
+                                      uint64_t flags) {
+    return address_space_map_user_page_internal(space, virtual_address,
+                                                physical_address, flags, 1);
 }
 
 static int table_empty(const uint64_t *table) {
@@ -122,8 +141,11 @@ static void destroy_table(uint64_t *table, uint32_t level) {
             destroy_table(child, level - 1);
             physical_page_free((uint64_t)(uintptr_t)child);
         }
-        /* At level 1, entries are leaf mappings; their physical pages
-         * are owned by the caller and are intentionally not freed here. */
+        /* At level 1, only mappings explicitly marked as owned by this
+         * address space may be reclaimed. Kernel-backed/user-test mappings
+         * remain caller-owned and must never be freed here. */
+        if (level == 1 && (entry & PAGE_OWNED_FLAG))
+            physical_page_free(entry & PAGE_MASK);
     }
 }
 
