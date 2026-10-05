@@ -3027,7 +3027,8 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
     if (checksum != entry->checksum)
         return PROSENJITFS_ECORRUPT;
     if (pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
-        PROSENJITFS_OK || name_length != entry->name_length)
+        PROSENJITFS_OK || name_length != entry->name_length ||
+        pfs_name_hash(entry->name, entry->name_length) != entry->name_hash)
         return PROSENJITFS_ECORRUPT;
     /* A directory entry must reference a live inode of the advertised type. */
     {
