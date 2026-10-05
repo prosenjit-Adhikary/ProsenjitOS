@@ -438,43 +438,48 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
 int prosenjitfs_probe(struct pros_block_device *device)
 {
     uint8_t *block;
-    struct pros_prosenjitfs_superblock sb;
+    struct pros_prosenjitfs_superblock primary;
+    struct pros_prosenjitfs_superblock backup;
+    int primary_ok, backup_ok;
+
     if (!device || device->sector_size < 512u ||
         device->sector_size > 4096u ||
         (device->sector_size & (device->sector_size - 1u)) != 0u ||
         device->sector_count < PFS_MIN_BLOCKS)
         return PROSENJITFS_EINVAL;
+
     block = (uint8_t *)kmalloc(device->sector_size);
     if (!block)
         return PROSENJITFS_EIO;
+
     if (pfs_read_block(device, 0u, block) != PROSENJITFS_OK) {
         kfree(block);
         return PROSENJITFS_EIO;
     }
-    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_OK;
-    }
+    primary_ok =
+        pfs_superblock_valid(block, device->sector_size, &primary) ==
+        PROSENJITFS_OK;
+
     if (pfs_read_block(device, 1u, block) != PROSENJITFS_OK) {
         kfree(block);
         return PROSENJITFS_EIO;
     }
-    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
-        struct pros_prosenjitfs_superblock primary = sb;
-        if (pfs_read_block(device, 0u, block) != PROSENJITFS_OK) {
-            kfree(block);
-            return PROSENJITFS_EIO;
-        }
-        if (pfs_superblock_valid(block, device->sector_size, &sb) != PROSENJITFS_OK ||
-            !pfs_superblock_equal(&primary, &sb)) {
-            kfree(block);
-            return PROSENJITFS_ECORRUPT;
-        }
+    backup_ok =
+        pfs_superblock_valid(block, device->sector_size, &backup) ==
+        PROSENJITFS_OK;
+
+    if (!primary_ok && !backup_ok) {
         kfree(block);
-        return PROSENJITFS_OK;
+        return PROSENJITFS_ENOTSUP;
     }
+    if (primary_ok && backup_ok &&
+        !pfs_superblock_equal(&primary, &backup)) {
+        kfree(block);
+        return PROSENJITFS_ECORRUPT;
+    }
+
     kfree(block);
-    return PROSENJITFS_ENOTSUP;
+    return PROSENJITFS_OK;
 }
 
 int prosenjitfs_format(struct pros_block_device *device)
