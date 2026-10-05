@@ -17,6 +17,7 @@ enum pros_input_type {
 };
 
 struct pros_input_event {
+    uint32_t device_id;
     uint16_t type;
     uint16_t code;
     int32_t value;
