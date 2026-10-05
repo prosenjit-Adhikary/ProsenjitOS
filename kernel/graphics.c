@@ -1,15 +1,17 @@
 #include "graphics.h"
+#include "display.h"
 
 static int rect_intersect(const struct pros_gfx_rect *a,
                           uint32_t width, uint32_t height,
                           struct pros_gfx_rect *out)
 {
-    int64_t x0 = a->x < 0 ? 0 : a->x;
-    int64_t y0 = a->y < 0 ? 0 : a->y;
-    int64_t x1 = (int64_t)a->x + a->width;
-    int64_t y1 = (int64_t)a->y + a->height;
+    int64_t x0, y0, x1, y1;
     if (!a || !out || a->width == 0u || a->height == 0u)
         return 0;
+    x0 = a->x < 0 ? 0 : a->x;
+    y0 = a->y < 0 ? 0 : a->y;
+    x1 = (int64_t)a->x + a->width;
+    y1 = (int64_t)a->y + a->height;
     if (x1 > (int64_t)width) x1 = width;
     if (y1 > (int64_t)height) y1 = height;
     if (x1 <= x0 || y1 <= y0)
@@ -118,7 +120,6 @@ int pros_gfx_present(struct pros_gfx_surface *s, uint32_t display_id)
     bytes = (uint64_t)s->stride * s->height * sizeof(uint32_t);
     if (bytes > UINT32_MAX)
         return PROS_GFX_ERANGE;
-    extern int pros_display_present(uint32_t, const void *, uint32_t);
     return pros_display_present(display_id, s->pixels, (uint32_t)bytes);
 }
 
