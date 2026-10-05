@@ -790,6 +790,14 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
     if (!fs || !extent || fs->sb.block_size > sizeof(block) ||
         lba < fs->sb.data_start || lba >= fs->sb.total_blocks)
         return PROSENJITFS_ECORRUPT;
+    /* The extent descriptor itself is persistent data and must not reside in
+     * a block that the allocator considers free. Otherwise a freed/reused
+     * descriptor can be accepted as a valid file mapping. */
+    {
+        int alloc_rc = pfs_data_range_allocated(fs, lba, 1u);
+        if (alloc_rc != PROSENJITFS_OK)
+            return alloc_rc;
+    }
     {
         int rc = pfs_read_block(fs->mount.device, lba, block);
         if (rc != PROSENJITFS_OK)
