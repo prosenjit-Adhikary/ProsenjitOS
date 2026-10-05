@@ -57,11 +57,36 @@ int pros_eth_build_header(uint8_t *frame, uint32_t frame_len,
 int pros_eth_parse_header(const uint8_t *frame, uint32_t frame_len,
                           struct pros_eth_header *header);
 
+struct pros_ipv4_header {
+    uint8_t version_ihl;
+    uint8_t tos;
+    uint16_t total_length;
+    uint16_t identification;
+    uint16_t flags_fragment;
+    uint8_t ttl;
+    uint8_t protocol;
+    uint16_t checksum;
+    struct pros_ipv4_addr src;
+    struct pros_ipv4_addr dst;
+};
+
+uint16_t pros_ipv4_checksum(const uint8_t *data, uint32_t length);
+int pros_ipv4_build_header(uint8_t *packet, uint32_t packet_len,
+                           uint8_t tos, uint16_t total_length,
+                           uint16_t identification, uint16_t flags_fragment,
+                           uint8_t ttl, uint8_t protocol,
+                           const struct pros_ipv4_addr *src,
+                           const struct pros_ipv4_addr *dst);
+int pros_ipv4_parse_header(const uint8_t *packet, uint32_t packet_len,
+                           struct pros_ipv4_header *header);
+
 int pros_arp_build(uint8_t *packet, uint32_t packet_len, uint16_t operation,
                    const struct pros_mac *sha, const struct pros_ipv4_addr *spa,
                    const struct pros_mac *tha, const struct pros_ipv4_addr *tpa);
 int pros_arp_parse(const uint8_t *packet, uint32_t packet_len,
                    struct pros_arp_packet *arp);
+
+int pros_ipv4_selftest(void);
 
 int pros_arp_cache_init(void);
 int pros_arp_cache_insert(const struct pros_ipv4_addr *ip,
