@@ -48,6 +48,9 @@ static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 static struct pros_process user_init_process;
 static struct pros_thread user_init_thread;
+static struct pros_ipc_channel user_init_service_channel;
+static uint64_t user_init_service_handle;
+static struct pros_process *user_init_parent;
 static uint8_t user_init_thread_stack[4096] __attribute__((aligned(16)));
 
 extern const unsigned char _binary_user_init_elf_start[];
@@ -281,7 +284,28 @@ void exception_dispatch(uint64_t *frame) {
 
 void user_mode_test_complete(void) {
     if (user_init_process.state == PROS_PROCESS_ZOMBIE) {
-        serial_write("ProsenjitOS: real ELF userspace init executed and exited through syscall ABI\n");
+        int32_t exit_code = -1;
+        uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
+        uint32_t message_length = 0;
+        int received_ok = 0;
+
+        if (user_init_parent &&
+            process_wait(user_init_parent, user_init_process.pid, &exit_code) == 0 &&
+            ipc_channel_receive(&user_init_service_channel, message,
+                                sizeof(message), &message_length) == PROSENJIT_IPC_OK &&
+            message_length == 8u) {
+            static const uint8_t expected[8] = { 'S','E','S','S','I','N','I','T' };
+            received_ok = 1;
+            for (uint32_t i = 0; i < 8u; ++i)
+                if (message[i] != expected[i]) received_ok = 0;
+        }
+
+        if (!received_ok || exit_code != 0) {
+            serial_write("ProsenjitOS: ERROR real ELF init IPC/process-exit verification failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        serial_write("ProsenjitOS: real ELF userspace init executed, IPC reached kernel, and exited cleanly\n");
         vga_write("ProsenjitOS: real ELF userspace init online", 0x0F);
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -302,9 +326,15 @@ void user_mode_test_complete(void) {
                                      _binary_user_init_elf_start);
     uint64_t entry = 0, stack_top = 0;
 
+    user_init_parent = parent;
     if (!parent ||
+        ipc_channel_init(&user_init_service_channel) != PROSENJIT_IPC_OK ||
         process_create(parent, &user_init_process, 3,
                        PROS_SECURITY_LIMITED) != 0 ||
+        process_grant_handle(&user_init_process,
+                             &user_init_service_channel.object,
+                             PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE,
+                             &user_init_service_handle) != 0 ||
         process_set_state(&user_init_process, PROS_PROCESS_RUNNING) != 0 ||
         pros_elf_load_process(&user_init_process,
                               _binary_user_init_elf_start, image_size,
@@ -338,7 +368,7 @@ void user_mode_test_complete(void) {
     }
 
     serial_write("ProsenjitOS: real ELF userspace init entry handoff\n");
-    enter_user_mode(entry, stack_top, 0);
+    enter_user_mode(entry, stack_top, user_init_service_handle);
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
