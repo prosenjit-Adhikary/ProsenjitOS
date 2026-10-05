@@ -60,3 +60,37 @@ gates green.
 Phase 8 user-space integration depends on the Phase 7 ELF/process startup and
 init/service-manager path. Completing those prerequisites is required before
 real XFCE/X11/Wayland integration can be verified.
+
+
+## 2026-10-05 user-mode hardening status
+
+The current branch hardens the prerequisite process/address-space layer without
+claiming a desktop runtime:
+
+- ELF64 validation rejects unsupported ET_DYN/PIE images until a load-bias
+  contract exists.
+- PT_LOAD file/memory arithmetic is checked before dereference or mapping.
+- W+X and ambiguous page-overlapping PT_LOAD mappings fail closed.
+- User mappings are restricted to the supported user PML4 range and cannot
+  replace an existing PTE.
+- The loader zero-fills allocated pages and rolls back every page it mapped on
+  allocation/mapping failure.
+- The graphics-session ABI is defined in include/abi/gui.h and is intended to
+  travel over capability-authorized IPC rather than expose hardware directly.
+
+This is **implemented foundation**, not a claim that init, a userspace graphics
+service, X11/Wayland, or XFCE can already execute.
+
+### Phase-8 truth table
+
+| Component | Status |
+|---|---|
+| Kernel graphics/display/input primitives | COMPLETED |
+| User-address-space boundary | IMPLEMENTED AND HARDENED |
+| ELF64 validation/load primitive | IMPLEMENTED BUT RUNTIME VERIFICATION PENDING |
+| Real first userspace process from filesystem/image | NOT IMPLEMENTED |
+| Init/service manager | NOT IMPLEMENTED |
+| Userspace graphics/session service | ABI DEFINED; SERVICE NOT IMPLEMENTED |
+| Real framebuffer/input provider | DRIVER-DEPENDENT |
+| X11/Xorg or Wayland | BLOCKED BY USERSPACE ABI/LIBC/POSIX DEPENDENCIES |
+| XFCE | BLOCKED BY USERSPACE ABI/LIBC/POSIX DEPENDENCIES |
