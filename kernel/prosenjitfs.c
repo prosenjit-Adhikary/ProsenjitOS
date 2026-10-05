@@ -3541,6 +3541,14 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         fs->read_only || fs->tx.count == 0u ||
         fs->tx.count > fs->sb.journal_blocks || fs->sb.journal_blocks - fs->tx.count < 2u)
         return PROSENJITFS_EINVAL;
+    /*
+     * A durable commit that has not been fully retired is already the
+     * recovery authority. Refuse a second commit attempt from the stale
+     * in-memory transaction rather than rewriting/advancing the journal
+     * before recovery has restored the mounted instance.
+     */
+    if (fs->tx_recovery_required)
+        return PROSENJITFS_EIO;
     pfs_tx_diag_count = fs->tx.count;
 
     header = fs->scratch;
