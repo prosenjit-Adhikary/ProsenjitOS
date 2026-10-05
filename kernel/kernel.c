@@ -19,6 +19,8 @@
 #include "device_broker.h"
 #include "display.h"
 #include "graphics.h"
+#include "framebuffer.h"
+#include "compositor.h"
 #include "input.h"
 #include "netdev.h"
 #include "netproto.h"
@@ -674,6 +676,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: graphics abstraction self-test passed\n");
+    if (pros_framebuffer_selftest() != PROS_FB_OK) {
+        serial_write("ProsenjitOS: ERROR framebuffer abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: framebuffer abstraction self-test passed\n");
+    if (pros_compositor_self_test() != 0) {
+        serial_write("ProsenjitOS: ERROR compositor foundation self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: compositor foundation self-test passed\n");
 
     if (pros_input_selftest() != PROS_INPUT_OK) {
         serial_write("ProsenjitOS: ERROR input subsystem self-test failed\n");
