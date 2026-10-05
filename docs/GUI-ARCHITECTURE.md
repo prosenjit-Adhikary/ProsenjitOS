@@ -50,7 +50,7 @@ environment.
 
 ### IMPLEMENTED BUT NOT RUNTIME VERIFIED
 
-- End-to-end execution of an ELF image loaded from a real userspace image.
+- Embedded real ELF bootstrap process from kernel-linked userspace image (runtime verification pending).
 - Userspace graphics/session service implementation.
 
 The loader is integrated into the kernel build, but there is not yet a
@@ -81,8 +81,8 @@ prerequisite for the initial mature-desktop target.
 
 ## Remaining integration gates
 
-1. Provide a real userspace filesystem/image mechanism.
-2. Start a real user-mode init/service manager through the ELF/process path.
+1. Replace the temporary embedded bootstrap with a filesystem-backed userspace image.
+2. Build the real init/service manager above the existing process/ELF path.
 3. Start a userspace graphics/session service using capability-authorized IPC.
 4. Bind a real framebuffer/display provider and route real input events.
 5. Integrate an existing X11/Xorg and/or Wayland stack.
