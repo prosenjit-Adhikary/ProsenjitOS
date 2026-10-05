@@ -4285,6 +4285,43 @@ int prosenjitfs_selftest(void)
         inode.dir_index == 0u ||
         !fs.mount.root)
         return -5;
+    /*
+     * A free inode is still protected metadata. Verify that corrupting only
+     * its checksum is reported as ECORRUPT rather than being mistaken for
+     * the normal ENOENT free-inode result.
+     */
+    {
+        uint8_t inode_block[512];
+        uint64_t inode_lba;
+        uint32_t inode_offset;
+        uint8_t saved_checksum_byte;
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT ||
+            pfs_inode_block_location(&fs, 1u, &inode_lba, &inode_offset) !=
+                PROSENJITFS_OK ||
+            pfs_read_block(&device, inode_lba, inode_block) != PROSENJITFS_OK)
+            return -500;
+        saved_checksum_byte = inode_block[inode_offset +
+                                          offsetof(struct pros_prosenjitfs_inode,
+                                                   checksum)];
+        inode_block[inode_offset +
+                    offsetof(struct pros_prosenjitfs_inode, checksum)] ^=
+            0x01u;
+        if (pfs_write_block(&device, inode_lba, inode_block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, 1u, &inode) !=
+                PROSENJITFS_ECORRUPT)
+            return -501;
+        inode_block[inode_offset +
+                    offsetof(struct pros_prosenjitfs_inode, checksum)] =
+            saved_checksum_byte;
+        if (pfs_write_block(&device, inode_lba, inode_block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, 1u, &inode) !=
+                PROSENJITFS_ENOENT)
+            return -502;
+    }
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
