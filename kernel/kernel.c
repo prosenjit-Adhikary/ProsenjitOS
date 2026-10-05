@@ -18,6 +18,7 @@
 #include "driver.h"
 #include "device_broker.h"
 #include "display.h"
+#include "graphics.h"
 #include "input.h"
 #include "netdev.h"
 #include "netproto.h"
@@ -668,6 +669,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: display abstraction self-test passed\n");
+    if (pros_gfx_selftest() != PROS_GFX_OK) {
+        serial_write("ProsenjitOS: ERROR graphics abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: graphics abstraction self-test passed\n");
 
     if (pros_input_selftest() != PROS_INPUT_OK) {
         serial_write("ProsenjitOS: ERROR input subsystem self-test failed\n");
