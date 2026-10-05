@@ -1433,7 +1433,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
     {
         int rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (rc != PROSENJITFS_OK)
-            return rc;
+            return pfs_vfs_error(rc);
     }
     if (inode.type == PROSENJITFS_INODE_DIR)
         type = PROS_VFS_NODE_DIRECTORY;
@@ -1995,7 +1995,7 @@ rmdir_out:
     if (prev_block) kfree(prev_block);
     if (inode_block) kfree(inode_block);
     if (entry_block) kfree(entry_block);
-    return rc;
+    return rc == PROS_VFS_OK ? PROS_VFS_OK : pfs_vfs_error(rc);
 }
 
 static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
@@ -2099,8 +2099,13 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     if (prosenjitfs_read_inode(parent_data->fs, inode_number, &child_inode) !=
         PROSENJITFS_OK)
         { rc = PROSENJITFS_EIO; goto out; }
-    if (child_inode.type == PROSENJITFS_INODE_DIR)
-        { rc = PROS_VFS_EISDIR; goto out; }
+    if (child_inode.type == PROSENJITFS_INODE_DIR) {
+        kfree(dir_block);
+        kfree(prev_block);
+        kfree(inode_block);
+        kfree(entry_block);
+        return PROS_VFS_EISDIR;
+    }
 
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE) {
         rc = PROSENJITFS_EOVERFLOW;
@@ -2230,7 +2235,7 @@ out:
     if (prev_block) kfree(prev_block);
     if (inode_block) kfree(inode_block);
     if (entry_block) kfree(entry_block);
-    return rc;
+    return pfs_vfs_error(rc);
 }
 
 
@@ -2588,7 +2593,7 @@ out:
     if (prev_block) kfree(prev_block);
     if (entry_block) kfree(entry_block);
     if (inode_block) kfree(inode_block);
-    return rc;
+    return pfs_vfs_error(rc);
 }
 
 
