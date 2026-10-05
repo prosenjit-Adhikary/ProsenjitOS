@@ -98,8 +98,12 @@ int pros_elf_validate_load_segments(const void *image, uint64_t size,
     int has_load = 0, entry_ok = 0;
 
     if (!p || !header) return PROS_ELF_EINVAL;
-    if (pros_elf_validate_image(image, size,
-                                (struct pros_elf_header64 *)header) != PROS_ELF_OK)
+    struct pros_elf_header64 validated;
+    if (pros_elf_validate_image(image, size, &validated) != PROS_ELF_OK)
+        return PROS_ELF_EFORMAT;
+    if (validated.phoff != header->phoff || validated.phnum != header->phnum ||
+        validated.phentsize != header->phentsize || validated.entry != header->entry ||
+        validated.type != header->type)
         return PROS_ELF_EFORMAT;
 
     for (uint16_t i = 0; i < header->phnum; ++i) {
