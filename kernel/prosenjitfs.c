@@ -1312,8 +1312,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
              * while the detached blocks remain allocated until the second
              * phase below.
              */
-            txrc = pfs_read_block(data->fs->mount.device, inode_lba,
-                                  inode_image);
+            if (txrc == PROSENJITFS_OK)
+                txrc = pfs_read_block(data->fs->mount.device, inode_lba,
+                                      inode_image);
             if (txrc == PROSENJITFS_OK) {
                 if (previous == 0u)
                     inode.extent_head = 0u;
