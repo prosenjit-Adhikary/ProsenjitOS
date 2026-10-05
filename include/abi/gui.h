@@ -14,7 +14,7 @@
 #define PROS_GUI_ABI_VERSION 0x00010000ULL
 #define PROS_GUI_MAX_WIDTH 4096u
 #define PROS_GUI_MAX_HEIGHT 4096u
-#define PROS_GUI_MAX_DAMAGE 128u
+#define PROS_GUI_MAX_DAMAGE 8u /* fits inside the current bounded IPC message */
 #define PROS_GUI_MAX_WINDOWS 256u
 #define PROS_GUI_MAX_EVENT_QUEUE 256u
 
