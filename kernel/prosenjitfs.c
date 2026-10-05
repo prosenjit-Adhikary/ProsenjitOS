@@ -4234,6 +4234,7 @@ int prosenjitfs_selftest(void)
         uint8_t bitmap[512];
         uint64_t bitmap_lba;
         uint64_t extent_lba;
+        uint64_t data_lba;
         uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
         uint64_t bit;
         uint8_t saved_bit;
@@ -4245,9 +4246,17 @@ int prosenjitfs_selftest(void)
             corrupt_inode.extent_head >= fs.sb.total_blocks)
             return -0x27000;
         extent_lba = corrupt_inode.extent_head;
-        bit = extent_lba % bits_per_block;
+        {
+            struct pros_prosenjitfs_extent corrupt_extent;
+            if (pfs_read_extent(&fs, extent_lba, &corrupt_extent) !=
+                    PROSENJITFS_OK ||
+                corrupt_extent.block_count == 0u)
+                return -0x27000;
+            data_lba = corrupt_extent.physical_block;
+        }
+        bit = data_lba % bits_per_block;
         if (pfs_lba_add(&device, fs.sb.block_bitmap_start,
-                        extent_lba / bits_per_block, &bitmap_lba) !=
+                        data_lba / bits_per_block, &bitmap_lba) !=
                 PROSENJITFS_OK ||
             pfs_read_block(&device, bitmap_lba, bitmap) != PROSENJITFS_OK)
             return -0x27000;
