@@ -66,6 +66,7 @@ int pros_input_push(uint32_t id, const struct pros_input_event *event)
     if (count == PROS_INPUT_QUEUE_SIZE)
         return PROS_INPUT_ENOSPC;
     queue[tail] = *event;
+    queue[tail].device_id = id;
     queue[tail].sequence = ++sequence;
     tail = (tail + 1u) % PROS_INPUT_QUEUE_SIZE;
     ++count;
@@ -101,8 +102,9 @@ int pros_input_selftest(void)
     if (pros_input_push(keyboard.id, &event) != PROS_INPUT_OK)
         return -3;
     if (pros_input_pop(&out) != PROS_INPUT_OK ||
-        out.type != event.type || out.code != event.code ||
-        out.value != event.value || out.sequence != 1u)
+        out.device_id != keyboard.id || out.type != event.type ||
+        out.code != event.code || out.value != event.value ||
+        out.sequence != 1u)
         return -4;
     if (pros_input_pop(&out) != PROS_INPUT_ENODEV)
         return -5;
