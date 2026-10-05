@@ -1306,6 +1306,30 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 }
             }
 
+            /*
+             * Publish the new inode size/allocation accounting in the same
+             * transaction as the reachability change. After this commit the
+             * live inode and extent chain describe exactly the retained data,
+             * while the detached blocks remain allocated until the second
+             * phase below.
+             */
+            txrc = pfs_read_block(data->fs->mount.device, inode_lba,
+                                  inode_image);
+            if (txrc == PROSENJITFS_OK) {
+                if (previous == 0u)
+                    inode.extent_head = 0u;
+                inode.size = size;
+                inode.allocated_bytes = keep_blocks * data->fs->sb.block_size;
+                pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
+                pfs_put32(inode_image + inode_offset +
+                          offsetof(struct pros_prosenjitfs_inode, checksum),
+                          pfs_crc_with_zero32(
+                              inode_image + inode_offset,
+                              sizeof(inode),
+                              (uint32_t)offsetof(
+                                  struct pros_prosenjitfs_inode, checksum)));
+                txrc = pfs_tx_add(data->fs, inode_lba, inode_image);
+            }
             if (txrc == PROSENJITFS_OK && previous != 0u)
                 txrc = pfs_tx_add(data->fs, prev_lba, prev_image);
             if (txrc == PROSENJITFS_OK)
@@ -1322,6 +1346,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
              * references it. The detached extent's next pointer is captured
              * before its own metadata block is freed.
              */
+            steps = 0u;
             while (current != 0u) {
                 struct pros_prosenjitfs_extent detached;
                 uint64_t detached_next;
@@ -1347,36 +1372,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 current = detached_next;
             }
 
-            inode.size = size;
-            inode.allocated_bytes = keep_blocks * data->fs->sb.block_size;
-            {
-                uint8_t inode_image2[4096];
-                uint64_t inode_lba2;
-                uint32_t inode_offset2;
-                rc = pfs_inode_block_location(data->fs, data->inode_number,
-                                               &inode_lba2, &inode_offset2);
-                if (rc != PROSENJITFS_OK)
-                    return pfs_vfs_error(rc);
-                rc = pfs_read_block(data->fs->mount.device, inode_lba2,
-                                    inode_image2);
-                if (rc != PROSENJITFS_OK)
-                    return pfs_vfs_error(rc);
-                pfs_copy(inode_image2 + inode_offset2, &inode, sizeof(inode));
-                pfs_put32(inode_image2 + inode_offset2 +
-                          offsetof(struct pros_prosenjitfs_inode, checksum),
-                          pfs_crc_with_zero32(inode_image2 + inode_offset2,
-                                              sizeof(inode),
-                                              (uint32_t)offsetof(
-                                                  struct pros_prosenjitfs_inode,
-                                                  checksum)));
-                rc = pfs_tx_reset(data->fs);
-                if (rc == PROSENJITFS_OK)
-                    rc = pfs_tx_add(data->fs, inode_lba2, inode_image2);
-                if (rc == PROSENJITFS_OK)
-                    rc = pfs_tx_commit(data->fs);
-                if (rc != PROSENJITFS_OK)
-                    return pfs_vfs_error(rc);
-            }
             file->vnode->size = size;
             return PROS_VFS_OK;
         }
