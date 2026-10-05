@@ -122,7 +122,7 @@ int pros_elf_validate_load_segments(const void *image, uint64_t size,
             return PROS_ELF_EFORMAT;
         if (align != 0u && (align & (align - 1u)) != 0u)
             return PROS_ELF_EFORMAT;
-        if (align > 1u && ((vaddr - offset) & (align - 1u)) != 0u)
+        if (align > 1u && ((vaddr & (align - 1u)) != (offset & (align - 1u))))
             return PROS_ELF_EFORMAT;
 
         if (header->entry >= vaddr && header->entry < vend &&
@@ -178,10 +178,10 @@ int pros_elf_selftest(void)
     if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_EFORMAT) return -5;
     image[68] = 1;
 
-    image[104] = 0x20; /* filesz > memsz. */
-    image[96] = 0x10;
-    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_ERANGE) return -6;
+    image[96] = 0x20; /* filesz > memsz. */
     image[104] = 0x10;
+    if (pros_elf_validate_load_segments(image, sizeof(image), &h) != PROS_ELF_ERANGE) return -6;
+    image[96] = 0x10;
 
     return 0;
 }
