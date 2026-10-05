@@ -465,6 +465,10 @@ int prosenjitfs_probe(struct pros_block_device *device)
         return PROSENJITFS_EIO;
     }
     if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
+        if (sb.total_blocks > device->sector_count) {
+            kfree(block);
+            return PROSENJITFS_ECORRUPT;
+        }
         kfree(block);
         return PROSENJITFS_OK;
     }
@@ -2788,11 +2792,13 @@ static int pfs_utf8_name_valid(const char *name, uint32_t *length_out)
     uint32_t length = 0u;
     if (!name || !length_out)
         return PROSENJITFS_EINVAL;
-    while (s[length] != 0u) {
-        if (s[length] == '/' || length >= PROSENJITFS_MAX_NAME)
+    while (length < PROSENJITFS_MAX_NAME && s[length] != 0u) {
+        if (s[length] == '/')
             return PROSENJITFS_EINVAL;
         ++length;
     }
+    if (length >= PROSENJITFS_MAX_NAME)
+        return PROSENJITFS_EINVAL;
     if (length == 0u || (length == 1u && s[0] == '.') ||
         (length == 2u && s[0] == '.' && s[1] == '.'))
         return PROSENJITFS_EINVAL;
@@ -3191,12 +3197,50 @@ static uint32_t pfs_journal_checksum(const uint8_t *header,
     return ~crc;
 }
 
-static int pfs_journal_clear(struct pros_prosenjitfs *fs)
+static int pfs_journal_clear(struct pros_prosenjitfs *fs,
+                               uint32_t record_count)
 {
+    uint64_t commit_lba;
+    uint64_t journal_end;
+    int rc;
+
+    if (!fs || !fs->scratch || record_count == 0u ||
+        record_count + 2u > fs->sb.journal_blocks)
+        return PROSENJITFS_EINVAL;
+    if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+                        &journal_end) != PROSENJITFS_OK)
+        return PROSENJITFS_ECORRUPT;
+    if (record_count + 1u >= fs->sb.journal_blocks ||
+        fs->sb.journal_start + record_count + 1u >= journal_end)
+        return PROSENJITFS_ECORRUPT;
+
+    /*
+     * Retire the commit marker first. Home locations have already been
+     * flushed before this routine is reached. If the machine stops while
+     * clearing the remaining journal blocks, recovery can therefore see
+     * either the old valid commit (and safely replay it) or a header without
+     * a commit (and safely discard it). It must never see a torn/partially
+     * erased header and lose the only durable indication that the home
+     * writes were committed.
+     */
     pfs_zero(fs->scratch, fs->sb.block_size);
+    rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                     1u + record_count, &commit_lba);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_write_block(fs->mount.device, commit_lba, fs->scratch);
+    if (rc != PROSENJITFS_OK) {
+        pfs_tx_diag_stage = 90u + record_count;
+        return rc;
+    }
+    if (pfs_flush(fs->mount.device) != PROSENJITFS_OK) {
+        pfs_tx_diag_stage = 200u;
+        return PROSENJITFS_EIO;
+    }
+
     for (uint32_t i = 0; i < fs->sb.journal_blocks; ++i) {
         uint64_t lba;
-        int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, i, &lba);
+        rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, i, &lba);
         if (rc != PROSENJITFS_OK) {
             pfs_tx_diag_stage = 90u + i;
             return rc;
@@ -3279,7 +3323,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
         c.transaction_id != h.transaction_id ||
         c.record_count != h.record_count)
-        return pfs_journal_clear(fs);
+        return pfs_journal_clear(fs, h.record_count);
     expected = pfs_journal_checksum(header, images, fs->sb.block_size,
                                     h.record_count, commit);
     if (expected != c.checksum)
@@ -3296,7 +3340,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         if (rc != PROSENJITFS_OK)
             return rc;
     }
-    return pfs_journal_clear(fs);
+    return pfs_journal_clear(fs, fs->tx.count);
 }
 
 static int pfs_tx_commit(struct pros_prosenjitfs *fs)
