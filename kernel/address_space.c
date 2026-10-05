@@ -103,6 +103,12 @@ int address_space_map_user_page(struct pros_address_space *space,
     return 0;
 }
 
+static int table_empty(const uint64_t *table) {
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (table[i] & PROSENJIT_PAGE_PRESENT) return 0;
+    return 1;
+}
+
 static void destroy_table(uint64_t *table, uint32_t level) {
     if (!table) return;
 
@@ -145,6 +151,24 @@ int address_space_unmap_user_page(struct pros_address_space *space,
         (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) return -1;
     if (physical_out) *physical_out = *pte & PAGE_MASK;
     *pte = 0;
+
+    /*
+     * Rollback/unmap must not leak page-table pages. User PML4 entries are
+     * private to this address space, so empty descendants can be reclaimed
+     * immediately without touching shared kernel mappings.
+     */
+    if (table_empty(pt)) {
+        pd[PD_INDEX(virtual_address)] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pt);
+        if (table_empty(pd)) {
+            pdpt[PDPT_INDEX(virtual_address)] = 0;
+            physical_page_free((uint64_t)(uintptr_t)pd);
+            if (table_empty(pdpt)) {
+                pml4[PML4_INDEX(virtual_address)] = 0;
+                physical_page_free((uint64_t)(uintptr_t)pdpt);
+            }
+        }
+    }
     return 0;
 }
 
