@@ -704,8 +704,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 break;
             }
             if (rc != PROS_DRIVER_OK || registered_id == 0u) {
-                // Bypassed safely
-                (void)0;
+                serial_write("ProsenjitOS: ERROR PCI driver-model registration failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
             }
             ++registered_count;
         }
