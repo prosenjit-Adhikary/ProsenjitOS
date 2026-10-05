@@ -735,31 +735,52 @@ static int pfs_file_write(struct pros_vfs_file *, uint32_t, uint32_t, const void
 static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
 static int pfs_file_close(struct pros_vfs_file *);
 
-static int pfs_data_block_allocated(const struct pros_prosenjitfs *fs,
-                                      uint64_t block_number)
+static int pfs_data_range_allocated(const struct pros_prosenjitfs *fs,
+                                     uint64_t first, uint32_t count)
 {
     uint64_t bits_per_block;
-    uint64_t bitmap_index;
-    uint64_t bitmap_lba;
-    uint8_t bitmap[4096];
+    uint64_t last;
+    uint64_t first_bitmap;
+    uint64_t last_bitmap;
 
-    if (!fs || fs->sb.block_size > sizeof(bitmap) ||
-        block_number < fs->sb.data_start ||
-        block_number >= fs->sb.total_blocks)
+    if (!fs || count == 0u || fs->sb.block_size > 4096u ||
+        first < fs->sb.data_start || first >= fs->sb.total_blocks ||
+        (uint64_t)count > fs->sb.total_blocks - first)
         return PROSENJITFS_ECORRUPT;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
-    bitmap_index = block_number / bits_per_block;
-    if (bitmap_index >= fs->sb.block_bitmap_blocks)
+    last = first + (uint64_t)count - 1u;
+    first_bitmap = first / bits_per_block;
+    last_bitmap = last / bits_per_block;
+    if (last_bitmap < first_bitmap ||
+        last_bitmap >= fs->sb.block_bitmap_blocks)
         return PROSENJITFS_ECORRUPT;
-    if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                    bitmap_index, &bitmap_lba) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
-    if (pfs_read_block(fs->mount.device, bitmap_lba, bitmap) !=
-            PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
-    return pfs_bitmap_bit(bitmap, block_number % bits_per_block)
-         ? PROSENJITFS_OK : PROSENJITFS_ECORRUPT;
+
+    for (uint64_t bi = first_bitmap; bi <= last_bitmap; ++bi) {
+        uint8_t bitmap[4096];
+        uint64_t bitmap_lba;
+        uint64_t bitmap_base = bi * bits_per_block;
+        uint64_t bitmap_last = bitmap_base + bits_per_block - 1u;
+        uint64_t start_bit = first > bitmap_base ? first - bitmap_base : 0u;
+        uint64_t end_bit = last < bitmap_last ? last - bitmap_base
+                                               : bits_per_block - 1u;
+
+        if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                        bi, &bitmap_lba) != PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (pfs_read_block(fs->mount.device, bitmap_lba, bitmap) !=
+                PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        for (uint64_t bit = start_bit; bit <= end_bit; ++bit) {
+            if (!pfs_bitmap_bit(bitmap, bit))
+                return PROSENJITFS_ECORRUPT;
+            if (bit == end_bit)
+                break;
+        }
+        if (bi == last_bitmap)
+            break;
+    }
+    return PROSENJITFS_OK;
 }
 
 static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
@@ -792,9 +813,9 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
         return PROSENJITFS_ECORRUPT;
 
     /* Every physical extent block must have persistent ownership. */
-    for (uint32_t n = 0u; n < extent->block_count; ++n) {
-        uint64_t physical = extent->physical_block + (uint64_t)n;
-        int alloc_rc = pfs_data_block_allocated(fs, physical);
+    {
+        int alloc_rc = pfs_data_range_allocated(fs, extent->physical_block,
+                                                extent->block_count);
         if (alloc_rc != PROSENJITFS_OK)
             return alloc_rc;
     }
@@ -2892,7 +2913,7 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
         index->inode >= fs->sb.inode_count ||
         index->generation != inode->generation)
         return PROSENJITFS_ECORRUPT;
-    { int alloc_rc = pfs_data_block_allocated(fs, inode->dir_index);
+    { int alloc_rc = pfs_data_range_allocated(fs, inode->dir_index, 1u);
       if (alloc_rc != PROSENJITFS_OK)
           return alloc_rc; }
     checksum = pfs_crc_with_zero32(block, sizeof(*index),
@@ -2942,7 +2963,7 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
          (entry->next < fs->sb.data_start ||
           entry->next >= fs->sb.total_blocks)))
         return PROSENJITFS_ECORRUPT;
-    { int alloc_rc = pfs_data_block_allocated(fs, block_lba);
+    { int alloc_rc = pfs_data_range_allocated(fs, block_lba, 1u);
       if (alloc_rc != PROSENJITFS_OK)
           return alloc_rc; }
     checksum = pfs_crc_with_zero32(block, sizeof(*entry),
