@@ -11,6 +11,116 @@ struct arp_cache_entry {
 static struct arp_cache_entry arp_cache[PROS_ARP_CACHE_MAX];
 static uint32_t arp_cache_next;
 
+static uint16_t pros_net_get_be16(const uint8_t *p)
+{
+    return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
+}
+
+static void pros_net_put_be16(uint8_t *p, uint16_t v)
+{
+    p[0] = (uint8_t)(v >> 8);
+    p[1] = (uint8_t)v;
+}
+
+uint16_t pros_ipv4_checksum(const uint8_t *data, uint32_t length)
+{
+    uint32_t sum = 0u;
+    if (!data)
+        return 0u;
+    while (length >= 2u) {
+        sum += pros_net_get_be16(data);
+        data += 2u;
+        length -= 2u;
+        if (sum > 0xFFFFu)
+            sum = (sum & 0xFFFFu) + (sum >> 16);
+    }
+    if (length != 0u)
+        sum += (uint32_t)data[0] << 8;
+    while (sum >> 16)
+        sum = (sum & 0xFFFFu) + (sum >> 16);
+    return (uint16_t)~sum;
+}
+
+int pros_ipv4_build_header(uint8_t *packet, uint32_t packet_len,
+                           uint8_t tos, uint16_t total_length,
+                           uint16_t identification, uint16_t flags_fragment,
+                           uint8_t ttl, uint8_t protocol,
+                           const struct pros_ipv4_addr *src,
+                           const struct pros_ipv4_addr *dst)
+{
+    if (!packet || !src || !dst || packet_len < 20u ||
+        total_length < 20u || total_length > packet_len || ttl == 0u)
+        return PROS_NETPROTO_EINVAL;
+    packet[0] = 0x45u;
+    packet[1] = tos;
+    pros_net_put_be16(packet + 2u, total_length);
+    pros_net_put_be16(packet + 4u, identification);
+    pros_net_put_be16(packet + 6u, flags_fragment);
+    packet[8] = ttl;
+    packet[9] = protocol;
+    packet[10] = 0u;
+    packet[11] = 0u;
+    for (uint32_t i = 0; i < 4u; ++i) {
+        packet[12u + i] = src->octet[i];
+        packet[16u + i] = dst->octet[i];
+    }
+    pros_net_put_be16(packet + 10u, pros_ipv4_checksum(packet, 20u));
+    return PROS_NETPROTO_OK;
+}
+
+int pros_ipv4_parse_header(const uint8_t *packet, uint32_t packet_len,
+                           struct pros_ipv4_header *header)
+{
+    if (!packet || !header || packet_len < 20u)
+        return PROS_NETPROTO_EINVAL;
+    uint8_t version = (uint8_t)(packet[0] >> 4);
+    uint8_t ihl = (uint8_t)(packet[0] & 0x0Fu);
+    uint16_t total_length = pros_net_get_be16(packet + 2u);
+    if (version != 4u || ihl < 5u || (uint32_t)ihl * 4u > packet_len ||
+        total_length < (uint16_t)ihl * 4u || total_length > packet_len ||
+        pros_ipv4_checksum(packet, (uint32_t)ihl * 4u) != 0u)
+        return PROS_NETPROTO_ECORRUPT;
+    header->version_ihl = packet[0];
+    header->tos = packet[1];
+    header->total_length = total_length;
+    header->identification = pros_net_get_be16(packet + 4u);
+    header->flags_fragment = pros_net_get_be16(packet + 6u);
+    header->ttl = packet[8];
+    header->protocol = packet[9];
+    header->checksum = pros_net_get_be16(packet + 10u);
+    for (uint32_t i = 0; i < 4u; ++i) {
+        header->src.octet[i] = packet[12u + i];
+        header->dst.octet[i] = packet[16u + i];
+    }
+    return PROS_NETPROTO_OK;
+}
+
+int pros_ipv4_selftest(void)
+{
+    uint8_t packet[20];
+    struct pros_ipv4_header header;
+    struct pros_ipv4_addr src = {{192,168,1,10}};
+    struct pros_ipv4_addr dst = {{192,168,1,1}};
+
+    if (pros_ipv4_build_header(packet, sizeof(packet), 0u, 20u,
+                               0x1234u, 0u, 64u, 17u, &src, &dst) !=
+            PROS_NETPROTO_OK ||
+        pros_ipv4_parse_header(packet, sizeof(packet), &header) !=
+            PROS_NETPROTO_OK ||
+        header.version_ihl != 0x45u ||
+        header.total_length != 20u ||
+        header.identification != 0x1234u ||
+        header.ttl != 64u || header.protocol != 17u ||
+        !ip_equal(&header.src, &src) || !ip_equal(&header.dst, &dst))
+        return -1;
+
+    packet[8] = 0u;
+    if (pros_ipv4_parse_header(packet, sizeof(packet), &header) !=
+            PROS_NETPROTO_ECORRUPT)
+        return -2;
+    return PROS_NETPROTO_OK;
+}
+
 static uint16_t get_be16(const uint8_t *p)
 {
     return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
