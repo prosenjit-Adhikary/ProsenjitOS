@@ -43,11 +43,25 @@ int pros_input_unregister(uint32_t id)
 {
     if (!ready || id == 0u)
         return PROS_INPUT_EINVAL;
-    for (uint32_t i = 0; i < PROS_INPUT_MAX_DEVICES; ++i)
+    for (uint32_t i = 0; i < PROS_INPUT_MAX_DEVICES; ++i) {
         if (devices[i].registered && devices[i].id == id) {
+            /* Remove queued events for the device before invalidating it. */
+            struct pros_input_event kept[PROS_INPUT_QUEUE_SIZE];
+            uint32_t kept_count = 0u;
+            for (uint32_t n = 0u; n < count; ++n) {
+                uint32_t pos = (head + n) % PROS_INPUT_QUEUE_SIZE;
+                if (queue[pos].device_id != id)
+                    kept[kept_count++] = queue[pos];
+            }
+            for (uint32_t n = 0u; n < kept_count; ++n)
+                queue[n] = kept[n];
+            head = 0u;
+            tail = kept_count % PROS_INPUT_QUEUE_SIZE;
+            count = kept_count;
             devices[i] = (struct pros_input_device){0};
             return PROS_INPUT_OK;
         }
+    }
     return PROS_INPUT_ENODEV;
 }
 
