@@ -9,7 +9,7 @@ _start:
 
     ; Send a bounded SESSION_READY message through the real IPC syscall.
     lea rsi, [rsp - 8]
-    mov rax, 0x53455353494E4954 ; "T I N I S S E S" marker, 8 bytes
+    mov rax, 0x54494E4953534553 ; "SESSINIT" marker, 8 bytes
     mov [rsi], rax
     mov rax, 5                  ; PROSENJIT_SYS_IPC_SEND
     mov rdi, r12
