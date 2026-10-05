@@ -4682,7 +4682,6 @@ int prosenjitfs_selftest(void)
             pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
             pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -(120000 + __LINE__);
 
@@ -4711,7 +4710,6 @@ int prosenjitfs_selftest(void)
             pfs_write_at_offset(&device, journal_start, 1u, image) != PROSENJITFS_OK ||
             pfs_write_at_offset(&device, journal_start, 2u, commit) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return -(120000 + __LINE__);
 
