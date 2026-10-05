@@ -17,6 +17,8 @@
 #include "pci.h"
 #include "driver.h"
 #include "device_broker.h"
+#include "display.h"
+#include "input.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -659,6 +661,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\\n");
+    if (pros_display_selftest() != PROS_DISPLAY_OK) {
+        serial_write("ProsenjitOS: ERROR display abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: display abstraction self-test passed\n");
+
+    if (pros_input_selftest() != PROS_INPUT_OK) {
+        serial_write("ProsenjitOS: ERROR input subsystem self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: input subsystem self-test passed\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
