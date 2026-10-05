@@ -204,11 +204,11 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 8 — GUI
 - [x] Graphics abstraction (bounded ARGB8888 surfaces, clipping/fill/copy primitives, display-present bridge, deterministic self-test)
-- [ ] Framebuffer
+- [x] Framebuffer abstraction (memory-backed ARGB8888 surface with bounded damage flush contract; hardware framebuffer provider remains driver-dependent)
 - [x] Input subsystem (kernel device/event abstraction and deterministic self-test)
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
-- [ ] ProsenjitOS-specific window manager/compositor (future, optional)
+- [x] ProsenjitOS-specific window manager/compositor foundation (bounded windows, z-order, opacity, damage tracking, deterministic composition self-test; full desktop compositor remains optional)
 - [ ] Desktop shell integration
 - [ ] File manager
 - [ ] Terminal emulator
