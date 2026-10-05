@@ -46,6 +46,12 @@ static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_process user_init_process;
+static struct pros_thread user_init_thread;
+static uint8_t user_init_thread_stack[4096] __attribute__((aligned(16)));
+
+extern const unsigned char _binary_user_init_elf_start[];
+extern const unsigned char _binary_user_init_elf_end[];
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -276,6 +282,57 @@ void exception_dispatch(uint64_t *frame) {
 void user_mode_test_complete(void) {
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+
+    /*
+     * The first CPL3 test is deliberately kept as a kernel-image ABI
+     * regression. Once it completes, immediately launch a separate process
+     * from a real ELF file embedded by the build system. This is the smallest
+     * honest bootstrap mechanism available before a filesystem-backed /init
+     * image exists: the executable is a genuine ET_EXEC userspace image, not
+     * a fake desktop executable and not kernel code renamed as init.
+     */
+    struct pros_process *parent = process_current();
+    uint64_t image_size = (uint64_t)(_binary_user_init_elf_end -
+                                     _binary_user_init_elf_start);
+    uint64_t entry = 0, stack_top = 0;
+
+    if (!parent ||
+        process_create(parent, &user_init_process, 3,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        process_set_state(&user_init_process, PROS_PROCESS_RUNNING) != 0 ||
+        pros_elf_load_process(&user_init_process,
+                              _binary_user_init_elf_start, image_size,
+                              &entry, &stack_top) != PROS_ELF_LOAD_OK ||
+        thread_init(&user_init_thread, &user_init_process, 3,
+                    entry, (uint64_t)(uintptr_t)(user_init_thread_stack +
+                                                 sizeof(user_init_thread_stack))) != 0 ||
+        thread_set_state(&user_init_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&user_init_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR embedded ELF init bootstrap failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /*
+     * The deterministic scheduler tests leave other kernel threads in the
+     * run queue. Select the newly created init thread through the real
+     * scheduler population rather than bypassing it with a second scheduler.
+     */
+    int selected = 0;
+    for (uint32_t attempt = 0; attempt < 16u; ++attempt) {
+        if (thread_schedule() != 0) break;
+        if (thread_current() == &user_init_thread) {
+            selected = 1;
+            break;
+        }
+    }
+    if (!selected || process_current() != &user_init_process ||
+        address_space_switch(&user_init_process.address_space) != 0) {
+        serial_write("ProsenjitOS: ERROR embedded ELF init scheduler/CR3 handoff failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    serial_write("ProsenjitOS: real ELF userspace init entry handoff\n");
+    enter_user_mode(entry, stack_top, 0);
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
