@@ -45,8 +45,8 @@ desktop policy engine.
 
 These gates are not complete until there is a real userspace runtime:
 
-1. Load and enter a real userspace executable through the ELF/process path.
-2. Start a real user-mode init/service manager.
+1. Load and enter the real embedded bootstrap executable through the ELF/process path.
+2. Replace that bootstrap with a filesystem-backed init/service-manager executable.
 3. Start the graphics/session service through the capability boundary.
 4. Bind a real framebuffer/display provider.
 5. Route real keyboard/pointer events to userspace.
@@ -65,6 +65,7 @@ expected value may be used to turn these gates green.
 | Kernel graphics/display/input primitives | COMPLETED |
 | User address-space boundary | IMPLEMENTED AND HARDENED |
 | ELF64 validation/load primitive | IMPLEMENTED; RUNTIME VERIFICATION PENDING |
+| Embedded real first userspace bootstrap image | IMPLEMENTED; RUNTIME VERIFICATION PENDING |
 | Filesystem-backed first userspace image | NOT IMPLEMENTED |
 | Init/service manager | NOT IMPLEMENTED |
 | Userspace graphics/session service | ABI DEFINED; SERVICE NOT IMPLEMENTED |
