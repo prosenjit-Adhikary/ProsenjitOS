@@ -460,6 +460,16 @@ int prosenjitfs_probe(struct pros_block_device *device)
         return PROSENJITFS_EIO;
     }
     if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
+        struct pros_prosenjitfs_superblock primary = sb;
+        if (pfs_read_block(device, 0u, block) != PROSENJITFS_OK) {
+            kfree(block);
+            return PROSENJITFS_EIO;
+        }
+        if (pfs_superblock_valid(block, device->sector_size, &sb) != PROSENJITFS_OK ||
+            !pfs_superblock_equal(&primary, &sb)) {
+            kfree(block);
+            return PROSENJITFS_ECORRUPT;
+        }
         kfree(block);
         return PROSENJITFS_OK;
     }
@@ -4779,6 +4789,8 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT ||
             pfs_write_block(&device, 1u, primary_block) != PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK)
+            return -(120000 + __LINE__);
+        if (prosenjitfs_probe(&device) != PROSENJITFS_ECORRUPT)
             return -(120000 + __LINE__);
     }
     saved = disk.data[0];
