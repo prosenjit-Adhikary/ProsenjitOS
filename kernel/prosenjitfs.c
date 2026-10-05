@@ -3767,8 +3767,16 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
      * applied allocator transaction when the journal capacity is exceeded. */
     {
         int rc = pfs_allocator_stage(fs, first, count, allocate);
-        if (rc != PROSENJITFS_OK)
+        if (rc != PROSENJITFS_OK) {
+            /*
+             * Staging mutates the in-memory transaction image before the
+             * complete range has been validated. Never leave a partially
+             * staged allocator transaction behind on an error; otherwise a
+             * later operation could accidentally commit those bitmap changes.
+             */
+            (void)pfs_tx_reset(fs);
             return rc;
+        }
     }
     return pfs_tx_commit(fs);
 }
