@@ -128,6 +128,8 @@ user_mode_exit_trampoline:
     call paging_switch_kernel
     call user_mode_test_complete
 .user_halt:
+    cli
+    hlt
     jmp .user_halt
 
 cpu_security_init:
