@@ -11,7 +11,7 @@ struct arp_cache_entry {
 static struct arp_cache_entry arp_cache[PROS_ARP_CACHE_MAX];
 static uint32_t arp_cache_next;
 
-static uint16_t pros_net_get_be16(const uint8_t *p)
+static int ip_equal(const struct pros_ipv4_addr *a, const struct pros_ipv4_addr *b);\n\nstatic uint16_t pros_net_get_be16(const uint8_t *p)
 {
     return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
 }
