@@ -157,7 +157,7 @@ int pros_elf_load_process(struct pros_process *process,
             uint64_t flags = (pf & PROS_ELF_PF_W) ? PROSENJIT_PAGE_WRITABLE : 0;
             if (!(pf & PROS_ELF_PF_X)) flags |= PROSENJIT_PAGE_NX;
 
-            if (address_space_map_user_page(&process->address_space, va, pa, flags) != 0) {
+            if (address_space_map_user_page_owned(&process->address_space, va, pa, flags) != 0) {
                 physical_page_free(pa);
                 rollback(process, pages, page_count);
                 return PROS_ELF_LOAD_EOVERLAP;
@@ -176,7 +176,7 @@ int pros_elf_load_process(struct pros_process *process,
     for (uint32_t z = 0; z < PROSENJIT_PAGE_SIZE; ++z)
         ((uint8_t *)(uintptr_t)stack_pa)[z] = 0;
 
-    if (address_space_map_user_page(&process->address_space, stack_va, stack_pa,
+    if (address_space_map_user_page_owned(&process->address_space, stack_va, stack_pa,
                                     PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
         physical_page_free(stack_pa);
         rollback(process, pages, page_count);
