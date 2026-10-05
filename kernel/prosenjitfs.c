@@ -4016,13 +4016,16 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
             return rc;
     }
     pfs_copy(inode, block + offset, sizeof(*inode));
-    if (inode->type == PROSENJITFS_INODE_FREE)
-        return PROSENJITFS_ENOENT;
+    /* Validate the on-disk record before interpreting its type. A corrupted
+     * free inode must not be silently converted into ENOENT, because that
+     * would hide metadata corruption from callers and recovery diagnostics. */
     if (pfs_crc_with_zero32(block + offset, sizeof(*inode),
                             (uint32_t)offsetof(
                                 struct pros_prosenjitfs_inode, checksum)) !=
         inode->checksum)
         return PROSENJITFS_ECORRUPT;
+    if (inode->type == PROSENJITFS_INODE_FREE)
+        return PROSENJITFS_ENOENT;
     return PROSENJITFS_OK;
 }
 
