@@ -115,12 +115,14 @@ int pros_display_blank(uint32_t id, uint8_t blanked)
 {
     if (blanked > 1u)
         return PROS_DISPLAY_EINVAL;
-    for (uint32_t i = 0; i < PROS_DISPLAY_MAX; ++i)
-        if (devices[i].registered && devices[i].id == id)
+    for (uint32_t i = 0; i < PROS_DISPLAY_MAX; ++i) {
+        if (devices[i].registered && devices[i].id == id) {
             int rc = devices[i].ops->blank(devices[i].ctx, blanked);
             if (rc == PROS_DISPLAY_OK)
                 devices[i].active = blanked ? 0u : 1u;
             return rc;
+        }
+    }
     return PROS_DISPLAY_ENODEV;
 }
 
