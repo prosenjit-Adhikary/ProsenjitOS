@@ -280,6 +280,12 @@ void exception_dispatch(uint64_t *frame) {
 }
 
 void user_mode_test_complete(void) {
+    if (user_init_process.state == PROS_PROCESS_ZOMBIE) {
+        serial_write("ProsenjitOS: real ELF userspace init executed and exited through syscall ABI\n");
+        vga_write("ProsenjitOS: real ELF userspace init online", 0x0F);
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
 
