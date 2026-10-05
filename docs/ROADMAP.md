@@ -10,12 +10,13 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 3. **Compatibility providers:** later add NTFS/exFAT/FAT32 providers outside the kernel image.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing File admission/security broker and quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** the driver model foundation is now implemented around the PCI enumeration layer; next work is the device permission broker and concrete keyboard/display/network device abstractions.
-6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
-7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone. The latest GitHub Actions runner failure occurs before workflow steps are created, so post-change CI verification remains pending.
-8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
-9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
-10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
-11. **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
+6. **Networking foundation:** Ethernet framing and ARP packet/cache contracts are implemented with deterministic self-tests; real NIC receive/transmit integration remains driver-dependent.
+7. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
+8. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone. The latest GitHub Actions runner failure occurs before workflow steps are created, so post-change CI verification remains pending.
+9. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
+10. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
+11. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
+12. **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -186,8 +187,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] ProsenjitFS cross-directory file/directory move with directory-parent cycle protection
   - [x] ProsenjitFS directory mutation regression: nested directories, move, non-empty rmdir rejection, empty rmdir reclamation
   - [x] ProsenjitFS crash/corruption recovery coverage (deterministic journal replay, torn-transaction discard, checksum-corruption fail-closed, and mount metadata corruption rejection)
-- [ ] Ethernet
-- [ ] ARP
+- [x] Ethernet frame header build/parse foundation
+- [x] ARP packet build/parse and bounded cache foundation
 - [ ] IPv4
 - [ ] UDP/TCP
 - [ ] Network sandbox policy
