@@ -52,14 +52,13 @@ int address_space_create(struct pros_address_space *space) {
     }
 
     /*
-     * PML4[0] is shared with the kernel's low identity map so CPL3
-     * interrupts can still enter kernel code and use the TSS RSP0 stack.
-     * Keep this top-level entry supervisor-only: user pages live at
-     * PML4[1] (0x0000008000000000), so they do not need USER on PML4[0].
-     */ 
+     * Share only supervisor kernel mappings. User processes get a private
+     * PML4[1..255] for their own pages; the shared low and high kernel
+     * mappings must never become user-accessible through inherited PML4 bits.
+     */
     root[0] = kernel_root[0] & ~PROSENJIT_PAGE_USER;
     for (uint32_t i = 256; i < ENTRIES; ++i)
-        root[i] = kernel_root[i];
+        root[i] = kernel_root[i] & ~PROSENJIT_PAGE_USER;
 
     space->root = root;
     return 0;
@@ -175,6 +174,13 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     *pte = 0;
 
     /*
+     * If this address space is active, invalidate the removed user mapping
+     * before returning to user mode. Without this, a stale TLB entry could
+     * keep the unmapped page accessible until CR3 is switched.
+     */
+    __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+
+    /*
      * Rollback/unmap must not leak page-table pages. User PML4 entries are
      * private to this address space, so empty descendants can be reclaimed
      * immediately without touching shared kernel mappings.
@@ -230,10 +236,12 @@ int address_space_validate_user_range(const struct pros_address_space *space,
                                       uint64_t size,
                                       int write_access) {
     if (!space || !space->root || size == 0) return -1;
+    if (virtual_address < PROSENJIT_USER_CODE_VA)
+        return -1;
 
     uint64_t end = virtual_address + size - 1ULL;
     if (end < virtual_address || (virtual_address >> 47) != 0 ||
-        (end >> 47) != 0)
+        (end >> 47) != 0 || end >= 0x0000800000000000ULL)
         return -1;
 
     for (uint64_t va = virtual_address & PAGE_MASK;; va += 0x1000ULL) {
