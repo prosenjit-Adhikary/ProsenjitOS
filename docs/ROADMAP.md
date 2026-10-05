@@ -203,7 +203,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] zero-filled BSS pages
   - [x] allocation/mapping rollback
   - [x] explicit ET_DYN/PIE fail-closed policy pending load-bias support
-- [ ] Process startup
+- [~] Process startup (real embedded ELF bootstrap process implemented; filesystem-backed init/service startup remains)
 - [ ] Init/service manager
 - [ ] Secure shell
 - [ ] Basic utilities
@@ -232,8 +232,8 @@ session runs.
 - **Completed:** kernel graphics/display/input foundations; deterministic
   abstraction tests; user mapping boundary hardening; ELF64 validation/loading
   policy.
-- **Implemented but not runtime verified:** ELF loader as a process-image
-  primitive.
+- **Implemented but not runtime verified:** ELF loader plus real embedded
+  bootstrap-process handoff; filesystem-backed init/service startup remains.
 - **Not implemented:** filesystem-backed first-process discovery, real
   init/service manager, userspace graphics/session service, X11/Wayland
   execution, XFCE execution.
