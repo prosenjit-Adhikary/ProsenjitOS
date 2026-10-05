@@ -156,10 +156,10 @@ int pros_elf_selftest(void)
     image[0]=0x7F; image[1]='E'; image[2]='L'; image[3]='F';
     image[4]=2; image[5]=1; image[6]=1;
     image[16]=2; image[18]=62; image[20]=1;
-    image[24]=0x00; image[25]=0x00; image[26]=0x00; image[27]=0x80;
+    image[24]=0x00; image[25]=0x00; image[26]=0x00; image[27]=0x00; image[28]=0x80;
     image[32]=64; image[52]=64; image[54]=56; image[56]=1;
     image[64]=1; image[68]=5;
-    image[72]=0x00; image[80]=0x00; image[81]=0x00; image[82]=0x80;
+    image[72]=0x00; image[80]=0x00; image[81]=0x00; image[82]=0x00; image[83]=0x80;
     image[96]=0x10; image[104]=0x10; image[112]=0x10;
     image[120]=0x10;
 
