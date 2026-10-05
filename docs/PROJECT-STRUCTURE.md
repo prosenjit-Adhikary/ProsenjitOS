@@ -74,6 +74,7 @@ kernel/
 ├── memory/paging/heap/address spaces
 ├── process/thread/scheduler
 ├── syscall/usercopy
+├── GUI boundary validation / graphics-session ABI
 ├── object/capability/intent/security
 ├── IPC
 ├── driver/device layer
@@ -129,6 +130,7 @@ ELF64 validation/loading
   -> address-space setup
   -> initial capabilities
   -> user-mode entry
+  -> init/service manager
   -> init/service manager
   -> graphics/session service (capability-mediated GUI ABI)
   -> shell/basic utilities
@@ -292,7 +294,6 @@ defined in include/abi/gui.h and is intended to be transported through
 capability-authorized IPC. No Xorg, Wayland, XFCE, desktop shell, file manager
 or terminal code is linked into the kernel.
 
-The current ELF loader is a hardened process-image primitive, not yet a
-filesystem-backed init system. A component is not considered runtime-complete
+The current ELF loader is a hardened process-image primitive, with a real embedded ET_EXEC bootstrap exercised by the kernel startup path. The repository still does not have a filesystem-backed init/service-manager image. A component is not considered runtime-complete
 until an actual userspace executable can be loaded, entered at CPL3, use the
 documented syscall/IPC boundary, and continue under the process/thread model.
