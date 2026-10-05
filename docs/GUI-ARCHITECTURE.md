@@ -34,6 +34,7 @@ Xorg server, or Wayland compositor is linked into the kernel image.
   checks, W^X enforcement, supported user-address range, conservative
   PT_LOAD page-overlap rejection, BSS zero-fill and rollback.
 - Stable capability-mediated graphics-session ABI in `include/abi/gui.h`.
+- Kernel-side validation for graphics-session messages: surface/window/damage/mode/input bounds are checked before a future userspace service consumes them.
 
 These are kernel interfaces/foundations only; they do not constitute a desktop
 environment.
@@ -51,7 +52,7 @@ environment.
 ### IMPLEMENTED BUT NOT RUNTIME VERIFIED
 
 - Embedded real ELF bootstrap process from kernel-linked userspace image (runtime verification pending).
-- Userspace graphics/session service implementation.
+- Kernel-side graphics-session message validation/self-test; this is a boundary primitive, not a desktop service.
 
 The loader is integrated into the kernel build, but there is not yet a
 filesystem-backed first-process image and service-manager startup path.
@@ -66,6 +67,8 @@ Those require a usable userspace ABI/libc/POSIX/application runtime and real
 device providers.
 
 ### NOT IMPLEMENTED
+
+- Filesystem-backed init/service manager and a separately executable userspace graphics/session service.
 
 - Xorg/Wayland server integration.
 - Init/service manager.
