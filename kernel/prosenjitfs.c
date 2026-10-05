@@ -4327,6 +4327,32 @@ int prosenjitfs_selftest(void)
         inode.dir_index == 0u ||
         !fs.mount.root)
         return -5;
+    /* The inode record and inode bitmap must agree on ownership.
+     * Clearing the live root bit must be detected rather than allowing a
+     * checksum-valid inode to masquerade as a valid filesystem object. */
+    {
+        uint8_t bitmap_block[4096];
+        uint64_t bitmap_lba;
+        uint8_t saved_bit;
+        if (fs.sb.block_size > sizeof(bitmap_block) ||
+            pfs_lba_add(&device, fs.sb.inode_bitmap_start, 0u, &bitmap_lba) !=
+                PROSENJITFS_OK ||
+            pfs_read_block(&device, bitmap_lba, bitmap_block) != PROSENJITFS_OK)
+            return -510;
+        saved_bit = bitmap_block[0] & 1u;
+        bitmap_block[0] &= (uint8_t)~1u;
+        if (pfs_write_block(&device, bitmap_lba, bitmap_block) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_ECORRUPT)
+            return -511;
+        bitmap_block[0] = (uint8_t)((bitmap_block[0] & (uint8_t)~1u) | saved_bit);
+        if (pfs_write_block(&device, bitmap_lba, bitmap_block) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
+            inode.type != PROSENJITFS_INODE_DIR)
+            return -512;
+    }
+
     /*
      * A free inode is still protected metadata. Verify that corrupting only
      * its checksum is reported as ECORRUPT rather than being mistaken for
