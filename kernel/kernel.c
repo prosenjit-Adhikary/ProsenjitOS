@@ -684,6 +684,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: Ethernet/ARP protocol self-test passed\n");
+    if (pros_ipv4_selftest() != PROS_NETPROTO_OK) {
+        serial_write("ProsenjitOS: ERROR IPv4 header protocol self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPv4 header protocol self-test passed\\n");
 
 
     /*
