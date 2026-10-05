@@ -2897,7 +2897,8 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
     if (index->magic != PROSENJITFS_DIR_MAGIC ||
         index->version != PROSENJITFS_VERSION ||
         index->bucket_count != PROSENJITFS_DIR_BUCKETS ||
-        index->inode >= fs->sb.inode_count)
+        index->inode >= fs->sb.inode_count ||
+        index->generation != inode->generation)
         return PROSENJITFS_ECORRUPT;
     checksum = pfs_crc_with_zero32(block, sizeof(*index),
                                    (uint32_t)offsetof(
@@ -4290,6 +4291,75 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return -0x27005;
+    }
+
+    /*
+     * Directory-index corruption regression: the index generation must match
+     * the owning directory inode. A valid checksum alone is insufficient
+     * because a forged index can otherwise redirect a directory to a stale
+     * generation after inode reuse.
+     */
+    {
+        struct pros_prosenjitfs_inode root_inode;
+        uint8_t dir_index_block[512];
+        uint64_t dir_index_lba;
+        uint64_t saved_generation;
+
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            root_inode.dir_index == 0u ||
+            root_inode.dir_index < fs.sb.data_start ||
+            root_inode.dir_index >= fs.sb.total_blocks ||
+            pfs_read_block(&device, root_inode.dir_index, dir_index_block) !=
+                PROSENJITFS_OK)
+            return -0x28000;
+        dir_index_lba = root_inode.dir_index;
+        {
+            struct pros_prosenjitfs_dir_index forged;
+            pfs_copy(&forged, dir_index_block, sizeof(forged));
+            saved_generation = forged.generation;
+            forged.generation = saved_generation + 1u;
+            pfs_copy(dir_index_block, &forged, sizeof(forged));
+            pfs_put32(dir_index_block +
+                      offsetof(struct pros_prosenjitfs_dir_index, checksum),
+                      pfs_crc_with_zero32(
+                          dir_index_block, sizeof(forged),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_dir_index, checksum)));
+        }
+        if (pfs_write_block(&device, dir_index_lba, dir_index_block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -0x28001;
+        {
+            struct pros_vfs_vnode *corrupt_lookup = 0;
+            int corrupt_rc = vfs_path_lookup(&fs.mount, "/hello.bin",
+                                             &corrupt_lookup);
+            if (corrupt_lookup)
+                (void)vfs_vnode_put(corrupt_lookup);
+            if (corrupt_rc != PROS_VFS_ECORRUPT)
+                return -0x28002;
+        }
+        {
+            struct pros_prosenjitfs_dir_index restored;
+            pfs_copy(&restored, dir_index_block, sizeof(restored));
+            restored.generation = saved_generation;
+            pfs_copy(dir_index_block, &restored, sizeof(restored));
+            pfs_put32(dir_index_block +
+                      offsetof(struct pros_prosenjitfs_dir_index, checksum),
+                      pfs_crc_with_zero32(
+                          dir_index_block, sizeof(restored),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_dir_index, checksum)));
+        }
+        if (pfs_write_block(&device, dir_index_lba, dir_index_block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return -0x28003;
     }
 
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
