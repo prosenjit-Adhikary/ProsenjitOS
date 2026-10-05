@@ -15,6 +15,7 @@ desktop stack:
 - hardened user-address mapping boundary
 - hardened ELF64 process-image loading policy
 - capability-mediated graphics-session ABI in `include/abi/gui.h`
+- kernel-side bounded graphics-session message validation and deterministic self-test
 
 These are **kernel foundations**, not a desktop environment.
 
@@ -68,7 +69,8 @@ expected value may be used to turn these gates green.
 | Embedded real first userspace bootstrap image | IMPLEMENTED; RUNTIME VERIFICATION PENDING |
 | Filesystem-backed first userspace image | NOT IMPLEMENTED |
 | Init/service manager | NOT IMPLEMENTED |
-| Userspace graphics/session service | ABI DEFINED; SERVICE NOT IMPLEMENTED |
+| Userspace graphics/session boundary validator | IMPLEMENTED; RUNTIME QEMU VERIFICATION PENDING |
+| Userspace graphics/session service process | NOT IMPLEMENTED |
 | Real framebuffer/input provider | DRIVER-DEPENDENT |
 | X11/Xorg or Wayland | BLOCKED BY USERSPACE ABI/LIBC/POSIX DEPENDENCIES |
 | XFCE | BLOCKED BY USERSPACE ABI/LIBC/POSIX DEPENDENCIES |
