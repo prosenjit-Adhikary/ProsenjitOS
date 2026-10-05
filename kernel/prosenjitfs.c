@@ -2892,8 +2892,9 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
         index->inode >= fs->sb.inode_count ||
         index->generation != inode->generation)
         return PROSENJITFS_ECORRUPT;
-    if (pfs_data_block_allocated(fs, inode->dir_index) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
+    { int alloc_rc = pfs_data_block_allocated(fs, inode->dir_index);
+      if (alloc_rc != PROSENJITFS_OK)
+          return alloc_rc; }
     checksum = pfs_crc_with_zero32(block, sizeof(*index),
                                    (uint32_t)offsetof(
                                        struct pros_prosenjitfs_dir_index,
@@ -2930,8 +2931,9 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
          (entry->next < fs->sb.data_start ||
           entry->next >= fs->sb.total_blocks)))
         return PROSENJITFS_ECORRUPT;
-    if (pfs_data_block_allocated(fs, block_lba) != PROSENJITFS_OK)
-        return PROSENJITFS_ECORRUPT;
+    { int alloc_rc = pfs_data_block_allocated(fs, block_lba);
+      if (alloc_rc != PROSENJITFS_OK)
+          return alloc_rc; }
     checksum = pfs_crc_with_zero32(block, sizeof(*entry),
                                    (uint32_t)offsetof(
                                        struct pros_prosenjitfs_dir_entry,
