@@ -812,6 +812,17 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
         extent->checksum)
         return PROSENJITFS_ECORRUPT;
 
+    /*
+     * The extent descriptor itself is a filesystem-owned data block. A
+     * checksum-valid descriptor that is marked free is still corrupt state:
+     * accepting it would allow a future allocation to alias live metadata.
+     */
+    {
+        int descriptor_alloc_rc = pfs_data_range_allocated(fs, lba, 1u);
+        if (descriptor_alloc_rc != PROSENJITFS_OK)
+            return descriptor_alloc_rc;
+    }
+
     /* Every physical extent block must have persistent ownership. */
     {
         int alloc_rc = pfs_data_range_allocated(fs, extent->physical_block,
