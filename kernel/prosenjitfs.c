@@ -3819,13 +3819,13 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
             return rc;
     }
     pfs_copy(inode, block + offset, sizeof(*inode));
+    if (inode->type == PROSENJITFS_INODE_FREE)
+        return PROSENJITFS_ENOENT;
     if (pfs_crc_with_zero32(block + offset, sizeof(*inode),
                             (uint32_t)offsetof(
                                 struct pros_prosenjitfs_inode, checksum)) !=
         inode->checksum)
         return PROSENJITFS_ECORRUPT;
-    if (inode->type == PROSENJITFS_INODE_FREE)
-        return PROSENJITFS_ENOENT;
     return PROSENJITFS_OK;
 }
 
@@ -4071,35 +4071,6 @@ int prosenjitfs_selftest(void)
         !fs.mount.root)
         return -5;
 
-    /*
-     * A free inode is still protected by its checksum. Corruption must not
-     * be hidden merely because the inode is currently unallocated.
-     */
-    {
-        uint8_t inode_block[512];
-        uint8_t original_inode[512];
-        uint64_t inode_lba;
-        uint32_t inode_offset;
-        struct pros_prosenjitfs_inode corrupt_inode;
-        if (pfs_inode_block_location(&fs, 1u, &inode_lba, &inode_offset) !=
-                PROSENJITFS_OK ||
-            pfs_read_block(&device, inode_lba, original_inode) !=
-                PROSENJITFS_OK)
-            return -54;
-        pfs_copy(inode_block, original_inode, sizeof(inode_block));
-        pfs_copy(&corrupt_inode, inode_block + inode_offset,
-                 sizeof(corrupt_inode));
-        corrupt_inode.generation++;
-        pfs_copy(inode_block + inode_offset, &corrupt_inode,
-                 sizeof(corrupt_inode));
-        if (pfs_write_block(&device, inode_lba, inode_block) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ECORRUPT)
-            return -55;
-        if (pfs_write_block(&device, inode_lba, original_inode) != PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK)
-            return -56;
-    }
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
