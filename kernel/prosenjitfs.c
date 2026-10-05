@@ -831,6 +831,8 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
 {
     uint64_t current;
     uint64_t steps = 0u;
+    uint64_t previous_logical_end = 0u;
+    uint64_t previous_physical_end = 0u;
     struct pros_prosenjitfs_extent extent;
 
     if (!fs || !inode || !found_lba || !tail_lba)
@@ -839,6 +841,8 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
     *found_lba = 0u;
     *tail_lba = 0u;
     while (current != 0u) {
+        uint64_t logical_end;
+        uint64_t physical_end;
         if (++steps > fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
         {
@@ -846,6 +850,23 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
             if (rc != PROSENJITFS_OK)
                 return rc;
         }
+
+        /*
+         * Extent chains are canonicalized by the writer in increasing
+         * logical order. Reject overlapping/out-of-order logical ranges and
+         * physically overlapping extents on read, rather than allowing a
+         * corrupted chain to alias data or make lookup order-dependent.
+         */
+        if (extent.logical_block > UINT64_MAX - extent.block_count ||
+            extent.physical_block > UINT64_MAX - extent.block_count)
+            return PROSENJITFS_ECORRUPT;
+        logical_end = extent.logical_block + extent.block_count;
+        physical_end = extent.physical_block + extent.block_count;
+        if (steps > 1u &&
+            (extent.logical_block < previous_logical_end ||
+             extent.physical_block < previous_physical_end))
+            return PROSENJITFS_ECORRUPT;
+
         *tail_lba = current;
         if (logical_block >= extent.logical_block &&
             logical_block - extent.logical_block < extent.block_count) {
@@ -854,6 +875,8 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
             *found_lba = current;
             return PROSENJITFS_OK;
         }
+        previous_logical_end = logical_end;
+        previous_physical_end = physical_end;
         current = extent.next;
     }
     return PROSENJITFS_ENOENT;
