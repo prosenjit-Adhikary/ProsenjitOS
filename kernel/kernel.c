@@ -21,6 +21,7 @@
 #include "graphics.h"
 #include "framebuffer.h"
 #include "elf.h"
+#include "elf_loader.h"
 #include "compositor.h"
 #include "input.h"
 #include "netdev.h"
@@ -687,6 +688,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: ELF validation self-test passed\n");
+    if (pros_elf_loader_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR ELF loader contract self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF loader contract self-test passed\n");
     if (pros_compositor_self_test() != 0) {
         serial_write("ProsenjitOS: ERROR compositor foundation self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
