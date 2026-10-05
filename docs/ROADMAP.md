@@ -203,9 +203,9 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Package manager
 
 ## Phase 8 — GUI
-- [ ] Graphics abstraction
+- [x] Graphics abstraction (bounded ARGB8888 surfaces, clipping/fill/copy primitives, display-present bridge, deterministic self-test)
 - [ ] Framebuffer
-- [ ] Input subsystem
+- [x] Input subsystem (kernel device/event abstraction and deterministic self-test)
 - [ ] Existing window-system integration (X11/Xorg and/or Wayland)
 - [ ] Existing desktop environment integration (initial target: XFCE)
 - [ ] ProsenjitOS-specific window manager/compositor (future, optional)
