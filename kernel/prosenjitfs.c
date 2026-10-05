@@ -3181,10 +3181,15 @@ static uint32_t pfs_journal_checksum(const uint8_t *header,
         for (uint32_t bit = 0; bit < 8; ++bit)
             crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
     }
-    for (uint32_t n = 0; n < count * block_size; ++n) {
-        crc ^= images[n];
-        for (uint32_t bit = 0; bit < 8; ++bit)
-            crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
+    /* Iterate by record and block instead of multiplying count by block_size
+     * in a 32-bit expression. This keeps checksum traversal overflow-safe. */
+    for (uint32_t i = 0u; i < count; ++i) {
+        const uint8_t *image = images + (uint64_t)i * block_size;
+        for (uint32_t n = 0u; n < block_size; ++n) {
+            crc ^= image[n];
+            for (uint32_t bit = 0; bit < 8; ++bit)
+                crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
+        }
     }
     for (uint32_t i = 0; i < block_size; ++i) {
         uint8_t v = (i >= offsetof(struct pros_prosenjitfs_journal_commit, checksum) &&
@@ -3205,14 +3210,20 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs,
     int rc;
 
     if (!fs || !fs->scratch || record_count == 0u ||
-        record_count + 2u > fs->sb.journal_blocks)
+        record_count > fs->sb.journal_blocks || fs->sb.journal_blocks - record_count < 2u)
         return PROSENJITFS_EINVAL;
     if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
                         &journal_end) != PROSENJITFS_OK)
         return PROSENJITFS_ECORRUPT;
-    if (record_count + 1u >= fs->sb.journal_blocks ||
-        fs->sb.journal_start + record_count + 1u >= journal_end)
+    if (record_count >= fs->sb.journal_blocks)
         return PROSENJITFS_ECORRUPT;
+    {
+        uint64_t commit_lba_check;
+        rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                         1u + record_count, &commit_lba_check);
+        if (rc != PROSENJITFS_OK || commit_lba_check >= journal_end)
+            return PROSENJITFS_ECORRUPT;
+    }
 
     /*
      * Retire the commit marker first. Home locations have already been
@@ -3285,7 +3296,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         return PROSENJITFS_EPERM;
     if (h.magic != PROSENJITFS_JOURNAL_MAGIC ||
         h.record_count == 0u || h.record_count > PROSENJITFS_MAX_TX_BLOCKS ||
-        h.record_count + 2u > fs->sb.journal_blocks ||
+        h.record_count > fs->sb.journal_blocks || fs->sb.journal_blocks - h.record_count < 2u ||
         pfs_crc_with_zero32(header, fs->sb.block_size,
                             (uint32_t)offsetof(
                                 struct pros_prosenjitfs_journal_header,
@@ -3362,7 +3373,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_tx_diag_count = 0u;
     if (!fs || !fs->scratch || !fs->tx.images ||
         fs->read_only || fs->tx.count == 0u ||
-        fs->tx.count + 2u > fs->sb.journal_blocks)
+        fs->tx.count > fs->sb.journal_blocks || fs->sb.journal_blocks - fs->tx.count < 2u)
         return PROSENJITFS_EINVAL;
     pfs_tx_diag_count = fs->tx.count;
 
