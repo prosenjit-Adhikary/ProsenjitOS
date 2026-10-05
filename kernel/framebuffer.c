@@ -14,8 +14,16 @@ static int fb_flush_display(void *ctx, const struct pros_gfx_rect *damage, uint3
         return PROS_FB_ENODEV;
     if (count && !damage)
         return PROS_FB_EINVAL;
-    return pros_display_present(fb->display_id, fb->surface.pixels,
-                                (uint32_t)fb->bytes);
+    int rc = pros_display_present(fb->display_id, fb->surface.pixels,
+                                    (uint32_t)fb->bytes);
+    if (rc == PROS_DISPLAY_ENODEV) {
+        /* A provider may disappear without a coordinated framebuffer call. */
+        fb->display_id = 0u;
+        fb->ctx = 0;
+        fb->ops.flush = fb_flush_noop;
+        return PROS_FB_ENODEV;
+    }
+    return rc == PROS_DISPLAY_OK ? PROS_FB_OK : PROS_FB_EIO;
 }
 
 int pros_framebuffer_init(struct pros_framebuffer *fb, uint32_t *pixels,
