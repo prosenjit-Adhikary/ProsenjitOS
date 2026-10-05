@@ -793,6 +793,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR userspace graphics boundary self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: graphics-session boundary self-test passed\n");
     if (pros_compositor_self_test() != 0) {
         serial_write("ProsenjitOS: ERROR compositor foundation self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
