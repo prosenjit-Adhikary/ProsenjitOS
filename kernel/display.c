@@ -6,8 +6,15 @@ static uint32_t next_id = 1u;
 
 static int valid_mode(const struct pros_display_mode *mode)
 {
-    return mode && mode->width != 0u && mode->height != 0u &&
-           mode->stride >= mode->width && mode->format != 0u;
+    if (!mode || mode->width == 0u || mode->height == 0u ||
+        mode->stride < mode->width || mode->format == 0u)
+        return 0;
+    /* Keep provider-facing geometry bounded and prove the byte count cannot overflow. */
+    if (mode->width > 4096u || mode->height > 4096u)
+        return 0;
+    if ((uint64_t)mode->stride * mode->height > UINT64_MAX / sizeof(uint32_t))
+        return 0;
+    return 1;
 }
 
 int pros_display_init(void)
