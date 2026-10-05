@@ -60,8 +60,12 @@ int pros_display_unregister(uint32_t id)
 
     for (uint32_t i = 0; i < PROS_DISPLAY_MAX; ++i) {
         if (devices[i].registered && devices[i].id == id) {
-            if (devices[i].active)
-                (void)devices[i].ops->blank(devices[i].ctx, 1u);
+            if (devices[i].active) {
+                int rc = devices[i].ops->blank(devices[i].ctx, 1u);
+                if (rc != PROS_DISPLAY_OK)
+                    return rc;
+                devices[i].active = 0u;
+            }
             devices[i].registered = 0u;
             devices[i].active = 0u;
             devices[i].id = 0u;
