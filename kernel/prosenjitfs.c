@@ -2901,6 +2901,17 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
                                        checksum));
     if (checksum != index->checksum)
         return PROSENJITFS_ECORRUPT;
+    /* The index must identify the same directory inode that owns it. */
+    {
+        struct pros_prosenjitfs_inode owner;
+        int owner_rc = prosenjitfs_read_inode(fs, index->inode, &owner);
+        if (owner_rc != PROSENJITFS_OK ||
+            owner.type != PROSENJITFS_INODE_DIR ||
+            owner.dir_index != inode->dir_index ||
+            owner.generation != inode->generation)
+            return owner_rc == PROSENJITFS_EIO ? owner_rc
+                                               : PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -2943,6 +2954,19 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
     if (pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
         PROSENJITFS_OK || name_length != entry->name_length)
         return PROSENJITFS_ECORRUPT;
+    /* A directory entry must reference a live inode of the advertised type. */
+    {
+        struct pros_prosenjitfs_inode target;
+        int target_rc = prosenjitfs_read_inode(fs, entry->inode, &target);
+        if (target_rc != PROSENJITFS_OK)
+            return target_rc == PROSENJITFS_EIO ? target_rc
+                                                : PROSENJITFS_ECORRUPT;
+        if ((entry->type == PROSENJITFS_INODE_DIR &&
+             target.type != PROSENJITFS_INODE_DIR) ||
+            (entry->type == PROSENJITFS_INODE_FILE &&
+             target.type != PROSENJITFS_INODE_FILE))
+            return PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
