@@ -17,6 +17,10 @@
 #include "pci.h"
 #include "driver.h"
 #include "device_broker.h"
+#include "display.h"
+#include "input.h"
+#include "netdev.h"
+#include "netproto.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -659,6 +663,33 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\\n");
+    if (pros_display_selftest() != PROS_DISPLAY_OK) {
+        serial_write("ProsenjitOS: ERROR display abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: display abstraction self-test passed\n");
+
+    if (pros_input_selftest() != PROS_INPUT_OK) {
+        serial_write("ProsenjitOS: ERROR input subsystem self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: input subsystem self-test passed\n");
+    if (pros_netdev_selftest() != PROS_NETDEV_OK) {
+        serial_write("ProsenjitOS: ERROR network device abstraction self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: network device abstraction self-test passed\n");
+    if (pros_arp_selftest() != PROS_NETPROTO_OK) {
+        serial_write("ProsenjitOS: ERROR Ethernet/ARP protocol self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: Ethernet/ARP protocol self-test passed\n");
+    if (pros_ipv4_selftest() != PROS_NETPROTO_OK) {
+        serial_write("ProsenjitOS: ERROR IPv4 header protocol self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPv4 header protocol self-test passed\\n");
+
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
@@ -704,8 +735,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 break;
             }
             if (rc != PROS_DRIVER_OK || registered_id == 0u) {
-                // Bypassed safely
-                (void)0;
+                serial_write("ProsenjitOS: ERROR PCI driver-model registration failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
             }
             ++registered_count;
         }

@@ -482,13 +482,13 @@ const struct pros_driver_device *pros_device_get(uint32_t id)
     return 0;
 }
 
-static __attribute__((unused)) int driver_test_probe(struct pros_driver_device *device)
+static int driver_test_probe(struct pros_driver_device *device)
 {
     device->driver_data = device->bus_data;
     return PROS_DRIVER_OK;
 }
 
-static __attribute__((unused)) int driver_test_remove(struct pros_driver_device *device)
+static int driver_test_remove(struct pros_driver_device *device)
 {
     device->driver_data = 0;
     return PROS_DRIVER_OK;
@@ -496,5 +496,107 @@ static __attribute__((unused)) int driver_test_remove(struct pros_driver_device 
 
 int pros_driver_selftest(void)
 {
+    static const struct pros_driver_id native_ids[] = {
+        { PROS_DRIVER_BUS_PCI, 0x1234u, 0x5678u, 0u, 0u, 0u },
+    };
+    static const struct pros_driver_id compat_ids[] = {
+        { PROS_DRIVER_BUS_PCI, 0u, 0u, 0x01u, 0x06u, 0x01u },
+    };
+    static const struct pros_driver_ops ops = {
+        driver_test_probe, driver_test_remove, 0, 0
+    };
+    static const struct pros_driver native_driver = {
+        "test-pci-native", "1.0", PROS_DRIVER_ABI_VERSION,
+        PROS_DRIVER_FLAG_NATIVE, PROS_DRIVER_ORIGIN_NATIVE,
+        native_ids, 1u, &ops
+    };
+    static const struct pros_driver compat_driver = {
+        "test-pci-compat", "1.0", PROS_DRIVER_ABI_VERSION,
+        PROS_DRIVER_FLAG_COMPAT, PROS_DRIVER_ORIGIN_COMPAT,
+        compat_ids, 1u, &ops
+    };
+    struct pros_driver_device device = {
+        0u, PROS_DRIVER_BUS_PCI, PROS_DEVICE_CLASS_STORAGE,
+        PROS_DEVICE_DISCOVERED, { PROS_DRIVER_BUS_PCI, 0x1234u, 0x5678u,
+                                  0x01u, 0x06u, 0x01u },
+        "test-storage", 0, 0, (void *)(uintptr_t)0xA5u
+    };
+
+    static const struct {
+        uint8_t class_code;
+        uint8_t subclass;
+        enum pros_device_class expected;
+    } pci_class_tests[] = {
+        { 0x01u, 0x00u, PROS_DEVICE_CLASS_STORAGE },
+        { 0x02u, 0x00u, PROS_DEVICE_CLASS_NETWORK },
+        { 0x03u, 0x00u, PROS_DEVICE_CLASS_DISPLAY },
+        { 0x04u, 0x00u, PROS_DEVICE_CLASS_AUDIO },
+        { 0x07u, 0x00u, PROS_DEVICE_CLASS_SERIAL },
+        { 0x09u, 0x00u, PROS_DEVICE_CLASS_INPUT },
+        { 0x0Cu, 0x03u, PROS_DEVICE_CLASS_USB }
+    };
+    uint32_t pci_test_ids[sizeof(pci_class_tests) / sizeof(pci_class_tests[0])];
+    uint32_t pci_test_count = 0u;
+
+    if (pros_driver_class_is_supported(PROS_DEVICE_CLASS_STORAGE) !=
+            PROS_DRIVER_OK ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_INPUT) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_DISPLAY) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_NETWORK) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_SERIAL) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_USB) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_AUDIO) !=
+            PROS_DRIVER_ENOTSUP ||
+        pros_driver_class_is_supported(PROS_DEVICE_CLASS_OTHER) !=
+            PROS_DRIVER_EINVAL ||
+        pros_driver_manager_init() != PROS_DRIVER_OK)
+        return PROS_DRIVER_EINVAL;
+
+    for (uint32_t i = 0u;
+         i < sizeof(pci_class_tests) / sizeof(pci_class_tests[0]); ++i) {
+        if (pros_driver_register_pci_device(
+                0u, (uint8_t)i, 0u, 0x1234u, (uint16_t)(0x5000u + i),
+                pci_class_tests[i].class_code, pci_class_tests[i].subclass,
+                0u, 0, "class-test", &pci_test_ids[pci_test_count]) !=
+                PROS_DRIVER_OK)
+            return PROS_DRIVER_EINVAL;
+        {
+            const struct pros_driver_device *test_device =
+                pros_device_get(pci_test_ids[pci_test_count]);
+            if (!test_device ||
+                test_device->class_id != pci_class_tests[i].expected)
+                return PROS_DRIVER_EINVAL;
+        }
+        ++pci_test_count;
+    }
+
+    for (uint32_t i = 0u; i < pci_test_count; ++i) {
+        if (pros_device_unregister(pci_test_ids[i]) != PROS_DRIVER_OK)
+            return PROS_DRIVER_EINVAL;
+    }
+
+    if (pros_driver_register(&compat_driver) != PROS_DRIVER_OK ||
+        pros_driver_register(&native_driver) != PROS_DRIVER_OK ||
+        pros_device_register(&device) != PROS_DRIVER_OK ||
+        device.id == 0u ||
+        pros_driver_find(&device.hwid, device.class_id) != &native_driver ||
+        pros_driver_bind(device.id) != PROS_DRIVER_OK ||
+        device.state != PROS_DEVICE_BOUND ||
+        device.driver != &native_driver ||
+        device.driver_data != device.bus_data ||
+        pros_driver_unbind(device.id) != PROS_DRIVER_OK ||
+        device.state != PROS_DEVICE_DISCOVERED ||
+        pros_device_unregister(device.id) != PROS_DRIVER_OK ||
+        pros_driver_unregister(&native_driver) != PROS_DRIVER_OK ||
+        pros_driver_unregister(&compat_driver) != PROS_DRIVER_OK ||
+        pros_driver_compat_selftest() != PROS_DRIVER_OK ||
+        pros_driver_bundle_selftest() != PROS_DRIVER_OK)
+        return PROS_DRIVER_EINVAL;
+
     return PROS_DRIVER_OK;
 }
