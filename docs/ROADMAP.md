@@ -195,7 +195,14 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [ ] ELF loader
+- [x] ELF64 validation and transactional process-image loading foundation
+  - [x] x86-64-only validation
+  - [x] integer/range/overflow checks
+  - [x] W^X and user-canonical-address enforcement
+  - [x] PT_LOAD page-overlap policy
+  - [x] zero-filled BSS pages
+  - [x] allocation/mapping rollback
+  - [x] explicit ET_DYN/PIE fail-closed policy pending load-bias support
 - [ ] Process startup
 - [ ] Init/service manager
 - [ ] Secure shell
@@ -295,3 +302,25 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Full desktop environment
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
+
+
+## Phase-8/userspace truth status — 2026-10-05
+
+The graphics foundation remains kernel-only by design. The branch now includes
+a stable capability-mediated graphics-session ABI at include/abi/gui.h and
+hardens the ELF/address-space prerequisites, but it does not claim that a real
+desktop session runs.
+
+- **Completed:** kernel graphics/display/input foundations and deterministic
+  tests; user mapping boundary hardening; ELF64 validation/loading policy.
+- **Implemented but not runtime verified:** the ELF loader as a process-image
+  primitive.
+- **Not implemented:** filesystem-backed first-process image discovery, real
+  init/service manager, userspace graphics/session service implementation,
+  X11/Wayland execution, XFCE execution.
+- **External dependency:** mature X11/Wayland/XFCE execution additionally
+  requires a usable userspace ABI, libc/POSIX/application runtime and real
+  display/input providers.
+
+Roadmap items are intentionally not marked complete merely because an ABI or
+header exists.
