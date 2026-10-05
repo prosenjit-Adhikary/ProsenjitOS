@@ -3074,6 +3074,15 @@ static int pfs_find_dir_entry(const struct pros_prosenjitfs *fs,
             if (rc != PROSENJITFS_OK)
                 return rc;
         }
+        /*
+         * A directory entry is chained from the bucket selected by its
+         * name hash. A checksum-valid entry in another bucket is still
+         * structurally corrupt: accepting it would make lookup depend on
+         * which traversal path happened to reach the entry.
+         */
+        if ((entry.name_hash % PROSENJITFS_DIR_BUCKETS) !=
+            (hash % PROSENJITFS_DIR_BUCKETS))
+            return PROSENJITFS_ECORRUPT;
         if (entry.name_hash == hash && entry.name_length == name_length) {
             uint32_t equal = 1u;
             for (uint32_t i = 0u; i < name_length; ++i)
@@ -3114,6 +3123,8 @@ static int pfs_dir_entry_by_ordinal(const struct pros_prosenjitfs *fs,
             { int entry_read_rc = pfs_read_dir_entry(fs, current, &entry);
             if (entry_read_rc != PROSENJITFS_OK)
                 return entry_read_rc; }
+            if ((entry.name_hash % PROSENJITFS_DIR_BUCKETS) != bucket)
+                return PROSENJITFS_ECORRUPT;
             if (seen == ordinal) {
                 if (found)
                     pfs_copy(found, &entry, sizeof(*found));
@@ -3158,6 +3169,9 @@ static int pfs_find_dir_entry_lba(const struct pros_prosenjitfs *fs,
             if (rc != PROSENJITFS_OK)
                 return rc;
         }
+        if ((entry.name_hash % PROSENJITFS_DIR_BUCKETS) !=
+            (hash % PROSENJITFS_DIR_BUCKETS))
+            return PROSENJITFS_ECORRUPT;
         if (entry.name_hash == hash && entry.name_length == name_length) {
             uint32_t equal = 1u;
             for (uint32_t i = 0u; i < name_length; ++i) {
