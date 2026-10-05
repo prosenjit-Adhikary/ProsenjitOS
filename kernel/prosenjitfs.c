@@ -3296,6 +3296,13 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         uint64_t journal_end;
         if (h.targets[i] < 2u || h.targets[i] >= fs->sb.total_blocks)
             return PROSENJITFS_ECORRUPT;
+        /* A journal record set is a set of home blocks. Duplicate targets
+         * are malformed on-disk state and are rejected rather than replayed
+         * ambiguously. tx_add() already coalesces duplicates in live
+         * transactions, so this check only protects recovery from corruption. */
+        for (uint32_t j = 0u; j < i; ++j)
+            if (h.targets[j] == h.targets[i])
+                return PROSENJITFS_ECORRUPT;
         if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
                            &journal_end) != PROSENJITFS_OK)
             return PROSENJITFS_ECORRUPT;
