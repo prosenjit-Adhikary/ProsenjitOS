@@ -30,6 +30,9 @@ int prosenjitfs_write_diag_get_read_lba(uint64_t *physical_lba);
 int prosenjitfs_write_diag_get_read_byte(uint8_t *read_block_byte);
 int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
                                uint32_t *tx_stage, uint32_t *tx_count);
+int prosenjitfs_tx_diag_get(uint32_t *stage, uint32_t *count,
+                            uint32_t *count_before_clear,
+                            uint32_t *count_after_clear, int *clear_rc);
 void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc);
 int prosenjitfs_selftest(void);
 
