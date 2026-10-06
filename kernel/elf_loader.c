@@ -245,12 +245,19 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE)
         return PROS_ELF_EINVAL;
-    if (pros_elf_validate(image, size) != PROS_ELF_OK)
-        return PROS_ELF_EFORMAT;
+    {
+        int validation_rc = pros_elf_validate(image, size);
+        if (validation_rc != PROS_ELF_OK)
+            return validation_rc;
+    }
 
     eh = (const struct elf64_ehdr *)image;
-    if (validate_load_segments(image, size, &entry, &start, &end) != PROS_ELF_OK)
-        return PROS_ELF_EFORMAT;
+    {
+        int validation_rc =
+            validate_load_segments(image, size, &entry, &start, &end);
+        if (validation_rc != PROS_ELF_OK)
+            return validation_rc;
+    }
 
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
         int flags = -1;
