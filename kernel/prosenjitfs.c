@@ -4355,6 +4355,44 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -6);
     }
 
+    /*
+     * Mount lifecycle regression: an open handle must pin the vnode tree and
+     * make unmount fail with EBUSY. After the handle closes, the same mount
+     * object must unmount cleanly; this prevents stale-handle resurrection
+     * after an immediate remount.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t value = 0xA7u;
+        uint8_t read_value = 0u;
+        uint32_t done = 0u;
+
+        if (vfs_file_open(&fs.mount, "/lifecycle.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        if (vfs_file_open(&fs.mount, "/lifecycle.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+        if (vfs_file_read(&file, &read_value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || read_value != value ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+    }
+
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
