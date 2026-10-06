@@ -106,3 +106,10 @@ These are deterministic software-model regressions. They do not replace physical
 - Physical-LBA/extent/VFS 0xD6 regression and remount persistence.
 - Complete project build remains a gate because ProsenjitFS is linked into the
   kernel and native BIOS/QEMU image.
+
+
+## Native ProsenjitFS final I/O + VFS hardening — 2026-10-06
+
+The final native file-I/O contract now explicitly covers VFS append semantics, seeking beyond EOF for sparse logical offsets, filesystem-size checked writes, and persistence of appended and sparse data across remount. The VFS rejects APPEND without WRITE, reports write argument/state errors consistently, and limits seek positions to the representable file-I/O offset domain. Native ProsenjitFS self-tests also execute a 100-cycle create/write/unmount/remount/read/unlink/remount persistence and allocation-reuse regression with the reusable consistency checker.
+
+Runtime execution must still be distinguished from source verification: these additions are not considered QEMU/runtime PASS until the local Debian/QEMU build actually executes them.
