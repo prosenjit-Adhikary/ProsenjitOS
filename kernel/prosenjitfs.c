@@ -298,8 +298,11 @@ int prosenjitfs_cow_extension_validate(
          fs->sb.block_size - 1u) / fs->sb.block_size)
         return PROSENJITFS_ECORRUPT;
 
+    if (fs->cow_extension_block < 2u ||
+        fs->cow_extension_block >= fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
     return prosenjitfs_cow_geometry_validate(
-        fs, ext->generation == 0u ? 2u : ext->generation,
+        fs, fs->cow_extension_block,
         ext->snapshot_table_start, ext->snapshot_table_blocks,
         ext->refcount_start, ext->refcount_blocks);
 }
