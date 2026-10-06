@@ -27,7 +27,12 @@ The backup copy is validated independently. If both copies are invalid, mount re
 ## Inodes and extents
 Inodes are persistent 64-bit identifiers and contain type, mode, uid/gid, link count, generation, size, allocated bytes, timestamps, parent inode, extent-list head, directory-index root, feature flags and inode CRC32C.
 File data uses a persistent linked extent list. Each extent records logical start, physical start and block count, avoiding a fixed-size file table.
+Sparse-file semantics are native to the extent map: an absent logical extent inside EOF is a hole and reads as zeroes. Extending a file with truncate() records the new EOF without allocating data blocks; only a later write to a hole materializes the touched logical block. inode.allocated_bytes counts physical data blocks actually allocated, not the logical file size.
 Reserved inode fields are retained for future ACL/capability references, extended attributes, encryption state and format extensions.
+
+## Sparse files
+
+A file may have a logical size larger than its physically allocated extent set. Missing logical blocks are implicit zero-filled holes; no physical block is reserved for them. Sparse growth is transactional at the inode metadata level, and hole materialization is transactional with its new data and extent metadata. The inode sparse flag records that the file may contain holes. Reads never expose stale free-space contents because an absent extent is synthesized as zeroes.
 
 ## Directories and Unicode
 Directories use deterministic hash buckets pointing to chains of directory-entry blocks rather than a fixed-size entry array.
