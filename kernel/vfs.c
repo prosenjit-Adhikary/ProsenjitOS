@@ -235,6 +235,8 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     *bytes_read = 0u;
     if (length == 0u || file->position >= file->vnode->size)
         return PROS_VFS_OK;
+    if ((uint64_t)length > UINT32_MAX - file->position)
+        return PROS_VFS_EOVERFLOW;
 
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) { vfs_health_error(rc); return rc; }
@@ -261,8 +263,10 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     if (file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
     if ((file->flags & PROS_VFS_O_APPEND) != 0u)
-        file->position = file->vnode ? file->vnode->size : file->position;
+        file->position = file->vnode->size;
     if (file->position > 0xFFFFFFFFULL)
+        return PROS_VFS_EOVERFLOW;
+    if ((uint64_t)length > UINT32_MAX - file->position)
         return PROS_VFS_EOVERFLOW;
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
