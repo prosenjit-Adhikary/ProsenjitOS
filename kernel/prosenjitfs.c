@@ -3985,6 +3985,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         (device->sector_size & (device->sector_size - 1u)) != 0u ||
         device->sector_count < 2u)
         return PROSENJITFS_EINVAL;
+    if (fs->mount.active)
+        return PROSENJITFS_EBUSY;
     pfs_zero(fs, sizeof(*fs));
     block = (uint8_t *)kmalloc(device->sector_size);
     if (!block)
@@ -4565,7 +4567,7 @@ int prosenjitfs_selftest(void)
     pfs_crash_injected = 0u;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
-    struct pros_prosenjitfs fs;
+    struct pros_prosenjitfs fs = { 0 };
     struct pros_prosenjitfs_inode inode;
     uint64_t first_block;
     uint64_t inode_number;
@@ -4585,6 +4587,8 @@ int prosenjitfs_selftest(void)
         inode.type != PROSENJITFS_INODE_DIR ||
         inode.dir_index == 0u ||
         !fs.mount.root)
+        return pfs_selftest_fail(__LINE__, -5);
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
         return pfs_selftest_fail(__LINE__, -5);
     {
         struct pros_vfs_vnode *root = 0;
@@ -5991,6 +5995,8 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -11);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
 }
