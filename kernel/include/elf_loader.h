@@ -22,6 +22,7 @@ struct pros_elf_load_result {
 };
 
 int pros_elf_validate(const uint8_t *image, uint64_t size);
+int pros_elf_selftest(void);
 int pros_elf_load(struct pros_process *process,
                   const uint8_t *image,
                   uint64_t size,
