@@ -1034,21 +1034,35 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (!data || !data->fs)
         return PROS_VFS_EIO;
-    if (data->fs->sb.total_blocks < data->fs->sb.data_start ||
+    if (!data->fs->mount.active)
+        return PROS_VFS_EPERM;
+    if (data->fs->sb.block_size == 0u ||
+        data->fs->sb.block_size > 4096u ||
+        data->fs->sb.total_blocks < data->fs->sb.data_start ||
         (data->fs->sb.total_blocks - data->fs->sb.data_start) >
             UINT64_MAX / data->fs->sb.block_size)
         return PROS_VFS_ECORRUPT;
-    max_file_size = (data->fs->sb.total_blocks - data->fs->sb.data_start) *
-                    data->fs->sb.block_size;
-    if (end_position > max_file_size)
-        return PROS_VFS_EOVERFLOW;
-    if (!data || !data->fs)
-        return PROS_VFS_EIO;
     {
         int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
         if (rc != PROSENJITFS_OK)
             return pfs_file_write_error(0u, rc);
     }
+    /*
+     * APPEND is inode-EOF based, not cached-vnode based. This prevents two
+     * independently opened handles from appending at a stale offset.
+     */
+    if ((file->flags & PROS_VFS_O_APPEND) != 0u) {
+        if (inode.size > UINT32_MAX)
+            return PROS_VFS_EOVERFLOW;
+        offset = (uint32_t)inode.size;
+    }
+    end_position = (uint64_t)offset + (uint64_t)length;
+    if (end_position < (uint64_t)offset)
+        return PROS_VFS_EOVERFLOW;
+    max_file_size = (data->fs->sb.total_blocks - data->fs->sb.data_start) *
+                    data->fs->sb.block_size;
+    if (end_position > max_file_size)
+        return PROS_VFS_EOVERFLOW;
 
     uint32_t done = 0u;
     while (done < length) {
