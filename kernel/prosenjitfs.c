@@ -918,6 +918,8 @@ static int pfs_file_write_error(uint32_t done, int rc)
         return PROS_VFS_EINVAL;
     case PROSENJITFS_EPERM:
         return PROS_VFS_EPERM;
+    case PROSENJITFS_EBUSY:
+        return PROS_VFS_EBUSY;
     case PROSENJITFS_ENOTSUP:
         return PROS_VFS_ENOTSUP;
     case PROSENJITFS_ENOENT:
