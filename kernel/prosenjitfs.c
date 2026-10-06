@@ -246,6 +246,64 @@ static uint64_t pfs_data_start(const struct pros_prosenjitfs_superblock *sb)
     return sb ? sb->data_start : UINT64_MAX;
 }
 
+
+int prosenjitfs_cow_extension_validate(
+    const struct pros_prosenjitfs *fs,
+    const struct pros_prosenjitfs_cow_extension *ext)
+{
+    uint32_t checksum;
+    uint64_t snapshot_end;
+    uint64_t refcount_end;
+    uint32_t expected_refcount_blocks;
+
+    if (!fs || !ext || fs->sb.block_size > 4096u ||
+        ext->magic != PROSENJITFS_COW_EXT_MAGIC ||
+        ext->version != PROSENJITFS_COW_EXT_VERSION ||
+        ext->header_size != sizeof(*ext) ||
+        ext->snapshot_count > PROSENJITFS_COW_MAX_SNAPSHOTS ||
+        ext->features != PROSENJITFS_FEATURE_SNAPSHOTS)
+        return PROSENJITFS_ECORRUPT;
+
+    checksum = pfs_crc_with_zero32((const uint8_t *)ext, sizeof(*ext),
+                                   (uint32_t)offsetof(
+                                       struct pros_prosenjitfs_cow_extension,
+                                       checksum));
+    if (checksum != ext->checksum)
+        return PROSENJITFS_ECORRUPT;
+
+    if (prosenjitfs_cow_refcount_blocks(fs->sb.total_blocks,
+                                        fs->sb.block_size,
+                                        &expected_refcount_blocks) !=
+            PROSENJITFS_OK ||
+        ext->refcount_blocks != expected_refcount_blocks)
+        return PROSENJITFS_ECORRUPT;
+
+    if (pfs_region_end(ext->snapshot_table_start,
+                       ext->snapshot_table_blocks, &snapshot_end) !=
+            PROSENJITFS_OK ||
+        pfs_region_end(ext->refcount_start, ext->refcount_blocks,
+                       &refcount_end) != PROSENJITFS_OK ||
+        ext->snapshot_table_blocks == 0u ||
+        ext->refcount_blocks == 0u ||
+        ext->snapshot_table_start < 2u ||
+        ext->refcount_start < 2u ||
+        snapshot_end > fs->sb.total_blocks ||
+        refcount_end > fs->sb.total_blocks ||
+        snapshot_end > ext->refcount_start)
+        return PROSENJITFS_ECORRUPT;
+
+    if (ext->snapshot_table_blocks <
+        (PROSENJITFS_COW_MAX_SNAPSHOTS *
+         sizeof(struct pros_prosenjitfs_snapshot_record) +
+         fs->sb.block_size - 1u) / fs->sb.block_size)
+        return PROSENJITFS_ECORRUPT;
+
+    return prosenjitfs_cow_geometry_validate(
+        fs, ext->generation == 0u ? 2u : ext->generation,
+        ext->snapshot_table_start, ext->snapshot_table_blocks,
+        ext->refcount_start, ext->refcount_blocks);
+}
+
 int prosenjitfs_cow_refcount_blocks(uint64_t total_blocks, uint32_t block_size,
                                     uint32_t *blocks)
 {
