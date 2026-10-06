@@ -250,6 +250,342 @@ ProsenjitOS follows this principle:
 
 AI is therefore an autonomous security-analysis component, not an unrestricted kernel administrator.
 
+
+## Vendor-Inspired Security Research Baseline
+
+The autonomous-security design has been reviewed against publicly documented security approaches from major endpoint/network-security vendors. The goal is to adopt the **security principles and control patterns**, not to copy proprietary implementations.
+
+### Microsoft Defender / Defender for Endpoint
+
+Microsoft documents a layered model that combines:
+
+- real-time process, file, and service behavior monitoring
+- behavior-based detection for threats that do not match known signatures
+- process-tree context and behavioral blocking
+- cloud/ML-assisted classification
+- automatic containment and remediation
+- network protection
+- attack-surface reduction
+- tamper protection for security controls
+- automatic attack disruption for active attacks
+
+An important architectural lesson is that security decisions should be based on **behavior and process context**, not only on file hashes or signatures. Defender also throttles repetitive telemetry so high-rate activity does not overwhelm the detection pipeline.
+
+### Palo Alto Networks Cortex XDR / WildFire
+
+Cortex XDR documentation demonstrates a layered treatment of unknown files and processes:
+
+- determine known/unknown reputation
+- perform endpoint/local analysis for unknown artifacts
+- obtain deeper cloud/sandbox analysis where available
+- continue observing runtime behavior
+- correlate process activity and malicious behavior
+- block/quarantine when evidence crosses the configured prevention boundary
+
+The architectural lesson for ProsenjitOS is that **unknown must mean “needs analysis,” not “trusted” and not automatically “malicious.”**
+
+### Fortinet / FortiGate
+
+Fortinet documents application-aware and heuristic controls that can identify applications and suspicious behavior beyond simple port-based or signature-only matching.
+
+The architectural lesson is to combine:
+
+- identity
+- protocol/application context
+- behavioral/heuristic evidence
+- policy
+- risk level
+
+rather than making a decision from one indicator.
+
+### Cisco Secure Endpoint
+
+Cisco's endpoint architecture uses multiple detection engines and telemetry sources rather than relying on a single detection mechanism.
+
+The architectural lesson is to preserve **multiple independent detection paths** and make the final enforcement decision through a common policy layer.
+
+### Trend Micro
+
+Trend Micro's documented behavior-monitoring and ransomware-protection approaches emphasize sequences of suspicious operations over time, such as repeated destructive file activity.
+
+The architectural lesson is that ransomware and similar threats are often better detected as a **behavioral sequence** than as a single event.
+
+### Cross-Vendor Conclusions
+
+Across these documented approaches, the common production-grade pattern is:
+
+```
+Identity / Reputation
+        +
+Static / Local Analysis
+        +
+Runtime Behavior
+        +
+Process Tree / Causality
+        +
+File / Persistence / Credential Activity
+        +
+Network Context
+        +
+Temporal Correlation
+        +
+Policy / Resource Sensitivity
+        |
+        v
+Risk + Confidence
+        |
+        +--> Allow / Monitor
+        +--> Restrict
+        +--> Quarantine / Isolate
+        +--> Block / Stop
+        +--> Protect / Recover
+```
+
+This becomes the ProsenjitOS target architecture.
+
+## Known vs Unknown Decision Policy
+
+Unknown activity is handled with graduated containment rather than a single binary rule.
+
+| Classification | Typical OS action |
+|---|---|
+| Known + normal behavior | Allow + monitor |
+| Known + abnormal behavior | Monitor/restrict and correlate |
+| Known + confirmed malicious behavior | Block/quarantine |
+| Unknown + low-risk behavior | Allow with enhanced monitoring |
+| Unknown + suspicious behavior | Restrict/quarantine while analysis continues |
+| Unknown + malicious behavior | Block/quarantine immediately |
+| Critical behavior | Immediate containment without waiting for human approval |
+
+A trusted executable is **not permanently trusted**: its runtime behavior, ancestry, capabilities, resource access, and security-policy interactions remain observable.
+
+## Process-Causality Model
+
+The security engine must evolve from an isolated event score toward a process-causality model.
+
+Example:
+
+```
+User application
+   |
+   +--> script/interpreter
+          |
+          +--> unknown child process
+                  |
+                  +--> credential access
+                  |
+                  +--> persistence change
+                  |
+                  +--> suspicious network connection
+                  |
+                  +--> mass file modification
+```
+
+Each individual event may have a legitimate explanation. The complete causal chain can cross a much higher-confidence malicious threshold.
+
+The target implementation therefore correlates:
+
+- PID / parent PID
+- executable identity
+- process ancestry
+- event ordering
+- time window
+- capabilities/privileges
+- resource sensitivity
+- filesystem targets
+- persistence targets
+- network endpoints
+- security-control tampering
+- repeated behavior
+
+## Autonomous Containment Policy
+
+Containment must be executable without human approval when the evidence is sufficiently strong.
+
+Supported containment primitives should remain narrow and kernel-enforced:
+
+- allow
+- monitor
+- restrict
+- quarantine
+- terminate/block
+- isolate network access
+- revoke selected capabilities
+- protect selected resources
+- request safe recovery
+
+AI may select or request one of these actions, but **AI never receives arbitrary kernel execution authority**.
+
+The kernel must validate:
+
+1. the requesting security principal
+2. the target process/resource
+3. the requested action
+4. mandatory policy
+5. protected-process/resource exceptions
+6. action safety and idempotence
+
+## Tamper-Resistant Security Boundary
+
+The security subsystem itself is a protected resource.
+
+Attempts to:
+
+- disable the monitor
+- modify security policy without authorization
+- tamper with security state
+- terminate or impair the security subsystem
+- bypass mandatory enforcement
+
+must generate high-severity security events and must not be allowed to silently disable protection.
+
+The design follows the same general principle documented by commercial endpoint products: security controls must protect themselves against tampering.
+
+## Telemetry and Event Correlation
+
+The target telemetry model is:
+
+### Process
+
+- creation/exit
+- parent/child relationship
+- executable identity/provenance
+- privilege/capability changes
+- suspicious cross-process operations
+
+### Filesystem
+
+- open/create
+- write
+- rename
+- unlink/delete
+- permission/security changes
+- protected-resource access
+- high-rate modification patterns
+
+### Persistence
+
+- service/startup configuration changes
+- boot/session persistence
+- security-policy modifications
+
+### Network
+
+- connection attempts
+- endpoint identity
+- unusual destination/context where available
+- suspicious process-to-network relationships
+
+### Security Control
+
+- monitor tampering
+- policy bypass attempts
+- unauthorized capability changes
+
+The implementation should use bounded buffers, event throttling, temporal windows, and aggregation so high-volume benign activity cannot exhaust security resources.
+
+## Detection Pipeline
+
+The target pipeline is:
+
+```
+Event producer
+     |
+     v
+Normalization
+     |
+     v
+Rate limiting / deduplication
+     |
+     v
+Process + resource correlation
+     |
+     v
+Temporal / causal analysis
+     |
+     v
+Deterministic rules
+     |
+     +------> immediate critical containment
+     |
+     v
+Risk + confidence assessment
+     |
+     v
+AI analysis (when available)
+     |
+     v
+Security Policy Engine
+     |
+     +--> allow / monitor
+     +--> restrict
+     +--> quarantine / isolate
+     +--> block / terminate
+     +--> protect / recover
+```
+
+Deterministic critical rules remain active even when AI is unavailable.
+
+## False-Positive and Safety Controls
+
+Autonomous security must be conservative about irreversible actions while remaining decisive against high-confidence destructive behavior.
+
+The target policy is:
+
+- do not block solely because a file is unknown
+- do not trust solely because a hash is known
+- prefer multiple independent signals
+- increase confidence when suspicious events form a causal chain
+- increase severity for protected-resource impact
+- use temporal correlation for burst attacks
+- preserve evidence before destructive containment where technically safe
+- make containment actions idempotent
+- prevent the security subsystem from being recursively disabled
+- maintain deterministic fallback rules
+
+Critical signals such as security-monitor tampering or confirmed destructive behavior may bypass normal escalation delays.
+
+## Recovery / Self-Healing Boundary
+
+Security containment and filesystem recovery remain separate subsystems.
+
+Security may identify the affected process and resources and request recovery. The filesystem layer must independently validate journal/snapshot/COW state, transaction integrity, and recovery safety before restoring data.
+
+The security layer must **never assume that recovery succeeded**. Recovery must return a verifiable result, followed by post-recovery integrity checks.
+
+## Implementation Roadmap Derived from Research
+
+The research is now converted into an implementation plan:
+
+1. **Telemetry foundation** — complete process, filesystem, persistence, network, and security-control event producers.
+2. **Event normalization and throttling** — bounded queues, deduplication, rate limits, and loss accounting.
+3. **Process-causality graph** — parent/child/process-chain tracking.
+4. **Behavioral correlation** — ransomware-like sequences, injection, credential access, privilege escalation, persistence, C2/network combinations, and tampering.
+5. **Reputation and unknown handling** — known/unknown identity with runtime re-evaluation.
+6. **Policy engine** — allow/monitor/restrict/quarantine/block/isolate/capability-revoke/protect-resource decisions.
+7. **Protected-process/resource enforcement** — prevent unsafe containment of critical kernel/system components.
+8. **Incident evidence** — bounded incident records with causal sequence and enforcement reason.
+9. **AI userspace interface** — structured telemetry in; constrained security decisions out.
+10. **Recovery integration** — safe request/verify interface to filesystem recovery.
+11. **Adversarial testing** — synthetic ransomware, injection, persistence, privilege escalation, security tampering, C2-like activity, false-positive workloads, and AI-unavailable fallback.
+12. **Local verification** — Debian build/tests and QEMU security regression using the user's local/self-hosted environment; do not make GitHub-hosted Actions a prerequisite.
+
+## Research References
+
+The design review is based on public vendor documentation, including:
+
+- Microsoft Learn — Behavior monitoring in Microsoft Defender Antivirus
+- Microsoft Learn — Behavioral blocking and containment
+- Microsoft Learn — Endpoint detection and response
+- Microsoft Learn — Automatic attack disruption
+- Microsoft Learn — Tamper protection
+- Palo Alto Networks — Cortex XDR / WildFire documentation
+- Fortinet Documentation — FortiGate application/heuristic security controls
+- Cisco Secure Endpoint documentation
+- Trend Micro documentation on behavior monitoring and ransomware protection
+
+These references are used as architectural input only. ProsenjitOS remains an independent implementation and must not claim feature parity with any commercial product until the corresponding functionality is actually implemented and locally verified.
+
 ## Implementation Status
 
 This document defines the target security policy for the autonomous AI security architecture.
