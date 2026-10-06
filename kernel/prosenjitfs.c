@@ -246,6 +246,77 @@ static uint64_t pfs_data_start(const struct pros_prosenjitfs_superblock *sb)
     return sb ? sb->data_start : UINT64_MAX;
 }
 
+int prosenjitfs_cow_refcount_blocks(uint64_t total_blocks, uint32_t block_size,
+                                    uint32_t *blocks)
+{
+    uint64_t entries_per_block;
+    uint64_t count;
+
+    if (!blocks || block_size < 512u || block_size > 4096u ||
+        (block_size & (block_size - 1u)) != 0u)
+        return PROSENJITFS_EINVAL;
+    if (total_blocks == 0u)
+        return PROSENJITFS_EINVAL;
+
+    entries_per_block = block_size / sizeof(struct pros_prosenjitfs_block_refcount);
+    if (entries_per_block == 0u)
+        return PROSENJITFS_EINVAL;
+    count = (total_blocks + entries_per_block - 1u) / entries_per_block;
+    if (count > UINT32_MAX)
+        return PROSENJITFS_EOVERFLOW;
+    *blocks = (uint32_t)count;
+    return PROSENJITFS_OK;
+}
+
+int prosenjitfs_cow_geometry_validate(const struct pros_prosenjitfs *fs,
+                                      uint64_t extension_block,
+                                      uint64_t snapshot_start,
+                                      uint32_t snapshot_blocks,
+                                      uint64_t refcount_start,
+                                      uint32_t refcount_blocks)
+{
+    uint64_t end;
+    uint64_t snapshot_end;
+    uint32_t expected_refcount_blocks;
+
+    if (!fs || !fs->mount.device || fs->sb.block_size < 512u ||
+        fs->sb.block_size > 4096u)
+        return PROSENJITFS_EINVAL;
+    if (extension_block < 2u || extension_block >= fs->sb.total_blocks ||
+        snapshot_blocks == 0u || refcount_blocks == 0u)
+        return PROSENJITFS_ECORRUPT;
+
+    if (pfs_region_end(snapshot_start, snapshot_blocks, &snapshot_end) !=
+            PROSENJITFS_OK ||
+        pfs_region_end(refcount_start, refcount_blocks, &end) !=
+            PROSENJITFS_OK ||
+        snapshot_start < 2u || refcount_start < 2u ||
+        snapshot_end > fs->sb.total_blocks ||
+        end > fs->sb.total_blocks ||
+        extension_block >= snapshot_start ||
+        snapshot_end > refcount_start)
+        return PROSENJITFS_ECORRUPT;
+
+    if (prosenjitfs_cow_refcount_blocks(fs->sb.total_blocks,
+                                        fs->sb.block_size,
+                                        &expected_refcount_blocks) !=
+        PROSENJITFS_OK ||
+        refcount_blocks != expected_refcount_blocks)
+        return PROSENJITFS_ECORRUPT;
+
+    /* COW metadata must be outside all legacy v1 regions and outside the
+     * legacy data area. A v2 formatter will place it immediately before
+     * data_start and update data_start accordingly. */
+    if (extension_block < fs->sb.inode_table_start ||
+        refcount_start < fs->sb.inode_table_start ||
+        refcount_start >= fs->sb.data_start ||
+        end > fs->sb.data_start)
+        return PROSENJITFS_ECORRUPT;
+
+    return PROSENJITFS_OK;
+}
+
+
 static int pfs_read_block(struct pros_block_device *device, uint64_t block,
                           void *buffer)
 {
