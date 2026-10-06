@@ -52,8 +52,6 @@ return PROSENJITFS_OK;
 
 The self-test currently expects `pfs_lba_add(&range_device, 8, 8, &lba)` with `sector_count = 16` to return `PROSENJITFS_EINVAL` and leave `lba == 0`. Source inspection shows that expectation is consistent with the implementation, so the remaining `-12` failure still requires a focused runtime/source-path correction rather than another declaration or build investigation.
 
-
-
 ## Root cause identified — ProsenjitFS `-12`
 
 The `-12` self-test failure was caused by a subtle output-parameter contract bug in `pfs_lba_add()`.
@@ -88,3 +86,71 @@ GitHub main now contains the actual ProsenjitFS `-12` root-cause fix in `f6c64ce
 The local checkout has four modified files and is still based on `ea22517`; the attempted `git pull --ff-only origin main` was safely aborted because local `kernel/prosenjitfs.c` would be overwritten. Current local modifications are `kernel/kernel.c`, `kernel/prosenjitfs.c`, `kernel/storage.c`, and `kernel/vfs.c`. No local work was lost.
 
 Do not force-reset or discard these files. Reconcile the local changes with GitHub `main` first, then perform a clean build and QEMU runtime test. The post-fix runtime has not yet been verified, so ProsenjitFS must not yet be marked PASS.
+
+## Diagnostic milestone — 2026-10-06 15:25 IST
+
+The current ProsenjitFS self-test runtime failure was narrowed further using the compiled ELF, source, and exact transaction return paths.
+
+Runtime output:
+
+```
+ProsenjitOS: ERROR ProsenjitFS self-test failed rc=0xFFFFFFFFFFFE19F1 mkdir_stage=0x0000000000000000 mkdir_rc=0x0000000000000000 tx_stage=0x0000000000000009 tx_count=0x0000000000000004
+```
+
+Decoded self-test result:
+
+- `0xFFFFFFFFFFFE19F1` = `-123407`
+- Encoder base = `123000`
+- `mkdir_stage = 0`
+- `tx_stage = 9`
+- `tx_count = 4`
+- The residual encoded raw value is `317`
+
+The compiled `pfs_tx_commit()` return paths were inspected. The relevant common return paths contain:
+
+- `0x10f6b0: eax = -1`
+- `0x10f73f: eax = -8`
+- `0x10f756: eax = 0xffffd601`
+- `0x10f77a: eax = -2`
+- `0x10f784: eax = -1`
+
+There is no compiled `pfs_tx_commit()` return path producing `-317`. Therefore the `317` embedded in `-123407` is not evidence of a real `-317` transaction error.
+
+The compiled transaction path also proves that stage 9 is reached and then tail-jumps to `pfs_journal_clear()`. The current `pfs_journal_clear()` implementation only has explicit error returns `-101` through `-106`, so it likewise cannot directly generate `-317`.
+
+The current self-test source is:
+
+```c
+mkdir_rc = vfs_mkdir(&fs.mount, "/dir1");
+if (mkdir_rc != PROS_VFS_OK) {
+    uint32_t raw = pfs_mkdir_diag_rc < 0 ? (uint32_t)(-pfs_mkdir_diag_rc) : 0u;
+    return -(123000 + pfs_mkdir_diag_stage * 1000u +
+             pfs_tx_diag_stage * 10u + raw);
+}
+```
+
+The diagnostic globals are direct globals:
+
+```c
+static uint32_t pfs_mkdir_diag_stage;
+static int pfs_mkdir_diag_rc;
+static uint32_t pfs_tx_diag_stage;
+```
+
+and `pfs_mkdir_diag_rc` is reset to `PROSENJITFS_OK` at both diagnostic-reset and `pfs_vnode_mkdir()` entry.
+
+The compiled self-test assembly around the failure was also inspected. On the failing path, the assembly loads a pre-call stack value into `ecx`; if `pfs_mkdir_diag_rc >= 0`, the branch skips the instructions that replace `ecx` with `-pfs_mkdir_diag_rc`. The later encoder subtracts `ecx`. This matches the observed residual value `317` and explains why the encoded error can disagree with the printed diagnostic globals.
+
+The build script confirms that `kernel/prosenjitfs.c` is compiled with GCC `-O2` and freestanding/kernel flags:
+
+```
+CFLAGS=(-m64 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2)
+```
+
+### Conclusion at this milestone
+
+Do **not** change `pfs_tx_commit()` or `pfs_journal_clear()` based on `-123407`. Their compiled return paths do not support a `-317` error.
+
+The immediate diagnostic defect is in the self-test failure encoding path: the runtime `317` does not come from `pfs_mkdir_diag_rc`, which is reported as zero. The next investigation should prove the exact generated code/source interaction and the actual `vfs_mkdir()` return value before changing filesystem transaction logic.
+
+Current status remains: **ProsenjitFS self-test FAIL; root cause of the actual mkdir return is not yet proven.** No source fix has been made for this milestone.
