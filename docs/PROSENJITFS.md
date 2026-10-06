@@ -7,6 +7,11 @@ This document is the implementation contract for the native ProsenjitFS filesyst
 
 The provider now covers persistent file-data I/O, bitmap-backed inode/block allocation and reclamation, hash-indexed directory lookup/readdir/create, transactional mkdir/rmdir, transactional unlink/rename, cross-directory moves with directory-parent cycle protection, redo-journal replay, torn-transaction discard, journal checksum corruption rejection, and mount-time metadata corruption checks in the deterministic memory-backed self-test.
 
+
+### Crash/power-loss verification — 2026-10-06
+
+The native deterministic self-test now models a real device durability boundary with a durable medium plus a volatile write-cache layer. A real VFS file overwrite is interrupted at transaction stages 1 through 9, including journal header/image persistence, commit persistence, home-block persistence, and journal retirement. The crash reset discards unflushed cache blocks, drops the in-memory filesystem state without a clean unmount, remounts the same durable image, and verifies the expected pre-commit or post-commit data. This provides deterministic power-loss/interrupted-transaction coverage for the real ProsenjitFS transaction path; it is not a claim of physical hardware power-loss testing.
+
 The directory mutation regression now exercises directory allocation, nested directories, cross-directory file moves, directory moves, cycle rejection, non-empty-directory removal rejection, and empty-directory reclamation. This is an implementation/self-test milestone. The native ATA PIO -> MBR -> ProsenjitFS QEMU path is implemented and is a mandatory CI gate; the repository must not call the filesystem CI-verified until a post-change workflow run executes all build and boot steps successfully.
 
 This is still not a claim of physical power-loss validation. The native QEMU disk path exercises ATA PIO and a persistent ProsenjitFS partition, but QEMU is not a substitute for a real power-loss hardware test. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
