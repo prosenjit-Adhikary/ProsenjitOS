@@ -4667,6 +4667,7 @@ int prosenjitfs_selftest(void)
         uint64_t allocated_block = 0u;
         uint64_t allocated_inode = 0u;
         uint64_t inode_before;
+        uint64_t rename_inode_before;
         struct pros_vfs_vnode *node = 0;
         struct pfs_vnode_data *node_data;
 
@@ -4704,6 +4705,16 @@ int prosenjitfs_selftest(void)
             }
         inode_before = node_data->inode_number;
         if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/persist/config/rename.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+        node_data = (struct pfs_vnode_data *)node->private_data;
+        if (!node_data) {
+            vfs_vnode_put(node);
+            return pfs_selftest_fail(__LINE__, -15);
+        }
+        rename_inode_before = node_data->inode_number;
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
             vfs_rename(&fs.mount, "/persist/config/rename.bin",
                        "/persist/config/sub/renamed.bin") != PROS_VFS_OK ||
             vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
@@ -4727,7 +4738,8 @@ int prosenjitfs_selftest(void)
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
         node_data = (struct pfs_vnode_data *)node->private_data;
-        if (!node_data || node_data->inode_number == inode_before ||
+        if (!node_data || node_data->inode_number != rename_inode_before ||
+            node_data->inode_number == inode_before ||
             vfs_vnode_put(node) != PROS_VFS_OK ||
             vfs_path_lookup(&fs.mount, "/persist/config",
                             &node) != PROS_VFS_OK ||
@@ -4753,6 +4765,63 @@ int prosenjitfs_selftest(void)
             vfs_rmdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/persist") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
+
+
+        /*
+         * Boundary-size persistence matrix: exercise empty, byte, sector and
+         * block edges across independent unmount/remount cycles.
+         */
+        {
+            static const uint32_t sizes[] = {
+                0u, 1u, 511u, 512u, 513u, 1023u, 1024u, 1025u
+            };
+            uint8_t size_data[1025];
+            for (uint32_t i = 0u; i < sizeof(size_data); ++i)
+                size_data[i] = (uint8_t)((i * 31u) ^ 0x5Au);
+
+            for (uint32_t si = 0u;
+                 si < sizeof(sizes) / sizeof(sizes[0]); ++si) {
+                uint32_t size = sizes[si];
+                uint32_t bytes = 0u;
+
+                if (vfs_file_open(&fs.mount, "/sizes.bin",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                  &file) != PROS_VFS_OK ||
+                    vfs_file_truncate(&file, size) != PROS_VFS_OK ||
+                    vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
+                if (size != 0u &&
+                    (vfs_file_write(&file, size_data, size, &bytes) !=
+                         PROS_VFS_OK ||
+                     bytes != size)) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
+
+                bytes = 0u;
+                if (vfs_file_open(&fs.mount, "/sizes.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, data, sizeof(data), &bytes) !=
+                        PROS_VFS_OK ||
+                    bytes != size) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+                for (uint32_t i = 0u; i < size; ++i) {
+                    if (data[i] != size_data[i]) {
+                        vfs_file_close(&file);
+                        return pfs_selftest_fail(__LINE__, -15);
+                    }
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
+            }
+        }
 
         if (prosenjitfs_alloc_blocks(&fs, 2u, &allocated_block) !=
                 PROSENJITFS_OK ||
@@ -4825,7 +4894,12 @@ int prosenjitfs_selftest(void)
                     PROSENJITFS_EINVAL ||
                 pfs_inode_block_location(&fs, UINT64_MAX, &lba,
                                           (uint32_t *)&done) !=
-                    PROSENJITFS_EINVAL)
+                    PROSENJITFS_EINVAL ||
+                prosenjitfs_read_inode(&fs, fs.sb.inode_count, &inode) !=
+                    PROSENJITFS_EINVAL ||
+                pfs_read_extent(&fs, fs.sb.total_blocks, 
+                                (struct pros_prosenjitfs_extent *)&inode) !=
+                    PROSENJITFS_ECORRUPT)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
