@@ -31,6 +31,8 @@ struct pros_process {
     uint8_t quarantined;
     uint8_t security_reserved[7];
     struct pros_address_space address_space;
+    uint64_t user_entry;
+    uint64_t user_stack_top;
     struct pros_handle_table handles;
     struct pros_process *parent;
     struct pros_process *next;
