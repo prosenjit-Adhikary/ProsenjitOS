@@ -6,6 +6,7 @@
 #define PROSENJITFS_MAGIC "PJSFS01"
 #define PROSENJITFS_MAGIC_LEN 8u
 #define PROSENJITFS_VERSION 1u
+#define PROSENJITFS_VERSION_COW_SNAPSHOT 2u
 #define PROSENJITFS_MAX_NAME 255u
 #define PROSENJITFS_MAX_TX_BLOCKS 16u
 #define PROSENJITFS_DIR_BUCKETS 32u
@@ -15,6 +16,9 @@
 #define PROSENJITFS_FEATURE_JOURNAL  (1u << 1)
 #define PROSENJITFS_FEATURE_EXTENTS  (1u << 2)
 #define PROSENJITFS_FEATURE_UTF8     (1u << 3)
+/* Reserved for the version-2 persistent COW/snapshot format.  It must not be
+ * set on version-1 volumes until the complete implementation is present. */
+#define PROSENJITFS_FEATURE_SNAPSHOTS (1u << 4)
 
 #define PROSENJITFS_INODE_FREE  0u
 #define PROSENJITFS_INODE_FILE  1u
@@ -51,6 +55,35 @@ struct __attribute__((packed)) pros_prosenjitfs_superblock {
     uint64_t inode_count;
     uint16_t max_name;
     uint64_t transaction_sequence;
+    uint32_t checksum;
+};
+
+
+/* Version-2 snapshot metadata. These structures are format declarations only;
+ * v1 mount/format code intentionally does not consume them. */
+#define PROSENJITFS_SNAPSHOT_MAGIC 0x5053534Eu
+#define PROSENJITFS_SNAPSHOT_RECORD_VERSION 1u
+#define PROSENJITFS_SNAPSHOT_STATE_FREE 0u
+#define PROSENJITFS_SNAPSHOT_STATE_LIVE 1u
+#define PROSENJITFS_SNAPSHOT_STATE_DELETING 2u
+
+struct __attribute__((packed)) pros_prosenjitfs_snapshot_record {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t state;
+    uint64_t snapshot_id;
+    uint64_t generation;
+    uint64_t creation_time;
+    uint64_t root_inode;
+    uint32_t checksum;
+    uint8_t reserved[28];
+};
+
+/* Persistent per-block ownership count. Zero means unallocated. A value
+ * greater than one means the block is shared by the live tree and/or one or
+ * more snapshots and therefore must be shadowed before a live modification. */
+struct __attribute__((packed)) pros_prosenjitfs_block_refcount {
+    uint32_t refcount;
     uint32_t checksum;
 };
 
