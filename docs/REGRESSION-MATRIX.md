@@ -113,3 +113,17 @@ These are deterministic software-model regressions. They do not replace physical
 The final native file-I/O contract now explicitly covers VFS append semantics, seeking beyond EOF for sparse logical offsets, filesystem-size checked writes, and persistence of appended and sparse data across remount. The VFS rejects APPEND without WRITE, reports write argument/state errors consistently, and limits seek positions to the representable file-I/O offset domain. Native ProsenjitFS self-tests also execute a 100-cycle create/write/unmount/remount/read/unlink/remount persistence and allocation-reuse regression with the reusable consistency checker.
 
 Runtime execution must still be distinguished from source verification: these additions are not considered QEMU/runtime PASS until the local Debian/QEMU build actually executes them.
+
+
+## Native ProsenjitFS deep hardening — 2026-10-06
+
+The native VFS/filesystem boundary now has additional fail-closed checks for:
+- busy-unmount rejection while any descendant vnode/file/directory handle is live;
+- zero-length read semantics without requiring a data buffer;
+- inode-authoritative EOF refresh for reads and append writes;
+- superblock bitmap-capacity validation so corrupted geometry cannot redirect allocation into another metadata region;
+- consistency checking of metadata ownership, directory-entry ownership, extent/data-block ownership, inode parent relationships, allocation bitmap agreement, duplicate physical ownership, and file allocated-byte accounting;
+- fail-closed handling for corrupted directory entries during rmdir/unlink;
+- checked file extent ordering and logical-range validation.
+
+The consistency checker is diagnostic-only and must never be used as a silent repair mechanism. Local Debian compilation and QEMU execution remain required before any runtime PASS is claimed.
