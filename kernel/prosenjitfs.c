@@ -153,6 +153,21 @@ int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
     return PROSENJITFS_OK;
 }
 
+int prosenjitfs_tx_diag_get(uint32_t *stage, uint32_t *count,
+                            uint32_t *count_before_clear,
+                            uint32_t *count_after_clear, int *clear_rc)
+{
+    if (!stage || !count || !count_before_clear ||
+        !count_after_clear || !clear_rc)
+        return PROSENJITFS_EINVAL;
+    *stage = pfs_tx_diag_stage;
+    *count = pfs_tx_diag_count;
+    *count_before_clear = pfs_tx_diag_count_before_clear;
+    *count_after_clear = pfs_tx_diag_count_after_clear;
+    *clear_rc = pfs_tx_diag_clear_rc;
+    return PROSENJITFS_OK;
+}
+
 void prosenjitfs_write_diag_begin_read(void)
 {
     pfs_diag.read_enabled = 1u;
