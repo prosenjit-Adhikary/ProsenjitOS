@@ -87,6 +87,28 @@ struct __attribute__((packed)) pros_prosenjitfs_block_refcount {
     uint32_t checksum;
 };
 
+/* Version-2 extension block. Kept separate from the v1 superblock so the
+ * existing v1 layout remains byte-for-byte stable. A v2 mount must validate
+ * this block before enabling snapshots. */
+#define PROSENJITFS_COW_EXT_MAGIC 0x50534357u
+#define PROSENJITFS_COW_EXT_VERSION 1u
+#define PROSENJITFS_COW_MAX_SNAPSHOTS 8u
+
+struct __attribute__((packed)) pros_prosenjitfs_cow_extension {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t header_size;
+    uint32_t features;
+    uint32_t snapshot_count;
+    uint64_t snapshot_table_start;
+    uint32_t snapshot_table_blocks;
+    uint64_t refcount_start;
+    uint32_t refcount_blocks;
+    uint64_t generation;
+    uint32_t checksum;
+    uint8_t reserved[12];
+};
+
 struct __attribute__((packed)) pros_prosenjitfs_inode {
     uint8_t type;
     uint8_t flags;
