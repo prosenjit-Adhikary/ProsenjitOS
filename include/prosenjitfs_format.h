@@ -128,6 +128,21 @@ struct __attribute__((packed)) pros_prosenjitfs_cow_geometry {
     uint32_t checksum;
 };
 
+/* Version-2 superblock. It preserves the v1 prefix exactly and adds
+ * persistent COW geometry after the legacy fields. v1 code continues to
+ * parse only struct pros_prosenjitfs_superblock. */
+struct __attribute__((packed)) pros_prosenjitfs_superblock_v2 {
+    struct pros_prosenjitfs_superblock base;
+    uint64_t cow_extension_block;
+    uint64_t snapshot_table_start;
+    uint32_t snapshot_table_blocks;
+    uint64_t refcount_start;
+    uint32_t refcount_blocks;
+    uint64_t snapshot_generation;
+    uint32_t cow_checksum;
+    uint8_t reserved[24];
+};
+
 struct __attribute__((packed)) pros_prosenjitfs_inode {
     uint8_t type;
     uint8_t flags;
