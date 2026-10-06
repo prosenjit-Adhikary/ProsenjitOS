@@ -244,3 +244,45 @@ ProsenjitFS self-test already opens `/hello.bin` with
 Root cause was identified from the VFS access-mode checks, the minimal
 permission enforcement fix was implemented, and clean-build/full-QEMU
 verification succeeded.
+
+## P4 VFS seek on inactive mount — 2026-10-06
+
+### Diagnosis
+
+`vfs_file_read()`, `vfs_file_write()`, and `vfs_file_truncate()` already
+reject operations when `file->mount->active` is false, but
+`vfs_file_seek()` only validated the file, open state, and vnode.
+
+`vfs_mount_deactivate()` deactivates the mount without automatically
+closing existing file objects. Therefore an open file can retain a live
+vnode while its mount is inactive.
+
+The missing active-mount validation allowed `vfs_file_seek()` to mutate
+the file position after mount deactivation.
+
+### Fix
+
+- Added `file->mount` and `file->mount->active` validation to
+  `vfs_file_seek()`.
+- Added a VFS self-test regression that:
+  1. opens `/hello.txt`,
+  2. deactivates the mount,
+  3. verifies `vfs_file_seek()` returns `PROS_VFS_EINVAL`,
+  4. closes the still-open file successfully.
+
+### Verification
+
+- `git diff --check` passed.
+- Clean ProsenjitOS build passed.
+- Full QEMU regression passed.
+- ProsenjitFS format/mount/allocation/journal/recovery self-test passed.
+- Driver model registry/lifecycle self-test passed.
+- Device permission broker self-test passed.
+- PCI enumeration passed.
+- ELF64 userspace image validation passed.
+- CPL3 user-mode and IPC syscall test passed.
+- QEMU exited via the expected 30-second timeout SIGTERM.
+
+### Status
+
+**P4 VFS inactive-mount seek regression: PASS**

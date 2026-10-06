@@ -307,7 +307,8 @@ int vfs_file_close(struct pros_vfs_file *file)
 
 int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
 {
-    if (!file || !file->open || !file->vnode)
+    if (!file || !file->open || !file->mount || !file->mount->active ||
+        !file->vnode)
         return PROS_VFS_EINVAL;
     if (position > file->vnode->size)
         return PROS_VFS_EOVERFLOW;
@@ -1116,8 +1117,19 @@ static int vfs_vnode_api_selftest(void)
         vfs_dir_open(&mount, "/hello.txt", &dir) != PROS_VFS_ENOTDIR)
         return -1;
 
+    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
+        PROS_VFS_OK)
+        return -1;
+
     if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
         return -1;
+
+    if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
+        return -1;
+
+    if (vfs_file_close(&file) != PROS_VFS_OK)
+        return -1;
+
     return 0;
 }
 
