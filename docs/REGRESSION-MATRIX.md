@@ -76,6 +76,25 @@ The deterministic native-filesystem self-test now covers persistent inode/data-b
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
 
 
+## Native ProsenjitFS persistence/corruption regression — 2026-10-06
+
+The native self-test now includes a persistent-image regression matrix covering:
+- write/unmount/remount/read at 0, 1, 511, 512, 513, 1023, 1024 and 1025-byte boundaries;
+- overwrite/truncate/append-style writes across remounts;
+- nested directory-tree creation, rename, unlink and removal persistence;
+- inode and block allocation bitmap persistence and released-block reuse;
+- a reusable inode/extent/bitmap/device-boundary consistency checker;
+- invalid inode/block and extent references;
+- allocation exhaustion and post-exhaustion reuse;
+- oversized truncate rejection and integer/LBA overflow checks;
+- filesystem-end, device-end and partition-view boundary rejection.
+
+The corruption fixture deliberately stores an inode with a valid checksum but an impossible extent head. Mount remains safe, while data access and the consistency checker fail closed with corruption errors.
+
+The minimum-size image also exhausts data blocks and inode reservations, verifies ENOSPC without abandoning consistency, then remounts the image. A partition view shortened by one sector is rejected before Native ProsenjitFS can cross the partition boundary.
+
+These are deterministic software-model regressions. They do not replace physical power-loss testing or local QEMU/ATA persistence validation.
+
 ## Native ProsenjitFS final-hardening additions — 2026-10-01
 
 - Metadata-region ordering/non-overlap and redundant-superblock consistency.
