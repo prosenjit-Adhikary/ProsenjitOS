@@ -295,9 +295,9 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->truncate || !file->vnode ||
-        (file->flags & PROS_VFS_O_WRITE) == 0u ||
-        file->mount->read_only)
+        !file->ops || !file->ops->truncate || !file->vnode)
+        return PROS_VFS_EINVAL;
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
     if (size > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
