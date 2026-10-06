@@ -1365,6 +1365,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         }
 
         if (extent.logical_block < keep_blocks &&
+            extent.block_count <= UINT64_MAX - extent.logical_block &&
             extent.logical_block + extent.block_count > keep_blocks) {
             /*
              * Current writers create one-block extents. Keep this branch
@@ -2472,8 +2473,12 @@ static int pfs_utf8_name_valid(const char *name, uint32_t *length_out)
     uint32_t length = 0u;
     if (!name || !length_out)
         return PROSENJITFS_EINVAL;
-    while (s[length] != 0u) {
-        if (s[length] == '/' || length >= PROSENJITFS_MAX_NAME)
+    while (1) {
+        if (length >= PROSENJITFS_MAX_NAME)
+            return PROSENJITFS_EINVAL;
+        if (s[length] == 0u)
+            break;
+        if (s[length] == '/')
             return PROSENJITFS_EINVAL;
         ++length;
     }
@@ -2520,7 +2525,8 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
     uint8_t block[4096];
     uint32_t checksum;
     if (!fs || !inode || !index || inode->type != PROSENJITFS_INODE_DIR ||
-        inode->dir_index < 2u || inode->dir_index >= fs->sb.total_blocks ||
+        inode->dir_index < fs->sb.data_start ||
+        inode->dir_index >= fs->sb.total_blocks ||
         fs->sb.block_size > sizeof(block))
         return PROSENJITFS_ECORRUPT;
     {
