@@ -3544,6 +3544,41 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
 }
 
 
+struct pfs_test_disk {
+    uint8_t data[512u * 512u];
+    uint32_t write_count;
+    uint32_t fail_write_at;
+};
+
+static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
+                         uint32_t count, void *buffer)
+{
+    struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
+    if (!disk || !buffer || lba >= 512u || count > 512u - lba)
+        return PROS_BLOCK_EINVAL;
+    pfs_copy(buffer, disk->data + lba * 512u, count * 512u);
+    return PROS_BLOCK_OK;
+}
+
+,,,static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
+                          uint32_t count, const void *buffer)
+{
+    struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
+    if (!disk || !buffer || lba >= 512u || count > 512u - lba)
+        return PROS_BLOCK_EINVAL;
+    ++disk->write_count;
+    if (disk->fail_write_at != 0u && disk->write_count == disk->fail_write_at)
+        return PROS_BLOCK_EIO;
+    pfs_copy(disk->data + lba * 512u, buffer, count * 512u);
+    return PROS_BLOCK_OK;
+}
+
+static int pfs_test_flush(struct pros_block_device *device)
+{
+    (void)device;
+    return PROS_BLOCK_OK;
+}
+
 int prosenjitfs_selftest(void)
 {
     static struct pfs_test_disk disk;
