@@ -242,10 +242,16 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
      * buffer. Non-zero reads require a valid destination before dispatch.
      */
     *bytes_read = 0u;
-    if (length == 0u || file->position >= file->vnode->size)
+    if (length == 0u)
         return PROS_VFS_OK;
     if (!buffer)
         return PROS_VFS_EINVAL;
+    /*
+     * Do not use the vnode size as an authoritative EOF check. Filesystems
+     * may have multiple vnodes for one inode, so a writer can extend the
+     * inode after this handle was opened. The filesystem read operation is
+     * authoritative and may refresh the vnode size.
+     */
     if ((uint64_t)length > UINT32_MAX - file->position)
         return PROS_VFS_EOVERFLOW;
 
