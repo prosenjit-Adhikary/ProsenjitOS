@@ -109,6 +109,25 @@ struct __attribute__((packed)) pros_prosenjitfs_cow_extension {
     uint8_t reserved[12];
 };
 
+/* Geometry extension is stored in the first data-region block of a v2
+ * volume. The v1 superblock therefore remains unchanged and v1 readers can
+ * never mistake these fields for legacy geometry. */
+#define PROSENJITFS_COW_GEOMETRY_MAGIC 0x504A4347u
+
+struct __attribute__((packed)) pros_prosenjitfs_cow_geometry {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t header_size;
+    uint64_t extension_block;
+    uint64_t snapshot_table_start;
+    uint32_t snapshot_table_blocks;
+    uint64_t refcount_start;
+    uint32_t refcount_blocks;
+    uint64_t reserved_start;
+    uint32_t reserved_blocks;
+    uint32_t checksum;
+};
+
 struct __attribute__((packed)) pros_prosenjitfs_inode {
     uint8_t type;
     uint8_t flags;
