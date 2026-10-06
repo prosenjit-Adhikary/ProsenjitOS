@@ -4718,6 +4718,38 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -13);
     }
 
+    /*
+     * VFS negative/error-contract matrix: invalid flags, missing paths,
+     * directory-as-file, overflow seek/truncate, and read-only writes must
+     * remain distinguishable instead of collapsing into generic I/O errors.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t byte = 0x5Au;
+        uint32_t done = 0u;
+
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_APPEND, &file) != PROS_VFS_EINVAL ||
+            vfs_file_open(&fs.mount, "/does-not-exist", PROS_VFS_O_READ,
+                          &file) != PROS_VFS_ENOENT ||
+            vfs_file_open(&fs.mount, "/", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_EISDIR)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, &byte, 1u, &done) != PROS_VFS_EPERM ||
+            vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+    }
+
     /* Sparse logical-offset regression: seek beyond EOF, write one byte, and
      * verify the unwritten interval reads as zeros. */
     {
