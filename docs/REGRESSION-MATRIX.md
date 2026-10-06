@@ -24,6 +24,11 @@ This matrix records the automated validation layers that should remain green whi
 
 ## ProsenjitFS crash/recovery coverage
 
+
+### Deterministic power-loss transaction matrix — 2026-10-06
+
+The Native ProsenjitFS self-test now executes a real VFS overwrite with simulated volatile device-cache loss and interruption at transaction stages 1–9. Stages before durable journal commit must preserve the old file image; stages after durable commit must recover the new image through redo replay. The matrix covers transaction begin, journal header write, journal image write, journal flush, commit flush, home-write interruption, home flush, post-home recovery boundary, and journal-retirement boundary. The test remounts the same durable medium after each simulated crash and verifies file contents.
+
 The deterministic regression suite should continue to cover:
 
 1. valid committed journal transaction replay;
