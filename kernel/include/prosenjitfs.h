@@ -70,6 +70,7 @@ int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
 int prosenjitfs_selftest(void);
 int prosenjitfs_cow_geometry_validate(const struct pros_prosenjitfs *, uint64_t, uint64_t, uint32_t, uint64_t, uint32_t);
 int prosenjitfs_cow_refcount_initialize(struct pros_prosenjitfs *, uint64_t, uint32_t, uint64_t);
+int prosenjitfs_cow_extension_validate(const struct pros_prosenjitfs *, const struct pros_prosenjitfs_cow_extension *);
 int prosenjitfs_cow_refcount_blocks(uint64_t total_blocks, uint32_t block_size, uint32_t *blocks);
 int prosenjitfs_snapshot_create(struct pros_prosenjitfs *, uint64_t *snapshot_id);
 int prosenjitfs_snapshot_delete(struct pros_prosenjitfs *, uint64_t snapshot_id);
