@@ -31,6 +31,18 @@ struct pros_prosenjitfs {
     uint8_t degraded_superblock;
     uint8_t *scratch;
     struct pros_prosenjitfs_tx tx;
+    /* Populated only after a v2 COW volume passes full geometry and checksum
+     * validation. v1 mounts leave these fields zero and retain their exact
+     * legacy write semantics. */
+    uint8_t cow_enabled;
+    uint8_t cow_degraded;
+    uint16_t cow_reserved;
+    uint64_t cow_extension_block;
+    uint64_t snapshot_table_start;
+    uint32_t snapshot_table_blocks;
+    uint64_t refcount_start;
+    uint32_t refcount_blocks;
+    uint64_t snapshot_generation;
 };
 
 uint32_t prosenjitfs_crc32c(const void *, uint32_t);
