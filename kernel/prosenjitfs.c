@@ -4229,9 +4229,10 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     }
 
     /*
-     * Bits above total_blocks are never valid allocations.  This catches
-     * bitmap corruption without assuming a particular free-space counter
-     * layout.
+     * Metadata blocks are never allocatable.  Every block below data_start
+     * must be permanently marked used, while bits beyond total_blocks must
+     * remain clear. This closes the corruption path where a damaged bitmap
+     * could make the allocator hand out journal/bitmap/inode-table blocks.
      */
     for (uint64_t bi = 0u; bi < fs->sb.block_bitmap_blocks; ++bi) {
         uint64_t lba;
@@ -4242,8 +4243,30 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             return PROSENJITFS_ECORRUPT;
         for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
             uint64_t block = first_bit + bit;
-            if (block >= fs->sb.total_blocks &&
-                pfs_bitmap_bit(bitmap, bit))
+            int set = pfs_bitmap_bit(bitmap, bit);
+            if ((block < fs->sb.data_start && !set) ||
+                (block >= fs->sb.total_blocks && set))
+                return PROSENJITFS_ECORRUPT;
+        }
+    }
+
+    /*
+     * The inode bitmap has the same representation invariant: every inode
+     * index must fit in the declared bitmap and the unused tail bits must be
+     * clear. Root inode 0 is necessarily allocated.
+     */
+    for (uint64_t bi = 0u; bi < fs->sb.inode_bitmap_blocks; ++bi) {
+        uint64_t lba;
+        uint64_t first_bit = bi * bits_per_block;
+        if (pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
+                        bi, &lba) != PROSENJITFS_OK ||
+            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
+            uint64_t inode_number = first_bit + bit;
+            int set = pfs_bitmap_bit(bitmap, bit);
+            if ((inode_number >= fs->sb.inode_count && set) ||
+                (inode_number == fs->sb.root_inode && !set))
                 return PROSENJITFS_ECORRUPT;
         }
     }
