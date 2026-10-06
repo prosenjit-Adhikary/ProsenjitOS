@@ -1156,6 +1156,8 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             }
 
             pfs_copy(&inode, inode_image + inode_offset, sizeof(inode));
+            if ((uint64_t)offset > inode.size)
+                inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
             if (inode.extent_head == 0u)
                 inode.extent_head = new_extent_lba;
             inode.size = ((uint64_t)offset + done + want > inode.size)
@@ -1219,6 +1221,8 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
 
+            if ((uint64_t)offset > inode.size)
+                inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
             if ((uint64_t)offset + done + want > inode.size) {
                 inode.size = (uint64_t)offset + done + want;
                 inode_changed = 1u;
