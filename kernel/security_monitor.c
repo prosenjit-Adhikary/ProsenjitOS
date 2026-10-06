@@ -1,5 +1,6 @@
 #include "security_monitor.h"
 #include "health.h"
+#include "intent.h"
 
 #include <stdint.h>
 
@@ -98,6 +99,32 @@ int pros_security_monitor_record(
 
     if (state) *state = *current;
     return (int)current->action;
+}
+
+int pros_security_monitor_enforce(
+    struct pros_process *process,
+    const struct pros_security_event *event,
+    struct pros_security_monitor_state *state) {
+    int action;
+
+    if (!process || !event || process_state(process) == PROS_PROCESS_DEAD ||
+        process->pid != event->pid)
+        return -1;
+
+    action = pros_security_monitor_record(event, state);
+    if (action < 0)
+        return action;
+
+    if (action == PROS_SECURITY_MONITOR_QUARANTINE)
+        return security_quarantine(process) == 0 ? action : -2;
+
+    if (action == PROS_SECURITY_MONITOR_BLOCK) {
+        if (process_exit(process, -0x5344) != 0)
+            return -3;
+        return action;
+    }
+
+    return action;
 }
 
 int pros_security_monitor_get(
