@@ -4942,9 +4942,56 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_OK ||
             first_reused != block ||
             prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&small_fs, &small_device, 0u) !=
+                PROSENJITFS_OK)
+            {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+        {
+            uint32_t inode_allocated = 1u;
+            for (;;) {
+                int rc = prosenjitfs_alloc_inode(&small_fs, &inode_tmp);
+                if (rc == PROSENJITFS_ENOSPC)
+                    break;
+                if (rc != PROSENJITFS_OK ||
+                    ++inode_allocated > small_fs.sb.inode_count) {
+                    prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, -17);
+                }
+            }
+            if (inode_allocated < small_fs.sb.inode_count - 1u ||
+                pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+        }
+
+        if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        /*
+         * A partition view that is one sector shorter than the durable
+         * filesystem must be rejected before any filesystem I/O can cross
+         * the partition boundary.
+         */
+        {
+            struct pros_partition_device view;
+            struct pros_partition part;
+            pfs_zero(&view, sizeof(view));
+            pfs_zero(&part, sizeof(part));
+            part.first_lba = 0u;
+            part.sector_count = PFS_MIN_BLOCKS - 1u;
+            if (partition_device_init(&view, &small_device, &part) !=
+                    PROS_PARTITION_OK ||
+                prosenjitfs_mount(&small_fs, &view.device, 0u) !=
+                    PROSENJITFS_ECORRUPT) {
+                pfs_zero(&small_fs, sizeof(small_fs));
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+        }
+
+        if (prosenjitfs_mount(&small_fs, &small_device, 0u) !=
                 PROSENJITFS_OK ||
             pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
