@@ -252,7 +252,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !bytes_written)
+        !file->ops || !file->ops->write || !bytes_written || !file->vnode)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
@@ -541,9 +541,11 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
 
-    while (path[length] != '\0') {
+    while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
+        if (path[length] == '\0')
+            break;
         if (path[length] == '/')
             last_slash = length;
         ++length;
@@ -613,9 +615,11 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
-    while (path[length] != '\0') {
+    while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
+        if (path[length] == '\0')
+            break;
         if (path[length] == '/')
             last_slash = length;
         ++length;
@@ -674,9 +678,11 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
-    while (path[length] != '\0') {
+    while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
+        if (path[length] == '\0')
+            break;
         if (path[length] == '/')
             last_slash = length;
         ++length;
@@ -742,16 +748,20 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
         old_path[0] != '/' || new_path[0] != '/')
         return PROS_VFS_EINVAL;
 
-    while (old_path[old_length] != '\0') {
+    while (1) {
         if (old_length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
+        if (old_path[old_length] == '\0')
+            break;
         if (old_path[old_length] == '/')
             old_slash = old_length;
         ++old_length;
     }
-    while (new_path[new_length] != '\0') {
+    while (1) {
         if (new_length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
+        if (new_path[new_length] == '\0')
+            break;
         if (new_path[new_length] == '/')
             new_slash = new_length;
         ++new_length;
@@ -857,11 +867,15 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         char parent_path[PROS_VFS_PATH_MAX + 1u];
         char name[PROS_VFS_NAME_MAX + 1u];
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
-        while (length < PROS_VFS_PATH_MAX && path[length] != '\0') {
+        while (1) {
+            if (length >= PROS_VFS_PATH_MAX)
+                return PROS_VFS_EOVERFLOW;
+            if (path[length] == '\0')
+                break;
             if (path[length] == '/') last_slash = length;
             ++length;
         }
-        if (path[length] != '\0' || length == 0u ||
+        if (length == 0u ||
             last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
             return PROS_VFS_EINVAL;
         uint32_t name_length = length - last_slash - 1u;
