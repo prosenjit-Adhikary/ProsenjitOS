@@ -494,7 +494,88 @@ static __attribute__((unused)) int driver_test_remove(struct pros_driver_device 
     return PROS_DRIVER_OK;
 }
 
+static int driver_selftest_probe(struct pros_driver_device *device)
+{
+    if (!device)
+        return PROS_DRIVER_EINVAL;
+    device->driver_data = device->bus_data;
+    return PROS_DRIVER_OK;
+}
+
+static int driver_selftest_remove(struct pros_driver_device *device)
+{
+    if (!device)
+        return PROS_DRIVER_EINVAL;
+    device->driver_data = 0;
+    return PROS_DRIVER_OK;
+}
+
 int pros_driver_selftest(void)
 {
+    static const struct pros_driver_id ids[] = {
+        { PROS_DRIVER_BUS_VIRTUAL, 0x1234u, 0x5678u, 0x03u, 0u, 0u }
+    };
+    static const struct pros_driver_ops ops = {
+        .probe = driver_selftest_probe,
+        .remove = driver_selftest_remove
+    };
+    static const struct pros_driver driver = {
+        .name = "selftest-display",
+        .version = "1.0.0",
+        .abi_version = PROS_DRIVER_ABI_VERSION,
+        .flags = PROS_DRIVER_FLAG_NATIVE,
+        .origin = PROS_DRIVER_ORIGIN_NATIVE,
+        .ids = ids,
+        .id_count = 1u,
+        .ops = &ops
+    };
+    struct pros_driver_device device = {
+        .id = 0u,
+        .bus = PROS_DRIVER_BUS_VIRTUAL,
+        .class_id = PROS_DEVICE_CLASS_DISPLAY,
+        .state = PROS_DEVICE_DISCOVERED,
+        .hwid = { PROS_DRIVER_BUS_VIRTUAL, 0x1234u, 0x5678u, 0x03u, 0u, 0u },
+        .name = "selftest-device",
+        .driver = 0,
+        .driver_data = 0,
+        .bus_data = (void *)(uintptr_t)0xA5u
+    };
+
+    if (pros_driver_manager_init() != PROS_DRIVER_OK)
+        return -1;
+    if (pros_driver_register(0) != PROS_DRIVER_EINVAL)
+        return -2;
+    if (pros_driver_register(&driver) != PROS_DRIVER_OK)
+        return -3;
+    if (pros_driver_register(&driver) != PROS_DRIVER_EBUSY)
+        return -4;
+    if (pros_device_register(&device) != PROS_DRIVER_OK || device.id == 0u)
+        return -5;
+    if (pros_driver_find(&device.hwid, device.class_id) != &driver)
+        return -6;
+    if (pros_driver_bind(device.id) != PROS_DRIVER_OK ||
+        device.state != PROS_DEVICE_BOUND ||
+        device.driver != &driver ||
+        device.driver_data != device.bus_data)
+        return -7;
+    if (pros_driver_bind(device.id) != PROS_DRIVER_EBUSY)
+        return -8;
+    if (pros_driver_unbind(device.id) != PROS_DRIVER_OK ||
+        device.state != PROS_DEVICE_DISCOVERED ||
+        device.driver != 0 ||
+        device.driver_data != 0)
+        return -9;
+    if (pros_driver_unregister(&driver) != PROS_DRIVER_OK)
+        return -10;
+    if (pros_device_unregister(device.id) != PROS_DRIVER_OK)
+        return -11;
+
+    /* Invalid origin/flag combinations must never be admitted. */
+    {
+        struct pros_driver bad = driver;
+        bad.origin = PROS_DRIVER_ORIGIN_COMPAT;
+        if (pros_driver_register(&bad) != PROS_DRIVER_EPERM)
+            return -12;
+    }
     return PROS_DRIVER_OK;
 }
