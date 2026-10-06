@@ -204,3 +204,43 @@ QEMU was subsequently terminated by the intentional 30-second timeout; this was 
 **ProsenjitFS self-test: PASS**
 
 Root cause is proven, the minimal self-test lifecycle fix is implemented, and clean-build/QEMU runtime verification succeeded.
+
+## VFS read access-mode enforcement — 2026-10-06
+
+### Diagnosis
+
+The VFS write path already enforced `PROS_VFS_O_WRITE`, but
+`vfs_file_read()` did not enforce `PROS_VFS_O_READ`. Therefore a
+WRITE-only file handle could reach the filesystem read callback.
+
+The existing synthetic VFS self-test could not directly cover this
+because its test file-ops instance has no write callback. The real
+ProsenjitFS self-test already opens `/hello.bin` with
+`PROS_VFS_O_WRITE`, making it the appropriate regression location.
+
+### Fix
+
+- Added an explicit `PROS_VFS_O_READ` permission check to
+  `vfs_file_read()`, returning `PROS_VFS_EPERM` for a handle that is
+  not opened for reading.
+- Added a ProsenjitFS regression test that attempts to read from the
+  existing WRITE-only `/hello.bin` handle and requires
+  `PROS_VFS_EPERM`.
+
+### Verification
+
+- `git diff --check` passed.
+- Clean ProsenjitOS build passed.
+- Full QEMU regression passed.
+- ProsenjitFS format/mount/allocation/journal/recovery self-test passed.
+- ProsenjitOS driver model, device permission broker, PCI, ELF64
+  userspace, CPL3 user-mode and IPC syscall tests passed.
+- QEMU exited via the expected 30-second timeout SIGTERM.
+
+### Status
+
+**P3 VFS read access-mode regression: PASS**
+
+Root cause was identified from the VFS access-mode checks, the minimal
+permission enforcement fix was implemented, and clean-build/full-QEMU
+verification succeeded.

@@ -4033,6 +4033,22 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * A write-only handle must reject read attempts at the VFS layer.
+         */
+        {
+            uint8_t denied_read[1];
+            uint32_t denied_done = 0u;
+
+            if (vfs_file_read(&file, denied_read, sizeof(denied_read),
+                              &denied_done) != PROS_VFS_EPERM ||
+                denied_done != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
         {
             uint8_t patch[37];
             uint32_t wrote = 0u;

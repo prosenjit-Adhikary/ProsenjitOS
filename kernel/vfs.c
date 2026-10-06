@@ -224,6 +224,8 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
         !file->ops || !file->ops->read || !buffer || !bytes_read ||
         !file->vnode || file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EINVAL;
+    if ((file->flags & PROS_VFS_O_READ) == 0u)
+        return PROS_VFS_EPERM;
 
     /*
      * VFS read semantics must make EOF a successful zero-byte read. Do not
