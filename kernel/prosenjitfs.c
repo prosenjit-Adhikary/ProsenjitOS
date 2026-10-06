@@ -2823,7 +2823,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
 
         {
             uint64_t original_next = entry.next;
-            old_index.heads[old_bucket] = original_next;
+            if (old_prev == 0u)
+                old_index.heads[old_bucket] = original_next;
             entry.next = old_index.heads[new_bucket];
         }
         entry.name_hash = new_hash;
@@ -2840,15 +2841,6 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             pfs_copy(&prev, prev_block, sizeof(prev));
             if (prev.magic != PROSENJITFS_ENTRY_MAGIC || prev.next != old_lba) {
                 rc = PROSENJITFS_ECORRUPT; goto rename_out;
-            }
-            prev.next = entry.next == old_lba ? 0u : prev.next;
-            /* The predecessor remains in the old bucket. */
-            prev.next = (entry.next == old_lba) ? 0u : prev.next;
-            /* Re-read the old chain successor from the original entry. */
-            {
-                struct pros_prosenjitfs_dir_entry original;
-                pfs_copy(&original, entry_block, sizeof(original));
-                (void)original;
             }
         }
         /*
@@ -2929,7 +2921,8 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         pfs_copy(entry_block, &original, sizeof(original));
     }
 
-    old_index.heads[old_bucket] = entry.next;
+    if (old_prev == 0u)
+        old_index.heads[old_bucket] = entry.next;
     if (old_prev != 0u) {
         struct pros_prosenjitfs_dir_entry prev;
         pfs_copy(&prev, prev_block, sizeof(prev));
