@@ -1927,8 +1927,10 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                 (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum)) !=
                 entry.checksum ||
             entry.next >= data->fs->sb.total_blocks ||
-            (entry.next != 0u && entry.next < data->fs->sb.data_start))
-            break;
+            (entry.next != 0u && entry.next < data->fs->sb.data_start)) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto rmdir_out;
+        }
         if (entry.name_length == name_length &&
             pfs_name_hash(entry.name, entry.name_length) ==
                 pfs_name_hash((const uint8_t *)name, name_length)) {
@@ -2156,9 +2158,12 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         { rc = PROSENJITFS_ENOENT; goto out; }
     if (inode_number == parent_data->inode_number)
         { rc = PROSENJITFS_EPERM; goto out; }
-    if (prosenjitfs_read_inode(parent_data->fs, inode_number, &child_inode) !=
-        PROSENJITFS_OK)
-        { rc = PROSENJITFS_EIO; goto out; }
+    {
+        int inode_rc = prosenjitfs_read_inode(parent_data->fs, inode_number,
+                                              &child_inode);
+        if (inode_rc != PROSENJITFS_OK)
+            { rc = inode_rc; goto out; }
+    }
     if (child_inode.type == PROSENJITFS_INODE_DIR)
         { rc = PROS_VFS_EISDIR; goto out; }
 
