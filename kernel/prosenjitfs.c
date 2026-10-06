@@ -2821,8 +2821,11 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             goto rename_out;
         }
 
-        old_index.heads[old_bucket] = entry.next;
-        entry.next = old_index.heads[new_bucket];
+        {
+            uint64_t original_next = entry.next;
+            old_index.heads[old_bucket] = original_next;
+            entry.next = old_index.heads[new_bucket];
+        }
         entry.name_hash = new_hash;
         entry.name_length = (uint16_t)new_len;
         pfs_zero(entry.name, sizeof(entry.name));
@@ -2878,7 +2881,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                   pfs_crc_with_zero32(old_dir_block, sizeof(old_index),
                       (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
 
-        old_index.heads[new_bucket] = entry.next;
+        old_index.heads[new_bucket] = old_lba;
         pfs_zero(old_dir_block, old_data->fs->sb.block_size);
         pfs_copy(old_dir_block, &old_index, sizeof(old_index));
         pfs_put32(old_dir_block + offsetof(struct pros_prosenjitfs_dir_index, checksum),
@@ -2979,11 +2982,6 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
                   (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
 
     rc = pfs_tx_reset(old_data->fs);
-    if (rc == PROSENJITFS_OK) rc = pfs_inode_bitmap_stage(old_data->fs, entry.inode, 1u); /* no-op guard removed below */
-    if (rc == PROSENJITFS_OK) {
-        /* Undo the temporary bitmap touch: this inode is already allocated. */
-        pfs_tx_reset(old_data->fs);
-    }
     if (rc == PROSENJITFS_OK && old_prev != 0u) rc = pfs_tx_add(old_data->fs, old_prev, prev_block);
     if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, old_dir.dir_index, old_dir_block);
     if (rc == PROSENJITFS_OK) rc = pfs_tx_add(old_data->fs, new_dir.dir_index, new_dir_block);
