@@ -4435,6 +4435,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             uint64_t current = inode.extent_head;
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
+            uint64_t logical_end = 0u;
             uint64_t max_logical_blocks =
                 inode.size / fs->sb.block_size +
                 ((inode.size % fs->sb.block_size) != 0u ? 1u : 0u);
@@ -4451,7 +4452,8 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                     rc = PROSENJITFS_ECORRUPT;
                     goto consistency_out;
                 }
-                if (extent.logical_block >
+                if (extent.logical_block < logical_end ||
+                    extent.logical_block >
                         UINT64_MAX - extent.block_count ||
                     extent.logical_block + extent.block_count >
                         max_logical_blocks ||
@@ -4475,7 +4477,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 allocated_bytes +=
                     extent.block_count * fs->sb.block_size;
                 end_logical = extent.logical_block + extent.block_count;
-                (void)end_logical;
+                logical_end = end_logical;
                 current = extent.next;
             }
             if (allocated_bytes != inode.allocated_bytes) {
