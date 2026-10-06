@@ -29,6 +29,8 @@ This matrix records the automated validation layers that should remain green whi
 
 The Native ProsenjitFS self-test now executes a real VFS overwrite with simulated volatile device-cache loss and interruption at transaction stages 1–9. Stages before durable journal commit must preserve the old file image; stages after durable commit must recover the new image through redo replay. The matrix covers transaction begin, journal header write, journal image write, journal flush, commit flush, home-write interruption, home flush, post-home recovery boundary, and journal-retirement boundary. The test remounts the same durable medium after each simulated crash and verifies file contents.
 
+Interrupted recovery is also exercised at both pre-flush and post-flush boundaries. The failed recovery mount is followed by simulated power loss and a second mount, verifying idempotent replay of the same committed replacement-image transaction.
+
 The deterministic regression suite should continue to cover:
 
 1. valid committed journal transaction replay;
