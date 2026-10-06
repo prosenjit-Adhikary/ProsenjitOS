@@ -81,6 +81,8 @@ int process_init(struct pros_process *process,
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
+    process->user_entry = 0;
+    process->user_stack_top = 0;
     process->parent = 0;
     process->next = 0;
     process->capability_policy = (security_level == PROS_SECURITY_SUPER)
