@@ -158,6 +158,17 @@ static int page_mapped(const struct pros_address_space *space, uint64_t va)
     return address_space_validate_user_range(space, va, ELF_PAGE, 0) == 0;
 }
 
+static void rollback_user_pages(struct pros_process *process,
+                                uint64_t start, uint64_t end)
+{
+    for (uint64_t va = start; va < end; va += ELF_PAGE) {
+        uint64_t physical = 0;
+        if (address_space_unmap_user_page(&process->address_space, va,
+                                          &physical) == 0)
+            physical_page_free(physical);
+    }
+}
+
 int pros_elf_load(struct pros_process *process, const uint8_t *image,
                   uint64_t size, struct pros_elf_load_result *result)
 {
@@ -173,34 +184,42 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         return PROS_ELF_EFORMAT;
 
     eh = (const struct elf64_ehdr *)image;
-    (void)validate_load_segments(image, size, &entry, &start, &end);
+    if (validate_load_segments(image, size, &entry, &start, &end) != PROS_ELF_OK)
+        return PROS_ELF_EFORMAT;
 
-    /* Map each page only after the complete image has passed structural checks. */
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
         int flags = -1;
         for (uint16_t i = 0; i < eh->phnum; ++i) {
             const struct elf64_phdr *ph =
                 (const struct elf64_phdr *)(image + eh->phoff +
                                             (uint64_t)i * sizeof(*ph));
-            if (ph->type != PT_LOAD)
-                continue;
+            if (ph->type != PT_LOAD) continue;
             int f = segment_page_flags(ph, va);
             if (f < 0) continue;
             if (flags < 0) flags = f;
-            else if (flags != f) return PROS_ELF_ECONFLICT;
+            else if (flags != f) {
+                rollback_user_pages(process, start, end);
+                return PROS_ELF_ECONFLICT;
+            }
         }
         if (flags < 0) continue;
-        if (page_mapped(&process->address_space, va))
+        if (page_mapped(&process->address_space, va)) {
+            rollback_user_pages(process, start, end);
             return PROS_ELF_ECONFLICT;
+        }
 
         uint64_t physical = physical_page_alloc();
-        if (!physical)
+        if (!physical) {
+            rollback_user_pages(process, start, end);
             return PROS_ELF_ENOMEM;
+        }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
             ((uint8_t *)(uintptr_t)physical)[off] = 0;
+
         if (address_space_map_user_page(&process->address_space, va,
                                         physical, (uint64_t)flags) != 0) {
             physical_page_free(physical);
+            rollback_user_pages(process, start, end);
             return PROS_ELF_EINVAL;
         }
         ++mapped;
@@ -209,29 +228,34 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             const struct elf64_phdr *ph =
                 (const struct elf64_phdr *)(image + eh->phoff +
                                             (uint64_t)i * sizeof(*ph));
-            if (ph->type != PT_LOAD || va < (ph->vaddr & ~(ELF_PAGE - 1)))
+            if (ph->type != PT_LOAD) continue;
+            uint64_t seg_end = ph->vaddr + ph->memsz;
+            uint64_t page_base = ph->vaddr & ~(ELF_PAGE - 1);
+            uint64_t page_off = (va >= page_base) ? va - page_base : 0;
+            if (page_off >= ((seg_end + ELF_PAGE - 1) & ~(ELF_PAGE - 1)) - page_base)
                 continue;
-            if (va >= ((ph->vaddr + ph->memsz + ELF_PAGE - 1) &
-                       ~(ELF_PAGE - 1)))
-                continue;
-            uint64_t page_off = (va > ph->vaddr) ? va - ph->vaddr : 0;
-            uint64_t file_off = (ph->offset > 0 && page_off < ph->offset) ? 0 :
-                                ph->offset + page_off;
+            uint64_t src_delta = (va > ph->vaddr) ? va - ph->vaddr : 0;
+            uint64_t dst_delta = (ph->vaddr > va) ? ph->vaddr - va : 0;
             uint64_t copy_len = 0;
-            if (page_off < ph->filesz)
-                copy_len = ph->filesz - page_off;
-            if (copy_len > ELF_PAGE) copy_len = ELF_PAGE;
+            if (src_delta < ph->filesz)
+                copy_len = ph->filesz - src_delta;
+            if (copy_len > ELF_PAGE - dst_delta)
+                copy_len = ELF_PAGE - dst_delta;
             if (copy_len != 0) {
-                if (file_off > size || copy_len > size - file_off)
+                uint64_t file_off = ph->offset + src_delta;
+                if (file_off > size || copy_len > size - file_off) {
+                    rollback_user_pages(process, start, end);
                     return PROS_ELF_EBOUNDS;
+                }
                 for (uint64_t j = 0; j < copy_len; ++j)
-                    ((uint8_t *)(uintptr_t)physical)[
-                        (va - (va & ~(ELF_PAGE - 1))) + j] =
+                    ((uint8_t *)(uintptr_t)physical)[dst_delta + j] =
                         image[file_off + j];
             }
         }
     }
 
+    process->user_entry = entry;
+    process->user_stack_top = PROSENJIT_USER_STACK_TOP;
     result->entry = entry;
     result->image_start = start;
     result->image_end = end;
