@@ -3919,12 +3919,13 @@ int prosenjitfs_selftest(void)
             return -6;
         if (vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
                 PROS_VFS_OK ||
-            done != sizeof(write_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK)
+            done != sizeof(write_data))
             {
                 vfs_file_close(&file);
                 return -6;
             }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return -6;
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
