@@ -942,18 +942,21 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
 
     if (!file || !file->vnode || !buffer)
         return PROS_VFS_EINVAL;
-    if (offset > file->vnode->size)
-        return PROS_VFS_EOVERFLOW;
-    if (length == 0u || offset == file->vnode->size)
+    if (length == 0u)
         return 0;
     data = (struct pfs_vnode_data *)file->vnode->private_data;
-    if (!data || !data->fs)
-        return PROS_VFS_EIO;
+    if (!data || !data->fs || !data->fs->mount.active)
+        return PROS_VFS_EPERM;
     {
         int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
         if (rc != PROSENJITFS_OK)
             return pfs_file_write_error(0u, rc);
     }
+    file->vnode->size = inode.size;
+    if ((uint64_t)offset > inode.size)
+        return 0;
+    if ((uint64_t)offset == inode.size)
+        return 0;
 
     while (done < length && (uint64_t)offset + done < inode.size) {
         uint64_t position = (uint64_t)offset + done;
