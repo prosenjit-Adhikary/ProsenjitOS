@@ -3983,6 +3983,43 @@ int prosenjitfs_selftest(void)
             }
             if (vfs_unlink(&fs.mount, "/sparse.bin") != PROS_VFS_OK)
                 return -(120000 + __LINE__);
+
+            /* Allocation-optimization regression: consecutive writes should
+             * reuse a physically adjacent free block and extend the existing
+             * extent instead of allocating a second extent metadata block. */
+            {
+                struct pros_vfs_file alloc_file;
+                struct pros_prosenjitfs_inode alloc_inode;
+                struct pros_prosenjitfs_extent alloc_extent;
+                uint8_t alloc_data[4096];
+                uint32_t alloc_done = 0u;
+                for (uint32_t i = 0u; i < sizeof(alloc_data); ++i)
+                    alloc_data[i] = (uint8_t)(0x31u ^ (i * 7u));
+
+                if (vfs_file_open(&fs.mount, "/alloc-opt.bin",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                  &alloc_file) != PROS_VFS_OK ||
+                    vfs_file_write(&alloc_file, alloc_data, sizeof(alloc_data),
+                                   &alloc_done) != PROS_VFS_OK ||
+                    alloc_done != sizeof(alloc_data) ||
+                    vfs_file_write(&alloc_file, alloc_data, sizeof(alloc_data),
+                                   &alloc_done) != PROS_VFS_OK ||
+                    alloc_done != sizeof(alloc_data) ||
+                    vfs_file_close(&alloc_file) != PROS_VFS_OK ||
+                    prosenjitfs_read_inode(&fs, 3u, &alloc_inode) !=
+                        PROSENJITFS_OK ||
+                    alloc_inode.size != 8192u ||
+                    alloc_inode.allocated_bytes !=
+                        2u * (uint64_t)fs.sb.block_size ||
+                    alloc_inode.extent_head == 0u ||
+                    pfs_read_extent(&fs, alloc_inode.extent_head,
+                                    &alloc_extent) != PROSENJITFS_OK ||
+                    alloc_extent.logical_block != 0u ||
+                    alloc_extent.block_count != 2u ||
+                    alloc_extent.next != 0u ||
+                    vfs_unlink(&fs.mount, "/alloc-opt.bin") != PROS_VFS_OK)
+                    return -(120000 + __LINE__);
+            }
         }
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
