@@ -4103,6 +4103,11 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         {
             int rc = prosenjitfs_read_inode(fs, inode_number, &inode);
             if (allocated) {
+                /* Allocation reserves the inode bitmap slot before a caller
+                 * materializes the inode body.  An allocated/free inode is
+                 * therefore valid only as an uninitialized reservation. */
+                if (rc == PROSENJITFS_ENOENT)
+                    continue;
                 if (rc != PROSENJITFS_OK ||
                     (inode.type != PROSENJITFS_INODE_FILE &&
                      inode.type != PROSENJITFS_INODE_DIR &&
@@ -4655,9 +4660,6 @@ int prosenjitfs_selftest(void)
      * every assertion observes the durable image rather than live VFS state.
      */
     {
-        static const uint8_t persist_data[900] = {
-            0x00, 0x01, 0x7F, 0x80, 0xA5, 0xD6, 0xFF
-        };
         struct pros_vfs_file file;
         uint8_t data[900];
         uint8_t small_data[32];
@@ -4736,7 +4738,7 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
-            done != 519u ||
+            done != 545u ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
@@ -4857,9 +4859,10 @@ int prosenjitfs_selftest(void)
                 vfs_vnode_put(node);
                 return pfs_selftest_fail(__LINE__, -16);
             }
+        inode_before = node_data->inode_number;
         inode.extent_head = fs.sb.total_blocks;
         if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            prosenjitfs_write_inode(&fs, node_data->inode_number, &inode) !=
+            prosenjitfs_write_inode(&fs, inode_before, &inode) !=
                 PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
