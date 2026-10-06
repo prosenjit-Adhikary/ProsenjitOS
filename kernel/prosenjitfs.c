@@ -340,6 +340,10 @@ static int pfs_superblock_valid(const uint8_t *block,
         sb->inode_size != PROSENJITFS_INODE_SIZE ||
         sb->inode_count < PFS_MIN_INODES ||
         sb->inode_count > PFS_MAX_INODES ||
+        sb->journal_blocks < PFS_MIN_JOURNAL ||
+        sb->journal_blocks > PFS_MAX_JOURNAL ||
+        sb->block_bitmap_blocks == 0u ||
+        sb->inode_bitmap_blocks == 0u ||
         sb->max_name != PROSENJITFS_MAX_NAME ||
         (sb->features & (PROSENJITFS_FEATURE_CRC32C |
                          PROSENJITFS_FEATURE_JOURNAL |
@@ -375,7 +379,11 @@ static int pfs_superblock_valid(const uint8_t *block,
             sb->data_start >= sb->total_blocks)
             return PROSENJITFS_ECORRUPT;
     }
-    if ((uint64_t)sb->inode_table_blocks * sb->block_size <
+    if ((uint64_t)sb->block_bitmap_blocks * sb->block_size * 8u <
+        sb->total_blocks ||
+        (uint64_t)sb->inode_bitmap_blocks * sb->block_size * 8u <
+        sb->inode_count ||
+        (uint64_t)sb->inode_table_blocks * sb->block_size <
         (uint64_t)sb->inode_count * PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_ECORRUPT;
     return PROSENJITFS_OK;
