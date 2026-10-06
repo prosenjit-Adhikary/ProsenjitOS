@@ -2,6 +2,7 @@
 #define PROSENJIT_SECURITY_MONITOR_H
 
 #include <stdint.h>
+#include "process.h"
 
 #define PROS_SECURITY_MONITOR_MAX_PROCESSES 32u
 #define PROS_SECURITY_MONITOR_MAX_SCORE 1000u
@@ -43,6 +44,11 @@ struct pros_security_monitor_state {
 };
 
 int pros_security_monitor_record(
+    const struct pros_security_event *event,
+    struct pros_security_monitor_state *state);
+
+int pros_security_monitor_enforce(
+    struct pros_process *process,
     const struct pros_security_event *event,
     struct pros_security_monitor_state *state);
 
