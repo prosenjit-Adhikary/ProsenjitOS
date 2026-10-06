@@ -159,3 +159,48 @@ Current status remains: **ProsenjitFS self-test FAIL; root cause of the actual m
 ## Build blocker — 2026-10-06 17:34 IST
 
 A fresh clone of GitHub `main` failed the clean build in `kernel/elf_loader.c:56` because `eh->phnum` is `uint16_t`, so the comparison against `UINT64_MAX / sizeof(struct elf64_phdr)` is provably always false under GCC `-Werror=type-limits`. The check was redundant because `ELF_MAX_PHNUM` already bounds `phnum` to 128. The impossible overflow check was removed in commit `a0c6b846` so the clean GitHub tree can build without suppressing the warning.
+
+
+## Verified fix — 2026-10-06 17:35 IST
+
+The ProsenjitFS self-test failure was diagnosed and fixed without changing allocator, transaction commit, or journal-clear logic.
+
+### Exact root cause
+
+The journal-recovery regression test unmounted the filesystem and then immediately reused the same `fs` object for `prosenjitfs_alloc_blocks()` without remounting it. `prosenjitfs_unmount()` frees `fs->tx.images` and `fs->scratch`, while `pfs_tx_reset()` requires those runtime buffers. The allocator therefore returned `PROSENJITFS_EINVAL`. This was a self-test mount-lifecycle error, not a transaction commit or journal-clear implementation error.
+
+### Fix
+
+After the intentional unmount used to verify inode-bitmap persistence, the self-test now remounts the filesystem before starting the journal-recovery regression:
+
+```c
+if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+    return pfs_selftest_fail(__LINE__, -12);
+if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+    return pfs_selftest_fail(__LINE__, -12);
+```
+
+No changes were made to `pfs_tx_commit()`, `pfs_journal_clear()`, or allocator transaction semantics.
+
+### Runtime verification
+
+Clean build completed successfully. QEMU passed the complete ProsenjitFS self-test:
+
+```text
+ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed
+ProsenjitOS: driver model registry/lifecycle self-test passed
+ProsenjitOS: device permission broker self-test passed
+ProsenjitOS: PCI enumeration passed; devices = 0x0000000000000006
+ProsenjitOS: ELF64 userspace image loaded and validated
+ProsenjitOS: switching to CPL3 user address space
+ProsenjitOS: entering CPL3 user-mode syscall test
+ProsenjitOS: CPL3 user-mode and IPC syscall test passed
+```
+
+QEMU was subsequently terminated by the intentional 30-second timeout; this was not a ProsenjitFS failure.
+
+### Status
+
+**ProsenjitFS self-test: PASS**
+
+Root cause is proven, the minimal self-test lifecycle fix is implemented, and clean-build/QEMU runtime verification succeeded.
