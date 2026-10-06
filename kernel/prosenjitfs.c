@@ -2474,7 +2474,7 @@ static int pfs_utf8_name_valid(const char *name, uint32_t *length_out)
     if (!name || !length_out)
         return PROSENJITFS_EINVAL;
     while (1) {
-        if (length >= PROSENJITFS_MAX_NAME)
+        if (length > PROSENJITFS_MAX_NAME)
             return PROSENJITFS_EINVAL;
         if (s[length] == 0u)
             break;
