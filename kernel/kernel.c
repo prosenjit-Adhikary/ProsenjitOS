@@ -390,6 +390,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: persistent crash record self-test passed\n");
+    if (pros_elf_selftest() != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF validation negative self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF validation negative self-test passed\n");
+
     if (block_device_selftest() != PROS_BLOCK_OK) {
         serial_write("ProsenjitOS: ERROR block storage health self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
