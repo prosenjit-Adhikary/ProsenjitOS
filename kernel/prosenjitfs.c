@@ -1183,6 +1183,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
     uint64_t old_size, keep_blocks;
+    uint64_t allocated_blocks = 0u;
     uint64_t current, previous = 0u;
     uint64_t steps = 0u;
 
@@ -1377,9 +1378,15 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             rc = pfs_tx_commit(data->fs);
             if (rc != PROSENJITFS_OK)
                 return pfs_vfs_error(rc);
+            if (keep_in_extent > UINT64_MAX - allocated_blocks)
+                return PROS_VFS_EOVERFLOW;
+            allocated_blocks += keep_in_extent;
             break;
         }
 
+        if (extent.block_count > UINT64_MAX - allocated_blocks)
+            return PROS_VFS_EOVERFLOW;
+        allocated_blocks += extent.block_count;
         previous = current;
         current = next;
     }
@@ -1398,7 +1405,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 return pfs_vfs_error(rc);
         }
         inode.size = size;
-        inode.allocated_bytes = keep_blocks * data->fs->sb.block_size;
+        if (allocated_blocks > UINT64_MAX / data->fs->sb.block_size)
+            return PROS_VFS_EOVERFLOW;
+        inode.allocated_bytes = allocated_blocks * data->fs->sb.block_size;
         pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
         pfs_put32(inode_image + inode_offset +
                   offsetof(struct pros_prosenjitfs_inode, checksum),
