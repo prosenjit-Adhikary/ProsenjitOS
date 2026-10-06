@@ -3867,8 +3867,28 @@ static int pfs_test_flush(struct pros_block_device *device)
     return PROS_BLOCK_OK;
 }
 
+static uint32_t pfs_selftest_diag_stage;
+static int pfs_selftest_diag_rc;
+
+static int pfs_selftest_fail(uint32_t stage, int rc)
+{
+    pfs_selftest_diag_stage = stage;
+    pfs_selftest_diag_rc = rc;
+    return rc;
+}
+
+void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc)
+{
+    if (!stage || !rc)
+        return;
+    *stage = pfs_selftest_diag_stage;
+    *rc = pfs_selftest_diag_rc;
+}
+
 int prosenjitfs_selftest(void)
 {
+    pfs_selftest_diag_stage = 0u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
     struct pros_prosenjitfs fs;
@@ -3878,20 +3898,20 @@ int prosenjitfs_selftest(void)
     uint8_t saved;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
-        return -1;
+        return pfs_selftest_fail(__LINE__, -1);
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
-        return -2;
+        return pfs_selftest_fail(__LINE__, -2);
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
-        return -3;
+        return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -4;
+        return pfs_selftest_fail(__LINE__, -4);
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
         inode.dir_index == 0u ||
         !fs.mount.root)
-        return -5;
+        return pfs_selftest_fail(__LINE__, -5);
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
@@ -3903,7 +3923,7 @@ int prosenjitfs_selftest(void)
             vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
             entry.name[0] != '.' ||
             vfs_dir_close(&dir) != PROS_VFS_OK)
-            return -5;
+            return pfs_selftest_fail(__LINE__, -5);
     }
     {
         struct pros_vfs_file file;
@@ -3916,54 +3936,54 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK)
-            return -6;
+            return pfs_selftest_fail(__LINE__, -6);
         if (vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(write_data))
             {
                 vfs_file_close(&file);
-                return -6;
+                return pfs_selftest_fail(__LINE__, -6);
             }
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -6;
+            return pfs_selftest_fail(__LINE__, -6);
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
-            return -6;
+            return pfs_selftest_fail(__LINE__, -6);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data))
             {
                 vfs_file_close(&file);
-                return -6;
+                return pfs_selftest_fail(__LINE__, -6);
             }
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != write_data[i])
-                return -6;
+                return pfs_selftest_fail(__LINE__, -6);
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -6;
+            return pfs_selftest_fail(__LINE__, -6);
     }
 
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
-        return -6;
+        return pfs_selftest_fail(__LINE__, -6);
     if (first_block < fs.sb.data_start ||
         first_block + 4u > fs.sb.total_blocks)
-        return -6;
+        return pfs_selftest_fail(__LINE__, -6);
     if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
         inode_number == fs.sb.root_inode ||
         inode_number >= fs.sb.inode_count)
-        return -7;
+        return pfs_selftest_fail(__LINE__, -7);
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
-        return -8;
+        return pfs_selftest_fail(__LINE__, -8);
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
-        return -9;
+        return pfs_selftest_fail(__LINE__, -9);
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
-        return -10;
+        return pfs_selftest_fail(__LINE__, -10);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -11;
+        return pfs_selftest_fail(__LINE__, -11);
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     {
         struct pros_vfs_file file;
         uint8_t read_data[700];
@@ -3971,22 +3991,22 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK) {
             prosenjitfs_unmount(&fs);
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         }
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data)) {
             vfs_file_close(&file);
             prosenjitfs_unmount(&fs);
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         }
         if (vfs_file_close(&file) != PROS_VFS_OK) {
             prosenjitfs_unmount(&fs);
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         }
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         {
             uint8_t patch[37];
             uint32_t wrote = 0u;
@@ -3997,24 +4017,24 @@ int prosenjitfs_selftest(void)
                 wrote != sizeof(patch))
                 {
                     vfs_file_close(&file);
-                    return -12;
+                    return pfs_selftest_fail(__LINE__, -12);
                 }
             if (vfs_file_close(&file) != PROS_VFS_OK)
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
         }
 
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data)) {
             vfs_file_close(&file);
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         }
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
 
         for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
             uint8_t expected = i < 37u
@@ -4022,87 +4042,87 @@ int prosenjitfs_selftest(void)
                 : (uint8_t)((i * 13u) ^ 0x5Au);
             if (read_data[i] != expected) {
                 prosenjitfs_unmount(&fs);
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
             }
         }
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
             file.vnode->size != 100u)
             {
                 vfs_file_close(&file);
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
             }
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
 
         if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
             inode.size != 100u ||
             inode.allocated_bytes != fs.sb.block_size ||
             inode.extent_head == 0u)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     {
         struct pros_vfs_file file;
         uint8_t read_data[100];
         uint32_t done = 0u;
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data)) {
             vfs_file_close(&file);
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         }
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
             uint8_t expected = i < 37u
                 ? (uint8_t)(0xA0u + i)
                 : (uint8_t)((i * 13u) ^ 0x5Au);
             if (read_data[i] != expected) {
                 prosenjitfs_unmount(&fs);
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
             }
         }
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_truncate(&file, 0u) != PROS_VFS_OK)
             {
                 vfs_file_close(&file);
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
             }
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     {
         struct pros_vfs_file file;
         uint8_t read_data[1];
         uint32_t done = 99u;
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
                 PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != 0u) {
             vfs_file_close(&file);
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         }
         if (vfs_file_close(&file) != PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
     }
     {
         struct pros_prosenjitfs_inode before;
@@ -4115,7 +4135,7 @@ int prosenjitfs_selftest(void)
             vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
                 PROS_VFS_ENOENT ||
             hidden != 0)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
                 PROS_VFS_OK ||
             !hidden ||
@@ -4135,7 +4155,7 @@ int prosenjitfs_selftest(void)
             after.atime != before.atime ||
             after.mtime != before.mtime ||
             after.ctime != before.ctime)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
@@ -4148,33 +4168,33 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(hidden) != PROS_VFS_OK ||
             vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin") !=
                 PROS_VFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
     }
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     {
         struct pros_vfs_vnode *deleted = 0;
         if (vfs_path_lookup(&fs.mount, "/hello.bin", &deleted) !=
                 PROS_VFS_ENOENT)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         if (deleted)
             vfs_vnode_put(deleted);
     }
     if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
         inode_number != 1u)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
 
     /*
      * Journal recovery regression:
@@ -4193,7 +4213,7 @@ int prosenjitfs_selftest(void)
 
         if (fs.sb.block_size != 512u ||
             prosenjitfs_alloc_blocks(&fs, 1u, &recovery_block) != PROSENJITFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
 
         pfs_zero(header, sizeof(header));
         pfs_zero(image, sizeof(image));
@@ -4227,10 +4247,10 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         for (uint32_t i = 0u; i < sizeof(verify); ++i)
             if (verify[i] != image[i])
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
 
         /* Torn transaction: header/images without a commit must not apply. */
         pfs_zero(header, sizeof(header));
@@ -4251,10 +4271,10 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         for (uint32_t i = 0u; i < sizeof(verify); ++i)
             if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
 
         /* Corrupt commit checksum must fail closed. */
         pfs_zero(header, sizeof(header));
@@ -4283,36 +4303,36 @@ int prosenjitfs_selftest(void)
             pfs_flush(&device) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
 
         pfs_zero(header, sizeof(header));
         for (uint32_t i = 0u; i < journal_blocks; ++i)
             if (pfs_write_block(&device, journal_start + i, header) != PROSENJITFS_OK)
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
         if (pfs_flush(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
         for (uint32_t i = 0u; i < sizeof(verify); ++i)
             if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
-                return -12;
+                return pfs_selftest_fail(__LINE__, -12);
         if (prosenjitfs_free_blocks(&fs, recovery_block, 1u) != PROSENJITFS_OK)
-            return -12;
+            return pfs_selftest_fail(__LINE__, -12);
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -12;
+        return pfs_selftest_fail(__LINE__, -12);
 
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
-        return -9;
+        return pfs_selftest_fail(__LINE__, -9);
     disk.data[0] = saved;
     disk.data[512u] ^= 0x01u;
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-        return -10;
+        return pfs_selftest_fail(__LINE__, -10);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
-        return -11;
+        return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
 }
