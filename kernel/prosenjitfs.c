@@ -829,6 +829,37 @@ static int pfs_find_free_data_block_except(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
+static int pfs_find_free_data_block_preferred(const struct pros_prosenjitfs *fs,
+                                                  uint64_t preferred,
+                                                  uint64_t avoid,
+                                                  uint64_t *block_number)
+{
+    uint64_t bits_per_block;
+    uint64_t bitmap_lba;
+    uint8_t bitmap[4096];
+
+    if (!fs || !block_number || fs->sb.block_size > sizeof(bitmap))
+        return PROSENJITFS_EINVAL;
+
+    if (preferred >= fs->sb.data_start &&
+        preferred < fs->sb.total_blocks &&
+        preferred != avoid) {
+        bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+        if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                        preferred / bits_per_block, &bitmap_lba) !=
+            PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (pfs_read_block(fs->mount.device, bitmap_lba, bitmap) !=
+            PROSENJITFS_OK)
+            return PROSENJITFS_EIO;
+        if (!pfs_bitmap_bit(bitmap, preferred % bits_per_block)) {
+            *block_number = preferred;
+            return PROSENJITFS_OK;
+        }
+    }
+    return pfs_find_free_data_block_except(fs, avoid, block_number);
+}
+
 static int pfs_inode_block_location(const struct pros_prosenjitfs *fs,
                                     uint64_t inode_number,
                                     uint64_t *block_lba,
@@ -1011,42 +1042,63 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         rc = pfs_find_extent(data->fs, &inode, logical_block, &extent,
                              &extent_lba, &tail_lba);
         if (rc == PROSENJITFS_ENOENT) {
-            rc = pfs_find_free_data_block_except(data->fs, 0u, &physical);
+            struct pros_prosenjitfs_extent tail;
+            uint8_t coalesced = 0u;
+            uint64_t preferred = 0u;
+
+            pfs_zero(&tail, sizeof(tail));
+            if (tail_lba != 0u) {
+                rc = pfs_read_extent(data->fs, tail_lba, &tail);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+                if (tail.logical_block <= UINT64_MAX - tail.block_count &&
+                    tail.physical_block <= UINT64_MAX - tail.block_count &&
+                    logical_block == tail.logical_block + tail.block_count)
+                    preferred = tail.physical_block + tail.block_count;
+            }
+
+            rc = pfs_find_free_data_block_preferred(data->fs, preferred, 0u,
+                                                     &physical);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            rc = pfs_find_free_data_block_except(data->fs, physical,
-                                                 &new_extent_lba);
-            if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+
+            if (tail_lba != 0u &&
+                logical_block == tail.logical_block + tail.block_count &&
+                physical == tail.physical_block + tail.block_count) {
+                coalesced = 1u;
+            } else {
+                rc = pfs_find_free_data_block_preferred(data->fs, 0u,
+                                                         physical,
+                                                         &new_extent_lba);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+            }
+
             pfs_zero(data_image, data->fs->sb.block_size);
             pfs_zero(extent_image, data->fs->sb.block_size);
             pfs_zero(tail_image, data->fs->sb.block_size);
             pfs_zero(inode_image, data->fs->sb.block_size);
 
-            if (in_block != 0u) {
-                /*
-                 * A new block is initially a hole. Preserve the zero-filled
-                 * prefix and only replace the bytes being written.
-                 */
-            }
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
 
-            struct pros_prosenjitfs_extent new_extent;
-            pfs_zero(&new_extent, sizeof(new_extent));
-            new_extent.magic = PROSENJITFS_EXTENT_MAGIC;
-            new_extent.logical_block = logical_block;
-            new_extent.physical_block = physical;
-            new_extent.block_count = 1u;
-            new_extent.next = 0u;
-            pfs_copy(extent_image, &new_extent, sizeof(new_extent));
-            pfs_put32(extent_image +
-                      offsetof(struct pros_prosenjitfs_extent, checksum),
-                      pfs_crc_with_zero32(extent_image, sizeof(new_extent),
-                                          (uint32_t)offsetof(
-                                              struct pros_prosenjitfs_extent,
-                                              checksum)));
+            if (!coalesced) {
+                struct pros_prosenjitfs_extent new_extent;
+                pfs_zero(&new_extent, sizeof(new_extent));
+                new_extent.magic = PROSENJITFS_EXTENT_MAGIC;
+                new_extent.logical_block = logical_block;
+                new_extent.physical_block = physical;
+                new_extent.block_count = 1u;
+                new_extent.next = 0u;
+                pfs_copy(extent_image, &new_extent, sizeof(new_extent));
+                pfs_put32(extent_image +
+                          offsetof(struct pros_prosenjitfs_extent, checksum),
+                          pfs_crc_with_zero32(extent_image, sizeof(new_extent),
+                                              (uint32_t)offsetof(
+                                                  struct pros_prosenjitfs_extent,
+                                                  checksum)));
+            }
 
             rc = pfs_inode_block_location(data->fs, data->inode_number,
                                           &inode_lba, &inode_offset);
@@ -1057,12 +1109,13 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 return pfs_file_write_error(done, rc);
 
             if (tail_lba != 0u) {
-                rc = pfs_read_block(data->fs->mount.device, tail_lba, tail_image);
-                if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, rc);
-                struct pros_prosenjitfs_extent tail;
-                pfs_copy(&tail, tail_image, sizeof(tail));
-                tail.next = new_extent_lba;
+                if (!coalesced) {
+                    tail.next = new_extent_lba;
+                } else {
+                    if (tail.block_count == UINT64_MAX)
+                        return pfs_file_write_error(done, PROSENJITFS_EOVERFLOW);
+                    tail.block_count++;
+                }
                 pfs_copy(tail_image, &tail, sizeof(tail));
                 pfs_put32(tail_image +
                           offsetof(struct pros_prosenjitfs_extent, checksum),
@@ -1096,15 +1149,19 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             rc = pfs_allocator_stage(data->fs, physical, 1u, 1u);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            rc = pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u);
-            if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+            if (!coalesced) {
+                rc = pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+            }
             rc = pfs_tx_add(data->fs, physical, data_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            rc = pfs_tx_add(data->fs, new_extent_lba, extent_image);
-            if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+            if (!coalesced) {
+                rc = pfs_tx_add(data->fs, new_extent_lba, extent_image);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+            }
             if (tail_lba != 0u) {
                 rc = pfs_tx_add(data->fs, tail_lba, tail_image);
                 if (rc != PROSENJITFS_OK)
