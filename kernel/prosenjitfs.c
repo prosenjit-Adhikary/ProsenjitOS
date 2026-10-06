@@ -4374,6 +4374,34 @@ int prosenjitfs_selftest(void)
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
+    /* Persistence checks for append and sparse files after remount. */
+    {
+        struct pros_vfs_file file;
+        uint8_t append_data[6];
+        uint8_t sparse_data[513];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, append_data, sizeof(append_data), &done) != PROS_VFS_OK ||
+            done != sizeof(append_data) || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+        if (append_data[0] != 'a' || append_data[1] != 'b' || append_data[2] != 'c' ||
+            append_data[3] != 'D' || append_data[4] != 'E' || append_data[5] != 'F')
+            return pfs_selftest_fail(__LINE__, -15);
+        if (vfs_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 3584u) != PROS_VFS_OK ||
+            vfs_file_read(&file, sparse_data, sizeof(sparse_data), &done) != PROS_VFS_OK ||
+            done != sizeof(sparse_data)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -15);
+        }
+        for (uint32_t i = 0u; i < 512u; ++i)
+            if (sparse_data[i] != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+        if (sparse_data[512] != 0xD6u || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+    }
     {
         struct pros_vfs_file file;
         uint8_t read_data[700];
