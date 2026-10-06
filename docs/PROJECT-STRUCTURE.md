@@ -84,7 +84,6 @@ kernel/
 ├── VFS
 ├── ProsenjitFS
 ├── future external filesystem providers
-├── ProsenjitFS
 ├── storage discovery
 ├── security admission/quarantine
 └── logging/monitoring/crash diagnostics
