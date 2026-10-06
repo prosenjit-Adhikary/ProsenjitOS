@@ -4398,6 +4398,12 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -6);
+        if (vfs_file_read(&file, 0, 0u, &done) != PROS_VFS_OK ||
+            done != 0u)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -6);
+            }
         if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data))
