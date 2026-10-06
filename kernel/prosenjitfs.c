@@ -1207,22 +1207,41 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
 
     /*
-     * Growing a file is deliberately implemented as zero-filled writes.
-     * This preserves the existing extent allocator and guarantees that
-     * bytes in the newly visible range read back as zero after remount.
+     * Sparse growth: extending EOF does not allocate physical blocks.
+     * Missing logical extents are defined as zero-filled holes by the read
+     * path, while a later write allocates only the touched logical blocks.
+     * This gives truncate(large_size) the expected sparse-file semantics and
+     * keeps allocated_bytes equal to the blocks that actually exist.
      */
     if (size > old_size) {
-        static const uint8_t zeros[512] = { 0 };
-        uint64_t left = size - old_size;
-        uint64_t position = old_size;
-        while (left != 0u) {
-            uint32_t chunk = left > sizeof(zeros) ? sizeof(zeros) : (uint32_t)left;
-            int rc = pfs_file_write(file, (uint32_t)position, chunk, zeros);
-            if (rc != (int)chunk)
-                return rc < 0 ? rc : PROS_VFS_EIO;
-            position += chunk;
-            left -= chunk;
-        }
+        uint8_t inode_image[4096];
+        uint64_t inode_lba;
+        uint32_t inode_offset;
+        int rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                          &inode_lba, &inode_offset);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_image);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        inode.size = size;
+        inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
+        pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
+        pfs_put32(inode_image + inode_offset +
+                  offsetof(struct pros_prosenjitfs_inode, checksum),
+                  pfs_crc_with_zero32(inode_image + inode_offset,
+                                      sizeof(inode),
+                                      (uint32_t)offsetof(
+                                          struct pros_prosenjitfs_inode,
+                                          checksum)));
+        rc = pfs_tx_reset(data->fs);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_add(data->fs, inode_lba, inode_image);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_commit(data->fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        file->vnode->size = size;
         return PROS_VFS_OK;
     }
 
@@ -3848,9 +3867,42 @@ int prosenjitfs_selftest(void)
 
         if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
             inode.size != 100u ||
-            inode.allocated_bytes != fs.sb.block_size ||
-            inode.extent_head == 0u)
+            inode.allocated_bytes != 0u ||
+            inode.extent_head != 0u ||
+            (inode.flags & PROSENJITFS_INODE_FLAG_SPARSE) == 0u)
             return -(120000 + __LINE__);
+
+        /* Sparse-hole regression: a grown file consumes no data blocks and
+         * reads as zeros until a logical block is actually written. */
+        {
+            struct pros_vfs_file hole_file;
+            uint8_t hole_data[100];
+            uint8_t marker = 0xA7u;
+            uint32_t done = 0u;
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
+                              &hole_file) != PROS_VFS_OK ||
+                vfs_file_read(&hole_file, hole_data, sizeof(hole_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(hole_data) ||
+                vfs_file_close(&hole_file) != PROS_VFS_OK)
+                return -(120000 + __LINE__);
+            for (uint32_t i = 0u; i < sizeof(hole_data); ++i)
+                if (hole_data[i] != 0u)
+                    return -(120000 + __LINE__);
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
+                              &hole_file) != PROS_VFS_OK ||
+                vfs_file_write(&hole_file, &marker, 1u, &done) != PROS_VFS_OK)
+                return -(120000 + __LINE__);
+            /* The 1-byte write above starts at the VFS file offset supplied by
+             * the caller; this test only verifies normal hole materialization
+             * at the beginning of the sparse file. */
+            if (done != 1u || vfs_file_close(&hole_file) != PROS_VFS_OK)
+                return -(120000 + __LINE__);
+            if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+                inode.allocated_bytes != fs.sb.block_size ||
+                inode.extent_head == 0u)
+                return -(120000 + __LINE__);
+        }
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return -(120000 + __LINE__);
