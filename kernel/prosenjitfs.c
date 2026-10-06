@@ -5543,6 +5543,55 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* Repeated persistence/reuse regression: 100 complete create/write/
+     * unmount/remount/read/unlink/unmount/remount cycles on one image. */
+    {
+        static const uint32_t cycle_count = 100u;
+        static const uint8_t cycle_data[32] = {
+            0x00u, 0x01u, 0x7Fu, 0x80u, 0xA5u, 0xD6u, 0xFEu, 0xFFu,
+            0x11u, 0x22u, 0x33u, 0x44u, 0x55u, 0x66u, 0x77u, 0x88u,
+            0x99u, 0xAAu, 0xBBu, 0xCCu, 0xDDu, 0xEEu, 0xF0u, 0x0Fu,
+            0x5Au, 0xC3u, 0x3Cu, 0x96u, 0x69u, 0x12u, 0x24u, 0x48u
+        };
+        uint8_t cycle_read[sizeof(cycle_data)];
+        uint32_t done;
+
+        pfs_zero(&disk, sizeof(disk));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        for (uint32_t cycle = 0u; cycle < cycle_count; ++cycle) {
+            struct pros_vfs_file file;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/cycle.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, cycle_data, sizeof(cycle_data), &done) != PROS_VFS_OK ||
+                done != sizeof(cycle_data) || vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -16);
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/cycle.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, cycle_read, sizeof(cycle_read), &done) != PROS_VFS_OK ||
+                done != sizeof(cycle_read) || vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -16);
+            for (uint32_t j = 0u; j < sizeof(cycle_data); ++j)
+                if (cycle_read[j] != cycle_data[j])
+                    return pfs_selftest_fail(__LINE__, -16);
+
+            if (vfs_unlink(&fs.mount, "/cycle.bin") != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -16);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+    }
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
