@@ -43,6 +43,23 @@ Version 1 filename policy: VFS input/output is UTF-8; names are case-sensitive; 
 Allocation metadata is persistent bitmaps. The allocator uses bounded first-fit scanning and prefers contiguous runs. Inode allocation uses a separate bitmap.
 Mount validates bitmap bounds and every inode/extent reference is range checked before use. No persistent allocation state depends only on RAM.
 
+## Allocation optimization
+
+The native write path uses safe immediate allocation rather than a volatile delayed-write
+cache: newly materialized blocks are reserved and published in the same redo-journal
+transaction, so a crash cannot leave an untracked in-memory allocation.
+
+For the allocation-optimization path, the allocator first prefers a physically adjacent
+free data block when the logical write continues the current tail extent. When both logical
+and physical adjacency are available, ProsenjitFS grows the existing extent instead of
+creating another extent metadata block. The allocation bitmap, data block, extent metadata,
+and inode metadata remain transactionally committed together.
+
+This reduces extent fragmentation, metadata writes, bitmap scans, and journal pressure
+without introducing an unrecoverable delayed-allocation window. A self-test covers two
+consecutive full-block writes and verifies that they form one two-block extent with
+correct allocated_bytes accounting.
+
 ## Journal and crash consistency
 Version 1 uses a redo journal. A transaction stores complete target-block images followed by a CRC-protected commit record.
 Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction. Mount recovery now explicitly tests committed replay, torn transactions, and corrupt commit checksums.
