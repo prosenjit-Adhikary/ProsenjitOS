@@ -53,8 +53,6 @@ static int phdr_table_ok(const struct elf64_ehdr *eh, uint64_t size)
     if (eh->phnum == 0 || eh->phnum > ELF_MAX_PHNUM ||
         eh->phentsize != sizeof(struct elf64_phdr))
         return 0;
-    if ((uint64_t)eh->phnum > UINT64_MAX / sizeof(struct elf64_phdr))
-        return 0;
     bytes = (uint64_t)eh->phnum * sizeof(struct elf64_phdr);
     return eh->phoff <= size && bytes <= size - eh->phoff;
 }
