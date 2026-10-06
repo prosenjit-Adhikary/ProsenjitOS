@@ -7,6 +7,7 @@
 #include "log.h"
 #include "address_space.h"
 #include "elf_loader.h"
+#include "service_manager.h"
 #include "usercopy.h"
 #include "object.h"
 #include "process.h"
@@ -683,6 +684,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (service_manager_selftest() != PROS_SERVICE_OK) {
+        serial_write("ProsenjitOS: ERROR service manager self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: service manager dependency/lifecycle self-test passed\\n");
+
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
                         0x44525648u, PROS_HEALTH_RECOVERY_DRIVER_READY, timer_ticks());
