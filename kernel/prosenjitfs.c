@@ -3344,6 +3344,10 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
         if (h.targets[i] >= fs->sb.journal_start &&
             h.targets[i] < journal_end)
             return PROSENJITFS_ECORRUPT;
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (h.targets[j] == h.targets[i])
+                return PROSENJITFS_ECORRUPT;
+        }
         {
             int rc = pfs_read_at_offset(fs->mount.device, fs->sb.journal_start,
                                         1u + i,
