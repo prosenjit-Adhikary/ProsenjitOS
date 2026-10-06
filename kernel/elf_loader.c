@@ -83,7 +83,10 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
         if (ph->filesz > ph->memsz ||
             ph->offset > size || ph->filesz > size - ph->offset)
             return PROS_ELF_EBOUNDS;
-        if (ph->vaddr > ELF_USER_MAX ||
+        if (ph->memsz == 0)
+            return PROS_ELF_EFORMAT;
+        if (ph->vaddr < ELF_PAGE ||
+            ph->vaddr > ELF_USER_MAX ||
             !range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
             ph->vaddr + ph->memsz == 0)
             return PROS_ELF_EBOUNDS;
@@ -96,6 +99,22 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
             ((ph->vaddr & (ph->align - 1)) !=
              (ph->offset & (ph->align - 1))))
             return PROS_ELF_EFORMAT;
+
+        /* Loadable virtual ranges must not overlap. Overlap would make
+         * page permissions ambiguous and could cause one segment to overwrite
+         * another during loading. */
+        for (uint16_t j = 0; j < i; ++j) {
+            const struct elf64_phdr *prev =
+                (const struct elf64_phdr *)(image + eh->phoff +
+                                            (uint64_t)j * sizeof(*prev));
+            uint64_t prev_end;
+            if (prev->type != PT_LOAD)
+                continue;
+            if (!range_ok(prev->vaddr, prev->memsz, ELF_USER_MAX, &prev_end))
+                return PROS_ELF_EBOUNDS;
+            if (ph->vaddr < prev_end && prev->vaddr < seg_end)
+                return PROS_ELF_ECONFLICT;
+        }
 
         page_start = ph->vaddr & ~(ELF_PAGE - 1);
         if (seg_end > UINT64_MAX - (ELF_PAGE - 1))
@@ -165,6 +184,56 @@ static void rollback_user_pages(struct pros_process *process,
                                           &physical) == 0)
             physical_page_free(physical);
     }
+}
+
+int pros_elf_selftest(void)
+{
+    uint8_t image[sizeof(struct elf64_ehdr) + 2u * sizeof(struct elf64_phdr) + 16u] = {0};
+    struct elf64_ehdr *eh = (struct elf64_ehdr *)image;
+    struct elf64_phdr *ph = (struct elf64_phdr *)(image + sizeof(*eh));
+    const uint64_t data_off = sizeof(*eh) + 2u * sizeof(*ph);
+
+    eh->ident[0] = 0x7F; eh->ident[1] = 'E'; eh->ident[2] = 'L'; eh->ident[3] = 'F';
+    eh->ident[4] = ELFCLASS64; eh->ident[5] = ELFDATA2LSB; eh->ident[6] = EV_CURRENT;
+    eh->ident[7] = ELFOSABI_SYSV;
+    eh->type = ET_EXEC; eh->machine = EM_X86_64; eh->version = EV_CURRENT;
+    eh->entry = 0x400000; eh->phoff = sizeof(*eh); eh->ehsize = sizeof(*eh);
+    eh->phentsize = sizeof(*ph); eh->phnum = 1;
+    ph[0].type = PT_LOAD; ph[0].flags = PF_R | PF_X; ph[0].offset = data_off;
+    ph[0].vaddr = 0x400000; ph[0].filesz = 4; ph[0].memsz = 0x1000;
+    ph[0].align = ELF_PAGE;
+
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -1;
+    if (pros_elf_validate(image, sizeof(*eh) - 1) != PROS_ELF_EBOUNDS) return -2;
+
+    image[0] = 0;
+    if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -3;
+    image[0] = 0x7F;
+
+    ph[0].flags = PF_R | PF_W | PF_X;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EPERM) return -4;
+    ph[0].flags = PF_R | PF_X;
+
+    ph[0].vaddr = 0;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -5;
+    ph[0].vaddr = 0x400000;
+
+    ph[0].entry = 0;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) { /* entry is in header */ }
+    eh->entry = 0x500000;
+    if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -6;
+    eh->entry = 0x400000;
+
+    eh->phnum = 2;
+    ph[1] = ph[0];
+    ph[1].vaddr = 0x400800;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -7;
+
+    eh->phnum = 1;
+    ph[0].memsz = 0;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -8;
+
+    return PROS_ELF_OK;
 }
 
 int pros_elf_load(struct pros_process *process, const uint8_t *image,
