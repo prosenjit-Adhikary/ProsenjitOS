@@ -619,3 +619,465 @@ This document defines the target security policy for the autonomous AI security 
 The existing deterministic security monitor provides the kernel-side enforcement foundation. Full production implementation still requires complete telemetry producers, robust behavioral correlation, AI userspace integration, quarantine/isolation enforcement, evidence management, recovery integration, and end-to-end adversarial testing.
 
 No feature should be described as production-complete until it has passed local build, boot, security, regression, containment, recovery, and failure-mode verification.
+
+
+## Long-Term Engineering Specification
+
+This section is intentionally detailed so future kernel/security agents can use this document as an implementation contract instead of relying on historical chat context.
+
+### Security Objectives
+
+The long-term objective is a layered, autonomous endpoint-defense architecture for ProsenjitOS. It must:
+
+- detect suspicious behavior before damage when technically possible
+- detect attacks that are not represented by known hashes/signatures
+- correlate events across processes, files, persistence, privileges, memory interactions, and networking
+- contain sufficiently high-confidence attacks without requiring a human decision
+- preserve evidence before destructive actions whenever safe
+- prevent the security subsystem itself from being disabled or bypassed
+- remain functional when AI analysis is unavailable
+- keep containment actions narrow, auditable, idempotent, and kernel-enforced
+- integrate with filesystem recovery without allowing the security layer to blindly restore data
+- remain bounded in CPU, memory, queue depth, and storage consumption
+
+This is a design target, not a claim that every capability is already implemented.
+
+### Detection Layers
+
+Future implementations should keep detection layers independent so that one failed or unavailable component does not disable protection.
+
+#### Layer A — Identity and Provenance
+
+Record, where available:
+
+- executable identity
+- immutable file/object identity
+- cryptographic digest
+- signer/provenance information when the platform supports it
+- parent process
+- loader/source information
+- user/security principal
+- capabilities
+- launch context
+
+Identity is evidence, not permanent trust.
+
+#### Layer B — Pre-Execution Admission
+
+Before execution of a high-risk or unknown object, the admission path should be able to evaluate:
+
+- policy
+- object identity/reputation
+- source/provenance
+- requested privileges
+- target user/context
+- protected-resource access requirements
+- known malicious indicators
+
+The admission layer must fail safely and must never become a bypass around runtime monitoring.
+
+#### Layer C — Runtime Behavior
+
+Runtime telemetry should cover, as supported by the kernel:
+
+- process creation/exit
+- parent-child relationships
+- executable/image changes
+- privilege/capability changes
+- cross-process operations
+- memory-sensitive operations
+- file creation/write/rename/unlink
+- permission/security changes
+- persistence changes
+- network connection attempts
+- security-policy changes
+- security-monitor tampering
+
+Each producer must use bounded, non-blocking or carefully bounded paths appropriate for kernel context.
+
+#### Layer D — Sequence and Causality
+
+Do not treat every event as an independent score.
+
+Maintain a bounded causal history so the engine can recognize sequences such as:
+
+1. unknown process starts
+2. interpreter/script child appears
+3. privilege changes
+4. persistence is created
+5. suspicious network activity begins
+6. protected files are modified
+7. many files are renamed/encrypted/deleted
+
+The combined incident should carry more confidence than the sum of isolated unrelated events.
+
+#### Layer E — Resource Sensitivity
+
+The same action should have different risk depending on the target.
+
+Examples:
+
+- ordinary user cache → lower sensitivity
+- user document → medium sensitivity
+- boot configuration/security policy → high sensitivity
+- security monitor state → critical sensitivity
+- filesystem metadata/journal structures → critical integrity sensitivity
+
+Resource sensitivity must be explicit rather than hidden inside ad-hoc scoring.
+
+### Risk and Confidence Model
+
+Future policy should separate risk, confidence, and impact.
+
+Conceptually: risk = likelihood × confidence × impact.
+
+The exact production formula must be validated experimentally; it must not be copied blindly from this document.
+
+Confidence should increase when:
+
+- independent telemetry sources agree
+- suspicious events occur in a coherent process chain
+- events occur within a relevant time window
+- protected resources are targeted
+- behavior matches a known attack pattern
+- multiple stages of an attack are observed
+
+Confidence should decrease when:
+
+- the behavior is consistent with established trusted workflows
+- the event is isolated and low impact
+- the process has legitimate provenance and expected ancestry
+- the activity falls within a documented administrative operation
+
+A single weak indicator should normally not cause irreversible containment.
+
+### Severity Classes
+
+Define stable semantic classes rather than scattering numeric constants through the kernel:
+
+- INFO — informational/low risk
+- LOW — suspicious but low impact
+- MEDIUM — multiple suspicious signals
+- HIGH — strong malicious evidence or protected-resource targeting
+- CRITICAL — active destructive attack, security tampering, or equivalent immediate danger
+
+Numeric weights may change during tuning; semantic meaning must remain stable.
+
+### Action Classes
+
+Every security action should be represented by a constrained action type:
+
+- ALLOW
+- MONITOR
+- RESTRICT
+- QUARANTINE
+- BLOCK
+- ISOLATE_NETWORK
+- REVOKE_CAPABILITY
+- PROTECT_RESOURCE
+- REQUEST_RECOVERY
+
+Actions must be authenticated/authorized by the security boundary, validated against target state, idempotent where possible, recorded in evidence, safe when repeated, and denied when mandatory policy forbids them.
+
+### Protected Targets
+
+The policy engine should maintain explicit protected-target classes.
+
+At minimum:
+
+- kernel/security-monitor code and state
+- security policy state
+- boot-critical metadata
+- filesystem journal/recovery metadata
+- identity/credential stores when present
+- critical system services
+
+A protected target must not be terminated, modified, or isolated using the same generic path as an ordinary user process without an explicit policy decision.
+
+### Safe Containment Ordering
+
+Where technically supported, prefer a reversible sequence:
+
+observe → restrict → preserve evidence → isolate → quarantine → terminate
+
+This is not a hard rule for critical attacks. If delay creates unacceptable damage, immediate blocking/termination is permitted.
+
+Containment must not itself corrupt filesystem state, deadlock kernel subsystems, or create an attacker-controlled recovery path.
+
+### Network Isolation
+
+Network containment should eventually support policy at the narrowest useful scope:
+
+- process
+- connection
+- endpoint
+- interface
+- whole system
+
+Do not default to whole-system isolation when a narrower containment is sufficient.
+
+Network isolation must preserve the minimum connectivity required for security telemetry/recovery only when explicitly allowed by policy.
+
+### Ransomware / Mass-Modification Detection
+
+Future ransomware protection should combine:
+
+- write/rename/delete rate
+- number of distinct files
+- directory breadth
+- extension/type changes where available
+- entropy/content-change signals where technically feasible
+- process ancestry
+- user/session context
+- protected-resource sensitivity
+- time-window acceleration
+- recovery/journal state
+
+The detector should distinguish legitimate bulk operations such as backups, compilers, archive extraction, indexing, and filesystem maintenance from destructive encryption/deletion patterns.
+
+Do not make a single file-write event equivalent to ransomware.
+
+### Process Injection / Cross-Process Abuse
+
+Future injection detection should correlate:
+
+- source process identity
+- target process identity
+- privilege relationship
+- unusual memory access
+- executable-memory transitions where observable
+- thread/process manipulation
+- ancestry mismatch
+- protected-target status
+
+Security-sensitive cross-process operations should produce explicit telemetry even if the operation is ultimately allowed.
+
+### Persistence Detection
+
+Persistence monitoring should cover every supported persistence mechanism rather than assuming one platform-specific location.
+
+Each persistence event should record:
+
+- actor process
+- target mechanism
+- target object
+- previous state
+- new state
+- privilege context
+- whether the target is protected
+- whether the change was expected/authorized
+
+### Evidence and Incident Records
+
+Incident records should be bounded and structured.
+
+Recommended fields:
+
+- incident ID
+- monotonic sequence number
+- timestamp
+- PID/PPID
+- process/object identity
+- user/security principal
+- severity
+- confidence
+- impact
+- event type
+- source subsystem
+- target resource
+- causal parent/related event
+- policy decision
+- action requested
+- action actually enforced
+- recovery request/result
+- integrity/verification result
+
+Evidence should survive enough of a containment operation to explain why the action occurred, but evidence storage must have strict resource limits.
+
+### Queue, Rate-Limit, and Backpressure Rules
+
+Security telemetry must never be allowed to consume unbounded kernel memory.
+
+Future implementation should define:
+
+- maximum queue depth
+- maximum event size
+- per-process rate limits
+- global rate limits
+- duplicate suppression
+- aggregation windows
+- overflow counters
+- dropped-event accounting
+- priority classes
+
+Critical security events must have priority over routine telemetry.
+
+If telemetry is dropped, the system should record that loss occurred. It must never silently report a complete security picture when data was actually lost.
+
+### AI Interface Contract
+
+AI should receive structured, minimized security context rather than arbitrary kernel memory.
+
+Input should contain only the telemetry required for analysis.
+
+AI output should be a typed security decision containing, conceptually:
+
+- decision
+- confidence
+- reason code
+- evidence references
+- requested action
+- optional expiry/duration
+- policy compatibility result
+
+The kernel/security policy layer must validate every field.
+
+AI output must never be interpreted as executable kernel instructions.
+
+If AI is unavailable, times out, returns malformed data, or conflicts with mandatory policy:
+
+deterministic policy wins.
+
+### AI Safety Rules
+
+AI must never be able to:
+
+- write arbitrary kernel memory
+- execute arbitrary kernel code
+- disable mandatory security
+- remove its own audit trail
+- grant itself capabilities
+- modify immutable/protected security state
+- bypass authentication/authorization
+- directly manipulate filesystem recovery state
+
+AI may only request explicitly supported security actions.
+
+### False-Positive Control
+
+False positives must be treated as an engineering metric.
+
+Future tests should measure:
+
+- benign workload interruption rate
+- false quarantine rate
+- false block rate
+- detection latency
+- containment latency
+- recovery success
+- telemetry loss
+- CPU/memory overhead
+
+Before enabling aggressive automatic actions broadly, the detector should be exercised against representative benign workloads.
+
+Administrative operations, development builds, backups, indexing, package management, filesystem checks, and normal user bulk file operations should be represented in regression tests.
+
+### Self-Protection / Tamper Response
+
+The security subsystem should detect attempts to:
+
+- stop/disable security monitoring
+- alter mandatory policy
+- overwrite security state
+- bypass enforcement APIs
+- spoof security telemetry
+- flood event queues to cause denial of service
+- manipulate timestamps or identity fields used for policy decisions
+
+Tamper events should be high priority and should never be suppressible by the untrusted process that generated them.
+
+### Recovery Integration Contract
+
+Security recovery must be two-phase:
+
+1. Request — security identifies affected resources and requests recovery.
+2. Validate/Execute — the filesystem/recovery subsystem independently validates journal/COW/snapshot state, transaction integrity, ownership, and consistency before restoration.
+
+After recovery:
+
+restore → remount/reopen if required → verify metadata → verify data → verify journal state → record result
+
+A successful recovery request is not equivalent to a successful recovery.
+
+### Testing Matrix
+
+Future security work must include at least:
+
+| Test family | Required scenarios |
+|---|---|
+| Identity | known, unknown, changed executable identity |
+| Process | normal tree, suspicious child, orphan/abnormal ancestry |
+| Privilege | normal transition, unauthorized escalation |
+| Injection | benign cross-process access, synthetic malicious injection |
+| Filesystem | normal bulk write, rename burst, delete burst, protected-resource modification |
+| Ransomware | simulated mass modification with temporal escalation |
+| Persistence | authorized and unauthorized persistence |
+| Network | normal connection, suspicious burst, process/network correlation |
+| Tamper | disable attempt, policy modification, telemetry spoof/flood |
+| AI | unavailable, timeout, malformed result, conflicting result |
+| Containment | allow, restrict, quarantine, block, network isolation |
+| Recovery | interrupted recovery, corrupted journal, successful recovery, failed verification |
+| Resource exhaustion | queue saturation, event storm, memory pressure |
+| Regression | normal OS boot, filesystem operations, ordinary userspace workloads |
+
+Every new detector should add both positive and negative tests.
+
+### Failure-Safety Requirements
+
+Security code must not:
+
+- panic the kernel because telemetry is malformed
+- dereference untrusted event pointers without validation
+- allocate unbounded memory
+- deadlock while holding unrelated filesystem/process locks
+- block indefinitely in a security callback
+- terminate a protected critical process without an explicit safe policy path
+- assume an AI response is valid
+- assume filesystem recovery succeeded
+- assume an event stream is complete after overflow
+
+Security failures should fail closed for security decisions where safe, but should fail safely for kernel stability. The exact behavior must be specified per subsystem.
+
+### Implementation Gates
+
+A security feature should not be marked complete merely because it compiles.
+
+Completion requires, as applicable:
+
+1. source implementation
+2. compile with warnings treated appropriately
+3. unit/self-test coverage
+4. integration test
+5. negative/false-positive test
+6. failure-path test
+7. persistence/reboot test where state is persistent
+8. QEMU/local runtime verification
+9. evidence/log verification
+10. documentation update
+
+GitHub-hosted Actions must not be a required completion gate. The authoritative verification environment remains the local/self-hosted Debian/QEMU workflow.
+
+### Versioning and Future-Agent Handoff
+
+When this architecture changes, future agents should:
+
+- inspect the current implementation before changing interfaces
+- preserve existing ABI/API contracts unless migration is intentional
+- update this document when a security invariant changes
+- document every new enforcement primitive
+- add regression tests for every security bug found
+- never revive obsolete diagnostic assumptions from older kernel states
+- distinguish implemented, partially implemented, planned, and experimentally validated features
+- never claim commercial feature parity without local evidence
+
+The source tree and tests are the implementation authority; this document is the architectural contract and handoff record.
+
+### Current Implementation Boundary
+
+The deterministic security monitor currently represents the foundation of the kernel-side enforcement path. It must be treated as Layer 1 protection, not as the completed commercial-style security system.
+
+Future work should build upward in controlled stages:
+
+telemetry → normalization → causality → behavioral detection → risk/confidence → policy → containment → evidence → AI analysis → recovery → verification
+
+No stage should silently bypass the previous security boundary.
