@@ -3915,19 +3915,27 @@ int prosenjitfs_selftest(void)
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
+                PROS_VFS_OK)
+            return -6;
+        if (vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(write_data) ||
             vfs_file_close(&file) != PROS_VFS_OK)
-            return -6;
+            {
+                vfs_file_close(&file);
+                return -6;
+            }
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return -6;
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
             done != sizeof(read_data))
-            return -6;
+            {
+                vfs_file_close(&file);
+                return -6;
+            }
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != write_data[i])
                 return -6;
@@ -3978,8 +3986,12 @@ int prosenjitfs_selftest(void)
                 patch[i] = (uint8_t)(0xA0u + i);
             if (vfs_file_write(&file, patch, sizeof(patch), &wrote) !=
                     PROS_VFS_OK ||
-                wrote != sizeof(patch) ||
-                vfs_file_close(&file) != PROS_VFS_OK)
+                wrote != sizeof(patch))
+                {
+                    vfs_file_close(&file);
+                    return -12;
+                }
+            if (vfs_file_close(&file) != PROS_VFS_OK)
                 return -12;
         }
 
@@ -4003,10 +4015,15 @@ int prosenjitfs_selftest(void)
         }
 
         if (vfs_file_open(&fs.mount, "/hello.bin",
-                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
-            vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
-            file.vnode->size != 100u ||
-            vfs_file_close(&file) != PROS_VFS_OK)
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return -12;
+        if (vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
+            file.vnode->size != 100u)
+            {
+                vfs_file_close(&file);
+                return -12;
+            }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
             return -12;
 
         if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
@@ -4041,9 +4058,14 @@ int prosenjitfs_selftest(void)
             }
         }
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_truncate(&file, 0u) != PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK)
+                PROS_VFS_OK)
+            return -12;
+        if (vfs_file_truncate(&file, 0u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return -12;
+            }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
             return -12;
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
