@@ -3483,8 +3483,32 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
+    /*
+     * Both replicas must describe the same on-disk volume.  A valid-looking
+     * primary and backup with different metadata are ambiguous: choosing one
+     * silently could mount a volume whose allocation/layout state no longer
+     * has a trustworthy redundant copy.  Current format updates neither
+     * replica independently, so any divergence is treated as corruption.
+     */
+    if (primary_ok && backup_ok) {
+        const uint8_t *p = (const uint8_t *)&primary;
+        const uint8_t *b = (const uint8_t *)&backup;
+        for (uint32_t i = 0u; i < sizeof(primary); ++i) {
+            if (p[i] != b[i]) {
+                kfree(fs->tx.images); kfree(fs->scratch);
+                fs->tx.images = 0;
+                fs->scratch = 0;
+                return PROSENJITFS_ECORRUPT;
+            }
+        }
+    }
     fs->sb = primary_ok ? primary : backup;
-    fs->degraded_superblock = primary_ok ? 0u : 1u;
+    /*
+     * If either replica is unavailable, keep the volume degraded/read-only.
+     * This prevents further writes while the redundant superblock state is
+     * incomplete and matches the fail-closed behavior used for corruption.
+     */
+    fs->degraded_superblock = (!primary_ok || !backup_ok) ? 1u : 0u;
     if (fs->sb.total_blocks > device->sector_count) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
