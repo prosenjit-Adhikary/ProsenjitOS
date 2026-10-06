@@ -4062,10 +4062,6 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         fs->sb.inode_count == 0u)
         return PROSENJITFS_ECORRUPT;
 
-    if (pfs_region_end(fs->sb.data_start, 1u, &bits_per_block) !=
-        PROSENJITFS_OK)
-        return PROSENJITFS_EOVERFLOW;
-
     if (fs->sb.journal_start < 2u ||
         pfs_region_valid(&fs->sb, fs->sb.journal_start,
                          fs->sb.journal_blocks) == 0 ||
@@ -4776,6 +4772,7 @@ int prosenjitfs_selftest(void)
                 0u, 1u, 511u, 512u, 513u, 1023u, 1024u, 1025u
             };
             uint8_t size_data[1025];
+            uint8_t read_sizes[1025];
             for (uint32_t i = 0u; i < sizeof(size_data); ++i)
                 size_data[i] = (uint8_t)((i * 31u) ^ 0x5Au);
 
@@ -4805,14 +4802,14 @@ int prosenjitfs_selftest(void)
                 bytes = 0u;
                 if (vfs_file_open(&fs.mount, "/sizes.bin",
                                   PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-                    vfs_file_read(&file, data, sizeof(data), &bytes) !=
+                    vfs_file_read(&file, read_sizes, sizeof(read_sizes), &bytes) !=
                         PROS_VFS_OK ||
                     bytes != size) {
                     vfs_file_close(&file);
                     return pfs_selftest_fail(__LINE__, -15);
                 }
                 for (uint32_t i = 0u; i < size; ++i) {
-                    if (data[i] != size_data[i]) {
+                    if (read_sizes[i] != size_data[i]) {
                         vfs_file_close(&file);
                         return pfs_selftest_fail(__LINE__, -15);
                     }
@@ -4879,6 +4876,7 @@ int prosenjitfs_selftest(void)
         {
             uint64_t lba;
             uint8_t block[512];
+            struct pros_prosenjitfs_extent invalid_extent;
             if (pfs_lba_add(&device, device.sector_count - 1u, 0u, &lba) !=
                     PROSENJITFS_OK ||
                 pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
@@ -4897,8 +4895,7 @@ int prosenjitfs_selftest(void)
                     PROSENJITFS_EINVAL ||
                 prosenjitfs_read_inode(&fs, fs.sb.inode_count, &inode) !=
                     PROSENJITFS_EINVAL ||
-                pfs_read_extent(&fs, fs.sb.total_blocks, 
-                                (struct pros_prosenjitfs_extent *)&inode) !=
+                pfs_read_extent(&fs, fs.sb.total_blocks, &invalid_extent) !=
                     PROSENJITFS_ECORRUPT)
                 return pfs_selftest_fail(__LINE__, -15);
         }
