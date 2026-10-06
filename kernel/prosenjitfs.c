@@ -697,6 +697,9 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
                                    struct pros_prosenjitfs_dir_entry *,
                                    uint64_t *,
                                    uint64_t *);
+static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
+                                struct pros_vfs_vnode *, const char *);
+
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
@@ -708,7 +711,7 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .mkdir = pfs_vnode_mkdir,
     .rmdir = pfs_vnode_rmdir,
     .unlink = pfs_vnode_unlink,
-    .rename = 0,
+    .rename = pfs_vnode_rename,
     .release = pfs_vnode_release
 };
 
@@ -2224,6 +2227,8 @@ out:
 }
 
 
+static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
+                                struct pros_vfs_vnode *, const char *);
 static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result)
 {
