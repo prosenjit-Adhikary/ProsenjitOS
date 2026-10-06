@@ -691,6 +691,8 @@ struct pfs_vnode_data {
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
+                            struct pros_vfs_vnode *, const char *);
 static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
                                    const struct pros_prosenjitfs_inode *,
                                    const char *,
@@ -4156,19 +4158,40 @@ int prosenjitfs_selftest(void)
             after.mtime != before.mtime ||
             after.ctime != before.ctime)
             return pfs_selftest_fail(__LINE__, -12);
+        {
+            int rc;
 
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
-                PROS_VFS_ENOENT ||
-            hidden != 0 ||
-            vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
-                PROS_VFS_OK ||
-            !hidden ||
-            vfs_vnode_put(hidden) != PROS_VFS_OK ||
-            vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin") !=
-                PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -12);
+            rc = prosenjitfs_unmount(&fs);
+            if (rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(41731u, -12);
+
+            rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(41732u, -12);
+
+            hidden = 0;
+            rc = vfs_path_lookup(&fs.mount, "/hello.bin", &hidden);
+            if (rc != PROS_VFS_ENOENT)
+                return pfs_selftest_fail(41733u, -12);
+
+            if (hidden != 0)
+                return pfs_selftest_fail(41734u, -12);
+
+            rc = vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden);
+            if (rc != PROS_VFS_OK)
+                return pfs_selftest_fail(41735u, -12);
+
+            if (!hidden)
+                return pfs_selftest_fail(41736u, -12);
+
+            rc = vfs_vnode_put(hidden);
+            if (rc != PROS_VFS_OK)
+                return pfs_selftest_fail(41737u, -12);
+
+            rc = vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin");
+            if (rc != PROS_VFS_OK)
+                return pfs_selftest_fail(41738u, -12);
+        }
     }
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
