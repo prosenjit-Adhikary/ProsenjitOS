@@ -304,6 +304,32 @@ Cisco's endpoint architecture uses multiple detection engines and telemetry sour
 
 The architectural lesson is to preserve **multiple independent detection paths** and make the final enforcement decision through a common policy layer.
 
+
+### CrowdStrike Falcon / Malware Analysis
+
+Public CrowdStrike documentation reinforces several additional design patterns relevant to ProsenjitOS:
+
+- suspicious files and behaviors can be automatically submitted for deeper malware analysis
+- behavioral analysis should capture filesystem and network interactions, not only static file properties
+- unknown threats benefit from controlled analysis and enriched behavioral evidence
+- malware analysis can produce actionable indicators and support automated defensive workflows
+
+The architectural lesson for ProsenjitOS is to treat **unknown activity as an evidence-generation problem**: observe it safely, correlate its behavior, increase confidence when independent signals agree, and only then apply the narrowest sufficient containment action.
+
+### Additional Cross-Vendor Design Refinements
+
+The latest public documentation also reinforces several details that should be explicit in the ProsenjitOS design:
+
+1. **Signal correlation over single-indicator blocking** — high-confidence automated containment should be based on multiple related signals whenever practical.
+2. **Continuous runtime observation** — a process that was trusted at launch must remain observable because its behavior can change after execution begins.
+3. **Attack-story / causality context** — security records should preserve enough process and event relationships to reconstruct how the activity developed.
+4. **Bounded telemetry** — repeated identical events must be throttled or aggregated so the security subsystem cannot be exhausted by high-volume activity.
+5. **Tamper resistance** — security settings and enforcement paths must not be silently disabled by the process being monitored.
+6. **Automatic containment** — sufficiently high-confidence active attacks should be containable without waiting for human approval.
+7. **Controlled analysis of unknowns** — unknown does not equal malicious, but unknown activity should receive enhanced monitoring and progressively stronger controls when suspicious behavior accumulates.
+
+These principles are consistent with public Microsoft and CrowdStrike documentation on behavior monitoring, automated containment, tamper protection, telemetry throttling, and behavioral malware analysis. citeturn0search0turn0search2turn0search4turn0search9turn0search1
+
 ### Trend Micro
 
 Trend Micro's documented behavior-monitoring and ransomware-protection approaches emphasize sequences of suspicious operations over time, such as repeated destructive file activity.
@@ -588,7 +614,7 @@ These references are used as architectural input only. ProsenjitOS remains an in
 
 ## Implementation Status
 
-This document defines the target security policy for the autonomous AI security architecture.
+This document defines the target security policy for the autonomous AI security architecture and records the public research baseline used to guide implementation.
 
 The existing deterministic security monitor provides the kernel-side enforcement foundation. Full production implementation still requires complete telemetry producers, robust behavioral correlation, AI userspace integration, quarantine/isolation enforcement, evidence management, recovery integration, and end-to-end adversarial testing.
 
