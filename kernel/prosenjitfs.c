@@ -999,16 +999,30 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
 
-    if (!file || !file->vnode || !buffer)
+    uint64_t end_position;
+    uint64_t max_file_size;
+
+    if (!file || !file->vnode || !file->mount || !buffer)
         return PROS_VFS_EINVAL;
     if (file->mount->read_only || !file->mount->active)
         return PROS_VFS_EPERM;
     if (length == 0u)
         return 0;
-    if ((uint64_t)offset + length > UINT64_MAX)
+    end_position = (uint64_t)offset + (uint64_t)length;
+    if (end_position < (uint64_t)offset)
         return PROS_VFS_EOVERFLOW;
 
     data = (struct pfs_vnode_data *)file->vnode->private_data;
+    if (!data || !data->fs)
+        return PROS_VFS_EIO;
+    if (data->fs->sb.total_blocks < data->fs->sb.data_start ||
+        (data->fs->sb.total_blocks - data->fs->sb.data_start) >
+            UINT64_MAX / data->fs->sb.block_size)
+        return PROS_VFS_ECORRUPT;
+    max_file_size = (data->fs->sb.total_blocks - data->fs->sb.data_start) *
+                    data->fs->sb.block_size;
+    if (end_position > max_file_size)
+        return PROS_VFS_EOVERFLOW;
     if (!data || !data->fs)
         return PROS_VFS_EIO;
     {
@@ -4278,6 +4292,66 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -6);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -6);
+    }
+
+    /* Append semantics must use the current EOF even after an explicit seek. */
+    {
+        struct pros_vfs_file file;
+        static const uint8_t first[] = { 'a', 'b', 'c' };
+        static const uint8_t second[] = { 'D', 'E', 'F' };
+        uint8_t combined[6];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, first, sizeof(first), &done) != PROS_VFS_OK ||
+            done != sizeof(first) || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_write(&file, second, sizeof(second), &done) != PROS_VFS_OK ||
+            done != sizeof(second) || file.position != 6u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, combined, sizeof(combined), &done) != PROS_VFS_OK ||
+            done != sizeof(combined) || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < 6u; ++i)
+            if (combined[i] != (i < 3u ? first[i] : second[i - 3u]))
+                return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /* Sparse logical-offset regression: seek beyond EOF, write one byte, and
+     * verify the unwritten interval reads as zeros. */
+    {
+        struct pros_vfs_file file;
+        uint8_t marker = 0xD6u;
+        uint8_t hole[512];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/sparse.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
+            vfs_file_write(&file, &marker, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || file.position != 4097u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+        if (vfs_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 3584u) != PROS_VFS_OK ||
+            vfs_file_read(&file, hole, sizeof(hole), &done) != PROS_VFS_OK ||
+            done != sizeof(hole)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -14);
+        }
+        for (uint32_t i = 0u; i < sizeof(hole); ++i)
+            if (hole[i] != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+        if (vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &marker, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || marker != 0xD6u || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
     }
 
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
