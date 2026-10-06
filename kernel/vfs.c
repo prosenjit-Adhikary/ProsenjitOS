@@ -197,6 +197,15 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
         vfs_vnode_put(mount->root);
         mount->root = 0;
     }
+    /*
+     * Inactive mounts must not retain a usable device/private-data path.
+     * This makes stale low-level handles fail closed even if a caller keeps
+     * the old mount object around after unmount.
+     */
+    mount->device = 0;
+    mount->private_data = 0;
+    mount->type = PROS_FS_UNKNOWN;
+    mount->read_only = 0u;
     ++health_unmount_count;
     return PROS_VFS_OK;
 }
