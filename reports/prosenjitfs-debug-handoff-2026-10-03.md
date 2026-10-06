@@ -154,3 +154,8 @@ Do **not** change `pfs_tx_commit()` or `pfs_journal_clear()` based on `-123407`.
 The immediate diagnostic defect is in the self-test failure encoding path: the runtime `317` does not come from `pfs_mkdir_diag_rc`, which is reported as zero. The next investigation should prove the exact generated code/source interaction and the actual `vfs_mkdir()` return value before changing filesystem transaction logic.
 
 Current status remains: **ProsenjitFS self-test FAIL; root cause of the actual mkdir return is not yet proven.** No source fix has been made for this milestone.
+
+
+## Build blocker — 2026-10-06 17:34 IST
+
+A fresh clone of GitHub `main` failed the clean build in `kernel/elf_loader.c:56` because `eh->phnum` is `uint16_t`, so the comparison against `UINT64_MAX / sizeof(struct elf64_phdr)` is provably always false under GCC `-Werror=type-limits`. The check was redundant because `ELF_MAX_PHNUM` already bounds `phnum` to 128. The impossible overflow check was removed in commit `a0c6b846` so the clean GitHub tree can build without suppressing the warning.
