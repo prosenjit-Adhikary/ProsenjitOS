@@ -3565,7 +3565,7 @@ static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
     return PROS_BLOCK_OK;
 }
 
-,,,static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
+static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
                           uint32_t count, const void *buffer)
 {
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
