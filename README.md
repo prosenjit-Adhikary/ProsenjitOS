@@ -210,6 +210,12 @@ The security roadmap will progressively add:
 
 This model extends the existing kernel-enforced security + user-space PSS architecture and is now a standing security requirement for future implementation work.
 
+### Self-defense implementation milestone
+
+A deterministic kernel self-defense monitor is now present in `kernel/security_monitor.c`. It correlates trusted security telemetry per process, maintains a bounded risk score, and can enforce **allow / quarantine / block** outcomes. High-confidence process-injection and security-tamper events are block-level. The monitor has an independent boot-time self-test and an explicit enforcement boundary; it does not contain an AI model and cannot grant privileges.
+
+Architecture review is informed by publicly documented Microsoft Defender and Fortinet/FortiGuard principles—multi-signal detection, behavioral/context analysis, automated containment, threat-intelligence feedback, and policy enforcement—without copying proprietary implementations.
+
 ## Native bootloader and boot protocol strategy
 
 ProsenjitOS will use an **original ProsenjitOS bootloader/boot protocol** as the preferred boot path rather than making GRUB or another traditional bootloader a mandatory dependency.
