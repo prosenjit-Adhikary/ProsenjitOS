@@ -3258,11 +3258,21 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
                                  images + (uint64_t)i * fs->sb.block_size);
         if (rc != PROSENJITFS_OK)
             return rc;
+        {
+            int crash_rc = pfs_tx_crash_inject(10u);
+            if (crash_rc != PROSENJITFS_OK)
+                return crash_rc;
+        }
     }
     {
         int rc = pfs_flush(fs->mount.device);
         if (rc != PROSENJITFS_OK)
             return rc;
+    }
+    {
+        int crash_rc = pfs_tx_crash_inject(11u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
     }
     return pfs_journal_clear(fs);
 }
@@ -4753,6 +4763,109 @@ int prosenjitfs_selftest(void)
 
             if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
+        }
+    }
+
+    /*
+     * Interrupted-recovery/idempotence regression.
+     *
+     * First leave a durable committed journal (stage 9), then interrupt
+     * recovery once before the recovery flush and once after the recovery
+     * flush but before journal retirement. In both cases the next mount must
+     * safely replay the same complete replacement images again.
+     */
+    {
+        static const uint32_t recovery_stages[] = { 10u, 11u };
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x42u ^ (uint8_t)(i * 5u));
+            new_data[i] = (uint8_t)(0x9Bu ^ (uint8_t)(i * 17u));
+        }
+
+        for (uint32_t recovery_index = 0u;
+             recovery_index < sizeof(recovery_stages) /
+                               sizeof(recovery_stages[0]);
+             ++recovery_index) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int write_rc;
+            int mount_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            if (vfs_file_open(&fs.mount, "/recovery.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            pfs_crash_inject_stage = 9u;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data),
+                                      &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO ||
+                done != 0u ||
+                pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            pfs_crash_inject_stage = recovery_stages[recovery_index];
+            pfs_crash_injected = 0u;
+            mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (mount_rc != PROSENJITFS_EIO ||
+                pfs_crash_injected == 0u) {
+                pfs_crash_inject_stage = 0u;
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            /*
+             * prosenjitfs_mount() owns cleanup on recovery failure. Model the
+             * subsequent power loss by discarding any remaining volatile
+             * device-cache blocks and losing the failed mount's CPU state.
+             */
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+                if (read_data[i] != new_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
         }
     }
 
