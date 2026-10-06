@@ -252,10 +252,18 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !buffer || !bytes_written ||
-        (file->flags & PROS_VFS_O_WRITE) == 0u ||
-        file->mount->read_only || file->position > 0xFFFFFFFFULL)
+        !file->ops || !file->ops->write || !bytes_written)
+        return PROS_VFS_EINVAL;
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
+    if (length != 0u && !buffer)
+        return PROS_VFS_EINVAL;
+    if (file->position > 0xFFFFFFFFULL)
+        return PROS_VFS_EOVERFLOW;
+    if ((file->flags & PROS_VFS_O_APPEND) != 0u)
+        file->position = file->vnode ? file->vnode->size : file->position;
+    if (file->position > 0xFFFFFFFFULL)
+        return PROS_VFS_EOVERFLOW;
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
@@ -310,7 +318,7 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode)
         return PROS_VFS_EINVAL;
-    if (position > file->vnode->size)
+    if (position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
     file->position = position;
     return PROS_VFS_OK;
@@ -838,7 +846,8 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
     struct pros_vfs_vnode *vnode = 0;
     int rc;
     if (!file || (flags & ~(PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                            PROS_VFS_O_DIRECTORY | PROS_VFS_O_CREATE)) != 0u ||
+                            PROS_VFS_O_DIRECTORY | PROS_VFS_O_CREATE |
+                            PROS_VFS_O_APPEND)) != 0u ||
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
         (flags & PROS_VFS_O_DIRECTORY) != 0u)
         return PROS_VFS_EINVAL;
