@@ -218,8 +218,6 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -5;
     ph[0].vaddr = 0x400000;
 
-    ph[0].entry = 0;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) { /* entry is in header */ }
     eh->entry = 0x500000;
     if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -6;
     eh->entry = 0x400000;
