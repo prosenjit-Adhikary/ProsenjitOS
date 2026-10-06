@@ -317,6 +317,72 @@ int prosenjitfs_cow_geometry_validate(const struct pros_prosenjitfs *fs,
 }
 
 
+int prosenjitfs_cow_refcount_initialize(struct pros_prosenjitfs *fs,
+                                        uint64_t refcount_start,
+                                        uint32_t refcount_blocks,
+                                        uint64_t allocated_end)
+{
+    uint64_t entries_per_block;
+    uint64_t total_entries;
+    uint64_t expected_blocks;
+    uint8_t block[4096];
+
+    if (!fs || !fs->mount.device || fs->read_only ||
+        fs->sb.block_size > sizeof(block) || refcount_blocks == 0u)
+        return PROSENJITFS_EINVAL;
+    if (allocated_end > fs->sb.total_blocks ||
+        allocated_end < fs->sb.data_start)
+        return PROSENJITFS_ECORRUPT;
+
+    entries_per_block =
+        (uint64_t)fs->sb.block_size /
+        sizeof(struct pros_prosenjitfs_block_refcount);
+    if (entries_per_block == 0u)
+        return PROSENJITFS_ECORRUPT;
+    expected_blocks =
+        (fs->sb.total_blocks + entries_per_block - 1u) / entries_per_block;
+    if (expected_blocks != refcount_blocks)
+        return PROSENJITFS_ECORRUPT;
+
+    total_entries = (uint64_t)refcount_blocks * entries_per_block;
+    for (uint32_t bi = 0u; bi < refcount_blocks; ++bi) {
+        pfs_zero(block, fs->sb.block_size);
+        for (uint64_t slot = 0u; slot < entries_per_block; ++slot) {
+            uint64_t block_number = (uint64_t)bi * entries_per_block + slot;
+            struct pros_prosenjitfs_block_refcount ref;
+            uint8_t *dst;
+
+            if (block_number >= fs->sb.total_blocks)
+                break;
+            pfs_zero(&ref, sizeof(ref));
+            /* Blocks below data_start belong to the live filesystem metadata.
+             * The caller may extend this boundary to include v2-specific
+             * reserved metadata. Data blocks begin with zero ownership until
+             * a live tree or snapshot references them. */
+            if (block_number < allocated_end)
+                ref.refcount = 1u;
+            ref.checksum = pfs_crc_with_zero32(
+                (const uint8_t *)&ref, sizeof(ref),
+                (uint32_t)offsetof(
+                    struct pros_prosenjitfs_block_refcount, checksum));
+            dst = block + slot * sizeof(ref);
+            pfs_copy(dst, &ref, sizeof(ref));
+        }
+        {
+            uint64_t lba;
+            int rc = pfs_lba_add(fs->mount.device, refcount_start, bi, &lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            rc = pfs_write_block(fs->mount.device, lba, block);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
+    }
+    (void)total_entries;
+    return pfs_flush(fs->mount.device);
+}
+
+
 static int pfs_read_block(struct pros_block_device *device, uint64_t block,
                           void *buffer)
 {
