@@ -686,6 +686,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /* Driver-model foundation: discovery, matching, controlled binding and
      * lifecycle are verified independently before real bus drivers consume it. */
+    if (pros_driver_manager_init() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR driver manager initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     if (pros_driver_selftest() != PROS_DRIVER_OK) {
         serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
