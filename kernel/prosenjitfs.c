@@ -2890,12 +2890,11 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
          */
         {
             struct pros_prosenjitfs_dir_entry original;
-            uint8_t original_block[4096];
-            if (pfs_read_block(old_data->fs->mount.device, old_lba,
-                               original_block) != PROSENJITFS_OK) {
-                rc = PROSENJITFS_EIO; goto rename_out;
-            }
-            pfs_copy(&original, original_block, sizeof(original));
+            /* entry.next was changed above; original_next is the on-disk
+             * successor that the predecessor must retain.  Do not reread the
+             * block into a fixed 4096-byte buffer: block_size is configurable. */
+            original = entry;
+            original.next = original_next;
             if (old_prev != 0u) {
                 struct pros_prosenjitfs_dir_entry prev;
                 pfs_copy(&prev, prev_block, sizeof(prev));
