@@ -6,6 +6,7 @@
 #include "crash_record.h"
 #include "log.h"
 #include "address_space.h"
+#include "elf_loader.h"
 #include "usercopy.h"
 #include "object.h"
 #include "process.h"
@@ -48,6 +49,22 @@ static volatile uint64_t health_last_exception_rip;
 static volatile uint64_t health_previous_crash_sequence;
 static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
+
+#define BOOT_ELF_IMAGE_CAP 65536u
+static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
+
+struct boot_elf_header {
+    uint8_t ident[16];
+    uint16_t type, machine;
+    uint32_t version;
+    uint64_t entry, phoff, shoff;
+    uint32_t flags;
+    uint16_t ehsize, phentsize, phnum, shentsize, shnum, shstrndx;
+} __attribute__((packed));
+struct boot_elf_phdr {
+    uint32_t type, flags;
+    uint64_t offset, vaddr, paddr, filesz, memsz, align;
+} __attribute__((packed));
 
 static void scheduler_test_init_entry(void) {
     for (;;) {
@@ -726,22 +743,63 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     uint64_t user_text_end = (uint64_t)(uintptr_t)__user_text_end;
 
     if (!user_stack_page || !user_data_page ||
-        user_text_end <= user_text_start ||
-        ((user_text_start | user_text_end) & 0xFFFULL) != 0) {
+        user_text_end <= user_text_start) {
         serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
     uint64_t user_text_size = user_text_end - user_text_start;
-    for (uint64_t offset = 0; offset < user_text_size; offset += PROSENJIT_PAGE_SIZE) {
-        if (address_space_map_user_page(&init_process.address_space,
-                                        PROSENJIT_USER_CODE_VA + offset,
-                                        user_text_start + offset,
-                                        0) != 0) {
-            serial_write("ProsenjitOS: ERROR CPL3 user code mapping failed\\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
+    const uint64_t boot_elf_offset = 0x1000ULL;
+    const uint64_t boot_elf_header_size =
+        sizeof(struct boot_elf_header) + sizeof(struct boot_elf_phdr);
+    if (user_text_size > BOOT_ELF_IMAGE_CAP - boot_elf_offset ||
+        boot_elf_header_size > boot_elf_offset) {
+        serial_write("ProsenjitOS: ERROR boot ELF image capacity exceeded\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
     }
+
+    for (uint32_t i = 0; i < BOOT_ELF_IMAGE_CAP; ++i)
+        boot_user_elf[i] = 0;
+
+    struct boot_elf_header *eh =
+        (struct boot_elf_header *)(uintptr_t)boot_user_elf;
+    struct boot_elf_phdr *ph =
+        (struct boot_elf_phdr *)(uintptr_t)(boot_user_elf + sizeof(*eh));
+    eh->ident[0] = 0x7F; eh->ident[1] = 'E'; eh->ident[2] = 'L'; eh->ident[3] = 'F';
+    eh->ident[4] = 2; eh->ident[5] = 1; eh->ident[6] = 1; eh->ident[7] = 0;
+    eh->type = 2; eh->machine = 62; eh->version = 1;
+    eh->entry = PROSENJIT_USER_CODE_VA;
+    eh->phoff = sizeof(*eh);
+    eh->ehsize = sizeof(*eh);
+    eh->phentsize = sizeof(*ph);
+    eh->phnum = 1;
+
+    ph->type = 1;
+    ph->flags = 1 | 4; /* PF_X | PF_R: executable and non-writable. */
+    ph->offset = boot_elf_offset;
+    ph->vaddr = PROSENJIT_USER_CODE_VA;
+    ph->paddr = 0;
+    ph->filesz = user_text_size;
+    ph->memsz = user_text_size;
+    ph->align = PROSENJIT_PAGE_SIZE;
+
+    for (uint64_t i = 0; i < user_text_size; ++i)
+        boot_user_elf[boot_elf_offset + i] = ((const uint8_t *)(uintptr_t)user_text_start)[i];
+
+    struct pros_elf_load_result elf_result;
+    if (pros_elf_load(&init_process, boot_user_elf,
+                      boot_elf_offset + user_text_size, &elf_result) != PROS_ELF_OK ||
+        elf_result.entry != PROSENJIT_USER_CODE_VA ||
+        elf_result.mapped_pages == 0) {
+        serial_write("ProsenjitOS: ERROR ELF userspace load failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: ELF64 userspace image loaded and validated\\n");
+
+    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
+        ((uint8_t *)(uintptr_t)user_stack_page)[i] = 0;
+    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
+        ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
 
     if (address_space_map_user_page(&init_process.address_space,
                                     PROSENJIT_USER_STACK_VA,
@@ -761,7 +819,5 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\\n");
-    enter_user_mode((uint64_t)PROSENJIT_USER_CODE_VA,
-                    (uint64_t)PROSENJIT_USER_STACK_VA + PROSENJIT_PAGE_SIZE,
-                    user_test_handle);
+    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
 }
