@@ -28,6 +28,7 @@
 #define PROS_VFS_O_WRITE (1u << 1)
 #define PROS_VFS_O_DIRECTORY (1u << 2)
 #define PROS_VFS_O_CREATE    (1u << 3)
+#define PROS_VFS_O_APPEND    (1u << 4)
 
 enum pros_filesystem_type {
     PROS_FS_UNKNOWN = 0,
