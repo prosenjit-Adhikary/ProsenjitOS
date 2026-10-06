@@ -402,6 +402,10 @@ static int pfs_superblock_valid(const uint8_t *block,
         return PROSENJITFS_ECORRUPT;
     {
         uint64_t journal_end, bitmap_end, inode_bitmap_end, inode_end;
+        uint64_t bits_per_block = (uint64_t)sb->block_size * 8u;
+        uint64_t required_block_bitmap_blocks;
+        uint64_t required_inode_bitmap_blocks;
+
         if (pfs_region_end(sb->journal_start, sb->journal_blocks, &journal_end) != PROSENJITFS_OK ||
             pfs_region_end(sb->block_bitmap_start, sb->block_bitmap_blocks, &bitmap_end) != PROSENJITFS_OK ||
             pfs_region_end(sb->inode_bitmap_start, sb->inode_bitmap_blocks, &inode_bitmap_end) != PROSENJITFS_OK ||
@@ -412,6 +416,21 @@ static int pfs_superblock_valid(const uint8_t *block,
             inode_end == UINT64_MAX ||
             sb->data_start != inode_end + 1u ||
             sb->data_start >= sb->total_blocks)
+            return PROSENJITFS_ECORRUPT;
+
+        /*
+         * A valid bitmap must be large enough to represent every addressable
+         * block/inode. Without these checks a corrupted, but checksummed,
+         * superblock could make allocation index into another metadata region.
+         */
+        required_block_bitmap_blocks =
+            sb->total_blocks / bits_per_block +
+            ((sb->total_blocks % bits_per_block) != 0u ? 1u : 0u);
+        required_inode_bitmap_blocks =
+            (uint64_t)sb->inode_count / bits_per_block +
+            (((uint64_t)sb->inode_count % bits_per_block) != 0u ? 1u : 0u);
+        if ((uint64_t)sb->block_bitmap_blocks < required_block_bitmap_blocks ||
+            (uint64_t)sb->inode_bitmap_blocks < required_inode_bitmap_blocks)
             return PROSENJITFS_ECORRUPT;
     }
     if ((uint64_t)sb->inode_table_blocks * sb->block_size <
@@ -3993,13 +4012,26 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
     int rc;
     if (!fs || !fs->mount.active)
         return PROSENJITFS_EINVAL;
+
+    /*
+     * Never tear down transaction/scratch state while a file or directory
+     * handle still owns a vnode. This also prevents a stale handle from
+     * becoming valid again if the same fs object is immediately remounted.
+     */
+    if (fs->mount.root && fs->mount.root->refcount > 1u)
+        return PROSENJITFS_EBUSY;
+
     rc = pfs_flush(fs->mount.device);
-    vfs_mount_deactivate(&fs->mount);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = vfs_mount_deactivate(&fs->mount);
+    if (rc != PROS_VFS_OK)
+        return pfs_vfs_error(rc);
     if (fs->tx.images) kfree(fs->tx.images);
     if (fs->scratch) kfree(fs->scratch);
     fs->tx.images = 0;
     fs->scratch = 0;
-    return rc;
+    return PROSENJITFS_OK;
 }
 
 
