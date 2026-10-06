@@ -179,10 +179,20 @@ int vfs_mount_activate(struct pros_vfs_mount *mount)
 
 int vfs_mount_deactivate(struct pros_vfs_mount *mount)
 {
-    if (!mount)
+    if (!mount || !mount->active)
         return PROS_VFS_EINVAL;
-    if (mount->active)
-        mount->active = 0;
+
+    /*
+     * The root reference is the mount's ownership reference. Every live
+     * descendant vnode retains its parent, and every open file/directory
+     * retains its vnode. Therefore refcount > 1 proves that the mount still
+     * has externally visible vnode state. Refuse deactivation instead of
+     * freeing fs-private state underneath an open handle.
+     */
+    if (mount->root && mount->root->refcount > 1u)
+        return PROS_VFS_EBUSY;
+
+    mount->active = 0;
     if (mount->root) {
         vfs_vnode_put(mount->root);
         mount->root = 0;
@@ -221,20 +231,21 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !buffer || !bytes_read ||
+        !file->ops || !file->ops->read || !bytes_read ||
         !file->vnode || file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
 
     /*
-     * VFS read semantics must make EOF a successful zero-byte read. Do not
-     * delegate a zero-length request to filesystem drivers that may reject
-     * size == 0 as an invalid internal operation.
+     * A zero-length read is a successful no-op and does not require a data
+     * buffer. Non-zero reads require a valid destination before dispatch.
      */
     *bytes_read = 0u;
     if (length == 0u || file->position >= file->vnode->size)
         return PROS_VFS_OK;
+    if (!buffer)
+        return PROS_VFS_EINVAL;
     if ((uint64_t)length > UINT32_MAX - file->position)
         return PROS_VFS_EOVERFLOW;
 
