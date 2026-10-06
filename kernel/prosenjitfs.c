@@ -4072,6 +4072,149 @@ int prosenjitfs_selftest(void)
             }
         }
 
+        /*
+         * Explicitly exercise seek/read/write across the 512-byte block
+         * boundary. The file is 700 bytes, so offset 500 + 200 bytes
+         * crosses from logical block 0 into logical block 1.
+         */
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_seek(&file, 500u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t partial[200];
+            uint32_t partial_done = 0u;
+
+            if (vfs_file_read(&file, partial, sizeof(partial),
+                              &partial_done) != PROS_VFS_OK ||
+                partial_done != sizeof(partial)) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+            for (uint32_t i = 0u; i < sizeof(partial); ++i) {
+                uint32_t absolute = 500u + i;
+                uint8_t expected = (absolute < 37u)
+                    ? (uint8_t)(0xA0u + absolute)
+                    : (uint8_t)((absolute * 13u) ^ 0x5Au);
+
+                if (partial[i] != expected) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -12);
+                }
+            }
+        }
+
+        /*
+         * Seek beyond EOF must fail without changing the current position.
+         */
+        if (file.position != 700u ||
+            vfs_file_seek(&file, 701u) != PROS_VFS_EOVERFLOW ||
+            file.position != 700u) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+
+        /*
+         * A read beginning exactly at EOF is a successful zero-byte read.
+         */
+        if (vfs_file_seek(&file, 700u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t eof_byte = 0xFFu;
+            uint32_t eof_done = 99u;
+
+            if (vfs_file_read(&file, &eof_byte, 1u, &eof_done) !=
+                    PROS_VFS_OK ||
+                eof_done != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * Partial write starting at offset 500 must cross the 512-byte
+         * boundary while preserving the file size.
+         */
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_seek(&file, 500u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t boundary_patch[37];
+            uint32_t boundary_done = 0u;
+
+            for (uint32_t i = 0u; i < sizeof(boundary_patch); ++i)
+                boundary_patch[i] = (uint8_t)(0xD0u + i);
+
+            if (vfs_file_write(&file, boundary_patch,
+                               sizeof(boundary_patch),
+                               &boundary_done) != PROS_VFS_OK ||
+                boundary_done != sizeof(boundary_patch) ||
+                file.position != 537u ||
+                file.vnode->size != 700u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * Verify the cross-boundary write immediately through the VFS.
+         */
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_seek(&file, 500u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t boundary_read[37];
+            uint32_t boundary_read_done = 0u;
+
+            if (vfs_file_read(&file, boundary_read,
+                              sizeof(boundary_read),
+                              &boundary_read_done) != PROS_VFS_OK ||
+                boundary_read_done != sizeof(boundary_read)) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+            for (uint32_t i = 0u; i < sizeof(boundary_read); ++i)
+                if (boundary_read[i] != (uint8_t)(0xD0u + i)) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -12);
+                }
+        }
+
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
         if (vfs_file_open(&fs.mount, "/hello.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
