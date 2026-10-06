@@ -743,6 +743,7 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
     pfs_copy(extent, block, sizeof(*extent));
     if (extent->magic != PROSENJITFS_EXTENT_MAGIC ||
         extent->block_count == 0u ||
+        extent->block_count > UINT32_MAX ||
         extent->logical_block > UINT64_MAX - extent->block_count ||
         extent->physical_block < fs->sb.data_start ||
         extent->physical_block > fs->sb.total_blocks ||
