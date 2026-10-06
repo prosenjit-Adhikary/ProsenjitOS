@@ -2930,8 +2930,55 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         goto rename_out;
     }
 
-    if (entry.type == PROSENJITFS_INODE_DIR)
-        { rc = PROS_VFS_ENOTSUP; goto rename_out; }
+    /*
+     * Directory moves are valid, but a directory may never be moved into
+     * itself or one of its descendants.  The on-disk representation stores
+     * the parent inode in the child inode (there is no physical ".." entry),
+     * so updating that parent is sufficient once the cycle check succeeds.
+     * Bound the walk by inode_count so corrupted parent chains fail closed.
+     */
+    if (entry.type == PROSENJITFS_INODE_DIR) {
+        uint64_t moving_inode = entry.inode;
+        uint64_t cursor = new_data->inode_number;
+        uint64_t steps = 0u;
+
+        if (moving_inode == old_data->fs->sb.root_inode ||
+            moving_inode == new_data->inode_number)
+            { rc = PROS_VFS_EPERM; goto rename_out; }
+
+        while (cursor != old_data->fs->sb.root_inode) {
+            struct pros_prosenjitfs_inode ancestor;
+
+            if (++steps > old_data->fs->sb.inode_count) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto rename_out;
+            }
+            if (cursor >= old_data->fs->sb.inode_count) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto rename_out;
+            }
+            if (cursor == moving_inode) {
+                rc = PROS_VFS_EINVAL;
+                goto rename_out;
+            }
+            rc = prosenjitfs_read_inode(old_data->fs, cursor, &ancestor);
+            if (rc != PROSENJITFS_OK)
+                goto rename_out_error;
+            if (ancestor.type != PROSENJITFS_INODE_DIR) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto rename_out;
+            }
+            if (ancestor.parent_inode == cursor) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto rename_out;
+            }
+            cursor = ancestor.parent_inode;
+            if (cursor >= old_data->fs->sb.inode_count) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto rename_out;
+            }
+        }
+    }
 
     rc = pfs_read_dir_index(old_data->fs, &old_dir, &old_index);
     if (rc != PROSENJITFS_OK) goto rename_out_error;
