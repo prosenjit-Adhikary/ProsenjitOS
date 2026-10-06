@@ -112,6 +112,8 @@ static int pfs_vfs_error(int rc)
         return PROS_VFS_ENOTEMPTY;
     case PROSENJITFS_EPERM:
         return PROS_VFS_EPERM;
+    case PROSENJITFS_EBUSY:
+        return PROS_VFS_EBUSY;
     default:
         return PROS_VFS_EIO;
     }
