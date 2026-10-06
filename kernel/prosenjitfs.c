@@ -123,6 +123,9 @@ static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
 static uint32_t pfs_tx_diag_stage;
 static uint32_t pfs_tx_diag_count;
+static uint32_t pfs_tx_diag_count_before_clear;
+static uint32_t pfs_tx_diag_count_after_clear;
+static int pfs_tx_diag_clear_rc;
 
 
 void prosenjitfs_write_diag_reset(void)
@@ -133,6 +136,9 @@ void prosenjitfs_write_diag_reset(void)
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
     pfs_tx_diag_stage = 0u;
     pfs_tx_diag_count = 0u;
+    pfs_tx_diag_count_before_clear = 0u;
+    pfs_tx_diag_count_after_clear = 0u;
+    pfs_tx_diag_clear_rc = PROSENJITFS_OK;
 }
 
 int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
@@ -3357,7 +3363,10 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     }
 
     pfs_tx_diag_stage = 9u;
-    return pfs_journal_clear(fs);
+    pfs_tx_diag_count_before_clear = fs->tx.count;
+    pfs_tx_diag_clear_rc = pfs_journal_clear(fs);
+    pfs_tx_diag_count_after_clear = fs->tx.count;
+    return pfs_tx_diag_clear_rc;
 }
 
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit)
