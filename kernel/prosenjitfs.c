@@ -3362,6 +3362,38 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     return pfs_journal_clear(fs);
 }
 
+static int pfs_tx_validate(const struct pros_prosenjitfs *fs)
+{
+    uint64_t journal_end;
+
+    if (!fs || !fs->tx.images || fs->tx.count == 0u ||
+        fs->tx.count > PROSENJITFS_MAX_TX_BLOCKS ||
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        return PROSENJITFS_EINVAL;
+    if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+                       &journal_end) != PROSENJITFS_OK ||
+        fs->sb.journal_blocks < 2u ||
+        fs->tx.count > fs->sb.journal_blocks - 2u)
+        return PROSENJITFS_ECORRUPT;
+
+    /* Revalidate the complete transaction immediately before the first
+     * journal write.  pfs_tx_add() already checks these invariants, but the
+     * commit boundary is the final fail-closed point before persistent state
+     * can change. */
+    for (uint32_t i = 0u; i < fs->tx.count; ++i) {
+        uint64_t target = fs->tx.targets[i];
+        if (target < 2u || target >= fs->sb.total_blocks ||
+            (target >= fs->sb.journal_start && target < journal_end))
+            return PROSENJITFS_ECORRUPT;
+        for (uint32_t j = 0u; j < i; ++j) {
+            if (fs->tx.targets[j] == target)
+                return PROSENJITFS_ECORRUPT;
+        }
+    }
+    return PROSENJITFS_OK;
+}
+
 static int pfs_tx_commit(struct pros_prosenjitfs *fs)
 {
     uint8_t *header;
@@ -3372,10 +3404,13 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
 
     pfs_tx_diag_stage = 1u;
     pfs_tx_diag_count = 0u;
-    if (!fs || !fs->scratch || !fs->tx.images ||
-        fs->read_only || fs->tx.count == 0u ||
-        fs->tx.count + 2u > fs->sb.journal_blocks)
+    if (!fs || !fs->scratch || !fs->tx.images || fs->read_only)
         return PROSENJITFS_EINVAL;
+    {
+        int validate_rc = pfs_tx_validate(fs);
+        if (validate_rc != PROSENJITFS_OK)
+            return validate_rc;
+    }
     pfs_tx_diag_count = fs->tx.count;
     {
         int crash_rc = pfs_tx_crash_inject(1u);
