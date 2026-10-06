@@ -68,6 +68,8 @@ int prosenjitfs_write_diag_get_read_byte(uint8_t *read_block_byte);
 int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
                                uint32_t *tx_stage, uint32_t *tx_count);
 int prosenjitfs_selftest(void);
+int prosenjitfs_cow_geometry_validate(const struct pros_prosenjitfs *, uint64_t, uint64_t, uint32_t, uint64_t, uint32_t);
+int prosenjitfs_cow_refcount_blocks(uint64_t total_blocks, uint32_t block_size, uint32_t *blocks);
 int prosenjitfs_snapshot_create(struct pros_prosenjitfs *, uint64_t *snapshot_id);
 int prosenjitfs_snapshot_delete(struct pros_prosenjitfs *, uint64_t snapshot_id);
 int prosenjitfs_snapshot_read(struct pros_prosenjitfs *, uint64_t snapshot_id,
