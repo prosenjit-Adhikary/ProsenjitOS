@@ -127,6 +127,24 @@ static uint32_t pfs_tx_diag_count_before_clear;
 static uint32_t pfs_tx_diag_count_after_clear;
 static int pfs_tx_diag_clear_rc;
 
+/*
+ * Deterministic crash injection used only by the native ProsenjitFS
+ * self-test.  The injection happens after the named transaction stage has
+ * reached the real block-device path; the self-test then discards volatile
+ * device writes and reconstructs the filesystem object, modelling loss of
+ * process/CPU state plus device-cache contents without calling unmount().
+ */
+static uint32_t pfs_crash_inject_stage;
+static uint32_t pfs_crash_injected;
+
+static int pfs_tx_crash_inject(uint32_t stage)
+{
+    if (pfs_crash_inject_stage != stage)
+        return PROSENJITFS_OK;
+    pfs_crash_injected = 1u;
+    return PROSENJITFS_EIO;
+}
+
 
 void prosenjitfs_write_diag_reset(void)
 {
@@ -3264,6 +3282,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         fs->tx.count + 2u > fs->sb.journal_blocks)
         return PROSENJITFS_EINVAL;
     pfs_tx_diag_count = fs->tx.count;
+    {
+        int crash_rc = pfs_tx_crash_inject(1u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
 
     header = fs->scratch;
     commit = fs->tx.images + (uint64_t)PROSENJITFS_MAX_TX_BLOCKS *
@@ -3292,6 +3315,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         if (rc != PROSENJITFS_OK)
             return rc;
     }
+    {
+        int crash_rc = pfs_tx_crash_inject(2u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
     pfs_tx_diag_stage = 3u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
         uint64_t journal_lba;
@@ -3307,10 +3335,20 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             if (rc != PROSENJITFS_OK)
                 return rc;
         }
+        {
+            int crash_rc = pfs_tx_crash_inject(3u);
+            if (crash_rc != PROSENJITFS_OK)
+                return crash_rc;
+        }
     }
     pfs_tx_diag_stage = 4u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+    {
+        int crash_rc = pfs_tx_crash_inject(4u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
 
     pfs_zero(&c, sizeof(c));
     c.magic = PROSENJITFS_JOURNAL_COMMIT;
@@ -3338,6 +3376,11 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                 return rc;
         }
     }
+    {
+        int crash_rc = pfs_tx_crash_inject(5u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
 
     pfs_tx_diag_stage = 6u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
@@ -3358,10 +3401,20 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             if (rc != PROSENJITFS_OK)
                 return rc;
         }
+        {
+            int crash_rc = pfs_tx_crash_inject(6u);
+            if (crash_rc != PROSENJITFS_OK)
+                return crash_rc;
+        }
     }
     pfs_tx_diag_stage = 7u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
         return PROSENJITFS_EIO;
+    {
+        int crash_rc = pfs_tx_crash_inject(7u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
     if (pfs_diag.verify_pending) {
         uint8_t verify[4096];
         pfs_tx_diag_stage = 8u;
@@ -3377,7 +3430,18 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         pfs_diag.verify_pending = 0u;
     }
 
+    pfs_tx_diag_stage = 8u;
+    {
+        int crash_rc = pfs_tx_crash_inject(8u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
     pfs_tx_diag_stage = 9u;
+    {
+        int crash_rc = pfs_tx_crash_inject(9u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
     pfs_tx_diag_count_before_clear = fs->tx.count;
     pfs_tx_diag_clear_rc = pfs_journal_clear(fs);
     pfs_tx_diag_count_after_clear = fs->tx.count;
@@ -3864,8 +3928,28 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
 
 
 struct pfs_test_disk {
+    /* data[] is the durable medium; volatile_data[] models a device write
+     * cache. A power-loss reset discards only dirty volatile blocks. */
     uint8_t data[512u * 512u];
+    uint8_t volatile_data[512u * 512u];
+    uint8_t dirty[512u / 8u];
 };
+
+static int pfs_test_dirty(const struct pfs_test_disk *disk, uint64_t lba)
+{
+    return disk && lba < 512u &&
+           (disk->dirty[lba >> 3] & (uint8_t)(1u << (lba & 7u))) != 0u;
+}
+
+static void pfs_test_mark_dirty(struct pfs_test_disk *disk, uint64_t lba)
+{
+    disk->dirty[lba >> 3] |= (uint8_t)(1u << (lba & 7u));
+}
+
+static void pfs_test_clear_dirty(struct pfs_test_disk *disk, uint64_t lba)
+{
+    disk->dirty[lba >> 3] &= (uint8_t)~(1u << (lba & 7u));
+}
 
 static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
                          uint32_t count, void *buffer)
@@ -3873,7 +3957,14 @@ static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
-    pfs_copy(buffer, disk->data + lba * 512u, count * 512u);
+    for (uint32_t i = 0u; i < count; ++i) {
+        uint64_t current = lba + i;
+        const uint8_t *source = pfs_test_dirty(disk, current)
+                              ? disk->volatile_data + current * 512u
+                              : disk->data + current * 512u;
+        pfs_copy((uint8_t *)buffer + (uint64_t)i * 512u,
+                 source, 512u);
+    }
     return PROS_BLOCK_OK;
 }
 
@@ -3883,14 +3974,50 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
-    pfs_copy(disk->data + lba * 512u, buffer, count * 512u);
+    for (uint32_t i = 0u; i < count; ++i) {
+        uint64_t current = lba + i;
+        pfs_copy(disk->volatile_data + current * 512u,
+                 (const uint8_t *)buffer + (uint64_t)i * 512u,
+                 512u);
+        pfs_test_mark_dirty(disk, current);
+    }
     return PROS_BLOCK_OK;
 }
 
 static int pfs_test_flush(struct pros_block_device *device)
 {
-    (void)device;
+    struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
+    if (!disk)
+        return PROS_BLOCK_EINVAL;
+    for (uint64_t lba = 0u; lba < 512u; ++lba) {
+        if (pfs_test_dirty(disk, lba)) {
+            pfs_copy(disk->data + lba * 512u,
+                     disk->volatile_data + lba * 512u, 512u);
+            pfs_test_clear_dirty(disk, lba);
+        }
+    }
     return PROS_BLOCK_OK;
+}
+
+static void pfs_test_power_loss(struct pfs_test_disk *disk)
+{
+    if (!disk)
+        return;
+    pfs_zero(disk->dirty, sizeof(disk->dirty));
+}
+
+static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
+                                 struct pfs_test_disk *disk)
+{
+    if (!fs || !disk)
+        return;
+    pfs_test_power_loss(disk);
+    (void)vfs_mount_deactivate(&fs->mount);
+    if (fs->tx.images)
+        kfree(fs->tx.images);
+    if (fs->scratch)
+        kfree(fs->scratch);
+    pfs_zero(fs, sizeof(*fs));
 }
 
 static uint32_t pfs_selftest_diag_stage;
@@ -3915,6 +4042,8 @@ int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
+    pfs_crash_inject_stage = 0u;
+    pfs_crash_injected = 0u;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
     struct pros_prosenjitfs fs;
@@ -4529,6 +4658,103 @@ int prosenjitfs_selftest(void)
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
+
+    /*
+     * Crash/power-loss transaction matrix.
+     *
+     * The test disk now has durable media plus a volatile write cache.
+     * Each iteration performs a real VFS file overwrite and injects an
+     * interruption at one transaction boundary. The crash reset discards
+     * unflushed device-cache contents, drops the in-memory filesystem state,
+     * and remounts the same durable medium.
+     *
+     * Stages 1-4 occur before a durable commit and must leave the old data.
+     * Stages 5-9 occur after the commit is durable and must recover the new
+     * data from the redo journal, including the case where a home write was
+     * lost by the simulated power loss.
+     */
+    {
+        static const uint32_t crash_stages[] = {
+            1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u
+        };
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+
+        for (uint32_t stage_index = 0u;
+             stage_index < sizeof(crash_stages) / sizeof(crash_stages[0]);
+             ++stage_index) {
+            uint32_t stage = crash_stages[stage_index];
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int write_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+
+            for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                old_data[i] = (uint8_t)(0x31u ^ (uint8_t)(i * 7u));
+                new_data[i] = (uint8_t)(0xD6u ^ (uint8_t)(i * 11u));
+            }
+
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            if (vfs_file_open(&fs.mount, "/crash.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            pfs_crash_inject_stage = stage;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/crash.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data),
+                                      &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO ||
+                done != 0u ||
+                pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+
+            pfs_crash_inject_stage = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/crash.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+                uint8_t expected = stage >= 5u ? new_data[i] : old_data[i];
+                if (read_data[i] != expected) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+            }
+
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+    }
 
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
