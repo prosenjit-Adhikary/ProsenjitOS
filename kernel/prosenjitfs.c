@@ -1752,7 +1752,8 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                     }
                     break;
                 }
-                if (retained_blocks > UINT64_MAX - extent.block_count)
+            }
+            if (retained_blocks > UINT64_MAX - extent.block_count)
                     return PROS_VFS_EOVERFLOW;
                 retained_blocks += extent.block_count;
                 current = extent.next;
