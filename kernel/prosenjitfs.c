@@ -2211,7 +2211,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         (name_length == 1u && name[0] == '.') ||
         (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
-    rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode);
+    rc = pfs_vnode_validate_inode(data, &parent_inode);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     if (parent_inode.type != PROSENJITFS_INODE_DIR) {
@@ -2708,7 +2708,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
-    { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode);
+    { int inode_read_rc = pfs_vnode_validate_inode(data, &parent_inode);
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
         if (parent_inode.type != PROSENJITFS_INODE_DIR)
