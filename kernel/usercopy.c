@@ -32,6 +32,7 @@ uint64_t usercopy_fault_rip(void) {
 
 void usercopy_fault_clear(void) {
     usercopy_fault_active_state = 0;
+    usercopy_fault_rip_state = 0;
 }
 
 int copy_from_user(const struct pros_address_space *space,
