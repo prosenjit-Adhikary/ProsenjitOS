@@ -194,7 +194,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [ ] ELF loader
+- [x] ELF64 loader (ET_EXEC/ET_DYN validation, PT_LOAD mapping, NX/W^X enforcement, argv/env stack construction, rollback)
 - [ ] Process startup
 - [ ] Init/service manager
 - [ ] Secure shell
