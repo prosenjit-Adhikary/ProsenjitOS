@@ -18,6 +18,7 @@
 #include "usercopy.h"
 #include "pci.h"
 #include "driver.h"
+#include "network.h"
 #include "device_broker.h"
 #include "ata_pio.h"
 #include "partition.h"
@@ -778,6 +779,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\\n");
+
+    if (pros_net_selftest() != PROS_NET_OK) {
+        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: network protocol/socket self-test passed\\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
