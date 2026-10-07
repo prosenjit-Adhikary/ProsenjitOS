@@ -216,6 +216,11 @@ int security_quarantine_selftest(void) {
         process.state != PROS_PROCESS_BLOCKED ||
         process.quarantine_previous_state != (PROS_PROCESS_READY + 1u))
         return -1;
+    /* A repeated quarantine must preserve the saved READY state. */
+    if (security_quarantine(&process) != 0 ||
+        process.quarantine_previous_state != (PROS_PROCESS_READY + 1u) ||
+        process.state != PROS_PROCESS_BLOCKED)
+        return -11;
     if (security_clear_quarantine(&process) != 0 ||
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
