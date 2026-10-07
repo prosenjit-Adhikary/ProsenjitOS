@@ -2060,13 +2060,23 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     {
         uint8_t *scan = (uint8_t *)kmalloc(data->fs->sb.block_size);
         if (!scan) { rc = PROS_VFS_EIO; goto rmdir_out; }
+        rc = pfs_read_dir_index(data->fs, &child_inode, &dir_index);
+        if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
         for (uint32_t b = 0u; b < PROSENJITFS_DIR_BUCKETS; ++b) {
-            current = 0u; steps = 0u;
-            rc = pfs_read_dir_index(data->fs, &child_inode, &dir_index);
-            if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
             current = dir_index.heads[b];
+            steps = 0u;
             while (current != 0u) {
-                if (++steps > data->fs->sb.total_blocks) { kfree(scan); rc = PROSENJITFS_ECORRUPT; goto rmdir_out; }
+                if (++steps > data->fs->sb.total_blocks) {
+                    kfree(scan);
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto rmdir_out;
+                }
+                if (current < data->fs->sb.data_start ||
+                    current >= data->fs->sb.total_blocks) {
+                    kfree(scan);
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto rmdir_out;
+                }
                 rc = pfs_read_block(data->fs->mount.device, current, scan);
                 if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
                 {
@@ -2076,14 +2086,20 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                         child_entry.name_length == 0u ||
                         child_entry.name_length > PROSENJITFS_MAX_NAME ||
                         child_entry.next >= data->fs->sb.total_blocks ||
-                        (child_entry.next != 0u && child_entry.next < data->fs->sb.data_start) ||
+                        (child_entry.next != 0u &&
+                         child_entry.next < data->sb.data_start) ||
                         pfs_crc_with_zero32(scan, sizeof(child_entry),
-                            (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum)) !=
-                            child_entry.checksum) {
-                        kfree(scan); rc = PROSENJITFS_ECORRUPT; goto rmdir_out;
+                            (uint32_t)offsetof(
+                                struct pros_prosenjitfs_dir_entry,
+                                checksum)) != child_entry.checksum) {
+                        kfree(scan);
+                        rc = PROSENJITFS_ECORRUPT;
+                        goto rmdir_out;
                     }
-                    return (kfree(scan), (int)PROS_VFS_ENOTEMPTY);
+                    kfree(scan);
+                    return PROS_VFS_ENOTEMPTY;
                 }
+                current = child_entry.next;
             }
         }
         kfree(scan);
