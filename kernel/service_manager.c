@@ -270,9 +270,13 @@ int service_manager_selftest(void)
         return -5;
     if (service_start("missing") != PROS_SERVICE_ENOENT)
         return -6;
+    if (service_restart("child") != PROS_SERVICE_OK ||
+        service_status("child", &state, &retries) != PROS_SERVICE_OK ||
+        state != PROS_SERVICE_RUNNING || a != 1u || b != 1u)
+        return -7;
 
     if (service_manager_init() != PROS_SERVICE_OK)
-        return -7;
+        return -8;
     {
         const struct pros_service_definition loop_a = {
             .name = "loop-a", .start = sm_test_start, .stop = sm_test_stop,
@@ -287,12 +291,12 @@ int service_manager_selftest(void)
         if (service_register(&loop_a) != PROS_SERVICE_OK ||
             service_register(&loop_b) != PROS_SERVICE_OK ||
             service_start("loop-a") != PROS_SERVICE_ELOOP)
-            return -8;
+            return -9;
     }
 
     /* Missing dependencies must fail closed rather than partially starting. */
     if (service_manager_init() != PROS_SERVICE_OK)
-        return -9;
+        return -10;
     {
         const struct pros_service_definition missing_dep = {
             .name = "missing-dep", .start = sm_test_start, .stop = sm_test_stop,
@@ -303,12 +307,12 @@ int service_manager_selftest(void)
             service_start("missing-dep") != PROS_SERVICE_ENOENT ||
             service_status("missing-dep", &state, &retries) != PROS_SERVICE_OK ||
             state != PROS_SERVICE_FAILED || a != 0)
-            return -10;
+            return -11;
     }
 
     /* Retry exhaustion is bounded: max_retries=2 means exactly three starts. */
     if (service_manager_init() != PROS_SERVICE_OK)
-        return -11;
+        return -12;
     {
         const struct pros_service_definition failing = {
             .name = "failing", .start = sm_test_fail, .stop = sm_test_stop,
@@ -318,7 +322,7 @@ int service_manager_selftest(void)
             service_start("failing") != PROS_SERVICE_EFAILED ||
             service_status("failing", &state, &retries) != PROS_SERVICE_OK ||
             state != PROS_SERVICE_FAILED || retries != 3u)
-            return -12;
+            return -13;
     }
     return PROS_SERVICE_OK;
 }
