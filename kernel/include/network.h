@@ -79,6 +79,13 @@ struct pros_net_ipv4 {
     uint32_t dst;
 };
 
+struct pros_net_icmp {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint32_t rest;
+};
+
 struct pros_net_tcp {
     uint16_t src_port;
     uint16_t dst_port;
@@ -115,6 +122,8 @@ int pros_net_parse_arp(const uint8_t *data, uint32_t length,
                        struct pros_net_arp *out);
 int pros_net_parse_ipv4(const uint8_t *data, uint32_t length,
                         struct pros_net_ipv4 *out, uint32_t *payload_offset);
+int pros_net_parse_icmp(const uint8_t *data, uint32_t length,
+                        struct pros_net_icmp *out);
 int pros_net_arp_update(uint32_t ip, const uint8_t mac[6], uint64_t now,
                         uint64_t ttl);
 int pros_net_arp_lookup(uint32_t ip, uint8_t mac[6], uint64_t now);
