@@ -4584,29 +4584,10 @@ run_found:
     }
 
     /*
-     * Data blocks are zeroed before metadata publication. If the metadata
-     * transaction fails, the blocks remain unallocated and therefore cannot
-     * become visible through the filesystem.
+     * All reserved data/metadata blocks are published through the same
+     * journal transaction as the allocation bitmap and inode metadata.
+     * Never write home blocks before the commit record exists.
      */
-    pfs_zero(bitmap_zero, fs->sb.block_size);
-    for (uint32_t i = 0u; i < count; ++i) {
-        uint64_t lba;
-        rc = pfs_lba_add(fs->mount.device, run_start, i, &lba);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-        rc = pfs_write_block(fs->mount.device, lba, bitmap_zero);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    if (!coalesce) {
-        rc = pfs_write_block(fs->mount.device, extent_lba, bitmap_zero);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    rc = pfs_flush(fs->mount.device);
-    if (rc != PROSENJITFS_OK)
-        return rc;
-
     if (inode.allocated_bytes >
         UINT64_MAX - (uint64_t)count * fs->sb.block_size)
         return PROSENJITFS_EOVERFLOW;
@@ -4657,7 +4638,13 @@ run_found:
             if (rc != PROSENJITFS_OK)
                 return rc;
             rc = pfs_allocator_stage(fs, run_start, count, 1u);
-            if (rc == PROSENJITFS_OK)
+            for (uint32_t i = 0u; rc == PROSENJITFS_OK && i < count; ++i) {
+                uint64_t data_lba;
+                rc = pfs_lba_add(fs->mount.device, run_start, i, &data_lba);
+                if (rc == PROSENJITFS_OK)
+                    rc = pfs_tx_add(fs, data_lba, bitmap_zero);
+            }
+            if (rc == PROSENJITFS_OK && !coalesce)
                 rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_tx_add(fs, extent_lba, extent_image);
@@ -4689,6 +4676,12 @@ run_found:
     if (rc != PROSENJITFS_OK)
         return rc;
     rc = pfs_allocator_stage(fs, run_start, count, 1u);
+    for (uint32_t i = 0u; rc == PROSENJITFS_OK && i < count; ++i) {
+        uint64_t data_lba;
+        rc = pfs_lba_add(fs->mount.device, run_start, i, &data_lba);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_tx_add(fs, data_lba, bitmap_zero);
+    }
     if (rc == PROSENJITFS_OK && !coalesce)
         rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
     if (rc == PROSENJITFS_OK)
