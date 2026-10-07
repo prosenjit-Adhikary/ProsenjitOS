@@ -1408,9 +1408,12 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 new_inode.extent_head = next;
             }
 
+            if (extent.block_count > UINT32_MAX) {
+                return PROS_VFS_EOVERFLOW;
+            }
             if (extent.block_count > 0u) {
                 rc = pfs_allocator_stage(data->fs, extent.physical_block,
-                                         extent.block_count, 0u);
+                                         (uint32_t)extent.block_count, 0u);
                 if (rc != PROSENJITFS_OK)
                     return pfs_vfs_error(rc);
             }
@@ -1458,12 +1461,17 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
              * tail extent and releasing its unused physical suffix.
              */
             uint64_t keep_in_extent = keep_blocks - extent.logical_block;
-            uint64_t free_start = extent.physical_block + keep_in_extent;
-            uint32_t free_count = extent.block_count - (uint32_t)keep_in_extent;
+            uint64_t free_start;
+            uint32_t free_count;
             uint8_t extent_image[4096];
             struct pros_prosenjitfs_extent shortened = extent;
-            if (free_count == 0u)
+            if (keep_in_extent == 0u || keep_in_extent > extent.block_count ||
+                keep_in_extent > UINT32_MAX ||
+                extent.block_count - keep_in_extent > UINT32_MAX ||
+                extent.physical_block > UINT64_MAX - keep_in_extent)
                 return PROS_VFS_ECORRUPT;
+            free_start = extent.physical_block + keep_in_extent;
+            free_count = (uint32_t)(extent.block_count - keep_in_extent);
             shortened.block_count = (uint32_t)keep_in_extent;
             rc = pfs_read_block(data->fs->mount.device, current, extent_image);
             if (rc != PROSENJITFS_OK)
