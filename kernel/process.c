@@ -32,7 +32,12 @@ int process_register(struct pros_process *process) {
         process_lookup(process->pid) != 0) return -1;
     process->next = process_list;
     process_list = process;
-    if (process->pid >= next_pid) next_pid = process->pid + 1;
+    if (process->pid >= next_pid) {
+        if (process->pid == UINT64_MAX)
+            next_pid = UINT64_MAX;
+        else
+            next_pid = process->pid + 1;
+    }
     return 0;
 }
 
@@ -50,7 +55,8 @@ int process_unregister(struct pros_process *process) {
                 current_process = 0;
                 (void)paging_switch_kernel();
             }
-            (void)object_release(&process->object);
+            if (object_release(&process->object) != 0)
+                return -1;
             return 0;
         }
         link = &(*link)->next;
@@ -154,7 +160,12 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     *exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
-    return process_unregister(child);
+    if (process_unregister(child) != 0) {
+        /* Keep a fully reaped process visible if final unlinking fails. */
+        child->state = PROS_PROCESS_ZOMBIE;
+        return -5;
+    }
+    return 0;
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
