@@ -1111,7 +1111,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     return (int)done;
 }
 
-static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
+static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offset,
                           uint32_t length, const void *buffer)
 {
     struct pfs_vnode_data *data;
@@ -1394,6 +1394,19 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         file->vnode->size = inode.size;
     }
     return (int)done;
+}
+
+static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
+                          uint32_t length, const void *buffer)
+{
+    int rc;
+    int append = file && (file->flags & PROS_VFS_O_APPEND) != 0u;
+    if (append)
+        pfs_io_lock(((struct pfs_vnode_data *)file->vnode->private_data)->fs);
+    rc = pfs_file_write_unserialized(file, offset, length, buffer);
+    if (append)
+        pfs_io_unlock(((struct pfs_vnode_data *)file->vnode->private_data)->fs);
+    return rc;
 }
 
 static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
