@@ -501,6 +501,38 @@ int pros_net_socket_ack(uint32_t socket_id, uint32_t ack)
     return PROS_NET_ESTATE;
 }
 
+int pros_net_socket_receive_segment(uint32_t socket_id, uint32_t seq,
+                                    const uint8_t *data, uint32_t length,
+                                    uint8_t flags)
+{
+    struct pros_net_socket *s = socket_find(socket_id);
+    if (!s || (!data && length) ||
+        (flags & ~(TCP_FIN | TCP_RST | TCP_ACK)) != 0u ||
+        length > PROS_NET_PAYLOAD_MAX)
+        return PROS_NET_EINVAL;
+    if (s->state != PROS_NET_TCP_ESTABLISHED &&
+        s->state != PROS_NET_TCP_SYN_RECEIVED)
+        return PROS_NET_ESTATE;
+    if (flags & TCP_RST) {
+        s->state = PROS_NET_TCP_CLOSED;
+        s->used = 0u;
+        return PROS_NET_OK;
+    }
+    if (seq != s->rcv_nxt)
+        return PROS_NET_ESTATE;
+    if (length > (uint32_t)(PROS_NET_PAYLOAD_MAX - s->rx_len))
+        return PROS_NET_ENOSPC;
+    for (uint32_t i = 0; i < length; ++i)
+        s->rx[s->rx_len + i] = data[i];
+    s->rx_len = (uint16_t)(s->rx_len + length);
+    s->rcv_nxt += length;
+    if (flags & TCP_FIN) {
+        s->rcv_nxt += 1u;
+        s->state = PROS_NET_TCP_CLOSE_WAIT;
+    }
+    return PROS_NET_OK;
+}
+
 int pros_net_socket_send(uint32_t socket_id, const uint8_t *data, uint32_t length)
 {
     struct pros_net_socket *s = socket_find(socket_id);
@@ -653,6 +685,18 @@ int pros_net_selftest(void)
         return -9;
 
     {
+        const uint8_t rxdata[2] = {0x11, 0x22};
+        uint32_t received = 0;
+        if (pros_net_socket_receive_segment(sid, 101u, rxdata, 2u, TCP_ACK) != PROS_NET_OK ||
+            pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EBOUNDS ||
+            pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK ||
+            received != 2u || payload[0] != 0x11u || payload[1] != 0x22u ||
+            pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE ||
+            pros_net_socket_receive_segment(sid, 103u, rxdata, 0u, TCP_FIN | TCP_ACK) != PROS_NET_OK)
+            return -10;
+    }
+
+    {
         uint32_t listener = 0, accepted = 0;
         if (pros_net_socket_create(&listener) != PROS_NET_OK ||
             pros_net_socket_bind(listener, 0xC0A80101u, 8080u) != PROS_NET_OK ||
@@ -661,7 +705,7 @@ int pros_net_selftest(void)
             pros_net_socket_ack(accepted, 1u) != PROS_NET_OK ||
             pros_net_socket_close(accepted) != PROS_NET_OK ||
             pros_net_socket_close(listener) != PROS_NET_OK)
-            return -10;
+            return -11;
     }
 
     /* Invalid ACKs and oversized payloads must not advance transport state. */
@@ -670,7 +714,7 @@ int pros_net_selftest(void)
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE ||
         pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
-        return -11;
+        return -12;
 
     return PROS_NET_OK;
 }
