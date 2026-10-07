@@ -121,4 +121,24 @@ struct __attribute__((packed)) pros_prosenjitfs_journal_commit {
     uint32_t checksum;
 };
 
+/*
+ * v1 is intentionally byte-layout stable. These assertions make the
+ * on-disk contract fail at compile time if a field is changed without an
+ * explicit format-version/layout update.
+ */
+_Static_assert(sizeof(struct pros_prosenjitfs_superblock) == 120u,
+               "ProsenjitFS superblock layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_inode) == 256u,
+               "ProsenjitFS inode layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_extent) == 44u,
+               "ProsenjitFS extent layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_dir_index) == 284u,
+               "ProsenjitFS directory-index layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_dir_entry) == 290u,
+               "ProsenjitFS directory-entry layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_journal_header) == 148u,
+               "ProsenjitFS journal-header layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_journal_commit) == 20u,
+               "ProsenjitFS journal-commit layout changed");
+
 #endif
