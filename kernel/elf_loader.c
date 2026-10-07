@@ -17,6 +17,7 @@
 #define ELF_PAGE 4096ULL
 #define ELF_USER_MAX 0x0000800000000000ULL
 #define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
+#define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
 #define ELF_MAX_PHNUM 128u
 #define ELF_MAX_IMAGE 0x02000000ULL
 
@@ -198,10 +199,10 @@ int pros_elf_selftest(void)
     eh->ident[4] = ELFCLASS64; eh->ident[5] = ELFDATA2LSB; eh->ident[6] = EV_CURRENT;
     eh->ident[7] = ELFOSABI_SYSV;
     eh->type = ET_EXEC; eh->machine = EM_X86_64; eh->version = EV_CURRENT;
-    eh->entry = 0x400000; eh->phoff = sizeof(*eh); eh->ehsize = sizeof(*eh);
+    eh->entry = ELF_TEST_CODE_VA; eh->phoff = sizeof(*eh); eh->ehsize = sizeof(*eh);
     eh->phentsize = sizeof(*ph); eh->phnum = 1;
     ph[0].type = PT_LOAD; ph[0].flags = PF_R | PF_X; ph[0].offset = data_off;
-    ph[0].vaddr = 0x400000; ph[0].filesz = 4; ph[0].memsz = 0x1000;
+    ph[0].vaddr = ELF_TEST_CODE_VA; ph[0].filesz = 4; ph[0].memsz = 0x1000;
     ph[0].align = ELF_PAGE;
 
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -1;
