@@ -7038,6 +7038,202 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -21);
     }
 
+    /* Rename crash matrix: cross-directory rename must remain atomic across
+     * every transaction stage. Before durable commit the old namespace remains;
+     * at/after durable commit the new namespace and allocation state remain. */
+    {
+        static const uint8_t rename_data[16] = {
+            0x6Au, 0x13u, 0xC4u, 0x29u, 0x8Fu, 0x55u, 0xE1u, 0x3Cu,
+            0xB7u, 0x02u, 0xD8u, 0x41u, 0x9Au, 0x76u, 0x0Du, 0xF2u
+        };
+        uint8_t read_data[sizeof(rename_data)];
+
+        for (uint32_t stage = 1u; stage <= 9u; ++stage) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_mkdir(&fs.mount, "/rename-crash-a") != PROS_VFS_OK ||
+                vfs_mkdir(&fs.mount, "/rename-crash-b") != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/rename-crash-a/source.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, rename_data, sizeof(rename_data), &done) != PROS_VFS_OK ||
+                done != sizeof(rename_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+
+            pfs_crash_inject_stage = stage;
+            pfs_crash_injected = 0u;
+            rc = vfs_rename(&fs.mount, "/rename-crash-a/source.bin",
+                            "/rename-crash-b/dest.bin");
+            if (rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+
+            if (stage < 5u) {
+                done = 0u;
+                rc = vfs_file_open(&fs.mount, "/rename-crash-a/source.bin",
+                                   PROS_VFS_O_READ, &file);
+                if (rc != PROS_VFS_OK ||
+                    vfs_file_read(&file, read_data, sizeof(read_data), &done) != PROS_VFS_OK ||
+                    done != sizeof(read_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    vfs_file_open(&fs.mount, "/rename-crash-b/dest.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+                for (uint32_t i = 0u; i < sizeof(rename_data); ++i) {
+                    if (read_data[i] != rename_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -22);
+                    }
+                }
+                if (vfs_unlink(&fs.mount, "/rename-crash-a/source.bin") != PROS_VFS_OK)
+                    return pfs_selftest_fail(__LINE__, -22);
+            } else {
+                done = 0u;
+                rc = vfs_file_open(&fs.mount, "/rename-crash-b/dest.bin",
+                                   PROS_VFS_O_READ, &file);
+                if (rc != PROS_VFS_OK ||
+                    vfs_file_read(&file, read_data, sizeof(read_data), &done) != PROS_VFS_OK ||
+                    done != sizeof(read_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    vfs_file_open(&fs.mount, "/rename-crash-a/source.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+                    vfs_unlink(&fs.mount, "/rename-crash-b/dest.bin") != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+                for (uint32_t i = 0u; i < sizeof(rename_data); ++i) {
+                    if (read_data[i] != rename_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -22);
+                    }
+                }
+            }
+
+            if (vfs_rmdir(&fs.mount, "/rename-crash-a") != PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/rename-crash-b") != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -22);
+        }
+    }
+
+    /* Interrupted rename journal recovery: a committed cross-directory rename
+     * must be replayed completely even when recovery itself is interrupted at
+     * both replay durability boundaries. */
+    {
+        static const uint8_t recovery_rename_data[16] = {
+            0x4Du, 0xA2u, 0x19u, 0xC8u, 0x73u, 0x05u, 0xEEu, 0x31u,
+            0x9Fu, 0x47u, 0xD0u, 0x2Cu, 0xB5u, 0x68u, 0x0Au, 0xF3u
+        };
+
+        for (uint32_t recovery_stage = 10u; recovery_stage <= 11u;
+             ++recovery_stage) {
+            struct pros_vfs_file file;
+            uint8_t read_data[sizeof(recovery_rename_data)];
+            uint32_t done = 0u;
+            int rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_mkdir(&fs.mount, "/rename-recovery-a") != PROS_VFS_OK ||
+                vfs_mkdir(&fs.mount, "/rename-recovery-b") != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/rename-recovery-a/source.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, recovery_rename_data,
+                               sizeof(recovery_rename_data), &done) != PROS_VFS_OK ||
+                done != sizeof(recovery_rename_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -23);
+            }
+
+            pfs_crash_inject_stage = 5u;
+            pfs_crash_injected = 0u;
+            rc = vfs_rename(&fs.mount, "/rename-recovery-a/source.bin",
+                            "/rename-recovery-b/dest.bin");
+            if (rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -23);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            pfs_crash_inject_stage = recovery_stage;
+            pfs_crash_injected = 0u;
+            rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (rc != PROSENJITFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -23);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -23);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/rename-recovery-b/dest.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) != PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/rename-recovery-a/source.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -23);
+            }
+            for (uint32_t i = 0u; i < sizeof(recovery_rename_data); ++i) {
+                if (read_data[i] != recovery_rename_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -23);
+                }
+            }
+
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/rename-recovery-a/source.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+                vfs_unlink(&fs.mount, "/rename-recovery-b/dest.bin") != PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/rename-recovery-a") != PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/rename-recovery-b") != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -23);
+        }
+    }
+
     /* Repeated persistence/reuse regression: 100 complete create/write/
      * unmount/remount/read/unlink/unmount/remount cycles on one image. */
     {
