@@ -358,8 +358,6 @@ int pros_vfs_provider_selftest(void)
      * the required callback ABI is callable and rejects invalid arguments.
      */
     {
-        struct pros_vfs_mount mount = { 0 };
-        struct pros_block_device device = { 0 };
         struct pros_vfs_provider callback_provider = {
             .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
             .flags = 0u,
@@ -367,15 +365,20 @@ int pros_vfs_provider_selftest(void)
             .ops = &ops,
             .private_data = 0
         };
-        if (ops.probe(&device) != PROS_VFS_PROVIDER_OK ||
+        if (ops.probe((struct pros_block_device *)1) != PROS_VFS_PROVIDER_OK ||
             ops.probe(0) != PROS_VFS_PROVIDER_EINVAL ||
-            ops.mount(&callback_provider, &mount, &device, 0, 0, 0) !=
+            ops.mount(&callback_provider,
+                      (struct pros_vfs_mount *)1,
+                      (struct pros_block_device *)1,
+                      0, 0, 0) != PROS_VFS_PROVIDER_OK ||
+            ops.mount(0,
+                      (struct pros_vfs_mount *)1,
+                      (struct pros_block_device *)1,
+                      0, 0, 0) != PROS_VFS_PROVIDER_EINVAL ||
+            ops.unmount(&callback_provider, (struct pros_vfs_mount *)1) !=
                 PROS_VFS_PROVIDER_OK ||
-            ops.mount(0, &mount, &device, 0, 0, 0) !=
-                PROS_VFS_PROVIDER_EINVAL ||
-            ops.unmount(&callback_provider, &mount) !=
-                PROS_VFS_PROVIDER_OK ||
-            ops.unmount(0, &mount) != PROS_VFS_PROVIDER_EINVAL)
+            ops.unmount(0, (struct pros_vfs_mount *)1) !=
+                PROS_VFS_PROVIDER_EINVAL)
             return -15;
     }
 
