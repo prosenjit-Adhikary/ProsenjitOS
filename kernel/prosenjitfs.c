@@ -1464,18 +1464,101 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
 
     if (size > inode.size) {
-        static const uint8_t zeros[512] = { 0 };
-        uint64_t left = size - inode.size;
-        uint64_t position = inode.size;
-        while (left != 0u) {
-            uint32_t chunk = left > sizeof(zeros) ? sizeof(zeros) :
-                             (uint32_t)left;
-            int rc = pfs_file_write(file, (uint32_t)position, chunk, zeros);
-            if (rc != (int)chunk)
-                return rc < 0 ? rc : PROS_VFS_EIO;
-            position += chunk;
-            left -= chunk;
+        /*
+         * Sparse growth: extending EOF creates a logical hole instead of
+         * allocating/journaling every intervening data block. Bytes exposed
+         * by the extension must still read as zero.
+         */
+        uint64_t old_size = inode.size;
+        uint64_t bs = data->fs->sb.block_size;
+        uint8_t block[4096];
+
+        if (bs == 0u || bs > sizeof(block))
+            return PROS_VFS_ECORRUPT;
+
+        /*
+         * If EOF is inside an already allocated block, clear the previously
+         * unreachable tail before publishing the larger inode size. Later
+         * logical blocks remain unallocated holes.
+         */
+        if ((old_size % bs) != 0u) {
+            uint64_t logical_block = old_size / bs;
+            struct pros_prosenjitfs_extent extent;
+            uint64_t extent_lba = 0u;
+            uint64_t tail_lba = 0u;
+            int rc = pfs_find_extent(data->fs, &inode, logical_block,
+                                     &extent, &extent_lba, &tail_lba);
+            if (rc != PROSENJITFS_ENOENT && rc != PROSENJITFS_OK)
+                return pfs_vfs_error(rc);
+
+            if (rc == PROSENJITFS_OK) {
+                uint64_t delta = logical_block - extent.logical_block;
+                uint64_t physical = 0u;
+                uint32_t start = (uint32_t)(old_size % bs);
+
+                rc = pfs_lba_add(data->fs->mount.device,
+                                 extent.physical_block, delta, &physical);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_vfs_error(rc);
+                if (physical < data->fs->sb.data_start ||
+                    physical >= data->fs->sb.total_blocks)
+                    return PROS_VFS_ECORRUPT;
+
+                rc = pfs_read_block(data->fs->mount.device, physical, block);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_vfs_error(rc);
+                for (uint32_t i = start; i < (uint32_t)bs; ++i)
+                    block[i] = 0u;
+
+                rc = pfs_tx_reset(data->fs);
+                if (rc == PROSENJITFS_OK)
+                    rc = pfs_tx_add(data->fs, physical, block);
+                if (rc == PROSENJITFS_OK)
+                    rc = pfs_tx_commit(data->fs);
+                if (rc != PROSENJITFS_OK) {
+                    pfs_tx_reset(data->fs);
+                    return pfs_vfs_error(rc);
+                }
+            }
         }
+
+        /*
+         * Publish size only after tail-zeroing. The newly exposed range has
+         * no extents and therefore consumes no data blocks. A crash before
+         * this inode transaction cannot expose stale bytes past the old EOF.
+         */
+        inode.size = size;
+        inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
+        {
+            uint64_t inode_lba;
+            uint32_t inode_offset;
+            uint8_t inode_image[4096];
+            int rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                              &inode_lba, &inode_offset);
+            if (rc != PROSENJITFS_OK)
+                return pfs_vfs_error(rc);
+            rc = pfs_read_block(data->fs->mount.device, inode_lba,
+                                inode_image);
+            if (rc != PROSENJITFS_OK)
+                return pfs_vfs_error(rc);
+            pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
+            pfs_put32(inode_image + inode_offset +
+                      offsetof(struct pros_prosenjitfs_inode, checksum),
+                      pfs_crc_with_zero32(
+                          inode_image + inode_offset, sizeof(inode),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_inode, checksum)));
+            rc = pfs_tx_reset(data->fs);
+            if (rc == PROSENJITFS_OK)
+                rc = pfs_tx_add(data->fs, inode_lba, inode_image);
+            if (rc == PROSENJITFS_OK)
+                rc = pfs_tx_commit(data->fs);
+            if (rc != PROSENJITFS_OK) {
+                pfs_tx_reset(data->fs);
+                return pfs_vfs_error(rc);
+            }
+        }
+        file->vnode->size = size;
         return PROS_VFS_OK;
     }
 
