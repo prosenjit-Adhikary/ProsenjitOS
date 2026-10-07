@@ -74,6 +74,7 @@ enum pros_security_decision security_authorize(
 int security_quarantine(struct pros_process *process);
 int security_clear_quarantine(struct pros_process *process);
 int security_is_quarantined(const struct pros_process *process);
+int security_quarantine_selftest(void);
 uint64_t security_ledger_count(void);
 int security_ledger_latest(struct pros_reason_record *record);
 
