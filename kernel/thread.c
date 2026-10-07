@@ -228,6 +228,16 @@ int thread_wake(struct pros_thread *thread) {
     if (!thread || thread->state != PROS_THREAD_BLOCKED ||
         !thread_process_runnable(thread))
         return -1;
+
+    /*
+     * A blocked syscall is resumed by retrying INT 0x80. Reject malformed
+     * saved frames before changing state; otherwise RIP-2 could underflow or
+     * a nonzero blocked_syscall could be lost without a valid frame.
+     */
+    if (thread->blocked_syscall != 0 &&
+        (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u))
+        return -1;
+
     /*
      * thread_enqueue() intentionally rejects BLOCKED threads. Transition to
      * READY only for the enqueue operation; if enqueue fails, restore the
