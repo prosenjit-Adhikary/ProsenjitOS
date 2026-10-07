@@ -299,8 +299,6 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         return PROS_VFS_EPERM;
     if (length != 0u && !buffer)
         return PROS_VFS_EINVAL;
-    if (file->position > 0xFFFFFFFFULL)
-        return PROS_VFS_EOVERFLOW;
     /*
      * O_APPEND is an operation-time filesystem contract. Do not derive the
      * write offset from a cached vnode EOF; another handle may have extended
