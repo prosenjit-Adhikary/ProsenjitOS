@@ -360,16 +360,18 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 int vfs_file_close(struct pros_vfs_file *file)
 {
     int rc;
+    struct pros_vfs_mount *mount;
     if (!file || !file->open || !file->ops || !file->ops->close)
         return PROS_VFS_EINVAL;
+    mount = file->mount;
     rc = file->ops->close(file);
     if (rc != PROS_VFS_OK)
         return rc;
     file->open = 0u;
     if (file->vnode)
         vfs_vnode_put(file->vnode);
-    if (file->mount && file->mount->open_count != 0u)
-        --file->mount->open_count;
+    if (mount && mount->open_count != 0u)
+        --mount->open_count;
     file->vnode = 0;
     file->mount = 0;
     file->ops = 0;
@@ -1025,11 +1027,13 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
 
 int vfs_dir_close(struct pros_vfs_dir *dir)
 {
+    struct pros_vfs_mount *mount;
     if (!dir || !dir->open || !dir->vnode)
         return PROS_VFS_EINVAL;
+    mount = dir->vnode->mount;
     vfs_vnode_put(dir->vnode);
-    if (dir->vnode->mount && dir->vnode->mount->open_count != 0u)
-        --dir->vnode->mount->open_count;
+    if (mount && mount->open_count != 0u)
+        --mount->open_count;
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
