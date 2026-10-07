@@ -88,6 +88,23 @@ int pros_security_quarantine_release(uint64_t entry_id) {
     return 0;
 }
 
+int pros_security_quarantine_release_owner(uint64_t owner_pid) {
+    if (owner_pid == 0u)
+        return -1;
+
+    uint32_t released = 0u;
+    for (uint32_t i = 0u; i < PROS_SECURITY_QUARANTINE_MAX; ++i) {
+        if (!entries[i].active || entries[i].owner_pid != owner_pid)
+            continue;
+        entries[i].active = 0u;
+        if (active_count != 0u)
+            --active_count;
+        ++released;
+    }
+
+    return released == 0u ? -1 : (int)released;
+}
+
 uint32_t pros_security_quarantine_count(void) {
     return active_count;
 }
