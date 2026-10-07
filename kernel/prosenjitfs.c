@@ -1328,8 +1328,11 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
     }
 
-    keep_blocks = (size + data->fs->sb.block_size - 1u) /
-                  data->fs->sb.block_size;
+    /* Compute the ceiling without forming size + block_size - 1.
+     * This keeps the truncation boundary arithmetic overflow-safe even if
+     * the file-size limit is raised in a future format revision. */
+    keep_blocks = size / data->fs->sb.block_size +
+                  ((size % data->fs->sb.block_size) != 0u ? 1u : 0u);
 
     /*
      * Publish the new logical EOF before reclaiming physical extents.
