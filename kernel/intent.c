@@ -41,6 +41,15 @@ static void ledger_record(const struct pros_process *process,
                           uint64_t tid,
                           enum pros_security_decision decision,
                           uint32_t reason) {
+    /*
+     * Keep sequence 0 reserved as the initial state and make wraparound
+     * explicit. A wrapped sequence would make audit ordering ambiguous.
+     * This bounded ledger therefore stops recording rather than silently
+     * reusing sequence numbers.
+     */
+    if (ledger_sequence == UINT64_MAX)
+        return;
+
     uint64_t slot = ledger_sequence % PROS_REASON_LEDGER_SIZE;
     struct pros_reason_record *r = &ledger[slot];
     r->sequence = ledger_sequence++;
