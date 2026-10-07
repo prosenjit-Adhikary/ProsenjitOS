@@ -3822,21 +3822,22 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_header h;
     struct pros_prosenjitfs_journal_commit c;
     uint32_t checksum;
+#define PFS_TX_RETURN(value) do {         int pfs_tx_return_rc = (value);         (void)pfs_tx_reset(fs);         PFS_TX_RETURN(pfs_tx_return_rc);     } while (0)
 
     pfs_tx_diag_stage = 1u;
     pfs_tx_diag_count = 0u;
     if (!fs || !fs->scratch || !fs->tx.images || fs->read_only)
-        return PROSENJITFS_EINVAL;
+        PFS_TX_RETURN(PROSENJITFS_EINVAL);
     {
         int validate_rc = pfs_tx_validate(fs);
         if (validate_rc != PROSENJITFS_OK)
-            return validate_rc;
+            PFS_TX_RETURN(validate_rc);
     }
     pfs_tx_diag_count = fs->tx.count;
     {
         int crash_rc = pfs_tx_crash_inject(1u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
 
     header = fs->scratch;
@@ -3846,7 +3847,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_zero(commit, fs->sb.block_size);
     pfs_zero(&h, sizeof(h));
     if (fs->sb.transaction_sequence == UINT64_MAX)
-        return PROSENJITFS_EOVERFLOW;
+        PFS_TX_RETURN(PROSENJITFS_EOVERFLOW);
     h.magic = PROSENJITFS_JOURNAL_MAGIC;
     h.record_count = fs->tx.count;
     h.transaction_id = fs->sb.transaction_sequence++;
@@ -3864,12 +3865,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         int rc = pfs_write_block(fs->mount.device, fs->sb.journal_start,
                                  header);
         if (rc != PROSENJITFS_OK)
-            return rc;
+            PFS_TX_RETURN(rc);
     }
     {
         int crash_rc = pfs_tx_crash_inject(2u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
     pfs_tx_diag_stage = 3u;
     for (uint32_t i = 0; i < fs->tx.count; ++i) {
@@ -3878,27 +3879,27 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
                                  1u + i, &journal_lba);
             if (rc != PROSENJITFS_OK)
-                return rc;
+                PFS_TX_RETURN(rc);
         }
             {
             int rc = pfs_write_block(fs->mount.device, journal_lba,
                                      fs->tx.images + (uint64_t)i * fs->sb.block_size);
             if (rc != PROSENJITFS_OK)
-                return rc;
+                PFS_TX_RETURN(rc);
         }
         {
             int crash_rc = pfs_tx_crash_inject(3u);
             if (crash_rc != PROSENJITFS_OK)
-                return crash_rc;
+                PFS_TX_RETURN(crash_rc);
         }
     }
     pfs_tx_diag_stage = 4u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+        PFS_TX_RETURN(PROSENJITFS_EIO);
     {
         int crash_rc = pfs_tx_crash_inject(4u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
 
     pfs_zero(&c, sizeof(c));
@@ -3917,20 +3918,20 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
             int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
                                  1u + fs->tx.count, &commit_lba);
             if (rc != PROSENJITFS_OK)
-                return rc;
+                PFS_TX_RETURN(rc);
         }
             {
             int rc = pfs_write_block(fs->mount.device, commit_lba, commit);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_flush(fs->mount.device);
             if (rc != PROSENJITFS_OK)
-                return rc;
+                PFS_TX_RETURN(rc);
         }
     }
     {
         int crash_rc = pfs_tx_crash_inject(5u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
 
     pfs_tx_diag_stage = 6u;
@@ -3950,31 +3951,31 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         {
             int rc = pfs_write_block(fs->mount.device, fs->tx.targets[i], tx_image);
             if (rc != PROSENJITFS_OK)
-                return rc;
+                PFS_TX_RETURN(rc);
         }
         {
             int crash_rc = pfs_tx_crash_inject(6u);
             if (crash_rc != PROSENJITFS_OK)
-                return crash_rc;
+                PFS_TX_RETURN(crash_rc);
         }
     }
     pfs_tx_diag_stage = 7u;
     if (pfs_flush(fs->mount.device) != PROSENJITFS_OK)
-        return PROSENJITFS_EIO;
+        PFS_TX_RETURN(PROSENJITFS_EIO);
     {
         int crash_rc = pfs_tx_crash_inject(7u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
     if (pfs_diag.verify_pending) {
         uint8_t verify[4096];
         pfs_tx_diag_stage = 8u;
         if (pfs_read_block(fs->mount.device, pfs_diag.physical_lba,
                            verify) != PROSENJITFS_OK)
-            return PROSENJITFS_EIO;
+            PFS_TX_RETURN(PROSENJITFS_EIO);
         pfs_diag.post_commit_byte = verify[188u];
         if (pfs_diag.post_commit_byte != 0xD6u)
-            return PROSENJITFS_EIO;
+            PFS_TX_RETURN(PROSENJITFS_EIO);
         /* Verify the diagnostic block only for the transaction that created
          * the diagnostic marker. Later transactions may legitimately free
          * and reuse that block (for example during truncate tests). */
@@ -3985,19 +3986,21 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     {
         int crash_rc = pfs_tx_crash_inject(8u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
     pfs_tx_diag_stage = 9u;
     {
         int crash_rc = pfs_tx_crash_inject(9u);
         if (crash_rc != PROSENJITFS_OK)
-            return crash_rc;
+            PFS_TX_RETURN(crash_rc);
     }
     pfs_tx_diag_count_before_clear = fs->tx.count;
     pfs_tx_diag_clear_rc = pfs_journal_clear(fs);
     pfs_tx_diag_count_after_clear = fs->tx.count;
-    return pfs_tx_diag_clear_rc;
+    PFS_TX_RETURN(pfs_tx_diag_clear_rc);
 }
+
+#undef PFS_TX_RETURN
 
 static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit)
 {
