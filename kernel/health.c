@@ -268,6 +268,19 @@ int pros_health_watchdog_kick(uint32_t service_id) {
     return PROS_HEALTH_EINVAL;
 }
 
+int pros_health_watchdog_unregister(uint32_t service_id) {
+    if (!initialized || service_id == 0u)
+        return PROS_HEALTH_EINVAL;
+
+    for (uint32_t i = 0u; i < PROS_HEALTH_WATCHDOG_MAX; ++i) {
+        if (watchdogs[i].active && watchdogs[i].service_id == service_id) {
+            watchdogs[i] = (struct health_watchdog_slot){0};
+            return PROS_HEALTH_OK;
+        }
+    }
+    return PROS_HEALTH_EINVAL;
+}
+
 int pros_health_watchdog_poll(void) {
     uint64_t now;
     if (!initialized)
