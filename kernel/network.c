@@ -275,6 +275,9 @@ int pros_net_parse_tcp(const uint8_t *data, uint32_t length,
     out->seq = be32(data + 4u);
     out->ack = be32(data + 8u);
     out->flags = data[13];
+    if ((out->flags & (TCP_SYN | TCP_FIN)) == (TCP_SYN | TCP_FIN) ||
+        (out->flags & (TCP_SYN | TCP_RST)) == (TCP_SYN | TCP_RST))
+        return PROS_NET_EINVAL;
     out->window = be16(data + 14u);
     out->checksum = be16(data + 16u);
     out->urgent = be16(data + 18u);
@@ -428,14 +431,25 @@ int pros_net_socket_connect(uint32_t socket_id, uint32_t addr, uint16_t port,
     return PROS_NET_OK;
 }
 
-int pros_net_socket_accept_syn(uint32_t socket_id, uint32_t seq, uint32_t ack)
+int pros_net_socket_accept(uint32_t listener_id, uint32_t seq,
+                           uint32_t *accepted_id)
 {
-    struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || !s->listening || s->state != PROS_NET_TCP_LISTEN ||
-        ack != s->snd_nxt)
+    struct pros_net_socket *listener = socket_find(listener_id);
+    uint32_t child_id = 0;
+    struct pros_net_socket *child;
+    if (!listener || !accepted_id || !listener->listening ||
+        listener->state != PROS_NET_TCP_LISTEN || seq == UINT32_MAX)
         return PROS_NET_ESTATE;
-    s->rcv_nxt = seq + 1u;
-    s->state = PROS_NET_TCP_SYN_RECEIVED;
+    if (pros_net_socket_create(&child_id) != PROS_NET_OK)
+        return PROS_NET_ENOSPC;
+    child = socket_find(child_id);
+    if (!child) return PROS_NET_ESTATE;
+    child->local_addr = listener->local_addr;
+    child->local_port = listener->local_port;
+    child->rcv_nxt = seq + 1u;
+    child->snd_nxt = 1u;
+    child->state = PROS_NET_TCP_SYN_RECEIVED;
+    *accepted_id = child_id;
     return PROS_NET_OK;
 }
 
