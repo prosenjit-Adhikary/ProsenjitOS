@@ -403,7 +403,7 @@ int vfs_file_admit(const struct pros_vfs_mount *mount,
 static int vfs_security_admission_selftest(void)
 {
     struct pros_block_device device;
-    struct pros_vfs_mount mount;
+    struct pros_vfs_mount mount = { 0 };
     struct pros_file_admission_record record;
     struct pros_file_security_metadata metadata = {
         .format_valid = 1,
