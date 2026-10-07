@@ -2365,7 +2365,8 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                         goto rmdir_out;
                     }
                     kfree(scan);
-                    return PROS_VFS_ENOTEMPTY;
+                    rc = PROS_VFS_ENOTEMPTY;
+                    goto rmdir_out;
                 }
                 current = child_entry.next;
             }
