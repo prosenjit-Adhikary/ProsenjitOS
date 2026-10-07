@@ -443,10 +443,20 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     if (!vnode || !mount || !ops ||
         (type != PROS_VFS_NODE_FILE && type != PROS_VFS_NODE_DIRECTORY))
         return PROS_VFS_EINVAL;
+    if (parent && (!parent->initialized || parent->mount != mount))
+        return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_DIRECTORY && (!ops->lookup || !ops->readdir))
         return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_FILE && (!file_ops || !file_ops->read ||
                                        !file_ops->close))
+        return PROS_VFS_EINVAL;
+    /*
+     * A vnode owns one reference on its parent for as long as the vnode is
+     * alive. Without this get(), pfs_vnode_release() would later drop a
+     * reference it never acquired, allowing a parent (including the mount
+     * root) to be released while a child vnode still points at it.
+     */
+    if (parent && vfs_vnode_get(parent) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
     vnode->mount = mount;
     vnode->parent = parent;
