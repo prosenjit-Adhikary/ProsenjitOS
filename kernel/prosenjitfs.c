@@ -1789,13 +1789,17 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 return pfs_vfs_error(rc2);
         }
     }
-
-    file->vnode->size = size;
-    return PROS_VFS_OK;
+    goto truncate_done;
 
 truncate_abort:
     pfs_tx_reset(data->fs);
     return pfs_vfs_error(rc);
+
+truncate_done:
+    ;
+
+    file->vnode->size = size;
+    return PROS_VFS_OK;
 }
 
 static int pfs_file_close(struct pros_vfs_file *file)
@@ -2205,6 +2209,7 @@ mkdir_out:
 static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
 {
     struct pfs_vnode_data *data;
+    struct pros_prosenjitfs_inode freed_inode;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
     struct pros_prosenjitfs_dir_index child_dir_index;
@@ -2622,9 +2627,13 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
 
     pfs_zero(&freed_inode, sizeof(freed_inode));
     freed_inode.type = PROSENJITFS_INODE_FREE;
-    rc = pfs_next_generation(child_inode.generation, &freed_inode.generation);
-    if (rc != PROSENJITFS_OK)
-        goto out_reset;
+    {
+        uint64_t next_generation;
+        rc = pfs_next_generation(child_inode.generation, &next_generation);
+        if (rc != PROSENJITFS_OK)
+            goto out_reset;
+        freed_inode.generation = next_generation;
+    }
     pfs_zero(inode_block + inode_offset, sizeof(child_inode));
     pfs_copy(inode_block + inode_offset, &freed_inode, sizeof(freed_inode));
     pfs_put32(inode_block + inode_offset +
@@ -6706,4 +6715,5 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -11);
     return PROSENJITFS_OK;
+}
 }
