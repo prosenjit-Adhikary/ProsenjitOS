@@ -30,6 +30,8 @@ extern char __kernel_start[];
 extern char __kernel_end[];
 
 static uint64_t page_bitmap[BITMAP_WORDS];
+/* managed_bitmap distinguishes allocator-owned pages from permanently reserved pages. */
+static uint64_t managed_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
@@ -46,6 +48,18 @@ static inline int bitmap_test(uint64_t page) {
     return (page_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
 }
 
+static inline void managed_set(uint64_t page) {
+    managed_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+}
+
+static inline void managed_clear(uint64_t page) {
+    managed_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+}
+
+static inline int managed_test(uint64_t page) {
+    return (managed_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+}
+
 static void reserve_range(uint64_t base, uint64_t length) {
     if (length == 0 || base >= PROSENJIT_PHYS_LIMIT) return;
 
@@ -57,9 +71,12 @@ static void reserve_range(uint64_t base, uint64_t length) {
     if (last > MAX_PAGES) last = MAX_PAGES;
 
     for (uint64_t page = first; page < last; ++page) {
-        if (bitmap_test(page)) {
-            bitmap_clear(page);
-            if (free_pages != 0) --free_pages;
+        if (managed_test(page)) {
+            managed_clear(page);
+            if (bitmap_test(page)) {
+                bitmap_clear(page);
+                if (free_pages != 0) --free_pages;
+            }
         }
     }
 }
@@ -75,6 +92,7 @@ static void mark_available(uint64_t base, uint64_t length) {
     if (last > MAX_PAGES) last = MAX_PAGES;
 
     for (uint64_t page = first; page < last; ++page) {
+        if (!managed_test(page)) managed_set(page);
         if (!bitmap_test(page)) {
             bitmap_set(page);
             ++free_pages;
@@ -83,7 +101,10 @@ static void mark_available(uint64_t base, uint64_t length) {
 }
 
 int physical_memory_init(uint64_t multiboot_info_address) {
-    for (uint64_t i = 0; i < BITMAP_WORDS; ++i) page_bitmap[i] = 0;
+    for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
+        page_bitmap[i] = 0;
+        managed_bitmap[i] = 0;
+    }
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
@@ -92,6 +113,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 
     uint32_t total_size = *(const uint32_t *)(uintptr_t)multiboot_info_address;
     if (total_size < 16u || total_size > (16u * 1024u * 1024u)) return -2;
+    if (multiboot_info_address > UINT64_MAX - (uint64_t)total_size)
+        return -2;
 
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
@@ -135,7 +158,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     reserve_range(multiboot_info_address, total_size);
 
     /* Report the number of pages currently managed after reservations. */
-    total_pages = free_pages;
+    total_pages = 0;
+    for (uint64_t word = 0; word < BITMAP_WORDS; ++word)
+        total_pages += __builtin_popcountll(managed_bitmap[word]);
     return free_pages != 0 ? 0 : -5;
 }
 
@@ -163,7 +188,7 @@ void physical_page_free(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
 
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || bitmap_test(page)) return;
+    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page)) return;
 
     bitmap_set(page);
     ++free_pages;
