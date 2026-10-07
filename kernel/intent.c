@@ -95,7 +95,12 @@ int security_manager_init(void) {
     rc = pros_security_hardening_init(); if (rc != 0) return -12000 + rc;
     rc = pros_security_hardening_selftest(); if (rc != 0) return -13000 + rc;
     next_intent_id = 1;
-    ledger_sequence = 0;
+    /*
+     * Sequence zero is reserved as the never-written state. Start the first
+     * audit record at one so the sentinel and real sequence numbers cannot
+     * be confused by consumers of the ledger.
+     */
+    ledger_sequence = 1;
     ledger_count_value = 0;
     for (uint32_t i = 0; i < PROS_REASON_LEDGER_SIZE; ++i)
         ledger[i].sequence = UINT64_MAX;
