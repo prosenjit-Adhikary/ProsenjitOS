@@ -4174,7 +4174,7 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
     return pfs_allocator_update(fs, first_block, count, 0u);
 }
 
-static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
+static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
                                   uint64_t inode_number, uint8_t allocate)
 {
     uint64_t bits_per_block;
@@ -4235,6 +4235,15 @@ static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
         }
     }
     return PROSENJITFS_OK;
+}
+
+static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *fs,
+                                  uint64_t inode_number, uint8_t allocate)
+{
+    int rc = pfs_inode_bitmap_stage_unchecked(fs, inode_number, allocate);
+    if (rc != PROSENJITFS_OK && fs)
+        (void)pfs_tx_reset(fs);
+    return rc;
 }
 
 static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
