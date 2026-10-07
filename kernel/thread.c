@@ -91,8 +91,12 @@ int thread_process_has_live(const struct pros_process *process) {
 
 int thread_terminate_process(struct pros_process *process) {
     if (!process) return -1;
+
+    int terminated_current = 0;
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next) {
         if (thread->process != process || thread->state == PROS_THREAD_DEAD) continue;
+        if (thread == current_thread)
+            terminated_current = 1;
         if (thread->wait_channel) {
             (void)ipc_channel_cancel_waiter((struct pros_ipc_channel *)thread->wait_channel, thread);
             thread->wait_channel = 0;
@@ -104,7 +108,11 @@ int thread_terminate_process(struct pros_process *process) {
         thread->state = PROS_THREAD_DEAD;
     }
 
-    /* Remove all non-current threads of the process from the run queue. */
+    /* No dead process thread may remain visible as the current thread. */
+    if (terminated_current)
+        current_thread = 0;
+
+    /* Remove all terminated threads of the process from the run queue. */
     struct pros_thread *prev = 0;
     struct pros_thread *it = runq_head;
     while (it) {
@@ -121,7 +129,6 @@ int thread_terminate_process(struct pros_process *process) {
     }
     return 0;
 }
-
 int thread_set_state(struct pros_thread *thread, uint32_t state) {
     if (!thread || state > PROS_THREAD_DEAD) return -1;
     if (thread->state == PROS_THREAD_DEAD && state != PROS_THREAD_DEAD)
