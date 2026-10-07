@@ -6943,6 +6943,48 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* Rename persistence/recovery regression: exercise same-directory
+     * bucket changes and cross-directory moves, including directory parent
+     * updates, then verify both namespace and allocation consistency. */
+    {
+        struct pros_vfs_file file;
+        uint8_t value = 0xC7u;
+        uint8_t read_value = 0u;
+        uint32_t done = 0u;
+
+        pfs_zero(&disk, sizeof(disk));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_mkdir(&fs.mount, "/rename-a") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/rename-b") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/rename-a/file-a",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK || done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-a/file-a", "/rename-a/file-b") != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-a/file-b", "/rename-b/file-c") != PROS_VFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -21);
+        }
+
+        if (vfs_file_open(&fs.mount, "/rename-b/file-c", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, &read_value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || read_value != value || vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/rename-a/file-a", PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+            vfs_file_open(&fs.mount, "/rename-a/file-b", PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+            vfs_unlink(&fs.mount, "/rename-b/file-c") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-a") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-b") != PROS_VFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+    }
+
     /* Repeated persistence/reuse regression: 100 complete create/write/
      * unmount/remount/read/unlink/unmount/remount cycles on one image. */
     {
