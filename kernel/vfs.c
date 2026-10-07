@@ -100,6 +100,7 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
     mount->root = 0;
     mount->read_only = read_only ? 1u : 0u;
     mount->active = 0;
+    mount->open_count = 0u;
     return PROS_VFS_OK;
 }
 
@@ -206,6 +207,8 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
      * has externally visible vnode state. Refuse deactivation instead of
      * freeing fs-private state underneath an open handle.
      */
+    if (mount->open_count != 0u)
+        return PROS_VFS_EBUSY;
     if (mount->root && mount->root->refcount > 1u)
         return PROS_VFS_EBUSY;
 
@@ -249,6 +252,14 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->position = 0;
     file->flags = flags;
     file->open = 1u;
+    if (mount->open_count == 0xFFFFFFFFu) {
+        file->open = 0u;
+        file->mount = 0;
+        file->ops = 0;
+        file->private_data = 0;
+        return PROS_VFS_EOVERFLOW;
+    }
+    ++mount->open_count;
     return PROS_VFS_OK;
 }
 
@@ -357,6 +368,8 @@ int vfs_file_close(struct pros_vfs_file *file)
     file->open = 0u;
     if (file->vnode)
         vfs_vnode_put(file->vnode);
+    if (file->mount && file->mount->open_count != 0u)
+        --file->mount->open_count;
     file->vnode = 0;
     file->mount = 0;
     file->ops = 0;
@@ -988,9 +1001,14 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOSYS;
     }
+    if (mount->open_count == 0xFFFFFFFFu) {
+        vfs_vnode_put(vnode);
+        return PROS_VFS_EOVERFLOW;
+    }
     dir->vnode = vnode;
     dir->cookie = 0;
     dir->open = 1u;
+    ++mount->open_count;
     ++health_dir_open_count;
     return PROS_VFS_OK;
 }
@@ -1010,6 +1028,8 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
     if (!dir || !dir->open || !dir->vnode)
         return PROS_VFS_EINVAL;
     vfs_vnode_put(dir->vnode);
+    if (dir->vnode->mount && dir->vnode->mount->open_count != 0u)
+        --dir->vnode->mount->open_count;
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
@@ -1200,13 +1220,13 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -1;
 
-    if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY)
         return -1;
-
-    if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
+    if (vfs_file_seek(&file, 1u) != PROS_VFS_OK)
         return -1;
-
     if (vfs_file_close(&file) != PROS_VFS_OK)
+        return -1;
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
         return -1;
 
     return 0;
