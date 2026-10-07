@@ -151,3 +151,41 @@ void kfree(void *address) {
 uint64_t heap_used_bytes(void) {
     return heap_used;
 }
+
+
+int heap_selftest(void) {
+    uint64_t before = heap_used;
+    void *a = kmalloc(17);
+    void *b = kmalloc(64);
+    if (!a || !b || a == b ||
+        ((uint64_t)(uintptr_t)a & (ALIGNMENT - 1ULL)) != 0 ||
+        ((uint64_t)(uintptr_t)b & (ALIGNMENT - 1ULL)) != 0)
+        return -1;
+
+    ((volatile uint8_t *)a)[0] = 0xA5;
+    ((volatile uint8_t *)a)[16] = 0x5A;
+    if (((volatile uint8_t *)a)[0] != 0xA5 ||
+        ((volatile uint8_t *)a)[16] != 0x5A)
+        return -2;
+
+    uint64_t used_after_alloc = heap_used;
+    kfree(a);
+    if (heap_used >= used_after_alloc)
+        return -3;
+
+    kfree(b);
+    if (heap_used != before)
+        return -4;
+
+    void *c = kmalloc(80);
+    if (!c || heap_used == before)
+        return -5;
+    kfree(c);
+    if (heap_used != before)
+        return -6;
+
+    if (kmalloc(PROSENJIT_HEAP_MAX) != 0)
+        return -7;
+
+    return 0;
+}
