@@ -5472,6 +5472,63 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    /*
+     * Sparse truncate-growth regression: extending EOF must preserve the
+     * already allocated prefix, expose only zeros through the new hole, and
+     * consume no additional data blocks.
+     */
+    {
+        struct pros_vfs_file file;
+        struct pros_prosenjitfs_dir_entry entry;
+        struct pros_prosenjitfs_inode sparse_inode;
+        uint8_t marker = 0x7Cu;
+        uint8_t hole[1536];
+        uint32_t done = 0u;
+        uint64_t old_allocated;
+        uint64_t new_size = (uint64_t)fs.sb.block_size * 3u + 1u;
+
+        if (fs.sb.block_size != 512u ||
+            vfs_file_open(&fs.mount, "/sparse-truncate.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, &marker, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_truncate(&file, new_size) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &inode, "/sparse-truncate.bin",
+                               &entry) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &sparse_inode) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        old_allocated = fs.sb.block_size;
+        if (sparse_inode.size != new_size ||
+            sparse_inode.allocated_bytes != old_allocated ||
+            (sparse_inode.flags & PROSENJITFS_INODE_FLAG_SPARSE) == 0u)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (vfs_file_open(&fs.mount, "/sparse-truncate.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, hole, sizeof(hole), &done) != PROS_VFS_OK ||
+            done != sizeof(hole) || hole[0] != marker)
+        {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -14);
+        }
+        for (uint32_t i = 1u; i < sizeof(hole); ++i) {
+            if (hole[i] != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+    }
+
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -6);
     if (first_block < fs.sb.data_start ||
