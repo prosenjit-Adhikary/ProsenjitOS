@@ -108,9 +108,20 @@ void *kmalloc(uint64_t size) {
 
 void kfree(void *address) {
     if (!address) return;
-    struct heap_block *block =
-        (struct heap_block *)((uint8_t *)address - sizeof(struct heap_block));
-    if (block->magic != BLOCK_MAGIC || block->state != BLOCK_USED) return;
+    uint64_t addr = (uint64_t)(uintptr_t)address;
+    if (addr < PROSENJIT_HEAP_BASE + sizeof(struct heap_block) ||
+        addr >= heap_end || (addr & (ALIGNMENT - 1ULL)) != 0)
+        return;
+
+    struct heap_block *block = 0;
+    for (struct heap_block *candidate = heap_head; candidate; candidate = candidate->next) {
+        uint64_t payload = (uint64_t)(uintptr_t)candidate + sizeof(struct heap_block);
+        if (payload == addr) {
+            block = candidate;
+            break;
+        }
+    }
+    if (!block || block->magic != BLOCK_MAGIC || block->state != BLOCK_USED) return;
 
     block->state = BLOCK_FREE;
     if (heap_used >= block->size) heap_used -= block->size;
