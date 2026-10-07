@@ -36,7 +36,7 @@ static uint64_t intent_required_rights(uint32_t operation) {
     }
 }
 
-static void ledger_record(const struct pros_process *process,
+static int ledger_record(const struct pros_process *process,
                           const struct pros_intent *intent,
                           uint64_t tid,
                           enum pros_security_decision decision,
@@ -48,7 +48,7 @@ static void ledger_record(const struct pros_process *process,
      * reusing sequence numbers.
      */
     if (ledger_sequence == UINT64_MAX)
-        return;
+        return -1;
 
     uint64_t slot = ledger_sequence % PROS_REASON_LEDGER_SIZE;
     struct pros_reason_record *r = &ledger[slot];
@@ -68,6 +68,7 @@ static void ledger_record(const struct pros_process *process,
         0x53454341u,
         ((uint32_t)decision << 16) | (uint32_t)reason,
         r->intent_id);
+    return 0;
 }
 
 int security_manager_init(void) {
@@ -243,7 +244,17 @@ enum pros_security_decision security_authorize(
 
 record:
     if (reason_out) *reason_out = reason;
-    ledger_record(process, intent, tid, decision, reason);
+
+    /*
+     * Every authorization decision must have an auditable reason record.
+     * If the bounded ledger is exhausted, do not silently authorize an
+     * operation whose security decision cannot be recorded.
+     */
+    if (ledger_record(process, intent, tid, decision, reason) != 0) {
+        if (reason_out) *reason_out = PROS_REASON_POLICY_RESTRICTED;
+        return PROS_DECISION_DENY;
+    }
+
     if (decision == PROS_DECISION_QUARANTINE)
         (void)security_quarantine(process);
     return decision;
