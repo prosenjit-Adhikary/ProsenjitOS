@@ -9,6 +9,7 @@ static struct pros_process *current_process;
 static int process_is_live(const struct pros_process *process);
 static int process_is_active(const struct pros_process *process);
 static int process_release_resources(struct pros_process *process);
+static int process_has_children(const struct pros_process *process);
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
@@ -38,7 +39,7 @@ int process_register(struct pros_process *process) {
 int process_unregister(struct pros_process *process) {
     if (!process || process->state != PROS_PROCESS_DEAD ||
         process->address_space.root != 0 || process->object.refcount != 1 ||
-        thread_process_has_live(process))
+        thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
     struct pros_process **link = &process_list;
     while (*link) {
@@ -67,6 +68,14 @@ static int process_is_active(const struct pros_process *process) {
     return process_is_live(process) &&
            process->state != PROS_PROCESS_ZOMBIE &&
            process->state != PROS_PROCESS_DEAD;
+}
+
+static int process_has_children(const struct pros_process *process) {
+    if (!process) return 0;
+    for (struct pros_process *child = process_list; child; child = child->next)
+        if (child->parent == process && child->state != PROS_PROCESS_DEAD)
+            return 1;
+    return 0;
 }
 
 static int process_release_resources(struct pros_process *process) {
@@ -124,7 +133,8 @@ int process_create(struct pros_process *parent,
 int process_exit(struct pros_process *process, int32_t exit_code) {
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
-        process->state == PROS_PROCESS_ZOMBIE) return -1;
+        process->state == PROS_PROCESS_ZOMBIE ||
+        process_has_children(process)) return -1;
     process->exit_code = exit_code;
     if (thread_terminate_process(process) != 0) return -1;
     process->state = PROS_PROCESS_ZOMBIE;
