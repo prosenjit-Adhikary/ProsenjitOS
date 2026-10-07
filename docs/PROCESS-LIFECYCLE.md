@@ -26,6 +26,8 @@ The current process manager does not permit a DEAD process to transition back to
 
 ## Resource lifetime
 
+Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
+
 Process destruction is deliberately two-stage:
 
 1. `process_exit()` changes a live process to ZOMBIE and preserves its exit code.
@@ -56,5 +58,9 @@ Any future process-manager change should preserve:
 - rejection of double reap/unregister;
 - no capability grant beyond the process capability policy;
 - no syscall policy bits outside the supported mask;
-- address-space teardown before process unregister.
+- address-space teardown before process unregister;
+- no owned physical page may be mapped twice in one address space;
+- user mappings are restricted to the dedicated PML4[1] user region;
+- a parent cannot exit while a direct child remains live or zombie;
+- process objects are unregistered only after their final object reference is released.
 
