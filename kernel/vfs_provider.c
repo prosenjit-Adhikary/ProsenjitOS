@@ -116,29 +116,54 @@ int pros_vfs_provider_selftest(void)
         .ops = &ops,
         .private_data = 0
     };
-    struct pros_vfs_provider duplicate = first;
+    struct pros_vfs_provider duplicate;
     struct pros_vfs_provider invalid = first;
 
-    /* The self-test must never destroy live provider registrations. */
-    if (provider_count != 0u)
-        return PROS_VFS_PROVIDER_EBUSY;
-
+    /*
+     * This self-test may run after real providers have registered. It must
+     * validate the registry without requiring an empty registry and without
+     * modifying live provider registrations.
+     */
     if (pros_vfs_provider_register(0) != PROS_VFS_PROVIDER_EINVAL)
         return -1;
     invalid.abi_version++;
     if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
         return -2;
+
+    if (provider_count != 0u) {
+        /*
+         * Duplicate detection must be checked against a live registration
+         * without unregistering or replacing that provider.
+         */
+        duplicate = *providers[0];
+        if (!providers[0]->name[0] ||
+            pros_vfs_provider_find(providers[0]->name) != providers[0] ||
+            pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
+            return -3;
+        if (pros_vfs_provider_find("missing") != 0)
+            return -4;
+        if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
+            return -5;
+        return PROS_VFS_PROVIDER_OK;
+    }
+
+    /*
+     * With an empty registry, also exercise successful registration and
+     * cleanup. The temporary provider is stack-owned and is removed before
+     * returning, so the registry is restored exactly.
+     */
+    duplicate = first;
     if (pros_vfs_provider_register(&first) != PROS_VFS_PROVIDER_OK ||
         pros_vfs_provider_find("provider-selftest") != &first)
-        return -3;
-    if (pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
-        return -4;
-    if (pros_vfs_provider_find("missing") != 0)
-        return -5;
-    if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
         return -6;
+    if (pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
+        return -7;
+    if (pros_vfs_provider_find("missing") != 0)
+        return -8;
+    if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
+        return -9;
     if (pros_vfs_provider_unregister(&first) != PROS_VFS_PROVIDER_OK ||
         pros_vfs_provider_find("provider-selftest") != 0)
-        return -7;
+        return -10;
     return PROS_VFS_PROVIDER_OK;
 }
