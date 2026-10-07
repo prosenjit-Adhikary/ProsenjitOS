@@ -140,20 +140,29 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     if (!process_is_live(process) ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE ||
-        process_has_children(process)) return -1;
-    process->exit_code = exit_code;
+        process_has_children(process))
+        return -1;
+
     if (current_process == process) {
-        /* Return to the kernel address space before terminating the current
-         * process. A failed CR3 transition therefore leaves process/thread
-         * state untouched and the exit attempt remains retryable. */
-        if (paging_switch_kernel() != 0) return -1;
+        /*
+         * Return to the kernel address space before terminating the current
+         * process. A failed CR3 transition leaves both process and thread
+         * state untouched, so the exit remains retryable.
+         */
+        if (paging_switch_kernel() != 0)
+            return -1;
         current_process = 0;
     }
-    if (thread_terminate_process(process) != 0) return -1;
+
+    if (thread_terminate_process(process) != 0)
+        return -1;
+
+    /* Publish the exit result only after the irreversible thread transition
+     * has succeeded, keeping failed exits observationally non-destructive. */
+    process->exit_code = exit_code;
     process->state = PROS_PROCESS_ZOMBIE;
     return 0;
 }
-
 int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) {
     if (!process_is_active(parent) || !exit_code || pid == 0) return -1;
     struct pros_process *child = process_lookup(pid);
