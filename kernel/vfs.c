@@ -1138,8 +1138,12 @@ static int vfs_vnode_api_selftest(void)
         vfs_vnode_init(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
-        vfs_mount_set_root(&mount, &root) != PROS_VFS_OK ||
-        vfs_mount_activate(&mount) != PROS_VFS_OK)
+        vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
+        return -1;
+
+    /* vfs_mount_set_root() acquires the mount's ownership reference. */
+    vfs_vnode_put(&root);
+    if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -1;
 
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
