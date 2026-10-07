@@ -33,7 +33,7 @@ static void vfs_health_error(int rc)
         code = 2u;
     }
     else if (rc == PROS_VFS_ENOENT || rc == PROS_VFS_ENOTDIR ||
-             rc == PROS_VFS_ELOOP)
+             rc == PROS_VFS_ELOOP || rc == PROS_VFS_ESTALE)
         ++health_lookup_error_count;
     /* Size/path overflow is a validation error, not proof of corruption. */
     if (code != 0u)
