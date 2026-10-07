@@ -1683,24 +1683,22 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
      * Nested vnodes therefore must explicitly retain their parent or the
      * parent becomes a dangling pointer as soon as lookup advances.
      */
-    if (parent && vfs_vnode_get(parent) != PROS_VFS_OK) {
-        kfree(data);
-        kfree(*result);
-        *result = 0;
-        return PROS_VFS_EINVAL;
-    }
+    /*
+     * vfs_vnode_init() acquires the vnode's owned parent reference. Do not
+     * acquire it here as well: a second get() would leak one parent reference
+     * for every child vnode and can make an otherwise idle mount appear busy
+     * at unmount.
+     */
     if (vfs_vnode_init(*result, &fs->mount, parent, type,
                        &pfs_vnode_ops,
                        type == PROS_VFS_NODE_FILE ? &pfs_file_ops : 0,
                        data, inode.size) != PROS_VFS_OK) {
-        if (parent)
-            vfs_vnode_put(parent);
         kfree(data);
         kfree(*result);
         *result = 0;
         return PROS_VFS_EINVAL;
     }
-    return PROS_VFS_OK;
+
 }
 
 
