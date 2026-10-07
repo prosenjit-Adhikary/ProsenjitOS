@@ -3628,7 +3628,8 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
 
     if (!fs || count == 0u || first < fs->sb.data_start ||
         first >= fs->sb.total_blocks ||
-        (uint64_t)count > fs->sb.total_blocks - first)
+        (uint64_t)count > fs->sb.total_blocks - first ||
+        fs->sb.block_size == 0u || fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -3638,13 +3639,17 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
 
     if (last_bitmap < first_bitmap ||
         last_bitmap - first_bitmap + 1u > PROSENJITFS_MAX_TX_BLOCKS ||
-        fs->sb.block_size > 4096u)
+        last_bitmap >= (uint64_t)fs->sb.block_bitmap_blocks)
         return PROSENJITFS_EOVERFLOW;
 
-    for (uint64_t bi = first_bitmap; bi <= last_bitmap; ++bi) {
+    for (uint64_t bi = first_bitmap; ; ++bi) {
         uint8_t image[4096];
         uint64_t lba;
-        uint64_t bitmap_base = bi * bits_per_block;
+        uint64_t bitmap_base;
+
+        if (bi > UINT64_MAX / bits_per_block)
+            return PROSENJITFS_EOVERFLOW;
+        bitmap_base = bi * bits_per_block;
         {
             int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
                                  bi, &lba);
@@ -3677,7 +3682,7 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
         if (slot == fs->tx.count)
             return PROSENJITFS_EINVAL;
 
-        for (uint64_t bit = range_start; bit <= range_end; ++bit) {
+        for (uint64_t bit = range_start; ; ++bit) {
             uint8_t *tx_image =
                 fs->tx.images + (uint64_t)slot * fs->sb.block_size;
             uint8_t mask = (uint8_t)(1u << (bit & 7u));
@@ -3696,6 +3701,9 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
             if (bit == range_end)
                 break;
         }
+
+        if (bi == last_bitmap)
+            break;
     }
     return PROSENJITFS_OK;
 }
