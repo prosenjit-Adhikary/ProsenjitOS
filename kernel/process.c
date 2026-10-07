@@ -2,6 +2,7 @@
 #include "../../include/abi/syscall.h"
 #include "paging.h"
 #include "thread.h"
+#include "security_monitor.h"
 
 extern int paging_switch_kernel(void);
 
@@ -133,6 +134,14 @@ int process_create(struct pros_process *parent,
         (void)process_release_resources(child);
         return -1;
     }
+
+    /*
+     * Security-monitor state is keyed by PID. A PID may be reused only
+     * after the previous process has been fully reaped, so discard any
+     * historical monitor score before the new lifetime becomes observable.
+     * This prevents inherited quarantine/block scores across PID reuse.
+     */
+    (void)pros_security_monitor_clear(child->pid);
     return 0;
 }
 
