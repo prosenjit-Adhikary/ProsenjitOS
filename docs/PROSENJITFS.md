@@ -157,3 +157,18 @@ contract has no symlink creation/readlink/path-following operations, so Native
 ProsenjitFS rejects symlink inodes at vnode materialization rather than
 silently treating them as regular files. This is intentional; no partial
 symlink implementation is claimed.
+
+
+### Transaction failure hygiene
+
+Transaction staging is treated as volatile state. `pfs_tx_add()`,
+allocator staging, and inode-bitmap staging clear the in-memory transaction
+when validation or capacity fails before commit, preventing a failed
+operation from contaminating the next filesystem operation.
+
+### Storage/LBA boundary
+
+Native ProsenjitFS block numbers remain volume-relative filesystem blocks.
+The validated LBA helper performs the device-sector conversion and the
+partition device remains responsible for applying partition-relative offset.
+Metadata, journal, and out-of-range targets are rejected before block I/O.
