@@ -37,5 +37,6 @@ int address_space_validate_user_range(const struct pros_address_space *space,
                                       uint64_t virtual_address,
                                       uint64_t size,
                                       int write_access);
+int address_space_selftest(void);
 
 #endif
