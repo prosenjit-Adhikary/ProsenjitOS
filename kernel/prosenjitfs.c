@@ -6218,6 +6218,77 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -10);
     if (prosenjitfs_free_blocks(&fs, first_block, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -10);
+
+    /* Keep-size preallocation regression: reserve future blocks without
+     * changing EOF, verify zero initialization, persistence, and subsequent
+     * in-place write reuse. */
+    {
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode before;
+        struct pros_prosenjitfs_inode after;
+        struct pros_prosenjitfs_dir_entry entry;
+        struct pros_prosenjitfs_extent extent;
+        struct pros_vfs_file file;
+        uint8_t zero[512];
+        uint8_t value = 0xA7u;
+        uint8_t readback = 0u;
+        uint32_t done = 0u;
+
+        pfs_zero(zero, sizeof(zero));
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &root_inode, "append.bin", &entry) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &before) !=
+                PROSENJITFS_OK ||
+            before.type != PROSENJITFS_INODE_FILE ||
+            prosenjitfs_preallocate_blocks(&fs, entry.inode, 1u, 2u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &after) !=
+                PROSENJITFS_OK ||
+            after.size != before.size ||
+            after.allocated_bytes !=
+                before.allocated_bytes + 2u * fs.sb.block_size)
+            return pfs_selftest_fail(__LINE__, -10);
+
+        if (pfs_find_extent(&fs, &after, 1u, &extent, 0, 0) !=
+                PROSENJITFS_OK ||
+            pfs_lba_add(fs.mount.device, extent.physical_block,
+                         1u - extent.logical_block, &first_block) !=
+                PROSENJITFS_OK ||
+            pfs_read_block(&device, first_block, zero) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -10);
+
+        for (uint32_t i = 0u; i < sizeof(zero); ++i)
+            if (zero[i] != 0u)
+                return pfs_selftest_fail(__LINE__, -10);
+
+        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_WRITE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_seek(&file, fs.sb.block_size) != PROS_VFS_OK ||
+            vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_seek(&file, fs.sb.block_size) != PROS_VFS_OK ||
+            vfs_file_read(&file, &readback, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || readback != value ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -10);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -10);
+        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_seek(&file, fs.sb.block_size) != PROS_VFS_OK ||
+            vfs_file_read(&file, &readback, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || readback != value ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -10);
+    }
+
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -11);
 
