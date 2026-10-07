@@ -152,6 +152,12 @@ enum pros_security_decision security_authorize(
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
+    if (pros_security_hardening_ready() &&
+        pros_security_hardening_check_process(process) != 0) {
+        pros_security_hardening_note_violation(2u, process->pid);
+        reason = PROS_REASON_POLICY_RESTRICTED;
+        goto record;
+    }
     if (process->quarantined) {
         reason = PROS_REASON_PROCESS_QUARANTINED;
         decision = PROS_DECISION_QUARANTINE;
