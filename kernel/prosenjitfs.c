@@ -1750,16 +1750,15 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                         }
                         current = next;
                     }
-                    break;
                 }
+                break;
             }
             if (retained_blocks > UINT64_MAX - extent.block_count)
-                    return PROS_VFS_EOVERFLOW;
-                retained_blocks += extent.block_count;
-                current = extent.next;
-            }
+                return PROS_VFS_EOVERFLOW;
+            retained_blocks += extent.block_count;
+            current = extent.next;
         }
-        }
+    }
 
         if (inode.extent_head == 0u && retained_blocks != 0u)
             return PROS_VFS_ECORRUPT;
