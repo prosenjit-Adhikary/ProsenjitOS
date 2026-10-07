@@ -5800,6 +5800,31 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
 
+    /*
+     * Transaction hygiene regression: rejected staging must not leak a
+     * partially prepared transaction into the next filesystem operation.
+     */
+    {
+        uint8_t tx_image[512];
+        pfs_zero(tx_image, sizeof(tx_image));
+        if (pfs_tx_reset(&fs) != PROSENJITFS_OK ||
+            pfs_tx_add(&fs, fs.sb.journal_start, tx_image) !=
+                PROSENJITFS_EINVAL ||
+            fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (pfs_tx_reset(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t n = 0u; n < PROSENJITFS_MAX_TX_BLOCKS; ++n) {
+            if (pfs_tx_add(&fs, fs.sb.data_start + n, tx_image) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (pfs_tx_add(&fs, fs.sb.data_start + PROSENJITFS_MAX_TX_BLOCKS,
+                       tx_image) != PROSENJITFS_EOVERFLOW ||
+            fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -12);
+    }
+
 
     /*
      * Full persistence/namespace/allocation regression.
