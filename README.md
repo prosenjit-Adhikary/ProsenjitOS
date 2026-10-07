@@ -306,6 +306,8 @@ The current native implementation already contains substantial core filesystem i
 - versioned native on-disk format and superblock validation
 - CRC32C-protected metadata structures
 - allocation bitmaps with checked geometry/overflow handling
+- hardened first-fit contiguous block allocation with bitmap caching, full-range revalidation, and atomic double-free/mixed-range rejection
+- preallocation remains a separate future optimization layer and is not claimed as implemented by the core allocation API
 - inode and generation validation
 - extent-backed file storage
 - crash-safe delayed-allocation-equivalent placement with adjacent-block preference and extent coalescing
