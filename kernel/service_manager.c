@@ -16,6 +16,19 @@ static int service_name_valid(const char *name)
     return 0;
 }
 
+static int service_name_equal(const char *a, const char *b)
+{
+    if (!a || !b)
+        return 0;
+    while (*a && *b) {
+        if (*a != *b)
+            return 0;
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
 static int service_find(const char *name)
 {
     if (!name)
@@ -23,7 +36,7 @@ static int service_find(const char *name)
     for (uint32_t i = 0; i < service_count; ++i)
         if (services[i].registered &&
             services[i].definition.name &&
-            __builtin_strcmp(services[i].definition.name, name) == 0)
+            service_name_equal(services[i].definition.name, name))
             return (int)i;
     return -1;
 }
@@ -108,7 +121,7 @@ static int service_stop_index(uint32_t index, uint8_t *visiting)
             continue;
         for (uint32_t d = 0; d < services[i].definition.dependency_count; ++d) {
             const char *dep = services[i].definition.dependencies[d];
-            if (dep && __builtin_strcmp(dep, services[index].definition.name) == 0) {
+            if (dep && service_name_equal(dep, services[index].definition.name)) {
                 int rc = service_stop_index(i, visiting);
                 if (rc != PROS_SERVICE_OK) {
                     services[index].state = PROS_SERVICE_FAILED;
@@ -149,7 +162,7 @@ int service_register(const struct pros_service_definition *definition)
     for (uint32_t d = 0; d < definition->dependency_count; ++d) {
         const char *dependency = definition->dependencies[d];
         if (!service_name_valid(dependency) ||
-            __builtin_strcmp(dependency, definition->name) == 0)
+            service_name_equal(dependency, definition->name))
             return PROS_SERVICE_EINVAL;
     }
     if (service_count >= PROS_SERVICE_MAX)
