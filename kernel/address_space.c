@@ -377,3 +377,82 @@ int address_space_validate_user_range(const struct pros_address_space *space,
 
     return 0;
 }
+
+
+int address_space_selftest(void) {
+    struct pros_address_space space = { 0, 0 };
+    uint64_t physical = 0;
+    uint64_t translated = 0;
+    uint64_t flags = 0;
+
+    if (address_space_create(&space) != 0)
+        return -1;
+
+    physical = physical_page_alloc();
+    if (!physical) {
+        address_space_destroy(&space);
+        return -2;
+    }
+
+    if (address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA,
+                                          physical,
+                                          PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(physical);
+        address_space_destroy(&space);
+        return -3;
+    }
+
+    if (address_space_translate_user(&space, PROSENJIT_USER_TEST_VA,
+                                     &translated, &flags) != 0 ||
+        translated != physical ||
+        !(flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(flags & PROSENJIT_PAGE_NX) ||
+        address_space_validate_user_range(&space, PROSENJIT_USER_TEST_VA,
+                                          PROSENJIT_PAGE_SIZE, 1) != 0) {
+        address_space_destroy(&space);
+        return -4;
+    }
+
+    if (address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
+                                    physical, PROSENJIT_PAGE_NX) == 0 ||
+        address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                    physical, PROSENJIT_PAGE_WRITABLE) == 0 ||
+        address_space_validate_user_range(&space, PROSENJIT_USER_TEST_VA,
+                                          PROSENJIT_PAGE_SIZE, 0) != 0) {
+        address_space_destroy(&space);
+        return -5;
+    }
+
+    if (address_space_unmap_user_page(&space, PROSENJIT_USER_TEST_VA,
+                                      &translated) != 0 ||
+        translated != physical ||
+        address_space_translate_user(&space, PROSENJIT_USER_TEST_VA,
+                                     &translated, &flags) == 0) {
+        physical_page_free(physical);
+        address_space_destroy(&space);
+        return -6;
+    }
+
+    physical_page_free(physical);
+
+    if (address_space_validate_user_range(&space,
+                                           PROSENJIT_USER_TEST_VA,
+                                           0, 0) == 0 ||
+        address_space_validate_user_range(&space,
+                                           0x00007FFFFFFFF000ULL,
+                                           0x2000ULL, 0) == 0 ||
+        address_space_map_user_page(&space,
+                                    0x0000800000000000ULL,
+                                    physical,
+                                    PROSENJIT_PAGE_NX) == 0) {
+        address_space_destroy(&space);
+        return -7;
+    }
+
+    if (address_space_destroy(&space) != 0 || space.root != 0 ||
+        space.owned_pages != 0)
+        return -8;
+
+    return 0;
+}
