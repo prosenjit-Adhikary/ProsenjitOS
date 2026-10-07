@@ -23,6 +23,8 @@
 #define PROS_NET_SOCKET_MAX 32u
 #define PROS_NET_QUEUE_MAX 8u
 #define PROS_NET_PAYLOAD_MAX 1460u
+#define PROS_NET_ARP_CACHE_MAX 16u
+#define PROS_NET_ROUTE_MAX 16u
 
 enum pros_net_ethertype {
     PROS_NET_ETH_IPV4 = 0x0800,
@@ -113,6 +115,15 @@ int pros_net_parse_arp(const uint8_t *data, uint32_t length,
                        struct pros_net_arp *out);
 int pros_net_parse_ipv4(const uint8_t *data, uint32_t length,
                         struct pros_net_ipv4 *out, uint32_t *payload_offset);
+int pros_net_arp_update(uint32_t ip, const uint8_t mac[6], uint64_t now,
+                        uint64_t ttl);
+int pros_net_arp_lookup(uint32_t ip, uint8_t mac[6], uint64_t now);
+int pros_net_route_add(uint32_t network, uint32_t mask, uint32_t gateway,
+                       uint32_t metric);
+int pros_net_route_lookup(uint32_t destination, uint32_t *gateway_out,
+                          uint32_t *mask_out);
+uint16_t pros_net_tcp_checksum(uint32_t src, uint32_t dst,
+                               const uint8_t *tcp, uint32_t length);
 int pros_net_parse_tcp(const uint8_t *data, uint32_t length,
                        struct pros_net_tcp *out, uint32_t *payload_offset);
 int pros_net_tcp_transition(enum pros_net_tcp_state state, uint8_t flags,
