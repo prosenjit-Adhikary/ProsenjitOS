@@ -6338,7 +6338,7 @@ int prosenjitfs_selftest(void)
 
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                 pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
 
             if (vfs_file_open(&fs.mount, "/crash.bin",
@@ -6476,7 +6476,8 @@ int prosenjitfs_selftest(void)
             pfs_test_power_loss(&disk);
             pfs_zero(&fs, sizeof(fs));
 
-            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
 
             done = 0u;
