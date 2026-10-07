@@ -62,6 +62,33 @@ static const struct pros_driver *driver_find_name(const char *name)
     return 0;
 }
 
+static int driver_dependency_walk(const struct pros_driver *driver,
+                                      uint8_t *visiting)
+{
+    if (!driver || !visiting) return PROS_DRIVER_EINVAL;
+    uint32_t index = 0u;
+    for (; index < PROS_DRIVER_MAX; ++index)
+        if (drivers[index].used && drivers[index].driver == driver)
+            break;
+    if (index == PROS_DRIVER_MAX) return PROS_DRIVER_ENODEV;
+    if (visiting[index]) return PROS_DRIVER_EBUSY;
+    visiting[index] = 1u;
+    for (uint32_t i = 0u; i < driver->dependency_count; ++i) {
+        const struct pros_driver *dep = driver_find_name(driver->dependencies[i]);
+        if (!dep) {
+            visiting[index] = 0u;
+            return PROS_DRIVER_ENODEV;
+        }
+        int rc = driver_dependency_walk(dep, visiting);
+        if (rc != PROS_DRIVER_OK) {
+            visiting[index] = 0u;
+            return rc;
+        }
+    }
+    visiting[index] = 0u;
+    return PROS_DRIVER_OK;
+}
+
 static int driver_registered(const struct pros_driver *driver)
 {
     for (uint32_t i = 0u; i < PROS_DRIVER_MAX; ++i)
@@ -399,11 +426,12 @@ int pros_driver_bind(uint32_t device_id)
     driver = pros_driver_find(&device->hwid, device->class_id);
     if (!driver)
         return PROS_DRIVER_ENODEV;
-    for (uint32_t di = 0u; di < driver->dependency_count; ++di) {
-        const struct pros_driver *dep = driver_find_name(driver->dependencies[di]);
-        if (!dep || dep == driver) {
+    {
+        uint8_t visiting[PROS_DRIVER_MAX] = {0};
+        int dep_rc = driver_dependency_walk(driver, visiting);
+        if (dep_rc != PROS_DRIVER_OK) {
             device->state = PROS_DEVICE_FAILED;
-            return PROS_DRIVER_ENODEV;
+            return dep_rc;
         }
     }
 
