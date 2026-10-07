@@ -205,3 +205,32 @@ uint64_t physical_memory_free_pages(void) {
 uint64_t physical_memory_failed_allocations(void) {
     return failed_allocations;
 }
+
+
+int physical_memory_selftest(void) {
+    uint64_t before = free_pages;
+    uint64_t a = physical_page_alloc();
+    uint64_t b = physical_page_alloc();
+    if (!a || !b || a == b || free_pages != before - 2ULL)
+        return -1;
+
+    physical_page_free(a);
+    if (free_pages != before - 1ULL)
+        return -2;
+
+    /* Double-free must not inflate the free-page count. */
+    physical_page_free(a);
+    if (free_pages != before - 1ULL)
+        return -3;
+
+    physical_page_free(b);
+    if (free_pages != before)
+        return -4;
+
+    /* Page zero is permanently reserved by physical_memory_init(). */
+    physical_page_free(0);
+    if (free_pages != before || managed_test(0))
+        return -5;
+
+    return 0;
+}
