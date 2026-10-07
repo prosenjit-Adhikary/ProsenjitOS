@@ -17,6 +17,37 @@ static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *, const char *,
                            struct pros_vfs_vnode **);
+static int pfs_dir_entry_validate(const struct pros_prosenjitfs *fs,
+                                      const uint8_t *block,
+                                      const struct pros_prosenjitfs_dir_entry *entry)
+{
+    uint32_t name_length = 0u;
+
+    if (!fs || !block || !entry ||
+        entry->magic != PROSENJITFS_ENTRY_MAGIC ||
+        entry->name_length == 0u ||
+        entry->name_length > PROSENJITFS_MAX_NAME ||
+        entry->name[entry->name_length] != 0u ||
+        entry->inode >= fs->sb.inode_count ||
+        pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
+            PROSENJITFS_OK ||
+        name_length != entry->name_length ||
+        entry->name_hash != pfs_name_hash(entry->name, entry->name_length) ||
+        entry->next >= fs->sb.total_blocks ||
+        (entry->next != 0u && entry->next < fs->sb.data_start) ||
+        pfs_crc_with_zero32(block, sizeof(*entry),
+            (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry,
+                               checksum)) != entry->checksum)
+        return PROSENJITFS_ECORRUPT;
+
+    if (entry->type != PROSENJITFS_INODE_FILE &&
+        entry->type != PROSENJITFS_INODE_DIR &&
+        entry->type != PROSENJITFS_INODE_SYMLINK)
+        return PROSENJITFS_ECORRUPT;
+
+    return PROSENJITFS_OK;
+}
+
 static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
 static int pfs_utf8_name_valid(const char *, uint32_t *);
@@ -2553,16 +2584,8 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                 if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
                 {
                     pfs_copy(&child_entry, scan, sizeof(child_entry));
-                    if (child_entry.magic != PROSENJITFS_ENTRY_MAGIC ||
-                        child_entry.name_length == 0u ||
-                        child_entry.name_length > PROSENJITFS_MAX_NAME ||
-                        child_entry.next >= data->fs->sb.total_blocks ||
-                        (child_entry.next != 0u &&
-                         child_entry.next < data->fs->sb.data_start) ||
-                        pfs_crc_with_zero32(scan, sizeof(child_entry),
-                            (uint32_t)offsetof(
-                                struct pros_prosenjitfs_dir_entry,
-                                checksum)) != child_entry.checksum) {
+                    if (pfs_dir_entry_validate(data->fs, scan,
+                            &child_entry) != PROSENJITFS_OK) {
                         kfree(scan);
                         rc = PROSENJITFS_ECORRUPT;
                         goto rmdir_out;
