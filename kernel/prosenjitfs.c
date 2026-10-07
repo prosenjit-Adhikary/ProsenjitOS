@@ -2352,6 +2352,39 @@ static int pfs_unlink_tx_preflight(const struct pros_prosenjitfs *fs,
             return rc;
     }
 
+    /* Validate physical non-overlap across the complete extent chain before
+     * staging any reclaim targets. Logical ordering is checked by the normal
+     * extent walker; physical ranges must also be disjoint because one block
+     * cannot be owned by two extents. */
+    {
+        uint64_t outer = inode->extent_head;
+        uint64_t outer_steps = 0u;
+        while (outer != 0u) {
+            struct pros_prosenjitfs_extent a;
+            uint64_t inner;
+            uint64_t inner_steps = 0u;
+            if (++outer_steps > fs->sb.total_blocks)
+                return PROSENJITFS_ECORRUPT;
+            rc = pfs_read_extent(fs, outer, &a);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            inner = a.next;
+            while (inner != 0u) {
+                struct pros_prosenjitfs_extent b;
+                if (++inner_steps > fs->sb.total_blocks)
+                    return PROSENJITFS_ECORRUPT;
+                rc = pfs_read_extent(fs, inner, &b);
+                if (rc != PROSENJITFS_OK)
+                    return rc;
+                if (a.physical_block < b.physical_block + b.block_count &&
+                    b.physical_block < a.physical_block + a.block_count)
+                    return PROSENJITFS_ECORRUPT;
+                inner = b.next;
+            }
+            outer = a.next;
+        }
+    }
+
     current = inode->extent_head;
     while (current != 0u) {
         struct pros_prosenjitfs_extent extent;
