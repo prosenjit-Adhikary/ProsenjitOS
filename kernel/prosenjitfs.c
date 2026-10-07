@@ -2256,6 +2256,147 @@ rmdir_out:
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
+static int pfs_unlink_tx_target_add(const struct pros_prosenjitfs *fs,
+                                     uint64_t target,
+                                     uint64_t *targets,
+                                     uint32_t *count,
+                                     uint32_t capacity)
+{
+    if (!fs || !targets || !count || capacity == 0u ||
+        target < 2u || target >= fs->sb.total_blocks)
+        return PROSENJITFS_EINVAL;
+    {
+        uint64_t journal_end;
+        if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+                           &journal_end) != PROSENJITFS_OK)
+            return PROSENJITFS_ECORRUPT;
+        if (target >= fs->sb.journal_start && target < journal_end)
+            return PROSENJITFS_ECORRUPT;
+    }
+    for (uint32_t i = 0u; i < *count; ++i) {
+        if (targets[i] == target)
+            return PROSENJITFS_OK;
+    }
+    if (*count >= capacity)
+        return PROSENJITFS_ENOSPC;
+    targets[*count] = target;
+    ++(*count);
+    return PROSENJITFS_OK;
+}
+
+/*
+ * Unlink must never begin staging a namespace/inode mutation unless the
+ * complete reclaim operation fits in one journal transaction.  This is a
+ * preflight-only pass: it reads and validates the entire extent chain and
+ * computes every unique journal target (namespace block, inode block,
+ * allocation bitmaps, directory entry block, and extent metadata blocks).
+ * If capacity is insufficient, no transaction state has been changed, so
+ * the file remains fully reachable and its blocks remain allocated.
+ */
+static int pfs_unlink_tx_preflight(const struct pros_prosenjitfs *fs,
+                                   uint64_t inode_number,
+                                   uint64_t inode_lba,
+                                   uint64_t inode_bitmap_lba,
+                                   uint64_t namespace_lba,
+                                   uint64_t entry_lba,
+                                   const struct pros_prosenjitfs_inode *inode)
+{
+    uint64_t targets[PROSENJITFS_MAX_TX_BLOCKS];
+    uint32_t count = 0u;
+    uint32_t capacity;
+    uint64_t bits_per_bitmap_block;
+    uint64_t current;
+    uint64_t steps = 0u;
+    int rc;
+
+    if (!fs || !inode || inode_number >= fs->sb.inode_count ||
+        fs->sb.block_size == 0u || fs->sb.block_size > 4096u ||
+        fs->sb.journal_blocks < 2u)
+        return PROSENJITFS_ECORRUPT;
+
+    capacity = fs->sb.journal_blocks - 2u;
+    if (capacity > PROSENJITFS_MAX_TX_BLOCKS)
+        capacity = PROSENJITFS_MAX_TX_BLOCKS;
+    if (capacity == 0u)
+        return PROSENJITFS_ENOSPC;
+
+    rc = pfs_unlink_tx_target_add(fs, namespace_lba, targets, &count,
+                                  capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_unlink_tx_target_add(fs, inode_lba, targets, &count, capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_unlink_tx_target_add(fs, inode_bitmap_lba, targets, &count,
+                                  capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+
+    bits_per_bitmap_block = (uint64_t)fs->sb.block_size * 8u;
+    if (bits_per_bitmap_block == 0u)
+        return PROSENJITFS_ECORRUPT;
+
+    /* The directory-entry block itself must also be reclaimed. */
+    {
+        uint64_t bitmap_index = entry_lba / bits_per_bitmap_block;
+        uint64_t bitmap_lba;
+        rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                         bitmap_index, &bitmap_lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        rc = pfs_unlink_tx_target_add(fs, bitmap_lba, targets, &count,
+                                      capacity);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
+
+    current = inode->extent_head;
+    while (current != 0u) {
+        struct pros_prosenjitfs_extent extent;
+        uint64_t next;
+        uint64_t last;
+        uint64_t first_bitmap;
+        uint64_t last_bitmap;
+
+        if (++steps > fs->sb.total_blocks)
+            return PROSENJITFS_ECORRUPT;
+        rc = pfs_read_extent(fs, current, &extent);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        next = extent.next;
+
+        rc = pfs_unlink_tx_target_add(fs, current, targets, &count,
+                                      capacity);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+
+        last = extent.physical_block + extent.block_count - 1u;
+        first_bitmap = extent.physical_block / bits_per_bitmap_block;
+        last_bitmap = last / bits_per_bitmap_block;
+        if (last_bitmap < first_bitmap)
+            return PROSENJITFS_EOVERFLOW;
+
+        for (uint64_t bi = first_bitmap; bi <= last_bitmap; ++bi) {
+            uint64_t bitmap_lba;
+            rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                             bi, &bitmap_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            rc = pfs_unlink_tx_target_add(fs, bitmap_lba, targets, &count,
+                                          capacity);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            if (bi == UINT64_MAX)
+                return PROSENJITFS_EOVERFLOW;
+        }
+        current = next;
+    }
+
+    if (count == 0u || count > capacity)
+        return PROSENJITFS_ENOSPC;
+    return PROSENJITFS_OK;
+}
+
 static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
 {
     struct pfs_vnode_data *parent_data;
@@ -2395,6 +2536,24 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
                                    inode_block);
         if (io_rc != PROSENJITFS_OK)
             { rc = io_rc; goto out; }
+    }
+
+    {
+        uint64_t inode_bitmap_lba;
+        uint64_t inode_bits = (uint64_t)parent_data->fs->sb.block_size * 8u;
+        if (inode_bits == 0u)
+            { rc = PROSENJITFS_ECORRUPT; goto out; }
+        rc = pfs_lba_add(parent_data->fs->mount.device,
+                         parent_data->fs->sb.inode_bitmap_start,
+                         inode_number / inode_bits, &inode_bitmap_lba);
+        if (rc != PROSENJITFS_OK)
+            goto out;
+        rc = pfs_unlink_tx_preflight(parent_data->fs, inode_number,
+                                     inode_lba, inode_bitmap_lba,
+                                     previous == 0u ? parent_inode.dir_index : previous,
+                                     target_lba, &child_inode);
+        if (rc != PROSENJITFS_OK)
+            goto out;
     }
 
     rc = pfs_tx_reset(parent_data->fs);
