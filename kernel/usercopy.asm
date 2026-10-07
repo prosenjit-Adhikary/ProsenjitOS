@@ -22,6 +22,7 @@ copy_from_user_asm:
     dec rdx
     jnz .from_loop
     mov qword [rel usercopy_fault_active_state], 0
+    mov qword [rel usercopy_fault_rip_state], 0
     popfq
     xor eax, eax
     ret
@@ -30,6 +31,7 @@ copy_from_user_asm:
     ret
 .from_fault:
     mov qword [rel usercopy_fault_active_state], 0
+    mov qword [rel usercopy_fault_rip_state], 0
     popfq
     mov rax, -1
     ret
@@ -50,6 +52,7 @@ copy_to_user_asm:
     dec rdx
     jnz .to_loop
     mov qword [rel usercopy_fault_active_state], 0
+    mov qword [rel usercopy_fault_rip_state], 0
     popfq
     xor eax, eax
     ret
@@ -58,6 +61,7 @@ copy_to_user_asm:
     ret
 .to_fault:
     mov qword [rel usercopy_fault_active_state], 0
+    mov qword [rel usercopy_fault_rip_state], 0
     popfq
     mov rax, -1
     ret
