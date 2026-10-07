@@ -25,6 +25,7 @@
 #define PROSENJITFS_ENOTEMPTY -10
 #define PROSENJITFS_EPERM     -11
 #define PROSENJITFS_EBUSY     -12
+#define PROSENJITFS_ESTALE    -13
 
 struct pros_block_device;
 struct pros_prosenjitfs;
