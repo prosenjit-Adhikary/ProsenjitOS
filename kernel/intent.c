@@ -154,7 +154,10 @@ int security_make_intent(struct pros_intent *intent,
 }
 
 int security_quarantine(struct pros_process *process) {
-    if (!process || process_state(process) == PROS_PROCESS_DEAD)
+    if (!process ||
+        (process_state(process) != PROS_PROCESS_READY &&
+         process_state(process) != PROS_PROCESS_RUNNING &&
+         process_state(process) != PROS_PROCESS_BLOCKED))
         return -1;
     process->quarantined = 1;
     if (process_state(process) == PROS_PROCESS_RUNNING ||
@@ -164,7 +167,10 @@ int security_quarantine(struct pros_process *process) {
 }
 
 int security_clear_quarantine(struct pros_process *process) {
-    if (!process || process_state(process) == PROS_PROCESS_DEAD)
+    if (!process ||
+        (process_state(process) != PROS_PROCESS_READY &&
+         process_state(process) != PROS_PROCESS_RUNNING &&
+         process_state(process) != PROS_PROCESS_BLOCKED))
         return -1;
     process->quarantined = 0;
     if (process_state(process) == PROS_PROCESS_BLOCKED)
