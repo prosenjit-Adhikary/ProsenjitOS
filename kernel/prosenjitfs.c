@@ -262,7 +262,7 @@ static uint32_t pfs_crc_with_zero32(const uint8_t *data, uint32_t length,
     return ~crc;
 }
 
-static uint32_t pfs_region_end(uint64_t start, uint32_t blocks,
+static uint32_t pfs_region_end(uint64_t start, uint64_t blocks,
                                uint64_t *end)
 {
     if (!end || start > UINT64_MAX - (uint64_t)blocks)
