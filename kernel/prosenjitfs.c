@@ -4994,6 +4994,40 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    /* Sparse extent ordering regression: populate two separated logical
+     * blocks, then fill the hole. The new extent must be inserted between
+     * them rather than appended after the higher logical extent. */
+    {
+        struct pros_vfs_file file;
+        uint8_t marker_a = 0xA1u;
+        uint8_t marker_b = 0xB2u;
+        uint32_t done = 0u;
+        uint32_t bs = fs.sb.block_size;
+        if (bs == 0u || bs > 4096u ||
+            vfs_file_open(&fs.mount, "/sparse-order.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_seek(&file, (uint64_t)bs * 4u) != PROS_VFS_OK ||
+            vfs_file_write(&file, &marker_b, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_seek(&file, (uint64_t)bs * 2u) != PROS_VFS_OK ||
+            vfs_file_write(&file, &marker_a, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (vfs_file_open(&fs.mount, "/sparse-order.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, (uint64_t)bs * 2u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &marker_a, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || marker_a != 0xA1u ||
+            vfs_file_seek(&file, (uint64_t)bs * 4u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &marker_b, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || marker_b != 0xB2u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+    }
+
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -6);
     if (first_block < fs.sb.data_start ||
@@ -5321,6 +5355,10 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -12);
             }
         if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+            inode.size != 0u || inode.extent_head != 0u ||
+            inode.allocated_bytes != 0u)
             return pfs_selftest_fail(__LINE__, -12);
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
