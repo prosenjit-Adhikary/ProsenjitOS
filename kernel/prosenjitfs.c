@@ -661,7 +661,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     for (uint32_t i = 0; i < bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
         if (pfs_bitmap_region_build(block, block_size,
-                                    0u, sb.data_start + 1u, i, block_size) != PROSENJITFS_OK) {
+                                    0u, sb.data_start, i, block_size) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EOVERFLOW;
         }
