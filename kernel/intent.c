@@ -92,9 +92,34 @@ int security_manager_init(void) {
 }
 
 uint64_t security_next_intent_id(void) {
-    uint64_t id = next_intent_id++;
-    if (id == 0) id = next_intent_id++;
-    return id;
+    /*
+     * Intent IDs are security-audit references. Zero is reserved, and a
+     * wrapped counter must never silently recreate an ID still represented
+     * by the bounded reason ledger.
+     */
+    for (uint32_t probe = 0u;
+         probe < PROS_REASON_LEDGER_SIZE + 1u; ++probe) {
+        uint64_t id = next_intent_id++;
+        if (id == 0u)
+            continue;
+
+        int collision = 0;
+        for (uint32_t i = 0u; i < PROS_REASON_LEDGER_SIZE; ++i) {
+            if (ledger[i].sequence != UINT64_MAX &&
+                ledger[i].intent_id == id) {
+                collision = 1;
+                break;
+            }
+        }
+        if (!collision)
+            return id;
+    }
+
+    /*
+     * The bounded ledger has no free audit namespace. Fail closed rather
+     * than returning an ambiguous identifier.
+     */
+    return 0u;
 }
 
 int security_make_intent(struct pros_intent *intent,
