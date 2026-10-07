@@ -461,7 +461,7 @@ static void pfs_mark_bit(uint8_t *bitmap, uint64_t bit)
 }
 
 static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
-                                   uint64_t region_start, uint32_t region_blocks,
+                                   uint64_t region_start, uint64_t region_blocks,
                                    uint32_t bitmap_index, uint32_t block_size)
 {
     uint64_t end;
@@ -654,7 +654,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     for (uint32_t i = 0; i < bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
         if (pfs_bitmap_region_build(block, block_size,
-                                    0u, (uint32_t)sb.data_start, i, block_size) != PROSENJITFS_OK) {
+                                    0u, sb.data_start + 1u, i, block_size) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EOVERFLOW;
         }
@@ -702,7 +702,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     root.links = 1u;
     root.generation = 1u;
     root.parent_inode = 0u;
-    root.dir_index = cursor;
+    root.dir_index = sb.data_start;
     root.ctime = 0u; root.mtime = 0u; root.atime = 0u;
 
     pfs_zero(block, block_size);
