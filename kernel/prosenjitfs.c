@@ -751,7 +751,49 @@ int prosenjitfs_format(struct pros_block_device *device)
 struct pfs_vnode_data {
     struct pros_prosenjitfs *fs;
     uint64_t inode_number;
+    uint64_t generation;
 };
+
+static void pfs_io_lock(struct pros_prosenjitfs *fs)
+{
+    if (!fs)
+        return;
+    while (__sync_lock_test_and_set(&fs->io_lock, 1u) != 0u) {
+    }
+    __sync_synchronize();
+}
+
+static void pfs_io_unlock(struct pros_prosenjitfs *fs)
+{
+    if (!fs)
+        return;
+    __sync_synchronize();
+    __sync_lock_release(&fs->io_lock);
+}
+
+static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
+                                    struct pros_prosenjitfs_inode *inode)
+{
+    int rc;
+    if (!data || !data->fs || !inode || !data->fs->mount.active)
+        return PROSENJITFS_EPERM;
+    rc = prosenjitfs_read_inode(data->fs, data->inode_number, inode);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    if (inode->generation != data->generation ||
+        (inode->type != PROSENJITFS_INODE_FILE &&
+         inode->type != PROSENJITFS_INODE_DIR))
+        return PROSENJITFS_ESTALE;
+    return PROSENJITFS_OK;
+}
+
+static int pfs_next_generation(uint64_t current, uint64_t *next)
+{
+    if (!next || current == UINT64_MAX)
+        return PROSENJITFS_EOVERFLOW;
+    *next = current + 1u;
+    return *next == 0u ? PROSENJITFS_EOVERFLOW : PROSENJITFS_OK;
+}
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
