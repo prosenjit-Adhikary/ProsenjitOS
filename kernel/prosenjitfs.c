@@ -4689,6 +4689,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     uint8_t *dir_refs = 0;
     uint8_t bitmap[4096];
     struct pros_prosenjitfs_inode inode;
+    uint32_t name_length = 0u;
     int rc = PROSENJITFS_EIO;
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
