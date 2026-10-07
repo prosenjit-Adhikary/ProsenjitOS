@@ -1200,7 +1200,18 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
 
-            pfs_copy(&inode, inode_image + inode_offset, sizeof(inode));
+            {
+                uint64_t staged_extent_head = inode.extent_head;
+                pfs_copy(&inode, inode_image + inode_offset, sizeof(inode));
+                /*
+                 * Preserve the newly selected head when the new extent was
+                 * inserted before the previous head. The disk inode read
+                 * above contains the old head by definition.
+                 */
+                if (tail_lba == 0u && staged_extent_head != 0u &&
+                    staged_extent_head != inode.extent_head)
+                    inode.extent_head = staged_extent_head;
+            }
             if ((uint64_t)offset > inode.size)
                 inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
             inode.size = ((uint64_t)offset + done + want > inode.size)
