@@ -5002,3 +5002,1722 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     for (uint64_t bi = 0u; bi < fs->sb.block_bitmap_blocks; ++bi) {
         uint64_t lba;
         uint64_t first_bit = bi * bits_per_block;
+        if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                        bi, &lba) != PROSENJITFS_OK ||
+            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto consistency_out;
+        }
+        for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
+            uint64_t block = first_bit + bit;
+            int set = pfs_bitmap_bit(bitmap, bit);
+            int owned = block < fs->sb.total_blocks
+                      ? (owner[block >> 3] &
+                         (uint8_t)(1u << (block & 7u))) != 0
+                      : 0;
+            if ((block < fs->sb.data_start && !set) ||
+                (block >= fs->sb.total_blocks && set) ||
+                (block >= fs->sb.data_start && block < fs->sb.total_blocks &&
+                 set != owned)) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto consistency_out;
+            }
+        }
+    }
+
+    rc = PROSENJITFS_OK;
+
+consistency_out:
+    kfree(owner);
+    kfree(dir_refs);
+    return rc;
+}
+
+int prosenjitfs_selftest(void)
+{
+    pfs_selftest_diag_stage = 0u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
+    pfs_crash_inject_stage = 0u;
+    pfs_crash_injected = 0u;
+    static struct pfs_test_disk disk;
+    struct pros_block_device device;
+    struct pros_prosenjitfs fs = { 0 };
+    struct pros_prosenjitfs_inode inode;
+    uint64_t first_block;
+    uint64_t inode_number;
+    uint8_t saved;
+    if (block_device_init(&device, 512u, 512u, pfs_test_read,
+                          pfs_test_write, &disk) != PROS_BLOCK_OK)
+        return pfs_selftest_fail(__LINE__, -1);
+    if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
+        return pfs_selftest_fail(__LINE__, -2);
+    /*
+     * LBA contract regression: offsets are device-relative sector offsets,
+     * and the checked addition must reject both arithmetic overflow and the
+     * first sector outside the device.
+     */
+    {
+        uint64_t lba = 0u;
+        if (pfs_lba_add(&device, 0u, 0u, &lba) != PROSENJITFS_OK ||
+            lba != 0u ||
+            pfs_lba_add(&device, device.sector_count - 1u, 0u, &lba) !=
+                PROSENJITFS_OK ||
+            lba != device.sector_count - 1u ||
+            pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
+                PROSENJITFS_EINVAL ||
+            pfs_lba_add(&device, 1u, UINT64_MAX, &lba) !=
+                PROSENJITFS_EOVERFLOW ||
+            pfs_lba_add(&device, UINT64_MAX, 0u, &lba) !=
+                PROSENJITFS_EINVAL)
+            return pfs_selftest_fail(__LINE__, -2);
+    }
+    pfs_zero(&disk, sizeof(disk));
+    if (prosenjitfs_format(&device) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -3);
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -4);
+    if (fs.sb.root_inode != 0u ||
+        prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
+        inode.type != PROSENJITFS_INODE_DIR ||
+        inode.dir_index == 0u ||
+        !fs.mount.root)
+        return pfs_selftest_fail(__LINE__, -5);
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
+        return pfs_selftest_fail(__LINE__, -5);
+    {
+        struct pros_vfs_vnode *root = 0;
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent entry;
+        if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
+            root != fs.mount.root ||
+            vfs_vnode_put(root) != PROS_VFS_OK ||
+            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
+            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            entry.name[0] != '.' ||
+            vfs_dir_close(&dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -5);
+    }
+    {
+        struct pros_vfs_file file;
+        uint8_t write_data[700];
+        uint8_t read_data[700];
+        uint32_t done = 0u;
+        for (uint32_t i = 0u; i < sizeof(write_data); ++i)
+            write_data[i] = (uint8_t)((i * 13u) ^ 0x5Au);
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -6);
+        if (vfs_file_write(&file, write_data, sizeof(write_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(write_data))
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -6);
+            }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -6);
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -6);
+        if (vfs_file_read(&file, 0, 0u, &done) != PROS_VFS_OK ||
+            done != 0u)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -6);
+            }
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data))
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -6);
+            }
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != write_data[i])
+                return pfs_selftest_fail(__LINE__, -6);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -6);
+    }
+
+    /*
+     * Mount lifecycle regression: an open handle must pin the vnode tree and
+     * make unmount fail with EBUSY. After the handle closes, the same mount
+     * object must unmount cleanly; this prevents stale-handle resurrection
+     * after an immediate remount.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t value = 0xA7u;
+        uint8_t read_value = 0u;
+        uint32_t done = 0u;
+
+        if (vfs_file_open(&fs.mount, "/lifecycle.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        if (vfs_file_open(&fs.mount, "/lifecycle.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+        if (vfs_file_read(&file, &read_value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || read_value != value ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+    }
+
+    /* Append semantics must use the current EOF even after an explicit seek. */
+    {
+        struct pros_vfs_file file;
+        static const uint8_t first[] = { 'a', 'b', 'c' };
+        static const uint8_t second[] = { 'D', 'E', 'F' };
+        uint8_t combined[6];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, first, sizeof(first), &done) != PROS_VFS_OK ||
+            done != sizeof(first) || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_write(&file, second, sizeof(second), &done) != PROS_VFS_OK ||
+            done != sizeof(second) || file.position != 6u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, combined, sizeof(combined), &done) != PROS_VFS_OK ||
+            done != sizeof(combined) || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < 6u; ++i)
+            if (combined[i] != (i < 3u ? first[i] : second[i - 3u]))
+                return pfs_selftest_fail(__LINE__, -13);
+
+        /*
+         * Two independent append handles must each re-read authoritative EOF.
+         * The provider serializes the full append transaction, so the second
+         * append cannot reuse the first handle's stale vnode size.
+         */
+        {
+            struct pros_vfs_file a, b;
+            uint8_t tail_a = 'A', tail_b = 'B';
+            uint8_t appended[8];
+            if (vfs_file_open(&fs.mount, "/append.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &a) !=
+                    PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/append.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &b) !=
+                    PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+            done = 0u;
+            if (vfs_file_write(&a, &tail_a, 1u, &done) != PROS_VFS_OK ||
+                done != 1u)
+                return pfs_selftest_fail(__LINE__, -13);
+            done = 0u;
+            if (vfs_file_write(&b, &tail_b, 1u, &done) != PROS_VFS_OK ||
+                done != 1u ||
+                vfs_file_close(&a) != PROS_VFS_OK ||
+                vfs_file_close(&b) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+            if (vfs_file_open(&fs.mount, "/append.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, appended, sizeof(appended), &done) !=
+                    PROS_VFS_OK ||
+                done != 8u ||
+                appended[6] != 'A' || appended[7] != 'B' ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+
+    /*
+     * VFS negative/error-contract matrix: invalid flags, missing paths,
+     * directory-as-file, overflow seek/truncate, and read-only writes must
+     * remain distinguishable instead of collapsing into generic I/O errors.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t byte = 0x5Au;
+        uint32_t done = 0u;
+
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_APPEND, &file) != PROS_VFS_EINVAL ||
+            vfs_file_open(&fs.mount, "/does-not-exist", PROS_VFS_O_READ,
+                          &file) != PROS_VFS_ENOENT ||
+            vfs_file_open(&fs.mount, "/", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_EISDIR)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, &byte, 1u, &done) != PROS_VFS_EPERM ||
+            vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        if (vfs_file_open(&fs.mount, "/append.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+    }
+
+    /* Sparse logical-offset regression: seek beyond EOF, write one byte, and
+     * verify the unwritten interval reads as zeros. */
+    {
+        struct pros_vfs_file file;
+        uint8_t marker = 0xD6u;
+        uint8_t hole[512];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/sparse.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
+            vfs_file_write(&file, &marker, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || file.position != 4097u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+        if (vfs_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 3584u) != PROS_VFS_OK ||
+            vfs_file_read(&file, hole, sizeof(hole), &done) != PROS_VFS_OK ||
+            done != sizeof(hole)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -14);
+        }
+        for (uint32_t i = 0u; i < sizeof(hole); ++i)
+            if (hole[i] != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+        if (vfs_file_seek(&file, 4096u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &marker, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || marker != 0xD6u || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+    }
+
+    /* Sparse extent ordering regression: populate two separated logical
+     * blocks, then fill the hole. The new extent must be inserted between
+     * them rather than appended after the higher logical extent. */
+    {
+        struct pros_vfs_file file;
+        uint8_t marker_a = 0xA1u;
+        uint8_t marker_b = 0xB2u;
+        uint32_t done = 0u;
+        uint32_t bs = fs.sb.block_size;
+        if (bs == 0u || bs > 4096u ||
+            vfs_file_open(&fs.mount, "/sparse-order.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_seek(&file, (uint64_t)bs * 4u) != PROS_VFS_OK ||
+            vfs_file_write(&file, &marker_b, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_seek(&file, (uint64_t)bs * 2u) != PROS_VFS_OK ||
+            vfs_file_write(&file, &marker_a, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (vfs_file_open(&fs.mount, "/sparse-order.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, (uint64_t)bs * 2u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &marker_a, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || marker_a != 0xA1u ||
+            vfs_file_seek(&file, (uint64_t)bs * 4u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &marker_b, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || marker_b != 0xB2u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+    }
+
+    if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -6);
+    if (first_block < fs.sb.data_start ||
+        first_block + 4u > fs.sb.total_blocks)
+        return pfs_selftest_fail(__LINE__, -6);
+    if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
+        inode_number == fs.sb.root_inode ||
+        inode_number >= fs.sb.inode_count)
+        return pfs_selftest_fail(__LINE__, -7);
+    if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
+        return pfs_selftest_fail(__LINE__, -8);
+    if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
+        return pfs_selftest_fail(__LINE__, -9);
+    if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -10);
+    if (prosenjitfs_free_blocks(&fs, first_block, 1u) != PROSENJITFS_EINVAL)
+        return pfs_selftest_fail(__LINE__, -10);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -11);
+
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    /* Persistence checks for append and sparse files after remount. */
+    {
+        struct pros_vfs_file file;
+        uint8_t append_data[6];
+        uint8_t sparse_data[513];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, append_data, sizeof(append_data), &done) != PROS_VFS_OK ||
+            done != sizeof(append_data) || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+        if (append_data[0] != 'a' || append_data[1] != 'b' || append_data[2] != 'c' ||
+            append_data[3] != 'D' || append_data[4] != 'E' || append_data[5] != 'F')
+            return pfs_selftest_fail(__LINE__, -15);
+        if (vfs_file_open(&fs.mount, "/sparse.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 3584u) != PROS_VFS_OK ||
+            vfs_file_read(&file, sparse_data, sizeof(sparse_data), &done) != PROS_VFS_OK ||
+            done != sizeof(sparse_data)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -15);
+        }
+        for (uint32_t i = 0u; i < 512u; ++i)
+            if (sparse_data[i] != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+        if (sparse_data[512] != 0xD6u || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+    }
+    {
+        struct pros_vfs_file file;
+        uint8_t read_data[700];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK) {
+            prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data)) {
+            vfs_file_close(&file);
+            prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK) {
+            prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * A write-only handle must reject read attempts at the VFS layer.
+         */
+        {
+            uint8_t denied_read[1];
+            uint32_t denied_done = 0u;
+
+            if (vfs_file_read(&file, denied_read, sizeof(denied_read),
+                              &denied_done) != PROS_VFS_EPERM ||
+                denied_done != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
+        {
+            uint8_t patch[37];
+            uint32_t wrote = 0u;
+            for (uint32_t i = 0u; i < sizeof(patch); ++i)
+                patch[i] = (uint8_t)(0xA0u + i);
+            if (vfs_file_write(&file, patch, sizeof(patch), &wrote) !=
+                    PROS_VFS_OK ||
+                wrote != sizeof(patch))
+                {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -12);
+                }
+            if (vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+        }
+
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            uint8_t expected = i < 37u
+                ? (uint8_t)(0xA0u + i)
+                : (uint8_t)((i * 13u) ^ 0x5Au);
+            if (read_data[i] != expected) {
+                prosenjitfs_unmount(&fs);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
+        /*
+         * Explicitly exercise seek/read/write across the 512-byte block
+         * boundary. The file is 700 bytes, so offset 500 + 200 bytes
+         * crosses from logical block 0 into logical block 1.
+         */
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_seek(&file, 500u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t partial[200];
+            uint32_t partial_done = 0u;
+
+            if (vfs_file_read(&file, partial, sizeof(partial),
+                              &partial_done) != PROS_VFS_OK ||
+                partial_done != sizeof(partial)) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+            for (uint32_t i = 0u; i < sizeof(partial); ++i) {
+                uint32_t absolute = 500u + i;
+                uint8_t expected = (absolute < 37u)
+                    ? (uint8_t)(0xA0u + absolute)
+                    : (uint8_t)((absolute * 13u) ^ 0x5Au);
+
+                if (partial[i] != expected) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -12);
+                }
+            }
+        }
+
+        /*
+         * Seek beyond EOF must fail without changing the current position.
+         */
+        if (file.position != 700u ||
+            vfs_file_seek(&file, 701u) != PROS_VFS_EOVERFLOW ||
+            file.position != 700u) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+
+        /*
+         * A read beginning exactly at EOF is a successful zero-byte read.
+         */
+        if (vfs_file_seek(&file, 700u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t eof_byte = 0xFFu;
+            uint32_t eof_done = 99u;
+
+            if (vfs_file_read(&file, &eof_byte, 1u, &eof_done) !=
+                    PROS_VFS_OK ||
+                eof_done != 0u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * Partial write starting at offset 500 must cross the 512-byte
+         * boundary while preserving the file size.
+         */
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_seek(&file, 500u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t boundary_patch[37];
+            uint32_t boundary_done = 0u;
+
+            for (uint32_t i = 0u; i < sizeof(boundary_patch); ++i)
+                boundary_patch[i] = (uint8_t)(0xD0u + i);
+
+            if (vfs_file_write(&file, boundary_patch,
+                               sizeof(boundary_patch),
+                               &boundary_done) != PROS_VFS_OK ||
+                boundary_done != sizeof(boundary_patch) ||
+                file.position != 537u ||
+                file.vnode->size != 700u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        /*
+         * Verify the cross-boundary write immediately through the VFS.
+         */
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_seek(&file, 500u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+        {
+            uint8_t boundary_read[37];
+            uint32_t boundary_read_done = 0u;
+
+            if (vfs_file_read(&file, boundary_read,
+                              sizeof(boundary_read),
+                              &boundary_read_done) != PROS_VFS_OK ||
+                boundary_read_done != sizeof(boundary_read)) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+
+            for (uint32_t i = 0u; i < sizeof(boundary_read); ++i)
+                if (boundary_read[i] != (uint8_t)(0xD0u + i)) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -12);
+                }
+        }
+
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (vfs_file_open(&fs.mount, "/hello.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (vfs_file_truncate(&file, 100u) != PROS_VFS_OK ||
+            file.vnode->size != 100u)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+            inode.size != 100u ||
+            inode.allocated_bytes != fs.sb.block_size ||
+            inode.extent_head == 0u)
+            return pfs_selftest_fail(__LINE__, -12);
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    {
+        struct pros_vfs_file file;
+        uint8_t read_data[100];
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            uint8_t expected = i < 37u
+                ? (uint8_t)(0xA0u + i)
+                : (uint8_t)((i * 13u) ^ 0x5Au);
+            if (read_data[i] != expected) {
+                prosenjitfs_unmount(&fs);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        }
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (vfs_file_truncate(&file, 0u) != PROS_VFS_OK)
+            {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_OK ||
+            inode.size != 0u || inode.extent_head != 0u ||
+            inode.allocated_bytes != 0u)
+            return pfs_selftest_fail(__LINE__, -12);
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    {
+        struct pros_vfs_file file;
+        uint8_t read_data[1];
+        uint32_t done = 99u;
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ, &file) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != 0u) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+    }
+    {
+        struct pros_prosenjitfs_inode before;
+        struct pros_prosenjitfs_inode after;
+        struct pros_vfs_vnode *hidden = 0;
+
+        if (prosenjitfs_read_inode(&fs, 1u, &before) != PROSENJITFS_OK ||
+            vfs_rename(&fs.mount, "/hello.bin", "/.hello.bin") !=
+                PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/hello.bin", &hidden) !=
+                PROS_VFS_ENOENT ||
+            hidden != 0)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden) !=
+                PROS_VFS_OK ||
+            !hidden ||
+            vfs_vnode_put(hidden) != PROS_VFS_OK ||
+            prosenjitfs_read_inode(&fs, 1u, &after) != PROSENJITFS_OK ||
+            after.type != before.type ||
+            after.mode != before.mode ||
+            after.uid != before.uid ||
+            after.gid != before.gid ||
+            after.links != before.links ||
+            after.generation != before.generation ||
+            after.size != before.size ||
+            after.allocated_bytes != before.allocated_bytes ||
+            after.parent_inode != before.parent_inode ||
+            after.extent_head != before.extent_head ||
+            after.dir_index != before.dir_index ||
+            after.atime != before.atime ||
+            after.mtime != before.mtime ||
+            after.ctime != before.ctime)
+            return pfs_selftest_fail(__LINE__, -12);
+        {
+            int rc;
+
+            rc = prosenjitfs_unmount(&fs);
+            if (rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(41731u, -12);
+
+            rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(41732u, -12);
+
+            hidden = 0;
+            rc = vfs_path_lookup(&fs.mount, "/hello.bin", &hidden);
+            if (rc != PROS_VFS_ENOENT)
+                return pfs_selftest_fail(41733u, -12);
+
+            if (hidden != 0)
+                return pfs_selftest_fail(41734u, -12);
+
+            rc = vfs_path_lookup(&fs.mount, "/.hello.bin", &hidden);
+            if (rc != PROS_VFS_OK)
+                return pfs_selftest_fail(41735u, -12);
+
+            if (!hidden)
+                return pfs_selftest_fail(41736u, -12);
+
+            rc = vfs_vnode_put(hidden);
+            if (rc != PROS_VFS_OK)
+                return pfs_selftest_fail(41737u, -12);
+
+            rc = vfs_rename(&fs.mount, "/.hello.bin", "/hello.bin");
+            if (rc != PROS_VFS_OK)
+                return pfs_selftest_fail(41738u, -12);
+        }
+    }
+    /*
+     * Stale-handle regression: unlink immediately invalidates an inode
+     * generation, but the open VFS object remains safe to close. Reuse of
+     * the same inode number must never make the old handle target the new
+     * file.
+     */
+    {
+        struct pros_vfs_file stale;
+        struct pros_vfs_file replacement;
+        uint8_t value = 0x31u;
+        uint8_t replacement_value = 0xA7u;
+        uint8_t verify = 0u;
+        uint32_t done = 0u;
+
+        if (vfs_file_open(&fs.mount, "/stale.bin",
+                          PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, &stale) != PROS_VFS_OK ||
+            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        if (vfs_unlink(&fs.mount, "/stale.bin") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_read(&stale, &verify, 1u, &done) != PROS_VFS_ESTALE ||
+            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_ESTALE ||
+            vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        if (vfs_file_open(&fs.mount, "/stale.bin",
+                          PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                          PROS_VFS_O_CREATE, &replacement) != PROS_VFS_OK ||
+            vfs_file_write(&replacement, &replacement_value, 1u, &done) !=
+                PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&replacement) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_read(&stale, &verify, 1u, &done) != PROS_VFS_ESTALE ||
+            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_ESTALE ||
+            vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE ||
+            vfs_file_close(&stale) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+    if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    {
+        struct pros_vfs_vnode *deleted = 0;
+        if (vfs_path_lookup(&fs.mount, "/hello.bin", &deleted) !=
+                PROS_VFS_ENOENT)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (deleted)
+            vfs_vnode_put(deleted);
+    }
+    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_alloc_inode(&fs, &inode_number) != PROSENJITFS_OK ||
+        inode_number != 1u)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_read_inode(&fs, 1u, &inode) != PROSENJITFS_ENOENT)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+
+    /*
+     * Transaction hygiene regression: rejected staging must not leak a
+     * partially prepared transaction into the next filesystem operation.
+     */
+    {
+        uint8_t tx_image[512];
+        pfs_zero(tx_image, sizeof(tx_image));
+        if (pfs_tx_reset(&fs) != PROSENJITFS_OK ||
+            pfs_tx_add(&fs, fs.sb.journal_start, tx_image) !=
+                PROSENJITFS_EINVAL ||
+            fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -12);
+        if (pfs_tx_reset(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t n = 0u; n < PROSENJITFS_MAX_TX_BLOCKS; ++n) {
+            if (pfs_tx_add(&fs, fs.sb.data_start + n, tx_image) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+        }
+        if (pfs_tx_add(&fs, fs.sb.data_start + PROSENJITFS_MAX_TX_BLOCKS,
+                       tx_image) != PROSENJITFS_EOVERFLOW ||
+            fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -12);
+    }
+
+
+    /*
+     * Full persistence/namespace/allocation regression.
+     *
+     * This deliberately crosses clean unmount/remount boundaries so that
+     * every assertion observes the durable image rather than live VFS state.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t data[900];
+        uint8_t small_data[32];
+        uint32_t done = 0u;
+        uint64_t allocated_block = 0u;
+        uint64_t allocated_inode = 0u;
+        uint64_t inode_before;
+        uint64_t rename_inode_before;
+        struct pros_vfs_vnode *node = 0;
+        struct pfs_vnode_data *node_data;
+
+        for (uint32_t i = 0u; i < sizeof(data); ++i)
+            data[i] = (uint8_t)((i * 29u) ^ 0xD6u);
+        for (uint32_t i = 0u; i < sizeof(small_data); ++i)
+            small_data[i] = (uint8_t)(0xA0u + i);
+
+        if (vfs_mkdir(&fs.mount, "/persist") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
+            done != sizeof(data) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/persist/config/rename.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(small_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        node_data = (struct pfs_vnode_data *)node->private_data;
+        if (!node_data || prosenjitfs_read_inode(&fs, node_data->inode_number,
+                                                 &inode) != PROSENJITFS_OK)
+            {
+                vfs_vnode_put(node);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+        inode_before = node_data->inode_number;
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/persist/config/rename.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+        node_data = (struct pfs_vnode_data *)node->private_data;
+        if (!node_data) {
+            vfs_vnode_put(node);
+            return pfs_selftest_fail(__LINE__, -15);
+        }
+        rename_inode_before = node_data->inode_number;
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/persist/config/rename.bin",
+                       "/persist/config/sub/renamed.bin") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_truncate(&file, 513u) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 513u) != PROS_VFS_OK ||
+            vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(small_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
+                            &node) != PROS_VFS_OK ||
+            node->size != 513u + sizeof(small_data) ||
+            vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/persist/config/sub/renamed.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+        node_data = (struct pfs_vnode_data *)node->private_data;
+        if (!node_data || node_data->inode_number != rename_inode_before ||
+            node_data->inode_number == inode_before ||
+            vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/persist/config",
+                            &node) != PROS_VFS_OK ||
+            vfs_vnode_put(node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
+            done != 545u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        if (vfs_unlink(&fs.mount, "/persist/config/sub/renamed.bin") !=
+                PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_ENOTEMPTY)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
+                PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/persist") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+
+        /*
+         * Boundary-size persistence matrix: exercise empty, byte, sector and
+         * block edges across independent unmount/remount cycles.
+         */
+        {
+            static const uint32_t sizes[] = {
+                0u, 1u, 511u, 512u, 513u, 1023u, 1024u, 1025u
+            };
+            uint8_t size_data[1025];
+            uint8_t read_sizes[1025];
+            for (uint32_t i = 0u; i < sizeof(size_data); ++i)
+                size_data[i] = (uint8_t)((i * 31u) ^ 0x5Au);
+
+            for (uint32_t si = 0u;
+                 si < sizeof(sizes) / sizeof(sizes[0]); ++si) {
+                uint32_t size = sizes[si];
+                uint32_t bytes = 0u;
+
+                if (vfs_file_open(&fs.mount, "/sizes.bin",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                  &file) != PROS_VFS_OK ||
+                    vfs_file_truncate(&file, size) != PROS_VFS_OK ||
+                    vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
+                if (size != 0u &&
+                    (vfs_file_write(&file, size_data, size, &bytes) !=
+                         PROS_VFS_OK ||
+                     bytes != size)) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
+
+                bytes = 0u;
+                if (vfs_file_open(&fs.mount, "/sizes.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, read_sizes, sizeof(read_sizes), &bytes) !=
+                        PROS_VFS_OK ||
+                    bytes != size) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+                for (uint32_t i = 0u; i < size; ++i) {
+                    if (read_sizes[i] != size_data[i]) {
+                        vfs_file_close(&file);
+                        return pfs_selftest_fail(__LINE__, -15);
+                    }
+                }
+                if (vfs_file_close(&file) != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
+            }
+        }
+
+        if (prosenjitfs_alloc_blocks(&fs, 2u, &allocated_block) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        {
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint8_t bitmap[4096];
+            uint64_t lba;
+            if (allocated_block < fs.sb.data_start ||
+                allocated_block + 2u > fs.sb.total_blocks ||
+                pfs_lba_add(&device, fs.sb.block_bitmap_start,
+                            allocated_block / bits_per_block, &lba) !=
+                    PROSENJITFS_OK ||
+                pfs_read_block(&device, lba, bitmap) != PROSENJITFS_OK ||
+                !pfs_bitmap_bit(bitmap, allocated_block % bits_per_block))
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+
+        if (prosenjitfs_free_blocks(&fs, allocated_block, 2u) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        {
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint8_t bitmap[4096];
+            uint64_t lba;
+            if (pfs_lba_add(&device, fs.sb.block_bitmap_start,
+                            allocated_block / bits_per_block, &lba) !=
+                    PROSENJITFS_OK ||
+                pfs_read_block(&device, lba, bitmap) != PROSENJITFS_OK ||
+                pfs_bitmap_bit(bitmap, allocated_block % bits_per_block))
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+
+        if (prosenjitfs_alloc_blocks(&fs, 2u, &first_block) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_free_blocks(&fs, first_block, 2u) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
+                PROSENJITFS_ENOENT)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        /*
+         * Negative/boundary arithmetic is exercised against the real device
+         * contract, including end-of-device and UINT64_MAX overflow cases.
+         */
+        {
+            uint64_t lba;
+            uint8_t block[512];
+            struct pros_prosenjitfs_extent invalid_extent;
+            if (pfs_lba_add(&device, device.sector_count - 1u, 0u, &lba) !=
+                    PROSENJITFS_OK ||
+                pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
+                    PROSENJITFS_EINVAL ||
+                pfs_lba_add(&device, 0u, UINT64_MAX, &lba) !=
+                    PROSENJITFS_EOVERFLOW ||
+                pfs_read_block(&device, device.sector_count, block) !=
+                    PROSENJITFS_EINVAL ||
+                pfs_write_block(&device, device.sector_count, block) !=
+                    PROSENJITFS_EINVAL ||
+                pfs_inode_block_location(&fs, fs.sb.inode_count,
+                                          &lba, (uint32_t *)&done) !=
+                    PROSENJITFS_EINVAL ||
+                pfs_inode_block_location(&fs, UINT64_MAX, &lba,
+                                          (uint32_t *)&done) !=
+                    PROSENJITFS_EINVAL ||
+                prosenjitfs_read_inode(&fs, fs.sb.inode_count, &inode) !=
+                    PROSENJITFS_EINVAL ||
+                pfs_read_extent(&fs, fs.sb.total_blocks, &invalid_extent) !=
+                    PROSENJITFS_ECORRUPT)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+
+        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+            vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -15);
+
+        /*
+         * Bounded-truncate regression: eight independent extents exceed the
+         * v1 transaction budget. The operation must fail before changing EOF
+         * or allocation metadata.
+         */
+        {
+            struct pros_vfs_file file;
+            uint8_t marker_byte = 0xE1u;
+            uint32_t done = 0u;
+            uint64_t before_size;
+            struct pros_prosenjitfs_inode before_inode;
+            struct pfs_vnode_data *file_data;
+            uint64_t inode_number;
+
+            if (vfs_file_open(&fs.mount, "/truncate-bound.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            for (uint32_t n = 0u; n < 8u; ++n) {
+                if (vfs_file_seek(&file, (uint64_t)n * fs.sb.block_size) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, &marker_byte, 1u, &done) !=
+                        PROS_VFS_OK ||
+                    done != 1u)
+                    return pfs_selftest_fail(__LINE__, -15);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-bound.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            file_data = (struct pfs_vnode_data *)file.vnode->private_data;
+            if (!file_data)
+                return pfs_selftest_fail(__LINE__, -15);
+            inode_number = file_data->inode_number;
+            if (prosenjitfs_read_inode(&fs, inode_number,
+                                       &before_inode) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            before_size = before_inode.size;
+            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_read_inode(&fs, file_data->inode_number,
+                                       &before_inode) != PROSENJITFS_OK ||
+                before_inode.size != before_size ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+
+        /*
+         * Semantic corruption: preserve the inode checksum while replacing
+         * its extent head with an impossible filesystem block. Mount can
+         * remain structurally valid, but the first data access must fail
+         * closed rather than touching the device out of range.
+         */
+        if (vfs_file_open(&fs.mount, "/corrupt.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
+                PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/corrupt.bin", &node) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+        node_data = (struct pfs_vnode_data *)node->private_data;
+        if (!node_data ||
+            prosenjitfs_read_inode(&fs, node_data->inode_number, &inode) !=
+                PROSENJITFS_OK)
+            {
+                vfs_vnode_put(node);
+                return pfs_selftest_fail(__LINE__, -16);
+            }
+        inode_before = node_data->inode_number;
+        inode.extent_head = fs.sb.total_blocks;
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            prosenjitfs_write_inode(&fs, inode_before, &inode) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/corrupt.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, data, sizeof(small_data), &done) !=
+                PROS_VFS_ECORRUPT ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        /*
+         * Restore a clean image before the journal/crash matrix. This keeps
+         * the negative corruption fixture isolated from subsequent tests.
+         */
+        pfs_zero(&disk, sizeof(disk));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+    }
+
+    /*
+     * Tiny-image allocation exhaustion.  This uses the real allocator and
+     * journal on a minimum-size filesystem, then verifies recovery/reuse.
+     */
+    {
+        struct pfs_test_disk small_disk;
+        struct pros_block_device small_device;
+        struct pros_prosenjitfs small_fs;
+        uint64_t block;
+        uint64_t first_reused = 0u;
+        uint32_t allocated = 0u;
+        uint64_t inode_tmp;
+
+        pfs_zero(&small_disk, sizeof(small_disk));
+        if (block_device_init(&small_device, 512u, PFS_MIN_BLOCKS,
+                              pfs_test_read, pfs_test_write, &small_disk) !=
+                PROS_BLOCK_OK ||
+            block_device_set_flush(&small_device, pfs_test_flush) !=
+                PROS_BLOCK_OK ||
+            prosenjitfs_format(&small_device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&small_fs, &small_device, 0u) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        for (;;) {
+            int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
+            if (rc == PROSENJITFS_ENOSPC)
+                break;
+            if (rc != PROSENJITFS_OK)
+                {
+                    prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, -17);
+                }
+            if (++allocated > PFS_MIN_BLOCKS)
+                {
+                    prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, -17);
+                }
+        }
+        if (allocated == 0u ||
+            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK)
+            {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
+                PROSENJITFS_OK ||
+            first_reused != block ||
+            prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
+                PROSENJITFS_OK)
+            {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+        {
+            uint32_t inode_allocated = 1u;
+            for (;;) {
+                int rc = prosenjitfs_alloc_inode(&small_fs, &inode_tmp);
+                if (rc == PROSENJITFS_ENOSPC)
+                    break;
+                if (rc != PROSENJITFS_OK ||
+                    ++inode_allocated > small_fs.sb.inode_count) {
+                    prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, -17);
+                }
+            }
+            if (inode_allocated < small_fs.sb.inode_count - 1u ||
+                pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+        }
+
+        if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
+        /*
+         * A partition view that is one sector shorter than the durable
+         * filesystem must be rejected before any filesystem I/O can cross
+         * the partition boundary.
+         */
+        {
+            struct pros_partition_device view;
+            struct pros_partition part;
+            pfs_zero(&view, sizeof(view));
+            pfs_zero(&part, sizeof(part));
+            part.first_lba = 0u;
+            part.sector_count = PFS_MIN_BLOCKS - 1u;
+            if (partition_device_init(&view, &small_device, &part) !=
+                    PROS_PARTITION_OK ||
+                prosenjitfs_mount(&small_fs, &view.device, 0u) !=
+                    PROSENJITFS_ECORRUPT) {
+                pfs_zero(&small_fs, sizeof(small_fs));
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+        }
+
+        if (prosenjitfs_mount(&small_fs, &small_device, 0u) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+    }
+
+    /*
+     * Journal recovery regression:
+     *  1. A fully committed redo record must replay on the next mount.
+     *  2. A header/images without a commit record must be discarded.
+     *  3. A committed record with a bad checksum must fail closed.
+     */
+    {
+        uint64_t recovery_block;
+        uint64_t journal_start = fs.sb.journal_start;
+        uint32_t journal_blocks = fs.sb.journal_blocks;
+        uint8_t header[512], image[512], commit[512], verify[512];
+        struct pros_prosenjitfs_journal_header h;
+        struct pros_prosenjitfs_journal_commit jc;
+        uint32_t expected;
+
+        if (fs.sb.block_size != 512u ||
+            prosenjitfs_alloc_blocks(&fs, 1u, &recovery_block) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        pfs_zero(header, sizeof(header));
+        pfs_zero(image, sizeof(image));
+        pfs_zero(commit, sizeof(commit));
+        for (uint32_t i = 0u; i < sizeof(image); ++i)
+            image[i] = (uint8_t)(0xC3u ^ (uint8_t)i);
+
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0x1122334455667788ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
+        expected = pfs_journal_checksum(header, image, 512u, 1u, commit);
+        jc.checksum = expected;
+        pfs_copy(commit, &jc, sizeof(jc));
+
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != image[i])
+                return pfs_selftest_fail(__LINE__, -12);
+
+        /* Torn transaction: header/images without a commit must not apply. */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0x8877665544332211ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        for (uint32_t i = 0u; i < sizeof(image); ++i)
+            image[i] = (uint8_t)(0x5Au ^ (uint8_t)i);
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
+                return pfs_selftest_fail(__LINE__, -12);
+
+        /* Corrupt commit checksum must fail closed. */
+        pfs_zero(header, sizeof(header));
+        pfs_zero(commit, sizeof(commit));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0xCAFEBABE12345678ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
+        for (uint32_t i = 0u; i < sizeof(image); ++i)
+            image[i] = (uint8_t)(0xE1u ^ (uint8_t)i);
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.record_count = 1u;
+        jc.transaction_id = h.transaction_id;
+        pfs_copy(commit, &jc, sizeof(jc));
+        jc.checksum = pfs_journal_checksum(header, image, 512u, 1u, commit) ^ 1u;
+        pfs_copy(commit, &jc, sizeof(jc));
+        if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u, commit) != PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        pfs_zero(header, sizeof(header));
+        for (uint32_t i = 0u; i < journal_blocks; ++i)
+            if (pfs_write_block(&device, journal_start + i, header) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+        if (pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
+                return pfs_selftest_fail(__LINE__, -12);
+        if (prosenjitfs_free_blocks(&fs, recovery_block, 1u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+    }
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -12);
+
+    /*
+     * Crash/power-loss transaction matrix.
+     *
+     * The test disk now has durable media plus a volatile write cache.
+     * Each iteration performs a real VFS file overwrite and injects an
+     * interruption at one transaction boundary. The crash reset discards
+     * unflushed device-cache contents, drops the in-memory filesystem state,
+     * and remounts the same durable medium.
+     *
+     * Stages 1-4 occur before a durable commit and must leave the old data.
+     * Stages 5-9 occur after the commit is durable and must recover the new
+     * data from the redo journal, including the case where a home write was
+     * lost by the simulated power loss.
+     */
+    {
+        static const uint32_t crash_stages[] = {
+            1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u
+        };
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+
+        for (uint32_t stage_index = 0u;
+             stage_index < sizeof(crash_stages) / sizeof(crash_stages[0]);
+             ++stage_index) {
+            uint32_t stage = crash_stages[stage_index];
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int write_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+
+            for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                old_data[i] = (uint8_t)(0x31u ^ (uint8_t)(i * 7u));
+                new_data[i] = (uint8_t)(0xD6u ^ (uint8_t)(i * 11u));
+            }
+
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            if (vfs_file_open(&fs.mount, "/crash.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            pfs_crash_inject_stage = stage;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/crash.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data),
+                                      &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO ||
+                done != 0u ||
+                pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+
+            pfs_crash_inject_stage = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/crash.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+                uint8_t expected = stage >= 5u ? new_data[i] : old_data[i];
+                if (read_data[i] != expected) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+            }
+
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+    }
+
+    /*
+     * Interrupted-recovery/idempotence regression.
+     *
+     * First leave a durable committed journal (stage 9), then interrupt
+     * recovery once before the recovery flush and once after the recovery
+     * flush but before journal retirement. In both cases the next mount must
+     * safely replay the same complete replacement images again.
+     */
+    {
+        static const uint32_t recovery_stages[] = { 10u, 11u };
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x42u ^ (uint8_t)(i * 5u));
+            new_data[i] = (uint8_t)(0x9Bu ^ (uint8_t)(i * 17u));
+        }
+
+        for (uint32_t recovery_index = 0u;
+             recovery_index < sizeof(recovery_stages) /
+                               sizeof(recovery_stages[0]);
+             ++recovery_index) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int write_rc;
+            int mount_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            if (vfs_file_open(&fs.mount, "/recovery.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            pfs_crash_inject_stage = 9u;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data),
+                                      &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO ||
+                done != 0u ||
+                pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            pfs_crash_inject_stage = recovery_stages[recovery_index];
+            pfs_crash_injected = 0u;
+            mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (mount_rc != PROSENJITFS_EIO ||
+                pfs_crash_injected == 0u) {
+                pfs_crash_inject_stage = 0u;
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            /*
+             * prosenjitfs_mount() owns cleanup on recovery failure. Model the
+             * subsequent power loss by discarding any remaining volatile
+             * device-cache blocks and losing the failed mount's CPU state.
+             */
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+                if (read_data[i] != new_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+    }
+
+    /* Repeated persistence/reuse regression: 100 complete create/write/
+     * unmount/remount/read/unlink/unmount/remount cycles on one image. */
+    {
+        static const uint32_t cycle_count = 100u;
+        static const uint8_t cycle_data[32] = {
+            0x00u, 0x01u, 0x7Fu, 0x80u, 0xA5u, 0xD6u, 0xFEu, 0xFFu,
+            0x11u, 0x22u, 0x33u, 0x44u, 0x55u, 0x66u, 0x77u, 0x88u,
+            0x99u, 0xAAu, 0xBBu, 0xCCu, 0xDDu, 0xEEu, 0xF0u, 0x0Fu,
+            0x5Au, 0xC3u, 0x3Cu, 0x96u, 0x69u, 0x12u, 0x24u, 0x48u
+        };
+        uint8_t cycle_read[sizeof(cycle_data)];
+        uint32_t done;
+
+        pfs_zero(&disk, sizeof(disk));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        for (uint32_t cycle = 0u; cycle < cycle_count; ++cycle) {
+            struct pros_vfs_file file;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/cycle.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+                vfs_file_write(&file, cycle_data, sizeof(cycle_data), &done) != PROS_VFS_OK ||
+                done != sizeof(cycle_data) || vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -16);
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/cycle.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, cycle_read, sizeof(cycle_read), &done) != PROS_VFS_OK ||
+                done != sizeof(cycle_read) || vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -16);
+            for (uint32_t j = 0u; j < sizeof(cycle_data); ++j)
+                if (cycle_read[j] != cycle_data[j])
+                    return pfs_selftest_fail(__LINE__, -16);
+
+            if (vfs_unlink(&fs.mount, "/cycle.bin") != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -16);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+    }
+
+    saved = disk.data[0];
+    disk.data[0] ^= 0x01u;
+    disk.data[512u] ^= 0x01u;
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+        return pfs_selftest_fail(__LINE__, -9);
+    disk.data[0] = saved;
+    disk.data[512u] ^= 0x01u;
+
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -10);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -11);
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_EINVAL)
+        return pfs_selftest_fail(__LINE__, -11);
+    return PROSENJITFS_OK;
+}
+}
