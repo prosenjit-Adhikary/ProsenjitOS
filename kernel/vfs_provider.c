@@ -112,12 +112,18 @@ int pros_vfs_provider_selftest(void)
         .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
         .flags = PROS_VFS_PROVIDER_PARTITION_AWARE |
                  PROS_VFS_PROVIDER_USERSPACE,
-        .name = "provider-selftest",
+        .name = "provider-selftest-0",
         .ops = &ops,
         .private_data = 0
     };
-    struct pros_vfs_provider duplicate = first;
+    struct pros_vfs_provider duplicate;
     struct pros_vfs_provider invalid = first;
+    static const char *const test_names[] = {
+        "provider-selftest-0",
+        "provider-selftest-1",
+        "provider-selftest-2",
+        "provider-selftest-3"
+    };
 
     /*
      * This self-test may run after real providers have registered.
@@ -137,6 +143,26 @@ int pros_vfs_provider_selftest(void)
      * is still valid and the registry must remain untouched.
      */
     if (provider_count < PROSENJIT_VFS_PROVIDER_MAX) {
+        uint32_t selected = 0u;
+        while (selected < (uint32_t)(sizeof(test_names) / sizeof(test_names[0])) &&
+               pros_vfs_provider_find(test_names[selected]) != 0)
+            ++selected;
+
+        /*
+         * A real provider may legitimately occupy any fixed self-test name.
+         * Never report a false failure merely because the registry already
+         * contains one of our test names. Select an unused slot/name instead.
+         */
+        if (selected == (uint32_t)(sizeof(test_names) / sizeof(test_names[0])))
+            return PROS_VFS_PROVIDER_OK;
+
+        for (uint32_t i = 0u; i < PROSENJIT_VFS_PROVIDER_NAME_MAX + 1u; ++i)
+            first.name[i] = '\0';
+        for (uint32_t i = 0u; test_names[selected][i] != '\0'; ++i)
+            first.name[i] = test_names[selected][i];
+
+        duplicate = first;
+
         if (pros_vfs_provider_find(first.name) != 0)
             return -3;
 
