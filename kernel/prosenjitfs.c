@@ -2059,6 +2059,11 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     if (child_inode.type != PROSENJITFS_INODE_DIR) {
         rc = PROSENJITFS_ENOTDIR; goto rmdir_out;
     }
+    if (entry.type != PROSENJITFS_INODE_DIR ||
+        child_inode.parent_inode != data->inode_number) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto rmdir_out;
+    }
 
     /* A directory is removable only when every bucket is empty. */
     {
@@ -2292,6 +2297,11 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     }
     if (child_inode.type == PROSENJITFS_INODE_DIR)
         { rc = PROS_VFS_EISDIR; goto out; }
+    if (entry.type != PROSENJITFS_INODE_FILE ||
+        child_inode.parent_inode != parent_data->inode_number) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto out;
+    }
 
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE) {
         rc = PROSENJITFS_EOVERFLOW;
