@@ -4379,43 +4379,135 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
     return pfs_tx_commit(fs);
 }
 
+static int pfs_allocator_range_valid(const struct pros_prosenjitfs *fs,
+                                      uint64_t first, uint32_t count)
+{
+    if (!fs || count == 0u || fs->sb.block_size < 512u ||
+        fs->sb.block_size > 4096u || fs->sb.total_blocks < fs->sb.data_start ||
+        first < fs->sb.data_start || first >= fs->sb.total_blocks ||
+        (uint64_t)count > fs->sb.total_blocks - first)
+        return PROSENJITFS_EINVAL;
+    if (!fs->mount.active || !fs->mount.device)
+        return PROSENJITFS_EPERM;
+    if (fs->mount.device->sector_size != fs->sb.block_size ||
+        fs->mount.device->sector_count < fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
+    return PROSENJITFS_OK;
+}
+
+static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
+                                     uint64_t first, uint32_t count,
+                                     uint8_t want_allocated)
+{
+    uint64_t bits_per_block;
+    uint64_t first_bitmap;
+    uint64_t last_bitmap;
+    uint8_t bitmap[4096];
+
+    if (!fs || (want_allocated > 1u))
+        return PROSENJITFS_EINVAL;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    first_bitmap = first / bits_per_block;
+    last_bitmap = ((uint64_t)first + count - 1u) / bits_per_block;
+    if (last_bitmap >= fs->sb.block_bitmap_blocks)
+        return PROSENJITFS_ECORRUPT;
+
+    for (uint64_t bi = first_bitmap; bi <= last_bitmap; ++bi) {
+        uint64_t lba;
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                             bi, &lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        rc = pfs_read_block(fs->mount.device, lba, bitmap);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+
+        uint64_t base = bi * bits_per_block;
+        uint64_t start = first > base ? first - base : 0u;
+        uint64_t end_abs = (uint64_t)first + count - 1u;
+        uint64_t bitmap_last = base + bits_per_block - 1u;
+        uint64_t end = end_abs < bitmap_last ? end_abs - base
+                                             : bits_per_block - 1u;
+        for (uint64_t bit = start; bit <= end; ++bit) {
+            uint8_t allocated = (uint8_t)pfs_bitmap_bit(bitmap, bit);
+            if (allocated != want_allocated)
+                return want_allocated ? PROSENJITFS_ENOSPC
+                                       : PROSENJITFS_EINVAL;
+        }
+    }
+    return PROSENJITFS_OK;
+}
+
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
                              uint32_t count, uint64_t *first_block)
 {
-    uint64_t data_start;
+    uint64_t run_start = 0u;
     uint64_t run = 0u;
+    uint64_t data_start;
+    uint64_t bits_per_block;
+    uint64_t previous_bitmap = UINT64_MAX;
+    uint8_t bitbuf[4096];
 
     if (!fs || !first_block || count == 0u || fs->read_only)
         return PROSENJITFS_EINVAL;
+    *first_block = 0u;
 
-    data_start = pfs_data_start(&fs->sb);
-    if (fs->sb.block_size > 4096u)
-        return PROSENJITFS_EOVERFLOW;
+    {
+        int rc = pfs_allocator_range_valid(fs, fs->sb.data_start, 1u);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
+    data_start = fs->sb.data_start;
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
 
+    /*
+     * Find a first-fit physically contiguous run. Bitmap blocks are cached
+     * for the duration of the scan so large allocations do not reread the
+     * same bitmap sector once per data block.
+     */
     for (uint64_t b = data_start; b < fs->sb.total_blocks; ++b) {
-        uint64_t bits_per_block = (uint64_t)fs->sb.block_size * 8u;
-        uint64_t bitmap_lba;
-        {
+        uint64_t bitmap_index = b / bits_per_block;
+        if (bitmap_index != previous_bitmap) {
+            uint64_t bitmap_lba;
             int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                                 b / bits_per_block, &bitmap_lba);
+                                 bitmap_index, &bitmap_lba);
             if (rc != PROSENJITFS_OK)
                 return rc;
+            rc = pfs_read_block(fs->mount.device, bitmap_lba, bitbuf);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            previous_bitmap = bitmap_index;
         }
-        uint8_t bitbuf[4096];
 
-        {
-            int rc = pfs_read_block(fs->mount.device, bitmap_lba, bitbuf);
-            if (rc != PROSENJITFS_OK)
-                return rc;
-        }
         if (!pfs_bitmap_bit(bitbuf, b % bits_per_block)) {
+            if (run == 0u)
+                run_start = b;
+            if (run == UINT64_MAX)
+                return PROSENJITFS_EOVERFLOW;
             ++run;
-            if (run == count) {
-                *first_block = b + 1u - count;
-                if (*first_block < data_start ||
-                    count > fs->sb.total_blocks - *first_block)
-                    return PROSENJITFS_EINVAL;
-                return pfs_allocator_update(fs, *first_block, count, 1u);
+            if (run >= count) {
+                if (pfs_allocator_range_valid(fs, run_start, count) !=
+                    PROSENJITFS_OK)
+                    return PROSENJITFS_ECORRUPT;
+
+                /*
+                 * Revalidate the exact run against the current on-disk
+                 * bitmap immediately before staging. This keeps the public
+                 * allocator safe if another allocator path changed the
+                 * bitmap between the scan and commit preparation.
+                 */
+                {
+                    int rc = pfs_allocator_range_state(fs, run_start, count, 0u);
+                    if (rc != PROSENJITFS_OK)
+                        return rc;
+                }
+                {
+                    int rc = pfs_allocator_update(fs, run_start, count, 1u);
+                    if (rc != PROSENJITFS_OK)
+                        return rc;
+                }
+                *first_block = run_start;
+                return PROSENJITFS_OK;
             }
         } else {
             run = 0u;
@@ -4427,14 +4519,22 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
                             uint64_t first_block, uint32_t count)
 {
-    uint64_t data_start;
+    int rc;
 
     if (!fs || count == 0u || fs->read_only)
         return PROSENJITFS_EINVAL;
-    data_start = pfs_data_start(&fs->sb);
-    if (first_block < data_start ||
-        (uint64_t)count > fs->sb.total_blocks - first_block)
-        return PROSENJITFS_EINVAL;
+    rc = pfs_allocator_range_valid(fs, first_block, count);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+
+    /*
+     * Validate the complete range before modifying any bitmap image. This
+     * prevents a mixed allocated/free range from being partially staged and
+     * makes double-free detection atomic at the allocator API boundary.
+     */
+    rc = pfs_allocator_range_state(fs, first_block, count, 1u);
+    if (rc != PROSENJITFS_OK)
+        return rc;
     return pfs_allocator_update(fs, first_block, count, 0u);
 }
 
