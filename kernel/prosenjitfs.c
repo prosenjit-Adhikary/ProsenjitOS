@@ -1289,6 +1289,11 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
                  * coalescing operation: no second extent metadata block is
                  * consumed for consecutive writes.
                  */
+                if (previous_extent.block_count == UINT64_MAX ||
+                    previous_extent.physical_block >
+                        UINT64_MAX - previous_extent.block_count)
+                    return pfs_file_write_error(done,
+                                                PROSENJITFS_EOVERFLOW);
                 physical = previous_extent.physical_block +
                            previous_extent.block_count;
                 extent_lba = previous_lba;
