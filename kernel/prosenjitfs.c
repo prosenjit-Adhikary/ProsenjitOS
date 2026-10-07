@@ -2004,7 +2004,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
         (name_length == 1u && name[0] == '.') ||
         (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
-    rc = prosenjitfs_read_inode(data->fs, data->inode_number, &parent_inode);
+    rc = pfs_vnode_validate_inode(data, &parent_inode);
     if (rc != PROSENJITFS_OK) {
         pfs_mkdir_diag_stage = 2u; pfs_mkdir_diag_rc = rc;
         return pfs_vfs_error(rc);
@@ -2445,8 +2445,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         (name_length == 1u && name[0] == '.') ||
         (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
-    rc = prosenjitfs_read_inode(parent_data->fs, parent_data->inode_number,
-                                 &parent_inode);
+    rc = pfs_vnode_validate_inode(parent_data, &parent_inode);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     if (parent_inode.type != PROSENJITFS_INODE_DIR)
@@ -3134,7 +3133,7 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
 
     if (name[0] == '.' && name[1] == '.' && name[2] == '\0') {
         struct pros_prosenjitfs_inode dir_inode;
-        int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode);
+        int inode_read_rc = pfs_vnode_validate_inode(data, &dir_inode);
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
         if (dir_inode.parent_inode == 0 || dir_inode.parent_inode == data->inode_number || data->inode_number == data->fs->sb.root_inode) {
@@ -3213,10 +3212,10 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
             return PROS_VFS_OK;
     }
 
-    rc = prosenjitfs_read_inode(old_data->fs, old_data->inode_number, &old_dir);
+    rc = pfs_vnode_validate_inode(old_data, &old_dir);
     if (rc != PROSENJITFS_OK || old_dir.type != PROSENJITFS_INODE_DIR)
         return rc == PROSENJITFS_OK ? PROS_VFS_ENOTDIR : pfs_vfs_error(rc);
-    rc = prosenjitfs_read_inode(new_data->fs, new_data->inode_number, &new_dir);
+    rc = pfs_vnode_validate_inode(new_data, &new_dir);
     if (rc != PROSENJITFS_OK || new_dir.type != PROSENJITFS_INODE_DIR)
         return rc == PROSENJITFS_OK ? PROS_VFS_ENOTDIR : pfs_vfs_error(rc);
 
