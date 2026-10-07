@@ -104,6 +104,7 @@ struct pros_vfs_mount {
     uint8_t read_only;
     struct pros_vfs_vnode *root;
     uint8_t active;
+    uint32_t open_count;
 };
 
 int vfs_mount_init(struct pros_vfs_mount *, enum pros_filesystem_type,
