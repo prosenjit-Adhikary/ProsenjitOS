@@ -5499,7 +5499,7 @@ int prosenjitfs_selftest(void)
 
         if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
                 PROSENJITFS_OK ||
-            pfs_find_dir_entry(&fs, &inode, "/sparse-truncate.bin",
+            pfs_find_dir_entry(&fs, &inode, "sparse-truncate.bin",
                                &entry) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, entry.inode, &sparse_inode) !=
                 PROSENJITFS_OK)
