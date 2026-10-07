@@ -3642,6 +3642,12 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
 rename_out_error:
     rc = pfs_vfs_error(rc);
 rename_out:
+    /* A failed rename must never leave partially staged images in the
+     * reusable transaction object. This is especially important when a
+     * cross-directory move exhausts transaction target capacity after one or
+     * more targets have already been staged. */
+    if (rc != PROSENJITFS_OK && old_data && old_data->fs)
+        (void)pfs_tx_reset(old_data->fs);
     if (entry_block) kfree(entry_block);
     if (prev_block) kfree(prev_block);
     if (old_dir_block) kfree(old_dir_block);
