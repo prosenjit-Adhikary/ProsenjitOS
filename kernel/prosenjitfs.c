@@ -816,12 +816,13 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
     if (rc != PROSENJITFS_OK)
         return rc;
     pfs_copy(&old_inode, block + offset, sizeof(old_inode));
-    if (old_inode.type != PROSENJITFS_INODE_FREE &&
-        old_inode.type != PROSENJITFS_INODE_FILE &&
-        old_inode.type != PROSENJITFS_INODE_DIR)
+    if (old_inode.type != PROSENJITFS_INODE_FREE)
         return PROSENJITFS_ECORRUPT;
-    if (old_inode.type == PROSENJITFS_INODE_FREE &&
-        old_inode.checksum != pfs_crc_with_zero32(
+    if (old_inode.generation == 0u && old_inode.checksum == 0u) {
+        *generation = 1u;
+        return PROSENJITFS_OK;
+    }
+    if (old_inode.checksum != pfs_crc_with_zero32(
             block + offset, sizeof(old_inode),
             (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)))
         return PROSENJITFS_ECORRUPT;
