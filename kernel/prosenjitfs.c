@@ -2966,8 +2966,15 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
     if (index->magic != PROSENJITFS_DIR_MAGIC ||
         index->version != PROSENJITFS_VERSION ||
         index->bucket_count != PROSENJITFS_DIR_BUCKETS ||
-        index->inode >= fs->sb.inode_count)
+        index->inode >= fs->sb.inode_count ||
+        index->generation != inode->generation)
         return PROSENJITFS_ECORRUPT;
+    for (uint32_t bucket = 0u; bucket < PROSENJITFS_DIR_BUCKETS; ++bucket) {
+        uint64_t head = index->heads[bucket];
+        if (head != 0u &&
+            (head < fs->sb.data_start || head >= fs->sb.total_blocks))
+            return PROSENJITFS_ECORRUPT;
+    }
     checksum = pfs_crc_with_zero32(block, sizeof(*index),
                                    (uint32_t)offsetof(
                                        struct pros_prosenjitfs_dir_index,
@@ -3012,6 +3019,9 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
     if (pfs_utf8_name_valid((const char *)entry->name, &name_length) !=
         PROSENJITFS_OK || name_length != entry->name_length)
+        return PROSENJITFS_ECORRUPT;
+    if (entry->name_hash !=
+        pfs_name_hash(entry->name, entry->name_length))
         return PROSENJITFS_ECORRUPT;
     return PROSENJITFS_OK;
 }
@@ -4856,10 +4866,16 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                     if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
                         entry.name_length == 0u ||
                         entry.name_length > PROSENJITFS_MAX_NAME ||
+                        entry.name[entry.name_length] != 0u ||
                         entry.inode >= fs->sb.inode_count ||
                         entry.next >= fs->sb.total_blocks ||
                         (entry.next != 0u &&
                          entry.next < fs->sb.data_start) ||
+                        pfs_utf8_name_valid((const char *)entry.name,
+                                            &name_length) != PROSENJITFS_OK ||
+                        name_length != entry.name_length ||
+                        entry.name_hash !=
+                            pfs_name_hash(entry.name, entry.name_length) ||
                         pfs_crc_with_zero32(
                             entry_block, sizeof(entry),
                             (uint32_t)offsetof(
