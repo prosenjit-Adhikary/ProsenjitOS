@@ -321,3 +321,46 @@ void process_set_current(struct pros_process *process) {
 struct pros_process *process_current(void) {
     return current_process;
 }
+
+int process_selftest(void)
+{
+    struct pros_process parent;
+    struct pros_process child;
+    int32_t exit_code = 0;
+
+    if (process_manager_init() != 0)
+        return -1;
+    if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
+        return -2;
+    if (parent.state != PROS_PROCESS_READY ||
+        process_lookup(1001u) != &parent)
+        return -3;
+    if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
+        return -4;
+    if (child.parent != &parent || child.parent_pid != parent.pid)
+        return -5;
+    if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
+        return -6;
+    if (process_exit(&parent, 7) == 0)
+        return -7;
+    if (process_exit(&child, 42) != 0 ||
+        process_state(&child) != PROS_PROCESS_ZOMBIE)
+        return -8;
+    if (process_wait(&parent, child.pid, &exit_code) != 0 ||
+        exit_code != 42 ||
+        process_lookup(child.pid) != 0)
+        return -9;
+    if (process_exit(&parent, 7) != 0 ||
+        process_wait(&parent, child.pid, &exit_code) == 0)
+        return -10;
+    if (process_state(&parent) != PROS_PROCESS_ZOMBIE)
+        return -11;
+    if (process_wait(&parent, parent.pid, &exit_code) == 0)
+        return -12;
+    if (process_release_resources(&parent) != 0)
+        return -13;
+    parent.state = PROS_PROCESS_DEAD;
+    if (process_unregister(&parent) != 0)
+        return -14;
+    return 0;
+}
