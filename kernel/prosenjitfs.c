@@ -3309,7 +3309,7 @@ static uint32_t pfs_journal_checksum(const uint8_t *header,
         for (uint32_t bit = 0; bit < 8; ++bit)
             crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
     }
-    for (uint32_t n = 0; n < count * block_size; ++n) {
+    for (uint64_t n = 0; n < (uint64_t)count * block_size; ++n) {
         crc ^= images[n];
         for (uint32_t bit = 0; bit < 8; ++bit)
             crc = (crc >> 1) ^ ((crc & 1u) ? 0x82F63B78u : 0u);
@@ -3375,6 +3375,7 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     if (fs->read_only)
         return PROSENJITFS_EPERM;
     if (h.magic != PROSENJITFS_JOURNAL_MAGIC ||
+        sizeof(h) > fs->sb.block_size || sizeof(c) > fs->sb.block_size ||
         h.record_count == 0u || h.record_count > PROSENJITFS_MAX_TX_BLOCKS ||
         h.record_count + 2u > fs->sb.journal_blocks ||
         pfs_crc_with_zero32(header, fs->sb.block_size,
@@ -3455,6 +3456,8 @@ static int pfs_tx_validate(const struct pros_prosenjitfs *fs)
     if (!fs || !fs->tx.images || fs->tx.count == 0u ||
         fs->tx.count > PROSENJITFS_MAX_TX_BLOCKS ||
         fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        sizeof(struct pros_prosenjitfs_journal_header) > fs->sb.block_size ||
+        sizeof(struct pros_prosenjitfs_journal_commit) > fs->sb.block_size ||
         (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
     if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
