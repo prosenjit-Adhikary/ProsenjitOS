@@ -5125,7 +5125,42 @@ int prosenjitfs_selftest(void)
         for (uint32_t i = 0u; i < 6u; ++i)
             if (combined[i] != (i < 3u ? first[i] : second[i - 3u]))
                 return pfs_selftest_fail(__LINE__, -13);
-    }
+
+        /*
+         * Two independent append handles must each re-read authoritative EOF.
+         * The provider serializes the full append transaction, so the second
+         * append cannot reuse the first handle's stale vnode size.
+         */
+        {
+            struct pros_vfs_file a, b;
+            uint8_t tail_a = 'A', tail_b = 'B';
+            uint8_t appended[8];
+            if (vfs_file_open(&fs.mount, "/append.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &a) !=
+                    PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/append.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_APPEND, &b) !=
+                    PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+            done = 0u;
+            if (vfs_file_write(&a, &tail_a, 1u, &done) != PROS_VFS_OK ||
+                done != 1u)
+                return pfs_selftest_fail(__LINE__, -13);
+            done = 0u;
+            if (vfs_file_write(&b, &tail_b, 1u, &done) != PROS_VFS_OK ||
+                done != 1u ||
+                vfs_file_close(&a) != PROS_VFS_OK ||
+                vfs_file_close(&b) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+            if (vfs_file_open(&fs.mount, "/append.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, appended, sizeof(appended), &done) !=
+                    PROS_VFS_OK ||
+                done != 8u ||
+                appended[6] != 'A' || appended[7] != 'B' ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+        }
 
     /*
      * VFS negative/error-contract matrix: invalid flags, missing paths,
