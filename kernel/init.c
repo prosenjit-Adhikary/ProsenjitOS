@@ -77,3 +77,18 @@ int pros_init_load(struct pros_vfs_mount *mount,
 
     return PROS_INIT_OK;
 }
+
+int pros_init_selftest(void)
+{
+    struct pros_vfs_mount inactive = {0};
+    struct pros_process *process = 0;
+    struct pros_file_security_metadata metadata = {0};
+    struct pros_elf_load_result result = {0};
+
+    if (pros_init_load(0, process, &metadata, &result) != PROS_INIT_EINVAL)
+        return -1;
+    inactive.active = 0u;
+    if (pros_init_load(&inactive, process, &metadata, &result) != PROS_INIT_EINVAL)
+        return -2;
+    return PROS_INIT_OK;
+}
