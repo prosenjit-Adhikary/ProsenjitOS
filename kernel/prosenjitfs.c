@@ -3581,15 +3581,22 @@ static int pfs_tx_reset(struct pros_prosenjitfs *fs)
 static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
                       const void *image)
 {
-    if (!fs || !image || target < 2u || target >= fs->sb.total_blocks)
+    if (!fs || !image || target < 2u || target >= fs->sb.total_blocks) {
+        if (fs)
+            (void)pfs_tx_reset(fs);
         return PROSENJITFS_EINVAL;
+    }
     {
         uint64_t journal_end;
         if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
-                           &journal_end) != PROSENJITFS_OK)
+                           &journal_end) != PROSENJITFS_OK) {
+            (void)pfs_tx_reset(fs);
             return PROSENJITFS_ECORRUPT;
-        if (target >= fs->sb.journal_start && target < journal_end)
+        }
+        if (target >= fs->sb.journal_start && target < journal_end) {
+            (void)pfs_tx_reset(fs);
             return PROSENJITFS_EINVAL;
+        }
     }
     for (uint32_t i = 0; i < fs->tx.count; ++i)
         if (fs->tx.targets[i] == target) {
@@ -3597,8 +3604,10 @@ static int pfs_tx_add(struct pros_prosenjitfs *fs, uint64_t target,
                      image, fs->sb.block_size);
             return PROSENJITFS_OK;
         }
-    if (fs->tx.count >= PROSENJITFS_MAX_TX_BLOCKS)
-        return PROSENJITFS_EINVAL;
+    if (fs->tx.count >= PROSENJITFS_MAX_TX_BLOCKS) {
+        (void)pfs_tx_reset(fs);
+        return PROSENJITFS_EOVERFLOW;
+    }
     fs->tx.targets[fs->tx.count] = target;
     pfs_copy(fs->tx.images + (uint64_t)fs->tx.count * fs->sb.block_size,
              image, fs->sb.block_size);
