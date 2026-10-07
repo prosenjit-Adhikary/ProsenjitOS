@@ -213,6 +213,31 @@ int pros_security_monitor_selftest(void) {
     (void)pros_security_monitor_clear(event.pid);
 
     /*
+     * Saturated telemetry counters must remain saturated rather than wrap.
+     * Seed one slot directly to UINT32_MAX and verify another event cannot
+     * make the lifetime counter appear small again.
+     */
+    event.pid = 0x9003u;
+    event.timestamp = 1u;
+    event.type = PROS_SECURITY_EVENT_MASS_FILE_MODIFY;
+    event.severity = 1u;
+    if (pros_security_monitor_record(&event, &state) !=
+        PROS_SECURITY_MONITOR_ALLOW)
+        return -9;
+    {
+        struct pros_security_monitor_state *internal = find_state(event.pid);
+        if (!internal)
+            return -10;
+        internal->event_count = UINT32_MAX;
+    }
+    event.timestamp = 2u;
+    if (pros_security_monitor_record(&event, &state) !=
+        PROS_SECURITY_MONITOR_ALLOW ||
+        state.event_count != UINT32_MAX)
+        return -11;
+    (void)pros_security_monitor_clear(event.pid);
+
+    /*
      * The monitor table is bounded. Verify exhaustion fails closed and that
      * releasing one lifetime immediately restores capacity.
      */
