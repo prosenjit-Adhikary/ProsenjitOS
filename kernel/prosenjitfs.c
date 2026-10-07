@@ -6704,6 +6704,8 @@ int prosenjitfs_selftest(void)
      * directory/index/inode allocations.
      */
     {
+        struct pros_vfs_file file;
+        struct pros_vfs_vnode *node = 0;
         struct pros_vfs_dir dir;
         struct pros_vfs_dirent dent;
         uint32_t seen_dot = 0u, seen_dotdot = 0u, seen_alpha = 0u;
