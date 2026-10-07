@@ -863,12 +863,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * image, so map each image page into the fixed user code VA range.
      * User stack and test-data pages are private physical pages.
      */
-    uint64_t user_stack_page = physical_page_alloc();
     uint64_t user_data_page = physical_page_alloc();
     uint64_t user_text_start = (uint64_t)(uintptr_t)__user_text_start;
     uint64_t user_text_end = (uint64_t)(uintptr_t)__user_text_end;
 
-    if (!user_stack_page || !user_data_page ||
+    if (!user_data_page ||
         user_text_end <= user_text_start) {
         serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -923,15 +922,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: ELF64 userspace image loaded and validated\\n");
 
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
-        ((uint8_t *)(uintptr_t)user_stack_page)[i] = 0;
-    for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
         ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
 
     if (address_space_map_user_page_owned(&init_process.address_space,
-                                          PROSENJIT_USER_STACK_VA,
-                                          user_stack_page,
-                                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
-        address_space_map_user_page_owned(&init_process.address_space,
                                           PROSENJIT_USER_TEST_VA,
                                           user_data_page,
                                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
