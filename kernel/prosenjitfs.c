@@ -2336,7 +2336,7 @@ static int pfs_unlink_tx_preflight(const struct pros_prosenjitfs *fs,
     if (bits_per_bitmap_block == 0u)
         return PROSENJITFS_ECORRUPT;
 
-    /* The directory-entry block itself must also be reclaimed. */
+    /* The directory-entry block's allocation bitmap must also be reclaimed. */
     {
         uint64_t bitmap_index = entry_lba / bits_per_bitmap_block;
         uint64_t bitmap_lba;
