@@ -476,15 +476,19 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
         pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
     bitmap_base = (uint64_t)bitmap_index * bits_per_block;
-    for (uint64_t b = region_start; b < end; ++b) {
+    for (uint64_t b = region_start; b < end;) {
         if (bitmap_base > UINT64_MAX - bits_per_block)
             return PROSENJITFS_EOVERFLOW;
-        if (b < bitmap_base || b >= bitmap_base + bits_per_block)
-            continue;
-        uint64_t local = b - bitmap_base;
-        if ((local >> 3) >= bytes)
-            return PROSENJITFS_EOVERFLOW;
-        pfs_mark_bit(bitmap, local);
+        if (b >= bitmap_base && b < bitmap_base + bits_per_block) {
+            uint64_t local = b - bitmap_base;
+            if ((local >> 3) >= bytes)
+                return PROSENJITFS_EOVERFLOW;
+            pfs_mark_bit(bitmap, local);
+        }
+        /* Avoid wrapping UINT64_MAX when the validated region ends there. */
+        if (b == end - 1u)
+            break;
+        ++b;
     }
     return PROSENJITFS_OK;
 }
