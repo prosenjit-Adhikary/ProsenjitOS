@@ -204,9 +204,25 @@ int pros_vfs_provider_selftest(void)
         duplicate = first;
         if (pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
             goto fail;
-        if (pros_vfs_provider_find("missing") != 0)
+
+        /*
+         * Do not use a fixed "missing" name here: a legitimate live provider
+         * could own that name. Select a deterministic name that is absent from
+         * the registry at this point, just like the registration candidates.
+         */
+        test_name_index = 0u;
+        while (test_name_index <
+                   (uint32_t)(sizeof(test_names) / sizeof(test_names[0])) &&
+               pros_vfs_provider_find(test_names[test_name_index]) != 0)
+            ++test_name_index;
+        if (test_name_index >=
+            (uint32_t)(sizeof(test_names) / sizeof(test_names[0])))
             goto fail;
-        if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
+        if (pros_vfs_provider_find(test_names[test_name_index]) != 0)
+            goto fail;
+
+        if (pros_vfs_provider_unregister(&duplicate) !=
+            PROS_VFS_PROVIDER_ENOENT)
             goto fail;
         if (pros_vfs_provider_unregister(&first) != PROS_VFS_PROVIDER_OK ||
             pros_vfs_provider_find(first.name) != 0)
