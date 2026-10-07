@@ -2289,7 +2289,8 @@ static int pfs_unlink_tx_target_add(const struct pros_prosenjitfs *fs,
  * complete reclaim operation fits in one journal transaction.  This is a
  * preflight-only pass: it reads and validates the entire extent chain and
  * computes every unique journal target (namespace block, inode block,
- * allocation bitmaps, directory entry block, and extent metadata blocks).
+ * allocation bitmaps, directory entry block, and the bitmap blocks
+ * covering extent metadata/data allocations).
  * If capacity is insufficient, no transaction state has been changed, so
  * the file remains fully reachable and its blocks remain allocated.
  */
