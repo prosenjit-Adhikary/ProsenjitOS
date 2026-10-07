@@ -95,7 +95,13 @@ int pros_security_monitor_record(
     else
         current->score += contribution;
 
-    ++current->event_count;
+    /*
+     * event_count is telemetry state, not a security score. Saturate it
+     * instead of allowing uint32 wrap to make a long-lived process appear
+     * to have a small event history again.
+     */
+    if (current->event_count != UINT32_MAX)
+        ++current->event_count;
     current->last_timestamp = event->timestamp;
     current->action = decide(event->type, current->score);
 
