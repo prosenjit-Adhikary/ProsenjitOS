@@ -4512,36 +4512,43 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
 
-    /* Find a physically contiguous free data run. */
-    for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
-        uint64_t bitmap_index = b / bits_per_block;
-        uint64_t bitmap_lba;
-        uint8_t bitbuf[4096];
+    /* Find a physically contiguous free data run without skipping bitmap boundaries. */
+    {
+        uint64_t bitmap_index;
+        for (bitmap_index = fs->sb.data_start / bits_per_block;
+             bitmap_index <= (fs->sb.total_blocks - 1u) / bits_per_block;
+             ++bitmap_index) {
+            uint64_t bitmap_lba;
+            uint8_t bitbuf[4096];
+            uint64_t base = bitmap_index * bits_per_block;
+            uint64_t first = fs->sb.data_start > base ? fs->sb.data_start : base;
+            uint64_t last = fs->sb.total_blocks - 1u <
+                            base + bits_per_block - 1u
+                            ? fs->sb.total_blocks - 1u
+                            : base + bits_per_block - 1u;
 
-        rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                         bitmap_index, &bitmap_lba);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-        rc = pfs_read_block(fs->mount.device, bitmap_lba, bitbuf);
-        if (rc != PROSENJITFS_OK)
-            return rc;
+            rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                             bitmap_index, &bitmap_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            rc = pfs_read_block(fs->mount.device, bitmap_lba, bitbuf);
+            if (rc != PROSENJITFS_OK)
+                return rc;
 
-        for (; b < fs->sb.total_blocks &&
-               b / bits_per_block == bitmap_index; ++b) {
-            if (!pfs_bitmap_bit(bitbuf, b % bits_per_block)) {
-                if (run == 0u)
-                    run_start = b;
-                if (run == UINT64_MAX)
-                    return PROSENJITFS_EOVERFLOW;
-                ++run;
-                if (run == count)
-                    goto run_found;
-            } else {
-                run = 0u;
+            for (uint64_t b = first; b <= last; ++b) {
+                if (!pfs_bitmap_bit(bitbuf, b % bits_per_block)) {
+                    if (run == 0u)
+                        run_start = b;
+                    if (run == UINT64_MAX)
+                        return PROSENJITFS_EOVERFLOW;
+                    ++run;
+                    if (run == count)
+                        goto run_found;
+                } else {
+                    run = 0u;
+                }
             }
         }
-        if (b != 0u)
-            --b;
     }
     return PROSENJITFS_ENOSPC;
 
