@@ -13,6 +13,7 @@ struct heap_block {
     uint64_t state;
     struct heap_block *next;
     struct heap_block *prev;
+    uint64_t reserved;
 };
 
 static struct heap_block *heap_head;
