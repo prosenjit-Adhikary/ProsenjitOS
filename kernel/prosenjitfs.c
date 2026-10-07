@@ -661,7 +661,7 @@ int prosenjitfs_format(struct pros_block_device *device)
     for (uint32_t i = 0; i < bitmap_blocks; ++i) {
         pfs_zero(block, block_size);
         if (pfs_bitmap_region_build(block, block_size,
-                                    0u, sb.data_start, i, block_size) != PROSENJITFS_OK) {
+                                    0u, sb.data_start + 1u, i, block_size) != PROSENJITFS_OK) {
             kfree(block);
             return PROSENJITFS_EOVERFLOW;
         }
@@ -709,9 +709,9 @@ int prosenjitfs_format(struct pros_block_device *device)
     root.links = 1u;
     root.generation = 1u;
     root.parent_inode = 0u;
-    /* The block at cursor is reserved for the root directory index;
-     * sb.data_start is the first genuinely free data block. */
-    root.dir_index = cursor;
+    /* sb.data_start is reserved for the root directory index; the
+     * bitmap therefore marks it allocated. Subsequent data blocks are free. */
+    root.dir_index = sb.data_start;
     root.ctime = 0u; root.mtime = 0u; root.atime = 0u;
 
     pfs_zero(block, block_size);
