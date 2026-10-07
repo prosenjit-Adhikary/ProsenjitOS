@@ -20,6 +20,7 @@ static uint64_t heap_end;
 static uint64_t heap_used;
 
 static uint64_t align_up(uint64_t value, uint64_t alignment) {
+    if (value > UINT64_MAX - (alignment - 1ULL)) return 0;
     return (value + alignment - 1ULL) & ~(alignment - 1ULL);
 }
 
@@ -62,7 +63,9 @@ int heap_init(void) {
 
 void *kmalloc(uint64_t size) {
     if (size == 0) return 0;
+    if (size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
     size = align_up(size, ALIGNMENT);
+    if (size == 0 || size > PROSENJIT_HEAP_MAX - sizeof(struct heap_block)) return 0;
 
     for (struct heap_block *block = heap_head; block; block = block->next) {
         if (block->magic == BLOCK_MAGIC && block->state == BLOCK_FREE && block->size >= size) {
@@ -75,8 +78,10 @@ void *kmalloc(uint64_t size) {
 
     uint64_t block_start = align_up(heap_end, ALIGNMENT);
     uint64_t total = sizeof(struct heap_block) + size;
+    if (block_start == 0 || total > UINT64_MAX - block_start) return 0;
     uint64_t required_end = align_up(block_start + total, PROSENJIT_PAGE_SIZE);
-    if (required_end < block_start || required_end - PROSENJIT_HEAP_BASE > PROSENJIT_HEAP_MAX)
+    if (required_end == 0 || required_end < block_start ||
+        required_end - PROSENJIT_HEAP_BASE > PROSENJIT_HEAP_MAX)
         return 0;
     if (heap_grow(required_end) != 0) return 0;
 
