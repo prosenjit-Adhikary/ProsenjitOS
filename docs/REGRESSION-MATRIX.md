@@ -130,7 +130,7 @@ The consistency checker is diagnostic-only and must never be used as a silent re
 
 ## Native ProsenjitFS unlink transaction-capacity audit — 2026-10-07
 
-The native unlink path now performs a read-only transaction preflight before staging any persistent mutation. It walks and validates the complete extent chain and accounts for every unique journal target required for namespace removal, inode metadata, inode/block allocation bitmaps, the directory-entry allocation, and all extent metadata/data allocation ranges. If the operation cannot fit the filesystem's existing journal transaction capacity, unlink fails closed with ENOSPC before namespace, inode, or allocation state is staged, so an oversized unlink cannot leave a namespace-only deletion or leak blocks.
+The native unlink path now performs a read-only transaction preflight before staging any persistent mutation. It walks and validates the complete extent chain and accounts for every unique journal target required for namespace removal, inode metadata, inode/block allocation bitmaps, the directory-entry allocation, and all bitmap blocks covering extent metadata/data allocations. If the operation cannot fit the filesystem's existing journal transaction capacity, unlink fails closed with ENOSPC before namespace, inode, or allocation state is staged, so an oversized unlink cannot leave a namespace-only deletion or leak blocks.
 
 The on-disk v1 journal layout and PROSENJITFS_MAX_TX_BLOCKS remain unchanged; increasing the fixed journal-header target array would require an on-disk format migration. Large/multi-extent files therefore remain supported up to the current journal capacity, while operations beyond that capacity are rejected atomically rather than partially reclaimed.
 
