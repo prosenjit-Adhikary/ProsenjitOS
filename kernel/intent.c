@@ -249,20 +249,36 @@ enum pros_security_decision security_authorize(
     reason = PROS_REASON_ALLOWED;
 
 record:
-    if (reason_out) *reason_out = reason;
+    /*
+     * A quarantine decision is an enforcement action, not merely an audit
+     * label. Apply it before committing the decision to the ledger, while
+     * remembering whether this authorization call changed the process state.
+     * Pre-existing quarantine must never be rolled back by an audit failure.
+     */
+    int quarantine_applied_here = 0;
+    if (decision == PROS_DECISION_QUARANTINE &&
+        !security_is_quarantined(process)) {
+        if (security_quarantine(process) != 0) {
+            decision = PROS_DECISION_DENY;
+            reason = PROS_REASON_QUARANTINE_FAILED;
+        } else {
+            quarantine_applied_here = 1;
+        }
+    }
 
     /*
      * Every authorization decision must have an auditable reason record.
-     * If the bounded ledger is exhausted, do not silently authorize an
-     * operation whose security decision cannot be recorded.
+     * If the bounded ledger is exhausted, fail closed and expose the real
+     * audit infrastructure failure rather than misreporting it as policy.
      */
     if (ledger_record(process, intent, tid, decision, reason) != 0) {
-        if (reason_out) *reason_out = PROS_REASON_POLICY_RESTRICTED;
+        if (quarantine_applied_here)
+            (void)security_clear_quarantine(process);
+        if (reason_out) *reason_out = PROS_REASON_AUDIT_UNAVAILABLE;
         return PROS_DECISION_DENY;
     }
 
-    if (decision == PROS_DECISION_QUARANTINE)
-        (void)security_quarantine(process);
+    if (reason_out) *reason_out = reason;
     return decision;
 }
 
