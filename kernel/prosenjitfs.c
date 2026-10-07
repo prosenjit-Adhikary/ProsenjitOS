@@ -4653,6 +4653,12 @@ run_found:
                           tail_image, sizeof(tail),
                           (uint32_t)offsetof(struct pros_prosenjitfs_extent,
                                              checksum)));
+            if (have_tail) {
+                /* Existing tail is linked to the new extent below. */
+            } else {
+                /* A file with no extents needs the new extent as its head. */
+                inode.extent_head = extent_lba;
+            }
             rc = pfs_tx_reset(fs);
             if (rc != PROSENJITFS_OK)
                 return rc;
