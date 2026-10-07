@@ -138,3 +138,17 @@ A separate overflow-name namespace is now selected and reserved before filling t
 Source audit completed. Runtime build/QEMU verification remains blocked by the repository Actions runner: the latest jobs terminate with runner_id=0, empty runner_name, and zero steps. No runtime pass is claimed.
 
 Commit: 9a50ea0 (fix: reserve VFS registry overflow name before fill).
+
+
+## 2026-10-07 — VFS root ownership hardening
+
+### Root cause
+vfs_mount_set_root() could replace an already-installed mount root. The previous root reference was not released, violating the invariant that a mount owns exactly one root reference and potentially leaking a live root/vnode chain.
+
+### Fix
+vfs_mount_set_root() now rejects root replacement with PROS_VFS_EBUSY. A root can therefore be installed once and must be released by mount deactivation before another root can be attached.
+
+### Verification status
+Source-level ownership invariant verified. Runtime build/QEMU verification remains blocked by GitHub runner allocation: latest build job has runner_id=0, empty runner_name, and zero executed steps.
+
+Commit: c89ab51 (fix: reject VFS root replacement on live mount).
