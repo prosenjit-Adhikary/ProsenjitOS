@@ -1451,7 +1451,17 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             } else {
                 released_bytes = 0u;
             }
-            new_inode.size = size;
+            /*
+             * Keep the published EOF at old_size while tail extents are
+             * reclaimed. Each transaction removes the extent from the inode
+             * chain and adjusts allocated_bytes atomically. If power fails
+             * between transactions, the file may temporarily retain its old
+             * length with the reclaimed tail represented as holes, but the
+             * inode never references freed blocks and allocated_bytes remains
+             * consistent with the published extent chain. The final
+             * transaction below publishes the requested EOF.
+             */
+            new_inode.size = old_size;
             rc = pfs_allocator_stage(data->fs, current, 1u, 0u);
             if (rc != PROSENJITFS_OK)
                 return pfs_vfs_error(rc);
