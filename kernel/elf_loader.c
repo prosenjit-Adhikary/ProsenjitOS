@@ -11,6 +11,9 @@
 #define ET_EXEC 2u
 #define ET_DYN 3u
 #define PT_LOAD 1u
+#define PT_DYNAMIC 2u
+#define PT_INTERP 3u
+#define PT_TLS 7u
 #define PF_X 1u
 #define PF_W 2u
 #define PF_R 4u
@@ -78,6 +81,9 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
                                         (uint64_t)i * sizeof(*ph));
         uint64_t seg_end, page_start, page_end;
 
+        if (ph->type == PT_DYNAMIC || ph->type == PT_INTERP ||
+            ph->type == PT_TLS)
+            return PROS_ELF_ENOTSUP;
         if (ph->type != PT_LOAD)
             continue;
         ++loads;
