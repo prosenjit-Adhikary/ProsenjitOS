@@ -17,7 +17,6 @@
 #define ELF_PAGE 4096ULL
 #define ELF_USER_MAX 0x0000800000000000ULL
 #define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
-#define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
 #define ELF_MAX_PHNUM 128u
 #define ELF_MAX_IMAGE 0x02000000ULL
 
@@ -326,6 +325,37 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                         image[file_off + j];
             }
         }
+    }
+
+    /*
+     * Reserve a dedicated initial user stack page.  The stack is deliberately
+     * outside the ELF image range so segment permissions cannot accidentally
+     * make it executable.  A later userspace startup layer may grow/replace
+     * this page after constructing argv/env; the loader itself never trusts
+     * caller-supplied stack addresses.
+     */
+    if (page_mapped(&process->address_space, PROSENJIT_USER_STACK_VA)) {
+        rollback_user_pages(process, start, end);
+        return PROS_ELF_ECONFLICT;
+    }
+    {
+        uint64_t stack_page = physical_page_alloc();
+        if (!stack_page) {
+            rollback_user_pages(process, start, end);
+            return PROS_ELF_ENOMEM;
+        }
+        for (uint64_t off = 0; off < ELF_PAGE; ++off)
+            ((uint8_t *)(uintptr_t)stack_page)[off] = 0;
+        if (address_space_map_user_page_owned(&process->address_space,
+                                              PROSENJIT_USER_STACK_VA,
+                                              stack_page,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) != 0) {
+            physical_page_free(stack_page);
+            rollback_user_pages(process, start, end);
+            return PROS_ELF_EINVAL;
+        }
+        ++mapped;
     }
 
     process->user_entry = entry;
