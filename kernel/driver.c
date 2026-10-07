@@ -45,6 +45,16 @@ static int driver_id_matches(const struct pros_driver_id *id,
            id_field_match_u8(id->prog_if, hwid->prog_if);
 }
 
+static const struct pros_driver *driver_find_name(const char *name)
+{
+    if (!name) return 0;
+    for (uint32_t i = 0u; i < PROS_DRIVER_MAX; ++i)
+        if (drivers[i].used && drivers[i].driver->name &&
+            __builtin_strcmp(drivers[i].driver->name, name) == 0)
+            return drivers[i].driver;
+    return 0;
+}
+
 static int driver_registered(const struct pros_driver *driver)
 {
     for (uint32_t i = 0u; i < PROS_DRIVER_MAX; ++i)
@@ -83,14 +93,26 @@ int pros_driver_register(const struct pros_driver *driver)
     if (!manager_ready || !driver || !driver->name || !driver->version ||
         driver->abi_version != PROS_DRIVER_ABI_VERSION ||
         !driver->ids || driver->id_count == 0u ||
-        driver->id_count > PROS_DRIVER_MAX_IDS || !driver->ops ||
-        !driver->ops->probe) {
+        driver->id_count > PROS_DRIVER_MAX_IDS ||
+        driver->dependency_count > PROS_DRIVER_MAX_DEPENDENCIES ||
+        !driver->ops || !driver->ops->probe) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
                                  0u, PROS_DRIVER_HEALTH_REGISTER_FAILURE,
                                  PROS_DRIVER_EINVAL);
         return PROS_DRIVER_EINVAL;
     }
 
+    if (driver->dependency_count != 0u) {
+        for (uint32_t i = 0u; i < driver->dependency_count; ++i) {
+            if (!driver->dependencies[i] || !driver->dependencies[i][0] ||
+                __builtin_strcmp(driver->dependencies[i], driver->name) == 0) {
+                (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
+                                         PROS_DRIVER_HEALTH_REGISTER_FAILURE,
+                                         PROS_DRIVER_EINVAL);
+                return PROS_DRIVER_EINVAL;
+            }
+        }
+    }
     if (driver->origin == PROS_DRIVER_ORIGIN_NATIVE &&
         (driver->flags & PROS_DRIVER_FLAG_NATIVE) == 0u) {
         (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
@@ -370,6 +392,13 @@ int pros_driver_bind(uint32_t device_id)
     driver = pros_driver_find(&device->hwid, device->class_id);
     if (!driver)
         return PROS_DRIVER_ENODEV;
+    for (uint32_t di = 0u; di < driver->dependency_count; ++di) {
+        const struct pros_driver *dep = driver_find_name(driver->dependencies[di]);
+        if (!dep || dep == driver) {
+            device->state = PROS_DEVICE_FAILED;
+            return PROS_DRIVER_ENODEV;
+        }
+    }
 
     device->state = PROS_DEVICE_BINDING;
     if (driver->ops->probe(device) != PROS_DRIVER_OK) {
@@ -527,7 +556,8 @@ int pros_driver_selftest(void)
         .origin = PROS_DRIVER_ORIGIN_NATIVE,
         .ids = ids,
         .id_count = 1u,
-        .ops = &ops
+        .ops = &ops,
+        .dependency_count = 0u
     };
     struct pros_driver_device device = {
         .id = 0u,
