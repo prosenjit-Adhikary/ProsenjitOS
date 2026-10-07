@@ -111,7 +111,9 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t physical_address,
                                 uint64_t flags) {
     if (!space || !space->root || !user_va_valid(virtual_address)) return -1;
-    if ((physical_address & 0xFFFULL) || physical_address == 0) return -1;
+    if ((physical_address & 0xFFFULL) || physical_address == 0 ||
+        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
+        return -1;
 
     uint32_t pml4i = PML4_INDEX(virtual_address);
     uint32_t pdpti = PDPT_INDEX(virtual_address);
@@ -178,7 +180,8 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
                                       uint64_t physical_address,
                                       uint64_t flags) {
     if (!space || !space->root || !user_va_valid(virtual_address) ||
-        (physical_address & 0xFFFULL) || physical_address == 0)
+        (physical_address & 0xFFFULL) || physical_address == 0 ||
+        ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
     if (physical_already_mapped(space, physical_address))
         return -1;
