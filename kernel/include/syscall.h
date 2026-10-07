@@ -8,5 +8,6 @@
  * Volatile prevents the compiler from removing stores that IRETQ consumes.
  */
 void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame);
+int syscall_selftest(struct pros_process *process);
 
 #endif
