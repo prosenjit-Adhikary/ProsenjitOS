@@ -944,14 +944,51 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         boot_user_elf[boot_elf_offset + i] = ((const uint8_t *)(uintptr_t)user_text_start)[i];
 
     struct pros_elf_load_result elf_result;
-    if (pros_elf_load(&init_process, boot_user_elf,
-                      boot_elf_offset + user_text_size, &elf_result) != PROS_ELF_OK ||
+    const char *elf_argv[] = { "/init", "elf-runtime" };
+    const char *elf_envp[] = { "PROS_ELF_RUNTIME=1" };
+    if (pros_elf_load_with_args(&init_process, boot_user_elf,
+                                boot_elf_offset + user_text_size,
+                                elf_argv, 2u, elf_envp, 1u,
+                                &elf_result) != PROS_ELF_OK ||
         elf_result.entry != PROSENJIT_USER_CODE_VA ||
-        elf_result.mapped_pages == 0) {
-        serial_write("ProsenjitOS: ERROR ELF userspace load failed\\n");
+        elf_result.mapped_pages < 2u ||
+        elf_result.stack_top < PROSENJIT_USER_STACK_VA ||
+        elf_result.stack_top > PROSENJIT_USER_STACK_TOP ||
+        (elf_result.stack_top & 0xFULL) != 0) {
+        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: ELF64 userspace image loaded and validated\\n");
+
+    /* Runtime loader contract: inspect the actual mapped PT_LOAD page and
+     * initial user stack through the process address space before CPL3 entry. */
+    {
+        uint64_t entry_physical = 0, entry_flags = 0;
+        uint64_t stack_physical = 0, stack_flags = 0;
+        uint64_t stack_word = 0;
+        if (address_space_translate_user(&init_process.address_space,
+                                         elf_result.entry,
+                                         &entry_physical, &entry_flags) != 0 ||
+            !(entry_flags & PROSENJIT_PAGE_USER) ||
+            !(entry_flags & PROSENJIT_PAGE_NX) == 0 ||
+            (entry_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
+            ((uint8_t *)(uintptr_t)entry_physical)[0] !=
+                ((uint8_t *)(uintptr_t)user_text_start)[0] ||
+            address_space_translate_user(&init_process.address_space,
+                                         elf_result.stack_top,
+                                         &stack_physical, &stack_flags) != 0 ||
+            !(stack_flags & PROSENJIT_PAGE_USER) ||
+            !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(stack_flags & PROSENJIT_PAGE_NX) ||
+            (((uint64_t *)(uintptr_t)stack_physical)[0] != 2u)) {
+            serial_write("ProsenjitOS: ERROR ELF runtime mapping/stack verification failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        stack_word = ((uint64_t *)(uintptr_t)stack_physical)[0];
+        serial_write("ProsenjitOS: ELF runtime mapping/stack verification passed argc=");
+        serial_hex64(stack_word);
+        serial_write("\\n");
+    }
+    serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\\n");
 
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
         ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
