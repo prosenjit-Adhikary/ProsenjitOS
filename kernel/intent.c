@@ -159,6 +159,17 @@ int security_quarantine(struct pros_process *process) {
          process_state(process) != PROS_PROCESS_RUNNING &&
          process_state(process) != PROS_PROCESS_BLOCKED))
         return -1;
+    /*
+     * Preserve the pre-quarantine schedulable state. A process that was
+     * already BLOCKED for an unrelated reason must remain BLOCKED when its
+     * security quarantine is cleared.
+     */
+    if (process_state(process) == PROS_PROCESS_RUNNING ||
+        process_state(process) == PROS_PROCESS_READY)
+        process->security_reserved[0] = (uint8_t)process_state(process) + 1u;
+    else
+        process->security_reserved[0] = 0u;
+
     process->quarantined = 1;
     if (process_state(process) == PROS_PROCESS_RUNNING ||
         process_state(process) == PROS_PROCESS_READY)
@@ -172,9 +183,16 @@ int security_clear_quarantine(struct pros_process *process) {
          process_state(process) != PROS_PROCESS_RUNNING &&
          process_state(process) != PROS_PROCESS_BLOCKED))
         return -1;
+    if (!process->quarantined)
+        return -1;
+
     process->quarantined = 0;
-    if (process_state(process) == PROS_PROCESS_BLOCKED)
-        process->state = PROS_PROCESS_READY;
+    if (process_state(process) == PROS_PROCESS_BLOCKED) {
+        uint8_t previous_state = process->security_reserved[0];
+        process->security_reserved[0] = 0u;
+        if (previous_state != 0u)
+            process->state = (uint32_t)previous_state - 1u;
+    }
     return 0;
 }
 
