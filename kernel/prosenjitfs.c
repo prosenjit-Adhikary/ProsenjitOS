@@ -892,6 +892,11 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
                                 struct pros_prosenjitfs_extent, checksum)) !=
         extent->checksum)
         return PROSENJITFS_ECORRUPT;
+    {
+        int alloc_rc = pfs_data_block_is_free(fs, lba);
+        if (alloc_rc != 0)
+            return alloc_rc < 0 ? alloc_rc : PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -3196,6 +3201,11 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
                                        checksum));
     if (checksum != index->checksum)
         return PROSENJITFS_ECORRUPT;
+    {
+        int alloc_rc = pfs_data_block_is_free(fs, inode->dir_index);
+        if (alloc_rc != 0)
+            return alloc_rc < 0 ? alloc_rc : PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -3238,6 +3248,11 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
     if (entry->name_hash !=
         pfs_name_hash(entry->name, entry->name_length))
         return PROSENJITFS_ECORRUPT;
+    {
+        int alloc_rc = pfs_data_block_is_free(fs, block_lba);
+        if (alloc_rc != 0)
+            return alloc_rc < 0 ? alloc_rc : PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
