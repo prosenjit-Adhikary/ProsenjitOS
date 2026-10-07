@@ -152,3 +152,14 @@ vfs_mount_set_root() now rejects root replacement with PROS_VFS_EBUSY. A root ca
 Source-level ownership invariant verified. Runtime build/QEMU verification remains blocked by GitHub runner allocation: latest build job has runner_id=0, empty runner_name, and zero executed steps.
 
 Commit: c89ab51 (fix: reject VFS root replacement on live mount).
+
+
+## 2026-10-07 — VFS mount reinitialization hardening
+
+### Root cause
+vfs_mount_init() could overwrite an existing mount object's fields without requiring the caller to deactivate the previous mount first. If the mount was active or still held a root, this could discard ownership state and bypass the normal unmount lifetime checks.
+
+### Fix
+vfs_mount_init() now returns PROS_VFS_EBUSY when the mount is active or still owns a root vnode. Reinitialization therefore requires the existing mount lifetime to be closed cleanly first.
+
+Commit: 7913dda (fix: reject live VFS mount reinitialization).
