@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+struct pros_process;
+
 /*
  * These buffers are shared with the assembly interrupt return path.
  * Volatile prevents the compiler from removing stores that IRETQ consumes.
