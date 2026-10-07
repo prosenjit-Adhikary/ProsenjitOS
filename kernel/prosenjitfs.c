@@ -5051,6 +5051,35 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+    /* Failed allocator/bitmap staging must leave no stale transaction
+     * image behind. Retry immediately on the same mounted filesystem and
+     * verify that the next valid operation still persists normally. */
+    {
+        uint64_t retry_block = fs.sb.data_start;
+        uint64_t retry_inode = fs.sb.inode_count;
+        int rc;
+
+        pfs_tx_reset(&fs);
+        rc = pfs_allocator_update(&fs, retry_block - 1u, 1u, 0u);
+        if (rc != PROSENJITFS_EINVAL || fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        rc = pfs_inode_bitmap_update(&fs, retry_inode, 1u);
+        if (rc != PROSENJITFS_EINVAL || fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        if (pfs_allocator_update(&fs, retry_block, 1u, 1u) !=
+                PROSENJITFS_OK || fs.tx.count != 0u ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            pfs_allocator_update(&fs, retry_block, 1u, 0u) !=
+                PROSENJITFS_OK || fs.tx.count != 0u ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        if (pfs_inode_bitmap_update(&fs, retry_inode, 1u) !=
+                PROSENJITFS_EINVAL || fs.tx.count != 0u)
+            return pfs_selftest_fail(__LINE__, -18);
+    }
     /* Unlink preflight target-set contract: capacity is bounded by the
      * on-disk transaction format, duplicates are free, and the first target
      * beyond capacity fails without extending the target array. */
