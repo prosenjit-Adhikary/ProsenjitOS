@@ -1104,9 +1104,22 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
     return (int)take;
 }
 
+static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
+{
+    struct pros_vfs_vnode *parent;
+    if (!vnode)
+        return;
+    parent = vnode->parent;
+    vnode->parent = 0;
+    vnode->initialized = 0u;
+    if (parent)
+        (void)vfs_vnode_put(parent);
+}
+
 static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
-    .readdir = vfs_selftest_readdir
+    .readdir = vfs_selftest_readdir,
+    .release = vfs_selftest_vnode_release
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1147,7 +1160,7 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -1;
-    if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+    if (vfs_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
         vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
@@ -1193,6 +1206,16 @@ static int vfs_vnode_api_selftest(void)
 
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
         PROS_VFS_OK)
+        return -1;
+
+    /*
+     * Drop the creator references after the lookup/open references are gone.
+     * Child vnode releases drop their owned parent references, leaving only
+     * the mount's root reference for deactivation.
+     */
+    if (vfs_vnode_put(&config_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&etc_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_OK)
         return -1;
 
     if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
