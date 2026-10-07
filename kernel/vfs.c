@@ -110,8 +110,12 @@ int vfs_mount_partition(struct pros_vfs_mount *mount,
                         const struct pros_partition *partition,
                         void *private_data, uint8_t read_only)
 {
-    if (!mount || !view || !parent || !partition)
+    if (!mount || !view || !parent || !partition ||
+        type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
+    /* Validate mount ownership state before mutating the partition view. */
+    if (mount->active || mount->root)
+        return PROS_VFS_EBUSY;
     {
         int rc = partition_device_init(view, parent, partition);
         if (rc != PROS_PARTITION_OK)
