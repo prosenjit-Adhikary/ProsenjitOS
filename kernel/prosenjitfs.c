@@ -1758,6 +1758,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 current = extent.next;
             }
         }
+        }
 
         if (inode.extent_head == 0u && retained_blocks != 0u)
             return PROS_VFS_ECORRUPT;
