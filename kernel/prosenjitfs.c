@@ -36,7 +36,7 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
 static int pfs_rmdir_tx_preflight(const struct pros_prosenjitfs *,
                                   uint64_t, uint64_t, uint64_t, uint64_t,
-                                  uint64_t, uint64_t);
+                                  uint64_t, uint64_t, uint64_t);
 
 static void pfs_zero(void *buffer, uint32_t size)
 {
