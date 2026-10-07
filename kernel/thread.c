@@ -185,24 +185,29 @@ int thread_schedule(void) {
      * process address space.
      */
     /*
-     * Queue the interrupted/current thread before changing address spaces.
-     * This makes enqueue failure harmless: the old thread is still current
-     * and the new thread has not yet become executable.
+     * thread_enqueue() has no expected failure path once these invariants
+     * hold. Validate them before switching CR3 so the old running thread is
+     * not made READY until the new address space is active.
      */
-    if (prev && prev != next && prev->state == PROS_THREAD_RUNNING) {
-        if (thread_enqueue(prev) != 0) {
+    if (prev && prev != next && prev->state == PROS_THREAD_RUNNING &&
+        (prev->next || prev->prev || runq_head == prev))
+        {
             (void)thread_enqueue(next);
             return -1;
         }
-    }
 
     process_set_current(next->process);
     if (process_current() != next->process) {
-        if (prev && prev != next && prev->state == PROS_THREAD_READY) {
-            /* prev was successfully queued above; leave it queued. */
-        }
         (void)thread_enqueue(next);
         return -1;
+    }
+
+    if (prev && prev != next && prev->state == PROS_THREAD_RUNNING) {
+        if (thread_enqueue(prev) != 0) {
+            process_set_current(prev->process);
+            (void)thread_enqueue(next);
+            return -1;
+        }
     }
 
     current_thread = next;
@@ -299,23 +304,30 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     } while (next->state == PROS_THREAD_DEAD);
 
     /*
-     * Queue the interrupted thread before changing address spaces. If the
-     * queue operation fails, the interrupted frame and current address space
-     * remain authoritative and the candidate thread is simply requeued.
+     * Prevalidate the interrupted thread's run-queue linkage before changing
+     * address spaces. The state transition happens only after CR3 succeeds.
      */
-    if (prev->state != PROS_THREAD_BLOCKED) {
-        if (!thread_process_runnable(prev)) {
-            prev->state = PROS_THREAD_DEAD;
-        } else if (thread_enqueue(prev) != 0) {
-            (void)thread_enqueue(next);
-            return current_frame;
-        }
+    if (prev->state != PROS_THREAD_BLOCKED &&
+        thread_process_runnable(prev) &&
+        (prev->next || prev->prev || runq_head == prev)) {
+        (void)thread_enqueue(next);
+        return current_frame;
     }
 
     process_set_current(next->process);
     if (process_current() != next->process) {
         (void)thread_enqueue(next);
         return current_frame;
+    }
+
+    if (prev->state != PROS_THREAD_BLOCKED) {
+        if (!thread_process_runnable(prev)) {
+            prev->state = PROS_THREAD_DEAD;
+        } else if (thread_enqueue(prev) != 0) {
+            process_set_current(prev->process);
+            (void)thread_enqueue(next);
+            return current_frame;
+        }
     }
 
     current_thread = next;
