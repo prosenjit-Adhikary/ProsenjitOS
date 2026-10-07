@@ -416,8 +416,9 @@ int address_space_selftest(void) {
 
     if (address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
                                     physical, PROSENJIT_PAGE_NX) == 0 ||
-        address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
-                                    physical, PROSENJIT_PAGE_WRITABLE) == 0 ||
+        address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                          physical, PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) == 0 ||
         address_space_validate_user_range(&space, PROSENJIT_USER_TEST_VA,
                                           PROSENJIT_PAGE_SIZE, 0) != 0) {
         address_space_destroy(&space);
