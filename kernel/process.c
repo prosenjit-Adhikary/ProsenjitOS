@@ -142,15 +142,14 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
         process->state == PROS_PROCESS_ZOMBIE ||
         process_has_children(process)) return -1;
     process->exit_code = exit_code;
-    if (thread_terminate_process(process) != 0) return -1;
     if (current_process == process) {
-        /* Do not clear current_process until the address-space transition
-         * succeeds; otherwise a failed switch leaves the CPU executing with
-         * a user address space while the process manager claims no process is
-         * current. */
+        /* Return to the kernel address space before terminating the current
+         * process. A failed CR3 transition therefore leaves process/thread
+         * state untouched and the exit attempt remains retryable. */
         if (paging_switch_kernel() != 0) return -1;
         current_process = 0;
     }
+    if (thread_terminate_process(process) != 0) return -1;
     process->state = PROS_PROCESS_ZOMBIE;
     return 0;
 }
