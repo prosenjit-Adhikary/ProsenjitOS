@@ -119,9 +119,9 @@ int pros_vfs_provider_selftest(void)
     struct pros_vfs_provider duplicate = first;
     struct pros_vfs_provider invalid = first;
 
-    provider_count = 0u;
-    for (uint32_t i = 0u; i < PROSENJIT_VFS_PROVIDER_MAX; ++i)
-        providers[i] = 0;
+    /* The self-test must never destroy live provider registrations. */
+    if (provider_count != 0u)
+        return PROS_VFS_PROVIDER_EBUSY;
 
     if (pros_vfs_provider_register(0) != PROS_VFS_PROVIDER_EINVAL)
         return -1;
