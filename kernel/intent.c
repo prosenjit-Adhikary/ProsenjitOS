@@ -160,6 +160,10 @@ int security_quarantine(struct pros_process *process) {
          process_state(process) != PROS_PROCESS_RUNNING &&
          process_state(process) != PROS_PROCESS_BLOCKED))
         return -1;
+    /* Repeated quarantine must be idempotent and preserve the original
+     * pre-quarantine state metadata. */
+    if (process->quarantined)
+        return 0;
     /*
      * Preserve the pre-quarantine schedulable state. A process that was
      * already BLOCKED for an unrelated reason must remain BLOCKED when its
