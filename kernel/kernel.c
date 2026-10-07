@@ -459,6 +459,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
+    if (syscall_selftest(&init_process) != 0) {
+        serial_write("ProsenjitOS: ERROR syscall dispatcher runtime self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: syscall dispatcher ABI/policy self-test passed\n");
     if (process_state(&init_process) != PROS_PROCESS_NEW ||
         process_set_state(&init_process, PROS_PROCESS_RUNNING) != 0 ||
         process_state(&init_process) != PROS_PROCESS_RUNNING) {
