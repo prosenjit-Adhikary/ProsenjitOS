@@ -301,8 +301,12 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         return PROS_VFS_EINVAL;
     if (file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
-    if ((file->flags & PROS_VFS_O_APPEND) != 0u)
-        file->position = file->vnode->size;
+    /*
+     * O_APPEND is an operation-time filesystem contract. Do not derive the
+     * write offset from a cached vnode EOF; another handle may have extended
+     * the inode since this vnode was created. The Native ProsenjitFS provider
+     * selects the authoritative inode EOF under its append serialization.
+     */
     if (file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
     if ((uint64_t)length > UINT32_MAX - file->position)
@@ -314,7 +318,10 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     }
     if ((uint32_t)rc > length)
         return PROS_VFS_EIO;
-    file->position += (uint32_t)rc;
+    if ((file->flags & PROS_VFS_O_APPEND) != 0u)
+        file->position = file->vnode->size;
+    else
+        file->position += (uint32_t)rc;
     *bytes_written = (uint32_t)rc;
     ++health_write_count;
     return PROS_VFS_OK;
