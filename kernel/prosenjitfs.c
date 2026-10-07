@@ -1044,7 +1044,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     if (!data || !data->fs || !data->fs->mount.active)
         return PROS_VFS_EPERM;
     {
-        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        int rc = pfs_vnode_validate_inode(data, &inode);
         if (rc != PROSENJITFS_OK)
             return pfs_file_write_error(0u, rc);
     }
@@ -1142,7 +1142,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             UINT64_MAX / data->fs->sb.block_size)
         return PROS_VFS_ECORRUPT;
     {
-        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        int rc = pfs_vnode_validate_inode(data, &inode);
         if (rc != PROSENJITFS_OK)
             return pfs_file_write_error(0u, rc);
     }
@@ -1413,9 +1413,10 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     if (!data || !data->fs)
         return PROS_VFS_EIO;
     {
-        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        int rc = pfs_vnode_validate_inode(data, &inode);
         if (rc != PROSENJITFS_OK)
-            return rc == PROSENJITFS_ECORRUPT ? PROS_VFS_ECORRUPT :
+            return rc == PROSENJITFS_ESTALE ? PROS_VFS_ESTALE :
+                   (rc == PROSENJITFS_ECORRUPT ? PROS_VFS_ECORRUPT :
                    (rc == PROSENJITFS_EOVERFLOW ? PROS_VFS_EOVERFLOW :
                     (rc == PROSENJITFS_EINVAL ? PROS_VFS_EINVAL :
                      PROS_VFS_EIO));
