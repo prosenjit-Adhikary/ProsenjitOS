@@ -94,6 +94,10 @@ The deterministic self-test now covers rmdir transaction crash stages 1–9. Bef
 
 The self-test now interrupts journal replay for a committed empty-directory removal at recovery stages 10 and 11, simulates a second power loss, and verifies that the next mount keeps the directory removed. It then recreates/removes the same pathname and runs the consistency oracle to cover post-recovery allocation reuse and journal retirement.
 
+## Native ProsenjitFS mkdir crash matrix — 2026-10-07
+
+The self-test now covers mkdir transaction crash stages 1–9. Before the durable commit the new directory must remain absent after simulated power loss; at/after the durable commit it must remain present, pass consistency validation, reject duplicate creation, and be removable cleanly.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
