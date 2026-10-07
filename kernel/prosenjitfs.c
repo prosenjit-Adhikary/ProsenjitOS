@@ -1658,8 +1658,13 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                     if (rc != PROSENJITFS_OK)
                         return pfs_vfs_error(rc);
 
-                    extent.block_count = keep_in_extent;
-                    pfs_copy(extent_image, &extent, sizeof(extent));
+                    {
+                        uint64_t next = extent.next;
+                        extent.block_count = keep_in_extent;
+                        extent.next = 0u;
+                        pfs_copy(extent_image, &extent, sizeof(extent));
+                        current = next;
+                    }
                     pfs_put32(
                         extent_image +
                         offsetof(struct pros_prosenjitfs_extent, checksum),
@@ -1677,6 +1682,38 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                     if (rc != PROSENJITFS_OK) {
                         pfs_tx_reset(data->fs);
                         return pfs_vfs_error(rc);
+                    }
+                    while (current != 0u) {
+                        struct pros_prosenjitfs_extent tail;
+                        uint64_t next;
+                        rc = pfs_read_extent(data->fs, current, &tail);
+                        if (rc != PROSENJITFS_OK) {
+                            pfs_tx_reset(data->fs);
+                            return pfs_vfs_error(rc);
+                        }
+                        next = tail.next;
+                        if (tail.block_count > UINT32_MAX ||
+                            tail.block_count > UINT64_MAX /
+                                data->fs->sb.block_size ||
+                            inode.allocated_bytes <
+                                tail.block_count * data->fs->sb.block_size) {
+                            pfs_tx_reset(data->fs);
+                            return PROS_VFS_ECORRUPT;
+                        }
+                        inode.allocated_bytes -=
+                            tail.block_count * data->fs->sb.block_size;
+                        rc = pfs_allocator_stage(data->fs,
+                                                 tail.physical_block,
+                                                 (uint32_t)tail.block_count,
+                                                 0u);
+                        if (rc == PROSENJITFS_OK)
+                            rc = pfs_allocator_stage(data->fs, current,
+                                                     1u, 0u);
+                        if (rc != PROSENJITFS_OK) {
+                            pfs_tx_reset(data->fs);
+                            return pfs_vfs_error(rc);
+                        }
+                        current = next;
                     }
                     break;
                 }
