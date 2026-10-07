@@ -167,6 +167,8 @@ struct pros_thread *thread_current(void) {
 
 int thread_schedule(void) {
     struct pros_thread *next;
+    struct pros_thread *prev = current_thread;
+
     do {
         next = thread_dequeue();
         if (!next) return -1;
@@ -175,16 +177,31 @@ int thread_schedule(void) {
         }
     } while (next->state == PROS_THREAD_DEAD);
 
-    if (current_thread && current_thread != next &&
-        current_thread->state == PROS_THREAD_RUNNING) {
-        current_thread->state = PROS_THREAD_READY;
-        if (thread_enqueue(current_thread) != 0) return -1;
+    /*
+     * The address-space switch is part of the scheduling transaction. The
+     * process layer exposes a void setter, so verify its postcondition before
+     * changing current_thread or retiring the previous runnable thread.
+     * Otherwise a failed CR3 switch could run the new thread in the old
+     * process address space.
+     */
+    process_set_current(next->process);
+    if (process_current() != next->process) {
+        (void)thread_enqueue(next);
+        return -1;
+    }
+
+    if (prev && prev != next && prev->state == PROS_THREAD_RUNNING) {
+        prev->state = PROS_THREAD_READY;
+        if (thread_enqueue(prev) != 0) {
+            process_set_current(prev->process);
+            prev->state = PROS_THREAD_RUNNING;
+            (void)thread_enqueue(next);
+            return -1;
+        }
     }
 
     current_thread = next;
     current_thread->state = PROS_THREAD_RUNNING;
-    if (current_thread->process)
-        process_set_current(current_thread->process);
     return 0;
 }
 
@@ -276,21 +293,30 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             next->state = PROS_THREAD_DEAD;
     } while (next->state == PROS_THREAD_DEAD);
 
+    /*
+     * Switch address spaces before publishing the new current thread. A
+     * failed switch must leave the interrupted thread and its frame intact.
+     */
+    process_set_current(next->process);
+    if (process_current() != next->process) {
+        (void)thread_enqueue(next);
+        return current_frame;
+    }
+
     if (prev->state != PROS_THREAD_BLOCKED) {
         prev->state = PROS_THREAD_READY;
         if (!thread_process_runnable(prev)) {
             prev->state = PROS_THREAD_DEAD;
         } else if (thread_enqueue(prev) != 0) {
+            process_set_current(prev->process);
             prev->state = PROS_THREAD_RUNNING;
-            thread_enqueue(next);
+            (void)thread_enqueue(next);
             return current_frame;
         }
     }
 
     current_thread = next;
     current_thread->state = PROS_THREAD_RUNNING;
-    if (current_thread->process)
-        process_set_current(current_thread->process);
 
     if (next->interrupt_frame)
         return next->interrupt_frame;
