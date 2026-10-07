@@ -254,6 +254,48 @@ int pros_elf_selftest(void)
     ph[0].memsz = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
 
+    /* Rollback isolation regression: an existing mapping must survive a
+     * rejected load that targets the same PT_LOAD page. */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        uint64_t existing = 0, translated = 0, flags = 0;
+        int rc = process_init(&process, 0xE1F2u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -14;
+        existing = physical_page_alloc();
+        if (!existing ||
+            address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA, existing,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) != 0) {
+            if (existing) physical_page_free(existing);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -11;
+        }
+        ph[0].flags = PF_R | PF_X;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].align = ELF_PAGE;
+        eh->entry = ELF_TEST_CODE_VA;
+        image[data_off + 0] = 0x90;
+        image[data_off + 1] = 0xC3;
+        rc = pros_elf_load(&process, image, data_off + 2, &loaded);
+        if (rc != PROS_ELF_ECONFLICT ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &translated,
+                                         &flags) != 0 ||
+            translated != existing) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -12;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -13;
+    }
+
     /* Positive mapping test: verify PT_LOAD bytes, zero-filled BSS, stack
      * construction, entry publication, and owned-page teardown. */
     {
