@@ -118,6 +118,7 @@ int pros_health_record_exception(uint64_t vector, uint64_t error_code,
 int pros_health_record_recovery(uint32_t source, uint32_t code, uint64_t value);
 int pros_health_watchdog_register(uint32_t service_id, uint64_t timeout_ticks);
 int pros_health_watchdog_kick(uint32_t service_id);
+int pros_health_watchdog_unregister(uint32_t service_id);
 int pros_health_watchdog_poll(void);
 int pros_health_record_network(uint32_t source, uint32_t code, uint64_t value);
 int pros_health_record_security(uint32_t source, uint32_t code, uint64_t value);
