@@ -4596,6 +4596,27 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
     }
 
+    /* Bits beyond inode_count are permanently invalid and must never
+     * survive as allocated state. This catches bitmap tail corruption that
+     * cannot be observed by inode lookup alone. */
+    for (uint64_t bi = 0u; bi < fs->sb.inode_bitmap_blocks; ++bi) {
+        uint64_t lba;
+        if (pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
+                        bi, &lba) != PROSENJITFS_OK ||
+            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto consistency_out;
+        }
+        for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
+            uint64_t inode_number = bi * bits_per_block + bit;
+            if (inode_number >= fs->sb.inode_count &&
+                pfs_bitmap_bit(bitmap, bit)) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto consistency_out;
+            }
+        }
+    }
+
     if (dir_refs[fs->sb.root_inode] != 0u) {
         rc = PROSENJITFS_ECORRUPT;
         goto consistency_out;
