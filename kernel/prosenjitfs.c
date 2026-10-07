@@ -17,6 +17,9 @@ static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *, const char *,
                            struct pros_vfs_vnode **);
+static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
+static int pfs_utf8_name_valid(const char *, uint32_t *);
+static uint32_t pfs_crc_with_zero32(const uint8_t *, uint32_t, uint32_t);
 static int pfs_dir_entry_validate(const struct pros_prosenjitfs *fs,
                                       const uint8_t *block,
                                       const struct pros_prosenjitfs_dir_entry *entry)
@@ -48,9 +51,7 @@ static int pfs_dir_entry_validate(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *);
-static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
-static int pfs_utf8_name_valid(const char *, uint32_t *);
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name);
 static int pfs_read_dir_index(const struct pros_prosenjitfs *,
                               const struct pros_prosenjitfs_inode *,
                               struct pros_prosenjitfs_dir_index *);
