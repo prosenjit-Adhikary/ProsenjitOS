@@ -21,5 +21,6 @@ int pros_init_load(struct pros_vfs_mount *mount,
                    struct pros_process *process,
                    const struct pros_file_security_metadata *metadata,
                    struct pros_elf_load_result *result);
+int pros_init_selftest(void);
 
 #endif
