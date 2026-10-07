@@ -1918,6 +1918,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     struct pros_prosenjitfs_dir_entry entry;
     uint8_t *dir_block = 0, *entry_block = 0, *inode_block = 0, *child_dir_block = 0;
     uint64_t inode_number, entry_lba, child_dir_lba, inode_lba;
+    uint64_t child_generation;
     uint32_t inode_offset, name_length, bucket;
     int rc;
 
@@ -1952,6 +1953,8 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
         return pfs_vfs_error(rc);
     rc = pfs_find_free_inode(data->fs, &inode_number);
     if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 3u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
+    rc = pfs_allocate_generation(data->fs, inode_number, &child_generation);
+    if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 3u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
     if (rc != PROSENJITFS_OK) { pfs_mkdir_diag_stage = 4u; pfs_mkdir_diag_rc = rc; goto mkdir_out; }
     /*
@@ -1981,7 +1984,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     child_inode.uid = 0u;
     child_inode.gid = 0u;
     child_inode.links = 1u;
-    child_inode.generation = 1u;
+    child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
     child_inode.dir_index = child_dir_lba;
 
@@ -2599,6 +2602,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     uint8_t *entry_block;
     uint8_t *inode_block;
     uint64_t inode_number;
+    uint64_t child_generation;
     uint64_t entry_lba;
     uint64_t byte_offset;
     uint64_t inode_lba;
@@ -2633,6 +2637,9 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         if (dir_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(dir_read_rc); }
     rc = pfs_find_free_inode(data->fs, &inode_number);
+    if (rc != PROSENJITFS_OK)
+        return pfs_vfs_error(rc);
+    rc = pfs_allocate_generation(data->fs, inode_number, &child_generation);
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
@@ -2690,7 +2697,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     child_inode.uid = 0u;
     child_inode.gid = 0u;
     child_inode.links = 1u;
-    child_inode.generation = 1u;
+    child_inode.generation = child_generation;
     child_inode.parent_inode = data->inode_number;
     child_inode.size = 0u;
     child_inode.allocated_bytes = 0u;
