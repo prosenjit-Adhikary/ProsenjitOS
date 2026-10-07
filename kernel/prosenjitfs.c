@@ -4998,6 +4998,41 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+    /* Unlink preflight target-set contract: capacity is bounded by the
+     * on-disk transaction format, duplicates are free, and the first target
+     * beyond capacity fails without extending the target array. */
+    {
+        uint64_t targets[PROSENJITFS_MAX_TX_BLOCKS];
+        uint32_t count = 0u;
+        uint8_t image[4096];
+        uint64_t base = fs.sb.data_start;
+        pfs_zero(image, sizeof(image));
+        if (base + PROSENJITFS_MAX_TX_BLOCKS >= fs.sb.total_blocks ||
+            pfs_unlink_tx_target_add(&fs, base, targets, &count,
+                                     PROSENJITFS_MAX_TX_BLOCKS) !=
+                PROSENJITFS_OK || count != 1u ||
+            pfs_unlink_tx_target_add(&fs, base, targets, &count,
+                                     PROSENJITFS_MAX_TX_BLOCKS) !=
+                PROSENJITFS_OK || count != 1u ||
+            pfs_unlink_tx_target_add(&fs, base, targets, &count,
+                                     PROSENJITFS_MAX_TX_BLOCKS + 1u) !=
+                PROSENJITFS_EINVAL) {
+            return pfs_selftest_fail(__LINE__, -4);
+        }
+        for (uint32_t i = 1u; i < PROSENJITFS_MAX_TX_BLOCKS; ++i) {
+            if (pfs_unlink_tx_target_add(&fs, base + i, targets, &count,
+                                         PROSENJITFS_MAX_TX_BLOCKS) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -4);
+        }
+        if (count != PROSENJITFS_MAX_TX_BLOCKS ||
+            pfs_unlink_tx_target_add(&fs, base + PROSENJITFS_MAX_TX_BLOCKS,
+                                     targets, &count,
+                                     PROSENJITFS_MAX_TX_BLOCKS) !=
+                PROSENJITFS_ENOSPC || count != PROSENJITFS_MAX_TX_BLOCKS)
+            return pfs_selftest_fail(__LINE__, -4);
+        (void)image;
+    }
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
