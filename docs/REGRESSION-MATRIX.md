@@ -80,6 +80,12 @@ The deterministic self-test now verifies that allocator and inode-bitmap update 
 
 This remains a deterministic software-model regression; local Debian compilation and QEMU execution are still required before runtime PASS is claimed.
 
+## Native ProsenjitFS rmdir transaction-capacity preflight — 2026-10-07
+
+The native rmdir path now performs a read-only transaction-capacity preflight before constructing persistent mutation images. It accounts for the namespace block (or previous directory entry), child inode block, inode bitmap block, removed directory-entry allocation bitmap, and child directory-index allocation bitmap. Capacity failure therefore occurs before transaction staging, matching the atomic preflight contract already used by unlink.
+
+Runtime compile/QEMU execution remains required before this source-level hardening is considered a runtime PASS.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
