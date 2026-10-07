@@ -24,6 +24,12 @@ extern char ist2_stack_top[];
 
 static uint64_t *kernel_pml4;
 
+static int canonical_address(uint64_t address) {
+    uint64_t upper = address >> 48;
+    uint64_t sign = (address >> 47) & 1ULL;
+    return sign ? upper == 0xFFFFULL : upper == 0;
+}
+
 uint64_t *paging_kernel_root(void) {
     return kernel_pml4;
 }
@@ -50,6 +56,8 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
     uint64_t entry = parent[index];
     if (entry & PROSENJIT_PAGE_PRESENT) {
         if (entry & LARGE_PAGE_FLAG) return 0;
+        if ((flags & PROSENJIT_PAGE_USER) && !(entry & PROSENJIT_PAGE_USER)) return 0;
+        if ((flags & PROSENJIT_PAGE_WRITABLE) && !(entry & PROSENJIT_PAGE_WRITABLE)) return 0;
         return (uint64_t *)(entry & PAGE_MASK);
     }
 
@@ -62,7 +70,10 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
 int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
     if ((virtual_address & 0xFFFULL) != 0 || (physical_address & 0xFFFULL) != 0)
         return -1;
-    if ((virtual_address >> 48) != 0xFFFF && (virtual_address >> 47) != 0)
+    if (!canonical_address(virtual_address) ||
+        physical_address >= PROSENJIT_PHYS_LIMIT ||
+        (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
+                   PROSENJIT_PAGE_NX)) != 0)
         return -1;
 
     uint64_t table_flags = PROSENJIT_PAGE_WRITABLE;
@@ -75,6 +86,9 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
     uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address), table_flags);
     if (!pt) return -1;
 
+    if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)
+        return -2;
+
     pt[PT_INDEX(virtual_address)] = (physical_address & PAGE_MASK) |
                                     (flags & (PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_USER |
@@ -85,7 +99,8 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
 }
 
 void paging_unmap_page(uint64_t virtual_address) {
-    if (!kernel_pml4 || (virtual_address & 0xFFFULL)) return;
+    if (!kernel_pml4 || (virtual_address & 0xFFFULL) ||
+        !canonical_address(virtual_address)) return;
     uint64_t *pdpt = (uint64_t *)(kernel_pml4[PML4_INDEX(virtual_address)] & PAGE_MASK);
     if (!(kernel_pml4[PML4_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)) return;
     uint64_t *pd = (uint64_t *)(pdpt[PDPT_INDEX(virtual_address)] & PAGE_MASK);
@@ -98,7 +113,7 @@ void paging_unmap_page(uint64_t virtual_address) {
 }
 
 uint64_t paging_translate(uint64_t virtual_address) {
-    if (!kernel_pml4) return 0;
+    if (!kernel_pml4 || !canonical_address(virtual_address)) return 0;
     uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
     if (!(entry & PROSENJIT_PAGE_PRESENT)) return 0;
     uint64_t *pdpt = (uint64_t *)(entry & PAGE_MASK);
@@ -121,8 +136,7 @@ extern char __kernel_rodata_start[];
 extern char __kernel_rodata_end[];
 
 int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
-    if (!kernel_pml4 || !flags_out ||
-        ((virtual_address >> 48) != 0xFFFF && (virtual_address >> 47) != 0))
+    if (!kernel_pml4 || !flags_out || !canonical_address(virtual_address))
         return -1;
 
     uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
@@ -243,15 +257,70 @@ int paging_init(void) {
     uint64_t test_page = physical_page_alloc();
     if (!test_page) return -1;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, test_page,
-                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) return -1;
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) {
+        physical_page_free(test_page);
+        return -1;
+    }
 
     if (stack_end <= stack_start || ist1_end <= ist1_start ||
         ist2_end <= ist2_start ||
         paging_translate(stack_end - 1u) == 0 ||
         paging_translate(ist1_end - 1u) == 0 ||
-        paging_translate(ist2_end - 1u) == 0)
+        paging_translate(ist2_end - 1u) == 0) {
+        paging_unmap_page(PROSENJIT_KERNEL_TEST_VA);
+        physical_page_free(test_page);
         return -1;
+    }
 
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)kernel_pml4) : "memory");
+    paging_unmap_page(PROSENJIT_KERNEL_TEST_VA);
+    physical_page_free(test_page);
+    return 0;
+}
+
+
+int paging_selftest(void) {
+    static const uint64_t va = PROSENJIT_KERNEL_TEST_VA + 0x1000ULL;
+    uint64_t physical = physical_page_alloc();
+    if (!physical) return -1;
+
+    if (paging_map_page(va, physical, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(physical);
+        return -2;
+    }
+
+    uint64_t translated = paging_translate(va);
+    uint64_t flags = 0;
+    if (translated != physical || paging_query_page(va, &flags) != 0 ||
+        !(flags & PROSENJIT_PAGE_PRESENT) ||
+        !(flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(flags & PROSENJIT_PAGE_NX)) {
+        paging_unmap_page(va);
+        physical_page_free(physical);
+        return -3;
+    }
+
+    /* A second mapping must never silently replace an existing live PTE. */
+    if (paging_map_page(va, physical, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0) {
+        paging_unmap_page(va);
+        physical_page_free(physical);
+        return -4;
+    }
+
+    paging_unmap_page(va);
+    if (paging_translate(va) != 0 || paging_query_page(va, &flags) == 0) {
+        physical_page_free(physical);
+        return -5;
+    }
+
+    physical_page_free(physical);
+
+    if (paging_map_page(0x0000800000000000ULL, physical,
+                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
+        return -6;
+    if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
+        return -7;
+
     return 0;
 }
