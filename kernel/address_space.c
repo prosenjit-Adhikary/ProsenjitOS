@@ -329,7 +329,7 @@ int address_space_translate_user(const struct pros_address_space *space,
         return -1;
     *physical_address_out = (pte & PAGE_MASK) | (virtual_address & 0xFFFULL);
     if (flags_out)
-        *flags_out = pte & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX);
+        *flags_out = pte & (PROSENJIT_PAGE_USER | PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX);
     return 0;
 }
 
