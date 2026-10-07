@@ -117,3 +117,43 @@ metadata-layout corruption.
 
 A requested read-only mount never mutates a dirty journal. Recovery of a dirty
 journal therefore requires a writable mount.
+
+
+## Native ProsenjitFS hardening contract — 2026-10-07
+
+### Inode generation and stale handles
+
+Every vnode captures the persistent inode generation at creation. File read,
+write, and truncate operations re-read the authoritative inode and reject the
+operation with `PROS_VFS_ESTALE` when the generation or inode type no longer
+matches. Deletion advances the generation before freeing the inode record, and
+new allocation advances the persisted generation again. This prevents an old
+open handle from becoming an alias for a subsequently reused inode number.
+
+Closing a stale handle remains safe because close releases the VFS vnode
+reference without dereferencing the replaced inode.
+
+### Append serialization
+
+`O_APPEND` is serialized across the complete Native ProsenjitFS write
+operation. The lock covers authoritative inode-EOF selection, allocation,
+extent publication, data write, inode update, and journal commit. Append does
+not rely on a cached vnode EOF.
+
+### Truncate crash contract
+
+Version 1 truncate shrink operations are bounded by
+`PROSENJITFS_MAX_TX_BLOCKS == 16`. The complete shrink metadata update is
+preflighted before any home-block mutation. If the conservative transaction
+bound cannot represent the complete operation, truncate returns
+`PROS_VFS_EOVERFLOW` without publishing a partial shrink. A successful
+shrink publishes extent reclamation, bitmap changes, and the new inode size in
+one redo-journal transaction.
+
+### Symlinks
+
+`PROSENJITFS_INODE_SYMLINK` remains a reserved v1 inode type. The current VFS
+contract has no symlink creation/readlink/path-following operations, so Native
+ProsenjitFS rejects symlink inodes at vnode materialization rather than
+silently treating them as regular files. This is intentional; no partial
+symlink implementation is claimed.
