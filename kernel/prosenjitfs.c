@@ -5920,6 +5920,22 @@ int prosenjitfs_selftest(void)
             vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
+
+        {
+            struct pros_vfs_vnode *path_node = 0;
+            char overlong_path[PROS_VFS_PATH_MAX + 2u];
+            for (uint32_t i = 0u; i < PROS_VFS_PATH_MAX + 1u; ++i)
+                overlong_path[i] = '/';
+            overlong_path[PROS_VFS_PATH_MAX + 1u] = '\0';
+
+            if (vfs_path_lookup(&fs.mount, "/append.bin/",
+                                &path_node) != PROS_VFS_ENOTDIR ||
+                path_node != 0 ||
+                vfs_path_lookup(&fs.mount, overlong_path,
+                                &path_node) != PROS_VFS_EOVERFLOW ||
+                path_node != 0)
+                return pfs_selftest_fail(__LINE__, -18);
+        }
     }
 
     /* Sparse logical-offset regression: seek beyond EOF, write one byte, and
