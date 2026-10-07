@@ -6255,7 +6255,7 @@ int prosenjitfs_selftest(void)
         uint64_t extent_found_lba = 0u;
         uint64_t extent_tail_lba = 0u;
         struct pros_vfs_file file;
-        uint8_t zero[512];
+        uint8_t zero[4096];
         uint8_t value = 0xA7u;
         uint8_t readback = 0u;
         uint32_t done = 0u;
@@ -6281,12 +6281,12 @@ int prosenjitfs_selftest(void)
                              &extent_found_lba, &extent_tail_lba) !=
                 PROSENJITFS_OK ||
             pfs_lba_add(fs.mount.device, extent.physical_block,
-                         1u - extent.logical_block, &first_block) !=
+                         0u, &first_block) !=
                 PROSENJITFS_OK ||
             pfs_read_block(&device, first_block, zero) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -10);
 
-        for (uint32_t i = 0u; i < sizeof(zero); ++i)
+        for (uint32_t i = 0u; i < fs.sb.block_size; ++i)
             if (zero[i] != 0u)
                 return pfs_selftest_fail(__LINE__, -10);
 
