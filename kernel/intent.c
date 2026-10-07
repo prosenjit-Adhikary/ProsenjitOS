@@ -189,9 +189,11 @@ int security_clear_quarantine(struct pros_process *process) {
     process->quarantined = 0;
     if (process_state(process) == PROS_PROCESS_BLOCKED) {
         uint8_t previous_state = process->quarantine_previous_state;
-        process->security_reserved[0] = 0u;
+        process->quarantine_previous_state = 0u;
         if (previous_state != 0u)
             process->state = (uint32_t)previous_state - 1u;
+    } else {
+        process->quarantine_previous_state = 0u;
     }
     return 0;
 }
