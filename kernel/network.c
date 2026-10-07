@@ -640,7 +640,7 @@ int pros_net_selftest(void)
     struct pros_net_tcp th;
     enum pros_net_tcp_state state;
     uint32_t off, sid;
-    uint8_t payload[1] = {0xA5};
+    uint8_t payload[2] = {0xA5, 0x00};
     uint32_t received = 0;
 
     eth[12] = 0x08; eth[13] = 0x00;
