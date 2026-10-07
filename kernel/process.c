@@ -371,42 +371,53 @@ int process_selftest(void)
     struct pros_process child;
     int32_t exit_code = 0;
 
+    if (process_manager_init() != 0)
+        return -1;
+    if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
+        return -2;
+    if (parent.state != PROS_PROCESS_READY ||
+        process_lookup(1001u) != &parent)
+        return -3;
+    if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
+        return -4;
+    if (child.parent != &parent || child.parent_pid != parent.pid)
+        return -5;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
-    /* Security quarantine metadata must be cleared when a process exits. */
-    child.quarantined = 1u;
-    child.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
+    /* Parent cannot exit while it still has a live child. */
     if (process_exit(&parent, 7) == 0)
         return -7;
-    if (parent.quarantined || parent.quarantine_previous_state != 0u)
-        return -8;
 
-    /* Re-test child exit after explicitly seeding quarantine metadata. */
-    child.state = PROS_PROCESS_READY;
+    /* Security quarantine metadata must be cleared when a process exits. */
     child.quarantined = 1u;
     child.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
     if (process_exit(&child, 42) != 0 ||
         process_state(&child) != PROS_PROCESS_ZOMBIE ||
         child.quarantined ||
         child.quarantine_previous_state != 0u)
-        return -9;
+        return -8;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
-        return -10;
+        return -9;
+
+    parent.quarantined = 1u;
+    parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
     if (process_exit(&parent, 7) != 0 ||
-        process_wait(&parent, child.pid, &exit_code) == 0)
+        parent.quarantined ||
+        parent.quarantine_previous_state != 0u ||
+        process_state(&parent) != PROS_PROCESS_ZOMBIE)
+        return -10;
+
+    if (process_wait(&parent, child.pid, &exit_code) == 0)
         return -11;
-    if (process_state(&parent) != PROS_PROCESS_ZOMBIE)
-        return -12;
     if (process_wait(&parent, parent.pid, &exit_code) == 0)
-        return -13;
+        return -12;
     if (process_release_resources(&parent) != 0)
-        return -14;
+        return -13;
     parent.state = PROS_PROCESS_DEAD;
     if (process_unregister(&parent) != 0)
-        return -15;
+        return -14;
     return 0;
 }
-
