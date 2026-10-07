@@ -140,6 +140,23 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     return PROSENJIT_IPC_OK;
 }
 
+int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
+                                struct pros_thread *thread) {
+    if (!ipc_channel_valid(channel) || !thread) return PROSENJIT_IPC_EINVAL;
+    ipc_lock(channel);
+    for (uint32_t i = 0; i < channel->waiter_count; ++i) {
+        if (channel->waiters[i] != thread) continue;
+        for (uint32_t j = i + 1; j < channel->waiter_count; ++j)
+            channel->waiters[j - 1] = channel->waiters[j];
+        --channel->waiter_count;
+        channel->waiters[channel->waiter_count] = 0;
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_OK;
+    }
+    ipc_unlock(channel);
+    return PROSENJIT_IPC_EEMPTY;
+}
+
 int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
     ipc_lock(channel);
