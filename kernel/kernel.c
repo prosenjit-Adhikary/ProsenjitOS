@@ -37,6 +37,7 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 
 static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
+static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 
@@ -521,9 +522,52 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR address-space page-table cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: process resource cleanup regression passed\n");
+    serial_write("ProsenjitOS: process resource cleanup regression passed\\n");
 
+    /* Address-space switch/reap regression. */
+    struct pros_process as_switch_child;
+    if (process_create(&init_process, &as_switch_child, 7, PROS_SECURITY_LIMITED) != 0) {
+        serial_write("ProsenjitOS: ERROR address-space switch child creation failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    process_set_current(&as_switch_child);
+    if (process_current() != &as_switch_child) {
+        serial_write("ProsenjitOS: ERROR child address-space switch failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_exit(&as_switch_child, 17) != 0 || process_current() != 0) {
+        serial_write("ProsenjitOS: ERROR child exit did not clear current address space\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    process_set_current(&init_process);
+    if (process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR parent address-space restore failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_wait(&init_process, as_switch_child.pid, &waited_exit) != 0 ||
+        waited_exit != 17 || as_switch_child.address_space.root != 0) {
+        serial_write("ProsenjitOS: ERROR address-space switch/reap regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: address-space switch/reap regression passed\\n");
 
+    struct pros_process child_lifetime_parent;
+    struct pros_process child_lifetime_child;
+    if (process_create(&init_process, &child_lifetime_parent, 8, PROS_SECURITY_LIMITED) != 0 ||
+        process_create(&child_lifetime_parent, &child_lifetime_child, 9, PROS_SECURITY_LIMITED) != 0 ||
+        process_exit(&child_lifetime_parent, 1) == 0) {
+        serial_write("ProsenjitOS: ERROR parent-with-live-child exit was accepted\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (process_exit(&child_lifetime_child, 2) != 0 ||
+        process_wait(&child_lifetime_parent, child_lifetime_child.pid, &waited_exit) != 0 ||
+        waited_exit != 2 || process_exit(&child_lifetime_parent, 1) != 0 ||
+        process_wait(&init_process, child_lifetime_parent.pid, &waited_exit) != 0 ||
+        waited_exit != 1) {
+        serial_write("ProsenjitOS: ERROR parent/child lifetime ordering regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: parent/child lifetime ordering regression passed\\n");
 
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
@@ -550,7 +594,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
+    serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\\n");
+
+    /* Process exit must terminate its threads and remove them from the run queue. */
+    struct pros_process thread_lifecycle_process;
+    struct pros_thread thread_lifecycle;
+    if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_thread_stack + sizeof(lifecycle_thread_stack))) != 0 ||
+        thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&thread_lifecycle) != 0 ||
+        process_exit(&thread_lifecycle_process, 21) != 0 ||
+        thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
+        thread_has_runnable() != 1 ||
+        process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
+        waited_exit != 21 || thread_lifecycle_process.address_space.root != 0) {
+        serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process-thread teardown regression passed\\n");
 
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
