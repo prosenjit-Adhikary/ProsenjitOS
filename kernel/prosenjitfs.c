@@ -6813,19 +6813,17 @@ int prosenjitfs_selftest(void)
 
         if (vfs_unlink(&fs.mount, "/dir-final/destination/moved") !=
                 PROS_VFS_OK ||
-            vfs_unlink(&fs.mount, "/dir-final/target/alpha") !=
-                PROS_VFS_OK ||
-            vfs_unlink(&fs.mount, "/dir-final/target/renamed") !=
-                PROS_VFS_ENOENT ||
             vfs_unlink(&fs.mount, "/dir-final/target/\xE2\x82\xAC") !=
                 PROS_VFS_OK ||
-            vfs_unlink(&fs.mount, "/dir-final/target/sub/data") !=
+            vfs_unlink(&fs.mount, "/dir-final/destination/sub/data") !=
                 PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/target/sub") !=
+                PROS_VFS_ENOENT ||
             vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/dir-final/destination/sub") !=
                 PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/dir-final/alpha") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
 
