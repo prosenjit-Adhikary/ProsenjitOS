@@ -2365,10 +2365,21 @@ static int pfs_unlink_tx_preflight(const struct pros_prosenjitfs *fs,
             return rc;
         next = extent.next;
 
-        rc = pfs_unlink_tx_target_add(fs, current, targets, &count,
-                                      capacity);
-        if (rc != PROSENJITFS_OK)
-            return rc;
+        /* allocator_stage(current, 1, 0) changes the bitmap block
+         * covering the extent-metadata block; the metadata block itself is
+         * not a journal target because its contents are not modified. */
+        {
+            uint64_t metadata_bitmap_index = current / bits_per_bitmap_block;
+            uint64_t metadata_bitmap_lba;
+            rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                             metadata_bitmap_index, &metadata_bitmap_lba);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+            rc = pfs_unlink_tx_target_add(fs, metadata_bitmap_lba, targets,
+                                          &count, capacity);
+            if (rc != PROSENJITFS_OK)
+                return rc;
+        }
 
         last = extent.physical_block + extent.block_count - 1u;
         first_bitmap = extent.physical_block / bits_per_bitmap_block;
