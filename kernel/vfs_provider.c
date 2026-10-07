@@ -26,7 +26,12 @@ static int provider_name_valid(const char *name)
 {
     if (!name || name[0] == '\0')
         return 0;
-    for (uint32_t i = 0u; i <= PROSENJIT_VFS_PROVIDER_NAME_MAX; ++i) {
+    /*
+     * The storage is NAME_MAX + 1 bytes including the terminator. Inspect
+     * exactly those bytes; never probe name[NAME_MAX + 1] when the name is
+     * unterminated.
+     */
+    for (uint32_t i = 0u; i < PROSENJIT_VFS_PROVIDER_NAME_MAX + 1u; ++i) {
         if (name[i] == '\0')
             return 1;
     }
