@@ -16,6 +16,7 @@
 #define PF_R 4u
 #define ELF_PAGE 4096ULL
 #define ELF_USER_MAX 0x0000800000000000ULL
+#define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
 #define ELF_MAX_PHNUM 128u
 #define ELF_MAX_IMAGE 0x02000000ULL
 
@@ -218,13 +219,13 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -5;
     ph[0].vaddr = 0x400000;
 
-    eh->entry = 0x500000;
+    eh->entry = ELF_TEST_CODE_VA + 0x1000ULL;
     if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -6;
-    eh->entry = 0x400000;
+    eh->entry = ELF_TEST_CODE_VA;
 
     eh->phnum = 2;
     ph[1] = ph[0];
-    ph[1].vaddr = 0x400800;
+    ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -7;
 
     eh->phnum = 1;
