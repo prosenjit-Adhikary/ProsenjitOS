@@ -389,6 +389,18 @@ int process_selftest(void)
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
+    /* Quarantine must prevent an ordinary state transition from escaping
+     * the security-enforced BLOCKED state. */
+    child.quarantined = 1u;
+    child.state = PROS_PROCESS_BLOCKED;
+    child.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
+    if (process_set_state(&child, PROS_PROCESS_READY) == 0 ||
+        process_state(&child) != PROS_PROCESS_BLOCKED)
+        return -7;
+    child.quarantined = 0u;
+    child.quarantine_previous_state = 0u;
+    child.state = PROS_PROCESS_READY;
+
     /* Parent cannot exit while it still has a live child. */
     if (process_exit(&parent, 7) == 0)
         return -7;
