@@ -218,7 +218,7 @@ int pros_elf_selftest(void)
 
     ph[0].vaddr = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -5;
-    ph[0].vaddr = 0x400000;
+    ph[0].vaddr = ELF_TEST_CODE_VA;
 
     eh->entry = ELF_TEST_CODE_VA + 0x1000ULL;
     if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -6;
