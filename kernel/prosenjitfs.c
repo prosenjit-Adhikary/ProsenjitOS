@@ -4250,6 +4250,10 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
                 return rc;
         }
         if (!pfs_bitmap_bit(block, within)) {
+            uint64_t generation;
+            int gen_rc = pfs_allocate_generation(fs, inode, &generation);
+            if (gen_rc != PROSENJITFS_OK)
+                return gen_rc;
             *inode_number = inode;
             return pfs_inode_bitmap_update(fs, inode, 1u);
         }
