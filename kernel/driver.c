@@ -644,5 +644,26 @@ int pros_driver_selftest(void)
         if (pros_driver_register(&bad) != PROS_DRIVER_EPERM)
             return -12;
     }
+
+    /* Missing dependency is rejected at bind time without probing the device. */
+    {
+        struct pros_driver dependent = driver;
+        struct pros_driver_device dependent_device = device;
+        dependent.name = "dependent-driver";
+        dependent.dependency_count = 1u;
+        dependent.dependencies[0] = "missing-driver";
+        dependent_device.id = 0u;
+        dependent_device.driver = 0;
+        dependent_device.driver_data = 0;
+        dependent_device.state = PROS_DEVICE_DISCOVERED;
+        if (pros_driver_register(&dependent) != PROS_DRIVER_OK ||
+            pros_device_register(&dependent_device) != PROS_DRIVER_OK ||
+            pros_driver_bind(dependent_device.id) != PROS_DRIVER_ENODEV ||
+            dependent_device.state != PROS_DEVICE_FAILED)
+            return -13;
+        if (pros_device_unregister(dependent_device.id) != PROS_DRIVER_OK ||
+            pros_driver_unregister(&dependent) != PROS_DRIVER_OK)
+            return -14;
+    }
     return PROS_DRIVER_OK;
 }
