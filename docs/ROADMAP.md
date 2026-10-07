@@ -195,7 +195,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [x] ELF64 loader (ET_EXEC validation, PT_LOAD mapping, NX/W^X enforcement, argv/env stack construction, rollback; dynamic relocation deferred)
+- [x] ELF64 loader (ET_EXEC validation, PT_LOAD mapping, NX/W^X enforcement, argv/env stack construction, rollback; dynamic relocation deferred)\n- [x] ELF64 loader runtime verification (boot-time real address-space mapping/permission checks, loaded-code byte check, argv/env stack/argc validation, then CPL3 entry; dynamic relocation deferred)
 - [ ] Process startup
 - [ ] Init/service manager
 - [ ] Secure shell
