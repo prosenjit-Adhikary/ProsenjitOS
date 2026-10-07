@@ -955,6 +955,19 @@ static int pfs_file_write_error(uint32_t done, int rc)
     }
 }
 
+static int pfs_file_write_fail(struct pros_prosenjitfs *fs,
+                                   uint32_t done, int rc)
+{
+    /* A write may have staged allocator/metadata images before a later
+     * validation or I/O failure. Never leave those images armed for the next
+     * filesystem operation. If the journal commit already became durable,
+     * clearing only the in-memory staging is safe because recovery owns the
+     * durable redo record. */
+    if (fs && fs->tx.count != 0u)
+        (void)pfs_tx_reset(fs);
+    return pfs_file_write_error(done, rc);
+}
+
 static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
                          uint32_t length, void *buffer)
 {
@@ -1114,11 +1127,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
         if (rc == PROSENJITFS_ENOENT) {
             rc = pfs_find_free_data_block_except(data->fs, 0u, &physical);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_find_free_data_block_except(data->fs, physical,
                                                  &new_extent_lba);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             pfs_zero(data_image, data->fs->sb.block_size);
             pfs_zero(extent_image, data->fs->sb.block_size);
             pfs_zero(tail_image, data->fs->sb.block_size);
@@ -1155,7 +1168,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 while (current_lba != 0u) {
                     rc = pfs_read_extent(data->fs, current_lba, &current_extent);
                     if (rc != PROSENJITFS_OK)
-                        return pfs_file_write_error(done, rc);
+                        return pfs_file_write_fail(data->fs, done, rc);
                     if (logical_block < current_extent.logical_block)
                         break;
                     prev_lba = current_lba;
@@ -1166,7 +1179,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     rc = pfs_read_block(data->fs->mount.device, prev_lba,
                                         tail_image);
                     if (rc != PROSENJITFS_OK)
-                        return pfs_file_write_error(done, rc);
+                        return pfs_file_write_fail(data->fs, done, rc);
                     {
                         struct pros_prosenjitfs_extent prev_extent;
                         pfs_copy(&prev_extent, tail_image, sizeof(prev_extent));
@@ -1198,10 +1211,10 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             rc = pfs_inode_block_location(data->fs, data->inode_number,
                                           &inode_lba, &inode_offset);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
 
             {
                 uint64_t staged_extent_head = inode.extent_head;
@@ -1221,7 +1234,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                        ? (uint64_t)offset + done + want : inode.size;
             if (inode.allocated_bytes >
                 UINT64_MAX - data->fs->sb.block_size)
-                return pfs_file_write_error(done, PROSENJITFS_EOVERFLOW);
+                return pfs_file_write_fail(data->fs, done, PROSENJITFS_EOVERFLOW);
             inode.allocated_bytes += data->fs->sb.block_size;
             pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
             pfs_put32(inode_image + inode_offset +
@@ -1234,30 +1247,30 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 
             rc = pfs_tx_reset(data->fs);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_allocator_stage(data->fs, physical, 1u, 1u);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_tx_add(data->fs, physical, data_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_tx_add(data->fs, new_extent_lba, extent_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             if (tail_lba != 0u) {
                 rc = pfs_tx_add(data->fs, tail_lba, tail_image);
                 if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, rc);
+                    return pfs_file_write_fail(data->fs, done, rc);
             }
             rc = pfs_tx_add(data->fs, inode_lba, inode_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             rc = pfs_tx_commit(data->fs);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
         } else if (rc == PROSENJITFS_OK) {
             uint64_t delta = logical_block - extent.logical_block;
             uint8_t inode_changed = 0u;
@@ -1266,14 +1279,14 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                                          extent.physical_block, delta,
                                          &physical);
                 if (lba_rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, lba_rc);
+                    return pfs_file_write_fail(data->fs, done, lba_rc);
             }
             if (physical < data->fs->sb.data_start ||
                 physical >= data->fs->sb.total_blocks)
                 return pfs_file_write_error(done, PROSENJITFS_ECORRUPT);
             rc = pfs_read_block(data->fs->mount.device, physical, data_image);
             if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+                return pfs_file_write_fail(data->fs, done, rc);
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
@@ -1286,11 +1299,11 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 rc = pfs_inode_block_location(data->fs, data->inode_number,
                                                &inode_lba, &inode_offset);
                 if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, rc);
+                    return pfs_file_write_fail(data->fs, done, rc);
                 rc = pfs_read_block(data->fs->mount.device, inode_lba,
                                     inode_image);
                 if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, rc);
+                    return pfs_file_write_fail(data->fs, done, rc);
                 pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
                 pfs_put32(inode_image + inode_offset +
                           offsetof(struct pros_prosenjitfs_inode, checksum),
@@ -1313,7 +1326,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                     return pfs_file_write_error(done, txrc);
             }
         } else {
-            return pfs_file_write_error(done, rc);
+            return pfs_file_write_fail(data->fs, done, rc);
         }
 
         done += want;
