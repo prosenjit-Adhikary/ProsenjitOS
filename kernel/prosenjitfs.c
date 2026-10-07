@@ -5086,7 +5086,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     }
     fs->sb = primary_ok ? primary : backup;
     fs->degraded_superblock = primary_ok ? 0u : 1u;
-    if (fs->sb.total_blocks > device->sector_count) {
+    if (fs->sb.block_size != device->sector_size ||
+        fs->sb.total_blocks > device->sector_count) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
@@ -5104,6 +5105,22 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
             fs->tx.images = 0;
             fs->scratch = 0;
             return rc;
+        }
+    }
+    {
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_dir_index root_index;
+        int root_rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &root_inode);
+        if (root_rc != PROSENJITFS_OK ||
+            root_inode.type != PROSENJITFS_INODE_DIR ||
+            root_inode.parent_inode != fs->sb.root_inode ||
+            pfs_read_dir_index(fs, &root_inode, &root_index) != PROSENJITFS_OK) {
+            (void)vfs_mount_deactivate(&fs->mount);
+            kfree(fs->tx.images);
+            kfree(fs->scratch);
+            fs->tx.images = 0;
+            fs->scratch = 0;
+            return PROSENJITFS_ECORRUPT;
         }
     }
     struct pros_vfs_vnode *root_vnode = 0;
