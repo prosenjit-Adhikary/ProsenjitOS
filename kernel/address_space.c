@@ -113,16 +113,59 @@ int address_space_map_user_page(struct pros_address_space *space,
     if (!space || !space->root || !user_va_valid(virtual_address)) return -1;
     if ((physical_address & 0xFFFULL) || physical_address == 0) return -1;
 
-    uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pdi = PD_INDEX(virtual_address);
+    uint32_t pti = PT_INDEX(virtual_address);
+    uint64_t *root = space->root;
+    uint64_t old_pml4e = root[pml4i];
+    uint64_t *pdpt = ensure_table(root, pml4i);
     if (!pdpt) return -1;
-    uint64_t *pd = ensure_table(pdpt, PDPT_INDEX(virtual_address));
-    if (!pd) return -1;
-    uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
-    if (!pt) return -1;
+    int created_pdpt = !(old_pml4e & PROSENJIT_PAGE_PRESENT);
 
-    if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)
+    uint64_t old_pdpte = pdpt[pdpti];
+    uint64_t *pd = ensure_table(pdpt, pdpti);
+    if (!pd) {
+        if (created_pdpt) {
+            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            root[pml4i] = 0;
+        }
         return -1;
-    pt[PT_INDEX(virtual_address)] =
+    }
+    int created_pd = !(old_pdpte & PROSENJIT_PAGE_PRESENT);
+
+    uint64_t old_pde = pd[pdi];
+    uint64_t *pt = ensure_table(pd, pdi);
+    if (!pt) {
+        if (created_pd) {
+            physical_page_free((uint64_t)(uintptr_t)pd);
+            pdpt[pdpti] = 0;
+        }
+        if (created_pdpt) {
+            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            root[pml4i] = 0;
+        }
+        return -1;
+    }
+    int created_pt = !(old_pde & PROSENJIT_PAGE_PRESENT);
+
+    if (pt[pti] & PROSENJIT_PAGE_PRESENT) {
+        if (created_pt) {
+            physical_page_free((uint64_t)(uintptr_t)pt);
+            pd[pdi] = 0;
+        }
+        if (created_pd) {
+            physical_page_free((uint64_t)(uintptr_t)pd);
+            pdpt[pdpti] = 0;
+        }
+        if (created_pdpt) {
+            physical_page_free((uint64_t)(uintptr_t)pdpt);
+            root[pml4i] = 0;
+        }
+        return -1;
+    }
+
+    pt[pti] =
         (physical_address & PAGE_MASK) |
         PROSENJIT_PAGE_PRESENT |
         PROSENJIT_PAGE_USER |
