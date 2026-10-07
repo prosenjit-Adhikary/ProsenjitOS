@@ -59,6 +59,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [x] Virtual memory and paging (4-level mappings, canonical/physical bounds, W^X/NX checks, duplicate-map protection, translation/query invariants and deep self-test)
 - [x] Kernel heap (bounded growth, overflow-safe allocation, ownership-checked free, coalescing and deep self-test)
 - [x] User/kernel address-space separation foundation (isolated user mappings, ownership tracking, alias protection, range validation, teardown and deep self-test)
+- [x] Process/thread/syscall runtime verification (process lifecycle/reap, address-space switching, scheduler/run-queue, process-thread teardown, IPC block/wake, interrupt-frame save/restore, syscall ABI/allowlist/unknown-call checks)
 - [x] NX/W^X memory policy where supported
 
 ## Phase 3 — Kernel architecture
