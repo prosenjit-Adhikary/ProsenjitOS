@@ -423,6 +423,26 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             return validation_rc;
     }
 
+    /* Preflight all pages that this image would actually map. This makes
+     * rollback ownership-safe: after this point, every conflicting page has
+     * already been rejected and every mapped page belongs to this load. */
+    for (uint64_t va = start; va < end; va += ELF_PAGE) {
+        int flags = -1;
+        for (uint16_t i = 0; i < eh->phnum; ++i) {
+            const struct elf64_phdr *ph =
+                (const struct elf64_phdr *)(image + eh->phoff +
+                                            (uint64_t)i * sizeof(*ph));
+            if (ph->type != PT_LOAD) continue;
+            int f = segment_page_flags(ph, va);
+            if (f < 0) continue;
+            if (flags < 0) flags = f;
+            else if (flags != f)
+                return PROS_ELF_ECONFLICT;
+        }
+        if (flags >= 0 && page_mapped(&process->address_space, va))
+            return PROS_ELF_ECONFLICT;
+    }
+
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
         int flags = -1;
         for (uint16_t i = 0; i < eh->phnum; ++i) {
@@ -439,11 +459,6 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             }
         }
         if (flags < 0) continue;
-        if (page_mapped(&process->address_space, va)) {
-            rollback_user_pages(process, start, end);
-            return PROS_ELF_ECONFLICT;
-        }
-
         uint64_t physical = physical_page_alloc();
         if (!physical) {
             rollback_user_pages(process, start, end);
