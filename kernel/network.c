@@ -166,6 +166,15 @@ uint16_t pros_net_tcp_checksum(uint32_t src, uint32_t dst,
     return (uint16_t)~sum;
 }
 
+int pros_net_validate_tcp_checksum(uint32_t src, uint32_t dst,
+                                   const uint8_t *tcp, uint32_t length)
+{
+    if (!tcp || length < PROS_NET_TCP_MIN_HEADER || length > 0xFFFFu)
+        return PROS_NET_EBOUNDS;
+    return pros_net_tcp_checksum(src, dst, tcp, length) == 0u
+        ? PROS_NET_OK : PROS_NET_ECHECKSUM;
+}
+
 uint16_t pros_net_checksum(const uint8_t *data, uint32_t length)
 {
     uint32_t sum = 0;
@@ -602,6 +611,17 @@ int pros_net_selftest(void)
     if (pros_net_parse_tcp(tcp, sizeof(tcp), &th, &off) != PROS_NET_OK ||
         th.flags != TCP_SYN)
         return -7;
+    put_be16(tcp + 16u, 0u);
+    put_be16(tcp + 16u, pros_net_tcp_checksum(0xC0A80101u, 0xC0A80102u,
+                                               tcp, sizeof(tcp)));
+    if (pros_net_validate_tcp_checksum(0xC0A80101u, 0xC0A80102u,
+                                       tcp, sizeof(tcp)) != PROS_NET_OK)
+        return -8;
+    tcp[16] ^= 0x01u;
+    if (pros_net_validate_tcp_checksum(0xC0A80101u, 0xC0A80102u,
+                                       tcp, sizeof(tcp)) != PROS_NET_ECHECKSUM)
+        return -9;
+    tcp[16] ^= 0x01u;
     if (pros_net_tcp_transition(PROS_NET_TCP_SYN_SENT, TCP_SYN | TCP_ACK, &state) != PROS_NET_OK ||
         state != PROS_NET_TCP_ESTABLISHED ||
         pros_net_tcp_transition(PROS_NET_TCP_ESTABLISHED, TCP_RST, &state) != PROS_NET_OK ||
