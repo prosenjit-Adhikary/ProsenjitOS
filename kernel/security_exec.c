@@ -9,7 +9,8 @@ int pros_security_exec_admit(
     const struct pros_file_admission_record *record,
     uint64_t timestamp,
     uint64_t *quarantine_id) {
-    if (!process || !record || process_state(process) == PROS_PROCESS_DEAD)
+    if (!process || !record || process_state(process) == PROS_PROCESS_DEAD ||
+        process_state(process) == PROS_PROCESS_ZOMBIE)
         return -1;
 
     if (record->security.action == PROS_FILE_ALLOW)
