@@ -177,6 +177,8 @@ void debug_tss_descriptor(void) {
 extern void user_mode_exit_trampoline(void);
 extern char __user_text_start[];
 extern char __user_text_end[];
+extern char __kernel_text_start[];
+extern char __kernel_rodata_start[];
 #define ISR(n) extern void isr##n(void);
 ISR(0) ISR(1) ISR(2) ISR(3) ISR(4) ISR(5) ISR(6) ISR(7)
 ISR(8) ISR(9) ISR(10) ISR(11) ISR(12) ISR(13) ISR(14) ISR(15)
