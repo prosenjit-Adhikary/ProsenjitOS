@@ -4588,6 +4588,8 @@ run_found:
      * journal transaction as the allocation bitmap and inode metadata.
      * Never write home blocks before the commit record exists.
      */
+    pfs_zero(bitmap_zero, fs->sb.block_size);
+
     if (inode.allocated_bytes >
         UINT64_MAX - (uint64_t)count * fs->sb.block_size)
         return PROSENJITFS_EOVERFLOW;
