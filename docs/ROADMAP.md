@@ -15,7 +15,7 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
 9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
 10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
-11. **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
+11. **Display binding:** kernel owns only device discovery/binding, framebuffer/backend validation, permissions and lifecycle; window systems and desktop components remain userspace.\n\n- **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -161,7 +161,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] Keyboard
 - [x] Storage abstraction (block-device contract)
 - [x] PCI enumeration
-- [ ] Display abstraction
+- [x] Display abstraction (kernel framebuffer/backend contract, validation, present path, lifecycle boundary)
 - [ ] Network device abstraction
 
 ## Phase 6 — Storage and networking
