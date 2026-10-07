@@ -34,3 +34,24 @@ Synced in commit `71dcd08` (`fix: size network selftest receive buffer`).
 ### Status
 
 The source-level build blocker is fixed. Clean build and QEMU verification are still required; ProsenjitFS remains the next runtime target.
+
+## 2026-10-07 — Link-stage regressions after thread duplicate cleanup
+
+### Diagnosis
+
+The clean build passed compilation after the network self-test fix but failed at link time with missing scheduler symbols: `thread_has_runnable`, `thread_wake`, `thread_block`, `thread_runnable_count`, `thread_blocked_count`, and `thread_dead_count`. GitHub history confirmed these APIs were part of the thread subsystem before the malformed duplicate cleanup; the cleanup removed the duplicate block that was accidentally carrying these implementations.
+
+A separate link failure showed unresolved `strcmp` references from `kernel/service_manager.c` and `kernel/vfs_provider.c`. The repository's kernel code uses compiler builtins for string comparison because no libc `strcmp` implementation is linked into the kernel.
+
+### Fix
+
+Restored the missing thread block/wake/scheduler-observability APIs into the authoritative `kernel/thread.c`, preserving the newer scheduler and process-termination implementation. Replaced kernel `strcmp` calls with `__builtin_strcmp` in service manager and VFS provider.
+
+Synced commits:
+- `30662b2` — restore thread scheduler APIs
+- `78c042a` — use builtin string comparison in service manager
+- `4347b6e` — use builtin string comparison in VFS provider
+
+### Status
+
+These are build/link blockers only; clean build and QEMU runtime verification remain required. No ProsenjitFS source was changed in this step.
