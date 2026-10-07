@@ -6648,6 +6648,59 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* mkdir crash matrix: directory creation is a multi-block transaction;
+     * before durable commit the name must remain absent, while at/after the
+     * commit it must survive power loss and be removable again. */
+    {
+        for (uint32_t stage = 1u; stage <= 9u; ++stage) {
+            int rc;
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -21);
+            }
+            pfs_crash_inject_stage = stage;
+            pfs_crash_injected = 0u;
+            rc = vfs_mkdir(&fs.mount, "/mkdir-crash");
+            if (rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -21);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -21);
+            }
+            rc = vfs_rmdir(&fs.mount, "/mkdir-crash");
+            if (stage < 5u) {
+                if (rc != PROS_VFS_ENOENT ||
+                    vfs_mkdir(&fs.mount, "/mkdir-crash") != PROS_VFS_OK ||
+                    vfs_rmdir(&fs.mount, "/mkdir-crash") != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -21);
+                }
+            } else {
+                if (rc != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                    vfs_mkdir(&fs.mount, "/mkdir-crash") != PROS_VFS_EEXIST ||
+                    vfs_rmdir(&fs.mount, "/mkdir-crash") != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -21);
+                }
+            }
+            if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -21);
+        }
+    }
+
     /* rmdir crash matrix: a committed empty-directory removal must replay
      * atomically, while crashes before the durable commit must preserve it. */
     {
