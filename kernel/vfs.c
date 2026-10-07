@@ -160,6 +160,13 @@ int vfs_mount_set_root(struct pros_vfs_mount *mount,
     if (!mount || !root || !root->initialized || root->mount != mount ||
         root->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
+    /*
+     * The mount owns exactly one root reference. Replacing an existing root
+     * without first deactivating the mount would leak that ownership and
+     * could leave two filesystem roots live under one mount.
+     */
+    if (mount->root)
+        return PROS_VFS_EBUSY;
     if (vfs_vnode_get(root) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
     mount->root = root;
