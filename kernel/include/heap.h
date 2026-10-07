@@ -10,5 +10,6 @@ int heap_init(void);
 void *kmalloc(uint64_t size);
 void kfree(void *address);
 uint64_t heap_used_bytes(void);
+int heap_selftest(void);
 
 #endif
