@@ -969,7 +969,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                          elf_result.entry,
                                          &entry_physical, &entry_flags) != 0 ||
             !(entry_flags & PROSENJIT_PAGE_USER) ||
-            !(entry_flags & PROSENJIT_PAGE_NX) == 0 ||
+            (entry_flags & PROSENJIT_PAGE_NX) == 0 ||
             (entry_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
             ((uint8_t *)(uintptr_t)entry_physical)[0] !=
                 ((uint8_t *)(uintptr_t)user_text_start)[0] ||
