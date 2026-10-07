@@ -822,6 +822,10 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
 {
     uint64_t current;
     uint64_t steps = 0u;
+    uint64_t previous_logical_end = 0u;
+    uint64_t previous_physical_end = 0u;
+    uint64_t previous_physical_lba = 0u;
+    uint8_t have_previous = 0u;
     struct pros_prosenjitfs_extent extent;
 
     if (!fs || !inode || !found_lba || !tail_lba)
@@ -838,6 +842,24 @@ static int pfs_find_extent(const struct pros_prosenjitfs *fs,
                 return rc;
         }
         *tail_lba = current;
+        /* Writers append extents in logical order. Reject overlapping or
+         * backward chains before lookup can expose corrupted mappings. */
+        if (current >= extent.physical_block &&
+            current - extent.physical_block < extent.block_count)
+            return PROSENJITFS_ECORRUPT;
+        if (have_previous) {
+            if (extent.logical_block < previous_logical_end ||
+                extent.physical_block < previous_physical_end)
+                return PROSENJITFS_ECORRUPT;
+        }
+        if (extent.logical_block > UINT64_MAX - extent.block_count ||
+            extent.physical_block > UINT64_MAX - extent.block_count)
+            return PROSENJITFS_ECORRUPT;
+        previous_logical_end = extent.logical_block + extent.block_count;
+        previous_physical_end = extent.physical_block + extent.block_count;
+        previous_physical_lba = current;
+        (void)previous_physical_lba;
+        have_previous = 1u;
         if (logical_block >= extent.logical_block &&
             logical_block - extent.logical_block < extent.block_count) {
             if (found)
