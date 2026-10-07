@@ -780,6 +780,8 @@ static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
     if (!data || !data->fs || !inode || !data->fs->mount.active)
         return PROSENJITFS_EPERM;
     rc = prosenjitfs_read_inode(data->fs, data->inode_number, inode);
+    if (rc == PROSENJITFS_ENOENT)
+        return PROSENJITFS_ESTALE;
     if (rc != PROSENJITFS_OK)
         return rc;
     if (inode->generation != data->generation ||
