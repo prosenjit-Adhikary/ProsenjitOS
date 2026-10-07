@@ -18,6 +18,7 @@
 #define PROS_DEVICE_MAX           64u
 #define PROS_DRIVER_MAX_IDS        8u
 #define PROS_DRIVER_MAX_CAPABILITIES 16u
+#define PROS_DRIVER_MAX_DEPENDENCIES 8u
 
 #define PROS_DRIVER_FLAG_NATIVE       0x0001u
 #define PROS_DRIVER_FLAG_COMPAT       0x0002u
@@ -113,6 +114,8 @@ struct pros_driver {
     const struct pros_driver_id *ids;
     uint32_t id_count;
     const struct pros_driver_ops *ops;
+    uint32_t dependency_count;
+    const char *dependencies[PROS_DRIVER_MAX_DEPENDENCIES];
 };
 
 int pros_driver_manager_init(void);
