@@ -148,6 +148,9 @@ int pros_net_socket_connect(uint32_t socket_id, uint32_t addr, uint16_t port,
 int pros_net_socket_accept(uint32_t listener_id, uint32_t seq,
                            uint32_t *accepted_id);
 int pros_net_socket_ack(uint32_t socket_id, uint32_t ack);
+int pros_net_socket_receive_segment(uint32_t socket_id, uint32_t seq,
+                                    const uint8_t *data, uint32_t length,
+                                    uint8_t flags);
 int pros_net_socket_send(uint32_t socket_id, const uint8_t *data, uint32_t length);
 int pros_net_socket_receive(uint32_t socket_id, uint8_t *data, uint32_t capacity,
                             uint32_t *length_out);
