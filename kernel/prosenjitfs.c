@@ -1699,8 +1699,13 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
         {
             uint8_t inode_image[4096];
-
-            int rc = pfs_inode_block_location(data->fs, data->inode_number,
+            int rc;
+            if (affected == 0u) {
+                rc = pfs_tx_reset(data->fs);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_vfs_error(rc);
+            }
+            rc = pfs_inode_block_location(data->fs, data->inode_number,
                                               &inode_lba, &inode_offset);
             if (rc != PROSENJITFS_OK)
                 return pfs_vfs_error(rc);
