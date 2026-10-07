@@ -365,6 +365,12 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
+int process_selftest(void)
+{
+    struct pros_process parent;
+    struct pros_process child;
+    int32_t exit_code = 0;
+
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
