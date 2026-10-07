@@ -1382,7 +1382,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     if (!data || !data->fs)
         return PROS_VFS_EIO;
     {
-        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        int rc = pfs_vnode_read_inode(file->vnode, &inode);
         if (rc != PROSENJITFS_OK)
             return rc == PROSENJITFS_ECORRUPT ? PROS_VFS_ECORRUPT :
                    (rc == PROSENJITFS_EOVERFLOW ? PROS_VFS_EOVERFLOW :
@@ -1947,7 +1947,15 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     child_inode.uid = 0u;
     child_inode.gid = 0u;
     child_inode.links = 1u;
-    child_inode.generation = 1u;
+    {
+        uint64_t next_generation;
+        rc = pfs_next_inode_generation(data->fs, inode_number, &next_generation);
+        if (rc != PROSENJITFS_OK) {
+            kfree(dir_block); kfree(entry_block); kfree(inode_block);
+            return pfs_vfs_error(rc);
+        }
+        child_inode.generation = next_generation;
+    }
     child_inode.parent_inode = data->inode_number;
     child_inode.dir_index = child_dir_lba;
 
@@ -2497,7 +2505,16 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         if (rc != PROSENJITFS_OK) goto out_reset;
     }
 
-    pfs_zero(inode_block + inode_offset, sizeof(child_inode));
+    {
+        uint64_t next_generation;
+        rc = pfs_next_inode_generation(parent_data->fs, inode_number, &next_generation);
+        if (rc != PROSENJITFS_OK)
+            goto out_reset;
+        pfs_zero(inode_block + inode_offset, sizeof(child_inode));
+        pfs_put64(inode_block + inode_offset +
+                  offsetof(struct pros_prosenjitfs_inode, generation),
+                  next_generation);
+    }
     pfs_put32(inode_block + inode_offset +
               offsetof(struct pros_prosenjitfs_inode, checksum),
               pfs_crc_with_zero32(inode_block + inode_offset,
@@ -2665,7 +2682,15 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     child_inode.uid = 0u;
     child_inode.gid = 0u;
     child_inode.links = 1u;
-    child_inode.generation = 1u;
+    {
+        uint64_t next_generation;
+        rc = pfs_next_inode_generation(data->fs, inode_number, &next_generation);
+        if (rc != PROSENJITFS_OK) {
+            kfree(dir_block); kfree(entry_block); kfree(inode_block);
+            return pfs_vfs_error(rc);
+        }
+        child_inode.generation = next_generation;
+    }
     child_inode.parent_inode = data->inode_number;
     child_inode.size = 0u;
     child_inode.allocated_bytes = 0u;
