@@ -240,6 +240,10 @@ int pros_net_parse_ipv4(const uint8_t *data, uint32_t length,
     total = be16(data + 2u);
     if (total < header_len || total > length)
         return PROS_NET_EBOUNDS;
+    /* Fragment reassembly is intentionally not exposed by this foundation;
+     * reject fragmented IPv4 datagrams rather than delivering partial data. */
+    if ((be16(data + 6u) & 0x3FFFu) != 0u)
+        return PROS_NET_ENOTSUP;
     if (pros_net_checksum(data, header_len) != 0u)
         return PROS_NET_ECHECKSUM;
     out->version = 4u;
@@ -255,6 +259,20 @@ int pros_net_parse_ipv4(const uint8_t *data, uint32_t length,
     out->src = be32(data + 12u);
     out->dst = be32(data + 16u);
     if (payload_offset) *payload_offset = header_len;
+    return PROS_NET_OK;
+}
+
+int pros_net_parse_icmp(const uint8_t *data, uint32_t length,
+                        struct pros_net_icmp *out)
+{
+    if (!data || !out || length < 8u)
+        return PROS_NET_EBOUNDS;
+    if (pros_net_checksum(data, length) != 0u)
+        return PROS_NET_ECHECKSUM;
+    out->type = data[0];
+    out->code = data[1];
+    out->checksum = be16(data + 2u);
+    out->rest = be32(data + 4u);
     return PROS_NET_OK;
 }
 
@@ -560,6 +578,8 @@ int pros_net_selftest(void)
     ip[0] = 0x45; put_be16(ip + 2u, 20u); ip[8] = 64u; ip[9] = PROS_NET_IP_TCP;
     put_be32(ip + 12u, 0xC0A80101u); put_be32(ip + 16u, 0xC0A80102u);
     put_be16(ip + 10u, 0u); put_be16(ip + 10u, pros_net_checksum(ip, 20u));
+    if (pros_net_parse_icmp((const uint8_t *)0, 0u, 0) != PROS_NET_EBOUNDS)
+        return -5;
     if (pros_net_parse_ipv4(ip, sizeof(ip), &ih, &off) != PROS_NET_OK ||
         ih.ttl != 64u || ih.protocol != PROS_NET_IP_TCP)
         return -5;
