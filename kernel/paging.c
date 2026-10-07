@@ -30,12 +30,6 @@ static int canonical_address(uint64_t address) {
     return sign ? upper == 0xFFFFULL : upper == 0;
 }
 
-static int page_range_aligned(uint64_t start, uint64_t end) {
-    if (start >= end || end > UINT64_MAX - (PROSENJIT_PAGE_SIZE - 1ULL))
-        return 0;
-    return 1;
-}
-
 uint64_t *paging_kernel_root(void) {
     return kernel_pml4;
 }
