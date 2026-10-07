@@ -9,7 +9,6 @@
 #define ELFOSABI_SYSV 0u
 #define EM_X86_64 62u
 #define ET_EXEC 2u
-#define ET_DYN 3u
 #define PT_LOAD 1u
 #define PT_DYNAMIC 2u
 #define PT_INTERP 3u
@@ -176,7 +175,7 @@ int pros_elf_validate(const uint8_t *image, uint64_t size)
         eh->ident[4] != ELFCLASS64 || eh->ident[5] != ELFDATA2LSB ||
         eh->ident[6] != EV_CURRENT ||
         (eh->ident[7] != ELFOSABI_SYSV && eh->ident[7] != 3) ||
-        (eh->type != ET_EXEC && eh->type != ET_DYN) ||
+        eh->type != ET_EXEC ||
         eh->machine != EM_X86_64 || eh->version != EV_CURRENT ||
         eh->ehsize != sizeof(struct elf64_ehdr))
         return PROS_ELF_EFORMAT;
@@ -217,8 +216,8 @@ int pros_elf_selftest(void)
     ph[0].align = ELF_PAGE;
 
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -1;
-    eh->type = ET_DYN;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -2;
+    eh->type = 3u;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -2;
     eh->type = ET_EXEC;
     if (pros_elf_validate(image, sizeof(*eh) - 1) != PROS_ELF_EBOUNDS) return -2;
 
