@@ -97,7 +97,28 @@ int pros_security_exec_selftest(void) {
 
     if (address_space_destroy(&process.address_space) != 0)
         return -3;
+
+    /*
+     * A zombie has completed execution and is awaiting reap; it must never
+     * cross the execution-admission boundary again.
+     */
+    if (process_init(&process, 0x1002u, PROS_SECURITY_LIMITED) != 0)
+        return -4;
+    if (process_set_state(&process, PROS_PROCESS_ZOMBIE) != 0)
+        goto zombie_fail;
+    record.security.state = PROS_FILE_TRUSTED;
+    record.security.action = PROS_FILE_ALLOW;
+    if (pros_security_exec_admit(&process, &record, 4u, 0) == 
+        PROS_SECURITY_EXEC_ALLOW)
+        goto zombie_fail;
+    if (address_space_destroy(&process.address_space) != 0)
+        return -5;
+
     return 0;
+
+zombie_fail:
+    (void)address_space_destroy(&process.address_space);
+    return -6;
 
 fail:
     (void)address_space_destroy(&process.address_space);
