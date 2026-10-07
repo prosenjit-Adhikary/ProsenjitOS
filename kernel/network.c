@@ -478,6 +478,9 @@ int pros_net_socket_accept(uint32_t listener_id, uint32_t seq,
     child->local_port = listener->local_port;
     child->rcv_nxt = seq + 1u;
     child->snd_nxt = 1u;
+    child->retransmit_deadline = 1000u;
+    child->retransmit_count = 0u;
+    child->retransmit_pending = 1u;
     child->state = PROS_NET_TCP_SYN_RECEIVED;
     *accepted_id = child_id;
     return PROS_NET_OK;
@@ -490,11 +493,15 @@ int pros_net_socket_ack(uint32_t socket_id, uint32_t ack)
     if (s->state == PROS_NET_TCP_SYN_SENT) {
         if (ack != s->snd_nxt) return PROS_NET_ESTATE;
         s->state = PROS_NET_TCP_ESTABLISHED;
+        s->retransmit_pending = 0u;
+        s->retransmit_count = 0u;
         return PROS_NET_OK;
     }
     if (s->state == PROS_NET_TCP_SYN_RECEIVED) {
         if (ack != s->snd_nxt) return PROS_NET_ESTATE;
         s->state = PROS_NET_TCP_ESTABLISHED;
+        s->retransmit_pending = 0u;
+        s->retransmit_count = 0u;
         return PROS_NET_OK;
     }
     if (s->state == PROS_NET_TCP_ESTABLISHED) {
