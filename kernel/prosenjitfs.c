@@ -4640,6 +4640,14 @@ static void pfs_test_power_loss(struct pfs_test_disk *disk)
 {
     if (!disk)
         return;
+
+    /*
+     * A power loss discards the volatile device cache rather than merely
+     * forgetting which cache lines were dirty.  Rebuild the cache from the
+     * durable medium so stale pre-crash bytes can never leak into a later
+     * write/flush cycle in the test harness.
+     */
+    pfs_copy(disk->volatile_data, disk->data, sizeof(disk->data));
     pfs_zero(disk->dirty, sizeof(disk->dirty));
 }
 
