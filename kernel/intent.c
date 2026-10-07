@@ -14,6 +14,7 @@
 #include "security_quarantine.h"
 #include "security_exec.h"
 #include "security_monitor.h"
+#include "security_hardening.h"
 #include "vfs.h"
 #include "partition.h"
 
@@ -80,6 +81,8 @@ int security_manager_init(void) {
     rc = pros_security_quarantine_selftest(); if (rc != 0) return -9000 + rc;
     rc = pros_security_exec_selftest(); if (rc != 0) return -10000 + rc;
     rc = pros_security_monitor_selftest(); if (rc != 0) return -11000 + rc;
+    rc = pros_security_hardening_init(); if (rc != 0) return -12000 + rc;
+    rc = pros_security_hardening_selftest(); if (rc != 0) return -13000 + rc;
     next_intent_id = 1;
     ledger_sequence = 0;
     ledger_count_value = 0;
