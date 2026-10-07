@@ -351,3 +351,39 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             return;
     }
 }
+
+
+int syscall_selftest(struct pros_process *process) {
+    volatile uint64_t regs[6] = { 0, 0, 0, 0, 0, 0 };
+    volatile uint64_t frame[7] = { 0, 0, 0, 0, 0, 0, 0 };
+    uint64_t saved_policy = process ? process->syscall_policy : 0;
+
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_SYSCALL_ENOSYS)
+        return -1;
+
+    regs[0] = PROSENJIT_SYS_GET_VERSION;
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_ABI_VERSION)
+        return -2;
+
+    if (process) {
+        process->syscall_policy = 0;
+        regs[0] = PROSENJIT_SYS_GET_VERSION;
+        syscall_dispatch(regs, frame);
+        if (regs[0] != PROSENJIT_SYSCALL_EPERM) {
+            process->syscall_policy = saved_policy;
+            return -3;
+        }
+
+        process->syscall_policy = saved_policy;
+        regs[0] = 0xFFFFFFFFULL;
+        syscall_dispatch(regs, frame);
+        if (regs[0] != PROSENJIT_SYSCALL_ENOSYS)
+            return -4;
+    }
+
+    syscall_dispatch(0, frame);
+    syscall_dispatch(regs, 0);
+    return 0;
+}
