@@ -162,5 +162,30 @@ int pros_security_quarantine_selftest(void) {
 
     if (pros_security_quarantine_count() != 0u)
         return -7;
+
+    /*
+     * Owner cleanup must release every active record belonging to the same
+     * process while leaving other owners untouched.
+     */
+    uint64_t owner_ids[2];
+    uint64_t other_id = 0u;
+    if (pros_security_quarantine_add(0x3000u, &record, 200u, &owner_ids[0]) != 0 ||
+        pros_security_quarantine_add(0x3000u, &record, 201u, &owner_ids[1]) != 0 ||
+        pros_security_quarantine_add(0x3001u, &record, 202u, &other_id) != 0)
+        return -8;
+    if (pros_security_quarantine_release_owner(0x3000u) != 2 ||
+        pros_security_quarantine_count() != 1u)
+        return -9;
+    if (pros_security_quarantine_get(owner_ids[0], &copy) == 0 ||
+        pros_security_quarantine_get(owner_ids[1], &copy) == 0 ||
+        pros_security_quarantine_get(other_id, &copy) != 0)
+        return -10;
+    if (pros_security_quarantine_release_owner(0x3000u) != -1 ||
+        pros_security_quarantine_release_owner(0u) != -1)
+        return -11;
+    if (pros_security_quarantine_release(other_id) != 0 ||
+        pros_security_quarantine_count() != 0u)
+        return -12;
+
     return 0;
 }
