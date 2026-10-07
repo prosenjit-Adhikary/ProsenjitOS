@@ -16,11 +16,45 @@ struct pros_owned_page {
 #define PDPT_INDEX(va) (((va) >> 30) & 0x1FFu)
 #define PML4_INDEX(va) (((va) >> 39) & 0x1FFu)
 #define LARGE_PAGE_FLAG (1ULL << 7)
+#define USER_MIN_VA PROSENJIT_USER_CODE_VA
 
 extern uint64_t *paging_kernel_root(void);
 
 static void zero_page(uint64_t *page) {
     for (uint32_t i = 0; i < ENTRIES; ++i) page[i] = 0;
+}
+
+static int user_va_valid(uint64_t virtual_address) {
+    return virtual_address >= USER_MIN_VA &&
+           virtual_address < 0x0000800000000000ULL &&
+           (virtual_address & 0xFFFULL) == 0;
+}
+
+static int physical_already_mapped(const struct pros_address_space *space,
+                                   uint64_t physical_address) {
+    if (!space || !space->root) return 1;
+    for (uint32_t pml4 = 1; pml4 < 256; ++pml4) {
+        uint64_t pml4e = space->root[pml4];
+        if (!(pml4e & PROSENJIT_PAGE_PRESENT) || (pml4e & LARGE_PAGE_FLAG)) continue;
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
+        for (uint32_t pdpti = 0; pdpti < ENTRIES; ++pdpti) {
+            uint64_t pdpte = pdpt[pdpti];
+            if (!(pdpte & PROSENJIT_PAGE_PRESENT) || (pdpte & LARGE_PAGE_FLAG)) continue;
+            uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
+            for (uint32_t pdi = 0; pdi < ENTRIES; ++pdi) {
+                uint64_t pde = pd[pdi];
+                if (!(pde & PROSENJIT_PAGE_PRESENT) || (pde & LARGE_PAGE_FLAG)) continue;
+                uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
+                for (uint32_t pti = 0; pti < ENTRIES; ++pti) {
+                    uint64_t pte = pt[pti];
+                    if ((pte & PROSENJIT_PAGE_PRESENT) &&
+                        (pte & PAGE_MASK) == physical_address)
+                        return 1;
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 static uint64_t *alloc_table(void) {
@@ -76,9 +110,8 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t virtual_address,
                                 uint64_t physical_address,
                                 uint64_t flags) {
-    if (!space || !space->root) return -1;
-    if ((virtual_address >> 47) != 0) return -1;
-    if ((virtual_address & 0xFFFULL) || (physical_address & 0xFFFULL)) return -1;
+    if (!space || !space->root || !user_va_valid(virtual_address)) return -1;
+    if ((physical_address & 0xFFFULL) || physical_address == 0) return -1;
 
     uint64_t *pdpt = ensure_table(space->root, PML4_INDEX(virtual_address));
     if (!pdpt) return -1;
@@ -101,8 +134,10 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
                                       uint64_t virtual_address,
                                       uint64_t physical_address,
                                       uint64_t flags) {
-    if (!space || !space->root || (virtual_address & 0xFFFULL) ||
-        (physical_address & 0xFFFULL))
+    if (!space || !space->root || !user_va_valid(virtual_address) ||
+        (physical_address & 0xFFFULL) || physical_address == 0)
+        return -1;
+    if (physical_already_mapped(space, physical_address))
         return -1;
     struct pros_owned_page *owned = (struct pros_owned_page *)kmalloc(sizeof(*owned));
     if (!owned)
@@ -139,8 +174,7 @@ static void destroy_table(uint64_t *table, uint32_t level) {
 int address_space_unmap_user_page(struct pros_address_space *space,
                                   uint64_t virtual_address,
                                   uint64_t *physical_address_out) {
-    if (!space || !space->root || (virtual_address & 0xFFFULL) ||
-        (virtual_address >> 47) != 0)
+    if (!space || !space->root || !user_va_valid(virtual_address))
         return -1;
     uint64_t e = space->root[PML4_INDEX(virtual_address)];
     if (!(e & PROSENJIT_PAGE_PRESENT) || !(e & PROSENJIT_PAGE_USER) ||
@@ -218,7 +252,7 @@ int address_space_validate_user_range(const struct pros_address_space *space,
                                       uint64_t virtual_address,
                                       uint64_t size,
                                       int write_access) {
-    if (!space || !space->root || size == 0) return -1;
+    if (!space || !space->root || size == 0 || virtual_address < USER_MIN_VA) return -1;
 
     uint64_t end = virtual_address + size - 1ULL;
     if (end < virtual_address || (virtual_address >> 47) != 0 ||
