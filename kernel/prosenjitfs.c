@@ -1715,6 +1715,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         return PROS_VFS_EIO;
     data->fs = fs;
     data->inode_number = inode_number;
+    data->generation = inode.generation;
 
     *result = (struct pros_vfs_vnode *)kmalloc(sizeof(**result));
     if (!*result) {
