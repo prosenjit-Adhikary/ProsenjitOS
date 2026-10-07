@@ -6770,9 +6770,8 @@ int prosenjitfs_selftest(void)
             else if (dent.name[0] == '.' && dent.name[1] == '.' &&
                      dent.name[2] == '\0')
                 ++seen_dotdot;
-            else if (dent.name[0] == 'd' && dent.name[1] == 'a' &&
-                     dent.name[2] == 't' && dent.name[3] == 'a' &&
-                     dent.name[4] == '\0')
+            else if (dent.name[0] == 's' && dent.name[1] == 'u' &&
+                     dent.name[2] == 'b' && dent.name[3] == '\0')
                 ++seen_alpha;
             else if ((unsigned char)dent.name[0] == 0xE2u &&
                      (unsigned char)dent.name[1] == 0x82u &&
@@ -6781,8 +6780,8 @@ int prosenjitfs_selftest(void)
                 ++seen_unicode;
         }
         if (vfs_dir_close(&dir) != PROS_VFS_OK ||
-            entries != 5u || seen_dot != 1u || seen_dotdot != 1u ||
-            seen_unicode != 1u)
+            entries != 4u || seen_dot != 1u || seen_dotdot != 1u ||
+            seen_alpha != 1u || seen_unicode != 1u)
             return pfs_selftest_fail(__LINE__, -16);
 
         /*
