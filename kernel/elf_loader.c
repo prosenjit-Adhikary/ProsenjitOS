@@ -276,10 +276,12 @@ static int build_initial_stack(struct pros_process *process,
 
     sp &= ~0xFULL;
     uint64_t pointer_words = (uint64_t)argc + (uint64_t)envc + 3u;
-    uint64_t bytes = (pointer_words + 1u) * sizeof(uint64_t);
+    uint64_t bytes = pointer_words * sizeof(uint64_t);
     if (bytes > sp - PROSENJIT_USER_STACK_VA)
         return PROS_ELF_EBOUNDS;
     sp -= bytes;
+    sp &= ~0xFULL;
+    if (sp < PROSENJIT_USER_STACK_VA) return PROS_ELF_EBOUNDS;
     uint64_t *stack = (uint64_t *)(page + (sp - PROSENJIT_USER_STACK_VA));
     *stack++ = argc;
     for (uint32_t i = 0; i < argc; ++i) *stack++ = argv_ptrs[i];
@@ -287,7 +289,6 @@ static int build_initial_stack(struct pros_process *process,
     for (uint32_t i = 0; i < envc; ++i) *stack++ = env_ptrs[i];
     *stack++ = 0;
     /* Keep an ABI-safe 16-byte aligned initial stack pointer. */
-    if (sp & 0xFULL) return PROS_ELF_EOVERFLOW;
     process->user_stack_top = sp;
     return PROS_ELF_OK;
 }
