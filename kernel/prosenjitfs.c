@@ -2087,7 +2087,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                         child_entry.name_length > PROSENJITFS_MAX_NAME ||
                         child_entry.next >= data->fs->sb.total_blocks ||
                         (child_entry.next != 0u &&
-                         child_entry.next < data->sb.data_start) ||
+                         child_entry.next < data->fs->sb.data_start) ||
                         pfs_crc_with_zero32(scan, sizeof(child_entry),
                             (uint32_t)offsetof(
                                 struct pros_prosenjitfs_dir_entry,
