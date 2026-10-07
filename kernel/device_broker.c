@@ -174,7 +174,13 @@ int pros_device_broker_selftest(void)
         return -8;
     if (pros_device_revoke(device.id, 42u) != PROS_DRIVER_OK ||
         pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_READ) !=
-        PROS_DRIVER_EPERM)
+        PROS_DRIVER_EPERM ||
+        pros_device_revoke(device.id, 42u) != PROS_DRIVER_EPERM ||
+        pros_device_check(device.id, 42u,
+                          PROS_DEVICE_PERMISSION_READ |
+                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_EINVAL ||
+        pros_device_grant(device.id, 42u, 0u) != PROS_DRIVER_EINVAL ||
+        pros_device_grant(device.id, 42u, 0x8000u) != PROS_DRIVER_EINVAL)
         return -9;
     if (pros_driver_unbind(device.id) != PROS_DRIVER_OK ||
         pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_READ) !=
