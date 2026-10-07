@@ -2420,7 +2420,6 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     struct pros_prosenjitfs_dir_entry entry;
     struct pros_prosenjitfs_inode child_inode;
     struct pros_prosenjitfs_inode freed_inode;
-    struct pros_prosenjitfs_inode freed_inode;
     uint8_t *dir_block = 0;
     uint8_t *prev_block = 0;
     uint8_t *inode_block = 0;
