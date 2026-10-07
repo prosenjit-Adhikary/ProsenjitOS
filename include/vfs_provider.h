@@ -49,4 +49,9 @@ struct pros_vfs_provider {
     void *private_data;
 };
 
+int pros_vfs_provider_register(struct pros_vfs_provider *provider);
+int pros_vfs_provider_unregister(struct pros_vfs_provider *provider);
+const struct pros_vfs_provider *pros_vfs_provider_find(const char *name);
+int pros_vfs_provider_selftest(void);
+
 #endif
