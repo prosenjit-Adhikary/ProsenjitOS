@@ -307,7 +307,7 @@ The current native implementation already contains substantial core filesystem i
 - CRC32C-protected metadata structures
 - allocation bitmaps with checked geometry/overflow handling
 - hardened first-fit contiguous block allocation with bitmap caching, full-range revalidation, and atomic double-free/mixed-range rejection
-- preallocation remains a separate future optimization layer and is not claimed as implemented by the core allocation API
+- bounded keep-size contiguous preallocation is implemented at the native filesystem layer; larger/dynamic fallocate policies remain future extensions
 - inode and generation validation
 - extent-backed file storage
 - crash-safe delayed-allocation-equivalent placement with adjacent-block preference and extent coalescing
