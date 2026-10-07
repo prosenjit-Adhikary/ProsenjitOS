@@ -74,6 +74,12 @@ The unlink preflight also rejects extent metadata/data overlap and physical over
 
 The deterministic native-filesystem self-test now covers persistent inode/data-block allocation and reclamation, file create/delete, directory creation/removal, nested directories, cross-directory file and directory moves, rename collision rejection, directory-parent cycle rejection, and non-empty-directory removal rejection. The test remains subject to the repository-wide GitHub Actions verification gate.
 
+## Native ProsenjitFS failed-staging retry regression — 2026-10-07
+
+The deterministic self-test now verifies that allocator and inode-bitmap update wrappers clear their transaction state when staging rejects an operation, and that a valid allocation/free operation can immediately retry on the same mounted filesystem. The retry is followed by the consistency checker so a failed pre-commit mutation cannot contaminate a later transaction or persistence state.
+
+This remains a deterministic software-model regression; local Debian compilation and QEMU execution are still required before runtime PASS is claimed.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
