@@ -235,6 +235,92 @@ int pros_elf_selftest(void)
     return PROS_ELF_OK;
 }
 
+static int build_initial_stack(struct pros_process *process,
+                                  const char *const *argv, uint32_t argc,
+                                  const char *const *envp, uint32_t envc) {
+    if (!process || argc > 64u || envc > 64u ||
+        (argc && !argv) || (envc && !envp))
+        return PROS_ELF_EINVAL;
+
+    uint64_t physical = 0, flags = 0;
+    if (address_space_translate_user(&process->address_space,
+                                     PROSENJIT_USER_STACK_VA,
+                                     &physical, &flags) != 0 ||
+        !(flags & PROSENJIT_PAGE_WRITABLE))
+        return PROS_ELF_EINVAL;
+
+    uint8_t *page = (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL));
+    uint64_t sp = PROSENJIT_USER_STACK_TOP;
+    uint64_t argv_ptrs[64];
+    uint64_t env_ptrs[64];
+
+    for (uint32_t pass = 0; pass < 2u; ++pass) {
+        const char *const *list = pass == 0u ? argv : envp;
+        uint32_t count = pass == 0u ? argc : envc;
+        uint64_t *out = pass == 0u ? argv_ptrs : env_ptrs;
+        for (uint32_t i = count; i > 0u; --i) {
+            const char *str = list[i - 1u];
+            if (!str) return PROS_ELF_EINVAL;
+            uint64_t len = 0;
+            while (len <= 4096u && str[len] != '\0') ++len;
+            if (len > 4096u) return PROS_ELF_EBOUNDS;
+            if (len + 1u > sp - PROSENJIT_USER_STACK_VA)
+                return PROS_ELF_EOVERFLOW;
+            sp -= len + 1u;
+            if (sp < PROSENJIT_USER_STACK_VA) return PROS_ELF_EBOUNDS;
+            uint64_t off = sp - PROSENJIT_USER_STACK_VA;
+            for (uint64_t j = 0; j <= len; ++j) page[off + j] = (uint8_t)str[j];
+            out[i - 1u] = sp;
+        }
+    }
+
+    sp &= ~0xFULL;
+    uint64_t pointer_words = (uint64_t)argc + (uint64_t)envc + 3u;
+    uint64_t bytes = (pointer_words + 1u) * sizeof(uint64_t);
+    if (bytes > sp - PROSENJIT_USER_STACK_VA)
+        return PROS_ELF_EBOUNDS;
+    sp -= bytes;
+    uint64_t *stack = (uint64_t *)(page + (sp - PROSENJIT_USER_STACK_VA));
+    *stack++ = argc;
+    for (uint32_t i = 0; i < argc; ++i) *stack++ = argv_ptrs[i];
+    *stack++ = 0;
+    for (uint32_t i = 0; i < envc; ++i) *stack++ = env_ptrs[i];
+    *stack++ = 0;
+    /* Keep an ABI-safe 16-byte aligned initial stack pointer. */
+    if (sp & 0xFULL) return PROS_ELF_EOVERFLOW;
+    process->user_stack_top = sp;
+    return PROS_ELF_OK;
+}
+
+int pros_elf_load_with_args(struct pros_process *process,
+                             const uint8_t *image,
+                             uint64_t size,
+                             const char *const *argv,
+                             uint32_t argc,
+                             const char *const *envp,
+                             uint32_t envc,
+                             struct pros_elf_load_result *result) {
+    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp))
+        return PROS_ELF_EINVAL;
+    int rc = pros_elf_load(process, image, size, result);
+    if (rc != PROS_ELF_OK) return rc;
+    rc = build_initial_stack(process, argv, argc, envp, envc);
+    if (rc != PROS_ELF_OK) {
+        rollback_user_pages(process, result->image_start, result->image_end);
+        uint64_t physical = 0;
+        if (address_space_unmap_user_page(&process->address_space,
+                                          PROSENJIT_USER_STACK_VA,
+                                          &physical) == 0)
+            physical_page_free(physical);
+        process->user_entry = 0;
+        process->user_stack_top = 0;
+        result->mapped_pages = 0;
+        return rc;
+    }
+    result->stack_top = process->user_stack_top;
+    return PROS_ELF_OK;
+}
+
 int pros_elf_load(struct pros_process *process, const uint8_t *image,
                   uint64_t size, struct pros_elf_load_result *result)
 {
