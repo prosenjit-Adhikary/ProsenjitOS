@@ -7,6 +7,7 @@
 #include "log.h"
 #include "address_space.h"
 #include "elf_loader.h"
+#include "init.h"
 #include "service_manager.h"
 #include "usercopy.h"
 #include "object.h"
@@ -397,6 +398,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: ELF validation negative self-test passed\n");
+    if (pros_init_selftest() != PROS_INIT_OK) {
+        serial_write("ProsenjitOS: ERROR /init filesystem-boundary self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: /init filesystem-boundary negative self-test passed\n");
 
     if (block_device_selftest() != PROS_BLOCK_OK) {
         serial_write("ProsenjitOS: ERROR block storage health self-test failed\n");
