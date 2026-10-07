@@ -454,6 +454,9 @@ int pros_net_socket_connect(uint32_t socket_id, uint32_t addr, uint16_t port,
     s->remote_addr = addr;
     s->remote_port = port;
     s->snd_nxt = initial_seq + 1u;
+    s->retransmit_deadline = 1000u;
+    s->retransmit_count = 0u;
+    s->retransmit_pending = 1u;
     s->state = PROS_NET_TCP_SYN_SENT;
     return PROS_NET_OK;
 }
@@ -559,6 +562,28 @@ int pros_net_socket_receive(uint32_t socket_id, uint8_t *data, uint32_t capacity
     for (uint32_t i = 0; i < s->rx_len; ++i) data[i] = s->rx[i];
     *length_out = s->rx_len;
     s->rx_len = 0u;
+    return PROS_NET_OK;
+}
+
+int pros_net_socket_tick(uint32_t socket_id, uint64_t elapsed_ms,
+                             uint8_t *retransmit_out) {
+    struct pros_net_socket *s = socket_find(socket_id);
+    if (!s || !retransmit_out) return PROS_NET_EINVAL;
+    *retransmit_out = 0u;
+    if (!s->retransmit_pending) return PROS_NET_OK;
+    if (elapsed_ms < s->retransmit_deadline) {
+        s->retransmit_deadline -= elapsed_ms;
+        return PROS_NET_OK;
+    }
+    if (s->retransmit_count >= 5u) {
+        s->state = PROS_NET_TCP_CLOSED;
+        s->retransmit_pending = 0u;
+        return PROS_NET_EAGAIN;
+    }
+    s->retransmit_count++;
+    *retransmit_out = 1u;
+    s->retransmit_deadline = 1000u << (s->retransmit_count > 4u ? 4u :
+                                        s->retransmit_count);
     return PROS_NET_OK;
 }
 
