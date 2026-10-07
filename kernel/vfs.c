@@ -288,12 +288,17 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         return PROS_VFS_EINVAL;
     if (file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
-    if ((file->flags & PROS_VFS_O_APPEND) != 0u)
-        file->position = file->vnode->size;
-    if (file->position > 0xFFFFFFFFULL)
-        return PROS_VFS_EOVERFLOW;
-    if ((uint64_t)length > UINT32_MAX - file->position)
-        return PROS_VFS_EOVERFLOW;
+    /* O_APPEND is resolved by the filesystem against authoritative inode
+     * EOF. Do not overwrite the handle position from a potentially stale
+     * vnode size here; otherwise two append handles can race through the VFS
+     * with the same cached EOF. The filesystem write path returns the actual
+     * appended byte count and refreshes vnode size. */
+    if ((file->flags & PROS_VFS_O_APPEND) == 0u) {
+        if (file->position > 0xFFFFFFFFULL)
+            return PROS_VFS_EOVERFLOW;
+        if ((uint64_t)length > UINT32_MAX - file->position)
+            return PROS_VFS_EOVERFLOW;
+    }
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
@@ -301,7 +306,13 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     }
     if ((uint32_t)rc > length)
         return PROS_VFS_EIO;
-    file->position += (uint32_t)rc;
+    if ((file->flags & PROS_VFS_O_APPEND) != 0u) {
+        if (file->vnode->size > 0xFFFFFFFFULL)
+            return PROS_VFS_EOVERFLOW;
+        file->position = file->vnode->size;
+    } else {
+        file->position += (uint32_t)rc;
+    }
     *bytes_written = (uint32_t)rc;
     ++health_write_count;
     return PROS_VFS_OK;
