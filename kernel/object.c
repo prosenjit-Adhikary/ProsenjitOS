@@ -58,7 +58,7 @@ uint64_t handle_alloc(struct pros_handle_table *table,
 
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         struct pros_handle_entry *entry = &table->entries[i];
-        if (!entry->object) {
+        if (!entry->object && entry->generation != UINT16_MAX) {
             if (object_retain(object) != 0) return PROSENJIT_HANDLE_INVALID;
             entry->object = object;
             entry->rights = rights;
@@ -122,8 +122,13 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
     struct pros_object *object = entry->object;
     entry->object = 0;
     entry->rights = 0;
-    ++entry->generation;
-    if (entry->generation == 0) entry->generation = 1;
+    /*
+     * Never wrap a handle generation. A wrapped generation would allow a
+     * very old stale handle value to become valid again after enough reuse.
+     * Retire that slot permanently instead; other slots remain available.
+     */
+    if (entry->generation != UINT16_MAX)
+        ++entry->generation;
 
     return object_release(object);
 }
