@@ -1435,6 +1435,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     uint64_t retained_blocks = 0u;
     uint64_t inode_lba = 0u;
     uint32_t inode_offset = 0u;
+    int rc = PROSENJITFS_EIO;
 
     if (!file || !file->vnode || !file->mount)
         return PROS_VFS_EINVAL;
@@ -1552,7 +1553,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             uint8_t inode_image[4096];
             uint64_t inode_lba;
             uint32_t inode_offset;
-            int rc;
 
             rc = pfs_inode_block_location(data->fs, data->inode_number,
                                           &inode_lba, &inode_offset);
