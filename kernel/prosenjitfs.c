@@ -1012,7 +1012,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     if (!data || !data->fs || !data->fs->mount.active)
         return PROS_VFS_EPERM;
     {
-        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        int rc = pfs_vnode_read_inode(file->vnode, &inode);
         if (rc != PROSENJITFS_OK)
             return pfs_file_write_error(0u, rc);
     }
@@ -1110,7 +1110,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             UINT64_MAX / data->fs->sb.block_size)
         return PROS_VFS_ECORRUPT;
     {
-        int rc = prosenjitfs_read_inode(data->fs, data->inode_number, &inode);
+        int rc = pfs_vnode_read_inode(file->vnode, &inode);
         if (rc != PROSENJITFS_OK)
             return pfs_file_write_error(0u, rc);
     }
@@ -2265,7 +2265,16 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     pfs_put32(dir_block + offsetof(struct pros_prosenjitfs_dir_index, checksum),
         pfs_crc_with_zero32(dir_block, sizeof(dir_index),
             (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
-    pfs_zero(inode_block + inode_offset, sizeof(child_inode));
+    {
+        uint64_t next_generation;
+        rc = pfs_next_inode_generation(data->fs, inode_number, &next_generation);
+        if (rc != PROSENJITFS_OK)
+            goto rmdir_out;
+        pfs_zero(inode_block + inode_offset, sizeof(child_inode));
+        pfs_put64(inode_block + inode_offset +
+                  offsetof(struct pros_prosenjitfs_inode, generation),
+                  next_generation);
+    }
     pfs_put32(inode_block + inode_offset + offsetof(struct pros_prosenjitfs_inode, checksum),
         pfs_crc_with_zero32(inode_block + inode_offset, sizeof(child_inode),
             (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)));
