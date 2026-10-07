@@ -93,6 +93,25 @@ int thread_terminate_process(struct pros_process *process) {
     if (!process) return -1;
 
     int terminated_current = 0;
+
+    /* Remove process-owned threads from the run queue before clearing their
+     * next/prev links. These fields are the run-queue links, so clearing them
+     * first can truncate traversal of unrelated runnable threads. */
+    struct pros_thread *prev = 0;
+    struct pros_thread *it = runq_head;
+    while (it) {
+        struct pros_thread *next = it->next;
+        if (it->process == process) {
+            if (prev) prev->next = next; else runq_head = next;
+            if (next) next->prev = prev; else runq_tail = prev;
+            it->next = 0;
+            it->prev = 0;
+        } else {
+            prev = it;
+        }
+        it = next;
+    }
+
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next) {
         if (thread->process != process || thread->state == PROS_THREAD_DEAD) continue;
         if (thread == current_thread)
@@ -112,21 +131,6 @@ int thread_terminate_process(struct pros_process *process) {
     if (terminated_current)
         current_thread = 0;
 
-    /* Remove all terminated threads of the process from the run queue. */
-    struct pros_thread *prev = 0;
-    struct pros_thread *it = runq_head;
-    while (it) {
-        struct pros_thread *next = it->next;
-        if (it->process == process) {
-            if (prev) prev->next = next; else runq_head = next;
-            if (next) next->prev = prev; else runq_tail = prev;
-            it->next = 0;
-            it->prev = 0;
-        } else {
-            prev = it;
-        }
-        it = next;
-    }
     return 0;
 }
 int thread_set_state(struct pros_thread *thread, uint32_t state) {
