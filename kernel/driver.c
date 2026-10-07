@@ -21,6 +21,8 @@ static uint32_t next_device_id;
 static uint8_t manager_ready;
 static struct pros_driver_device pci_bridge_devices[PROS_DEVICE_MAX];
 
+static const struct pros_driver *driver_find_name(const char *name);
+
 static int id_field_match_u16(uint16_t expected, uint16_t actual)
 {
     return expected == 0u || expected == 0xFFFFu || expected == actual;
