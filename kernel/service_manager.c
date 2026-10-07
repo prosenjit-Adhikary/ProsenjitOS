@@ -72,7 +72,8 @@ static int service_start_index(uint32_t index, uint8_t *visiting)
                 visiting[index] = 0u;
                 return PROS_SERVICE_OK;
             }
-            service->restart_count++;
+            if (service->restart_count != UINT32_MAX)
+                ++service->restart_count;
             if (attempt == limit)
                 break;
         }
