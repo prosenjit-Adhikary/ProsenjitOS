@@ -288,8 +288,8 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
             ((uint8_t *)(uintptr_t)physical)[off] = 0;
 
-        if (address_space_map_user_page(&process->address_space, va,
-                                        physical, (uint64_t)flags) != 0) {
+        if (address_space_map_user_page_owned(&process->address_space, va,
+                                              physical, (uint64_t)flags) != 0) {
             physical_page_free(physical);
             rollback_user_pages(process, start, end);
             return PROS_ELF_EINVAL;
