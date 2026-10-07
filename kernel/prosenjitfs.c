@@ -795,6 +795,37 @@ static int pfs_next_generation(uint64_t current, uint64_t *next)
     return *next == 0u ? PROSENJITFS_EOVERFLOW : PROSENJITFS_OK;
 }
 
+static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
+                                   uint64_t inode_number,
+                                   uint64_t *generation)
+{
+    uint8_t block[4096];
+    uint64_t lba;
+    uint32_t offset;
+    struct pros_prosenjitfs_inode old_inode;
+    int rc;
+
+    if (!fs || !generation || fs->sb.block_size > sizeof(block))
+        return PROSENJITFS_EINVAL;
+    rc = pfs_inode_block_location(fs, inode_number, &lba, &offset);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_read_block(fs->mount.device, lba, block);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    pfs_copy(&old_inode, block + offset, sizeof(old_inode));
+    if (old_inode.type != PROSENJITFS_INODE_FREE &&
+        old_inode.type != PROSENJITFS_INODE_FILE &&
+        old_inode.type != PROSENJITFS_INODE_DIR)
+        return PROSENJITFS_ECORRUPT;
+    if (old_inode.type == PROSENJITFS_INODE_FREE &&
+        old_inode.checksum != pfs_crc_with_zero32(
+            block + offset, sizeof(old_inode),
+            (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)))
+        return PROSENJITFS_ECORRUPT;
+    return pfs_next_generation(old_inode.generation, generation);
+}
+
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
