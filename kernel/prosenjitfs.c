@@ -2028,6 +2028,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
+    struct pros_prosenjitfs_dir_index child_dir_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint8_t *dir_block = 0, *prev_block = 0, *inode_block = 0, *entry_block = 0;
     uint64_t current = 0u, previous = 0u, target_lba = 0u, inode_lba, steps = 0u;
