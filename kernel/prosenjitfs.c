@@ -6570,6 +6570,36 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
             }
 
+            if (stage >= 5u) {
+                /*
+                 * The committed unlink must have released the inode, directory
+                 * entry and data allocation. Recreate the same pathname and
+                 * write different bytes to exercise immediate block/inode reuse,
+                 * then unlink it normally and re-run the consistency oracle.
+                 */
+                done = 0u;
+                if (vfs_file_open(&fs.mount, "/unlink-crash.bin",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, unlink_data, sizeof(unlink_data), &done) !=
+                        PROS_VFS_OK || done != sizeof(unlink_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                    vfs_unlink(&fs.mount, "/unlink-crash.bin") != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+            } else {
+                /* The pre-commit crash preserved the original object; clean it
+                 * up so the next stage starts from an identical image state. */
+                if (vfs_unlink(&fs.mount, "/unlink-crash.bin") != PROS_VFS_OK ||
+                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+            }
+
             if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
         }
