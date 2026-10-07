@@ -116,5 +116,34 @@ int pros_security_quarantine_selftest(void) {
     if (pros_security_quarantine_release(id) != 0 ||
         pros_security_quarantine_count() != 0)
         return -1;
+
+    /*
+     * The quarantine table is bounded. Fill every slot, verify a new
+     * admission fails closed, then release one slot and verify recovery.
+     */
+    uint64_t ids[PROS_SECURITY_QUARANTINE_MAX];
+    for (uint32_t i = 0u; i < PROS_SECURITY_QUARANTINE_MAX; ++i) {
+        if (pros_security_quarantine_add(
+                0x1000u + i, &record, 2u + i, &ids[i]) != 0 ||
+            ids[i] == 0u)
+            return -2;
+    }
+    if (pros_security_quarantine_count() !=
+        PROS_SECURITY_QUARANTINE_MAX)
+        return -3;
+    if (pros_security_quarantine_add(0x2000u, &record, 99u, &id) != -2)
+        return -4;
+    if (pros_security_quarantine_release(ids[0]) != 0)
+        return -5;
+    if (pros_security_quarantine_add(0x2000u, &record, 100u, &id) != 0 ||
+        id == 0u)
+        return -6;
+
+    for (uint32_t i = 0u; i < PROS_SECURITY_QUARANTINE_MAX; ++i)
+        (void)pros_security_quarantine_release(ids[i]);
+    (void)pros_security_quarantine_release(id);
+
+    if (pros_security_quarantine_count() != 0u)
+        return -7;
     return 0;
 }
