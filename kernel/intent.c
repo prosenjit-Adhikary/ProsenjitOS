@@ -133,6 +133,8 @@ int security_make_intent(struct pros_intent *intent,
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return -1;
     intent->id = security_next_intent_id();
+    if (intent->id == 0u)
+        return -2;
     intent->operation = operation;
     intent->object_type = object_type;
     intent->handle = handle;
