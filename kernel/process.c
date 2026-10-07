@@ -178,6 +178,8 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
     /* Publish the exit result only after the irreversible thread transition
      * has succeeded, keeping failed exits observationally non-destructive. */
     process->exit_code = exit_code;
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
     process->state = PROS_PROCESS_ZOMBIE;
     return 0;
 }
