@@ -266,3 +266,75 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     next->interrupt_frame = frame;
     return frame;
 }
+
+int thread_block(void *wait_channel) {
+    if (!current_thread || !wait_channel ||
+        current_thread->state != PROS_THREAD_RUNNING)
+        return -1;
+    current_thread->wait_channel = wait_channel;
+    current_thread->state = PROS_THREAD_BLOCKED;
+    return 0;
+}
+
+int thread_wake(struct pros_thread *thread) {
+    if (!thread || thread->state != PROS_THREAD_BLOCKED ||
+        !thread_process_runnable(thread))
+        return -1;
+
+    if (thread->blocked_syscall != 0 &&
+        (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u))
+        return -1;
+
+    thread->state = PROS_THREAD_READY;
+    if (thread_enqueue(thread) != 0) {
+        thread->state = PROS_THREAD_BLOCKED;
+        return -1;
+    }
+    if (thread->blocked_syscall != 0 && thread->interrupt_frame) {
+        thread->interrupt_frame->rax = thread->blocked_syscall;
+        thread->interrupt_frame->rip -= 2;
+        thread->blocked_syscall = 0;
+    }
+    thread->wait_channel = 0;
+    return 0;
+}
+
+uint64_t thread_runnable_count(void) {
+    uint64_t count = 0;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread_process_runnable(thread) &&
+            (thread->state == PROS_THREAD_READY || thread->state == PROS_THREAD_RUNNING))
+            ++count;
+    return count;
+}
+
+uint64_t thread_blocked_count(void) {
+    uint64_t count = 0;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread->state == PROS_THREAD_BLOCKED)
+            ++count;
+    return count;
+}
+
+uint64_t thread_dead_count(void) {
+    uint64_t count = 0;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread->state == PROS_THREAD_DEAD)
+            ++count;
+    return count;
+}
+
+int thread_has_runnable(void) {
+    for (struct pros_thread *thread = runq_head; thread; thread = thread->next)
+        if (thread_process_runnable(thread))
+            return 1;
+    return 0;
+}
+
+int thread_schedule_preempt(void) {
+    struct pros_thread *prev = current_thread;
+    if (thread_schedule() != 0) return -1;
+    if (prev && prev != current_thread)
+        thread_context_switch(prev, current_thread);
+    return 0;
+}
