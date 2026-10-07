@@ -6575,6 +6575,86 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* Interrupted unlink journal-recovery regression: interrupt replay after
+     * the commit record is durable, then model a second power loss and ensure
+     * the committed unlink is replayed exactly once. */
+    {
+        static const uint8_t recovery_unlink_data[16] = {
+            0x42u, 0x17u, 0xA1u, 0x5Cu, 0xE3u, 0x09u, 0x7Du, 0xC8u,
+            0x31u, 0x96u, 0x4Bu, 0xF0u, 0x2Au, 0x65u, 0xBDu, 0x18u
+        };
+
+        for (uint32_t recovery_stage = 10u; recovery_stage <= 11u;
+             ++recovery_stage) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/unlink-recovery.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, recovery_unlink_data,
+                               sizeof(recovery_unlink_data), &done) !=
+                    PROS_VFS_OK || done != sizeof(recovery_unlink_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+            /* Stage 5 is after the commit record has been flushed. */
+            pfs_crash_inject_stage = 5u;
+            pfs_crash_injected = 0u;
+            rc = vfs_unlink(&fs.mount, "/unlink-recovery.bin");
+            if (rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            /* Interrupt journal replay itself, then model another power loss. */
+            pfs_crash_inject_stage = recovery_stage;
+            pfs_crash_injected = 0u;
+            rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (rc != PROSENJITFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+            rc = vfs_file_open(&fs.mount, "/unlink-recovery.bin",
+                               PROS_VFS_O_READ, &file);
+            if (rc != PROS_VFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+            /* A second remount must not replay or resurrect the transaction. */
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/unlink-recovery.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_ENOENT ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+        }
+    }
+
     /* Repeated persistence/reuse regression: 100 complete create/write/
      * unmount/remount/read/unlink/unmount/remount cycles on one image. */
     {
