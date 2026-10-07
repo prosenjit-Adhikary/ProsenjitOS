@@ -716,6 +716,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS provider registry boundary self-test passed\n");
+    if (process_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process lifecycle self-test passed\n");
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
