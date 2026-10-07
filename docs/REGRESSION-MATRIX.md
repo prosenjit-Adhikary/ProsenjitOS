@@ -70,6 +70,7 @@ The following work remains intentionally dependent on lower layers:
 ### ProsenjitFS mutation regression
 
 The unlink transaction-capacity regression now verifies that the in-memory target set enforces the fixed on-disk maximum, deduplicates repeated bitmap targets, and returns `ENOSPC` without extending the transaction when the final target would exceed capacity. This is a deterministic contract test; oversized real-file unlink and crash/recovery behavior still require local QEMU execution.
+The unlink preflight also rejects extent metadata/data overlap and physical overlap between distinct extents before transaction staging, preventing ambiguous ownership/reclamation on corrupted extent chains.
 
 The deterministic native-filesystem self-test now covers persistent inode/data-block allocation and reclamation, file create/delete, directory creation/removal, nested directories, cross-directory file and directory moves, rename collision rejection, directory-parent cycle rejection, and non-empty-directory removal rejection. The test remains subject to the repository-wide GitHub Actions verification gate.
 
