@@ -163,3 +163,15 @@ vfs_mount_init() could overwrite an existing mount object's fields without requi
 vfs_mount_init() now returns PROS_VFS_EBUSY when the mount is active or still owns a root vnode. Reinitialization therefore requires the existing mount lifetime to be closed cleanly first.
 
 Commit: 7913dda (fix: reject live VFS mount reinitialization).
+
+
+## 2026-10-07 — ProsenjitFS zero-length I/O contract enforcement
+
+### Root cause
+The VFS contract treats zero-length reads and writes as successful no-ops that do not require a data buffer. ProsenjitFS still rejected a null buffer before checking length == 0, so the backend violated the VFS contract despite the existing zero-length self-test only exercising a non-null argument.
+
+### Fix
+Adjusted `pfs_file_read()` and `pfs_file_write_unserialized()` so a null buffer is rejected only for non-zero I/O. Zero-length operations now reach the existing successful no-op path.
+
+### Verification status
+Source-level contract audit completed. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
