@@ -980,6 +980,32 @@ static int pfs_find_free_data_block_except(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
+static int pfs_data_block_is_free(const struct pros_prosenjitfs *fs,
+                                      uint64_t block_number)
+{
+    uint64_t bits_per_block;
+    uint64_t bitmap_lba;
+    uint8_t bitmap[4096];
+
+    if (!fs || block_number < fs->sb.data_start ||
+        block_number >= fs->sb.total_blocks ||
+        fs->sb.block_size == 0u || fs->sb.block_size > 4096u)
+        return PROSENJITFS_EINVAL;
+
+    bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    {
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                             block_number / bits_per_block, &bitmap_lba);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
+    if (pfs_read_block(fs->mount.device, bitmap_lba, bitmap) !=
+        PROSENJITFS_OK)
+        return PROSENJITFS_EIO;
+
+    return pfs_bitmap_bit(bitmap, block_number % bits_per_block) ? 0 : 1;
+}
+
 static int pfs_inode_block_location(const struct pros_prosenjitfs *fs,
                                     uint64_t inode_number,
                                     uint64_t *block_lba,
@@ -1198,88 +1224,170 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
         rc = pfs_find_extent(data->fs, &inode, logical_block, &extent,
                              &extent_lba, &tail_lba);
         if (rc == PROSENJITFS_ENOENT) {
-            rc = pfs_find_free_data_block_except(data->fs, 0u, &physical);
-            if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
-            rc = pfs_find_free_data_block_except(data->fs, physical,
-                                                 &new_extent_lba);
-            if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+            uint64_t previous_lba = 0u;
+            struct pros_prosenjitfs_extent previous_extent;
+            uint8_t have_previous = 0u;
+            uint8_t coalesce = 0u;
+
+            /*
+             * Delayed-allocation equivalent:
+             * do not keep an unsafe volatile allocation cache. Instead, choose
+             * a physically adjacent free block when a sequential logical
+             * write can extend the preceding extent, and publish the data,
+             * extent, bitmap and inode atomically in one journal transaction.
+             */
+            {
+                uint64_t current_lba = inode.extent_head;
+                struct pros_prosenjitfs_extent current_extent;
+
+                while (current_lba != 0u) {
+                    rc = pfs_read_extent(data->fs, current_lba,
+                                         &current_extent);
+                    if (rc != PROSENJITFS_OK)
+                        return pfs_file_write_error(done, rc);
+                    if (current_extent.logical_block > logical_block)
+                        break;
+                    if (current_extent.logical_block <= logical_block &&
+                        current_extent.block_count <=
+                            UINT64_MAX - current_extent.logical_block &&
+                        current_extent.logical_block +
+                            current_extent.block_count == logical_block) {
+                        previous_lba = current_lba;
+                        pfs_copy(&previous_extent, &current_extent,
+                                 sizeof(previous_extent));
+                        have_previous = 1u;
+                    }
+                    current_lba = current_extent.next;
+                }
+            }
+
+            if (have_previous &&
+                previous_extent.physical_block <= UINT64_MAX -
+                    previous_extent.block_count) {
+                uint64_t candidate =
+                    previous_extent.physical_block +
+                    previous_extent.block_count;
+                int free_rc = pfs_data_block_is_free(data->fs, candidate);
+                if (free_rc < 0)
+                    return pfs_file_write_error(done, free_rc);
+                if (free_rc == 1)
+                    coalesce = 1u;
+            }
+
             pfs_zero(data_image, data->fs->sb.block_size);
             pfs_zero(extent_image, data->fs->sb.block_size);
             pfs_zero(tail_image, data->fs->sb.block_size);
             pfs_zero(inode_image, data->fs->sb.block_size);
 
-            if (in_block != 0u) {
-                /*
-                 * A new block is initially a hole. Preserve the zero-filled
-                 * prefix and only replace the bytes being written.
-                 */
-            }
             for (uint32_t i = 0u; i < want; ++i)
                 data_image[in_block + i] =
                     ((const uint8_t *)buffer)[done + i];
 
-            struct pros_prosenjitfs_extent new_extent;
-            pfs_zero(&new_extent, sizeof(new_extent));
-            new_extent.magic = PROSENJITFS_EXTENT_MAGIC;
-            new_extent.logical_block = logical_block;
-            new_extent.physical_block = physical;
-            new_extent.block_count = 1u;
-            new_extent.next = 0u;
+            if (coalesce) {
+                /*
+                 * Extend the preceding extent in place. This is the key
+                 * coalescing operation: no second extent metadata block is
+                 * consumed for consecutive writes.
+                 */
+                physical = previous_extent.physical_block +
+                           previous_extent.block_count;
+                extent_lba = previous_lba;
+                extent = previous_extent;
+                extent.block_count++;
+                pfs_copy(extent_image, &extent, sizeof(extent));
+                pfs_put32(
+                    extent_image +
+                    offsetof(struct pros_prosenjitfs_extent, checksum),
+                    pfs_crc_with_zero32(
+                        extent_image, sizeof(extent),
+                        (uint32_t)offsetof(
+                            struct pros_prosenjitfs_extent, checksum)));
+            } else {
+                /*
+                 * Reserve extent metadata first, then select the data block.
+                 * This intentionally leaves the next physical data block free
+                 * so a following sequential write can coalesce with this
+                 * extent instead of being separated by its metadata block.
+                 */
+                rc = pfs_find_free_data_block_except(data->fs, 0u,
+                                                     &new_extent_lba);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+                rc = pfs_find_free_data_block_except(data->fs,
+                                                     new_extent_lba,
+                                                     &physical);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
 
-            /*
-             * Keep the extent chain ordered by logical_block. A sparse write
-             * can fill a hole between two existing extents, so blindly
-             * appending at tail would make later lookups report corruption.
-             */
-            {
-                uint64_t prev_lba = 0u;
-                uint64_t current_lba = inode.extent_head;
-                struct pros_prosenjitfs_extent current_extent;
+                {
+                    struct pros_prosenjitfs_extent new_extent;
+                    pfs_zero(&new_extent, sizeof(new_extent));
+                    new_extent.magic = PROSENJITFS_EXTENT_MAGIC;
+                    new_extent.logical_block = logical_block;
+                    new_extent.physical_block = physical;
+                    new_extent.block_count = 1u;
+                    new_extent.next = 0u;
 
-                while (current_lba != 0u) {
-                    rc = pfs_read_extent(data->fs, current_lba, &current_extent);
-                    if (rc != PROSENJITFS_OK)
-                        return pfs_file_write_error(done, rc);
-                    if (logical_block < current_extent.logical_block)
-                        break;
-                    prev_lba = current_lba;
-                    current_lba = current_extent.next;
-                }
-                new_extent.next = current_lba;
-                if (prev_lba != 0u) {
-                    rc = pfs_read_block(data->fs->mount.device, prev_lba,
-                                        tail_image);
-                    if (rc != PROSENJITFS_OK)
-                        return pfs_file_write_error(done, rc);
+                    /*
+                     * Keep the extent chain ordered by logical_block. A sparse
+                     * write can fill a hole between two existing extents, so
+                     * never append blindly at the tail.
+                     */
                     {
-                        struct pros_prosenjitfs_extent prev_extent;
-                        pfs_copy(&prev_extent, tail_image, sizeof(prev_extent));
-                        prev_extent.next = new_extent_lba;
-                        pfs_copy(tail_image, &prev_extent, sizeof(prev_extent));
-                        pfs_put32(
-                            tail_image +
-                            offsetof(struct pros_prosenjitfs_extent, checksum),
-                            pfs_crc_with_zero32(
-                                tail_image, sizeof(prev_extent),
-                                (uint32_t)offsetof(
-                                    struct pros_prosenjitfs_extent, checksum)));
+                        uint64_t prev_lba = 0u;
+                        uint64_t current_lba = inode.extent_head;
+                        struct pros_prosenjitfs_extent current_extent;
+
+                        while (current_lba != 0u) {
+                            rc = pfs_read_extent(data->fs, current_lba,
+                                                 &current_extent);
+                            if (rc != PROSENJITFS_OK)
+                                return pfs_file_write_error(done, rc);
+                            if (logical_block < current_extent.logical_block)
+                                break;
+                            prev_lba = current_lba;
+                            current_lba = current_extent.next;
+                        }
+                        new_extent.next = current_lba;
+                        if (prev_lba != 0u) {
+                            rc = pfs_read_block(data->fs->mount.device,
+                                                prev_lba, tail_image);
+                            if (rc != PROSENJITFS_OK)
+                                return pfs_file_write_error(done, rc);
+                            {
+                                struct pros_prosenjitfs_extent prev_extent;
+                                pfs_copy(&prev_extent, tail_image,
+                                         sizeof(prev_extent));
+                                prev_extent.next = new_extent_lba;
+                                pfs_copy(tail_image, &prev_extent,
+                                         sizeof(prev_extent));
+                                pfs_put32(
+                                    tail_image +
+                                    offsetof(struct pros_prosenjitfs_extent,
+                                              checksum),
+                                    pfs_crc_with_zero32(
+                                        tail_image, sizeof(prev_extent),
+                                        (uint32_t)offsetof(
+                                            struct pros_prosenjitfs_extent,
+                                            checksum)));
+                            }
+                            tail_lba = prev_lba;
+                        } else {
+                            inode.extent_head = new_extent_lba;
+                            tail_lba = 0u;
+                        }
                     }
-                    tail_lba = prev_lba;
-                } else {
-                    inode.extent_head = new_extent_lba;
-                    tail_lba = 0u;
+
+                    pfs_copy(extent_image, &new_extent, sizeof(new_extent));
+                    pfs_put32(
+                        extent_image +
+                        offsetof(struct pros_prosenjitfs_extent, checksum),
+                        pfs_crc_with_zero32(
+                            extent_image, sizeof(new_extent),
+                            (uint32_t)offsetof(
+                                struct pros_prosenjitfs_extent, checksum)));
                 }
             }
-
-            pfs_copy(extent_image, &new_extent, sizeof(new_extent));
-            pfs_put32(extent_image +
-                      offsetof(struct pros_prosenjitfs_extent, checksum),
-                      pfs_crc_with_zero32(extent_image, sizeof(new_extent),
-                                          (uint32_t)offsetof(
-                                              struct pros_prosenjitfs_extent,
-                                              checksum)));
 
             rc = pfs_inode_block_location(data->fs, data->inode_number,
                                           &inode_lba, &inode_offset);
@@ -1292,15 +1400,12 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
             {
                 uint64_t staged_extent_head = inode.extent_head;
                 pfs_copy(&inode, inode_image + inode_offset, sizeof(inode));
-                /*
-                 * Preserve the newly selected head when the new extent was
-                 * inserted before the previous head. The disk inode read
-                 * above contains the old head by definition.
-                 */
-                if (tail_lba == 0u && staged_extent_head != 0u &&
+                if (!coalesce && tail_lba == 0u &&
+                    staged_extent_head != 0u &&
                     staged_extent_head != inode.extent_head)
                     inode.extent_head = staged_extent_head;
             }
+
             if ((uint64_t)offset > inode.size)
                 inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
             inode.size = ((uint64_t)offset + done + want > inode.size)
@@ -1324,16 +1429,19 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
             rc = pfs_allocator_stage(data->fs, physical, 1u, 1u);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            rc = pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u);
-            if (rc != PROSENJITFS_OK)
-                return pfs_file_write_error(done, rc);
+            if (!coalesce) {
+                rc = pfs_allocator_stage(data->fs, new_extent_lba, 1u, 1u);
+                if (rc != PROSENJITFS_OK)
+                    return pfs_file_write_error(done, rc);
+            }
             rc = pfs_tx_add(data->fs, physical, data_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            rc = pfs_tx_add(data->fs, new_extent_lba, extent_image);
+            rc = pfs_tx_add(data->fs, extent_lba ? extent_lba :
+                             new_extent_lba, extent_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
-            if (tail_lba != 0u) {
+            if (!coalesce && tail_lba != 0u) {
                 rc = pfs_tx_add(data->fs, tail_lba, tail_image);
                 if (rc != PROSENJITFS_OK)
                     return pfs_file_write_error(done, rc);
@@ -5526,6 +5634,93 @@ int prosenjitfs_selftest(void)
             }
         }
         if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+    }
+
+    /*
+     * Delayed-allocation regression: two consecutive full-block writes must
+     * reuse physically adjacent space and coalesce into one 2-block extent.
+     * Allocation remains journaled immediately; no unsafe volatile cache is
+     * introduced, so crash recovery sees a complete old-or-new transaction.
+     */
+    {
+        struct pros_vfs_file file;
+        struct pros_prosenjitfs_dir_entry entry;
+        struct pros_prosenjitfs_inode delayed_inode;
+        struct pros_prosenjitfs_extent delayed_extent;
+        uint8_t block_a[512];
+        uint8_t block_b[512];
+        uint32_t done = 0u;
+        uint64_t extent_lba;
+        uint64_t second_physical;
+
+        for (uint32_t i = 0u; i < sizeof(block_a); ++i) {
+            block_a[i] = (uint8_t)(0x31u ^ (uint8_t)i);
+            block_b[i] = (uint8_t)(0xC7u ^ (uint8_t)(i * 3u));
+        }
+
+        if (fs.sb.block_size != 512u ||
+            vfs_file_open(&fs.mount, "/delalloc.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, block_a, sizeof(block_a), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(block_a) ||
+            vfs_file_write(&file, block_b, sizeof(block_b), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(block_b) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &inode, "delalloc.bin", &entry) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &delayed_inode) !=
+                PROSENJITFS_OK ||
+            delayed_inode.size != 1024u ||
+            delayed_inode.allocated_bytes != 1024u ||
+            delayed_inode.extent_head == 0u)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        extent_lba = delayed_inode.extent_head;
+        if (pfs_read_extent(&fs, extent_lba, &delayed_extent) !=
+                PROSENJITFS_OK ||
+            delayed_extent.logical_block != 0u ||
+            delayed_extent.block_count != 2u ||
+            delayed_extent.next != 0u ||
+            delayed_extent.physical_block < fs.sb.data_start ||
+            delayed_extent.physical_block + 1u >= fs.sb.total_blocks)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        second_physical = delayed_extent.physical_block + 1u;
+        if (vfs_file_open(&fs.mount, "/delalloc.bin", PROS_VFS_O_READ,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, 512u) != PROS_VFS_OK ||
+            vfs_file_read(&file, block_b, sizeof(block_b), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(block_b) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        for (uint32_t i = 0u; i < sizeof(block_b); ++i)
+            if (block_b[i] != (uint8_t)(0xC7u ^ (uint8_t)(i * 3u)))
+                return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_read_inode(&fs, entry.inode, &delayed_inode) !=
+                PROSENJITFS_OK ||
+            delayed_inode.allocated_bytes != 1024u ||
+            pfs_read_extent(&fs, delayed_inode.extent_head,
+                            &delayed_extent) != PROSENJITFS_OK ||
+            delayed_extent.block_count != 2u ||
+            delayed_extent.physical_block + 1u != second_physical)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
