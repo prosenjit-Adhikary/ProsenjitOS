@@ -1699,7 +1699,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         *result = 0;
         return PROS_VFS_EINVAL;
     }
-
+    return PROS_VFS_OK;
 }
 
 
