@@ -3822,7 +3822,7 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_header h;
     struct pros_prosenjitfs_journal_commit c;
     uint32_t checksum;
-#define PFS_TX_RETURN(value) do {         int pfs_tx_return_rc = (value);         (void)pfs_tx_reset(fs);         PFS_TX_RETURN(pfs_tx_return_rc);     } while (0)
+#define PFS_TX_RETURN(value) do { int pfs_tx_return_rc = (value); (void)pfs_tx_reset(fs); return pfs_tx_return_rc; } while (0)
 
     pfs_tx_diag_stage = 1u;
     pfs_tx_diag_count = 0u;
