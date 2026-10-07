@@ -6805,6 +6805,58 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* Interrupted rmdir journal-recovery regression: interrupt replay of a
+     * committed empty-directory removal and verify that a later mount does
+     * not resurrect the directory. */
+    {
+        for (uint32_t recovery_stage = 10u; recovery_stage <= 11u;
+             ++recovery_stage) {
+            int rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_mkdir(&fs.mount, "/rmdir-recovery") != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -20);
+            }
+
+            pfs_crash_inject_stage = 5u;
+            pfs_crash_injected = 0u;
+            rc = vfs_rmdir(&fs.mount, "/rmdir-recovery");
+            if (rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -20);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            pfs_crash_inject_stage = recovery_stage;
+            pfs_crash_injected = 0u;
+            rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (rc != PROSENJITFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -20);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                vfs_rmdir(&fs.mount, "/rmdir-recovery") != PROS_VFS_ENOENT ||
+                vfs_mkdir(&fs.mount, "/rmdir-recovery") != PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/rmdir-recovery") != PROS_VFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -20);
+        }
+    }
+
     /* Interrupted unlink journal-recovery regression: interrupt replay after
      * the commit record is durable, then model a second power loss and ensure
      * the committed unlink is replayed exactly once. */
