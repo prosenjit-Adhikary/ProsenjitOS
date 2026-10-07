@@ -98,6 +98,14 @@ The self-test now interrupts journal replay for a committed empty-directory remo
 
 The self-test now covers mkdir transaction crash stages 1–9. Before the durable commit the new directory must remain absent after simulated power loss; at/after the durable commit it must remain present, pass consistency validation, reject duplicate creation, and be removable cleanly.
 
+## Native ProsenjitFS rename crash/recovery matrix — 2026-10-07
+
+The deterministic self-test now covers cross-directory file rename at transaction stages 1–9. Before durable commit, the original pathname and file data must survive simulated power loss; at/after durable commit, the destination pathname must survive, the source must remain absent, file data must remain intact, and the allocation consistency oracle must pass.
+
+Interrupted journal replay is also covered at recovery stages 10 and 11 for a committed cross-directory rename. After a second simulated power loss, the destination remains authoritative, the source is not resurrected, the file contents remain intact, and a further remount does not replay the mutation a second time.
+
+Runtime compile/Debian/QEMU execution remains required before this deterministic source-level coverage is considered a runtime PASS.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
