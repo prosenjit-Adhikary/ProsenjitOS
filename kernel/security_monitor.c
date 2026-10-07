@@ -119,7 +119,10 @@ int pros_security_monitor_enforce(
     struct pros_security_monitor_state *state) {
     int action;
 
-    if (!process || !event || process_state(process) == PROS_PROCESS_DEAD ||
+    if (!process || !event ||
+        (process_state(process) != PROS_PROCESS_READY &&
+         process_state(process) != PROS_PROCESS_RUNNING &&
+         process_state(process) != PROS_PROCESS_BLOCKED) ||
         process->pid != event->pid)
         return -1;
 
