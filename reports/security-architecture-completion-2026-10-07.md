@@ -20,11 +20,13 @@ Latest hardening commits:
 - 312df45cbcc9b3b5bcca10a789b733df9b6b6f0b — authorization-boundary process invariants
 - 43e87e1e2e5d2501c46df046208de142a84740f5 — live capability-handle validation
 - aa60b27077239a3026a33a53c1487ef51ce16b41 — capability-table corruption regression self-test
+- 8ed0d33f8bdc3a5bd6c1a9fb44e1fb94f1902551 — stale handle-generation wraparound prevented
 
 ## Implemented layers
 
 ### Capability/object security
 - Generation-checked handles and stale-handle rejection.
+- Handle-generation wraparound is prevented by permanently retiring a slot at the maximum generation instead of reusing an old generation value.
 - Explicit READ/WRITE/EXECUTE/DUPLICATE/TRANSFER/ADMIN rights.
 - Object-type checks and reference-counted lifecycle.
 - Capability attenuation for duplicate/transfer.
@@ -82,7 +84,7 @@ security_manager_init currently gates startup on SHA-256, SHA-512, Ed25519 field
 ### Source/static verification
 PASS — current source was inspected across security admission, cryptography, capability/object, process, syscall, VFS, quarantine, execution, monitor, Reason Ledger, and hardening boundaries.
 
-Latest repository HEAD commit for this security pass: aa60b27077239a3026a33a53c1487ef51ce16b41.
+Latest repository HEAD commit for this security cross-verification pass: 8ed0d33f8bdc3a5bd6c1a9fb44e1fb94f1902551.
 
 ### GitHub CI
 NOT CURRENTLY VERIFIED — the latest commit has no reported combined status entries. Earlier security workflow runs were also affected by GitHub Actions billing/spending-limit failures.
