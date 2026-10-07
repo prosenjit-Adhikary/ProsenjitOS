@@ -788,7 +788,11 @@ static int pfs_next_inode_generation(const struct pros_prosenjitfs *fs,
     rc = prosenjitfs_read_inode(fs, inode_number, &inode);
     if (rc != PROSENJITFS_OK)
         return rc;
-    if (inode.type != PROSENJITFS_INODE_FREE)
+    if (inode.type == PROSENJITFS_INODE_FREE) {
+        /* A zero-generation free inode is valid after format; a reused
+         * inode carries the generation left by its previous lifetime. */
+    } else if (inode.type != PROSENJITFS_INODE_FILE &&
+               inode.type != PROSENJITFS_INODE_DIR)
         return PROSENJITFS_ECORRUPT;
     if (inode.generation == UINT64_MAX)
         return PROSENJITFS_EOVERFLOW;
