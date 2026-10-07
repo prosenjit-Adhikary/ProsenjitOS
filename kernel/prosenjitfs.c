@@ -1039,7 +1039,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     struct pros_prosenjitfs_inode inode;
     uint32_t done = 0u;
 
-    if (!file || !file->vnode || !buffer)
+    if (!file || !file->vnode || (!buffer && length != 0u))
         return PROS_VFS_EINVAL;
     if (length == 0u)
         return 0;
@@ -1123,7 +1123,8 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
     uint64_t end_position;
     uint64_t max_file_size;
 
-    if (!file || !file->vnode || !file->mount || !buffer)
+    if (!file || !file->vnode || !file->mount ||
+        (!buffer && length != 0u))
         return PROS_VFS_EINVAL;
     if (file->mount->read_only || !file->mount->active)
         return PROS_VFS_EPERM;
