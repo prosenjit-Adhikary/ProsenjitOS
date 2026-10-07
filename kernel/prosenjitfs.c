@@ -4124,8 +4124,12 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
      * applied allocator transaction when the journal capacity is exceeded. */
     {
         int rc = pfs_allocator_stage(fs, first, count, allocate);
-        if (rc != PROSENJITFS_OK)
+        if (rc != PROSENJITFS_OK) {
+            /* A failed pre-commit staging operation must not leave a partial
+             * transaction image visible to the next filesystem operation. */
+            (void)pfs_tx_reset(fs);
             return rc;
+        }
     }
     return pfs_tx_commit(fs);
 }
@@ -4264,8 +4268,12 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
     }
     {
         int rc = pfs_inode_bitmap_stage(fs, inode_number, allocate);
-        if (rc != PROSENJITFS_OK)
+        if (rc != PROSENJITFS_OK) {
+            /* Keep failed bitmap staging from contaminating a later
+             * transaction if the caller reuses the mounted filesystem. */
+            (void)pfs_tx_reset(fs);
             return rc;
+        }
     }
     return pfs_tx_commit(fs);
 }
