@@ -466,9 +466,12 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
 {
     uint64_t end;
     uint64_t bits_per_block = (uint64_t)block_size * 8u;
-    uint64_t bitmap_base = (uint64_t)bitmap_index * bits_per_block;
-    if (!bitmap || pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
+    uint64_t bitmap_base;
+    if (!bitmap || block_size == 0u || block_size > 4096u ||
+        bits_per_block == 0u || bitmap_index > UINT64_MAX / bits_per_block ||
+        pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
+    bitmap_base = (uint64_t)bitmap_index * bits_per_block;
     for (uint64_t b = region_start; b < end; ++b) {
         if (bitmap_base > UINT64_MAX - bits_per_block)
             return PROSENJITFS_EOVERFLOW;
@@ -3675,7 +3678,7 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
     uint64_t first_bitmap;
     uint64_t last_bitmap;
 
-    if (!fs || count == 0u || first < fs->sb.data_start ||
+    if (!fs || count == 0u || allocate > 1u || first < fs->sb.data_start ||
         first >= fs->sb.total_blocks ||
         (uint64_t)count > fs->sb.total_blocks - first ||
         fs->sb.block_size == 0u || fs->sb.block_size > 4096u)
@@ -4880,6 +4883,8 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -9);
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -10);
+    if (prosenjitfs_free_blocks(&fs, first_block, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -10);
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -11);
