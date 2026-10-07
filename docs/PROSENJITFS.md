@@ -45,6 +45,15 @@ Version 1 filename policy: VFS input/output is UTF-8; names are case-sensitive; 
 Allocation metadata is persistent bitmaps. The allocator uses bounded first-fit scanning and prefers contiguous runs. Inode allocation uses a separate bitmap.
 Mount validates bitmap bounds and every inode/extent reference is range checked before use. No persistent allocation state depends only on RAM.
 
+Keep-size contiguous preallocation is implemented through
+`prosenjitfs_preallocate_blocks()`. A v1 request reserves and zeroes up to
+eight logical data blocks without increasing inode size, publishes the data
+bitmap, extent metadata and inode update in one redo-journal transaction, and
+reuses an adjacent tail extent when physically contiguous. The reserved blocks
+therefore become immediately writable without another allocation. Larger
+dynamic fallocate policies and a VFS-visible fallocate operation remain future
+extensions.
+
 ## Journal and crash consistency
 Version 1 uses a redo journal. A transaction stores complete target-block images followed by a CRC-protected commit record.
 Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction. Mount recovery now explicitly tests committed replay, torn transactions, and corrupt commit checksums.
