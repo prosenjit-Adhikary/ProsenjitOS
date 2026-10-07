@@ -12,6 +12,7 @@
 #define PROS_ELF_EPERM -5
 #define PROS_ELF_EOVERFLOW -6
 #define PROS_ELF_ECONFLICT -7
+#define PROS_ELF_ENOTSUP -8
 
 struct pros_elf_load_result {
     uint64_t entry;
