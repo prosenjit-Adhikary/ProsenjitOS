@@ -45,6 +45,7 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/security_monitor.c" -o "$BUILD/obj/security_
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pic.c" -o "$BUILD/obj/pic.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/block.c" -o "$BUILD/obj/block.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/vfs.c" -o "$BUILD/obj/vfs.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/vfs_provider.c" -o "$BUILD/obj/vfs_provider.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/prosenjitfs.c" -o "$BUILD/obj/prosenjitfs.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/partition.c" -o "$BUILD/obj/partition.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/storage.c" -o "$BUILD/obj/storage.o"
