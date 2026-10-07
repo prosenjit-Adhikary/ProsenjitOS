@@ -206,5 +206,31 @@ int pros_security_monitor_selftest(void) {
         return -8;
     (void)pros_security_monitor_clear(event.pid);
 
+    /*
+     * The monitor table is bounded. Verify exhaustion fails closed and that
+     * releasing one lifetime immediately restores capacity.
+     */
+    for (uint32_t i = 0u; i < PROS_SECURITY_MONITOR_MAX_PROCESSES; ++i) {
+        event.pid = 0xA000u + i;
+        event.timestamp = 1u;
+        event.type = PROS_SECURITY_EVENT_MASS_FILE_MODIFY;
+        event.severity = 1u;
+        if (pros_security_monitor_record(&event, &state) !=
+            PROS_SECURITY_MONITOR_ALLOW)
+            return -9;
+    }
+    event.pid = 0xB000u;
+    if (pros_security_monitor_record(&event, &state) != -2)
+        return -10;
+    if (pros_security_monitor_clear(0xA000u) != 0)
+        return -11;
+    if (pros_security_monitor_record(&event, &state) !=
+        PROS_SECURITY_MONITOR_ALLOW)
+        return -12;
+
+    for (uint32_t i = 0u; i < PROS_SECURITY_MONITOR_MAX_PROCESSES; ++i)
+        (void)pros_security_monitor_clear(0xA000u + i);
+    (void)pros_security_monitor_clear(0xB000u);
+
     return 0;
 }
