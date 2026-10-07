@@ -6,7 +6,7 @@ The project is being designed from first principles. It may study ideas used by 
 
 ## Engineering structure
 
-The complete subsystem/dependency map and completion gates are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full CI baseline and fix errors before starting dependent features.
+The complete subsystem/dependency map and completion gates are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features.
 
 ## Vision
 
@@ -260,25 +260,76 @@ See [docs/BOOT.md](docs/BOOT.md) for the current native loader layout, handoff b
 
 ## Storage and filesystem strategy
 
-ProsenjitOS is being designed to access common removable and internal storage without depending on a single filesystem. The storage stack separates hardware, block I/O, partitions, VFS, and filesystem drivers.
+ProsenjitOS separates hardware, block I/O, partitions, VFS, and filesystem providers. The native filesystem is **ProsenjitFS**. Compatibility filesystems such as NTFS, FAT32 and exFAT are intended to be external VFS providers and are not part of the native filesystem core.
 
-Target filesystem set:
+### Native ProsenjitFS design goal
 
-- **ProsenjitFS** — native filesystem for ProsenjitOS
-- **Compatibility filesystems** — planned as external filesystem providers, not part of the kernel image
+ProsenjitFS is intended to combine the **best useful filesystem capabilities demonstrated by mature Windows, Linux and macOS filesystem families** while remaining an original ProsenjitOS implementation. This means learning from documented capabilities of systems such as NTFS/ReFS, ext4/XFS/Btrfs and APFS without copying proprietary source code, binaries, branding, or implementation details.
 
-NTFS, FAT32 and exFAT are no longer kernel filesystems. Their previous in-kernel implementations have been removed from the kernel image; future compatibility support will be provided as external filesystem providers through the VFS/provider boundary.
+The target is **not** to make ProsenjitFS a clone of NTFS, Btrfs, APFS, or any other filesystem. It is to build one coherent native filesystem with strong reliability, performance, integrity, recovery, security and extensibility.
 
-The planned removable-media path is:
+### ProsenjitFS target capability set
 
-`USB mass storage -> block device -> MBR/GPT -> filesystem provider -> VFS -> ProsenjitFS`
+The long-term native filesystem target includes:
 
-Filesystem implementations are isolated behind the VFS and block-device contracts. This allows the same filesystem code to work with USB, SATA and NVMe storage drivers. Filesystem metadata is also subject to the ProsenjitOS security/admission model.
+- versioned on-disk format with strict geometry and corruption validation
+- checked block/LBA arithmetic and storage-boundary protection
+- persistent allocation bitmaps and scalable inode management
+- extent-based allocation and efficient indexed directories
+- sparse files and efficient preallocation
+- delayed/allocation-aware write optimization
+- transactional metadata updates and redo journaling
+- crash consistency and deterministic journal recovery
+- metadata and data integrity checksums
+- corruption detection, scrub/verification and controlled self-healing/recovery
+- copy-on-write (CoW)
+- snapshots and filesystem-consistent rollback
+- reflink/block cloning and efficient file cloning
+- atomic safe-save / atomic rename-style update semantics
+- extended attributes and ACL/security metadata
+- hard links and symbolic links
+- quotas and resource accounting
+- compression hooks and policy-driven compression
+- deduplication/reuse where safe and worthwhile
+- TRIM/discard and storage-aware allocation hooks
+- online resize and maintenance hooks
+- defragmentation/relocation support where appropriate
+- strong VFS integration and clean provider boundaries
+- comprehensive crash, corruption, persistence, fuzz/regression and recovery testing
 
-### Filesystem-provider architecture
+These are **engineering targets**, not claims that every item is already implemented. A capability is considered complete only after its implementation, integration, corruption handling, persistence, crash-consistency behavior, and regression tests pass.
 
-The kernel now contains only the native ProsenjitFS implementation. FAT32, exFAT and NTFS compatibility parsers are intentionally outside the kernel image. Future compatibility filesystems must attach through a narrow VFS/provider interface so adding a filesystem does not require parser code in the kernel core.
+### Current ProsenjitFS implementation status
 
+The current native implementation already contains substantial core filesystem infrastructure, including:
+
+- versioned native on-disk format and superblock validation
+- CRC32C-protected metadata structures
+- allocation bitmaps with checked geometry/overflow handling
+- inode and generation validation
+- extent-backed file storage
+- directory indexing and directory-entry integrity checks
+- UTF-8 filename validation
+- create, mkdir, read, write, truncate, rename, unlink and rmdir mutation paths
+- transactional mutation staging and commit
+- redo-journal/recovery infrastructure
+- VFS provider integration
+- deterministic filesystem self-test and crash-injection infrastructure
+- persistence and LBA diagnostics
+
+The core implementation is under deep source-level audit and bug-fixing. **Production-complete status is not declared until clean local build, QEMU/native boot, filesystem self-tests, remount persistence, crash/recovery, corruption and regression gates pass.**
+
+### Filesystem architecture boundary
+
+The native storage path is:
+
+`Hardware -> Block Device -> Partition Layer -> VFS -> ProsenjitFS`
+
+Future compatibility providers must attach through the VFS/provider boundary:
+
+`Applications -> File API -> VFS -> Filesystem Providers -> Block/Partition Layer -> Hardware`
+
+FAT32, exFAT and NTFS compatibility implementations must remain outside the native ProsenjitFS core and must not be reintroduced as unrelated filesystem code inside the kernel core.
 
 ## Compatibility strategy
 
@@ -391,7 +442,6 @@ The desired architecture is:
 
 with existing providers kept intact and future providers added behind the same interface. Unsupported filesystems should fail cleanly rather than destabilizing the kernel.
 
-
 ## AI strategy
 
 AI is intended to be an **OS-level control and assistance layer**, not merely a chatbot application.
@@ -471,55 +521,17 @@ The final design may use capabilities, scoped elevation, approval prompts, polic
 - kernel-mediated cross-process capability copy/move transfer with authority attenuation
 - per-process syscall sandbox allowlist enforced at the syscall boundary
 
-### Current engineering status — 2026-09-28
+### Current engineering status — 2026-10-07
 
-The kernel/security foundation is substantially beyond the initial boot milestone. The current priority has shifted to storage integration, filesystem-backed security admission, device/driver foundations, and user-mode startup.
+The kernel/security foundation is substantially beyond the initial boot milestone. The current priority is **native ProsenjitFS completion through implementation, deep source audit, local runtime verification, crash/recovery testing, persistence testing, and regression hardening**, followed by the external filesystem-provider boundary and dependent user-mode/storage work.
 
-Completed or substantially implemented:
-- process lifecycle, scheduler, interrupt-frame context switching and syscall boundary
-- capability handles, rights validation, transfer/attenuation, and per-process policy
-- syscall sandbox enforcement and user/kernel address-space isolation foundation
-- IPC channels, blocking receive/wakeup, validated user-copy and SMP-safe scheduler/run-queue locking
-- security intent/policy decision pipeline, Reason Ledger and quarantine metadata foundation
-- SHA-256 verification and filesystem-neutral security admission boundary
-- VFS contracts, partition/block-device foundations and filesystem probing
-- FAT32 read-only mount/directory/file support with expanded geometry regression coverage
-- PCI configuration/enumeration foundation
-- NTFS directory traversal, case folding, file-data read, safe overwrite and allocated/non-contiguous growth
-- exFAT geometry/mount regression foundation
+The native ProsenjitFS feature roadmap is intentionally broader than a minimal filesystem. Its long-term target is a coherent native filesystem that combines strong, documented capabilities inspired by mature Windows, Linux and macOS filesystem families while remaining an original implementation.
 
-Next, in order:
-1. complete native ProsenjitFS production verification
-2. establish the external filesystem-provider ABI/boundary
-3. add compatibility providers later without linking their parsers into the kernel
-4. filesystem-backed security admission plus replaceable reputation adapters
-5. driver model/device broker and keyboard/display/network device abstractions
-6. ELF loader, process startup, init/service manager and basic CUI
-7. package/signature infrastructure, compatibility runtimes, GUI and AI service layers
-8. hardening, fuzzing, recovery and release engineering
-
-> **Status note:** The project has reached the point where a bootable x86-64 image can be built and boot-tested in QEMU. This is an early kernel foundation, not a complete operating system.
+**Important:** target capabilities listed above are not automatically considered complete. Each capability must be implemented and independently verified before being marked complete.
 
 ## CI verification
 
-The repository includes GitHub Actions automation that:
-
-1. checks out the source
-2. installs the required build and QEMU toolchain
-3. builds the bootable ISO
-4. boots the ISO in QEMU
-5. verifies expected kernel serial-output markers
-6. validates the security architecture documentation contract
-7. uploads the ISO and QEMU boot log as CI artifacts
-
-The security documentation check verifies that the planned malware-security architecture remains represented in the repository without pretending that the future scanner/service is already implemented.
-
-The boot test currently verifies, among other startup markers:
-
-- `ProsenjitOS: kernel online`
-- `ProsenjitOS: x86-64 long mode active`
-
-This provides a repeatable minimum regression check for the boot foundation.
+The repository includes automation for build/boot and architecture checks. Runtime verification should prefer the project's local/self-hosted Linux environment when available rather than depending on metered GitHub-hosted runners.
 
 ## Repository layout
 
@@ -530,9 +542,9 @@ ProsenjitOS/
 ├── drivers/            # Hardware drivers
 ├── user/               # User-mode programs and services
 ├── docs/               # Architecture, security and development documentation
-├── scripts/            # Build/development helpers
-├── .github/            # CI and repository automation
-└── Makefile            # Build entry point
+├── scripts/             # Build/development helpers
+├── .github/             # CI and repository automation
+└── Makefile             # Build entry point
 ```
 
 ## Engineering rule
@@ -544,12 +556,3 @@ Where an existing open-source compatibility project is useful, it may be integra
 ## License
 
 MIT
-
-
-## Native ProsenjitFS
-
-ProsenjitFS is the only filesystem currently linked into the kernel. FAT32, exFAT and NTFS are intentionally removed from the kernel and are future external compatibility-provider targets.
-
-The current implementation provides a versioned, CRC32C-protected on-disk format with redundant superblocks, persistent allocation bitmaps, inode/extent metadata, persistent extent-backed file I/O, transactional file and directory mutation (create/mkdir/unlink/rmdir/rename/move), directory-parent cycle protection, and a redo journal. Deterministic regression covers committed replay, torn transactions, journal checksum corruption, metadata-layout corruption, binary-byte coverage, remount persistence, and injected journal/home-write failures. The native BIOS QEMU path also contains the ATA PIO -> MBR -> ProsenjitFS persistence diagnostic. Final completion remains gated on a successful post-change GitHub Actions run; physical power-loss durability is not claimed.
-
-See docs/PROSENJITFS.md and docs/FILESYSTEM-INTEGRATION.md for the format contract and integration boundary.
