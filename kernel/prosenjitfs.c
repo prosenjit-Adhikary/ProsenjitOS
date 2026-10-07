@@ -3993,7 +3993,7 @@ static int pfs_bitmap_bit(const uint8_t *bitmap, uint64_t bit)
     return (bitmap[bit >> 3] & (uint8_t)(1u << (bit & 7u))) != 0;
 }
 
-static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
+static int pfs_allocator_stage_unchecked(struct pros_prosenjitfs *fs,
                               uint64_t first, uint32_t count,
                               uint8_t allocate)
 {
@@ -4082,6 +4082,16 @@ static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
             break;
     }
     return PROSENJITFS_OK;
+}
+
+static int pfs_allocator_stage(struct pros_prosenjitfs *fs,
+                               uint64_t first, uint32_t count,
+                               uint8_t allocate)
+{
+    int rc = pfs_allocator_stage_unchecked(fs, first, count, allocate);
+    if (rc != PROSENJITFS_OK && fs)
+        (void)pfs_tx_reset(fs);
+    return rc;
 }
 
 static int pfs_allocator_update(struct pros_prosenjitfs *fs,
