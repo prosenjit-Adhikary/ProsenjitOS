@@ -1138,6 +1138,52 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             new_extent.physical_block = physical;
             new_extent.block_count = 1u;
             new_extent.next = 0u;
+
+            /*
+             * Keep the extent chain ordered by logical_block. A sparse write
+             * can fill a hole between two existing extents, so blindly
+             * appending at tail would make later lookups report corruption.
+             */
+            {
+                uint64_t prev_lba = 0u;
+                uint64_t current_lba = inode.extent_head;
+                struct pros_prosenjitfs_extent current_extent;
+
+                while (current_lba != 0u) {
+                    rc = pfs_read_extent(data->fs, current_lba, &current_extent);
+                    if (rc != PROSENJITFS_OK)
+                        return pfs_file_write_error(done, rc);
+                    if (logical_block < current_extent.logical_block)
+                        break;
+                    prev_lba = current_lba;
+                    current_lba = current_extent.next;
+                }
+                new_extent.next = current_lba;
+                if (prev_lba != 0u) {
+                    rc = pfs_read_block(data->fs->mount.device, prev_lba,
+                                        tail_image);
+                    if (rc != PROSENJITFS_OK)
+                        return pfs_file_write_error(done, rc);
+                    {
+                        struct pros_prosenjitfs_extent prev_extent;
+                        pfs_copy(&prev_extent, tail_image, sizeof(prev_extent));
+                        prev_extent.next = new_extent_lba;
+                        pfs_copy(tail_image, &prev_extent, sizeof(prev_extent));
+                        pfs_put32(
+                            tail_image +
+                            offsetof(struct pros_prosenjitfs_extent, checksum),
+                            pfs_crc_with_zero32(
+                                tail_image, sizeof(prev_extent),
+                                (uint32_t)offsetof(
+                                    struct pros_prosenjitfs_extent, checksum)));
+                    }
+                    tail_lba = prev_lba;
+                } else {
+                    inode.extent_head = new_extent_lba;
+                    tail_lba = 0u;
+                }
+            }
+
             pfs_copy(extent_image, &new_extent, sizeof(new_extent));
             pfs_put32(extent_image +
                       offsetof(struct pros_prosenjitfs_extent, checksum),
@@ -1154,27 +1200,9 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_error(done, rc);
 
-            if (tail_lba != 0u) {
-                rc = pfs_read_block(data->fs->mount.device, tail_lba, tail_image);
-                if (rc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, rc);
-                struct pros_prosenjitfs_extent tail;
-                pfs_copy(&tail, tail_image, sizeof(tail));
-                tail.next = new_extent_lba;
-                pfs_copy(tail_image, &tail, sizeof(tail));
-                pfs_put32(tail_image +
-                          offsetof(struct pros_prosenjitfs_extent, checksum),
-                          pfs_crc_with_zero32(tail_image, sizeof(tail),
-                                              (uint32_t)offsetof(
-                                                  struct pros_prosenjitfs_extent,
-                                                  checksum)));
-            }
-
             pfs_copy(&inode, inode_image + inode_offset, sizeof(inode));
             if ((uint64_t)offset > inode.size)
                 inode.flags |= PROSENJITFS_INODE_FLAG_SPARSE;
-            if (inode.extent_head == 0u)
-                inode.extent_head = new_extent_lba;
             inode.size = ((uint64_t)offset + done + want > inode.size)
                        ? (uint64_t)offset + done + want : inode.size;
             if (inode.allocated_bytes >
