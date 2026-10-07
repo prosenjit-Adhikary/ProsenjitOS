@@ -1434,8 +1434,10 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     uint64_t inode_lba = 0u;
     uint32_t inode_offset = 0u;
 
-    if (!file || !file->vnode || !file->mount || size > UINT32_MAX)
+    if (!file || !file->vnode || !file->mount)
         return PROS_VFS_EINVAL;
+    if (size > UINT32_MAX)
+        return PROS_VFS_EOVERFLOW;
     if (file->mount->read_only || !file->mount->active)
         return PROS_VFS_EPERM;
 
@@ -1507,7 +1509,11 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
      * data and one for extent metadata). This guarantees pfs_tx_add() cannot
      * discover transaction overflow after persistent changes begin.
      */
-    if (affected > 7u)
+    /* Worst-case accounting for v1: each affected extent may need its
+     * data bitmap, extent-metadata bitmap and extent image, plus the inode
+     * and retained predecessor. Keep the operation below 16 targets before
+     * any persistent mutation; actual bitmap sharing can only reduce this. */
+    if (affected > 4u)
         return PROS_VFS_EOVERFLOW;
 
     current = inode.extent_head;
