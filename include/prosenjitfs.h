@@ -39,6 +39,9 @@ int prosenjitfs_mount(struct pros_prosenjitfs *, struct pros_block_device *,
 int prosenjitfs_unmount(struct pros_prosenjitfs *);
 
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *, uint32_t, uint64_t *);
+/* Keep-size contiguous preallocation; v1 bounds one request to eight blocks. */
+int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *, uint64_t,
+                                   uint64_t, uint32_t);
 int prosenjitfs_alloc_inode(struct pros_prosenjitfs *, uint64_t *);
 int prosenjitfs_free_blocks(struct pros_prosenjitfs *, uint64_t, uint32_t);
 
