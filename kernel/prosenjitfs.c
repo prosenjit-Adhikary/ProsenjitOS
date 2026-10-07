@@ -1686,25 +1686,34 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
                     {
                         uint64_t next = extent.next;
+                        /*
+                         * Preserve the metadata block LBA before advancing
+                         * through the detached tail.  The truncated extent
+                         * image belongs at the current extent's LBA, not at
+                         * its successor.  Using the advanced `current`
+                         * value here would overwrite the successor (or target
+                         * LBA 0 when this was the last extent).
+                         */
+                        uint64_t extent_lba = current;
                         extent.block_count = keep_in_extent;
                         extent.next = 0u;
                         pfs_copy(extent_image, &extent, sizeof(extent));
                         current = next;
-                    }
-                    pfs_put32(
-                        extent_image +
-                        offsetof(struct pros_prosenjitfs_extent, checksum),
-                        pfs_crc_with_zero32(
-                            extent_image, sizeof(extent),
-                            (uint32_t)offsetof(
-                                struct pros_prosenjitfs_extent, checksum)));
 
-                    rc = pfs_tx_reset(data->fs);
-                    if (rc == PROSENJITFS_OK && free_count != 0u)
-                        rc = pfs_allocator_stage(data->fs, free_start,
-                                                 free_count, 0u);
-                    if (rc == PROSENJITFS_OK)
-                        rc = pfs_tx_add(data->fs, current, extent_image);
+                        pfs_put32(
+                            extent_image +
+                            offsetof(struct pros_prosenjitfs_extent, checksum),
+                            pfs_crc_with_zero32(
+                                extent_image, sizeof(extent),
+                                (uint32_t)offsetof(
+                                    struct pros_prosenjitfs_extent, checksum)));
+
+                        rc = pfs_tx_reset(data->fs);
+                        if (rc == PROSENJITFS_OK && free_count != 0u)
+                            rc = pfs_allocator_stage(data->fs, free_start,
+                                                     free_count, 0u);
+                        if (rc == PROSENJITFS_OK)
+                            rc = pfs_tx_add(data->fs, extent_lba, extent_image);
                     if (rc != PROSENJITFS_OK) {
                         pfs_tx_reset(data->fs);
                         return pfs_vfs_error(rc);
