@@ -245,6 +245,60 @@ int pros_elf_selftest(void)
     ph[0].memsz = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
 
+    /* Positive mapping test: verify PT_LOAD bytes, zero-filled BSS, stack
+     * construction, entry publication, and owned-page teardown. */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        const char *argv[] = {"elf-selftest", "ok"};
+        const char *envp[] = {"PFS=1"};
+        uint64_t physical = 0, flags = 0;
+        int rc = process_init(&process, 0xE1F1u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -10;
+        image[data_off + 0] = 0x90;
+        image[data_off + 1] = 0xC3;
+        ph[0].flags = PF_R | PF_X;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].align = ELF_PAGE;
+        eh->entry = ELF_TEST_CODE_VA;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     argv, 2u, envp, 1u, &loaded);
+        if (rc != PROS_ELF_OK) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -11;
+        }
+        if (loaded.entry != ELF_TEST_CODE_VA ||
+            loaded.mapped_pages < 2u ||
+            process.user_entry != ELF_TEST_CODE_VA ||
+            process.user_stack_top != loaded.stack_top ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &physical,
+                                         &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_USER) ||
+            (flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(flags & PROSENJIT_PAGE_NX) ||
+            ((uint8_t *)(uintptr_t)physical)[0] != 0x90 ||
+            ((uint8_t *)(uintptr_t)physical)[1] != 0xC3 ||
+            ((uint8_t *)(uintptr_t)physical)[2] != 0 ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA,
+                                         &physical, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(flags & PROSENJIT_PAGE_NX) ||
+            process.user_stack_top < PROSENJIT_USER_STACK_VA ||
+            process.user_stack_top > PROSENJIT_USER_STACK_TOP) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -12;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -13;
+    }
+
     return PROS_ELF_OK;
 }
 
