@@ -8,8 +8,11 @@
 #define PROSENJIT_USER_STACK_VA  0x0000008000002000ULL
 #define PROSENJIT_USER_STACK_TOP 0x0000008000003000ULL
 
+struct pros_owned_page;
+
 struct pros_address_space {
     uint64_t *root;
+    struct pros_owned_page *owned_pages;
 };
 
 int address_space_create(struct pros_address_space *space);
@@ -17,6 +20,10 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t virtual_address,
                                 uint64_t physical_address,
                                 uint64_t flags);
+int address_space_map_user_page_owned(struct pros_address_space *space,
+                                      uint64_t virtual_address,
+                                      uint64_t physical_address,
+                                      uint64_t flags);
 int address_space_unmap_user_page(struct pros_address_space *space,
                                   uint64_t virtual_address,
                                   uint64_t *physical_address_out);
