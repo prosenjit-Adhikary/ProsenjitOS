@@ -29,7 +29,8 @@ struct pros_process {
     uint64_t capability_policy;
     uint64_t syscall_policy;
     uint8_t quarantined;
-    uint8_t security_reserved[7];
+    uint8_t quarantine_previous_state;
+    uint8_t security_reserved[6];
     struct pros_address_space address_space;
     uint64_t user_entry;
     uint64_t user_stack_top;
