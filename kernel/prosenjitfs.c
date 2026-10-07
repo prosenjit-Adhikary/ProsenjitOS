@@ -709,7 +709,9 @@ int prosenjitfs_format(struct pros_block_device *device)
     root.links = 1u;
     root.generation = 1u;
     root.parent_inode = 0u;
-    root.dir_index = sb.data_start;
+    /* The block at cursor is reserved for the root directory index;
+     * sb.data_start is the first genuinely free data block. */
+    root.dir_index = cursor;
     root.ctime = 0u; root.mtime = 0u; root.atime = 0u;
 
     pfs_zero(block, block_size);
