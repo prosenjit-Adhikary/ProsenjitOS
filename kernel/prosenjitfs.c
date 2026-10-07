@@ -1419,6 +1419,8 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     uint64_t steps = 0u;
     uint32_t affected = 0u;
     uint64_t retained_blocks = 0u;
+    uint64_t inode_lba = 0u;
+    uint32_t inode_offset = 0u;
 
     if (!file || !file->vnode || !file->mount || size > UINT32_MAX)
         return PROS_VFS_EINVAL;
@@ -1641,6 +1643,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                             return PROS_VFS_ECORRUPT;
                         inode.allocated_bytes -= released;
                     }
+                    if (keep_in_extent > UINT64_MAX - retained_blocks)
+                        return PROS_VFS_EOVERFLOW;
+                    retained_blocks += keep_in_extent;
 
                     rc = pfs_inode_block_location(data->fs,
                                                   data->inode_number,
@@ -1664,7 +1669,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                                 struct pros_prosenjitfs_extent, checksum)));
 
                     rc = pfs_tx_reset(data->fs);
-                    if (rc == PROSENJITFS_OK)
+                    if (rc == PROSENJITFS_OK && free_count != 0u)
                         rc = pfs_allocator_stage(data->fs, free_start,
                                                  free_count, 0u);
                     if (rc == PROSENJITFS_OK)
@@ -1693,8 +1698,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 retained_blocks * data->fs->sb.block_size;
 
         {
-            uint64_t inode_lba;
-            uint32_t inode_offset;
             uint8_t inode_image[4096];
 
             int rc = pfs_inode_block_location(data->fs, data->inode_number,
@@ -1720,15 +1723,8 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 return pfs_vfs_error(rc2);
             }
             rc2 = pfs_tx_commit(data->fs);
-            if (rc2 != PROSENJITFS_OK) {
-                /*
-                 * pfs_tx_commit() owns the journal once its commit record is
-                 * durable; do not discard a post-commit transaction here.
-                 */
-                if (data->fs->tx.count != 0u)
-                    (void)pfs_tx_reset(data->fs);
+            if (rc2 != PROSENJITFS_OK)
                 return pfs_vfs_error(rc2);
-            }
         }
     }
 
