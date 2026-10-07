@@ -5018,8 +5018,8 @@ int prosenjitfs_selftest(void)
      * mismatch instead of accidentally accessing the replacement file.
      */
     {
-        struct pros_vfs_file old_file;
-        struct pros_vfs_file replacement;
+        struct pros_vfs_file old_file = { 0 };
+        struct pros_vfs_file replacement = { 0 };
         struct pfs_vnode_data *old_data;
         struct pfs_vnode_data *new_data;
         uint8_t value = 0x5Cu;
