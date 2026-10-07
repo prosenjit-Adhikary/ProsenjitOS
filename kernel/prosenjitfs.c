@@ -6500,6 +6500,81 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* Unlink crash matrix: stages before durable commit must preserve the
+     * namespace; stages at/after the durable commit must replay the unlink. */
+    {
+        static const uint8_t unlink_data[32] = {
+            0x13u, 0x27u, 0x3Bu, 0x4Fu, 0x52u, 0x68u, 0x7Cu, 0x81u,
+            0x95u, 0xA9u, 0xBDu, 0xC1u, 0xD5u, 0xE9u, 0xF3u, 0x0Du,
+            0x21u, 0x35u, 0x49u, 0x5Du, 0x71u, 0x85u, 0x99u, 0xADu,
+            0xC2u, 0xD6u, 0xEAu, 0xFEu, 0x02u, 0x16u, 0x2Au, 0x3Eu
+        };
+        uint8_t read_data[sizeof(unlink_data)];
+
+        for (uint32_t stage = 1u; stage <= 9u; ++stage) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/unlink-crash.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, unlink_data, sizeof(unlink_data), &done) !=
+                    PROS_VFS_OK || done != sizeof(unlink_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+
+            pfs_crash_inject_stage = stage;
+            pfs_crash_injected = 0u;
+            rc = vfs_unlink(&fs.mount, "/unlink-crash.bin");
+            if (rc != PROS_VFS_EIO || pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+            pfs_crash_inject_stage = 0u;
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK) {
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+
+            done = 0u;
+            rc = vfs_file_open(&fs.mount, "/unlink-crash.bin",
+                               PROS_VFS_O_READ, &file);
+            if (stage < 5u) {
+                if (rc != PROS_VFS_OK ||
+                    vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                        PROS_VFS_OK || done != sizeof(read_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -15);
+                }
+                for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+                    if (read_data[i] != unlink_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -15);
+                    }
+            } else if (rc != PROS_VFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+    }
+
     /* Repeated persistence/reuse regression: 100 complete create/write/
      * unmount/remount/read/unlink/unmount/remount cycles on one image. */
     {
