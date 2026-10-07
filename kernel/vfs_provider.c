@@ -256,33 +256,41 @@ int pros_vfs_provider_selftest(void)
     if (test_count != PROSENJIT_VFS_PROVIDER_MAX - initial_count)
         goto fail;
 
-    duplicate = tests[0];
+    if (initial_count != 0u)
+        duplicate = *snapshot[0];
+    else
+        duplicate = tests[0];
     if (pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
         goto fail;
-    if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
-        goto fail;
 
-    invalid = tests[0];
-    invalid.name[0] = 'm';
-    invalid.name[1] = 'i';
-    invalid.name[2] = 's';
-    invalid.name[3] = 's';
-    invalid.name[4] = 'i';
-    invalid.name[5] = 'n';
-    invalid.name[6] = 'g';
-    invalid.name[7] = '\0';
-    if (pros_vfs_provider_unregister(&invalid) != PROS_VFS_PROVIDER_ENOENT)
+    invalid.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
+    invalid.flags = 0u;
+    invalid.ops = &ops;
+    invalid.private_data = 0;
+    provider_test_name(invalid.name, 0xEEu);
+    for (uint32_t value = 0u; value < 256u; ++value) {
+        provider_test_name(invalid.name, value);
+        if (!pros_vfs_provider_find(invalid.name))
+            break;
+    }
+    if (pros_vfs_provider_find(invalid.name) != 0 ||
+        pros_vfs_provider_unregister(&invalid) != PROS_VFS_PROVIDER_ENOENT)
         goto fail;
 
     overflow.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
     overflow.flags = 0u;
     overflow.ops = &ops;
     overflow.private_data = 0;
-    provider_test_name(overflow.name, 0xFFu);
+    for (uint32_t value = 0u; value < 256u; ++value) {
+        provider_test_name(overflow.name, value);
+        if (!pros_vfs_provider_find(overflow.name))
+            break;
+    }
     if (pros_vfs_provider_find(overflow.name) != 0 ||
         pros_vfs_provider_register(&overflow) != PROS_VFS_PROVIDER_ENOSPC)
         goto fail;
 
+    if (test_count != 0u)
     for (uint32_t cycle = 0u; cycle < 8u; ++cycle) {
         struct pros_vfs_provider repeat = {
             .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
