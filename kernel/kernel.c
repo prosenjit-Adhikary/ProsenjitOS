@@ -25,6 +25,7 @@
 #include "partition.h"
 #include "storage.h"
 #include "prosenjitfs.h"
+#include "vfs_provider.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -710,6 +711,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: partition discovery self-test passed\n");
+    if (pros_vfs_provider_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR VFS provider registry self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: VFS provider registry boundary self-test passed\n");
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
