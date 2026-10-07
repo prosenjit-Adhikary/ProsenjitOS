@@ -27,6 +27,7 @@
 #include "storage.h"
 #include "prosenjitfs.h"
 #include "vfs_provider.h"
+#include "syscall.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
