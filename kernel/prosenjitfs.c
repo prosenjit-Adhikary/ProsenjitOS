@@ -5012,6 +5012,75 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    /*
+     * Unlink must invalidate already-open inode handles.  The inode number
+     * may later be reused, so the handle must be rejected by generation
+     * mismatch instead of accidentally accessing the replacement file.
+     */
+    {
+        struct pros_vfs_file old_file;
+        struct pros_vfs_file replacement;
+        struct pfs_vnode_data *old_data;
+        struct pfs_vnode_data *new_data;
+        uint8_t value = 0x5Cu;
+        uint8_t replacement_value = 0xA6u;
+        uint8_t read_value = 0u;
+        uint32_t done = 0u;
+        uint64_t old_inode_number;
+        uint64_t old_generation;
+
+        if (vfs_file_open(&fs.mount, "/open-unlink.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &old_file) != PROS_VFS_OK ||
+            vfs_file_write(&old_file, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u) {
+            vfs_file_close(&old_file);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
+        old_data = (struct pfs_vnode_data *)old_file.vnode->private_data;
+        if (!old_data) {
+            vfs_file_close(&old_file);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
+        old_inode_number = old_data->inode_number;
+        old_generation = old_data->generation;
+        if (vfs_file_close(&old_file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/open-unlink.bin",
+                          PROS_VFS_O_READ, &old_file) != PROS_VFS_OK) {
+            vfs_file_close(&old_file);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
+
+        if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_OK ||
+            vfs_file_read(&old_file, &read_value, 1u, &done) !=
+                PROS_VFS_ESTALE ||
+            vfs_file_close(&old_file) != PROS_VFS_OK)
+            {
+                vfs_file_close(&old_file);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+
+        if (vfs_file_open(&fs.mount, "/open-unlink.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &replacement) != PROS_VFS_OK ||
+            vfs_file_write(&replacement, &replacement_value, 1u, &done) !=
+                PROS_VFS_OK ||
+            done != 1u) {
+            vfs_file_close(&replacement);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
+        new_data = (struct pfs_vnode_data *)replacement.vnode->private_data;
+        if (!new_data || new_data->inode_number != old_inode_number ||
+            new_data->generation == old_generation) {
+            vfs_file_close(&replacement);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
+        if (vfs_file_close(&replacement) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+    }
+
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
