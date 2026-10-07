@@ -325,6 +325,15 @@ int pros_health_selftest(void) {
 
     if (timer_selftest() != 0 ||
         pros_health_init() != PROS_HEALTH_OK ||
+        pros_health_watchdog_register(0u, 1u) != PROS_HEALTH_EINVAL ||
+        pros_health_watchdog_register(77u, 0u) != PROS_HEALTH_EINVAL ||
+        pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL ||
+        pros_health_watchdog_unregister(77u) != PROS_HEALTH_EINVAL ||
+        pros_health_watchdog_register(77u, 1000000u) != PROS_HEALTH_OK ||
+        pros_health_watchdog_register(77u, 1000000u) != PROS_HEALTH_EINVAL ||
+        pros_health_watchdog_kick(77u) != PROS_HEALTH_OK ||
+        pros_health_watchdog_unregister(77u) != PROS_HEALTH_OK ||
+        pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL ||
         pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
                            2u, 1u, heap_used_bytes()) != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_SYSTEM,
