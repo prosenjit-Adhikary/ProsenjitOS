@@ -308,6 +308,7 @@ The current native implementation already contains substantial core filesystem i
 - allocation bitmaps with checked geometry/overflow handling
 - inode and generation validation
 - extent-backed file storage
+- crash-safe delayed-allocation-equivalent placement with adjacent-block preference and extent coalescing
 - directory indexing and directory-entry integrity checks
 - UTF-8 filename validation
 - create, mkdir, read, write, truncate, rename, unlink and rmdir mutation paths
