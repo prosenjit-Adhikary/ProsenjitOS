@@ -1272,7 +1272,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
-    uint64_t old_size, keep_blocks;
+    uint64_t old_size, keep_blocks, retained_blocks = 0u;
     uint64_t current, previous = 0u;
     uint64_t steps = 0u;
 
@@ -1476,6 +1476,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             free_start = extent.physical_block + keep_in_extent;
             free_count = (uint32_t)(extent.block_count - keep_in_extent);
             shortened.block_count = (uint32_t)keep_in_extent;
+            if (retained_blocks > UINT64_MAX - keep_in_extent)
+                return PROS_VFS_EOVERFLOW;
+            retained_blocks += keep_in_extent;
             rc = pfs_read_block(data->fs->mount.device, current, extent_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_vfs_error(rc);
@@ -1501,6 +1504,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             break;
         }
 
+        if (extent.block_count > UINT64_MAX - retained_blocks)
+            return PROS_VFS_EOVERFLOW;
+        retained_blocks += extent.block_count;
         previous = current;
         current = next;
     }
@@ -1518,8 +1524,12 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
             if (rc != PROSENJITFS_OK)
                 return pfs_vfs_error(rc);
         }
+        if (retained_blocks > UINT64_MAX / data->fs->sb.block_size)
+            return pfs_vfs_error(PROSENJITFS_EOVERFLOW);
         inode.size = size;
-        inode.allocated_bytes = keep_blocks * data->fs->sb.block_size;
+        /* allocated_bytes describes physical blocks actually retained, not
+         * logical EOF blocks; sparse files may legitimately contain holes. */
+        inode.allocated_bytes = retained_blocks * data->fs->sb.block_size;
         pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
         pfs_put32(inode_image + inode_offset +
                   offsetof(struct pros_prosenjitfs_inode, checksum),
