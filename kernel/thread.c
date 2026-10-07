@@ -36,6 +36,9 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
         return -1;
+    for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next)
+        if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
+            return -1;
 
     thread->tid = tid;
     thread->process = process;
