@@ -23,6 +23,16 @@ static struct pros_driver_device pci_bridge_devices[PROS_DEVICE_MAX];
 
 static const struct pros_driver *driver_find_name(const char *name);
 
+#define PROS_DRIVER_STRING_MAX 127u
+
+static int driver_string_valid(const char *text)
+{
+    if (!text || !text[0]) return 0;
+    for (uint32_t i = 0u; i < PROS_DRIVER_STRING_MAX; ++i)
+        if (text[i] == '\0') return 1;
+    return 0;
+}
+
 static int id_field_match_u16(uint16_t expected, uint16_t actual)
 {
     return expected == 0u || expected == 0xFFFFu || expected == actual;
@@ -49,9 +59,10 @@ static int driver_id_matches(const struct pros_driver_id *id,
 
 static int driver_string_equal(const char *a, const char *b)
 {
-    if (!a || !b) return 0;
-    while (*a && *a == *b) { ++a; ++b; }
-    return *a == '\0' && *b == '\0';
+    if (!driver_string_valid(a) || !driver_string_valid(b)) return 0;
+    uint32_t i = 0u;
+    while (i < PROS_DRIVER_STRING_MAX && a[i] && a[i] == b[i]) ++i;
+    return i < PROS_DRIVER_STRING_MAX && a[i] == '\0' && b[i] == '\0';
 }
 
 static const struct pros_driver *driver_find_name(const char *name)
@@ -126,7 +137,8 @@ int pros_driver_manager_init(void)
 
 int pros_driver_register(const struct pros_driver *driver)
 {
-    if (!manager_ready || !driver || !driver->name || !driver->version ||
+    if (!manager_ready || !driver || !driver_string_valid(driver->name) ||
+        !driver_string_valid(driver->version) ||
         driver->abi_version != PROS_DRIVER_ABI_VERSION ||
         !driver->ids || driver->id_count == 0u ||
         driver->id_count > PROS_DRIVER_MAX_IDS ||
@@ -140,7 +152,7 @@ int pros_driver_register(const struct pros_driver *driver)
 
     if (driver->dependency_count != 0u) {
         for (uint32_t i = 0u; i < driver->dependency_count; ++i) {
-            if (!driver->dependencies[i] || !driver->dependencies[i][0] ||
+            if (!driver_string_valid(driver->dependencies[i]) ||
                 driver_string_equal(driver->dependencies[i], driver->name)) {
                 (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
                                          PROS_DRIVER_HEALTH_REGISTER_FAILURE,
@@ -213,9 +225,19 @@ int pros_device_register(struct pros_driver_device *device)
     for (uint32_t i = 0u; i < PROS_DEVICE_MAX; ++i) {
         if (!devices[i].used) {
             if (device->id == 0u) {
-                while (next_device_id == 0u || device_id_used(next_device_id))
+                while (next_device_id != UINT32_MAX &&
+                       (next_device_id == 0u || device_id_used(next_device_id)))
                     ++next_device_id;
-                device->id = next_device_id++;
+                if (next_device_id == 0u ||
+                    (next_device_id == UINT32_MAX && device_id_used(next_device_id))) {
+                    (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER,
+                                             0u, PROS_DRIVER_HEALTH_REGISTRY_EXHAUSTED,
+                                             PROS_DEVICE_MAX);
+                    return PROS_DRIVER_ENOSPC;
+                }
+                device->id = next_device_id;
+                if (next_device_id != UINT32_MAX)
+                    ++next_device_id;
             }
             device->state = PROS_DEVICE_DISCOVERED;
             device->driver = 0;
