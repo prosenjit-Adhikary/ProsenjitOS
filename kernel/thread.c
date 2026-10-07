@@ -1,4 +1,5 @@
 #include "thread.h"
+#include "ipc.h"
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -70,6 +71,47 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->prev = 0;
     thread->registry_next = thread_registry;
     thread_registry = thread;
+    return 0;
+}
+
+int thread_process_has_live(const struct pros_process *process) {
+    if (!process) return 0;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
+        if (thread->process == process && thread->state != PROS_THREAD_DEAD)
+            return 1;
+    return 0;
+}
+
+int thread_terminate_process(struct pros_process *process) {
+    if (!process) return -1;
+    for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next) {
+        if (thread->process != process || thread->state == PROS_THREAD_DEAD) continue;
+        if (thread->wait_channel) {
+            (void)ipc_channel_cancel_waiter((struct pros_ipc_channel *)thread->wait_channel, thread);
+            thread->wait_channel = 0;
+        }
+        thread->blocked_syscall = 0;
+        thread->interrupt_frame = 0;
+        thread->next = 0;
+        thread->prev = 0;
+        thread->state = PROS_THREAD_DEAD;
+    }
+
+    /* Remove all non-current threads of the process from the run queue. */
+    struct pros_thread *prev = 0;
+    struct pros_thread *it = runq_head;
+    while (it) {
+        struct pros_thread *next = it->next;
+        if (it->process == process) {
+            if (prev) prev->next = next; else runq_head = next;
+            if (next) next->prev = prev; else runq_tail = prev;
+            it->next = 0;
+            it->prev = 0;
+        } else {
+            prev = it;
+        }
+        it = next;
+    }
     return 0;
 }
 
