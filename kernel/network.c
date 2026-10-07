@@ -14,6 +14,24 @@ static struct pros_net_socket sockets[PROS_NET_SOCKET_MAX];
 static uint32_t next_socket_id;
 static uint16_t next_ephemeral_port;
 
+struct arp_cache_entry {
+    uint32_t ip;
+    uint8_t mac[6];
+    uint8_t valid;
+    uint64_t expires;
+};
+
+struct route_entry {
+    uint32_t network;
+    uint32_t mask;
+    uint32_t gateway;
+    uint32_t metric;
+    uint8_t valid;
+};
+
+static struct arp_cache_entry arp_cache[PROS_NET_ARP_CACHE_MAX];
+static struct route_entry routes[PROS_NET_ROUTE_MAX];
+
 static uint16_t be16(const uint8_t *p)
 {
     return (uint16_t)(((uint16_t)p[0] << 8) | p[1]);
@@ -37,6 +55,115 @@ static void put_be32(uint8_t *p, uint32_t v)
     p[1] = (uint8_t)(v >> 16);
     p[2] = (uint8_t)(v >> 8);
     p[3] = (uint8_t)v;
+}
+
+int pros_net_arp_update(uint32_t ip, const uint8_t mac[6], uint64_t now,
+                        uint64_t ttl)
+{
+    uint32_t slot = PROS_NET_ARP_CACHE_MAX;
+    if (!mac || ip == 0u || ttl == 0u || now > UINT64_MAX - ttl)
+        return PROS_NET_EINVAL;
+    for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i) {
+        if (arp_cache[i].valid && arp_cache[i].ip == ip) { slot = i; break; }
+        if (!arp_cache[i].valid && slot == PROS_NET_ARP_CACHE_MAX) slot = i;
+    }
+    if (slot == PROS_NET_ARP_CACHE_MAX) return PROS_NET_ENOSPC;
+    arp_cache[slot].ip = ip;
+    for (uint32_t i = 0; i < 6u; ++i) arp_cache[slot].mac[i] = mac[i];
+    arp_cache[slot].expires = now + ttl;
+    arp_cache[slot].valid = 1u;
+    return PROS_NET_OK;
+}
+
+int pros_net_arp_lookup(uint32_t ip, uint8_t mac[6], uint64_t now)
+{
+    if (!mac || ip == 0u) return PROS_NET_EINVAL;
+    for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i) {
+        if (!arp_cache[i].valid || arp_cache[i].ip != ip) continue;
+        if (now >= arp_cache[i].expires) {
+            arp_cache[i].valid = 0u;
+            return PROS_NET_ENOENT;
+        }
+        for (uint32_t j = 0; j < 6u; ++j) mac[j] = arp_cache[i].mac[j];
+        return PROS_NET_OK;
+    }
+    return PROS_NET_ENOENT;
+}
+
+static int route_mask_valid(uint32_t mask)
+{
+    uint8_t zero_seen = 0u;
+    for (int bit = 31; bit >= 0; --bit) {
+        uint8_t one = (uint8_t)((mask >> bit) & 1u);
+        if (!one) zero_seen = 1u;
+        else if (zero_seen) return 0;
+    }
+    return 1;
+}
+
+static uint32_t route_prefix_len(uint32_t mask)
+{
+    uint32_t n = 0;
+    while (n < 32u && (mask & (0x80000000u >> n)) != 0u) ++n;
+    return n;
+}
+
+int pros_net_route_add(uint32_t network, uint32_t mask, uint32_t gateway,
+                       uint32_t metric)
+{
+    uint32_t slot = PROS_NET_ROUTE_MAX;
+    if (!route_mask_valid(mask)) return PROS_NET_EINVAL;
+    network &= mask;
+    for (uint32_t i = 0; i < PROS_NET_ROUTE_MAX; ++i) {
+        if (routes[i].valid && routes[i].network == network &&
+            routes[i].mask == mask && routes[i].gateway == gateway) {
+            slot = i; break;
+        }
+        if (!routes[i].valid && slot == PROS_NET_ROUTE_MAX) slot = i;
+    }
+    if (slot == PROS_NET_ROUTE_MAX) return PROS_NET_ENOSPC;
+    routes[slot].network = network;
+    routes[slot].mask = mask;
+    routes[slot].gateway = gateway;
+    routes[slot].metric = metric;
+    routes[slot].valid = 1u;
+    return PROS_NET_OK;
+}
+
+int pros_net_route_lookup(uint32_t destination, uint32_t *gateway_out,
+                          uint32_t *mask_out)
+{
+    uint32_t best = PROS_NET_ROUTE_MAX, best_prefix = 0u, best_metric = UINT32_MAX;
+    for (uint32_t i = 0; i < PROS_NET_ROUTE_MAX; ++i) {
+        if (!routes[i].valid || (destination & routes[i].mask) != routes[i].network)
+            continue;
+        uint32_t prefix = route_prefix_len(routes[i].mask);
+        if (best == PROS_NET_ROUTE_MAX || prefix > best_prefix ||
+            (prefix == best_prefix && routes[i].metric < best_metric)) {
+            best = i; best_prefix = prefix; best_metric = routes[i].metric;
+        }
+    }
+    if (best == PROS_NET_ROUTE_MAX) return PROS_NET_ENOENT;
+    if (gateway_out) *gateway_out = routes[best].gateway;
+    if (mask_out) *mask_out = routes[best].mask;
+    return PROS_NET_OK;
+}
+
+uint16_t pros_net_tcp_checksum(uint32_t src, uint32_t dst,
+                               const uint8_t *tcp, uint32_t length)
+{
+    uint32_t sum = 0;
+    if (!tcp || length == 0u || length > 0xFFFFu) return 0;
+    sum += (src >> 16) & 0xFFFFu; sum += src & 0xFFFFu;
+    sum += (dst >> 16) & 0xFFFFu; sum += dst & 0xFFFFu;
+    sum += PROS_NET_IP_TCP + length;
+    for (uint32_t i = 0; i + 1u < length; i += 2u) {
+        sum += be16(tcp + i);
+        while (sum >> 16) sum = (sum & 0xFFFFu) + (sum >> 16);
+    }
+    if (length & 1u) sum += (uint32_t)tcp[length - 1u] << 8;
+    while (sum >> 16) sum = (sum & 0xFFFFu) + (sum >> 16);
+    return (uint16_t)~sum;
 }
 
 uint16_t pros_net_checksum(const uint8_t *data, uint32_t length)
@@ -233,6 +360,10 @@ int pros_net_socket_init(void)
 {
     for (uint32_t i = 0; i < PROS_NET_SOCKET_MAX; ++i)
         sockets[i] = (struct pros_net_socket){0};
+    for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i)
+        arp_cache[i] = (struct arp_cache_entry){0};
+    for (uint32_t i = 0; i < PROS_NET_ROUTE_MAX; ++i)
+        routes[i] = (struct route_entry){0};
     next_socket_id = 1u;
     next_ephemeral_port = 49152u;
     return PROS_NET_OK;
@@ -433,6 +564,20 @@ int pros_net_selftest(void)
         pros_net_tcp_transition(PROS_NET_TCP_ESTABLISHED, TCP_RST, &state) != PROS_NET_OK ||
         state != PROS_NET_TCP_CLOSED)
         return -8;
+
+    {
+        uint8_t mac[6] = {0,1,2,3,4,5}, got[6] = {0};
+        uint32_t gateway = 0, mask = 0;
+        if (pros_net_arp_update(0xC0A80102u, mac, 10u, 5u) != PROS_NET_OK ||
+            pros_net_arp_lookup(0xC0A80102u, got, 14u) != PROS_NET_OK ||
+            got[5] != 5u ||
+            pros_net_arp_lookup(0xC0A80102u, got, 15u) != PROS_NET_ENOENT ||
+            pros_net_route_add(0u, 0u, 0xC0A80101u, 100u) != PROS_NET_OK ||
+            pros_net_route_add(0xC0A80000u, 0xFFFF0000u, 0xC0A80101u, 10u) != PROS_NET_OK ||
+            pros_net_route_lookup(0xC0A80102u, &gateway, &mask) != PROS_NET_OK ||
+            mask != 0xFFFF0000u)
+            return -9;
+    }
 
     if (pros_net_socket_init() != PROS_NET_OK ||
         pros_net_socket_create(&sid) != PROS_NET_OK ||
