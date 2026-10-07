@@ -169,6 +169,7 @@ int pros_security_monitor_selftest(void) {
 
     event.type = PROS_SECURITY_EVENT_PROCESS_INJECTION;
     event.timestamp = 3u;
+    event.severity = 2u;
     if (pros_security_monitor_record(&event, &state) !=
         PROS_SECURITY_MONITOR_BLOCK)
         return -3;
