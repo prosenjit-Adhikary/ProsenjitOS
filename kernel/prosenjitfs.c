@@ -1403,14 +1403,22 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
 static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                           uint32_t length, const void *buffer)
 {
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    int append = 0;
     int rc;
-    int append = file && file->vnode &&
-                 (file->flags & PROS_VFS_O_APPEND) != 0u;
-    if (append)
-        pfs_io_lock(((struct pfs_vnode_data *)file->vnode->private_data)->fs);
+
+    if (file && file->vnode) {
+        data = (struct pfs_vnode_data *)file->vnode->private_data;
+        if (data)
+            fs = data->fs;
+        append = (file->flags & PROS_VFS_O_APPEND) != 0u;
+    }
+    if (append && fs)
+        pfs_io_lock(fs);
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
-    if (append)
-        pfs_io_unlock(((struct pfs_vnode_data *)file->vnode->private_data)->fs);
+    if (append && fs)
+        pfs_io_unlock(fs);
     return rc;
 }
 
