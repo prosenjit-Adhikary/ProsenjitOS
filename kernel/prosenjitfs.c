@@ -1837,7 +1837,6 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
-    struct pros_prosenjitfs_dir_index child_dir_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint8_t *dir_block = 0, *entry_block = 0, *inode_block = 0, *child_dir_block = 0;
     uint64_t inode_number, entry_lba, child_dir_lba, inode_lba;
@@ -2043,6 +2042,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     uint8_t *dir_block = 0, *prev_block = 0, *inode_block = 0, *entry_block = 0;
     uint64_t current = 0u, previous = 0u, target_lba = 0u, inode_lba, steps = 0u;
     uint64_t inode_number;
+    struct pros_prosenjitfs_dir_entry child_entry;
     uint32_t inode_offset, name_length, bucket;
     int rc = PROSENJITFS_EIO;
 
@@ -2159,7 +2159,6 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                 rc = pfs_read_block(data->fs->mount.device, current, scan);
                 if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
                 {
-                    struct pros_prosenjitfs_dir_entry child_entry;
                     pfs_copy(&child_entry, scan, sizeof(child_entry));
                     if (child_entry.magic != PROSENJITFS_ENTRY_MAGIC ||
                         child_entry.name_length == 0u ||
@@ -3011,6 +3010,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
     struct pros_prosenjitfs_dir_index new_index;
     uint64_t old_lba = 0u, old_prev = 0u;
     uint64_t inode_lba = 0u, new_lba = 0u;
+    uint64_t original_next = 0u;
     uint32_t old_len = 0u, new_len = 0u;
     uint32_t old_hash, new_hash, old_bucket, new_bucket;
     uint8_t *entry_block = 0;
@@ -3113,7 +3113,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         }
 
         {
-            uint64_t original_next = entry.next;
+            original_next = entry.next;
             if (old_prev == 0u)
                 old_index.heads[old_bucket] = original_next;
             entry.next = old_index.heads[new_bucket];
@@ -4429,6 +4429,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     uint8_t *dir_refs = 0;
     uint8_t bitmap[4096];
     struct pros_prosenjitfs_inode inode;
+    int rc = PROSENJITFS_EIO;
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
         fs->sb.block_size == 0u || fs->sb.block_size > sizeof(bitmap) ||
@@ -4527,7 +4528,6 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         uint64_t within = inode_number % bits_per_block;
         uint64_t lba;
         int allocated;
-        int rc;
 
         if (bi >= fs->sb.inode_bitmap_blocks ||
             pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
@@ -4626,8 +4626,8 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                             child.parent_inode != inode_number ||
                             ((entry.type == PROSENJITFS_INODE_DIR) !=
                              (child.type == PROSENJITFS_INODE_DIR)) ||
-                            entry.type != PROSENJITFS_INODE_FILE &&
-                            entry.type != PROSENJITFS_INODE_DIR) {
+                            (entry.type != PROSENJITFS_INODE_FILE &&
+                             entry.type != PROSENJITFS_INODE_DIR)) {
                             rc = PROSENJITFS_ECORRUPT;
                             goto consistency_out;
                         }
