@@ -1283,7 +1283,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
             }
             if (physical < data->fs->sb.data_start ||
                 physical >= data->fs->sb.total_blocks)
-                return pfs_file_write_error(done, PROSENJITFS_ECORRUPT);
+                return pfs_file_write_fail(data->fs, done, PROSENJITFS_ECORRUPT);
             rc = pfs_read_block(data->fs->mount.device, physical, data_image);
             if (rc != PROSENJITFS_OK)
                 return pfs_file_write_fail(data->fs, done, rc);
@@ -1323,7 +1323,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
                 if (txrc == PROSENJITFS_OK)
                     txrc = pfs_tx_commit(data->fs);
                 if (txrc != PROSENJITFS_OK)
-                    return pfs_file_write_error(done, txrc);
+                    return pfs_file_write_fail(data->fs, done, txrc);
             }
         } else {
             return pfs_file_write_fail(data->fs, done, rc);
