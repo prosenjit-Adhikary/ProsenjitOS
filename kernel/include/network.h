@@ -112,6 +112,10 @@ struct pros_net_socket {
     uint32_t rcv_nxt;
     uint8_t rx[PROS_NET_PAYLOAD_MAX];
     uint16_t rx_len;
+    uint8_t retransmit_pending;
+    uint8_t retransmit_count;
+    uint16_t retransmit_reserved;
+    uint64_t retransmit_deadline;
 };
 
 uint16_t pros_net_checksum(const uint8_t *data, uint32_t length);
@@ -152,6 +156,8 @@ int pros_net_socket_receive_segment(uint32_t socket_id, uint32_t seq,
                                     const uint8_t *data, uint32_t length,
                                     uint8_t flags);
 int pros_net_socket_send(uint32_t socket_id, const uint8_t *data, uint32_t length);
+int pros_net_socket_tick(uint32_t socket_id, uint64_t elapsed_ms,
+                         uint8_t *retransmit_out);
 int pros_net_socket_receive(uint32_t socket_id, uint8_t *data, uint32_t capacity,
                             uint32_t *length_out);
 int pros_net_socket_close(uint32_t socket_id);
