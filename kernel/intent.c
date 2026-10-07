@@ -202,6 +202,57 @@ int security_is_quarantined(const struct pros_process *process) {
     return process && process->quarantined != 0;
 }
 
+int security_quarantine_selftest(void) {
+    struct pros_process process = {0};
+
+    process.state = PROS_PROCESS_READY;
+    if (security_quarantine(&process) != 0 ||
+        !process.quarantined ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantine_previous_state != (PROS_PROCESS_READY + 1u))
+        return -1;
+    if (security_clear_quarantine(&process) != 0 ||
+        process.quarantined ||
+        process.state != PROS_PROCESS_READY ||
+        process.quarantine_previous_state != 0u)
+        return -2;
+    if (security_clear_quarantine(&process) == 0)
+        return -3;
+
+    process.state = PROS_PROCESS_RUNNING;
+    if (security_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantine_previous_state != (PROS_PROCESS_RUNNING + 1u))
+        return -4;
+    if (security_clear_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_RUNNING ||
+        process.quarantine_previous_state != 0u)
+        return -5;
+
+    process.state = PROS_PROCESS_BLOCKED;
+    if (security_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantine_previous_state != 0u)
+        return -6;
+    if (security_clear_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantine_previous_state != 0u)
+        return -7;
+
+    process.state = PROS_PROCESS_NEW;
+    if (security_quarantine(&process) == 0)
+        return -8;
+    process.state = PROS_PROCESS_ZOMBIE;
+    if (security_quarantine(&process) == 0)
+        return -9;
+    process.state = PROS_PROCESS_DEAD;
+    if (security_quarantine(&process) == 0)
+        return -10;
+
+    return 0;
+}
+
+
 enum pros_security_decision security_authorize(
     struct pros_process *process,
     const struct pros_intent *intent,
