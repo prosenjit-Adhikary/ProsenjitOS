@@ -514,7 +514,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         address_space_map_user_page_owned(&lifecycle_parent.address_space,
                                           PROSENJIT_USER_TEST_VA,
                                           lifecycle_user_page,
-                                          PROSENJIT_PAGE_WRITABLE) != 0 ||
+                                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         address_space_map_user_page_owned(&lifecycle_parent.address_space,
                                           PROSENJIT_USER_TEST_VA + PROSENJIT_PAGE_SIZE,
                                           lifecycle_user_page,
