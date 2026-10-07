@@ -547,6 +547,7 @@ int pros_net_selftest(void)
     uint8_t arp[28] = {0};
     uint8_t ip[20] = {0};
     uint8_t tcp[20] = {0};
+    uint8_t icmp[8] = {8u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
     struct pros_net_eth_header eh;
     struct pros_net_arp ah;
     struct pros_net_ipv4 ih;
@@ -578,8 +579,16 @@ int pros_net_selftest(void)
     ip[0] = 0x45; put_be16(ip + 2u, 20u); ip[8] = 64u; ip[9] = PROS_NET_IP_TCP;
     put_be32(ip + 12u, 0xC0A80101u); put_be32(ip + 16u, 0xC0A80102u);
     put_be16(ip + 10u, 0u); put_be16(ip + 10u, pros_net_checksum(ip, 20u));
+    icmp[2] = (uint8_t)(pros_net_checksum(icmp, sizeof(icmp)) >> 8);
+    icmp[3] = (uint8_t)pros_net_checksum(icmp, sizeof(icmp));
+    {
+        struct pros_net_icmp ihc;
+        if (pros_net_parse_icmp(icmp, sizeof(icmp), &ihc) != PROS_NET_OK ||
+            ihc.type != 8u || ihc.code != 0u)
+            return -5;
+    }
     if (pros_net_parse_icmp((const uint8_t *)0, 0u, 0) != PROS_NET_EBOUNDS)
-        return -5;
+        return -6;
     if (pros_net_parse_ipv4(ip, sizeof(ip), &ih, &off) != PROS_NET_OK ||
         ih.ttl != 64u || ih.protocol != PROS_NET_IP_TCP)
         return -5;
@@ -587,7 +596,7 @@ int pros_net_selftest(void)
     put_be16(ip + 10u, 0u);
     put_be16(ip + 10u, pros_net_checksum(ip, 20u));
     if (pros_net_parse_ipv4(ip, sizeof(ip), &ih, &off) != PROS_NET_EINVAL)
-        return -6;
+        return -7;
 
     tcp[12] = 0x50; tcp[13] = TCP_SYN; put_be16(tcp, 1000u); put_be16(tcp + 2u, 80u);
     if (pros_net_parse_tcp(tcp, sizeof(tcp), &th, &off) != PROS_NET_OK ||
