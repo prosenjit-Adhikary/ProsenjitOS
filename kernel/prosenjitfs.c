@@ -3149,7 +3149,7 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         struct pros_prosenjitfs_inode dir_inode;
         struct pros_prosenjitfs_dir_entry disk_entry;
         int rc;
-        { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode);
+        { int inode_read_rc = pfs_vnode_validate_inode(data, &dir_inode);
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
         if (dir_inode.type != PROSENJITFS_INODE_DIR)
