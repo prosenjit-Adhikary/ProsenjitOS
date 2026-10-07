@@ -61,6 +61,7 @@ int pros_security_monitor_record(
     struct pros_security_monitor_state *current;
     uint32_t weight;
     uint32_t contribution;
+    uint32_t severity;
 
     if (!event || event->pid == 0u ||
         event->type <= PROS_SECURITY_EVENT_NONE ||
@@ -73,15 +74,20 @@ int pros_security_monitor_record(
     current = find_state(event->pid);
     if (!current) current = alloc_state(event->pid);
     if (!current) return -2;
+    if (current->event_count != 0u &&
+        event->timestamp < current->last_timestamp)
+        return -3;
 
     /*
      * Severity is a bounded multiplier supplied by a trusted kernel
      * telemetry producer. Zero is normalized to one so an event can never
      * disappear merely because a producer omitted severity.
      */
-    contribution = weight * (event->severity == 0u ? 1u : event->severity);
-    if (contribution > PROS_SECURITY_MONITOR_MAX_SCORE)
+    severity = event->severity == 0u ? 1u : event->severity;
+    if (severity > PROS_SECURITY_MONITOR_MAX_SCORE / weight)
         contribution = PROS_SECURITY_MONITOR_MAX_SCORE;
+    else
+        contribution = weight * severity;
 
     if (current->score >
         PROS_SECURITY_MONITOR_MAX_SCORE - contribution)
@@ -181,6 +187,24 @@ int pros_security_monitor_selftest(void) {
     if (pros_security_monitor_clear(event.pid) != 0 ||
         pros_security_monitor_get(event.pid, &state) == 0)
         return -5;
+
+    event.pid = 0x9002u;
+    event.timestamp = 10u;
+    event.type = PROS_SECURITY_EVENT_MASS_FILE_MODIFY;
+    event.severity = 1u;
+    if (pros_security_monitor_record(&event, &state) !=
+        PROS_SECURITY_MONITOR_ALLOW)
+        return -6;
+    event.timestamp = 9u;
+    if (pros_security_monitor_record(&event, &state) != -3)
+        return -7;
+    event.timestamp = 11u;
+    event.severity = UINT32_MAX;
+    if (pros_security_monitor_record(&event, &state) !=
+        PROS_SECURITY_MONITOR_BLOCK ||
+        state.score != PROS_SECURITY_MONITOR_MAX_SCORE)
+        return -8;
+    (void)pros_security_monitor_clear(event.pid);
 
     return 0;
 }
