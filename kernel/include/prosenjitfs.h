@@ -18,6 +18,9 @@ struct pros_prosenjitfs {
     uint8_t degraded_superblock;
     uint8_t *scratch;
     struct pros_prosenjitfs_tx tx;
+    /* Serializes filesystem operations that must observe and publish one
+     * authoritative inode state, notably O_APPEND. */
+    volatile uint32_t io_lock;
 };
 
 /* Kernel-only diagnostics and self-test entry points. */
