@@ -6096,6 +6096,7 @@ int prosenjitfs_selftest(void)
             uint64_t before_size;
             struct pros_prosenjitfs_inode before_inode;
             struct pfs_vnode_data *file_data;
+            uint64_t inode_number;
 
             if (vfs_file_open(&fs.mount, "/truncate-bound.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
@@ -6115,9 +6116,10 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
             file_data = (struct pfs_vnode_data *)file.vnode->private_data;
             if (!file_data ||
-                prosenjitfs_read_inode(&fs, file_data->inode_number,
+                prosenjitfs_read_inode(&fs, inode_number,
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
+            inode_number = file_data->inode_number;
             before_size = before_inode.size;
             if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
