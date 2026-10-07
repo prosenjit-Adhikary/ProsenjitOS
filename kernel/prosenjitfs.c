@@ -1816,6 +1816,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode, child_inode;
     struct pros_prosenjitfs_dir_index dir_index;
+    struct pros_prosenjitfs_dir_index child_dir_index;
     struct pros_prosenjitfs_dir_entry entry;
     uint8_t *dir_block = 0, *entry_block = 0, *inode_block = 0, *child_dir_block = 0;
     uint64_t inode_number, entry_lba, child_dir_lba, inode_lba;
@@ -2111,10 +2112,10 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     {
         uint8_t *scan = (uint8_t *)kmalloc(data->fs->sb.block_size);
         if (!scan) { rc = PROS_VFS_EIO; goto rmdir_out; }
-        rc = pfs_read_dir_index(data->fs, &child_inode, &dir_index);
+        rc = pfs_read_dir_index(data->fs, &child_inode, &child_dir_index);
         if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
         for (uint32_t b = 0u; b < PROSENJITFS_DIR_BUCKETS; ++b) {
-            current = dir_index.heads[b];
+            current = child_dir_index.heads[b];
             steps = 0u;
             while (current != 0u) {
                 if (++steps > data->fs->sb.total_blocks) {
