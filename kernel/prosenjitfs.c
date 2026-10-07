@@ -3123,6 +3123,12 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
         return PROS_VFS_EINVAL;
     *result = 0;
     data = (struct pfs_vnode_data *)parent->private_data;
+    {
+        struct pros_prosenjitfs_inode current_inode;
+        int rc = pfs_vnode_validate_inode(data, &current_inode);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
 
     if (name[0] == '.' && name[1] == '\0') {
         if (vfs_vnode_get(parent) != PROS_VFS_OK)
@@ -3507,6 +3513,16 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
     if (!directory || !cookie || !entry ||
         directory->type != PROS_VFS_NODE_DIRECTORY)
         return PROS_VFS_EINVAL;
+    if (!directory->private_data)
+        return PROS_VFS_EINVAL;
+    {
+        struct pfs_vnode_data *data =
+            (struct pfs_vnode_data *)directory->private_data;
+        struct pros_prosenjitfs_inode current_inode;
+        int rc = pfs_vnode_validate_inode(data, &current_inode);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
     pfs_zero(entry, sizeof(*entry));
     if (*cookie == 0u) {
         pfs_copy(entry->name, ".", 2u);
