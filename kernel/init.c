@@ -1,5 +1,6 @@
 #include "init.h"
 #include "heap.h"
+#include "security_exec.h"
 
 int pros_init_load(struct pros_vfs_mount *mount,
                    struct pros_process *process,
@@ -57,10 +58,26 @@ int pros_init_load(struct pros_vfs_mount *mount,
         return PROS_INIT_EIO;
     }
 
-    if (vfs_file_admit(mount, image, length, metadata, &admission) != PROS_VFS_OK ||
-        admission.security.action != PROS_FILE_ALLOW) {
+    if (vfs_file_admit(mount, image, length, metadata, &admission) != PROS_VFS_OK) {
         kfree(image);
         return PROS_INIT_ESECURITY;
+    }
+
+    /*
+     * Filesystem-backed execution must cross the same execution-security
+     * boundary as every other executable. Do not turn a filesystem read
+     * into a direct ELF load: admission/quarantine/block is authoritative.
+     * Timestamp 0 is used here because the init loader has no clock
+     * dependency; the quarantine record remains deterministic.
+     */
+    {
+        uint64_t quarantine_id = 0;
+        int exec_rc = pros_security_exec_admit(
+            process, &admission, 0u, &quarantine_id);
+        if (exec_rc != PROS_SECURITY_EXEC_ALLOW) {
+            kfree(image);
+            return PROS_INIT_ESECURITY;
+        }
     }
 
     if (pros_elf_validate(image, length) != PROS_ELF_OK) {
