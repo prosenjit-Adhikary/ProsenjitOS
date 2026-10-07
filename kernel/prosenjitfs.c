@@ -3549,7 +3549,7 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         if (!directory->private_data)
             return PROS_VFS_EINVAL;
         data = (struct pfs_vnode_data *)directory->private_data;
-        { int inode_read_rc = prosenjitfs_read_inode(data->fs, data->inode_number, &dir_inode);
+        { int inode_read_rc = pfs_vnode_validate_inode(data, &dir_inode);
         if (inode_read_rc != PROSENJITFS_OK)
             return pfs_vfs_error(inode_read_rc);
         if (dir_inode.type != PROSENJITFS_INODE_DIR)
