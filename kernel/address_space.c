@@ -1,6 +1,13 @@
 #include "address_space.h"
 #include "memory.h"
 #include "paging.h"
+#include "heap.h"
+
+struct pros_owned_page {
+    uint64_t virtual_address;
+    uint64_t physical_address;
+    struct pros_owned_page *next;
+};
 
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
@@ -61,6 +68,7 @@ int address_space_create(struct pros_address_space *space) {
         root[i] = kernel_root[i];
 
     space->root = root;
+    space->owned_pages = 0;
     return 0;
 }
 
@@ -84,6 +92,27 @@ int address_space_map_user_page(struct pros_address_space *space,
         PROSENJIT_PAGE_PRESENT |
         PROSENJIT_PAGE_USER |
         (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+    return 0;
+}
+
+int address_space_map_user_page_owned(struct pros_address_space *space,
+                                      uint64_t virtual_address,
+                                      uint64_t physical_address,
+                                      uint64_t flags) {
+    if (!space || !space->root || (virtual_address & 0xFFFULL) ||
+        (physical_address & 0xFFFULL))
+        return -1;
+    struct pros_owned_page *owned = (struct pros_owned_page *)kmalloc(sizeof(*owned));
+    if (!owned)
+        return -1;
+    if (address_space_map_user_page(space, virtual_address, physical_address, flags) != 0) {
+        kfree(owned);
+        return -1;
+    }
+    owned->virtual_address = virtual_address;
+    owned->physical_address = physical_address;
+    owned->next = space->owned_pages;
+    space->owned_pages = owned;
     return 0;
 }
 
@@ -126,7 +155,18 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     e = pt[PT_INDEX(virtual_address)];
     if (!(e & PROSENJIT_PAGE_PRESENT) || !(e & PROSENJIT_PAGE_USER))
         return -1;
-    if (physical_address_out) *physical_address_out = e & PAGE_MASK;
+    uint64_t physical = e & PAGE_MASK;
+    if (physical_address_out) *physical_address_out = physical;
+    struct pros_owned_page **link = &space->owned_pages;
+    while (*link) {
+        if ((*link)->virtual_address == virtual_address) {
+            struct pros_owned_page *owned = *link;
+            *link = owned->next;
+            kfree(owned);
+            break;
+        }
+        link = &(*link)->next;
+    }
     pt[PT_INDEX(virtual_address)] = 0;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
@@ -151,6 +191,15 @@ int address_space_destroy(struct pros_address_space *space) {
         physical_page_free((uint64_t)(uintptr_t)pdpt);
     }
 
+    struct pros_owned_page *owned = space->owned_pages;
+    while (owned) {
+        struct pros_owned_page *next = owned->next;
+        /* Only still-mapped pages remain in the ownership list. */
+        physical_page_free(owned->physical_address);
+        kfree(owned);
+        owned = next;
+    }
+    space->owned_pages = 0;
     uint64_t root = (uint64_t)(uintptr_t)space->root;
     space->root = 0;
     physical_page_free(root);
