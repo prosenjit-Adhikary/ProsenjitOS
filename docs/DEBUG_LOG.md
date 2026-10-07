@@ -124,3 +124,17 @@ Synced in commit 33231f3 (test: preserve non-colliding VFS overflow case).
 ### Status
 
 VFS provider registry source audit is complete at the current achievable level. The remaining provider-lifetime gap is architectural: the ABI has no mounted-provider reference ownership. Build/QEMU verification remains environment-blocked because GitHub-hosted jobs continue to fail before runner allocation (runner_id=0, empty runner name, zero steps), and the local Debian clone is unavailable in this execution environment.
+
+
+## 2026-10-07 — VFS full-registry overflow self-test correction
+
+### Root cause
+The overflow-provider test name was being selected after the registry had been filled. At full capacity, every candidate name was necessarily already present, so the test could reject its own ENOSPC scenario before exercising ENOSPC.
+
+### Fix
+A separate overflow-name namespace is now selected and reserved before filling the registry. The selected valid, non-colliding name is then used for the final full-registry registration attempt, which must return ENOSPC without mutating the registry.
+
+### Verification status
+Source audit completed. Runtime build/QEMU verification remains blocked by the repository Actions runner: the latest jobs terminate with runner_id=0, empty runner_name, and zero steps. No runtime pass is claimed.
+
+Commit: 9a50ea0 (fix: reserve VFS registry overflow name before fill).
