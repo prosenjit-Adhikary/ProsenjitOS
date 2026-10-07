@@ -507,6 +507,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                           PROSENJIT_USER_TEST_VA,
                                           lifecycle_user_page,
                                           PROSENJIT_PAGE_WRITABLE) != 0 ||
+        address_space_map_user_page_owned(&lifecycle_parent.address_space,
+                                          PROSENJIT_USER_TEST_VA + PROSENJIT_PAGE_SIZE,
+                                          lifecycle_user_page,
+                                          PROSENJIT_PAGE_WRITABLE) == 0 ||
+        address_space_map_user_page_owned(&lifecycle_parent.address_space,
+                                          0x0000000000400000ULL,
+                                          physical_page_alloc(),
+                                          PROSENJIT_PAGE_WRITABLE) == 0 ||
         process_grant_handle(&lifecycle_parent, &lifecycle_object,
                              PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
         lifecycle_object.refcount != 2 ||
