@@ -508,6 +508,14 @@ int pros_net_socket_ack(uint32_t socket_id, uint32_t ack)
         if ((int32_t)(ack - s->snd_nxt) > 0) return PROS_NET_ESTATE;
         return PROS_NET_OK;
     }
+    if (s->state == PROS_NET_TCP_FIN_WAIT ||
+        s->state == PROS_NET_TCP_LAST_ACK) {
+        if (ack != s->snd_nxt) return PROS_NET_ESTATE;
+        s->state = PROS_NET_TCP_CLOSED;
+        s->retransmit_pending = 0u;
+        s->used = 0u;
+        return PROS_NET_OK;
+    }
     return PROS_NET_ESTATE;
 }
 
@@ -598,12 +606,17 @@ int pros_net_socket_close(uint32_t socket_id)
 {
     struct pros_net_socket *s = socket_find(socket_id);
     if (!s) return PROS_NET_ENOENT;
-    if (s->state == PROS_NET_TCP_ESTABLISHED) {
-        s->state = PROS_NET_TCP_FIN_WAIT;
+    if (s->state == PROS_NET_TCP_ESTABLISHED ||
+        s->state == PROS_NET_TCP_CLOSE_WAIT) {
+        s->snd_nxt += 1u;
+        s->state = (s->state == PROS_NET_TCP_ESTABLISHED)
+                   ? PROS_NET_TCP_FIN_WAIT : PROS_NET_TCP_LAST_ACK;
+        s->retransmit_deadline = 1000u;
+        s->retransmit_count = 0u;
+        s->retransmit_pending = 1u;
         return PROS_NET_OK;
     }
     if (s->state == PROS_NET_TCP_FIN_WAIT ||
-        s->state == PROS_NET_TCP_CLOSE_WAIT ||
         s->state == PROS_NET_TCP_LAST_ACK ||
         s->state == PROS_NET_TCP_SYN_SENT ||
         s->state == PROS_NET_TCP_SYN_RECEIVED ||
