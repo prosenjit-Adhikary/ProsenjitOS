@@ -28,6 +28,7 @@ int pros_security_quarantine_get(
     struct pros_quarantine_entry *entry);
 
 int pros_security_quarantine_release(uint64_t entry_id);
+int pros_security_quarantine_release_owner(uint64_t owner_pid);
 uint32_t pros_security_quarantine_count(void);
 int pros_security_quarantine_selftest(void);
 
