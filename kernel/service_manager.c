@@ -7,10 +7,13 @@ static int service_name_valid(const char *name)
 {
     if (!name || name[0] == '\0')
         return 0;
-    for (uint32_t i = 0; i < 128u && name[i] != '\0'; ++i)
+    for (uint32_t i = 0; i < 128u; ++i) {
+        if (name[i] == '\0')
+            return 1;
         if (name[i] == '/' || name[i] == ' ')
             return 0;
-    return 1;
+    }
+    return 0;
 }
 
 static int service_find(const char *name)
@@ -143,6 +146,12 @@ int service_register(const struct pros_service_definition *definition)
         return PROS_SERVICE_EINVAL;
     if (service_find(definition->name) >= 0)
         return PROS_SERVICE_EBUSY;
+    for (uint32_t d = 0; d < definition->dependency_count; ++d) {
+        const char *dependency = definition->dependencies[d];
+        if (!service_name_valid(dependency) ||
+            __builtin_strcmp(dependency, definition->name) == 0)
+            return PROS_SERVICE_EINVAL;
+    }
     if (service_count >= PROS_SERVICE_MAX)
         return PROS_SERVICE_ENOSPC;
 
