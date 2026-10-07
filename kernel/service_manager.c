@@ -256,6 +256,21 @@ int service_manager_selftest(void)
         return -1;
 
     {
+        const struct pros_service_definition bad_self = {
+            .name = "bad-self", .start = sm_test_start, .stop = sm_test_stop,
+            .context = &a, .dependency_count = 1,
+            .dependencies = {"bad-self"}, .max_retries = 0
+        };
+        const struct pros_service_definition bad_name = {
+            .name = "bad/name", .start = sm_test_start, .stop = sm_test_stop,
+            .context = &a, .dependency_count = 0, .max_retries = 0
+        };
+        if (service_register(&bad_self) != PROS_SERVICE_EINVAL ||
+            service_register(&bad_name) != PROS_SERVICE_EINVAL)
+            return -14;
+    }
+
+    {
         const struct pros_service_definition base = {
             .name = "base", .start = sm_test_start, .stop = sm_test_stop,
             .context = &a, .dependency_count = 0, .max_retries = 0
