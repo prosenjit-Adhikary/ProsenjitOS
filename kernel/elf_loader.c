@@ -87,7 +87,7 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
             return PROS_ELF_EBOUNDS;
         if (ph->memsz == 0)
             return PROS_ELF_EFORMAT;
-        if (ph->vaddr < ELF_PAGE ||
+        if (ph->vaddr < PROSENJIT_USER_CODE_VA ||
             ph->vaddr > ELF_USER_MAX ||
             !range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
             ph->vaddr + ph->memsz == 0)
@@ -134,7 +134,7 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
 
     if (loads == 0 || !entry_exec)
         return PROS_ELF_EFORMAT;
-    if (!canonical_user(eh->entry))
+    if (!canonical_user(eh->entry) || eh->entry < PROSENJIT_USER_CODE_VA)
         return PROS_ELF_EBOUNDS;
     if (entry_out) *entry_out = eh->entry;
     if (image_start) *image_start = start;
@@ -216,7 +216,7 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EPERM) return -4;
     ph[0].flags = PF_R | PF_X;
 
-    ph[0].vaddr = 0;
+    ph[0].vaddr = 0x400000;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -5;
     ph[0].vaddr = ELF_TEST_CODE_VA;
 
