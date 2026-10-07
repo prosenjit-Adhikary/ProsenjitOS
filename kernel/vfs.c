@@ -88,6 +88,12 @@ int vfs_mount_init(struct pros_vfs_mount *mount,
 {
     if (!mount || !device || type == PROS_FS_UNKNOWN)
         return PROS_VFS_EINVAL;
+    /*
+     * Reinitializing a live mount would discard its root/device/private
+     * ownership without running the filesystem unmount path first.
+     */
+    if (mount->active || mount->root)
+        return PROS_VFS_EBUSY;
     mount->type = type;
     mount->device = device;
     mount->private_data = private_data;
