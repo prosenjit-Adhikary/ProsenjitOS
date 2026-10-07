@@ -114,6 +114,7 @@ int process_init(struct pros_process *process,
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
     process->quarantined = 0;
+    process->quarantine_previous_state = 0;
     process->user_entry = 0;
     process->user_stack_top = 0;
     process->parent = 0;
