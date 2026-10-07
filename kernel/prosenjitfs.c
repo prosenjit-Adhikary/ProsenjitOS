@@ -5507,6 +5507,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                         name_length != entry.name_length ||
                         entry.name_hash !=
                             pfs_name_hash(entry.name, entry.name_length) ||
+                        entry.name_hash % PROSENJITFS_DIR_BUCKETS != bucket ||
                         pfs_crc_with_zero32(
                             entry_block, sizeof(entry),
                             (uint32_t)offsetof(
@@ -5514,6 +5515,18 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                                 checksum)) != entry.checksum) {
                         rc = PROSENJITFS_ECORRUPT;
                         goto consistency_out;
+                    }
+                    {
+                        uint64_t canonical_lba = 0u;
+                        uint64_t ignored_previous = 0u;
+                        int duplicate_rc = pfs_find_dir_entry_lba(
+                            fs, &inode, (const char *)entry.name, 0,
+                            &canonical_lba, &ignored_previous);
+                        if (duplicate_rc != PROSENJITFS_OK ||
+                            canonical_lba != current) {
+                            rc = PROSENJITFS_ECORRUPT;
+                            goto consistency_out;
+                        }
                     }
                     {
                         struct pros_prosenjitfs_inode child;
