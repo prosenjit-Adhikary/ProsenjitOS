@@ -230,6 +230,10 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EPERM) return -4;
     ph[0].flags = PF_R | PF_X;
 
+    ph[0].type = PT_DYNAMIC;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ENOTSUP) return -5;
+    ph[0].type = PT_LOAD;
+
     ph[0].vaddr = PROSENJIT_USER_STACK_VA;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -5;
     ph[0].vaddr = ELF_TEST_CODE_VA;
