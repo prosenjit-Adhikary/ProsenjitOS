@@ -4461,15 +4461,20 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
     uint32_t inode_offset = 0u;
     uint8_t have_tail = 0u;
     uint8_t coalesce = 0u;
-    uint8_t bitmap_zero[4096];
+    uint8_t zero_image[4096];
     uint8_t extent_image[4096];
     uint8_t inode_image[4096];
     uint64_t bits_per_block;
     int rc;
 
+    /*
+     * v1 deliberately bounds one reservation so all zero-filled data blocks,
+     * bitmap images, extent metadata and inode metadata fit in one journal
+     * transaction. No home blocks are written directly before commit.
+     */
     if (!fs || fs->read_only || !fs->mount.active || !fs->mount.device ||
         count == 0u || count > 8u ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(bitmap_zero) ||
+        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(zero_image) ||
         inode_number >= fs->sb.inode_count)
         return PROSENJITFS_EINVAL;
 
@@ -4480,21 +4485,24 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
         return PROSENJITFS_EINVAL;
 
     /*
-     * Preallocation is append-only in v1: the requested logical range must
-     * not overlap an existing extent. This makes keep-size reservations
-     * deterministic and avoids creating a second mapping for one block.
+     * Preallocation is append-only in v1. Existing extents therefore cannot
+     * overlap the requested logical range, and the new extent remains ordered
+     * after the current logical tail.
      */
     {
         uint64_t current = inode.extent_head;
         uint64_t steps = 0u;
+
         while (current != 0u) {
             struct pros_prosenjitfs_extent extent;
+
             if (++steps > fs->sb.total_blocks)
                 return PROSENJITFS_ECORRUPT;
             rc = pfs_read_extent(fs, current, &extent);
             if (rc != PROSENJITFS_OK)
                 return rc;
-            if (extent.logical_block > UINT64_MAX - extent.block_count)
+            if (extent.block_count == 0u ||
+                extent.logical_block > UINT64_MAX - extent.block_count)
                 return PROSENJITFS_ECORRUPT;
             if (extent.logical_block + extent.block_count > max_end)
                 max_end = extent.logical_block + extent.block_count;
@@ -4506,41 +4514,48 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
             current = extent.next;
         }
     }
+
     if (logical_block < max_end ||
-        logical_block > UINT64_MAX - count)
+        logical_block > UINT64_MAX - (uint64_t)count)
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
 
-    /* Find a physically contiguous free data run without skipping bitmap boundaries. */
+    /*
+     * Find a physically contiguous free run. Bitmap blocks are read once per
+     * bitmap region; the exact range is revalidated immediately before the
+     * transaction is staged.
+     */
     {
         uint64_t bitmap_index;
-        for (bitmap_index = fs->sb.data_start / bits_per_block;
-             bitmap_index <= (fs->sb.total_blocks - 1u) / bits_per_block;
-             ++bitmap_index) {
+        uint64_t first_bitmap =
+            fs->sb.data_start / bits_per_block;
+        uint64_t last_bitmap =
+            (fs->sb.total_blocks - 1u) / bits_per_block;
+
+        for (bitmap_index = first_bitmap;
+             bitmap_index <= last_bitmap; ++bitmap_index) {
             uint64_t bitmap_lba;
-            uint8_t bitbuf[4096];
             uint64_t base = bitmap_index * bits_per_block;
-            uint64_t first = fs->sb.data_start > base ? fs->sb.data_start : base;
-            uint64_t last = fs->sb.total_blocks - 1u <
-                            base + bits_per_block - 1u
-                            ? fs->sb.total_blocks - 1u
-                            : base + bits_per_block - 1u;
+            uint64_t bitmap_last = base + bits_per_block - 1u;
+            uint64_t first = fs->sb.data_start > base
+                           ? fs->sb.data_start : base;
+            uint64_t last = fs->sb.total_blocks - 1u < bitmap_last
+                          ? fs->sb.total_blocks - 1u : bitmap_last;
+            uint8_t bitmap[4096];
 
             rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
                              bitmap_index, &bitmap_lba);
             if (rc != PROSENJITFS_OK)
                 return rc;
-            rc = pfs_read_block(fs->mount.device, bitmap_lba, bitbuf);
+            rc = pfs_read_block(fs->mount.device, bitmap_lba, bitmap);
             if (rc != PROSENJITFS_OK)
                 return rc;
 
             for (uint64_t b = first; b <= last; ++b) {
-                if (!pfs_bitmap_bit(bitbuf, b % bits_per_block)) {
+                if (!pfs_bitmap_bit(bitmap, b % bits_per_block)) {
                     if (run == 0u)
                         run_start = b;
-                    if (run == UINT64_MAX)
-                        return PROSENJITFS_EOVERFLOW;
                     ++run;
                     if (run == count)
                         goto run_found;
@@ -4550,6 +4565,7 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
             }
         }
     }
+
     return PROSENJITFS_ENOSPC;
 
 run_found:
@@ -4568,52 +4584,76 @@ run_found:
         coalesce = 1u;
 
     if (!coalesce) {
-        /* Reserve a separate extent metadata block outside the data run. */
+        /*
+         * Extent records live in the data region, so reserve their metadata
+         * block in the same transaction. Revalidate it immediately before
+         * staging to prevent a stale scan result from allocating a used block.
+         */
         for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
             if (b >= run_start && b - run_start < count)
                 continue;
-            if (pfs_data_block_is_free(fs, b) == 1) {
+            rc = pfs_data_block_is_free(fs, b);
+            if (rc < 0)
+                return rc;
+            if (rc == 1) {
                 extent_lba = b;
                 break;
             }
         }
         if (extent_lba == 0u)
             return PROSENJITFS_ENOSPC;
-    } else {
-        extent_lba = tail_lba;
+        rc = pfs_allocator_range_state(fs, extent_lba, 1u, 0u);
+        if (rc != PROSENJITFS_OK)
+            return rc;
     }
 
-    /*
-     * Data blocks are zeroed before metadata publication. If the metadata
-     * transaction fails, the blocks remain unallocated and therefore cannot
-     * become visible through the filesystem.
-     */
-    pfs_zero(bitmap_zero, fs->sb.block_size);
-    for (uint32_t i = 0u; i < count; ++i) {
-        uint64_t lba;
-        rc = pfs_lba_add(fs->mount.device, run_start, i, &lba);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-        rc = pfs_write_block(fs->mount.device, lba, bitmap_zero);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    if (!coalesce) {
-        rc = pfs_write_block(fs->mount.device, extent_lba, bitmap_zero);
-        if (rc != PROSENJITFS_OK)
-            return rc;
-    }
-    rc = pfs_flush(fs->mount.device);
+    pfs_zero(zero_image, fs->sb.block_size);
+
+    rc = pfs_tx_reset(fs);
     if (rc != PROSENJITFS_OK)
         return rc;
 
+    /*
+     * Stage bitmap allocation first. pfs_allocator_stage() reads the current
+     * bitmap into the transaction image, so all subsequent metadata/data
+     * images are committed atomically with the reservation.
+     */
+    rc = pfs_allocator_stage(fs, run_start, count, 1u);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+
+    if (!coalesce) {
+        rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+    }
+
+    /* Zero every reserved data block through the redo journal, not directly. */
+    for (uint32_t i = 0u; i < count; ++i) {
+        uint64_t lba;
+
+        rc = pfs_lba_add(fs->mount.device, run_start, i, &lba);
+        if (rc != PROSENJITFS_OK)
+            goto fail;
+        rc = pfs_tx_add(fs, lba, zero_image);
+        if (rc != PROSENJITFS_OK)
+            goto fail;
+    }
+
     if (inode.allocated_bytes >
-        UINT64_MAX - (uint64_t)count * fs->sb.block_size)
-        return PROSENJITFS_EOVERFLOW;
+        UINT64_MAX - (uint64_t)count * fs->sb.block_size) {
+        rc = PROSENJITFS_EOVERFLOW;
+        goto fail;
+    }
     inode.allocated_bytes += (uint64_t)count * fs->sb.block_size;
 
     if (coalesce) {
         struct pros_prosenjitfs_extent updated = tail;
+
+        if (updated.block_count > UINT64_MAX - count) {
+            rc = PROSENJITFS_EOVERFLOW;
+            goto fail;
+        }
         updated.block_count += count;
         pfs_zero(extent_image, fs->sb.block_size);
         pfs_copy(extent_image, &updated, sizeof(updated));
@@ -4623,8 +4663,10 @@ run_found:
                       extent_image, sizeof(updated),
                       (uint32_t)offsetof(struct pros_prosenjitfs_extent,
                                          checksum)));
+        rc = pfs_tx_add(fs, tail_lba, extent_image);
     } else {
         struct pros_prosenjitfs_extent updated;
+
         pfs_zero(&updated, sizeof(updated));
         updated.magic = PROSENJITFS_EXTENT_MAGIC;
         updated.logical_block = logical_block;
@@ -4640,12 +4682,21 @@ run_found:
                       (uint32_t)offsetof(struct pros_prosenjitfs_extent,
                                          checksum)));
 
+        rc = pfs_tx_add(fs, extent_lba, extent_image);
+        if (rc != PROSENJITFS_OK)
+            goto fail;
+
         if (have_tail) {
             uint8_t tail_image[4096];
+
             rc = pfs_read_block(fs->mount.device, tail_lba, tail_image);
             if (rc != PROSENJITFS_OK)
-                return rc;
+                goto fail;
             pfs_copy(&tail, tail_image, sizeof(tail));
+            if (tail.next != 0u) {
+                rc = PROSENJITFS_ECORRUPT;
+                goto fail;
+            }
             tail.next = extent_lba;
             pfs_put32(tail_image +
                       offsetof(struct pros_prosenjitfs_extent, checksum),
@@ -4653,66 +4704,37 @@ run_found:
                           tail_image, sizeof(tail),
                           (uint32_t)offsetof(struct pros_prosenjitfs_extent,
                                              checksum)));
-            rc = pfs_tx_reset(fs);
+            rc = pfs_tx_add(fs, tail_lba, tail_image);
             if (rc != PROSENJITFS_OK)
-                return rc;
-            rc = pfs_allocator_stage(fs, run_start, count, 1u);
-            if (rc == PROSENJITFS_OK)
-                rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
-            if (rc == PROSENJITFS_OK)
-                rc = pfs_tx_add(fs, extent_lba, extent_image);
-            if (rc == PROSENJITFS_OK)
-                rc = pfs_tx_add(fs, tail_lba, tail_image);
-            if (rc == PROSENJITFS_OK)
-                rc = pfs_inode_block_location(fs, inode_number,
-                                              &inode_lba, &inode_offset);
-            if (rc == PROSENJITFS_OK)
-                rc = pfs_read_block(fs->mount.device, inode_lba, inode_image);
-            if (rc == PROSENJITFS_OK) {
-                pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
-                pfs_put32(inode_image + inode_offset +
-                          offsetof(struct pros_prosenjitfs_inode, checksum),
-                          pfs_crc_with_zero32(
-                              inode_image + inode_offset,
-                              sizeof(inode),
-                              (uint32_t)offsetof(
-                                  struct pros_prosenjitfs_inode, checksum)));
-                rc = pfs_tx_add(fs, inode_lba, inode_image);
-            }
-            if (rc == PROSENJITFS_OK)
-                rc = pfs_tx_commit(fs);
-            return rc;
+                goto fail;
+        } else {
+            inode.extent_head = extent_lba;
         }
-        /* Empty files have no tail to link; publish the new extent as head. */
-        inode.extent_head = extent_lba;
     }
 
-    rc = pfs_tx_reset(fs);
+    rc = pfs_inode_block_location(fs, inode_number,
+                                  &inode_lba, &inode_offset);
     if (rc != PROSENJITFS_OK)
-        return rc;
-    rc = pfs_allocator_stage(fs, run_start, count, 1u);
-    if (rc == PROSENJITFS_OK && !coalesce)
-        rc = pfs_allocator_stage(fs, extent_lba, 1u, 1u);
-    if (rc == PROSENJITFS_OK)
-        rc = pfs_tx_add(fs, extent_lba, extent_image);
-    if (rc == PROSENJITFS_OK)
-        rc = pfs_inode_block_location(fs, inode_number,
-                                      &inode_lba, &inode_offset);
-    if (rc == PROSENJITFS_OK)
-        rc = pfs_read_block(fs->mount.device, inode_lba, inode_image);
-    if (rc == PROSENJITFS_OK) {
-        pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
-        pfs_put32(inode_image + inode_offset +
-                  offsetof(struct pros_prosenjitfs_inode, checksum),
-                  pfs_crc_with_zero32(
-                      inode_image + inode_offset, sizeof(inode),
-                      (uint32_t)offsetof(struct pros_prosenjitfs_inode,
-                                         checksum)));
-        rc = pfs_tx_add(fs, inode_lba, inode_image);
-    }
+        goto fail;
+    rc = pfs_read_block(fs->mount.device, inode_lba, inode_image);
     if (rc != PROSENJITFS_OK)
-        (void)pfs_tx_reset(fs);
-    return rc == PROSENJITFS_OK ? pfs_tx_commit(fs) : rc;
+        goto fail;
+    pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
+    pfs_put32(inode_image + inode_offset +
+              offsetof(struct pros_prosenjitfs_inode, checksum),
+              pfs_crc_with_zero32(
+                  inode_image + inode_offset, sizeof(inode),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_inode,
+                                     checksum)));
+    rc = pfs_tx_add(fs, inode_lba, inode_image);
+    if (rc != PROSENJITFS_OK)
+        goto fail;
+
+    return pfs_tx_commit(fs);
+
+fail:
+    (void)pfs_tx_reset(fs);
+    return rc;
 }
 
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
