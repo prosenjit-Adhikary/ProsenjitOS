@@ -12,5 +12,6 @@ void physical_page_free(uint64_t physical_address);
 uint64_t physical_memory_total_pages(void);
 uint64_t physical_memory_free_pages(void);
 uint64_t physical_memory_failed_allocations(void);
+int physical_memory_selftest(void);
 
 #endif
