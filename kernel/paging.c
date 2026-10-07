@@ -151,6 +151,7 @@ void paging_unmap_page(uint64_t virtual_address) {
     uint64_t pde = pd[PD_INDEX(virtual_address)];
     if (!(pde & PROSENJIT_PAGE_PRESENT) || (pde & LARGE_PAGE_FLAG)) return;
     uint64_t *pt = (uint64_t *)(pde & PAGE_MASK);
+    if (!(pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)) return;
     pt[PT_INDEX(virtual_address)] = 0;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
 }
@@ -321,6 +322,10 @@ int paging_init(void) {
 
     __asm__ volatile ("mov %0, %%cr3" : : "r"((uint64_t)kernel_pml4) : "memory");
     paging_unmap_page(PROSENJIT_KERNEL_TEST_VA);
+    if (paging_translate(PROSENJIT_KERNEL_TEST_VA) != 0) {
+        physical_page_free(test_page);
+        return -1;
+    }
     physical_page_free(test_page);
     return 0;
 }
