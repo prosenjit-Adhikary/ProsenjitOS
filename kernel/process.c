@@ -56,6 +56,14 @@ int process_unregister(struct pros_process *process) {
                 current_process = 0;
                 (void)paging_switch_kernel();
             }
+
+            /*
+             * Security telemetry is lifetime-scoped. At final reap, discard
+             * the PID's monitor state before the process object disappears,
+             * so no historical score/action can leak into a later lifetime.
+             */
+            (void)pros_security_monitor_clear(process->pid);
+
             if (object_release(&process->object) != 0)
                 return -1;
             return 0;
