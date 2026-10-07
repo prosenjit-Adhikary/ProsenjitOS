@@ -9,6 +9,19 @@
 static struct pros_vfs_provider *providers[PROSENJIT_VFS_PROVIDER_MAX];
 static uint32_t provider_count;
 
+static int provider_name_equal(const char *a, const char *b)
+{
+    if (!a || !b)
+        return 0;
+    while (*a && *b) {
+        if (*a != *b)
+            return 0;
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
 static int provider_name_valid(const char *name)
 {
     if (!name || name[0] == '\0')
@@ -72,7 +85,7 @@ const struct pros_vfs_provider *pros_vfs_provider_find(const char *name)
     if (!provider_name_valid(name))
         return 0;
     for (uint32_t i = 0u; i < provider_count; ++i)
-        if (__builtin_strcmp(providers[i]->name, name) == 0)
+        if (provider_name_equal(providers[i]->name, name))
             return providers[i];
     return 0;
 }
