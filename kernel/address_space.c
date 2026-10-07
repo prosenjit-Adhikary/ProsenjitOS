@@ -248,6 +248,41 @@ int address_space_switch(struct pros_address_space *space) {
     return 0;
 }
 
+int address_space_translate_user(const struct pros_address_space *space,
+                                 uint64_t virtual_address,
+                                 uint64_t *physical_address_out,
+                                 uint64_t *flags_out) {
+    if (!space || !space->root || !physical_address_out ||
+        virtual_address < USER_MIN_VA || virtual_address >= 0x0000800000000000ULL)
+        return -1;
+    uint64_t pml4e = space->root[PML4_INDEX(virtual_address)];
+    if ((pml4e & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+        return -1;
+    if (pml4e & LARGE_PAGE_FLAG) return -1;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
+    uint64_t pdpte = pdpt[PDPT_INDEX(virtual_address)];
+    if ((pdpte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+        return -1;
+    if (pdpte & LARGE_PAGE_FLAG) return -1;
+    uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
+    uint64_t pde = pd[PD_INDEX(virtual_address)];
+    if ((pde & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+        return -1;
+    if (pde & LARGE_PAGE_FLAG) return -1;
+    uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
+    uint64_t pte = pt[PT_INDEX(virtual_address)];
+    if ((pte & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
+        (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
+        return -1;
+    *physical_address_out = (pte & PAGE_MASK) | (virtual_address & 0xFFFULL);
+    if (flags_out)
+        *flags_out = pte & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX);
+    return 0;
+}
+
 int address_space_validate_user_range(const struct pros_address_space *space,
                                       uint64_t virtual_address,
                                       uint64_t size,
