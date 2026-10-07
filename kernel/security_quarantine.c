@@ -32,8 +32,24 @@ int pros_security_quarantine_add(
     for (uint32_t i = 0; i < PROS_SECURITY_QUARANTINE_MAX; ++i) {
         if (entries[i].active) continue;
 
-        uint64_t id = next_id++;
-        if (id == 0) id = next_id++;
+        /*
+         * Quarantine IDs are security-relevant references. Never reuse an
+         * ID that is still active, including across uint64 wraparound.
+         * The table is bounded, so a finite probe is sufficient and
+         * exhaustion fails closed.
+         */
+        uint64_t id = 0;
+        for (uint32_t probe = 0u;
+             probe < PROS_SECURITY_QUARANTINE_MAX + 1u; ++probe) {
+            id = next_id++;
+            if (id == 0u)
+                continue;
+            if (!find(id))
+                break;
+            id = 0u;
+        }
+        if (id == 0u)
+            return -2;
 
         entries[i].id = id;
         entries[i].timestamp = timestamp;
