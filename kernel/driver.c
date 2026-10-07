@@ -45,12 +45,19 @@ static int driver_id_matches(const struct pros_driver_id *id,
            id_field_match_u8(id->prog_if, hwid->prog_if);
 }
 
+static int driver_string_equal(const char *a, const char *b)
+{
+    if (!a || !b) return 0;
+    while (*a && *a == *b) { ++a; ++b; }
+    return *a == '\0' && *b == '\0';
+}
+
 static const struct pros_driver *driver_find_name(const char *name)
 {
     if (!name) return 0;
     for (uint32_t i = 0u; i < PROS_DRIVER_MAX; ++i)
         if (drivers[i].used && drivers[i].driver->name &&
-            __builtin_strcmp(drivers[i].driver->name, name) == 0)
+            driver_string_equal(drivers[i].driver->name, name))
             return drivers[i].driver;
     return 0;
 }
@@ -105,7 +112,7 @@ int pros_driver_register(const struct pros_driver *driver)
     if (driver->dependency_count != 0u) {
         for (uint32_t i = 0u; i < driver->dependency_count; ++i) {
             if (!driver->dependencies[i] || !driver->dependencies[i][0] ||
-                __builtin_strcmp(driver->dependencies[i], driver->name) == 0) {
+                driver_string_equal(driver->dependencies[i], driver->name)) {
                 (void)pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_DRIVER, 0u,
                                          PROS_DRIVER_HEALTH_REGISTER_FAILURE,
                                          PROS_DRIVER_EINVAL);
