@@ -292,7 +292,8 @@ int pros_health_watchdog_poll(void) {
         if (now - watchdogs[i].last_kick >= watchdogs[i].timeout_ticks) {
             watchdogs[i].faulted = 1u;
             if (pros_health_record(PROS_HEALTH_ERROR, PROS_HEALTH_RECOVERY,
-                                   watchdogs[i].service_id, 2u,
+                                   watchdogs[i].service_id,
+                                   PROS_HEALTH_RECOVERY_WATCHDOG_TIMEOUT,
                                    now - watchdogs[i].last_kick) != PROS_HEALTH_OK)
                 return PROS_HEALTH_EIO;
         }
