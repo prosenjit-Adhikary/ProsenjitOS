@@ -120,6 +120,44 @@ extern char __kernel_text_end[];
 extern char __kernel_rodata_start[];
 extern char __kernel_rodata_end[];
 
+int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
+    if (!kernel_pml4 || !flags_out ||
+        ((virtual_address >> 48) != 0xFFFF && (virtual_address >> 47) != 0))
+        return -1;
+
+    uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT))
+        return -1;
+    uint64_t *pdpt = (uint64_t *)(entry & PAGE_MASK);
+
+    entry = pdpt[PDPT_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT))
+        return -1;
+    uint64_t *pd = (uint64_t *)(entry & PAGE_MASK);
+
+    entry = pd[PD_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT))
+        return -1;
+    if (entry & LARGE_PAGE_FLAG) {
+        *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
+                              PROSENJIT_PAGE_WRITABLE |
+                              PROSENJIT_PAGE_USER |
+                              PROSENJIT_PAGE_NX);
+        return 0;
+    }
+
+    uint64_t *pt = (uint64_t *)(entry & PAGE_MASK);
+    entry = pt[PT_INDEX(virtual_address)];
+    if (!(entry & PROSENJIT_PAGE_PRESENT))
+        return -1;
+
+    *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
+                          PROSENJIT_PAGE_WRITABLE |
+                          PROSENJIT_PAGE_USER |
+                          PROSENJIT_PAGE_NX);
+    return 0;
+}
+
 static int map_identity_4k(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
     uint64_t *pdpt = ensure_table(kernel_pml4, PML4_INDEX(virtual_address),
                                    PROSENJIT_PAGE_WRITABLE);
