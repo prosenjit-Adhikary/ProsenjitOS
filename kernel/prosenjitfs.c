@@ -2376,6 +2376,12 @@ static int pfs_unlink_tx_preflight(const struct pros_prosenjitfs *fs,
                 rc = pfs_read_extent(fs, inner, &b);
                 if (rc != PROSENJITFS_OK)
                     return rc;
+                if (a.block_count == 0u || b.block_count == 0u ||
+                    a.physical_block >= fs->sb.total_blocks ||
+                    b.physical_block >= fs->sb.total_blocks ||
+                    a.block_count > fs->sb.total_blocks - a.physical_block ||
+                    b.block_count > fs->sb.total_blocks - b.physical_block)
+                    return PROSENJITFS_ECORRUPT;
                 if (a.physical_block < b.physical_block + b.block_count &&
                     b.physical_block < a.physical_block + a.block_count)
                     return PROSENJITFS_ECORRUPT;
