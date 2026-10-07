@@ -86,6 +86,10 @@ The native rmdir path now performs a read-only transaction-capacity preflight be
 
 Runtime compile/QEMU execution remains required before this source-level hardening is considered a runtime PASS.
 
+## Native ProsenjitFS rmdir crash matrix — 2026-10-07
+
+The deterministic self-test now covers rmdir transaction crash stages 1–9. Before the durable commit, the empty directory must remain removable after simulated power loss; at/after the durable commit, the directory must already be absent and must be safely recreatable and removable again. Each cycle also runs the consistency oracle, covering namespace, inode and allocation cleanup.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
