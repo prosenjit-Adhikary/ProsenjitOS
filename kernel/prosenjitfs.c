@@ -34,6 +34,9 @@ static int pfs_bitmap_bit(const uint8_t *, uint64_t);
 static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
                                uint8_t);
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
+static int pfs_rmdir_tx_preflight(const struct pros_prosenjitfs *,
+                                  uint64_t, uint64_t, uint64_t, uint64_t,
+                                  uint64_t, uint64_t);
 
 static void pfs_zero(void *buffer, uint32_t size)
 {
@@ -1950,6 +1953,26 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
                                       struct pros_prosenjitfs_dir_index,
                                       checksum)));
 
+    {
+        uint64_t inode_bitmap_lba;
+        uint64_t inode_bits = (uint64_t)data->fs->sb.block_size * 8u;
+        if (inode_bits == 0u) {
+            rc = PROSENJITFS_ECORRUPT;
+            goto rmdir_out;
+        }
+        rc = pfs_lba_add(data->fs->mount.device,
+                         data->fs->sb.inode_bitmap_start,
+                         inode_number / inode_bits, &inode_bitmap_lba);
+        if (rc != PROSENJITFS_OK)
+            goto rmdir_out;
+        rc = pfs_rmdir_tx_preflight(
+            data->fs, inode_number, parent_inode.dir_index,
+            previous, inode_lba, inode_bitmap_lba, target_lba,
+            child_inode.dir_index);
+        if (rc != PROSENJITFS_OK)
+            goto rmdir_out;
+    }
+
     rc = pfs_inode_block_location(data->fs, inode_number, &inode_lba,
                                    &inode_offset);
     if (rc != PROSENJITFS_OK) {
@@ -2254,6 +2277,82 @@ rmdir_out:
     if (entry_block) kfree(entry_block);
     if (rc == PROSENJITFS_OK) return PROS_VFS_OK;
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
+}
+
+static int pfs_rmdir_tx_preflight(const struct pros_prosenjitfs *fs,
+                                  uint64_t inode_number,
+                                  uint64_t namespace_dir_index,
+                                  uint64_t previous_entry_lba,
+                                  uint64_t inode_lba,
+                                  uint64_t inode_bitmap_lba,
+                                  uint64_t entry_lba,
+                                  uint64_t child_dir_index)
+{
+    uint64_t targets[PROSENJITFS_MAX_TX_BLOCKS];
+    uint32_t count = 0u;
+    uint32_t capacity;
+    uint64_t bits_per_bitmap_block;
+    uint64_t bitmap_index;
+    uint64_t bitmap_lba;
+    int rc;
+
+    if (!fs || inode_number >= fs->sb.inode_count ||
+        fs->sb.block_size == 0u || fs->sb.block_size > 4096u ||
+        fs->sb.journal_blocks < 2u ||
+        namespace_dir_index < fs->sb.data_start ||
+        namespace_dir_index >= fs->sb.total_blocks ||
+        (previous_entry_lba != 0u &&
+         (previous_entry_lba < fs->sb.data_start ||
+          previous_entry_lba >= fs->sb.total_blocks)) ||
+        entry_lba < fs->sb.data_start || entry_lba >= fs->sb.total_blocks ||
+        child_dir_index < fs->sb.data_start ||
+        child_dir_index >= fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
+
+    capacity = fs->sb.journal_blocks - 2u;
+    if (capacity > PROSENJITFS_MAX_TX_BLOCKS)
+        capacity = PROSENJITFS_MAX_TX_BLOCKS;
+    if (capacity == 0u)
+        return PROSENJITFS_ENOSPC;
+
+    rc = pfs_unlink_tx_target_add(fs,
+                                  previous_entry_lba == 0u
+                                      ? namespace_dir_index
+                                      : previous_entry_lba,
+                                  targets, &count, capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_unlink_tx_target_add(fs, inode_lba, targets, &count, capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_unlink_tx_target_add(fs, inode_bitmap_lba, targets, &count,
+                                  capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+
+    bits_per_bitmap_block = (uint64_t)fs->sb.block_size * 8u;
+    if (bits_per_bitmap_block == 0u)
+        return PROSENJITFS_ECORRUPT;
+
+    bitmap_index = entry_lba / bits_per_bitmap_block;
+    rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                     bitmap_index, &bitmap_lba);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_unlink_tx_target_add(fs, bitmap_lba, targets, &count, capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+
+    bitmap_index = child_dir_index / bits_per_bitmap_block;
+    rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                     bitmap_index, &bitmap_lba);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    rc = pfs_unlink_tx_target_add(fs, bitmap_lba, targets, &count, capacity);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+
+    return count <= capacity ? PROSENJITFS_OK : PROSENJITFS_ENOSPC;
 }
 
 static int pfs_unlink_tx_target_add(const struct pros_prosenjitfs *fs,
