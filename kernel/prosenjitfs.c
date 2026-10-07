@@ -2074,6 +2074,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
 
     bucket = pfs_name_hash((const uint8_t *)name, name_length) %
              PROSENJITFS_DIR_BUCKETS;
+    current = dir_index.heads[bucket];
     while (current != 0u) {
         if (++steps > data->fs->sb.total_blocks) {
             rc = PROS_VFS_EIO;
@@ -2123,6 +2124,10 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         goto rmdir_out;
     if (child_inode.type != PROSENJITFS_INODE_DIR) {
         rc = PROSENJITFS_ENOTDIR; goto rmdir_out;
+    }
+    if (child_inode.extent_head != 0u) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto rmdir_out;
     }
     if (entry.type != PROSENJITFS_INODE_DIR ||
         child_inode.parent_inode != data->inode_number) {
