@@ -9,6 +9,7 @@
 #define PFS_MAX_INODES 1024u
 #define PFS_MIN_INODES 64u
 #define PFS_UUID_SEED 0x50524F53454E4A49ULL
+#define PFS_KNOWN_FEATURES (PROSENJITFS_FEATURE_CRC32C | PROSENJITFS_FEATURE_JOURNAL | PROSENJITFS_FEATURE_EXTENTS | PROSENJITFS_FEATURE_UTF8)
 
 /* Forward declarations for VFS callbacks and helpers used before their
  * definitions. Keep the provider in one translation unit without relying on
@@ -31,6 +32,7 @@ static int pfs_tx_reset(struct pros_prosenjitfs *);
 static int pfs_tx_add(struct pros_prosenjitfs *, uint64_t, const void *);
 static int pfs_tx_commit(struct pros_prosenjitfs *);
 static int pfs_bitmap_bit(const uint8_t *, uint64_t);
+static int pfs_data_block_is_free(const struct pros_prosenjitfs *, uint64_t);
 static int pfs_allocator_stage(struct pros_prosenjitfs *, uint64_t, uint32_t,
                                uint8_t);
 static int pfs_inode_bitmap_stage(struct pros_prosenjitfs *, uint64_t, uint8_t);
@@ -386,14 +388,8 @@ static int pfs_superblock_valid(const uint8_t *block,
         sb->inode_count < PFS_MIN_INODES ||
         sb->inode_count > PFS_MAX_INODES ||
         sb->max_name != PROSENJITFS_MAX_NAME ||
-        (sb->features & (PROSENJITFS_FEATURE_CRC32C |
-                         PROSENJITFS_FEATURE_JOURNAL |
-                         PROSENJITFS_FEATURE_EXTENTS |
-                         PROSENJITFS_FEATURE_UTF8)) !=
-                         (PROSENJITFS_FEATURE_CRC32C |
-                          PROSENJITFS_FEATURE_JOURNAL |
-                          PROSENJITFS_FEATURE_EXTENTS |
-                          PROSENJITFS_FEATURE_UTF8))
+        (sb->features & PFS_KNOWN_FEATURES) != PFS_KNOWN_FEATURES ||
+        (sb->features & ~PFS_KNOWN_FEATURES) != 0u
         return PROSENJITFS_ECORRUPT;
     checksum = pfs_crc_with_zero32(block, sb->header_size,
                                    (uint32_t)offsetof(
