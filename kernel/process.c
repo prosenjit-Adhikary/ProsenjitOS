@@ -204,6 +204,10 @@ int process_set_state(struct pros_process *process, uint32_t state) {
     if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
     if (process->state == PROS_PROCESS_DEAD &&
         state != PROS_PROCESS_DEAD) return -1;
+    /* A quarantined process must remain scheduler-blocked until the security
+     * quarantine is explicitly cleared. */
+    if (process->quarantined && state != PROS_PROCESS_BLOCKED)
+        return -1;
     process->state = state;
     return 0;
 }
