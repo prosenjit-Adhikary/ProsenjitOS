@@ -87,4 +87,6 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
 void process_set_current(struct pros_process *process);
 struct pros_process *process_current(void);
 
+int process_selftest(void);
+
 #endif
