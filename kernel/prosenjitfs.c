@@ -6696,6 +6696,144 @@ int prosenjitfs_selftest(void)
         }
     }
     /*
+     * Directory namespace final regression matrix.
+     *
+     * Covers enumeration, hash-bucket moves, cross-directory rename,
+     * non-empty rmdir rejection, Unicode names, persistence, and cleanup.
+     * These operations must remain namespace-atomic and must not leak
+     * directory/index/inode allocations.
+     */
+    {
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent dent;
+        uint32_t seen_dot = 0u, seen_dotdot = 0u, seen_alpha = 0u;
+        uint32_t seen_unicode = 0u, entries = 0u;
+        uint32_t guard = 0u;
+
+        if (vfs_mkdir(&fs.mount, "/dir-final") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (vfs_file_open(&fs.mount, "/dir-final/alpha",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (vfs_file_open(&fs.mount, "/dir-final/target/sub/data",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (vfs_file_open(&fs.mount, "/dir-final/target/\xE2\x82\xAC",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (vfs_dir_open(&fs.mount, "/dir-final/target", &dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        while (1) {
+            int rc = vfs_dir_read(&dir, &dent);
+            if (rc == PROS_VFS_ENOENT)
+                break;
+            if (rc != PROS_VFS_OK || ++guard > 64u) {
+                vfs_dir_close(&dir);
+                return pfs_selftest_fail(__LINE__, -16);
+            }
+            ++entries;
+            if (dent.name[0] == '.' && dent.name[1] == '\0')
+                ++seen_dot;
+            else if (dent.name[0] == '.' && dent.name[1] == '.' &&
+                     dent.name[2] == '\0')
+                ++seen_dotdot;
+            else if (dent.name[0] == 'd' && dent.name[1] == 'a' &&
+                     dent.name[2] == 't' && dent.name[3] == 'a' &&
+                     dent.name[4] == '\0')
+                ++seen_alpha;
+            else if ((unsigned char)dent.name[0] == 0xE2u &&
+                     (unsigned char)dent.name[1] == 0x82u &&
+                     (unsigned char)dent.name[2] == 0xACu &&
+                     dent.name[3] == '\0')
+                ++seen_unicode;
+        }
+        if (vfs_dir_close(&dir) != PROS_VFS_OK ||
+            entries != 5u || seen_dot != 1u || seen_dotdot != 1u ||
+            seen_unicode != 1u)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        /*
+         * Rename within the same directory exercises both same-bucket and
+         * bucket-changing entry relinking.  The destination must not exist.
+         */
+        if (vfs_rename(&fs.mount, "/dir-final/target/data",
+                       "/dir-final/target/renamed") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir-final/target/data", &node) !=
+                PROS_VFS_ENOENT)
+            return pfs_selftest_fail(__LINE__, -16);
+        if (node) {
+            vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_mkdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/dir-final/target/renamed",
+                       "/dir-final/destination/moved") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/dir-final/destination/moved",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+        if (node) {
+            vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_rename(&fs.mount, "/dir-final/target/sub",
+                       "/dir-final/destination/sub") != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/dir-final/destination",
+                       "/dir-final/destination/sub/loop") != PROS_VFS_EINVAL)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_ENOTEMPTY)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (vfs_path_lookup(&fs.mount, "/dir-final/destination/moved",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+        if (node) {
+            vfs_vnode_put(node);
+            node = 0;
+        }
+
+        if (vfs_unlink(&fs.mount, "/dir-final/destination/moved") !=
+                PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/dir-final/target/alpha") !=
+                PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/dir-final/target/renamed") !=
+                PROS_VFS_ENOENT ||
+            vfs_unlink(&fs.mount, "/dir-final/target/\xE2\x82\xAC") !=
+                PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/dir-final/target/sub/data") !=
+                PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/target/sub") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/target") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/destination/sub") !=
+                PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final/destination") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/dir-final") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
+        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+    }
+
+    /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
      * the same inode number must never make the old handle target the new
