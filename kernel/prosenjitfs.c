@@ -112,8 +112,12 @@ static int pfs_vfs_error(int rc)
         return PROS_VFS_ENOTEMPTY;
     case PROSENJITFS_EPERM:
         return PROS_VFS_EPERM;
+    case PROSENJITFS_ESTALE:
+        return PROS_VFS_ESTALE;
     case PROSENJITFS_EBUSY:
         return PROS_VFS_EBUSY;
+    case PROSENJITFS_ESTALE:
+        return PROS_VFS_ESTALE;
     default:
         return PROS_VFS_EIO;
     }
@@ -749,7 +753,48 @@ int prosenjitfs_format(struct pros_block_device *device)
 struct pfs_vnode_data {
     struct pros_prosenjitfs *fs;
     uint64_t inode_number;
+    uint64_t generation;
 };
+
+static int pfs_vnode_read_inode(struct pros_vfs_vnode *vnode,
+                                struct pros_prosenjitfs_inode *inode)
+{
+    struct pfs_vnode_data *data;
+    int rc;
+
+    if (!vnode || !vnode->private_data || !inode)
+        return PROSENJITFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    if (!data->fs || data->inode_number >= data->fs->sb.inode_count)
+        return PROSENJITFS_EINVAL;
+    rc = prosenjitfs_read_inode(data->fs, data->inode_number, inode);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    if (inode->type == PROSENJITFS_INODE_FREE ||
+        inode->generation != data->generation)
+        return PROSENJITFS_ESTALE;
+    return PROSENJITFS_OK;
+}
+
+static int pfs_next_inode_generation(const struct pros_prosenjitfs *fs,
+                                     uint64_t inode_number,
+                                     uint64_t *generation)
+{
+    struct pros_prosenjitfs_inode inode;
+    int rc;
+
+    if (!fs || !generation || inode_number >= fs->sb.inode_count)
+        return PROSENJITFS_EINVAL;
+    rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+    if (rc != PROSENJITFS_OK)
+        return rc;
+    if (inode.type != PROSENJITFS_INODE_FREE)
+        return PROSENJITFS_ECORRUPT;
+    if (inode.generation == UINT64_MAX)
+        return PROSENJITFS_EOVERFLOW;
+    *generation = inode.generation + 1u;
+    return PROSENJITFS_OK;
+}
 
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
@@ -1672,6 +1717,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         return PROS_VFS_EIO;
     data->fs = fs;
     data->inode_number = inode_number;
+    data->generation = inode.generation;
 
     *result = (struct pros_vfs_vnode *)kmalloc(sizeof(**result));
     if (!*result) {
