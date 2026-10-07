@@ -28,6 +28,7 @@
 #include "prosenjitfs.h"
 #include "vfs_provider.h"
 #include "syscall.h"
+#include "security_hardening.h"
 #include "../include/abi/syscall.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
@@ -729,6 +730,38 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
+
+        /*
+         * Runtime security verification: the manager self-tests above validate
+         * individual policy components; this boundary verifies that the live
+         * boot process is still admissible and that kernel hardening remains
+         * active after initialization.
+         */
+        if (!pros_security_hardening_ready() ||
+            pros_security_hardening_check_process(&init_process) != 0 ||
+            pros_security_hardening_violations() != 0) {
+            serial_write("ProsenjitOS: ERROR live security runtime verification failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        {
+            uint64_t text_flags = 0, rodata_flags = 0;
+            uint64_t text_start = (uint64_t)(uintptr_t)__kernel_text_start;
+            uint64_t rodata_start = (uint64_t)(uintptr_t)__kernel_rodata_start;
+            if (paging_query_page(text_start, &text_flags) != 0 ||
+                paging_query_page(rodata_start, &rodata_flags) != 0 ||
+                (text_flags & PROSENJIT_PAGE_PRESENT) == 0 ||
+                (text_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
+                (text_flags & PROSENJIT_PAGE_USER) != 0 ||
+                (text_flags & PROSENJIT_PAGE_NX) != 0 ||
+                (rodata_flags & PROSENJIT_PAGE_PRESENT) == 0 ||
+                (rodata_flags & PROSENJIT_PAGE_WRITABLE) != 0 ||
+                (rodata_flags & PROSENJIT_PAGE_USER) != 0 ||
+                (rodata_flags & PROSENJIT_PAGE_NX) == 0) {
+                serial_write("ProsenjitOS: ERROR live kernel page-protection verification failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+        serial_write("ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)\n");
     }
     /* Storage-stack regression suite: partition discovery and filesystem
      * geometry/mount contracts must remain boot-testable before drivers depend
