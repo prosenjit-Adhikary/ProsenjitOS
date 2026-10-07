@@ -114,6 +114,32 @@ static int provider_test_unmount(struct pros_vfs_provider *provider,
     return provider && mount ? 0 : PROS_VFS_PROVIDER_EINVAL;
 }
 
+static void provider_test_name(char *name, uint32_t value)
+{
+    static const char hex[] = "0123456789abcdef";
+    static const char prefix[] = "__vfs_provider_selftest_";
+    uint32_t i = 0u;
+
+    while (prefix[i] != '\0') {
+        name[i] = prefix[i];
+        ++i;
+    }
+    name[i++] = hex[(value >> 4) & 0xFu];
+    name[i++] = hex[value & 0xFu];
+    name[i] = '\0';
+}
+
+static int provider_registry_preserved(
+    struct pros_vfs_provider *const *snapshot, uint32_t snapshot_count)
+{
+    if (provider_count != snapshot_count)
+        return 0;
+    for (uint32_t i = 0u; i < snapshot_count; ++i)
+        if (providers[i] != snapshot[i])
+            return 0;
+    return 1;
+}
+
 int pros_vfs_provider_selftest(void)
 {
     static const struct pros_vfs_provider_ops ops = {
@@ -121,89 +147,213 @@ int pros_vfs_provider_selftest(void)
         .mount = provider_test_mount,
         .unmount = provider_test_unmount
     };
-    struct pros_vfs_provider first = {
-        .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
-        .flags = PROS_VFS_PROVIDER_PARTITION_AWARE |
-                 PROS_VFS_PROVIDER_USERSPACE,
-        .name = "provider-selftest-0",
-        .ops = &ops,
-        .private_data = 0
-    };
+    struct pros_vfs_provider *snapshot[PROSENJIT_VFS_PROVIDER_MAX];
+    struct pros_vfs_provider tests[PROSENJIT_VFS_PROVIDER_MAX];
+    struct pros_vfs_provider overflow;
+    struct pros_vfs_provider invalid;
     struct pros_vfs_provider duplicate;
-    struct pros_vfs_provider invalid = first;
-    static const char *const test_names[] = {
-        "provider-selftest-0",
-        "provider-selftest-1",
-        "provider-selftest-2",
-        "provider-selftest-3"
-    };
+    uint32_t initial_count = provider_count;
+    uint32_t test_count = 0u;
 
     /*
-     * This self-test may run after real providers have registered.
-     * It must validate the registry without requiring an empty registry
-     * and without modifying live provider registrations.
+     * Snapshot exact live providers before mutation. The test providers are
+     * appended after this prefix and are removed in reverse order, so real
+     * providers are never unregistered or reordered by the self-test.
      */
-    if (pros_vfs_provider_register(0) != PROS_VFS_PROVIDER_EINVAL)
+    if (initial_count > PROSENJIT_VFS_PROVIDER_MAX)
         return -1;
+    for (uint32_t i = 0u; i < initial_count; ++i) {
+        if (!providers[i])
+            return -2;
+        snapshot[i] = providers[i];
+    }
 
-    invalid.abi_version++;
+    if (pros_vfs_provider_register(0) != PROS_VFS_PROVIDER_EINVAL)
+        return -3;
+
+    invalid.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION + 1u;
+    invalid.flags = 0u;
+    invalid.name[0] = 'x';
+    invalid.name[1] = '\0';
+    invalid.ops = &ops;
+    invalid.private_data = 0;
     if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
-        return -2;
+        return -4;
+
+    invalid.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
+    invalid.name[0] = '\0';
+    if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+        return -5;
+
+    for (uint32_t i = 0u; i <= PROSENJIT_VFS_PROVIDER_NAME_MAX; ++i)
+        invalid.name[i] = 'x';
+    if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+        return -6;
+
+    invalid.name[0] = 'x';
+    invalid.name[1] = '\0';
+    invalid.flags = 1u << 31;
+    if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+        return -7;
+
+    invalid.flags = 0u;
+    invalid.ops = 0;
+    if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+        return -8;
+
+    {
+        static const struct pros_vfs_provider_ops no_probe = {
+            .probe = 0, .mount = provider_test_mount,
+            .unmount = provider_test_unmount
+        };
+        static const struct pros_vfs_provider_ops no_mount = {
+            .probe = provider_test_probe, .mount = 0,
+            .unmount = provider_test_unmount
+        };
+        static const struct pros_vfs_provider_ops no_unmount = {
+            .probe = provider_test_probe, .mount = provider_test_mount,
+            .unmount = 0
+        };
+        invalid.ops = &no_probe;
+        if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+            return -9;
+        invalid.ops = &no_mount;
+        if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+            return -10;
+        invalid.ops = &no_unmount;
+        if (pros_vfs_provider_register(&invalid) != PROS_VFS_PROVIDER_EINVAL)
+            return -11;
+    }
+
+    if (pros_vfs_provider_find(0) != 0 ||
+        pros_vfs_provider_find("") != 0)
+        return -12;
+
+    while (provider_count < PROSENJIT_VFS_PROVIDER_MAX) {
+        struct pros_vfs_provider *p = &tests[test_count];
+        p->abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
+        p->flags = PROS_VFS_PROVIDER_PARTITION_AWARE |
+                   PROS_VFS_PROVIDER_USERSPACE;
+        p->ops = &ops;
+        p->private_data = 0;
+
+        for (uint32_t value = 0u; value < 256u; ++value) {
+            provider_test_name(p->name, value);
+            if (!pros_vfs_provider_find(p->name))
+                break;
+        }
+        if (pros_vfs_provider_find(p->name) != 0)
+            goto fail;
+
+        if (pros_vfs_provider_register(p) != PROS_VFS_PROVIDER_OK)
+            goto fail;
+        ++test_count;
+
+        if (pros_vfs_provider_find(p->name) != p)
+            goto fail;
+    }
+
+    if (test_count != PROSENJIT_VFS_PROVIDER_MAX - initial_count)
+        goto fail;
+
+    duplicate = tests[0];
+    if (pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
+        goto fail;
+    if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
+        goto fail;
+
+    invalid = tests[0];
+    invalid.name[0] = 'm';
+    invalid.name[1] = 'i';
+    invalid.name[2] = 's';
+    invalid.name[3] = 's';
+    invalid.name[4] = 'i';
+    invalid.name[5] = 'n';
+    invalid.name[6] = 'g';
+    invalid.name[7] = '\0';
+    if (pros_vfs_provider_unregister(&invalid) != PROS_VFS_PROVIDER_ENOENT)
+        goto fail;
+
+    overflow.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
+    overflow.flags = 0u;
+    overflow.ops = &ops;
+    overflow.private_data = 0;
+    provider_test_name(overflow.name, 0xFFu);
+    if (pros_vfs_provider_find(overflow.name) != 0 ||
+        pros_vfs_provider_register(&overflow) != PROS_VFS_PROVIDER_ENOSPC)
+        goto fail;
+
+    for (uint32_t cycle = 0u; cycle < 8u; ++cycle) {
+        struct pros_vfs_provider repeat = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = { 0 },
+            .ops = &ops,
+            .private_data = 0
+        };
+        provider_test_name(repeat.name, 0x80u + cycle);
+
+        if (pros_vfs_provider_unregister(&tests[test_count - 1u]) !=
+            PROS_VFS_PROVIDER_OK)
+            goto fail;
+        --test_count;
+
+        if (pros_vfs_provider_register(&repeat) != PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_find(repeat.name) != &repeat)
+            goto fail;
+        if (pros_vfs_provider_unregister(&repeat) != PROS_VFS_PROVIDER_OK ||
+            pros_vfs_provider_find(repeat.name) != 0)
+            goto fail;
+
+        if (pros_vfs_provider_register(&tests[test_count]) !=
+            PROS_VFS_PROVIDER_OK)
+            goto fail;
+        ++test_count;
+    }
+
+    for (uint32_t i = test_count; i > 0u; --i) {
+        if (pros_vfs_provider_unregister(&tests[i - 1u]) !=
+            PROS_VFS_PROVIDER_OK)
+            return -13;
+    }
+    test_count = 0u;
+
+    if (!provider_registry_preserved(snapshot, initial_count))
+        return -14;
 
     /*
-     * If the registry has capacity, exercise the complete mutation path
-     * using a private test provider.  If it is full, the validation above
-     * is still valid and the registry must remain untouched.
+     * Provider lifetime is intentionally not inferred here: the current ABI
+     * has no active-mount reference counter. These calls only validate that
+     * the required callback ABI is callable and rejects invalid arguments.
      */
-    if (provider_count < PROSENJIT_VFS_PROVIDER_MAX) {
-        uint32_t selected = 0u;
-        while (selected < (uint32_t)(sizeof(test_names) / sizeof(test_names[0])) &&
-               pros_vfs_provider_find(test_names[selected]) != 0)
-            ++selected;
-
-        /*
-         * A real provider may legitimately occupy any fixed self-test name.
-         * Never report a false failure merely because the registry already
-         * contains one of our test names. Select an unused slot/name instead.
-         */
-        if (selected == (uint32_t)(sizeof(test_names) / sizeof(test_names[0])))
-            return PROS_VFS_PROVIDER_OK;
-
-        for (uint32_t i = 0u; i < PROSENJIT_VFS_PROVIDER_NAME_MAX + 1u; ++i)
-            first.name[i] = '\0';
-        for (uint32_t i = 0u; test_names[selected][i] != '\0'; ++i)
-            first.name[i] = test_names[selected][i];
-
-        duplicate = first;
-
-        if (pros_vfs_provider_find(first.name) != 0)
-            return -3;
-
-        if (pros_vfs_provider_register(&first) != PROS_VFS_PROVIDER_OK)
-            return -4;
-
-        if (pros_vfs_provider_find(first.name) != &first)
-            return -5;
-
-        if (pros_vfs_provider_register(&duplicate) != PROS_VFS_PROVIDER_EBUSY)
-            goto fail_unregister;
-
-        if (pros_vfs_provider_find("missing") != 0)
-            goto fail_unregister;
-
-        if (pros_vfs_provider_unregister(&duplicate) != PROS_VFS_PROVIDER_ENOENT)
-            goto fail_unregister;
-
-        if (pros_vfs_provider_unregister(&first) != PROS_VFS_PROVIDER_OK)
-            return -6;
-
-        if (pros_vfs_provider_find(first.name) != 0)
-            return -7;
+    {
+        struct pros_vfs_mount mount = { 0 };
+        struct pros_block_device device = { 0 };
+        struct pros_vfs_provider callback_provider = {
+            .abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION,
+            .flags = 0u,
+            .name = "__vfs_provider_callback",
+            .ops = &ops,
+            .private_data = 0
+        };
+        if (ops.probe(&device) != PROS_VFS_PROVIDER_OK ||
+            ops.probe(0) != PROS_VFS_PROVIDER_EINVAL ||
+            ops.mount(&callback_provider, &mount, &device, 0, 0, 0) !=
+                PROS_VFS_PROVIDER_OK ||
+            ops.mount(0, &mount, &device, 0, 0, 0) !=
+                PROS_VFS_PROVIDER_EINVAL ||
+            ops.unmount(&callback_provider, &mount) !=
+                PROS_VFS_PROVIDER_OK ||
+            ops.unmount(0, &mount) != PROS_VFS_PROVIDER_EINVAL)
+            return -15;
     }
 
     return PROS_VFS_PROVIDER_OK;
 
-fail_unregister:
-    (void)pros_vfs_provider_unregister(&first);
-    return -8;
+fail:
+    while (test_count > 0u) {
+        (void)pros_vfs_provider_unregister(&tests[test_count - 1u]);
+        --test_count;
+    }
+    return provider_registry_preserved(snapshot, initial_count) ? -16 : -17;
 }
