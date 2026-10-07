@@ -5620,9 +5620,6 @@ int prosenjitfs_selftest(void)
             vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE)
             return pfs_selftest_fail(__LINE__, -13);
 
-        if (vfs_file_close(&stale) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -13);
-
         if (vfs_file_open(&fs.mount, "/stale.bin",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
                           PROS_VFS_O_CREATE, &replacement) != PROS_VFS_OK ||
@@ -5633,7 +5630,10 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -13);
 
         done = 0u;
-        if (vfs_file_read(&stale, &verify, 1u, &done) != PROS_VFS_EINVAL)
+        if (vfs_file_read(&stale, &verify, 1u, &done) != PROS_VFS_ESTALE ||
+            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_ESTALE ||
+            vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE ||
+            vfs_file_close(&stale) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
     }
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
