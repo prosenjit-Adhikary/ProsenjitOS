@@ -129,6 +129,21 @@ static void provider_test_name(char *name, uint32_t value)
     name[i] = '\0';
 }
 
+static void provider_test_overflow_name(char *name, uint32_t value)
+{
+    static const char hex[] = "0123456789abcdef";
+    static const char prefix[] = "__vfs_provider_overflow_";
+    uint32_t i = 0u;
+
+    while (prefix[i] != '\0') {
+        name[i] = prefix[i];
+        ++i;
+    }
+    name[i++] = hex[(value >> 4) & 0xFu];
+    name[i++] = hex[value & 0xFu];
+    name[i] = '\0';
+}
+
 static int provider_registry_preserved(
     struct pros_vfs_provider *const *snapshot, uint32_t snapshot_count)
 {
@@ -229,6 +244,24 @@ int pros_vfs_provider_selftest(void)
         pros_vfs_provider_find("") != 0)
         return -12;
 
+    /*
+     * Reserve a valid overflow name before filling the registry. Once all
+     * slots are occupied, no name can be discovered by searching the live
+     * registry. Keep this namespace separate from the normal test names.
+     */
+    overflow.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
+    overflow.flags = 0u;
+    overflow.ops = &ops;
+    overflow.private_data = 0;
+    overflow.name[0] = '\0';
+    for (uint32_t value = 0u; value < 256u; ++value) {
+        provider_test_overflow_name(overflow.name, value);
+        if (!pros_vfs_provider_find(overflow.name))
+            break;
+    }
+    if (pros_vfs_provider_find(overflow.name) != 0)
+        return -13;
+
     while (provider_count < PROSENJIT_VFS_PROVIDER_MAX) {
         struct pros_vfs_provider *p = &tests[test_count];
         p->abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
@@ -277,18 +310,7 @@ int pros_vfs_provider_selftest(void)
         pros_vfs_provider_unregister(&invalid) != PROS_VFS_PROVIDER_ENOENT)
         goto fail;
 
-    overflow.abi_version = PROSENJIT_VFS_PROVIDER_ABI_VERSION;
-    overflow.flags = 0u;
-    overflow.ops = &ops;
-    overflow.private_data = 0;
-    overflow.name[0] = '\0';
-    for (uint32_t value = 0u; value < 256u; ++value) {
-        provider_test_name(overflow.name, 0xF0u + value);
-        if (!pros_vfs_provider_find(overflow.name))
-            break;
-    }
-    if (pros_vfs_provider_find(overflow.name) != 0 ||
-        pros_vfs_provider_register(&overflow) != PROS_VFS_PROVIDER_ENOSPC)
+    if (pros_vfs_provider_register(&overflow) != PROS_VFS_PROVIDER_ENOSPC)
         goto fail;
 
     if (test_count != 0u)
