@@ -2366,6 +2366,12 @@ static int pfs_unlink_tx_preflight(const struct pros_prosenjitfs *fs,
         if (rc != PROSENJITFS_OK)
             return rc;
         next = extent.next;
+        /* An extent metadata block may not also be one of its data blocks.
+         * Reject this semantic corruption during preflight, before any
+         * transaction image is staged. */
+        if (current >= extent.physical_block &&
+            current - extent.physical_block < extent.block_count)
+            return PROSENJITFS_ECORRUPT;
 
         /* allocator_stage(current, 1, 0) changes the bitmap block
          * covering the extent-metadata block; the metadata block itself is
