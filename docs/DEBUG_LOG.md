@@ -55,3 +55,21 @@ Synced commits:
 ### Status
 
 These are build/link blockers only; clean build and QEMU runtime verification remain required. No ProsenjitFS source was changed in this step.
+
+## 2026-10-07 — Link-stage correction: freestanding kernel cannot rely on builtin strcmp lowering
+
+### Diagnosis
+
+The previous `__builtin_strcmp` replacement did not remove the linker dependency: with the kernel's freestanding `-fno-builtin` build configuration, GCC still emitted calls to the external `strcmp` symbol for these non-constant comparisons. The clean build therefore continued to fail in `service_manager.o` and `vfs_provider.o` with undefined `strcmp` references.
+
+### Fix
+
+Replaced the remaining `__builtin_strcmp` uses with small local byte-wise equality helpers in `kernel/service_manager.c` and `kernel/vfs_provider.c`. These helpers perform the required equality checks without introducing any libc dependency.
+
+Synced commits:
+- d8e5e6c — avoid libc strcmp in service manager
+- 25889a8 — avoid libc strcmp in VFS provider
+
+### Status
+
+This correction specifically addresses the observed link failure. A clean build must be rerun before any runtime or ProsenjitFS diagnosis continues.
