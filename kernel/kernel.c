@@ -344,6 +344,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("\n");
     physical_page_free(test_page);
     serial_write("ProsenjitOS: page allocation/free test passed\n");
+    if (physical_memory_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR physical memory deep self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: physical memory deep invariant self-test passed\n");
 
     if (paging_init() != 0) {
         serial_write("ProsenjitOS: ERROR virtual memory initialization failed\n");
@@ -364,6 +369,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR paging translation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (paging_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR paging deep self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
 
     if (heap_init() != 0) {
         serial_write("ProsenjitOS: ERROR kernel heap initialization failed\n");
@@ -382,6 +392,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     kfree(heap_test);
     serial_write("ProsenjitOS: kernel heap allocation/free test passed\n");
+    if (heap_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR kernel heap deep self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: kernel heap deep invariant self-test passed\n");
+    if (address_space_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR address-space deep self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: address-space deep isolation self-test passed\n");
     if (pros_log_selftest() != PROS_LOG_OK) {
         serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
