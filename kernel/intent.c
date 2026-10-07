@@ -189,6 +189,7 @@ enum pros_security_decision security_authorize(
     uint64_t *reason_out) {
     uint32_t reason = PROS_REASON_NONE;
     enum pros_security_decision decision = PROS_DECISION_DENY;
+    int quarantine_applied_here = 0;
 
     if (!process || process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE) {
@@ -255,7 +256,6 @@ record:
      * remembering whether this authorization call changed the process state.
      * Pre-existing quarantine must never be rolled back by an audit failure.
      */
-    int quarantine_applied_here = 0;
     if (decision == PROS_DECISION_QUARANTINE &&
         !security_is_quarantined(process)) {
         if (security_quarantine(process) != 0) {
