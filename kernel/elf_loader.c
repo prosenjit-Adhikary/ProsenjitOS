@@ -19,6 +19,7 @@
 #define ELF_TEST_CODE_VA PROSENJIT_USER_CODE_VA
 #define ELF_MAX_PHNUM 128u
 #define ELF_MAX_IMAGE 0x02000000ULL
+#define ELF_MAX_ALIGN 0x10000000ULL
 
 struct elf64_ehdr {
     uint8_t ident[16];
@@ -96,10 +97,15 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
             return PROS_ELF_EPERM;
         if (ph->align != 0 && (ph->align & (ph->align - 1)) != 0)
             return PROS_ELF_EFORMAT;
+        if (ph->align > ELF_MAX_ALIGN)
+            return PROS_ELF_EFORMAT;
         if (ph->align > 1 &&
             ((ph->vaddr & (ph->align - 1)) !=
              (ph->offset & (ph->align - 1))))
             return PROS_ELF_EFORMAT;
+        if (ph->vaddr < PROSENJIT_USER_STACK_TOP &&
+            seg_end > PROSENJIT_USER_STACK_VA)
+            return PROS_ELF_ECONFLICT;
 
         /* Loadable virtual ranges must not overlap. Overlap would make
          * page permissions ambiguous and could cause one segment to overwrite
@@ -164,7 +170,7 @@ int pros_elf_validate(const uint8_t *image, uint64_t size)
         eh->ident[4] != ELFCLASS64 || eh->ident[5] != ELFDATA2LSB ||
         eh->ident[6] != EV_CURRENT ||
         (eh->ident[7] != ELFOSABI_SYSV && eh->ident[7] != 3) ||
-        eh->type != ET_EXEC ||
+        (eh->type != ET_EXEC && eh->type != ET_DYN) ||
         eh->machine != EM_X86_64 || eh->version != EV_CURRENT ||
         eh->ehsize != sizeof(struct elf64_ehdr))
         return PROS_ELF_EFORMAT;
@@ -206,7 +212,7 @@ int pros_elf_selftest(void)
 
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -1;
     eh->type = ET_DYN;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -2;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -2;
     eh->type = ET_EXEC;
     if (pros_elf_validate(image, sizeof(*eh) - 1) != PROS_ELF_EBOUNDS) return -2;
 
@@ -218,22 +224,26 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EPERM) return -4;
     ph[0].flags = PF_R | PF_X;
 
-    ph[0].vaddr = 0x400000;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -5;
+    ph[0].vaddr = PROSENJIT_USER_STACK_VA;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -5;
     ph[0].vaddr = ELF_TEST_CODE_VA;
 
+    ph[0].align = ELF_MAX_ALIGN + 1ULL;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -6;
+    ph[0].align = ELF_PAGE;
+
     eh->entry = ELF_TEST_CODE_VA + 0x1000ULL;
-    if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -6;
+    if (pros_elf_validate(image, data_off + 4) == PROS_ELF_OK) return -7;
     eh->entry = ELF_TEST_CODE_VA;
 
     eh->phnum = 2;
     ph[1] = ph[0];
     ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -7;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
     eh->phnum = 1;
     ph[0].memsz = 0;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -8;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
 
     return PROS_ELF_OK;
 }
