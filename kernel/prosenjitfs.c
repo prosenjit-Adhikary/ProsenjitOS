@@ -6085,6 +6085,48 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -15);
 
         /*
+         * Bounded-truncate regression: eight independent extents exceed the
+         * v1 transaction budget. The operation must fail before changing EOF
+         * or allocation metadata.
+         */
+        {
+            struct pros_vfs_file file;
+            uint8_t marker_byte = 0xE1u;
+            uint32_t done = 0u;
+            uint64_t before_size;
+            struct pros_prosenjitfs_inode before_inode;
+
+            if (vfs_file_open(&fs.mount, "/truncate-bound.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            for (uint32_t n = 0u; n < 8u; ++n) {
+                if (vfs_file_seek(&file, (uint64_t)n * fs.sb.block_size) !=
+                        PROS_VFS_OK ||
+                    vfs_file_write(&file, &marker_byte, 1u, &done) !=
+                        PROS_VFS_OK ||
+                    done != 1u)
+                    return pfs_selftest_fail(__LINE__, -15);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-bound.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            if (prosenjitfs_read_inode(&fs, 1u, &before_inode) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            before_size = before_inode.size;
+            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                prosenjitfs_read_inode(&fs, 1u, &before_inode) !=
+                    PROSENJITFS_OK ||
+                before_inode.size != before_size ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
+
+        /*
          * Semantic corruption: preserve the inode checksum while replacing
          * its extent head with an impossible filesystem block. Mount can
          * remain structurally valid, but the first data access must fail
