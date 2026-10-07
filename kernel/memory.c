@@ -60,6 +60,29 @@ static inline int managed_test(uint64_t page) {
     return (managed_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
 }
 
+/*
+ * Keep the kernel freestanding: GCC may lower __builtin_popcountll() to
+ * the external libgcc helper __popcountdi2 when the target lacks POPCNT.
+ * The kernel is linked with -nostdlib and deliberately does not depend on
+ * libgcc, so use a local implementation instead.
+ */
+static inline uint64_t bitmap_popcount64(uint64_t value) {
+    value = value - ((value >> 1) & 0x5555555555555555ULL);
+    value = (value & 0x3333333333333333ULL) +
+            ((value >> 2) & 0x3333333333333333ULL);
+    value = (value + (value >> 4)) & 0x0F0F0F0F0F0F0F0FULL;
+    return (value * 0x0101010101010101ULL) >> 56;
+}
+
+static inline uint64_t bitmap_ctz64(uint64_t value) {
+    uint64_t count = 0;
+    while ((value & 1ULL) == 0) {
+        value >>= 1;
+        ++count;
+    }
+    return count;
+}
+
 static void reserve_range(uint64_t base, uint64_t length) {
     if (length == 0 || base >= PROSENJIT_PHYS_LIMIT) return;
 
@@ -160,7 +183,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     /* Report the number of pages currently managed after reservations. */
     total_pages = 0;
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word)
-        total_pages += __builtin_popcountll(managed_bitmap[word]);
+        total_pages += bitmap_popcount64(managed_bitmap[word]);
     return free_pages != 0 ? 0 : -5;
 }
 
@@ -168,7 +191,7 @@ uint64_t physical_page_alloc(void) {
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word) {
         uint64_t bits = page_bitmap[word];
         if (bits != 0) {
-            uint64_t bit = (uint64_t)__builtin_ctzll(bits);
+            uint64_t bit = bitmap_ctz64(bits);
             uint64_t page = (word << 6) + bit;
             if (page >= MAX_PAGES) {
                 ++failed_allocations;
