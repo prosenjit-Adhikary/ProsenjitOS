@@ -90,6 +90,10 @@ Runtime compile/QEMU execution remains required before this source-level hardeni
 
 The deterministic self-test now covers rmdir transaction crash stages 1–9. Before the durable commit, the empty directory must remain removable after simulated power loss; at/after the durable commit, the directory must already be absent and must be safely recreatable and removable again. Each cycle also runs the consistency oracle, covering namespace, inode and allocation cleanup.
 
+## Native ProsenjitFS interrupted rmdir recovery — 2026-10-07
+
+The self-test now interrupts journal replay for a committed empty-directory removal at recovery stages 10 and 11, simulates a second power loss, and verifies that the next mount keeps the directory removed. It then recreates/removes the same pathname and runs the consistency oracle to cover post-recovery allocation reuse and journal retirement.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
