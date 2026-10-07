@@ -2263,6 +2263,7 @@ static int pfs_unlink_tx_target_add(const struct pros_prosenjitfs *fs,
                                      uint32_t capacity)
 {
     if (!fs || !targets || !count || capacity == 0u ||
+        capacity > PROSENJITFS_MAX_TX_BLOCKS ||
         target < 2u || target >= fs->sb.total_blocks)
         return PROSENJITFS_EINVAL;
     {
