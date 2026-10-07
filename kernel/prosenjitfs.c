@@ -2302,9 +2302,15 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     pfs_put32(dir_block + offsetof(struct pros_prosenjitfs_dir_index, checksum),
         pfs_crc_with_zero32(dir_block, sizeof(dir_index),
             (uint32_t)offsetof(struct pros_prosenjitfs_dir_index, checksum)));
+    pfs_zero(&freed_inode, sizeof(freed_inode));
+    freed_inode.type = PROSENJITFS_INODE_FREE;
+    rc = pfs_next_generation(child_inode.generation, &freed_inode.generation);
+    if (rc != PROSENJITFS_OK)
+        goto rmdir_out;
     pfs_zero(inode_block + inode_offset, sizeof(child_inode));
+    pfs_copy(inode_block + inode_offset, &freed_inode, sizeof(freed_inode));
     pfs_put32(inode_block + inode_offset + offsetof(struct pros_prosenjitfs_inode, checksum),
-        pfs_crc_with_zero32(inode_block + inode_offset, sizeof(child_inode),
+        pfs_crc_with_zero32(inode_block + inode_offset, sizeof(freed_inode),
             (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum)));
 
     rc = pfs_tx_reset(data->fs);
@@ -2343,6 +2349,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     struct pros_prosenjitfs_dir_index dir_index;
     struct pros_prosenjitfs_dir_entry entry;
     struct pros_prosenjitfs_inode child_inode;
+    struct pros_prosenjitfs_inode freed_inode;
     struct pros_prosenjitfs_inode freed_inode;
     uint8_t *dir_block = 0;
     uint8_t *prev_block = 0;
