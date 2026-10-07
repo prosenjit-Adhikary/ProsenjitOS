@@ -6429,7 +6429,7 @@ int prosenjitfs_selftest(void)
 
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                 pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
 
             if (vfs_file_open(&fs.mount, "/recovery.bin",
