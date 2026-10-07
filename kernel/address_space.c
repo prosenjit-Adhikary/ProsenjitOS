@@ -87,6 +87,8 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint64_t *pt = ensure_table(pd, PD_INDEX(virtual_address));
     if (!pt) return -1;
 
+    if (pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)
+        return -1;
     pt[PT_INDEX(virtual_address)] =
         (physical_address & PAGE_MASK) |
         PROSENJIT_PAGE_PRESENT |
