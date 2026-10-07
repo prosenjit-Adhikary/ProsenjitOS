@@ -1,5 +1,9 @@
 #include "process.h"
 #include "../../include/abi/syscall.h"
+#include "paging.h"
+#include "thread.h"
+
+extern int paging_switch_kernel(void);
 
 static struct pros_process *current_process;
 static int process_is_live(const struct pros_process *process);
@@ -33,14 +37,19 @@ int process_register(struct pros_process *process) {
 
 int process_unregister(struct pros_process *process) {
     if (!process || process->state != PROS_PROCESS_DEAD ||
-        process->address_space.root != 0)
+        process->address_space.root != 0 || process->object.refcount != 1 ||
+        thread_process_has_live(process))
         return -1;
     struct pros_process **link = &process_list;
     while (*link) {
         if (*link == process) {
             *link = process->next;
             process->next = 0;
-            if (current_process == process) current_process = 0;
+            if (current_process == process) {
+                current_process = 0;
+                (void)paging_switch_kernel();
+            }
+            (void)object_release(&process->object);
             return 0;
         }
         link = &(*link)->next;
@@ -117,8 +126,12 @@ int process_exit(struct pros_process *process, int32_t exit_code) {
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE) return -1;
     process->exit_code = exit_code;
+    if (thread_terminate_process(process) != 0) return -1;
     process->state = PROS_PROCESS_ZOMBIE;
-    if (current_process == process) current_process = 0;
+    if (current_process == process) {
+        current_process = 0;
+        if (paging_switch_kernel() != 0) return -1;
+    }
     return 0;
 }
 
@@ -127,8 +140,9 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
+    if (thread_process_has_live(child)) return -3;
     *exit_code = child->exit_code;
-    if (process_release_resources(child) != 0) return -3;
+    if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     return process_unregister(child);
 }
@@ -283,7 +297,15 @@ uint64_t process_transfer_handle_move(struct pros_process *source,
 }
 
 void process_set_current(struct pros_process *process) {
-    current_process = process_is_active(process) ? process : 0;
+    struct pros_process *next = process_is_active(process) ? process : 0;
+    if (next == current_process) return;
+    if (next) {
+        if (address_space_switch(&next->address_space) != 0) return;
+        current_process = next;
+    } else {
+        if (paging_switch_kernel() != 0) return;
+        current_process = 0;
+    }
 }
 
 struct pros_process *process_current(void) {
