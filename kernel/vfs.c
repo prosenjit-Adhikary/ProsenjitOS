@@ -527,6 +527,21 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+
+    /*
+     * Enforce the documented path byte limit before walking components.
+     * Counting only components would otherwise permit a path many times
+     * larger than PROS_VFS_PATH_MAX when it contains repeated separators.
+     */
+    {
+        uint64_t path_length = 0u;
+        while (path[path_length] != '\0') {
+            if (path_length >= PROS_VFS_PATH_MAX)
+                return PROS_VFS_EOVERFLOW;
+            ++path_length;
+        }
+    }
+
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
@@ -575,6 +590,22 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(current);
         current = next;
     }
+    /*
+     * A trailing separator is a type assertion: "/file/" must not resolve
+     * successfully as a regular file. Repeated trailing separators are
+     * already normalized by vfs_next_component().
+     */
+    {
+        uint64_t path_length = 0u;
+        while (path[path_length] != '\0')
+            ++path_length;
+        if (path_length > 0u && path[path_length - 1u] == '/' &&
+            current->type != PROS_VFS_NODE_DIRECTORY) {
+            vfs_vnode_put(current);
+            return PROS_VFS_ENOTDIR;
+        }
+    }
+
     *result = current;
     return PROS_VFS_OK;
 }
