@@ -74,6 +74,10 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     return 0;
 }
 
+int thread_process_is_current(const struct pros_process *process) {
+    return process && current_thread && current_thread->process == process;
+}
+
 int thread_process_has_live(const struct pros_process *process) {
     if (!process) return 0;
     for (struct pros_thread *thread = thread_registry; thread; thread = thread->registry_next)
