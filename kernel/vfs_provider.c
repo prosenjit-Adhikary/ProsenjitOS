@@ -281,8 +281,9 @@ int pros_vfs_provider_selftest(void)
     overflow.flags = 0u;
     overflow.ops = &ops;
     overflow.private_data = 0;
+    overflow.name[0] = '\0';
     for (uint32_t value = 0u; value < 256u; ++value) {
-        provider_test_name(overflow.name, value);
+        provider_test_name(overflow.name, 0xF0u + value);
         if (!pros_vfs_provider_find(overflow.name))
             break;
     }
