@@ -1316,6 +1316,47 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     keep_blocks = (size + data->fs->sb.block_size - 1u) /
                   data->fs->sb.block_size;
 
+    /*
+     * Publish the new logical EOF before reclaiming physical extents.
+     * Reclamation can require multiple journal transactions when a file has
+     * many extents. If power is lost between those transactions, recovery
+     * must never resurrect the old file size and expose blocks that have
+     * already been reclaimed. Keeping allocated_bytes unchanged until the
+     * reclamation pass finishes is intentional: during an interrupted
+     * shrink it can temporarily over-report allocation, but it cannot
+     * under-report blocks that remain allocated.
+     */
+    {
+        uint8_t inode_image[4096];
+        uint64_t inode_lba;
+        uint32_t inode_offset;
+        int rc = pfs_inode_block_location(data->fs, data->inode_number,
+                                           &inode_lba, &inode_offset);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_image);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        inode.size = size;
+        pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
+        pfs_put32(inode_image + inode_offset +
+                  offsetof(struct pros_prosenjitfs_inode, checksum),
+                  pfs_crc_with_zero32(inode_image + inode_offset,
+                                      sizeof(inode),
+                                      (uint32_t)offsetof(
+                                          struct pros_prosenjitfs_inode,
+                                          checksum)));
+        rc = pfs_tx_reset(data->fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        rc = pfs_tx_add(data->fs, inode_lba, inode_image);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        rc = pfs_tx_commit(data->fs);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+    }
+
     current = inode.extent_head;
     while (current != 0u) {
         struct pros_prosenjitfs_extent extent;
