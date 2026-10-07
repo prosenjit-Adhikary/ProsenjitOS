@@ -5722,7 +5722,103 @@ int prosenjitfs_selftest(void)
             pfs_read_extent(&fs, delayed_inode.extent_head,
                             &delayed_extent) != PROSENJITFS_OK ||
             delayed_extent.block_count != 2u ||
+            delayed_extent.physical_block > UINT64_MAX - 1u ||
             delayed_extent.physical_block + 1u != second_physical)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+    }
+
+    /*
+     * Sparse + delayed-allocation cross-regression: create a high logical
+     * extent first, then fill a lower hole and finally write the immediately
+     * following logical block. The lower two blocks must coalesce without
+     * disturbing the higher extent or over-counting allocated_bytes.
+     */
+    {
+        struct pros_vfs_file file;
+        struct pros_prosenjitfs_dir_entry entry;
+        struct pros_prosenjitfs_inode cross_inode;
+        struct pros_prosenjitfs_extent first_extent;
+        struct pros_prosenjitfs_extent second_extent;
+        uint8_t low_a = 0x5Au;
+        uint8_t low_b = 0xA5u;
+        uint8_t high = 0xE7u;
+        uint32_t done = 0u;
+        uint32_t bs = fs.sb.block_size;
+        uint64_t high_block = 4u;
+        uint64_t low_block = 2u;
+        uint64_t high_lba = 0u;
+
+        if (bs != 512u ||
+            vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK ||
+            vfs_file_write(&file, &high, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK ||
+            vfs_file_write(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_write(&file, &low_b, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry(&fs, &inode, "sparse-delalloc-cross.bin",
+                               &entry) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
+                PROSENJITFS_OK ||
+            cross_inode.size != (high_block * bs) + 1u ||
+            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.extent_head == 0u)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
+                PROSENJITFS_OK ||
+            first_extent.logical_block != low_block ||
+            first_extent.block_count != 2u ||
+            first_extent.next == 0u)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (pfs_read_extent(&fs, first_extent.next, &second_extent) !=
+                PROSENJITFS_OK ||
+            second_extent.logical_block != high_block ||
+            second_extent.block_count != 1u ||
+            second_extent.next != 0u)
+            return pfs_selftest_fail(__LINE__, -14);
+        high_lba = second_extent.physical_block;
+
+        if (vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK ||
+            vfs_file_read(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || low_a != 0x5Au ||
+            vfs_file_seek(&file, (low_block + 1u) * bs) != PROS_VFS_OK ||
+            vfs_file_read(&file, &low_b, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || low_b != 0xA5u ||
+            vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK ||
+            vfs_file_read(&file, &high, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || high != 0xE7u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -14);
+
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
+                PROSENJITFS_OK ||
+            cross_inode.allocated_bytes != bs * 2u ||
+            pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
+                PROSENJITFS_OK ||
+            first_extent.logical_block != low_block ||
+            first_extent.block_count != 2u ||
+            pfs_read_extent(&fs, first_extent.next, &second_extent) !=
+                PROSENJITFS_OK ||
+            second_extent.logical_block != high_block ||
+            second_extent.physical_block != high_lba)
             return pfs_selftest_fail(__LINE__, -14);
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
