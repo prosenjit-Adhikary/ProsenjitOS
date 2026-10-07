@@ -502,10 +502,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (!lifecycle_user_page ||
         process_create(&init_process, &lifecycle_parent, 6,
                        PROS_SECURITY_LIMITED) != 0 ||
-        address_space_map_user_page(&lifecycle_parent.address_space,
-                                    PROSENJIT_USER_TEST_VA,
-                                    lifecycle_user_page,
-                                    PROSENJIT_PAGE_WRITABLE) != 0 ||
+        address_space_map_user_page_owned(&lifecycle_parent.address_space,
+                                          PROSENJIT_USER_TEST_VA,
+                                          lifecycle_user_page,
+                                          PROSENJIT_PAGE_WRITABLE) != 0 ||
         process_grant_handle(&lifecycle_parent, &lifecycle_object,
                              PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
         lifecycle_object.refcount != 2 ||
@@ -517,7 +517,6 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    physical_page_free(lifecycle_user_page);
     if (physical_memory_free_pages() != lifecycle_free_before) {
         serial_write("ProsenjitOS: ERROR address-space page-table cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -837,14 +836,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
         ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
 
-    if (address_space_map_user_page(&init_process.address_space,
-                                    PROSENJIT_USER_STACK_VA,
-                                    user_stack_page,
-                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
-        address_space_map_user_page(&init_process.address_space,
-                                    PROSENJIT_USER_TEST_VA,
-                                    user_data_page,
-                                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+    if (address_space_map_user_page_owned(&init_process.address_space,
+                                          PROSENJIT_USER_STACK_VA,
+                                          user_stack_page,
+                                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        address_space_map_user_page_owned(&init_process.address_space,
+                                          PROSENJIT_USER_TEST_VA,
+                                          user_data_page,
+                                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
         serial_write("ProsenjitOS: ERROR CPL3 user stack/data mapping failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
