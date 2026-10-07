@@ -166,9 +166,9 @@ int security_quarantine(struct pros_process *process) {
      */
     if (process_state(process) == PROS_PROCESS_RUNNING ||
         process_state(process) == PROS_PROCESS_READY)
-        process->security_reserved[0] = (uint8_t)process_state(process) + 1u;
+        process->quarantine_previous_state = (uint8_t)process_state(process) + 1u;
     else
-        process->security_reserved[0] = 0u;
+        process->quarantine_previous_state = 0u;
 
     process->quarantined = 1;
     if (process_state(process) == PROS_PROCESS_RUNNING ||
@@ -188,7 +188,7 @@ int security_clear_quarantine(struct pros_process *process) {
 
     process->quarantined = 0;
     if (process_state(process) == PROS_PROCESS_BLOCKED) {
-        uint8_t previous_state = process->security_reserved[0];
+        uint8_t previous_state = process->quarantine_previous_state;
         process->security_reserved[0] = 0u;
         if (previous_state != 0u)
             process->state = (uint32_t)previous_state - 1u;
