@@ -2066,7 +2066,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
         child_index.version = PROSENJITFS_VERSION;
         child_index.bucket_count = PROSENJITFS_DIR_BUCKETS;
         child_index.inode = inode_number;
-        child_index.generation = 1u;
+        child_index.generation = child_generation;
         pfs_copy(child_dir_block, &child_index, sizeof(child_index));
         pfs_put32(child_dir_block + offsetof(struct pros_prosenjitfs_dir_index,
                                              checksum),
