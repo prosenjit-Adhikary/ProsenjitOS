@@ -142,12 +142,21 @@ open handle from becoming an alias for a subsequently reused inode number.
 Closing a stale handle remains safe because close releases the VFS vnode
 reference without dereferencing the replaced inode.
 
-### Append serialization
+### Mutation serialization and deadlock discipline
 
-`O_APPEND` is serialized across the complete Native ProsenjitFS write
-operation. The lock covers authoritative inode-EOF selection, allocation,
-extent publication, data write, inode update, and journal commit. Append does
-not rely on a cached vnode EOF.
+All Native ProsenjitFS mutating VFS operations use one filesystem-wide,
+non-reentrant serialization lock: create, mkdir, unlink, rmdir, rename, write,
+and truncate. The lock covers the operation's authoritative inode state,
+allocation/extent publication and journal commit. `O_APPEND` additionally
+selects the current on-disk EOF while holding the same lock, so it never relies
+on a cached vnode EOF.
+
+The lock order is deliberately single-level: acquire the filesystem mutation
+lock, then access the block device/journal; lower-level transaction and bitmap
+helpers never acquire the filesystem lock. Rename therefore does not acquire
+one lock per parent directory and cannot invert parent-lock ordering. Read-only
+lookup/readdir paths remain lock-free and validate checksummed snapshots rather
+than taking a recursive mutation lock.
 
 ### Truncate crash contract
 
