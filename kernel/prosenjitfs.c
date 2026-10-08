@@ -3912,20 +3912,24 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
     uint64_t lba;
     int rc;
 
-    if (!fs) return -101;
-    if (!fs->scratch) return -102;
-    if (!fs->mount.device) return -103;
+    if (!fs || !fs->scratch || !fs->mount.device)
+        return PROSENJITFS_EINVAL;
+    if (fs->sb.block_size == 0u || fs->sb.block_size > 4096u)
+        return PROSENJITFS_ECORRUPT;
 
     pfs_zero(fs->scratch, fs->sb.block_size);
-    
+
     rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, 0u, &lba);
-    if (rc != PROSENJITFS_OK) return -104;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
-    if (rc != PROSENJITFS_OK) return -105;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     rc = pfs_flush(fs->mount.device);
-    if (rc != PROSENJITFS_OK) return -106;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     fs->tx.count = 0u;
     return PROSENJITFS_OK;
@@ -7148,6 +7152,8 @@ int prosenjitfs_selftest(void)
          * Restore a clean image before the journal/crash matrix. This keeps
          * the negative corruption fixture isolated from subsequent tests.
          */
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
         pfs_zero(&disk, sizeof(disk));
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
