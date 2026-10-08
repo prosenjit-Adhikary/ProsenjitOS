@@ -4541,10 +4541,10 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
  * bounded v1 implementation intentionally limits one request so the
  * journal transaction remains representable on every supported geometry.
  */
-int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
-                                   uint64_t inode_number,
-                                   uint64_t logical_block,
-                                   uint32_t count)
+static int pfs_preallocate_blocks_unlocked(struct pros_prosenjitfs *fs,
+                                              uint64_t inode_number,
+                                              uint64_t logical_block,
+                                              uint32_t count)
 {
     struct pros_prosenjitfs_inode inode;
     struct pros_prosenjitfs_extent tail;
@@ -4807,6 +4807,20 @@ run_found:
     if (rc != PROSENJITFS_OK)
         (void)pfs_tx_reset(fs);
     return rc == PROSENJITFS_OK ? pfs_tx_commit(fs) : rc;
+}
+
+int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
+                                   uint64_t inode_number,
+                                   uint64_t logical_block,
+                                   uint32_t count)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = pfs_preallocate_blocks_unlocked(fs, inode_number, logical_block, count);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
