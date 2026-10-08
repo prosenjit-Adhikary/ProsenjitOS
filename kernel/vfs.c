@@ -568,6 +568,15 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
         int lookup_rc = current->ops->lookup(current, component, &next);
         if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
             next->mount != mount) {
+            /*
+             * A successful lookup transfers one owned vnode reference to the
+             * caller.  A malformed provider result can still return a vnode
+             * alongside an error, or return a vnode that fails the mount/
+             * initialization contract.  Drop that transferred reference on
+             * every rejected result so a provider bug cannot leak a vnode.
+             */
+            if (next && next != current && next->initialized)
+                (void)vfs_vnode_put(next);
             vfs_vnode_put(current);
             return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
         }
