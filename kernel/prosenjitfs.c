@@ -6059,6 +6059,35 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -19);
     }
 
+    /* Open-file lifetime regression: namespace removal must not reclaim
+     * an inode that still has an active VFS file handle. */
+    {
+        struct pros_vfs_file file;
+        uint8_t value = 0xC3u;
+        uint8_t readback = 0u;
+        uint32_t done = 0u;
+        if (vfs_file_open(&fs.mount, "/open-unlink.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_file_open(&fs.mount, "/open-unlink.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_EBUSY ||
+            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
+            vfs_file_read(&file, &readback, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || readback != value ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/open-unlink.bin", &file.vnode) !=
+                PROS_VFS_ENOENT)
+            return pfs_selftest_fail(__LINE__, -20);
+    }
+
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
