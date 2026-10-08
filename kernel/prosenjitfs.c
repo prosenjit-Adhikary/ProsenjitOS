@@ -5654,6 +5654,14 @@ consistency_out:
     return rc;
 }
 
+/* Public read-only fsck foundation: reuse the exact validator exercised by
+ * the native regression suite so callers cannot accidentally get a weaker
+ * consistency definition than self-tests. */
+int prosenjitfs_consistency_check(const struct pros_prosenjitfs *fs)
+{
+    return pfs_selftest_consistency(fs);
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0u;
