@@ -366,6 +366,13 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode)
         return PROS_VFS_EINVAL;
+    /*
+     * UINT64_MAX is not a usable file position for this ABI: every
+     * non-zero-length I/O would overflow position + length. Reject it at
+     * seek time so callers cannot create a permanently invalid handle state.
+     */
+    if (position == UINT64_MAX)
+        return PROS_VFS_EOVERFLOW;
     file->position = position;
     return PROS_VFS_OK;
 }
