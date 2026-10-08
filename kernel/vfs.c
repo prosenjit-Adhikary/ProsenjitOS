@@ -1182,7 +1182,7 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -1;
-    if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+    if (vfs_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
         vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
@@ -1239,6 +1239,13 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_file_seek(&file, 1u) != PROS_VFS_OK)
         return -1;
     if (vfs_file_close(&file) != PROS_VFS_OK)
+        return -1;
+
+    if (vfs_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK)
+        return -1;
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY)
+        return -1;
+    if (vfs_dir_close(&dir) != PROS_VFS_OK)
         return -1;
     if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
         return -1;
