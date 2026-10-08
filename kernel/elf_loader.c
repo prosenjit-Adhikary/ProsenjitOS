@@ -420,11 +420,12 @@ static int build_initial_stack(struct pros_process *process,
         }
     }
 
-    /* The pointer block is placed below the strings and aligned once. */
-    sp &= ~0xFULL;
+    /* Place the pointer block below the strings and align the final
+     * initial stack pointer down to 16 bytes. */
     if (pointer_bytes > sp - PROSENJIT_USER_STACK_VA)
         return PROS_ELF_EBOUNDS;
     sp -= pointer_bytes;
+    sp &= ~0xFULL;
     if (sp < PROSENJIT_USER_STACK_VA)
         return PROS_ELF_EBOUNDS;
 
