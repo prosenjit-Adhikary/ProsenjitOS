@@ -6257,6 +6257,23 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /* Open-directory lifetime regression: rmdir must not reclaim an inode
+     * while a VFS directory handle still owns the vnode reference. */
+    {
+        struct pros_vfs_dir dir;
+        if (vfs_mkdir(&fs.mount, "/open-rmdir") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+        if (vfs_dir_open(&fs.mount, "/open-rmdir", &dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+        if (vfs_rmdir(&fs.mount, "/open-rmdir") != PROS_VFS_EBUSY) {
+            (void)vfs_dir_close(&dir);
+            return pfs_selftest_fail(__LINE__, -21);
+        }
+        if (vfs_dir_close(&dir) != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/open-rmdir") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+    }
+
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
