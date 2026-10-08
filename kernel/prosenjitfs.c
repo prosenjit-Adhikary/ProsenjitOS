@@ -4554,10 +4554,10 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
  * bounded v1 implementation intentionally limits one request so the
  * journal transaction remains representable on every supported geometry.
  */
-int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
-                                   uint64_t inode_number,
-                                   uint64_t logical_block,
-                                   uint32_t count)
+static int prosenjitfs_preallocate_blocks_unlocked(struct pros_prosenjitfs *fs,
+                                           uint64_t inode_number,
+                                           uint64_t logical_block,
+                                           uint32_t count)
 {
     struct pros_prosenjitfs_inode inode;
     struct pros_prosenjitfs_extent tail;
@@ -4822,8 +4822,8 @@ run_found:
     return rc == PROSENJITFS_OK ? pfs_tx_commit(fs) : rc;
 }
 
-int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
-                             uint32_t count, uint64_t *first_block)
+static int prosenjitfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
+                                      uint32_t count, uint64_t *first_block)
 {
     uint64_t run_start = 0u;
     uint64_t run = 0u;
@@ -4900,8 +4900,8 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
-int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
-                            uint64_t first_block, uint32_t count)
+static int prosenjitfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
+                                     uint64_t first_block, uint32_t count)
 {
     int rc;
 
@@ -5012,8 +5012,8 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
     return pfs_tx_commit(fs);
 }
 
-int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
-                            uint64_t *inode_number)
+static int prosenjitfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
+                                     uint64_t *inode_number)
 {
     uint64_t bits_per_block;
     uint8_t block[4096];
@@ -5090,9 +5090,9 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
-int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
-                            uint64_t inode_number,
-                            const struct pros_prosenjitfs_inode *inode)
+static int prosenjitfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
+                                      uint64_t inode_number,
+                                      const struct pros_prosenjitfs_inode *inode)
 {
     uint64_t byte_offset;
     uint64_t block_lba;
@@ -5133,6 +5133,73 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
             return rc;
         return pfs_tx_commit(fs);
     }
+}
+
+/* Public allocator/inode mutation entry points share the same
+ * filesystem-wide serialization as VFS mutations.  The unlocked bodies may
+ * call lower-level bitmap/transaction helpers without recursive locking. */
+int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
+                                   uint64_t inode_number,
+                                   uint64_t logical_block,
+                                   uint32_t count)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = prosenjitfs_preallocate_blocks_unlocked(fs, inode_number,
+                                                 logical_block, count);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
+                             uint32_t count, uint64_t *first_block)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = prosenjitfs_alloc_blocks_unlocked(fs, count, first_block);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
+                            uint64_t first_block, uint32_t count)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = prosenjitfs_free_blocks_unlocked(fs, first_block, count);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
+                            uint64_t *inode_number)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = prosenjitfs_alloc_inode_unlocked(fs, inode_number);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
+                            uint64_t inode_number,
+                            const struct pros_prosenjitfs_inode *inode)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = prosenjitfs_write_inode_unlocked(fs, inode_number, inode);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 int prosenjitfs_mount(struct pros_prosenjitfs *fs,
