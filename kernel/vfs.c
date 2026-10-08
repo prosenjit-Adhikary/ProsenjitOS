@@ -485,11 +485,19 @@ int vfs_vnode_put(struct pros_vfs_vnode *vnode)
         return PROS_VFS_EINVAL;
     --vnode->refcount;
     if (vnode->refcount == 0u) {
+        struct pros_vfs_vnode *parent = vnode->parent;
         void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
         if (release)
             release(vnode);
-        else
-            vnode->initialized = 0u;
+        vnode->initialized = 0u;
+        vnode->parent = 0;
+        /*
+         * vfs_vnode_init() acquires one parent reference for every child.
+         * Drop exactly that reference when the child reaches its final
+         * reference, after the child has become unreachable.
+         */
+        if (parent && parent != vnode)
+            vfs_vnode_put(parent);
     }
     return PROS_VFS_OK;
 }
@@ -1094,8 +1102,10 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint64_t offset,
 {
     struct vfs_selftest_node *node =
         (struct vfs_selftest_node *)file->private_data;
-    if (!node || !buffer || offset > UINT32_MAX || offset > node->size)
+    if (!node || !buffer)
         return PROS_VFS_EINVAL;
+    if (offset >= (uint64_t)node->size)
+        return 0;
     uint32_t available = node->size - (uint32_t)offset;
     uint32_t take = length < available ? length : available;
     for (uint32_t i = 0; i < take; ++i)
@@ -1146,7 +1156,7 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -1;
-    if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+    if (vfs_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
         vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
