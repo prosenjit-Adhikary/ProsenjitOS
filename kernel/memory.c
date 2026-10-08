@@ -145,7 +145,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
 
-    while (current + 8ULL <= end) {
+    while (current <= end && end - current >= 8ULL) {
         const struct multiboot_tag *tag = (const struct multiboot_tag *)(uintptr_t)current;
         if (tag->type == MULTIBOOT2_TAG_END) break;
         if (tag->size < 8u || current + tag->size > end) return -3;
@@ -159,7 +159,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
             uint64_t entries_end = current + mmap->size;
 
             for (uint64_t p = entries_start;
-                 p + mmap->entry_size <= entries_end;
+                 p <= entries_end &&
+                 entries_end - p >= mmap->entry_size;
                  p += mmap->entry_size) {
                 const struct multiboot_mmap_entry *entry =
                     (const struct multiboot_mmap_entry *)(uintptr_t)p;
@@ -168,7 +169,10 @@ int physical_memory_init(uint64_t multiboot_info_address) {
             }
         }
 
-        current = (current + (uint64_t)tag->size + 7ULL) & ~7ULL;
+        uint64_t next = current + (uint64_t)tag->size;
+        if (next > UINT64_MAX - 7ULL)
+            return -3;
+        current = (next + 7ULL) & ~7ULL;
     }
 
     /*
