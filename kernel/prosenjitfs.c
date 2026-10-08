@@ -3171,16 +3171,17 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
 
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
 {
-    struct pros_vfs_vnode *parent;
     if (!vnode)
         return;
-    parent = vnode->parent;
-    vnode->parent = 0;
+    /*
+     * vfs_vnode_put() owns the final parent-reference release.  The provider
+     * release callback only tears down provider-private state; releasing the
+     * parent here as well would double-drop the reference acquired by
+     * vfs_vnode_init() and could prematurely destroy an ancestor vnode.
+     */
     if (vnode->private_data)
         kfree(vnode->private_data);
     vnode->private_data = 0;
-    if (parent)
-        vfs_vnode_put(parent);
     vnode->initialized = 0u;
     kfree(vnode);
 }
