@@ -973,6 +973,15 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode); return PROS_VFS_EINVAL;
     }
     file->vnode = vnode;
+    if (file->ops->open) {
+        rc = file->ops->open(file);
+        if (rc != PROS_VFS_OK) {
+            file->vnode = 0;
+            file->open = 0u;
+            vfs_vnode_put(vnode);
+            return rc;
+        }
+    }
     return PROS_VFS_OK;
 }
 
