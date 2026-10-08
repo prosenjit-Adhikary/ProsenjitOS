@@ -373,6 +373,8 @@ int address_space_validate_user_range(const struct pros_address_space *space,
         if ((pml4e & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
             (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
             return -1;
+        if (write_access && !(pml4e & PROSENJIT_PAGE_WRITABLE))
+            return -1;
 
         uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
         uint64_t pdpte = pdpt[PDPT_INDEX(va)];
@@ -380,12 +382,16 @@ int address_space_validate_user_range(const struct pros_address_space *space,
             (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
             (pdpte & LARGE_PAGE_FLAG))
             return -1;
+        if (write_access && !(pdpte & PROSENJIT_PAGE_WRITABLE))
+            return -1;
 
         uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
         uint64_t pde = pd[PD_INDEX(va)];
         if ((pde & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
             (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
             (pde & LARGE_PAGE_FLAG))
+            return -1;
+        if (write_access && !(pde & PROSENJIT_PAGE_WRITABLE))
             return -1;
 
         uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
@@ -461,6 +467,27 @@ int address_space_selftest(void) {
 
     physical_page_free(physical);
 
+    /* A read-only ancestor must not permit or report a writable leaf. */
+    uint64_t second_physical = physical_page_alloc();
+    if (!second_physical)
+        return -7;
+    uint32_t test_pml4i = PML4_INDEX(PROSENJIT_USER_TEST_VA);
+    space.root[test_pml4i] &= ~PROSENJIT_PAGE_WRITABLE;
+    if (address_space_map_user_page(&space,
+                                    PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                    second_physical,
+                                    PROSENJIT_PAGE_WRITABLE |
+                                    PROSENJIT_PAGE_NX) == 0 ||
+        address_space_validate_user_range(&space,
+                                          PROSENJIT_USER_TEST_VA,
+                                          PROSENJIT_PAGE_SIZE,
+                                          1) == 0) {
+        physical_page_free(second_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
+    physical_page_free(second_physical);
+
     if (address_space_validate_user_range(&space,
                                            PROSENJIT_USER_TEST_VA,
                                            0, 0) == 0 ||
@@ -481,7 +508,7 @@ int address_space_selftest(void) {
 
     if (address_space_destroy(&space) != 0 || space.root != 0 ||
         space.owned_pages != 0)
-        return -8;
+        return -9;
 
     return 0;
 }
