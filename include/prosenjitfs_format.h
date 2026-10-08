@@ -121,4 +121,24 @@ struct __attribute__((packed)) pros_prosenjitfs_journal_commit {
     uint32_t checksum;
 };
 
+/*
+ * On-disk layout is part of the filesystem ABI.  These assertions deliberately
+ * use the packed sizes rather than compiler-default alignment so a toolchain
+ * change cannot silently alter the persistent format.
+ */
+typedef char prosenjitfs_superblock_size_must_be_132[
+    sizeof(struct pros_prosenjitfs_superblock) == 132u ? 1 : -1];
+typedef char prosenjitfs_inode_size_must_be_256[
+    sizeof(struct pros_prosenjitfs_inode) == PROSENJITFS_INODE_SIZE ? 1 : -1];
+typedef char prosenjitfs_extent_size_must_be_44[
+    sizeof(struct pros_prosenjitfs_extent) == 44u ? 1 : -1];
+typedef char prosenjitfs_dir_index_size_must_be_284[
+    sizeof(struct pros_prosenjitfs_dir_index) == 284u ? 1 : -1];
+typedef char prosenjitfs_dir_entry_size_must_be_288[
+    sizeof(struct pros_prosenjitfs_dir_entry) == 288u ? 1 : -1];
+typedef char prosenjitfs_journal_header_size_must_be_148[
+    sizeof(struct pros_prosenjitfs_journal_header) == 148u ? 1 : -1];
+typedef char prosenjitfs_journal_commit_size_must_be_20[
+    sizeof(struct pros_prosenjitfs_journal_commit) == 20u ? 1 : -1];
+
 #endif
