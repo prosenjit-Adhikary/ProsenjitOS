@@ -852,6 +852,8 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
     return pfs_next_generation(old_inode.generation, generation);
 }
 
+static int pfs_vnode_lookup_unlocked(struct pros_vfs_vnode *parent, const char *name,
+                                   struct pros_vfs_vnode **result);
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
@@ -882,6 +884,7 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .release = pfs_vnode_release
 };
 
+static int pfs_file_read_unlocked(struct pros_vfs_file *, uint64_t, uint32_t, void *);
 static int pfs_file_read(struct pros_vfs_file *, uint64_t, uint32_t, void *);
 static int pfs_file_write(struct pros_vfs_file *, uint64_t, uint32_t, const void *);
 static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
@@ -1085,8 +1088,8 @@ static int pfs_file_write_error(uint32_t done, int rc)
     }
 }
 
-static int pfs_file_read(struct pros_vfs_file *file, uint64_t offset,
-                         uint32_t length, void *buffer)
+static int pfs_file_read_unlocked(struct pros_vfs_file *file, uint64_t offset,
+                                   uint32_t length, void *buffer)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
@@ -1165,6 +1168,25 @@ static int pfs_file_read(struct pros_vfs_file *file, uint64_t offset,
         done += want;
     }
     return (int)done;
+}
+
+static int pfs_file_read(struct pros_vfs_file *file, uint64_t offset,
+                         uint32_t length, void *buffer)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+    int rc;
+
+    if (!file || !file->vnode || !file->vnode->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    fs = data->fs;
+    if (!fs || !fs->mount.active)
+        return PROS_VFS_EPERM;
+    pfs_io_lock(fs);
+    rc = pfs_file_read_unlocked(file, offset, length, buffer);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint64_t offset,
@@ -3049,6 +3071,25 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
 }
 
 
+static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+    int rc;
+
+    if (!parent || !parent->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)parent->private_data;
+    fs = data->fs;
+    if (!fs || !fs->mount.active)
+        return PROS_VFS_EPERM;
+    pfs_io_lock(fs);
+    rc = pfs_vnode_lookup_unlocked(parent, name, result);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
 static int pfs_vnode_create_unlocked(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result)
 {
@@ -3517,8 +3558,8 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
     return PROSENJITFS_ENOENT;
 }
 
-static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result)
+static int pfs_vnode_lookup_unlocked(struct pros_vfs_vnode *parent, const char *name,
+                                   struct pros_vfs_vnode **result)
 {
     struct pfs_vnode_data *data;
     if (!parent || !name || !result || !parent->private_data ||
