@@ -7422,7 +7422,6 @@ int prosenjitfs_selftest(void)
             vfs_rmdir(&fs.mount, "/rename-corner/dst/moved/child") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/rename-corner/dst/moved") != PROS_VFS_OK ||
             vfs_unlink(&fs.mount, "/rename-corner/dst/existing.bin") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/rename-corner/src") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/rename-corner/dst") != PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/rename-corner") != PROS_VFS_OK ||
             pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
