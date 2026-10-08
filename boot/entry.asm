@@ -86,6 +86,8 @@ long_mode_entry:
 
     ; Enable CPU memory-protection features that are safe at this stage.
     call cpu_security_init
+    test eax, eax
+    jz .security_halt
 
     ; Pass the original Multiboot2 values to C:
     ; System V x86-64 ABI: RDI, RSI.
@@ -142,17 +144,15 @@ cpu_security_init:
     mov eax, 0x80000000
     cpuid
     cmp eax, 0x80000001
-    jb .done
+    jb .no_nx
     mov eax, 0x80000001
     cpuid
     test edx, (1 << 20)
-    jz .done
+    jz .no_nx
     mov ecx, 0xC0000080
     rdmsr
     or eax, (1 << 11)
     wrmsr
-    mov eax, 1
-.done:
     ; Load a long-mode TSS with RSP0 pointing at the kernel bootstrap stack.
     mov rax, tss64
     mov word [gdt64 + gdt64.tss_low + 0], 103
@@ -178,7 +178,20 @@ cpu_security_init:
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
+    mov eax, 1
     ret
+
+.no_nx:
+    ; The paging layer relies on NX bits for W^X. Do not continue booting
+    ; without CPU NX support because setting XD would be a reserved-bit fault.
+    xor eax, eax
+    ret
+
+.security_halt:
+    cli
+.halt_security:
+    hlt
+    jmp .halt_security
 
 cpu_load_tss:
     ; Load the GDT again immediately before LTR so GDTR is known-good.
