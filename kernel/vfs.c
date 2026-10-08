@@ -309,7 +309,14 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
      * the inode since this vnode was created. The Native ProsenjitFS provider
      * selects the authoritative inode EOF under its append serialization.
      */
-    if (UINT64_MAX - file->position < (uint64_t)length)
+    /*
+     * O_APPEND resolves its write offset from the filesystem's authoritative
+     * EOF inside the provider. A stale/large file->position must therefore
+     * not cause a false overflow before the provider can select that EOF.
+     * Non-append writes still validate position + length at the VFS boundary.
+     */
+    if ((file->flags & PROS_VFS_O_APPEND) == 0u &&
+        UINT64_MAX - file->position < (uint64_t)length)
         return PROS_VFS_EOVERFLOW;
     rc = file->ops->write(file, file->position, length, buffer);
     if (rc < 0) {
