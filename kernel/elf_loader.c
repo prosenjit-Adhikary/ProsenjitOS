@@ -227,7 +227,7 @@ int pros_elf_selftest(void)
      * mandatory p_vaddr/p_offset congruence modulo page size. */
     ph[0].align = 1;
     ph[0].offset = data_off + 1;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -15;
+    if (pros_elf_validate(image, data_off + 5) != PROS_ELF_EFORMAT) return -15;
     ph[0].offset = data_off;
     ph[0].align = ELF_PAGE;
     eh->type = 3u;
