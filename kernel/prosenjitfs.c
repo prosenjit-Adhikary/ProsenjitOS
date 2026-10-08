@@ -2089,23 +2089,14 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         return PROS_VFS_EIO;
     }
     /*
-     * A vnode keeps a non-owning parent pointer by default, but path lookup
-     * drops its current-vnode reference immediately after lookup() returns.
-     * Nested vnodes therefore must explicitly retain their parent or the
-     * parent becomes a dangling pointer as soon as lookup advances.
+     * vfs_vnode_init() acquires the single parent reference owned by this
+     * child vnode. Do not acquire another reference here: that would leak an
+     * extra parent reference for every path lookup result.
      */
-    if (parent && vfs_vnode_get(parent) != PROS_VFS_OK) {
-        kfree(data);
-        kfree(*result);
-        *result = 0;
-        return PROS_VFS_EINVAL;
-    }
     if (vfs_vnode_init(*result, &fs->mount, parent, type,
                        &pfs_vnode_ops,
                        type == PROS_VFS_NODE_FILE ? &pfs_file_ops : 0,
                        data, inode.size) != PROS_VFS_OK) {
-        if (parent)
-            vfs_vnode_put(parent);
         kfree(data);
         kfree(*result);
         *result = 0;
