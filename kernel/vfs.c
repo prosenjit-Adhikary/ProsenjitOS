@@ -286,7 +286,7 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
 
     if ((uint32_t)rc > length)
         return PROS_VFS_EIO;
-    file->position += (uint32_t)rc;
+    file->position += (uint64_t)(uint32_t)rc;
     *bytes_read = (uint32_t)rc;
     ++health_read_count;
     return PROS_VFS_OK;
@@ -321,7 +321,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     if ((file->flags & PROS_VFS_O_APPEND) != 0u)
         file->position = file->vnode->size;
     else
-        file->position += (uint32_t)rc;
+        file->position += (uint64_t)(uint32_t)rc;
     *bytes_written = (uint32_t)rc;
     ++health_write_count;
     return PROS_VFS_OK;
@@ -334,8 +334,6 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
-    if (size > 0xFFFFFFFFULL)
-        return PROS_VFS_EOVERFLOW;
     {
         int rc = file->ops->truncate(file, size);
         if (rc < 0) vfs_health_error(rc);
@@ -368,8 +366,6 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode)
         return PROS_VFS_EINVAL;
-    if (position > 0xFFFFFFFFULL)
-        return PROS_VFS_EOVERFLOW;
     file->position = position;
     return PROS_VFS_OK;
 }
