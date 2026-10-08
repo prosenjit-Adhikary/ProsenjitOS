@@ -258,7 +258,7 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->read || !bytes_read ||
-        !file->vnode || file->position > 0xFFFFFFFFULL)
+        !file->vnode)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
@@ -452,6 +452,10 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
         return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_FILE && (!file_ops || !file_ops->read ||
                                        !file_ops->close))
+        return PROS_VFS_EINVAL;
+    /* A child vnode owns one reference to its parent so that ".." traversal
+     * and release can never dereference a reclaimed parent. */
+    if (parent && vfs_vnode_get(parent) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
     vnode->mount = mount;
     vnode->parent = parent;
@@ -1194,13 +1198,12 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -1;
 
-    if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
+    /* An open file pins its vnode and parent chain; unmount must fail closed. */
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY)
         return -1;
-
-    if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
-        return -1;
-
     if (vfs_file_close(&file) != PROS_VFS_OK)
+        return -1;
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
         return -1;
 
     return 0;
