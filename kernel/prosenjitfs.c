@@ -17,6 +17,11 @@ static int pfs_vnode_create(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode **);
 static int pfs_vnode_mkdir(struct pros_vfs_vnode *, const char *,
                            struct pros_vfs_vnode **);
+static int pfs_vnode_mkdir_unlocked(struct pros_vfs_vnode *, const char *,
+                                    struct pros_vfs_vnode **);
+static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_create_unlocked(struct pros_vfs_vnode *, const char *,
+                                     struct pros_vfs_vnode **);
 static int pfs_vnode_rmdir(struct pros_vfs_vnode *, const char *);
 static uint32_t pfs_name_hash(const uint8_t *, uint32_t);
 static int pfs_utf8_name_valid(const char *, uint32_t *);
@@ -842,12 +847,91 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
 static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_rename_unlocked(struct pros_vfs_vnode *, const char *,
+                                     struct pros_vfs_vnode *, const char *);
 static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
                                    const struct pros_prosenjitfs_inode *,
                                    const char *,
                                    struct pros_prosenjitfs_dir_entry *,
                                    uint64_t *,
                                    uint64_t *);
+/*
+ * Mutation-lock discipline: Native ProsenjitFS uses one filesystem-wide,
+ * non-reentrant lock.  These callback wrappers are the only lock-taking
+ * namespace entry points; their *_unlocked implementations and lower-level
+ * transaction helpers never acquire the lock.  Therefore the lock order is
+ * a single node (fs->io_lock) followed by block-device/journal operations,
+ * with no nested filesystem lock acquisition and no lock inversion between
+ * parent directories during rename.
+ */
+static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data = parent
+        ? (struct pfs_vnode_data *)parent->private_data : 0;
+    if (!data || !data->fs)
+        return pfs_vnode_create_unlocked(parent, name, result);
+    pfs_io_lock(data->fs);
+    int rc = pfs_vnode_create_unlocked(parent, name, result);
+    pfs_io_unlock(data->fs);
+    return rc;
+}
+
+static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
+                           struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data = parent
+        ? (struct pfs_vnode_data *)parent->private_data : 0;
+    if (!data || !data->fs)
+        return pfs_vnode_mkdir_unlocked(parent, name, result);
+    pfs_io_lock(data->fs);
+    int rc = pfs_vnode_mkdir_unlocked(parent, name, result);
+    pfs_io_unlock(data->fs);
+    return rc;
+}
+
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
+{
+    struct pfs_vnode_data *data = parent
+        ? (struct pfs_vnode_data *)parent->private_data : 0;
+    if (!data || !data->fs)
+        return pfs_vnode_rmdir_unlocked(parent, name);
+    pfs_io_lock(data->fs);
+    int rc = pfs_vnode_rmdir_unlocked(parent, name);
+    pfs_io_unlock(data->fs);
+    return rc;
+}
+
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+{
+    struct pfs_vnode_data *data = parent
+        ? (struct pfs_vnode_data *)parent->private_data : 0;
+    if (!data || !data->fs)
+        return pfs_vnode_unlink_unlocked(parent, name);
+    pfs_io_lock(data->fs);
+    int rc = pfs_vnode_unlink_unlocked(parent, name);
+    pfs_io_unlock(data->fs);
+    return rc;
+}
+
+static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
+                            const char *old_name,
+                            struct pros_vfs_vnode *new_parent,
+                            const char *new_name)
+{
+    struct pfs_vnode_data *data = old_parent
+        ? (struct pfs_vnode_data *)old_parent->private_data : 0;
+    if (!data || !data->fs)
+        return pfs_vnode_rename_unlocked(old_parent, old_name,
+                                         new_parent, new_name);
+    pfs_io_lock(data->fs);
+    int rc = pfs_vnode_rename_unlocked(old_parent, old_name,
+                                       new_parent, new_name);
+    pfs_io_unlock(data->fs);
+    return rc;
+}
+
 static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
@@ -1526,24 +1610,26 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 {
     struct pfs_vnode_data *data = 0;
     struct pros_prosenjitfs *fs = 0;
-    int append = 0;
     int rc;
 
     if (file && file->vnode) {
         data = (struct pfs_vnode_data *)file->vnode->private_data;
         if (data)
             fs = data->fs;
-        append = (file->flags & PROS_VFS_O_APPEND) != 0u;
     }
-    if (append && fs)
+    /* Serialize every mutating file write, not only O_APPEND.  This keeps
+     * allocation/extent/inode publication atomic with respect to competing
+     * writers and establishes one lock domain for all Native ProsenjitFS
+     * mutations. */
+    if (fs)
         pfs_io_lock(fs);
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
-    if (append && fs)
+    if (fs)
         pfs_io_unlock(fs);
     return rc;
 }
 
-static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+static int pfs_file_truncate_unlocked(struct pros_vfs_file *file, uint64_t size)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
@@ -2014,6 +2100,25 @@ truncate_done:
     return PROS_VFS_OK;
 }
 
+static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    int rc;
+
+    if (file && file->vnode) {
+        data = (struct pfs_vnode_data *)file->vnode->private_data;
+        if (data)
+            fs = data->fs;
+    }
+    if (fs)
+        pfs_io_lock(fs);
+    rc = pfs_file_truncate_unlocked(file, size);
+    if (fs)
+        pfs_io_unlock(fs);
+    return rc;
+}
+
 static int pfs_file_close(struct pros_vfs_file *file)
 {
     return file && file->vnode ? PROS_VFS_OK : PROS_VFS_EINVAL;
@@ -2210,8 +2315,8 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
-static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
-                           struct pros_vfs_vnode **result)
+static int pfs_vnode_mkdir_unlocked(struct pros_vfs_vnode *parent, const char *name,
+                                   struct pros_vfs_vnode **result)
 {
     pfs_mkdir_diag_stage = 0u;
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
@@ -2418,7 +2523,7 @@ mkdir_out:
     }
 }
 
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *name)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode freed_inode;
@@ -2659,7 +2764,7 @@ rmdir_out:
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
-static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *name)
 {
     struct pfs_vnode_data *parent_data;
     struct pros_prosenjitfs_inode parent_inode;
@@ -2923,8 +3028,8 @@ out:
 }
 
 
-static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result)
+static int pfs_vnode_create_unlocked(struct pros_vfs_vnode *parent, const char *name,
+                                    struct pros_vfs_vnode **result)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode parent_inode;
@@ -3430,10 +3535,10 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
     }
 }
 
-static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
-                                  const char *old_name,
-                                  struct pros_vfs_vnode *new_parent,
-                                  const char *new_name)
+static int pfs_vnode_rename_unlocked(struct pros_vfs_vnode *old_parent,
+                                          const char *old_name,
+                                          struct pros_vfs_vnode *new_parent,
+                                          const char *new_name)
 {
     struct pfs_vnode_data *old_data;
     struct pfs_vnode_data *new_data;
