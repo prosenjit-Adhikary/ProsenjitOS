@@ -121,4 +121,24 @@ struct __attribute__((packed)) pros_prosenjitfs_journal_commit {
     uint32_t checksum;
 };
 
+/*
+ * The filesystem format is serialized, not compiler-native. These assertions
+ * make accidental field/padding changes a build-time format break instead of
+ * silently changing the on-disk ABI.
+ */
+_Static_assert(sizeof(struct pros_prosenjitfs_superblock) == 132u,
+               "ProsenjitFS superblock layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_inode) == PROSENJITFS_INODE_SIZE,
+               "ProsenjitFS inode layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_extent) == 44u,
+               "ProsenjitFS extent layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_dir_index) == 284u,
+               "ProsenjitFS directory-index layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_dir_entry) == 288u,
+               "ProsenjitFS directory-entry layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_journal_header) == 148u,
+               "ProsenjitFS journal-header layout changed");
+_Static_assert(sizeof(struct pros_prosenjitfs_journal_commit) == 20u,
+               "ProsenjitFS journal-commit layout changed");
+
 #endif
