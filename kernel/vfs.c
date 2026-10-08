@@ -960,7 +960,15 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         struct pros_vfs_vnode *created = 0;
         rc = vnode->ops->create(vnode, name, &created);
         vfs_vnode_put(vnode);
-        if (rc != PROS_VFS_OK) return rc;
+        if (rc != PROS_VFS_OK)
+            return rc;
+        if (!created || !created->initialized ||
+            created->mount != mount ||
+            created->type != PROS_VFS_NODE_FILE) {
+            if (created && created->initialized)
+                (void)vfs_vnode_put(created);
+            return PROS_VFS_EIO;
+        }
         vnode = created;
     } else if (rc != PROS_VFS_OK) {
         return rc;
