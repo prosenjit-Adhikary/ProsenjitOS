@@ -948,11 +948,16 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
             last_slash == 0xFFFFFFFFu || last_slash + 1u >= length)
             return PROS_VFS_EINVAL;
         uint32_t name_length = length - last_slash - 1u;
+        if (name_length == 0u)
+            return PROS_VFS_EINVAL;
         if (name_length > PROS_VFS_NAME_MAX)
             return PROS_VFS_EOVERFLOW;
         for (uint32_t i = 0u; i < name_length; ++i)
             name[i] = path[last_slash + 1u + i];
         name[name_length] = '\0';
+        if ((name_length == 1u && name[0] == '.') ||
+            (name_length == 2u && name[0] == '.' && name[1] == '.'))
+            return PROS_VFS_EINVAL;
         if (last_slash == 0u) {
             parent_path[0] = '/'; parent_path[1] = '\0';
         } else {
