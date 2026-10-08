@@ -7872,7 +7872,7 @@ int prosenjitfs_selftest(void)
      * safely replay the same complete replacement images again.
      */
     {
-        static const uint32_t recovery_stages[] = { 10u, 11u };
+        static const uint32_t recovery_stages[] = { 10u, 11u, 12u, 13u };
         uint8_t old_data[512];
         uint8_t new_data[512];
         uint8_t read_data[512];
