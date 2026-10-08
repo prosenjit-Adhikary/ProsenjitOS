@@ -7663,6 +7663,32 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
+    /*
+     * Both superblocks must agree even when both copies have individually
+     * valid checksums. Make only the primary validly different, verify the
+     * mount rejects the metadata fork, then restore the exact original byte.
+     */
+    {
+        uint8_t primary_backup[512];
+        struct pros_prosenjitfs_superblock divergent;
+        pfs_copy(primary_backup, disk.data, sizeof(primary_backup));
+        pfs_copy(&divergent, disk.data, sizeof(divergent));
+        if (divergent.transaction_sequence == UINT64_MAX)
+            divergent.transaction_sequence = 1u;
+        else
+            ++divergent.transaction_sequence;
+        pfs_copy(disk.data, &divergent, sizeof(divergent));
+        pfs_put32(disk.data + offsetof(struct pros_prosenjitfs_superblock,
+                                       checksum),
+                  pfs_crc_with_zero32(
+                      disk.data, divergent.header_size,
+                      (uint32_t)offsetof(
+                          struct pros_prosenjitfs_superblock, checksum)));
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -17);
+        pfs_copy(disk.data, primary_backup, sizeof(primary_backup));
+    }
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
