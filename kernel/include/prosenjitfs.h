@@ -21,6 +21,9 @@ struct pros_prosenjitfs {
     /* Serializes filesystem operations that must observe and publish one
      * authoritative inode state, notably O_APPEND. */
     volatile uint32_t io_lock;
+    /* In-memory open-file counts prevent unlink from reclaiming an inode
+     * while an active VFS file handle can still reference it. */
+    uint32_t open_file_refs[PROSENJITFS_MAX_INODES];
 };
 
 /* Kernel-only diagnostics and self-test entry points. */
