@@ -5656,6 +5656,16 @@ consistency_out:
     return rc;
 }
 
+/*
+ * Public read-only consistency entry point. The checker never mutates the
+ * filesystem image, so callers can use it after mount/recovery and before
+ * exposing a volume to higher layers.
+ */
+int prosenjitfs_check(const struct pros_prosenjitfs *fs)
+{
+    return pfs_selftest_consistency(fs);
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0u;
