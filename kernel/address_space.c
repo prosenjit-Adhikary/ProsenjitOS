@@ -57,6 +57,14 @@ static int physical_already_mapped(const struct pros_address_space *space,
     return 0;
 }
 
+static int table_empty(const uint64_t *table) {
+    if (!table) return 1;
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (table[i] & PROSENJIT_PAGE_PRESENT)
+            return 0;
+    return 1;
+}
+
 static uint64_t *alloc_table(void) {
     uint64_t physical = physical_page_alloc();
     if (!physical) return 0;
@@ -279,6 +287,27 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     }
     pt[PT_INDEX(virtual_address)] = 0;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+
+    /* Reclaim empty user page-table levels; otherwise repeated map/unmap
+     * cycles would leak four KiB paging pages even though the leaf page
+     * itself was released by the caller. */
+    uint32_t pdi = PD_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    uint64_t *pde_table = pd;
+    uint64_t *pdpt_table = pdpt;
+    if (table_empty(pt)) {
+        pd[pdi] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pt);
+    }
+    if (table_empty(pde_table)) {
+        pdpt[pdpti] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pd);
+    }
+    if (table_empty(pdpt_table)) {
+        space->root[pml4i] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pdpt);
+    }
     return 0;
 }
 
