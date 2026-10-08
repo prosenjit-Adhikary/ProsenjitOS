@@ -123,8 +123,7 @@ int address_space_map_user_page(struct pros_address_space *space,
         (physical_address & ~PAGE_MASK) != 0 ||
         physical_address == 0 ||
         physical_address >= PROSENJIT_PHYS_LIMIT ||
-        !physical_page_is_allocated(physical_address) ||
-        !physical_page_is_allocated(physical_address) ||
+        !physical_page_is_user_mappable(physical_address) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
