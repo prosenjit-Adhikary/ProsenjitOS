@@ -32,6 +32,10 @@ static void vfs_health_error(int rc)
         ++health_permission_error_count;
         code = 2u;
     }
+    else if (rc == PROS_VFS_ECORRUPT) {
+        ++health_corruption_error_count;
+        code = 3u;
+    }
     else if (rc == PROS_VFS_ENOENT || rc == PROS_VFS_ENOTDIR ||
              rc == PROS_VFS_ELOOP)
         ++health_lookup_error_count;
