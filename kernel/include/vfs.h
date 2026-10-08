@@ -62,6 +62,8 @@ struct pros_vfs_vnode_ops {
     int (*mkdir)(struct pros_vfs_vnode *, const char *,
                  struct pros_vfs_vnode **);
     int (*rmdir)(struct pros_vfs_vnode *, const char *);
+    int (*dir_open)(struct pros_vfs_vnode *);
+    int (*dir_close)(struct pros_vfs_vnode *);
     int (*unlink)(struct pros_vfs_vnode *, const char *);
     int (*rename)(struct pros_vfs_vnode *, const char *,
                   struct pros_vfs_vnode *, const char *);
