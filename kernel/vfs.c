@@ -278,10 +278,10 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
      * inode after this handle was opened. The filesystem read operation is
      * authoritative and may refresh the vnode size.
      */
-    if ((uint64_t)length > UINT32_MAX - file->position)
+    if (UINT64_MAX - file->position < (uint64_t)length)
         return PROS_VFS_EOVERFLOW;
 
-    rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
+    rc = file->ops->read(file, file->position, length, buffer);
     if (rc < 0) { vfs_health_error(rc); return rc; }
 
     if ((uint32_t)rc > length)
@@ -309,11 +309,9 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
      * the inode since this vnode was created. The Native ProsenjitFS provider
      * selects the authoritative inode EOF under its append serialization.
      */
-    if (file->position > 0xFFFFFFFFULL)
+    if (UINT64_MAX - file->position < (uint64_t)length)
         return PROS_VFS_EOVERFLOW;
-    if ((uint64_t)length > UINT32_MAX - file->position)
-        return PROS_VFS_EOVERFLOW;
-    rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
+    rc = file->ops->write(file, file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
         return rc;
