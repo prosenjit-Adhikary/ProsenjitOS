@@ -498,6 +498,18 @@ int address_space_selftest(void) {
 
     physical_page_free(physical);
 
+    /* Generic kernel pages must never be accepted by the user mapper. */
+    uint64_t kernel_physical = physical_page_alloc();
+    if (!kernel_physical ||
+        physical_page_is_user_mappable(kernel_physical) ||
+        address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
+                                    kernel_physical, PROSENJIT_PAGE_NX) == 0) {
+        if (kernel_physical) physical_page_free(kernel_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
+    physical_page_free(kernel_physical);
+
     /* A read-only ancestor must not permit or report a writable leaf. */
     uint64_t second_physical = physical_page_alloc_user();
     if (!second_physical)
