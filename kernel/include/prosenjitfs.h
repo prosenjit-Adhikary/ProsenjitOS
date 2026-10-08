@@ -24,6 +24,9 @@ struct pros_prosenjitfs {
     /* In-memory open-file counts prevent unlink from reclaiming an inode
      * while an active VFS file handle can still reference it. */
     uint32_t open_file_refs[PROSENJITFS_MAX_INODES];
+    /* Directory handles retain vnode references independently of file handles.
+     * rmdir must not reclaim an inode while such a handle is active. */
+    uint32_t open_dir_refs[PROSENJITFS_MAX_INODES];
 };
 
 /* Kernel-only diagnostics and self-test entry points. */
