@@ -391,6 +391,12 @@ static int build_initial_stack(struct pros_process *process,
         }
     }
 
+    /* Validate the pointer-vector footprint independently so the stack
+     * construction cannot rely on an arithmetic-only capacity check. */
+    if (argc > 64u || envc > 64u ||
+        (uint64_t)argc + (uint64_t)envc > 128u)
+        return PROS_ELF_EINVAL;
+
     uint64_t pointer_words = (uint64_t)argc + (uint64_t)envc + 3u;
     if (pointer_words > UINT64_MAX / sizeof(uint64_t))
         return PROS_ELF_EOVERFLOW;
