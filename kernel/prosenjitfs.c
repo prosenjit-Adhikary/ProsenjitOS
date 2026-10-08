@@ -2563,15 +2563,15 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                             (uint32_t)offsetof(
                                 struct pros_prosenjitfs_dir_entry,
                                 checksum)) != child_entry.checksum) {
-                        kfree(scan);
                         rc = PROSENJITFS_ECORRUPT;
-                        goto rmdir_out;
+                        goto rmdir_scan_out;
                     }
-                    kfree(scan);
                     rc = PROS_VFS_ENOTEMPTY;
-                    goto rmdir_out;
+                    goto rmdir_scan_out;
                 }
-                current = child_entry.next;
+rmdir_scan_out:
+                kfree(scan);
+                goto rmdir_out;
             }
         }
         kfree(scan);
