@@ -6881,7 +6881,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
-        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+        if (prosenjitfs_consistency_check(&fs) != PROSENJITFS_OK ||
             vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK ||
             node->size != 513u + sizeof(small_data) ||
