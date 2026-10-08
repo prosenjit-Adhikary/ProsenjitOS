@@ -1089,14 +1089,14 @@ static int vfs_selftest_close_file(struct pros_vfs_file *file)
     return PROS_VFS_OK;
 }
 
-static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
+static int vfs_selftest_read_file(struct pros_vfs_file *file, uint64_t offset,
                                   uint32_t length, void *buffer)
 {
     struct vfs_selftest_node *node =
         (struct vfs_selftest_node *)file->private_data;
-    if (!node || !buffer || offset > node->size)
+    if (!node || !buffer || offset > UINT32_MAX || offset > node->size)
         return PROS_VFS_EINVAL;
-    uint32_t available = node->size - offset;
+    uint32_t available = node->size - (uint32_t)offset;
     uint32_t take = length < available ? length : available;
     for (uint32_t i = 0; i < take; ++i)
         ((uint8_t *)buffer)[i] = node->data[offset + i];
@@ -1178,6 +1178,11 @@ static int vfs_vnode_api_selftest(void)
         vfs_file_seek(&file, 6) != PROS_VFS_OK ||
         vfs_file_read(&file, output, 16, &done) != PROS_VFS_OK ||
         done != 3u || output[0] != 'v' ||
+        vfs_file_seek(&file, 0x100000000ULL) != PROS_VFS_OK ||
+        vfs_file_read(&file, output, 1u, &done) != PROS_VFS_OK ||
+        done != 0u ||
+        vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_OK ||
+        vfs_file_read(&file, output, 2u, &done) != PROS_VFS_EOVERFLOW ||
         vfs_file_close(&file) != PROS_VFS_OK)
         return -1;
 
