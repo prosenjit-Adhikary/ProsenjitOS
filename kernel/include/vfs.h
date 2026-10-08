@@ -69,6 +69,7 @@ struct pros_vfs_vnode_ops {
 };
 
 struct pros_vfs_file_ops {
+    int (*open)(struct pros_vfs_file *);
     int (*read)(struct pros_vfs_file *, uint64_t, uint32_t, void *);
     int (*write)(struct pros_vfs_file *, uint64_t, uint32_t, const void *);
     int (*truncate)(struct pros_vfs_file *, uint64_t);
