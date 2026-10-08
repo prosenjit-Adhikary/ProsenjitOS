@@ -854,9 +854,58 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
 
 static int pfs_vnode_lookup_unlocked(struct pros_vfs_vnode *parent, const char *name,
                                    struct pros_vfs_vnode **result);
+
+static int pfs_vnode_dir_open(struct pros_vfs_vnode *vnode)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+
+    if (!vnode || !vnode->private_data ||
+        vnode->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    fs = data->fs;
+    if (!fs || data->inode_number >= PROSENJITFS_MAX_INODES)
+        return PROS_VFS_EINVAL;
+
+    pfs_io_lock(fs);
+    if (fs->open_dir_refs[data->inode_number] == UINT32_MAX) {
+        pfs_io_unlock(fs);
+        return PROS_VFS_EOVERFLOW;
+    }
+    ++fs->open_dir_refs[data->inode_number];
+    pfs_io_unlock(fs);
+    return PROS_VFS_OK;
+}
+
+static int pfs_vnode_dir_close(struct pros_vfs_vnode *vnode)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+
+    if (!vnode || !vnode->private_data ||
+        vnode->type != PROS_VFS_NODE_DIRECTORY)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)vnode->private_data;
+    fs = data->fs;
+    if (!fs || data->inode_number >= PROSENJITFS_MAX_INODES)
+        return PROS_VFS_EINVAL;
+
+    pfs_io_lock(fs);
+    if (fs->open_dir_refs[data->inode_number] == 0u) {
+        pfs_io_unlock(fs);
+        return PROS_VFS_ESTALE;
+    }
+    --fs->open_dir_refs[data->inode_number];
+    pfs_io_unlock(fs);
+    return PROS_VFS_OK;
+}
+
 static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result);
 static int pfs_vnode_unlink(struct pros_vfs_vnode *, const char *);
+static int pfs_vnode_dir_open(struct pros_vfs_vnode *);
+static int pfs_vnode_dir_close(struct pros_vfs_vnode *);
 static int pfs_vnode_rename(struct pros_vfs_vnode *, const char *,
                             struct pros_vfs_vnode *, const char *);
 static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_prosenjitfs *,
@@ -879,6 +928,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .create = pfs_vnode_create,
     .mkdir = pfs_vnode_mkdir,
     .rmdir = pfs_vnode_rmdir,
+    .dir_open = pfs_vnode_dir_open,
+    .dir_close = pfs_vnode_dir_close,
     .unlink = pfs_vnode_unlink,
     .rename = pfs_vnode_rename,
     .release = pfs_vnode_release
@@ -2634,7 +2685,8 @@ static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *n
         rc = PROSENJITFS_ECORRUPT;
         goto rmdir_out;
     }
-    if (data->fs->open_file_refs[inode_number] != 0u) {
+    if (data->fs->open_file_refs[inode_number] != 0u ||
+        data->fs->open_dir_refs[inode_number] != 0u) {
         rc = PROS_VFS_EBUSY;
         goto rmdir_out;
     }
