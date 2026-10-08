@@ -487,15 +487,20 @@ int vfs_vnode_put(struct pros_vfs_vnode *vnode)
     if (vnode->refcount == 0u) {
         struct pros_vfs_vnode *parent = vnode->parent;
         void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
-        if (release)
+        /*
+         * The provider release callback owns the final vnode teardown. It
+         * may free the vnode itself, so no vnode field may be touched after
+         * the callback returns. Capture the parent first, then drop exactly
+         * the reference acquired by vfs_vnode_init().
+         */
+        if (release) {
             release(vnode);
+            if (parent && parent != vnode)
+                vfs_vnode_put(parent);
+            return PROS_VFS_OK;
+        }
         vnode->initialized = 0u;
         vnode->parent = 0;
-        /*
-         * vfs_vnode_init() acquires one parent reference for every child.
-         * Drop exactly that reference when the child reaches its final
-         * reference, after the child has become unreachable.
-         */
         if (parent && parent != vnode)
             vfs_vnode_put(parent);
     }
