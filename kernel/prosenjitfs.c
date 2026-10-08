@@ -863,7 +863,11 @@ static int __attribute__((unused)) pfs_find_dir_entry_lba(const struct pros_pros
                                    struct pros_prosenjitfs_dir_entry *,
                                    uint64_t *,
                                    uint64_t *);
-static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
+static int pfs_vnode_readdir_unlocked(struct pros_vfs_vnode *directory,
+                                      uint64_t *cookie,
+                                      struct pros_vfs_dirent *entry);
+static int pfs_vnode_readdir(struct pros_vfs_vnode *directory,
+                             uint64_t *cookie,
                              struct pros_vfs_dirent *entry);
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode);
 
@@ -3922,8 +3926,9 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent, const char *old_n
     return rc;
 }
 
-static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
-                             struct pros_vfs_dirent *entry)
+static int pfs_vnode_readdir_unlocked(struct pros_vfs_vnode *directory,
+                                      uint64_t *cookie,
+                                      struct pros_vfs_dirent *entry)
 {
     if (!directory || !cookie || !entry ||
         directory->type != PROS_VFS_NODE_DIRECTORY)
@@ -3981,6 +3986,31 @@ static int pfs_vnode_readdir(struct pros_vfs_vnode *directory, uint64_t *cookie,
         ++*cookie;
         return PROS_VFS_OK;
     }
+}
+
+static int pfs_vnode_readdir(struct pros_vfs_vnode *directory,
+                             uint64_t *cookie,
+                             struct pros_vfs_dirent *entry)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+    int rc;
+
+    if (!directory || !directory->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)directory->private_data;
+    fs = data->fs;
+    if (!fs || !fs->mount.active)
+        return PROS_VFS_EPERM;
+
+    /* Directory enumeration must serialize with create/unlink/rmdir/rename.
+     * Without the filesystem lock, a concurrent namespace mutation could
+     * change the directory index or entry chain between validation and the
+     * subsequent metadata reads, yielding stale/corrupt observations. */
+    pfs_io_lock(fs);
+    rc = pfs_vnode_readdir_unlocked(directory, cookie, entry);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 static int pfs_tx_reset(struct pros_prosenjitfs *fs)
