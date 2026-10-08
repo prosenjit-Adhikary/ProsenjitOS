@@ -2710,7 +2710,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     if (data) fs = data->fs;
     if (!fs) return PROS_VFS_EINVAL;
     pfs_io_lock(fs);
-    int rc = pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *name);
+    int rc = pfs_vnode_rmdir_unlocked(parent, name);
     pfs_io_unlock(fs);
     return rc;
 }
@@ -2986,7 +2986,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     if (data) fs = data->fs;
     if (!fs) return PROS_VFS_EINVAL;
     pfs_io_lock(fs);
-    int rc = pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *name);
+    int rc = pfs_vnode_unlink_unlocked(parent, name);
     pfs_io_unlock(fs);
     return rc;
 }
@@ -3165,8 +3165,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     if (data) fs = data->fs;
     if (!fs) return PROS_VFS_EINVAL;
     pfs_io_lock(fs);
-    int rc = pfs_vnode_create_unlocked(struct pros_vfs_vnode *parent, const char *name,
-                             struct pros_vfs_vnode **result);
+    int rc = pfs_vnode_create_unlocked(parent, name, result);
     pfs_io_unlock(fs);
     return rc;
 }
@@ -3861,8 +3860,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent, const char *old_n
     if (data) fs = data->fs;
     if (!fs) return PROS_VFS_EINVAL;
     pfs_io_lock(fs);
-    int rc = pfs_vnode_rename_unlocked(struct pros_vfs_vnode *old_parent, const char *old_name,
-                                   struct pros_vfs_vnode *new_parent, const char *new_name);
+    int rc = pfs_vnode_rename_unlocked(old_parent, old_name, new_parent, new_name);
     pfs_io_unlock(fs);
     return rc;
 }
