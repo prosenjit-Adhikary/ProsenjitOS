@@ -6082,13 +6082,7 @@ int prosenjitfs_selftest(void)
             done != 1u || readback != value ||
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
-        if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/open-unlink.bin", &file.vnode) !=
-                PROS_VFS_ENOENT)
-            return pfs_selftest_fail(__LINE__, -20);
-    }
-
-    /* Append semantics must use the current EOF even after an explicit seek. */
+        if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_OK)\n            return pfs_selftest_fail(__LINE__, -20);\n        {\n            struct pros_vfs_vnode *gone = 0;\n            if (vfs_path_lookup(&fs.mount, "/open-unlink.bin", &gone) !=\n                    PROS_VFS_ENOENT) {\n                if (gone) vfs_vnode_put(gone);\n                return pfs_selftest_fail(__LINE__, -20);\n            }\n        }\n    }\n\n    /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
         static const uint8_t first[] = { 'a', 'b', 'c' };
