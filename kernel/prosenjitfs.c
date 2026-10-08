@@ -5487,6 +5487,50 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                         rc = PROSENJITFS_ECORRUPT;
                         goto consistency_out;
                     }
+                    /*
+                     * A directory bucket is a namespace, not merely a
+                     * hash-chain.  A corrupted image containing two entries
+                     * with the same name would otherwise pass checksum,
+                     * inode-parent, and bitmap ownership checks while making
+                     * lookup semantics dependent on chain order.  The normal
+                     * insertion path already rejects EEXIST; the consistency
+                     * checker must reject the same condition after corruption
+                     * or an incomplete recovery.
+                     *
+                     * This is intentionally a bounded checker-only scan:
+                     * every earlier entry in this bucket has already been
+                     * validated by this loop, and the chain itself is bounded
+                     * by total_blocks.
+                     */
+                    {
+                        uint64_t prior = index.heads[bucket];
+                        uint64_t prior_steps = 0u;
+                        while (prior != current) {
+                            struct pros_prosenjitfs_dir_entry prior_entry;
+                            uint8_t prior_block[4096];
+
+                            if (++prior_steps > fs->sb.total_blocks ||
+                                prior < fs->sb.data_start ||
+                                prior >= fs->sb.total_blocks ||
+                                pfs_read_block(fs->mount.device, prior,
+                                               prior_block) !=
+                                    PROSENJITFS_OK) {
+                                rc = PROSENJITFS_ECORRUPT;
+                                goto consistency_out;
+                            }
+                            pfs_copy(&prior_entry, prior_block,
+                                     sizeof(prior_entry));
+                            if (prior_entry.name_hash == entry.name_hash &&
+                                prior_entry.name_length == entry.name_length &&
+                                pfs_compare((const uint8_t *)prior_entry.name,
+                                            (const uint8_t *)entry.name,
+                                            entry.name_length) == 0) {
+                                rc = PROSENJITFS_ECORRUPT;
+                                goto consistency_out;
+                            }
+                            prior = prior_entry.next;
+                        }
+                    }
                     {
                         struct pros_prosenjitfs_inode child;
                         int child_rc = prosenjitfs_read_inode(
