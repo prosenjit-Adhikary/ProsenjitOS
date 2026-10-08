@@ -4060,8 +4060,29 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
     rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
     if (rc != PROSENJITFS_OK) return -105;
 
+    /*
+     * The journal is now logically retired in the device cache. A crash
+     * before the retirement flush must still be safe: either the clear is
+     * durable, or the old committed journal remains and can be replayed.
+     */
+    {
+        int crash_rc = pfs_tx_crash_inject(12u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
+
     rc = pfs_flush(fs->mount.device);
     if (rc != PROSENJITFS_OK) return -106;
+
+    /*
+     * After the retirement flush the transaction is durably complete. A
+     * crash here must not require any additional in-memory state.
+     */
+    {
+        int crash_rc = pfs_tx_crash_inject(13u);
+        if (crash_rc != PROSENJITFS_OK)
+            return crash_rc;
+    }
 
     fs->tx.count = 0u;
     return PROSENJITFS_OK;
