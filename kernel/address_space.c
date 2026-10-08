@@ -112,7 +112,9 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t flags) {
     if (!space || !space->root || !user_va_valid(virtual_address)) return -1;
     if ((physical_address & 0xFFFULL) ||
-        (physical_address & ~PAGE_MASK) != 0 || physical_address == 0 ||
+        (physical_address & ~PAGE_MASK) != 0 ||
+        physical_address == 0 ||
+        physical_address >= PROSENJIT_PHYS_LIMIT ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
@@ -197,7 +199,9 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
                                       uint64_t flags) {
     if (!space || !space->root || !user_va_valid(virtual_address) ||
         (physical_address & 0xFFFULL) ||
-        (physical_address & ~PAGE_MASK) != 0 || physical_address == 0 ||
+        (physical_address & ~PAGE_MASK) != 0 ||
+        physical_address == 0 ||
+        physical_address >= PROSENJIT_PHYS_LIMIT ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
@@ -460,6 +464,10 @@ int address_space_selftest(void) {
         address_space_map_user_page(&space,
                                     0x0000800000000000ULL,
                                     physical,
+                                    PROSENJIT_PAGE_NX) == 0 ||
+        address_space_map_user_page(&space,
+                                    PROSENJIT_USER_TEST_VA,
+                                    PROSENJIT_PHYS_LIMIT,
                                     PROSENJIT_PAGE_NX) == 0) {
         address_space_destroy(&space);
         return -7;
