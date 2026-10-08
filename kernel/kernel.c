@@ -535,7 +535,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_object lifecycle_object;
     uint64_t lifecycle_handle = PROSENJIT_HANDLE_INVALID;
     uint64_t lifecycle_free_before = physical_memory_free_pages();
-    uint64_t lifecycle_user_page = physical_page_alloc();
+    uint64_t lifecycle_user_page = physical_page_alloc_user();
     object_init(&lifecycle_object, PROS_OBJECT_FILE);
     if (!lifecycle_user_page ||
         process_create(&init_process, &lifecycle_parent, 6,
@@ -930,7 +930,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * image, so map each image page into the fixed user code VA range.
      * User stack and test-data pages are private physical pages.
      */
-    uint64_t user_data_page = physical_page_alloc();
+    uint64_t user_data_page = physical_page_alloc_user();
     uint64_t user_text_start = (uint64_t)(uintptr_t)__user_text_start;
     uint64_t user_text_end = (uint64_t)(uintptr_t)__user_text_end;
 
