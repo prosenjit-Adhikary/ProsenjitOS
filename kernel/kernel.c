@@ -981,16 +981,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_elf_load_result elf_result;
     const char *elf_argv[] = { "/init", "elf-runtime" };
     const char *elf_envp[] = { "PROS_ELF_RUNTIME=1" };
-    if (pros_elf_load_with_args(&init_process, boot_user_elf,
-                                boot_elf_offset + user_text_size,
-                                elf_argv, 2u, elf_envp, 1u,
-                                &elf_result) != PROS_ELF_OK ||
+    int elf_load_rc = pros_elf_load_with_args(&init_process, boot_user_elf,
+                                              boot_elf_offset + user_text_size,
+                                              elf_argv, 2u, elf_envp, 1u,
+                                              &elf_result);
+    if (elf_load_rc != PROS_ELF_OK ||
         elf_result.entry != PROSENJIT_USER_CODE_VA ||
         elf_result.mapped_pages < 2u ||
         elf_result.stack_top < PROSENJIT_USER_STACK_VA ||
         elf_result.stack_top > PROSENJIT_USER_STACK_TOP ||
         (elf_result.stack_top & 0xFULL) != 0) {
-        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed\\n");
+        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed rc=");\n        serial_hex64((uint64_t)(int64_t)elf_load_rc);\n        serial_write("\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
