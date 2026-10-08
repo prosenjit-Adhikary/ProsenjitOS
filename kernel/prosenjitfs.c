@@ -878,8 +878,8 @@ static const struct pros_vfs_vnode_ops pfs_vnode_ops = {
     .release = pfs_vnode_release
 };
 
-static int pfs_file_read(struct pros_vfs_file *, uint32_t, uint32_t, void *);
-static int pfs_file_write(struct pros_vfs_file *, uint32_t, uint32_t, const void *);
+static int pfs_file_read(struct pros_vfs_file *, uint64_t, uint32_t, void *);
+static int pfs_file_write(struct pros_vfs_file *, uint64_t, uint32_t, const void *);
 static int pfs_file_truncate(struct pros_vfs_file *, uint64_t);
 static int pfs_file_close(struct pros_vfs_file *);
 
@@ -1081,7 +1081,7 @@ static int pfs_file_write_error(uint32_t done, int rc)
     }
 }
 
-static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
+static int pfs_file_read(struct pros_vfs_file *file, uint64_t offset,
                          uint32_t length, void *buffer)
 {
     struct pfs_vnode_data *data;
@@ -1163,7 +1163,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     return (int)done;
 }
 
-static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offset,
+static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint64_t offset,
                           uint32_t length, const void *buffer)
 {
     struct pfs_vnode_data *data;
@@ -1536,7 +1536,7 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
     return (int)done;
 }
 
-static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
+static int pfs_file_write(struct pros_vfs_file *file, uint64_t offset,
                           uint32_t length, const void *buffer)
 {
     struct pfs_vnode_data *data = 0;
