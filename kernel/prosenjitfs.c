@@ -2455,8 +2455,7 @@ static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
     if (data) fs = data->fs;
     if (!fs) return PROS_VFS_EINVAL;
     pfs_io_lock(fs);
-    int rc = pfs_vnode_mkdir_unlocked(struct pros_vfs_vnode *parent, const char *name,
-                            struct pros_vfs_vnode **result);
+    int rc = pfs_vnode_mkdir_unlocked(parent, name, result);
     pfs_io_unlock(fs);
     return rc;
 }
