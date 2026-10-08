@@ -1541,24 +1541,22 @@ static int pfs_file_write(struct pros_vfs_file *file, uint64_t offset,
 {
     struct pfs_vnode_data *data = 0;
     struct pros_prosenjitfs *fs = 0;
-    int append = 0;
     int rc;
 
     if (file && file->vnode) {
         data = (struct pfs_vnode_data *)file->vnode->private_data;
         if (data)
             fs = data->fs;
-        append = (file->flags & PROS_VFS_O_APPEND) != 0u;
     }
-    if (append && fs)
-        pfs_io_lock(fs);
+    if (!fs)
+        return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
-    if (append && fs)
-        pfs_io_unlock(fs);
+    pfs_io_unlock(fs);
     return rc;
 }
 
-static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+static int pfs_file_truncate_unlocked(struct pros_vfs_file *file, uint64_t size)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
@@ -2025,6 +2023,23 @@ truncate_done:
 
     file->vnode->size = size;
     return PROS_VFS_OK;
+}
+
+static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+    int rc;
+    if (!file || !file->vnode)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    if (!data || !data->fs)
+        return PROS_VFS_EINVAL;
+    fs = data->fs;
+    pfs_io_lock(fs);
+    rc = pfs_file_truncate_unlocked(file, size);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 static int pfs_file_close(struct pros_vfs_file *file)
