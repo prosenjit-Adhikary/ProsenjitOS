@@ -61,8 +61,8 @@ Every filesystem integration change must preserve:
 3. Native BIOS QEMU boot and native boot-handoff marker.
 4. Partition discovery self-test.
 5. ProsenjitFS native format/mount/allocation/journal/recovery regression.
-8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in, including allocation/reclamation and directory mutation regression.
-9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
+6. ProsenjitFS deterministic persistence/remount, crash-point, corruption/integrity-injection, and consistency-check regressions.
+7. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
 
 A native QEMU disk-device test is now a mandatory regression gate. The native image uses the kernel-visible ATA PIO path and the reserved MBR ProsenjitFS partition described above.
 
@@ -76,4 +76,4 @@ Do not reintroduce compatibility filesystem parsers into the kernel merely to ma
 
 ## Merge gate
 
-The ProsenjitFS implementation scope is now covered by deterministic memory-backed mutation tests and the native physical-LBA diagnostic gate. The implementation is not labeled CI-verified until a post-change GitHub Actions run successfully executes the workflow steps. Broader corruption/crash-point coverage and real power-loss validation remain separate reliability milestones.
+The ProsenjitFS implementation scope is covered by deterministic memory-backed mutation, remount/persistence, crash-point, corruption/integrity-injection, recovery/idempotence, consistency-check, and native physical-LBA tests. These source-level regressions must remain enabled and fail closed; they must not be weakened to make a build pass. The implementation is not labeled CI-verified until a post-change QEMU/native runtime execution produces passing evidence. Physical hardware power-loss durability remains a separate validation boundary.
