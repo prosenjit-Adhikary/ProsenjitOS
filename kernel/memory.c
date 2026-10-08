@@ -32,6 +32,8 @@ extern char __kernel_end[];
 static uint64_t page_bitmap[BITMAP_WORDS];
 /* managed_bitmap distinguishes allocator-owned pages from permanently reserved pages. */
 static uint64_t managed_bitmap[BITMAP_WORDS];
+/* Only explicitly user-allocated pages may be mapped into CPL3. */
+static uint64_t user_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
@@ -127,6 +129,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
         page_bitmap[i] = 0;
         managed_bitmap[i] = 0;
+        user_bitmap[i] = 0;
     }
     total_pages = 0;
     free_pages = 0;
@@ -207,6 +210,14 @@ uint64_t physical_page_alloc(void) {
     return 0;
 }
 
+uint64_t physical_page_alloc_user(void) {
+    uint64_t physical = physical_page_alloc();
+    if (!physical) return 0;
+    uint64_t page = physical / PROSENJIT_PAGE_SIZE;
+    user_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+    return physical;
+}
+
 int physical_page_is_allocated(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
         return 0;
@@ -216,12 +227,22 @@ int physical_page_is_allocated(uint64_t physical_address) {
     return !bitmap_test(page);
 }
 
+int physical_page_is_user_mappable(uint64_t physical_address) {
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
+        return 0;
+    uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
+    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
+        return 0;
+    return (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+}
+
 void physical_page_free(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
 
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
     if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page)) return;
 
+    user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
     bitmap_set(page);
     ++free_pages;
 }
