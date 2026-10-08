@@ -207,6 +207,15 @@ uint64_t physical_page_alloc(void) {
     return 0;
 }
 
+int physical_page_is_allocated(uint64_t physical_address) {
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
+        return 0;
+    uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
+    if (page >= MAX_PAGES || !managed_test(page))
+        return 0;
+    return !bitmap_test(page);
+}
+
 void physical_page_free(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
 
