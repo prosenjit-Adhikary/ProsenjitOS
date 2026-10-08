@@ -2223,7 +2223,7 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
-static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
+static int pfs_vnode_mkdir_unlocked(struct pros_vfs_vnode *parent, const char *name,
                            struct pros_vfs_vnode **result)
 {
     pfs_mkdir_diag_stage = 0u;
@@ -2431,7 +2431,22 @@ mkdir_out:
     }
 }
 
-static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_mkdir(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    if (parent) data = (struct pfs_vnode_data *)parent->private_data;
+    if (data) fs = data->fs;
+    if (!fs) return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    int rc = pfs_vnode_mkdir_unlocked(struct pros_vfs_vnode *parent, const char *name,
+                            struct pros_vfs_vnode **result);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *name)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode freed_inode;
@@ -2672,7 +2687,20 @@ rmdir_out:
     return (rc < 0 && rc <= -200000) ? rc : pfs_vfs_error(rc);
 }
 
-static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
+{
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    if (parent) data = (struct pfs_vnode_data *)parent->private_data;
+    if (data) fs = data->fs;
+    if (!fs) return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    int rc = pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *name);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+static int pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *name)
 {
     struct pfs_vnode_data *parent_data;
     struct pros_prosenjitfs_inode parent_inode;
@@ -2935,8 +2963,21 @@ out:
     return pfs_vfs_error(rc);
 }
 
+static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
+{
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    if (parent) data = (struct pfs_vnode_data *)parent->private_data;
+    if (data) fs = data->fs;
+    if (!fs) return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    int rc = pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *name);
+    pfs_io_unlock(fs);
+    return rc;
+}
 
-static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
+
+static int pfs_vnode_create_unlocked(struct pros_vfs_vnode *parent, const char *name,
                             struct pros_vfs_vnode **result)
 {
     struct pfs_vnode_data *data;
@@ -3098,6 +3139,21 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         return pfs_vfs_error(rc);
 
     return pfs_make_vnode(data->fs, inode_number, parent, result);
+}
+
+static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
+                             struct pros_vfs_vnode **result)
+{
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    if (parent) data = (struct pfs_vnode_data *)parent->private_data;
+    if (data) fs = data->fs;
+    if (!fs) return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    int rc = pfs_vnode_create_unlocked(struct pros_vfs_vnode *parent, const char *name,
+                             struct pros_vfs_vnode **result);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
@@ -3443,7 +3499,7 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
     }
 }
 
-static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
+static int pfs_vnode_rename_unlocked(struct pros_vfs_vnode *old_parent,
                                   const char *old_name,
                                   struct pros_vfs_vnode *new_parent,
                                   const char *new_name)
@@ -3778,6 +3834,22 @@ rename_out:
     if (old_dir_block) kfree(old_dir_block);
     if (new_dir_block) kfree(new_dir_block);
     if (inode_block) kfree(inode_block);
+    return rc;
+}
+
+static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent, const char *old_name,
+                                   struct pros_vfs_vnode *new_parent, const char *new_name)
+{
+    struct pfs_vnode_data *data = 0;
+    struct pros_prosenjitfs *fs = 0;
+    if (parent) data = (struct pfs_vnode_data *)parent->private_data;
+    if (old_parent) data = (struct pfs_vnode_data *)old_parent->private_data;
+    if (data) fs = data->fs;
+    if (!fs) return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    int rc = pfs_vnode_rename_unlocked(struct pros_vfs_vnode *old_parent, const char *old_name,
+                                   struct pros_vfs_vnode *new_parent, const char *new_name);
+    pfs_io_unlock(fs);
     return rc;
 }
 
