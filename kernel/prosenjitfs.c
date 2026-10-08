@@ -360,6 +360,21 @@ static int pfs_superblock_decode(const uint8_t *block,
     return PROSENJITFS_OK;
 }
 
+static int pfs_superblocks_equal(
+    const struct pros_prosenjitfs_superblock *a,
+    const struct pros_prosenjitfs_superblock *b)
+{
+    if (!a || !b)
+        return 0;
+    for (uint32_t i = 0u; i < sizeof(*a); ++i) {
+        const uint8_t *pa = (const uint8_t *)a;
+        const uint8_t *pb = (const uint8_t *)b;
+        if (pa[i] != pb[i])
+            return 0;
+    }
+    return 1;
+}
+
 static int pfs_superblock_valid(const uint8_t *block,
                                 uint32_t block_size,
                                 struct pros_prosenjitfs_superblock *sb)
@@ -5070,6 +5085,16 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     }
     backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK;
     if (!primary_ok && !backup_ok) {
+        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_ECORRUPT;
+    }
+    /*
+     * Both redundant copies are authoritative format metadata. If both pass
+     * their individual checksums but disagree, neither copy can be selected
+     * safely: accepting the primary would allow a validly checksummed
+     * metadata-layout fork to redirect later allocation/I/O. Fail closed.
+     */
+    if (primary_ok && backup_ok && !pfs_superblocks_equal(&primary, &backup)) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
