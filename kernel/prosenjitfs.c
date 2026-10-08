@@ -3842,7 +3842,6 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent, const char *old_n
 {
     struct pfs_vnode_data *data = 0;
     struct pros_prosenjitfs *fs = 0;
-    if (parent) data = (struct pfs_vnode_data *)parent->private_data;
     if (old_parent) data = (struct pfs_vnode_data *)old_parent->private_data;
     if (data) fs = data->fs;
     if (!fs) return PROS_VFS_EINVAL;
