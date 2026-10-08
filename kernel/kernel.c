@@ -991,7 +991,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         elf_result.stack_top < PROSENJIT_USER_STACK_VA ||
         elf_result.stack_top > PROSENJIT_USER_STACK_TOP ||
         (elf_result.stack_top & 0xFULL) != 0) {
-        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed rc=");\n        serial_hex64((uint64_t)(int64_t)elf_load_rc);\n        serial_write("\\n");
+        serial_write("ProsenjitOS: ERROR ELF userspace load/stack construction failed rc=");
+        serial_hex64((uint64_t)(int64_t)elf_load_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
