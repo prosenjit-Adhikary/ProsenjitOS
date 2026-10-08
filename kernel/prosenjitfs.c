@@ -5521,12 +5521,19 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                             pfs_copy(&prior_entry, prior_block,
                                      sizeof(prior_entry));
                             if (prior_entry.name_hash == entry.name_hash &&
-                                prior_entry.name_length == entry.name_length &&
-                                pfs_compare((const uint8_t *)prior_entry.name,
-                                            (const uint8_t *)entry.name,
-                                            entry.name_length) == 0) {
-                                rc = PROSENJITFS_ECORRUPT;
-                                goto consistency_out;
+                                prior_entry.name_length == entry.name_length) {
+                                uint32_t same = 1u;
+                                for (uint32_t ni = 0u;
+                                     ni < entry.name_length; ++ni) {
+                                    if (prior_entry.name[ni] != entry.name[ni]) {
+                                        same = 0u;
+                                        break;
+                                    }
+                                }
+                                if (same != 0u) {
+                                    rc = PROSENJITFS_ECORRUPT;
+                                    goto consistency_out;
+                                }
                             }
                             prior = prior_entry.next;
                         }
