@@ -4823,7 +4823,7 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
     return rc;
 }
 
-int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
+static int pfs_alloc_blocks_unlocked(struct pros_prosenjitfs *fs,
                              uint32_t count, uint64_t *first_block)
 {
     uint64_t run_start = 0u;
@@ -4901,7 +4901,7 @@ int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
     return PROSENJITFS_ENOSPC;
 }
 
-int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
+static int pfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
                             uint64_t first_block, uint32_t count)
 {
     int rc;
@@ -4921,6 +4921,30 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
     if (rc != PROSENJITFS_OK)
         return rc;
     return pfs_allocator_update(fs, first_block, count, 0u);
+}
+
+int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *fs,
+                             uint32_t count, uint64_t *first_block)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = pfs_alloc_blocks_unlocked(fs, count, first_block);
+    pfs_io_unlock(fs);
+    return rc;
+}
+
+int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
+                            uint64_t first_block, uint32_t count)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = pfs_free_blocks_unlocked(fs, first_block, count);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
