@@ -81,7 +81,7 @@ int partition_read_gpt(struct pros_block_device *device,
                        uint32_t capacity, uint32_t *count)
 {
     uint8_t header[512];
-    /* A supported GPT entry can be up to 1024 bytes and may start\n     * at a non-zero offset within a sector; keep enough room for the\n     * complete multi-sector span before indexing entry[offset + ...]. */\n    uint8_t entry[2048];
+    uint8_t entry[1024];
     uint64_t entries_lba;
     uint32_t header_size;
     uint32_t entry_count;
