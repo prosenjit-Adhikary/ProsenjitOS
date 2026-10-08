@@ -6915,6 +6915,71 @@ int prosenjitfs_selftest(void)
 
 
     /*
+     * Allocator rollback regression: a staging failure after an earlier
+     * bitmap mutation must discard the whole volatile transaction and leave
+     * the durable bitmap untouched.  This exercises rollback at the exact
+     * allocator staging boundary rather than only tx_add() capacity failure.
+     */
+    {
+        uint64_t rollback_block = fs.sb.data_start;
+        uint8_t bitmap_before[512];
+        uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+        uint64_t bitmap_lba;
+
+        if (fs.sb.block_size != sizeof(bitmap_before) ||
+            pfs_lba_add(&device, fs.sb.block_bitmap_start,
+                        rollback_block / bits_per_block, &bitmap_lba) !=
+                PROSENJITFS_OK ||
+            pfs_read_block(&device, bitmap_lba, bitmap_before) !=
+                PROSENJITFS_OK ||
+            pfs_tx_reset(&fs) != PROSENJITFS_OK ||
+            pfs_allocator_stage(&fs, rollback_block, 1u, 1u) !=
+                PROSENJITFS_OK ||
+            pfs_allocator_stage(&fs, rollback_block, 2u, 1u) !=
+                PROSENJITFS_EEXIST ||
+            fs.tx.count != 0u ||
+            pfs_read_block(&device, bitmap_lba, bitmap_before) !=
+                PROSENJITFS_OK ||
+            pfs_bitmap_bit(bitmap_before, rollback_block % bits_per_block))
+            return pfs_selftest_fail(__LINE__, -19);
+    }
+
+    /*
+     * Rename corner-case matrix: same-name no-op, existing destination,
+     * root protection, and directory-descendant cycle rejection.  These are
+     * namespace-only mutations and are cleaned up before the persistence
+     * stress section below.
+     */
+    {
+        struct pros_vfs_vnode *node = 0;
+        if (vfs_file_open(&fs.mount, "/rename-left",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/rename-right",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-left", "/rename-left") !=
+                PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-left", "/rename-right") !=
+                PROS_VFS_EEXIST ||
+            vfs_mkdir(&fs.mount, "/rename-dir") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/rename-dir/child") != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-dir",
+                       "/rename-dir/child/moved") != PROS_VFS_EINVAL ||
+            vfs_rename(&fs.mount, "/", "/rename-root") != PROS_VFS_EPERM ||
+            vfs_path_lookup(&fs.mount, "/rename-left", &node) !=
+                PROS_VFS_OK ||
+            vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/rename-left") != PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/rename-right") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-dir/child") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-dir") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+    }
+
+    /*
      * Full persistence/namespace/allocation regression.
      *
      * This deliberately crosses clean unmount/remount boundaries so that
