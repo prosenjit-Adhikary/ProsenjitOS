@@ -5013,8 +5013,8 @@ static int pfs_inode_bitmap_update(struct pros_prosenjitfs *fs,
     return pfs_tx_commit(fs);
 }
 
-int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
-                            uint64_t *inode_number)
+static int pfs_alloc_inode_unlocked(struct pros_prosenjitfs *fs,
+                                     uint64_t *inode_number)
 {
     uint64_t bits_per_block;
     uint8_t block[4096];
@@ -5050,6 +5050,18 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
         }
     }
     return PROSENJITFS_ENOSPC;
+}
+
+int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
+                            uint64_t *inode_number)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = pfs_alloc_inode_unlocked(fs, inode_number);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
@@ -5091,9 +5103,9 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     return PROSENJITFS_OK;
 }
 
-int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
-                            uint64_t inode_number,
-                            const struct pros_prosenjitfs_inode *inode)
+static int pfs_write_inode_unlocked(struct pros_prosenjitfs *fs,
+                                     uint64_t inode_number,
+                                     const struct pros_prosenjitfs_inode *inode)
 {
     uint64_t byte_offset;
     uint64_t block_lba;
@@ -5134,6 +5146,19 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
             return rc;
         return pfs_tx_commit(fs);
     }
+}
+
+int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
+                            uint64_t inode_number,
+                            const struct pros_prosenjitfs_inode *inode)
+{
+    int rc;
+    if (!fs)
+        return PROSENJITFS_EINVAL;
+    pfs_io_lock(fs);
+    rc = pfs_write_inode_unlocked(fs, inode_number, inode);
+    pfs_io_unlock(fs);
+    return rc;
 }
 
 int prosenjitfs_mount(struct pros_prosenjitfs *fs,
