@@ -2042,12 +2042,48 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     return rc;
 }
 
+static int pfs_file_open_ref(struct pros_vfs_file *file)
+{
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+    if (!file || !file->vnode || !file->vnode->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    fs = data->fs;
+    if (!fs || data->inode_number >= PROSENJITFS_MAX_INODES)
+        return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    if (fs->open_file_refs[data->inode_number] == UINT32_MAX) {
+        pfs_io_unlock(fs);
+        return PROS_VFS_EOVERFLOW;
+    }
+    ++fs->open_file_refs[data->inode_number];
+    pfs_io_unlock(fs);
+    return PROS_VFS_OK;
+}
+
 static int pfs_file_close(struct pros_vfs_file *file)
 {
-    return file && file->vnode ? PROS_VFS_OK : PROS_VFS_EINVAL;
+    struct pfs_vnode_data *data;
+    struct pros_prosenjitfs *fs;
+    if (!file || !file->vnode || !file->vnode->private_data)
+        return PROS_VFS_EINVAL;
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    fs = data->fs;
+    if (!fs || data->inode_number >= PROSENJITFS_MAX_INODES)
+        return PROS_VFS_EINVAL;
+    pfs_io_lock(fs);
+    if (fs->open_file_refs[data->inode_number] == 0u) {
+        pfs_io_unlock(fs);
+        return PROS_VFS_ESTALE;
+    }
+    --fs->open_file_refs[data->inode_number];
+    pfs_io_unlock(fs);
+    return PROS_VFS_OK;
 }
 
 static const struct pros_vfs_file_ops pfs_file_ops = {
+    .open = pfs_file_open_ref,
     .read = pfs_file_read,
     .write = pfs_file_write,
     .truncate = pfs_file_truncate,
