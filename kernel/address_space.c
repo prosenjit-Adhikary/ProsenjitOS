@@ -500,6 +500,15 @@ int address_space_selftest(void) {
     uint64_t second_physical = physical_page_alloc();
     if (!second_physical)
         return -7;
+    if (address_space_map_user_page(&space,
+                                    PROSENJIT_USER_TEST_VA,
+                                    second_physical,
+                                    PROSENJIT_PAGE_WRITABLE |
+                                    PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(second_physical);
+        address_space_destroy(&space);
+        return -7;
+    }
     uint32_t test_pml4i = PML4_INDEX(PROSENJIT_USER_TEST_VA);
     space.root[test_pml4i] &= ~PROSENJIT_PAGE_WRITABLE;
     if (address_space_map_user_page(&space,
@@ -510,7 +519,10 @@ int address_space_selftest(void) {
         address_space_validate_user_range(&space,
                                           PROSENJIT_USER_TEST_VA,
                                           PROSENJIT_PAGE_SIZE,
-                                          1) == 0) {
+                                          1) == 0 ||
+        address_space_unmap_user_page(&space,
+                                     PROSENJIT_USER_TEST_VA,
+                                     0) != 0) {
         physical_page_free(second_physical);
         address_space_destroy(&space);
         return -7;
