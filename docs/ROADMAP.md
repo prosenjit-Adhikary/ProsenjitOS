@@ -95,8 +95,8 @@ The repository contains build/boot and security-architecture GitHub Actions work
   - [x] IPC channel queue/waiter concurrency lock
   - [x] Validated kernel user-copy primitives for IPC
   - [x] Fault-recoverable user-copy with page-fault fixup
-  - [x] Per-CPU usercopy fault state for SMP
-  - [x] SMP-safe scheduler/run-queue locking
+  - [ ] Per-CPU usercopy fault state for SMP
+  - [ ] SMP-safe scheduler/run-queue locking
 
 ## Phase 4 — Security foundation
 - [x] Per-process security identity
