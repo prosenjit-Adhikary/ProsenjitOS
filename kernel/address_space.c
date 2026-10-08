@@ -449,7 +449,7 @@ int address_space_selftest(void) {
     if (address_space_create(&space) != 0)
         return -1;
 
-    physical = physical_page_alloc();
+    physical = physical_page_alloc_user();
     if (!physical) {
         address_space_destroy(&space);
         return -2;
@@ -499,7 +499,7 @@ int address_space_selftest(void) {
     physical_page_free(physical);
 
     /* A read-only ancestor must not permit or report a writable leaf. */
-    uint64_t second_physical = physical_page_alloc();
+    uint64_t second_physical = physical_page_alloc_user();
     if (!second_physical)
         return -7;
     if (address_space_map_user_page(&space,
