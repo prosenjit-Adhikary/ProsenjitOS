@@ -38,6 +38,9 @@ int prosenjitfs_mount(struct pros_prosenjitfs *, struct pros_block_device *,
                       uint8_t read_only);
 int prosenjitfs_unmount(struct pros_prosenjitfs *);
 
+/* Read-only native consistency/FSCK foundation. */
+int prosenjitfs_check(const struct pros_prosenjitfs *);
+
 int prosenjitfs_alloc_blocks(struct pros_prosenjitfs *, uint32_t, uint64_t *);
 /* Keep-size contiguous preallocation; v1 bounds one request to eight blocks. */
 int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *, uint64_t,
