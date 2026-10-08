@@ -271,6 +271,18 @@ int physical_memory_selftest(void) {
     if (free_pages != before - 1ULL)
         return -2;
 
+    /* User classification is explicit and is cleared on free. */
+    uint64_t user = physical_page_alloc_user();
+    if (!user || !physical_page_is_user_mappable(user) ||
+        !physical_page_is_allocated(user)) {
+        if (user) physical_page_free(user);
+        return -3;
+    }
+    physical_page_free(user);
+    if (physical_page_is_user_mappable(user) ||
+        physical_page_is_allocated(user))
+        return -3;
+
     /* Double-free must not inflate the free-page count. */
     physical_page_free(a);
     if (free_pages != before - 1ULL)
