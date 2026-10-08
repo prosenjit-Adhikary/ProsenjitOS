@@ -3217,11 +3217,14 @@ static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
      * parent here as well would double-drop the reference acquired by
      * vfs_vnode_init() and could prematurely destroy an ancestor vnode.
      */
+    /* The VFS owns the vnode allocation and performs the final free
+     * after this callback returns. The provider release callback owns only
+     * provider-private state; freeing the vnode here would leave
+     * vfs_vnode_put() dereferencing freed memory while dropping the parent
+     * reference. */
     if (vnode->private_data)
         kfree(vnode->private_data);
     vnode->private_data = 0;
-    vnode->initialized = 0u;
-    kfree(vnode);
 }
 
 
