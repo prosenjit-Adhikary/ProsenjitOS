@@ -123,11 +123,21 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint32_t pti = PT_INDEX(virtual_address);
     uint64_t *root = space->root;
     uint64_t old_pml4e = root[pml4i];
+    /* Every paging level covering a user mapping must carry USER=1.
+     * Never turn an existing supervisor-only hierarchy into a user mapping. */
+    if ((old_pml4e & PROSENJIT_PAGE_PRESENT) &&
+        (!(old_pml4e & PROSENJIT_PAGE_USER) ||
+         (old_pml4e & LARGE_PAGE_FLAG)))
+        return -1;
     uint64_t *pdpt = ensure_table(root, pml4i);
     if (!pdpt) return -1;
     int created_pdpt = !(old_pml4e & PROSENJIT_PAGE_PRESENT);
 
     uint64_t old_pdpte = pdpt[pdpti];
+    if ((old_pdpte & PROSENJIT_PAGE_PRESENT) &&
+        (!(old_pdpte & PROSENJIT_PAGE_USER) ||
+         (old_pdpte & LARGE_PAGE_FLAG)))
+        return -1;
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
         if (created_pdpt) {
@@ -139,6 +149,10 @@ int address_space_map_user_page(struct pros_address_space *space,
     int created_pd = !(old_pdpte & PROSENJIT_PAGE_PRESENT);
 
     uint64_t old_pde = pd[pdi];
+    if ((old_pde & PROSENJIT_PAGE_PRESENT) &&
+        (!(old_pde & PROSENJIT_PAGE_USER) ||
+         (old_pde & LARGE_PAGE_FLAG)))
+        return -1;
     uint64_t *pt = ensure_table(pd, pdi);
     if (!pt) {
         if (created_pd) {
