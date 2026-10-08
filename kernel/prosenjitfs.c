@@ -2597,6 +2597,22 @@ static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *n
         goto rmdir_out;
     }
 
+    /*
+     * Do not reclaim a directory inode or its directory-index block while a
+     * VFS file handle still refers to that inode.  The unlink path already
+     * applies this lifetime rule to regular files; rmdir must enforce the
+     * same rule before publishing inode/bitmap reclamation, otherwise a
+     * concurrent close/read path could observe a reclaimed inode.
+     */
+    if (inode_number >= PROSENJITFS_MAX_INODES) {
+        rc = PROSENJITFS_ECORRUPT;
+        goto rmdir_out;
+    }
+    if (data->fs->open_file_refs[inode_number] != 0u) {
+        rc = PROS_VFS_EBUSY;
+        goto rmdir_out;
+    }
+
     /* A directory is removable only when every bucket is empty. */
     {
         uint8_t *scan = (uint8_t *)kmalloc(data->fs->sb.block_size);
