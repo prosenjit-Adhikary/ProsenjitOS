@@ -3644,8 +3644,28 @@ static int pfs_vnode_lookup_unlocked(struct pros_vfs_vnode *parent, const char *
             *result = parent;
             return PROS_VFS_OK;
         }
+        /*
+         * The generic VFS path walker already holds the current vnode's
+         * parent reference.  The vnode returned for ".." must therefore use
+         * that parent as its own parent; skipping one additional level would
+         * corrupt the vnode parent chain and make repeated ".." traversal
+         * semantically incorrect.
+         *
+         * When a parent vnode is available, cross-check its inode number
+         * against the on-disk parent_inode before constructing the result.
+         * This keeps provider-level ".." lookup fail-closed if namespace
+         * metadata and the vnode chain disagree.
+         */
+        if (parent && parent->parent) {
+            struct pfs_vnode_data *parent_data =
+                (struct pfs_vnode_data *)parent->parent->private_data;
+            if (!parent_data ||
+                parent_data->fs != data->fs ||
+                parent_data->inode_number != dir_inode.parent_inode)
+                return PROS_VFS_ESTALE;
+        }
         return pfs_make_vnode(data->fs, dir_inode.parent_inode,
-                              parent && parent->parent ? parent->parent->parent : NULL,
+                              parent ? parent->parent : NULL,
                               result);
     }
 
