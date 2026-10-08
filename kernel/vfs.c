@@ -466,8 +466,10 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
                    void *private_data,
                    uint64_t size)
 {
-    if (!vnode || !mount || !ops ||
-        (type != PROS_VFS_NODE_FILE && type != PROS_VFS_NODE_DIRECTORY))
+    if (!vnode || !mount || !mount->device || !ops ||
+        (type != PROS_VFS_NODE_FILE && type != PROS_VFS_NODE_DIRECTORY) ||
+        (parent && (!parent->initialized || parent->mount != mount ||
+                    parent == vnode)))
         return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_DIRECTORY && (!ops->lookup || !ops->readdir))
         return PROS_VFS_EINVAL;
@@ -540,7 +542,7 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     uint32_t components = 0;
 
     if (!mount || !path || !result || !mount->active || !mount->root ||
-        path[0] == '\0')
+        path[0] != '/')
         return PROS_VFS_EINVAL;
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
@@ -990,8 +992,10 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
 {
     struct pros_vfs_vnode *vnode;
     int rc;
-    if (!dir)
+    if (!dir || !mount || !mount->active)
         return PROS_VFS_EINVAL;
+    if (mount->open_count == 0xFFFFFFFFu)
+        return PROS_VFS_EOVERFLOW;
     rc = vfs_path_lookup(mount, path, &vnode);
     if (rc != PROS_VFS_OK)
         return rc;
@@ -1017,7 +1021,8 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
 
 int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
 {
-    if (!dir || !dir->open || !dir->vnode || !entry ||
+    if (!dir || !dir->open || !dir->vnode || !dir->vnode->mount ||
+        !dir->vnode->mount->active || !entry ||
         !dir->vnode->ops->readdir)
         return PROS_VFS_EINVAL;
     int rc = dir->vnode->ops->readdir(dir->vnode, &dir->cookie, entry);
