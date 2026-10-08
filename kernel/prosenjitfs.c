@@ -5960,6 +5960,58 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    /* Crash-recovery regression: replay a transaction after a partial home write. */
+    {
+        struct pros_vfs_file file;
+        uint8_t crash_data[700];
+        uint8_t crash_read[700];
+        uint32_t done = 0u;
+        for (uint32_t i = 0u; i < sizeof(crash_data); ++i)
+            crash_data[i] = (uint8_t)(0xE3u ^ (uint8_t)(i * 7u));
+
+        if (vfs_file_open(&fs.mount, "/crash-replay.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+
+        pfs_crash_inject_stage = 6u;
+        pfs_crash_injected = 0u;
+        if (vfs_file_open(&fs.mount, "/crash-replay.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        if (vfs_file_write(&file, crash_data, sizeof(crash_data), &done) >= 0 ||
+            !pfs_crash_injected) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -19);
+        }
+        (void)vfs_file_close(&file);
+
+        pfs_test_crash_reset(&fs, &disk);
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        if (vfs_file_open(&fs.mount, "/crash-replay.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, crash_read, sizeof(crash_read), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(crash_read)) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -19);
+        }
+        for (uint32_t i = 0u; i < sizeof(crash_read); ++i) {
+            if (crash_read[i] != crash_data[i]) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -19);
+            }
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+    }
+
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
