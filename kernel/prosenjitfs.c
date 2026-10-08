@@ -7013,49 +7013,66 @@ int prosenjitfs_selftest(void)
         }
     }
     /*
-     * Stale-handle regression: unlink immediately invalidates an inode
-     * generation, but the open VFS object remains safe to close. Reuse of
-     * the same inode number must never make the old handle target the new
-     * file.
+     * Stale-vnode regression: once the namespace inode is unlinked and its
+     * inode number is reused, an old vnode must never resolve to the new
+     * generation. Open-file unlink is intentionally rejected separately by
+     * the lifetime regression below.
      */
     {
-        struct pros_vfs_file stale;
+        struct pros_vfs_file file;
         struct pros_vfs_file replacement;
+        struct pros_vfs_vnode *stale_vnode = 0;
+        struct pfs_vnode_data *stale_data;
+        struct pros_prosenjitfs_inode stale_inode;
         uint8_t value = 0x31u;
         uint8_t replacement_value = 0xA7u;
-        uint8_t verify = 0u;
         uint32_t done = 0u;
+        int rc;
 
         if (vfs_file_open(&fs.mount, "/stale.bin",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                          PROS_VFS_O_CREATE, &stale) != PROS_VFS_OK ||
-            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_OK ||
-            done != 1u)
+                          PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, &value, 1u, &done) != PROS_VFS_OK ||
+            done != 1u ||
+            vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
+
+        if (vfs_path_lookup(&fs.mount, "/stale.bin", &stale_vnode) !=
+                PROS_VFS_OK || !stale_vnode || !stale_vnode->private_data)
+            return pfs_selftest_fail(__LINE__, -13);
+        stale_data = (struct pfs_vnode_data *)stale_vnode->private_data;
 
         if (vfs_unlink(&fs.mount, "/stale.bin") != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -13);
-
-        done = 0u;
-        if (vfs_file_read(&stale, &verify, 1u, &done) != PROS_VFS_ESTALE ||
-            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_ESTALE ||
-            vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE)
-            return pfs_selftest_fail(__LINE__, -13);
+            {
+                vfs_vnode_put(stale_vnode);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
 
         if (vfs_file_open(&fs.mount, "/stale.bin",
                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
-                          PROS_VFS_O_CREATE, &replacement) != PROS_VFS_OK ||
-            vfs_file_write(&replacement, &replacement_value, 1u, &done) !=
-                PROS_VFS_OK ||
-            done != 1u ||
-            vfs_file_close(&replacement) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -13);
-
+                          PROS_VFS_O_CREATE, &replacement) != PROS_VFS_OK)
+            {
+                vfs_vnode_put(stale_vnode);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
         done = 0u;
-        if (vfs_file_read(&stale, &verify, 1u, &done) != PROS_VFS_ESTALE ||
-            vfs_file_write(&stale, &value, 1u, &done) != PROS_VFS_ESTALE ||
-            vfs_file_truncate(&stale, 0u) != PROS_VFS_ESTALE ||
-            vfs_file_close(&stale) != PROS_VFS_OK)
+        if (vfs_file_write(&replacement, &replacement_value, 1u, &done) !=
+                PROS_VFS_OK || done != 1u ||
+            vfs_file_close(&replacement) != PROS_VFS_OK)
+            {
+                vfs_file_close(&replacement);
+                vfs_vnode_put(stale_vnode);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+
+        rc = pfs_vnode_validate_inode(stale_data, &stale_inode);
+        if (rc != PROSENJITFS_ESTALE)
+            {
+                vfs_vnode_put(stale_vnode);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+
+        if (vfs_vnode_put(stale_vnode) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
     }
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
