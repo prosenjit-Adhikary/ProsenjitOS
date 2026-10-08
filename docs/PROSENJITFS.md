@@ -147,7 +147,8 @@ reference without dereferencing the replaced inode.
 All Native ProsenjitFS mutating VFS operations use one filesystem-wide,
 non-reentrant serialization lock: create, mkdir, unlink, rmdir, rename, write,
 and truncate. The lock covers the operation's authoritative inode state,
-allocation/extent publication and journal commit. `O_APPEND` additionally
+allocation/extent publication and journal commit; the public native allocator,
+preallocation, and inode-write mutation APIs use the same lock domain. `O_APPEND` additionally
 selects the current on-disk EOF while holding the same lock, so it never relies
 on a cached vnode EOF.
 
