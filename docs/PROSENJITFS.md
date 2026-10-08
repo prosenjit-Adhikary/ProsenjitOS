@@ -191,3 +191,7 @@ Native ProsenjitFS block numbers remain volume-relative filesystem blocks.
 The validated LBA helper performs the device-sector conversion and the
 partition device remains responsible for applying partition-relative offset.
 Metadata, journal, and out-of-range targets are rejected before block I/O.
+
+## Final critical-scope source audit
+
+The filesystem-wide mutation lock is non-reentrant and has been audited across the Native ProsenjitFS mutation entry points: namespace mutation callbacks, file write/truncate callbacks, and public allocator/inode mutation APIs take the lock exactly once. Their internal `_unlocked` implementations and lower-level transaction/bitmap helpers do not reacquire it, avoiding recursive acquisition and lock-order inversion. Read-only lookup/readdir paths remain outside the mutation lock.
