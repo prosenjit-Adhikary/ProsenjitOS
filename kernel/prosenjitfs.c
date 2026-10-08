@@ -7369,6 +7369,67 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Rename corner-case matrix: same-name no-op, destination collision,
+     * same-directory rename, cross-directory directory move, and cycle
+     * prevention.  These assertions exercise namespace atomicity without
+     * relying on inode-number stability beyond the move itself.
+     */
+    {
+        struct pros_vfs_file file;
+        uint32_t done = 0u;
+        uint8_t byte = 0x7Bu;
+        struct pros_vfs_vnode *node = 0;
+
+        if (vfs_mkdir(&fs.mount, "/rename-corner") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/rename-corner/src") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/rename-corner/dst") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/rename-corner/src/child") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/rename-corner/src/file.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, &byte, 1u, &done) != PROS_VFS_OK ||
+            done != 1u || vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+
+        if (vfs_rename(&fs.mount, "/rename-corner/src/file.bin",
+                       "/rename-corner/src/file.bin") != PROS_VFS_OK ||
+            vfs_file_open(&fs.mount, "/rename-corner/dst/existing.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-corner/src/file.bin",
+                       "/rename-corner/dst/existing.bin") != PROS_VFS_EEXIST ||
+            vfs_path_lookup(&fs.mount, "/rename-corner/src/file.bin", &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-corner/src/file.bin",
+                       "/rename-corner/src/file-renamed.bin") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/rename-corner/src/file-renamed.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-corner/src",
+                       "/rename-corner/dst/moved") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/rename-corner/dst/moved/child",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_rename(&fs.mount, "/rename-corner/dst/moved",
+                       "/rename-corner/dst/moved/child/cycle") != PROS_VFS_EINVAL ||
+            vfs_path_lookup(&fs.mount, "/rename-corner/dst/moved/file-renamed.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (vfs_vnode_put(node) != PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/rename-corner/dst/moved/file-renamed.bin") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-corner/dst/moved/child") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-corner/dst/moved") != PROS_VFS_OK ||
+            vfs_unlink(&fs.mount, "/rename-corner/dst/existing.bin") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-corner/src") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-corner/dst") != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/rename-corner") != PROS_VFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+    }
+
+    /*
      * Tiny-image allocation exhaustion.  This uses the real allocator and
      * journal on a minimum-size filesystem, then verifies recovery/reuse.
      */
