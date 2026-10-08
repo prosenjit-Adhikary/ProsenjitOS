@@ -3531,7 +3531,9 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
             *result = parent;
             return PROS_VFS_OK;
         }
-        return pfs_make_vnode(data->fs, dir_inode.parent_inode, parent ? parent->parent : NULL, result);
+        return pfs_make_vnode(data->fs, dir_inode.parent_inode,
+                              parent && parent->parent ? parent->parent->parent : NULL,
+                              result);
     }
 
     {
