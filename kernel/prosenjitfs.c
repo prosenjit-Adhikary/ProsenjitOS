@@ -1573,8 +1573,6 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
     if (!file || !file->vnode || !file->mount)
         return PROS_VFS_EINVAL;
-    if (size > UINT32_MAX)
-        return PROS_VFS_EOVERFLOW;
     if (file->mount->read_only || !file->mount->active)
         return PROS_VFS_EPERM;
 
