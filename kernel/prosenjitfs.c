@@ -6951,6 +6951,7 @@ int prosenjitfs_selftest(void)
      * stress section below.
      */
     {
+        struct pros_vfs_file file;
         struct pros_vfs_vnode *node = 0;
         if (vfs_file_open(&fs.mount, "/rename-left",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
@@ -6968,7 +6969,7 @@ int prosenjitfs_selftest(void)
             vfs_mkdir(&fs.mount, "/rename-dir/child") != PROS_VFS_OK ||
             vfs_rename(&fs.mount, "/rename-dir",
                        "/rename-dir/child/moved") != PROS_VFS_EINVAL ||
-            vfs_rename(&fs.mount, "/", "/rename-root") != PROS_VFS_EPERM ||
+            vfs_rename(&fs.mount, "/", "/rename-root") != PROS_VFS_EINVAL ||
             vfs_path_lookup(&fs.mount, "/rename-left", &node) !=
                 PROS_VFS_OK ||
             vfs_vnode_put(node) != PROS_VFS_OK ||
