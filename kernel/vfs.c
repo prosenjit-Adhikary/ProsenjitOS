@@ -1022,6 +1022,13 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOSYS;
     }
+    if (vnode->ops->dir_open) {
+        rc = vnode->ops->dir_open(vnode);
+        if (rc != PROS_VFS_OK) {
+            vfs_vnode_put(vnode);
+            return rc;
+        }
+    }
     dir->vnode = vnode;
     dir->cookie = 0;
     dir->open = 1u;
@@ -1043,6 +1050,11 @@ int vfs_dir_close(struct pros_vfs_dir *dir)
 {
     if (!dir || !dir->open || !dir->vnode)
         return PROS_VFS_EINVAL;
+    if (dir->vnode->ops && dir->vnode->ops->dir_close) {
+        int rc = dir->vnode->ops->dir_close(dir->vnode);
+        if (rc != PROS_VFS_OK)
+            return rc;
+    }
     vfs_vnode_put(dir->vnode);
     dir->vnode = 0;
     dir->cookie = 0;
