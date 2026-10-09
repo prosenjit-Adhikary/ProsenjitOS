@@ -67,6 +67,15 @@ if [[ ! -f user/init.c && ! -f user/init/main.c && ! -f user/init/Makefile ]]; t
   fail "no userspace init/PID 1 source/build target detected; current service manager is kernel-side"
 fi
 
+# The boot path currently constructs an embedded test ELF. Require the
+# filesystem-backed /init loader to be called from the real boot path before
+# treating it as normal userspace startup.
+if grep -qE 'pros_init_load\\(' kernel/kernel.c; then
+  note "Normal boot path references filesystem-backed init loading"
+else
+  fail "pros_init_load() is not wired into kernel/kernel.c; boot still uses the embedded CPL3 test image"
+fi
+
 echo "[5/7] Real display/input path and desktop runtime"
 if [[ -f kernel/display.c ]] &&
    grep -qE '^int pros_display_bind\(' kernel/display.c &&
