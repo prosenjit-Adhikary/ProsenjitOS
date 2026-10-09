@@ -78,7 +78,7 @@ fi
 # The boot path currently constructs an embedded test ELF. Require the
 # filesystem-backed /init loader to be called from the real boot path before
 # treating it as normal userspace startup.
-if grep -qE 'pros_init_load(' kernel/kernel.c; then
+if grep -qF 'pros_init_load(' kernel/kernel.c; then
   note "Normal boot path references filesystem-backed init loading"
 else
   fail "pros_init_load() is not wired into kernel/kernel.c; boot still uses the embedded CPL3 test image"
