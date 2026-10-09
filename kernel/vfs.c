@@ -1164,7 +1164,7 @@ static int vfs_vnode_api_selftest(void)
             PROS_BLOCK_OK ||
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
     if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
@@ -1178,16 +1178,16 @@ static int vfs_vnode_api_selftest(void)
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     /* vfs_mount_set_root() acquires the mount's ownership reference. */
     vfs_vnode_put(&root);
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
-        return -1;
+        return -1000 - __LINE__;
     vfs_vnode_put(found);
 
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
@@ -1198,7 +1198,7 @@ static int vfs_vnode_api_selftest(void)
         vfs_file_read(&file, output, 16, &done) != PROS_VFS_OK ||
         done != 3u || output[0] != 'v' ||
         vfs_file_close(&file) != PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
@@ -1206,25 +1206,25 @@ static int vfs_vnode_api_selftest(void)
         entry.name[0] != 'c' ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_ENOENT ||
         vfs_dir_close(&dir) != PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_file_open(&mount, "/etc", PROS_VFS_O_READ, &file) !=
             PROS_VFS_EISDIR ||
         vfs_dir_open(&mount, "/hello.txt", &dir) != PROS_VFS_ENOTDIR)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
         PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
-        return -1;
+        return -1000 - __LINE__;
 
     if (vfs_file_close(&file) != PROS_VFS_OK)
-        return -1;
+        return -1000 - __LINE__;
 
     return 0;
 }
@@ -1251,7 +1251,10 @@ int vfs_security_selftest(void)
         return -40;
     if (vfs_security_admission_selftest() != 0)
         return -41;
-    if (vfs_vnode_api_selftest() != 0)
-        return -42;
+    {
+        int vnode_rc = vfs_vnode_api_selftest();
+        if (vnode_rc != 0)
+            return -1000 + vnode_rc;
+    }
     return 0;
 }
