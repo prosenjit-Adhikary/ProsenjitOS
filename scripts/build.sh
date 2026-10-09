@@ -108,11 +108,34 @@ fi
 
 NATIVE_KERNEL_END=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
 NATIVE_PFS_END=$((NATIVE_PFS_START_LBA + NATIVE_PFS_SECTORS))
+if (( NATIVE_KERNEL_END > NATIVE_PFS_START_LBA )); then
+    echo "Native kernel payload overlaps the reserved ProsenjitFS partition" >&2
+    exit 1
+fi
+if (( NATIVE_PFS_START_LBA > 0xFFFFFFFF || NATIVE_PFS_SECTORS > 0xFFFFFFFF ||
+      NATIVE_PFS_SECTORS == 0 || NATIVE_PFS_END > 0x100000000 )); then
+    echo "Native ProsenjitFS partition geometry exceeds MBR LBA fields" >&2
+    exit 1
+fi
 NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_END > NATIVE_PFS_END ? NATIVE_KERNEL_END : NATIVE_PFS_END))
 truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
 dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
+
+# Verify the on-disk MBR contract emitted by native_stage1.asm. This proves
+# partition geometry only; it does not prove that the partition is formatted.
+MBR_SIGNATURE="$(od -An -tx1 -j510 -N2 "$NATIVE_DISK" | tr -d ' \n')"
+MBR_TYPE="$(od -An -tx1 -j450 -N1 "$NATIVE_DISK" | tr -d ' \n')"
+MBR_START="$(od -An -tx1 -j454 -N4 "$NATIVE_DISK" | tr -d ' \n')"
+MBR_COUNT="$(od -An -tx1 -j458 -N4 "$NATIVE_DISK" | tr -d ' \n')"
+EXPECTED_START="$(printf '%02x%02x%02x%02x' $((NATIVE_PFS_START_LBA & 255)) $(((NATIVE_PFS_START_LBA >> 8) & 255)) $(((NATIVE_PFS_START_LBA >> 16) & 255)) $(((NATIVE_PFS_START_LBA >> 24) & 255)))"
+EXPECTED_COUNT="$(printf '%02x%02x%02x%02x' $((NATIVE_PFS_SECTORS & 255)) $(((NATIVE_PFS_SECTORS >> 8) & 255)) $(((NATIVE_PFS_SECTORS >> 16) & 255)) $(((NATIVE_PFS_SECTORS >> 24) & 255)))"
+if [[ "$MBR_SIGNATURE" != "55aa" || "$MBR_TYPE" != "da" ||
+      "$MBR_START" != "$EXPECTED_START" || "$MBR_COUNT" != "$EXPECTED_COUNT" ]]; then
+    echo "Native BIOS MBR partition entry does not match the configured PFS geometry" >&2
+    exit 1
+fi
 
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
