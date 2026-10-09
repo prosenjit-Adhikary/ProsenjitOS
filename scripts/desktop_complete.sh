@@ -56,10 +56,11 @@ else
 fi
 
 if [[ -f kernel/init.c ]] &&
-   grep -qE '^int pros_init_load\(' kernel/init.c; then
-  note "Filesystem-backed /init loader API exists; verify its live boot integration separately"
+   grep -qE '^int pros_init_load\(' kernel/init.c &&
+   grep -qF 'pros_elf_load_with_args(process, image, length,' kernel/init.c; then
+  note "Filesystem-backed /init loader constructs an initial argc/envp stack; live boot integration is still required"
 else
-  fail "filesystem-backed init loader source is missing"
+  fail "filesystem-backed init loader or argument-aware initial-stack construction is missing"
 fi
 
 # A kernel-side loader/service registry is not equivalent to a userspace PID 1.
