@@ -39,6 +39,7 @@ At the current boot call site, no production root-mount object is passed to this
 
 ## Required proof
 
+- The native disk build now checks MBR signature, partition type, start LBA, sector count, and rejects kernel/partition overlap; this check still needs execution by `make iso`/the native image build.
 - Local clean build with the project's warning policy.
 - QEMU serial log from the exact tested commit showing real block-device/partition discovery, mount activation, security admission, ELF load, and CPL3 entry from the filesystem-backed `/init`.
 - Negative boot tests demonstrate fail-closed behavior.
