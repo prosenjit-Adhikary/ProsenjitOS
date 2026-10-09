@@ -67,6 +67,14 @@ if [[ ! -f user/init.c && ! -f user/init/main.c && ! -f user/init/Makefile ]]; t
   fail "no userspace init/PID 1 source/build target detected; current service manager is kernel-side"
 fi
 
+# The public ABI must offer a real path for ordinary programs to access
+# files and launch child programs. Handle/IPC calls alone do not provide this.
+if grep -qE 'PROSENJIT_SYS_(OPEN|READ|WRITE|EXEC|SPAWN)' include/abi/syscall.h; then
+  note "At least one public file/process syscall name exists; verify its semantics and security tests"
+else
+  fail "public syscall ABI has no file-I/O or process-launch call; existing desktop binaries cannot run through this ABI yet"
+fi
+
 # The boot path currently constructs an embedded test ELF. Require the
 # filesystem-backed /init loader to be called from the real boot path before
 # treating it as normal userspace startup.
