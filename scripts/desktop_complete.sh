@@ -78,7 +78,7 @@ fi
 # The boot path currently constructs an embedded test ELF. Require the
 # filesystem-backed /init loader to be called from the real boot path before
 # treating it as normal userspace startup.
-if grep -qE 'pros_init_load\\(' kernel/kernel.c; then
+if grep -qE 'pros_init_load(' kernel/kernel.c; then
   note "Normal boot path references filesystem-backed init loading"
 else
   fail "pros_init_load() is not wired into kernel/kernel.c; boot still uses the embedded CPL3 test image"
@@ -101,7 +101,7 @@ display_backend_hits=/tmp/prosenjitos_display_backend_hits
 : > "$display_backend_hits"
 grep -RIlE 'PROS_DISPLAY_BACKEND_MAGIC|pros_display_backend' drivers kernel \
   --include='*.c' --include='*.h' 2>/dev/null > "$display_backend_candidates" || true
-grep -vE '^kernel/display\.c$|^kernel/include/display\\.h$' \
+grep -vE '^kernel/display\.c$|^kernel/include/display[.]h$' \
   "$display_backend_candidates" > "$display_backend_hits" || true
 if [[ ! -s "$display_backend_hits" ]]; then
   fail "no separate real display backend implementation detected (mock display self-test is not hardware support)"
