@@ -62,8 +62,16 @@ int pros_display_unbind(uint32_t id)
     if (!display_ready || id == 0u) return PROS_DRIVER_EINVAL;
     const struct pros_driver_device *d = pros_device_get(id);
     if (!d) return PROS_DRIVER_ENODEV;
-    return d->class_id == PROS_DEVICE_CLASS_DISPLAY ?
-        PROS_DRIVER_OK : PROS_DRIVER_ENOTSUP;
+    if (d->class_id != PROS_DEVICE_CLASS_DISPLAY)
+        return PROS_DRIVER_ENOTSUP;
+    if (d->state != PROS_DEVICE_BOUND || !d->driver)
+        return PROS_DRIVER_ENODEV;
+
+    /*
+     * Delegate lifecycle teardown to the driver manager so its remove
+     * callback, broker cleanup and device-state transition all occur.
+     */
+    return pros_driver_unbind(id);
 }
 
 int pros_display_get_info(uint32_t id, struct pros_kernel_display_info *info)
@@ -146,7 +154,7 @@ int pros_display_selftest(void)
     }
     if(pros_display_present(dev.id,px,sizeof(px))!=0)return -11;
     if(pros_display_present(dev.id,px,1228801ULL)!=PROS_DRIVER_EINVAL)return -12;
-    if(pros_driver_unbind(dev.id)!=0)return -13;
+    if(pros_display_unbind(dev.id)!=PROS_DRIVER_OK)return -13;
     if(pros_display_bind(dev.id)!=PROS_DRIVER_ENODEV)return -14;
     if(pros_device_unregister(dev.id)!=0)return -15;
     if(pros_driver_unregister(&drv)!=0)return -16;
