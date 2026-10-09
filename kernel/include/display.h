@@ -9,6 +9,7 @@
 
 #define PROS_DISPLAY_MAX_WIDTH 16384u
 #define PROS_DISPLAY_MAX_HEIGHT 16384u
+#define PROS_DISPLAY_FORMAT_XRGB8888 1u
 
 struct pros_kernel_display_info {
     uint32_t width;
