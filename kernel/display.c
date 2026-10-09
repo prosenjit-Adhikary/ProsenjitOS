@@ -2,6 +2,37 @@
 
 static uint8_t display_ready;
 
+/*
+ * Validate the device-reported geometry before any consumer uses it.
+ * This contract currently supports XRGB8888 (4 bytes per pixel). Pitch is
+ * measured in bytes, and framebuffer_size must cover every advertised row.
+ */
+static int display_info_valid(const struct pros_kernel_display_info *info)
+{
+    uint64_t minimum_pitch;
+    uint64_t required_bytes;
+
+    if (!info || !info->width || !info->height ||
+        info->width > PROS_DISPLAY_MAX_WIDTH ||
+        info->height > PROS_DISPLAY_MAX_HEIGHT ||
+        info->format != 1u || !info->framebuffer || !info->framebuffer_size)
+        return 0;
+
+    minimum_pitch = (uint64_t)info->width * 4u;
+    if ((uint64_t)info->pitch < minimum_pitch)
+        return 0;
+
+    required_bytes = (uint64_t)info->pitch * (uint64_t)info->height;
+    if (required_bytes > info->framebuffer_size)
+        return 0;
+
+    /* Reject address ranges that wrap the 64-bit physical address space. */
+    if (info->framebuffer > UINT64_MAX - info->framebuffer_size)
+        return 0;
+
+    return 1;
+}
+
 static const struct pros_display_backend *backend_of(const struct pros_driver_device *d)
 {
     if (!d || d->class_id != PROS_DEVICE_CLASS_DISPLAY ||
@@ -42,9 +73,7 @@ int pros_display_get_info(uint32_t id, struct pros_kernel_display_info *info)
     if (!b) return PROS_DRIVER_ENODEV;
     int rc = b->get_info(b->ctx, info);
     if (rc != PROS_DRIVER_OK) return rc;
-    if (!info->width || !info->height || info->width > PROS_DISPLAY_MAX_WIDTH ||
-        info->height > PROS_DISPLAY_MAX_HEIGHT || info->pitch < info->width ||
-        !info->framebuffer || !info->framebuffer_size) return PROS_DRIVER_EIO;
+    if (!display_info_valid(info)) return PROS_DRIVER_EIO;
     return PROS_DRIVER_OK;
 }
 
@@ -55,7 +84,7 @@ int pros_display_present(uint32_t id, const void *pixels, uint64_t size)
     if (!b) return PROS_DRIVER_ENODEV;
     struct pros_kernel_display_info info;
     if (b->get_info(b->ctx, &info) != PROS_DRIVER_OK ||
-        !info.framebuffer_size || size > info.framebuffer_size)
+        !display_info_valid(&info) || size > info.framebuffer_size)
         return PROS_DRIVER_EINVAL;
     return b->present(b->ctx, pixels, size);
 }
@@ -70,7 +99,7 @@ static int test_probe(struct pros_driver_device *d)
     static struct display_test_state s;
     static struct pros_display_backend b;
     if(!d)return PROS_DRIVER_EINVAL;
-    s.presents=0u; s.info.width=640u; s.info.height=480u; s.info.pitch=640u;
+    s.presents=0u; s.info.width=640u; s.info.height=480u; s.info.pitch=2560u;
     s.info.format=1u; s.info.framebuffer=0xE0000000ULL; s.info.framebuffer_size=1228800ULL;
     b.magic=PROS_DISPLAY_BACKEND_MAGIC;b.abi_version=PROS_DISPLAY_ABI_VERSION;
     b.get_info=test_info;b.present=test_present;b.ctx=&s;d->driver_data=&b;return 0;
