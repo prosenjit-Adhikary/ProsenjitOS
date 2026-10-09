@@ -35,7 +35,7 @@ int pros_display_unbind(uint32_t id)
         PROS_DRIVER_OK : PROS_DRIVER_ENOTSUP;
 }
 
-int pros_display_get_info(uint32_t id, struct pros_display_info *info)
+int pros_display_get_info(uint32_t id, struct pros_kernel_display_info *info)
 {
     if (!display_ready || !info || id == 0u) return PROS_DRIVER_EINVAL;
     const struct pros_display_backend *b = backend_of(pros_device_get(id));
@@ -53,15 +53,15 @@ int pros_display_present(uint32_t id, const void *pixels, uint64_t size)
     if (!display_ready || !pixels || !size || id == 0u) return PROS_DRIVER_EINVAL;
     const struct pros_display_backend *b = backend_of(pros_device_get(id));
     if (!b) return PROS_DRIVER_ENODEV;
-    struct pros_display_info info;
+    struct pros_kernel_display_info info;
     if (b->get_info(b->ctx, &info) != PROS_DRIVER_OK ||
         !info.framebuffer_size || size > info.framebuffer_size)
         return PROS_DRIVER_EINVAL;
     return b->present(b->ctx, pixels, size);
 }
 
-struct display_test_state { uint32_t presents; struct pros_display_info info; };
-static int test_info(void *ctx, struct pros_display_info *i)
+struct display_test_state { uint32_t presents; struct pros_kernel_display_info info; };
+static int test_info(void *ctx, struct pros_kernel_display_info *i)
 { struct display_test_state *s=ctx; if(!s||!i)return PROS_DRIVER_EINVAL;*i=s->info;return 0; }
 static int test_present(void *ctx, const void *p, uint64_t n)
 { struct display_test_state *s=ctx; if(!s||!p||!n)return PROS_DRIVER_EINVAL;++s->presents;return 0; }
@@ -90,7 +90,7 @@ int pros_display_selftest(void)
         0,PROS_DRIVER_BUS_VIRTUAL,PROS_DEVICE_CLASS_DISPLAY,PROS_DEVICE_DISCOVERED,
         {PROS_DRIVER_BUS_VIRTUAL,0xD15Au,1u,3u,0u,0u},"display-selftest",0,0,0
     };
-    uint8_t px[4]={1,2,3,4}; struct pros_display_info i;
+    uint8_t px[4]={1,2,3,4}; struct pros_kernel_display_info i;
     if(pros_display_init()!=0)return -1;
     if(pros_driver_register(&drv)!=0)return -2;
     if(pros_device_register(&dev)!=0)return -3;
