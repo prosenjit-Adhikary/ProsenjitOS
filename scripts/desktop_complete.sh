@@ -106,10 +106,14 @@ if [[ -f kernel/display.c ]] &&
    grep -qE '^int pros_display_bind\(' kernel/display.c &&
    grep -qE '^int pros_display_selftest\(' kernel/display.c &&
    grep -qF 'static int display_info_valid(' kernel/display.c &&
-   grep -qF 'return pros_driver_unbind(id);' kernel/display.c; then
-  note "Display binding includes metadata validation, manager-owned unbind and mock-backend self-tests"
+   grep -qF 'return pros_driver_unbind(id);' kernel/display.c &&
+   grep -qF 'PROS_DISPLAY_FORMAT_XRGB8888 1u' kernel/include/display.h &&
+   grep -qF 'PROS_DISPLAY_XRGB8888 = 1' include/abi/display.h &&
+   grep -qF 'framebuffer_bytes' include/abi/display.h &&
+   grep -qF 'permission-checked mapping/handle' include/abi/display.h; then
+  note "Display metadata validation, manager-owned unbind, mock tests and public/internal format contract are present"
 else
-  fail "display binding validation/lifecycle implementation or self-test source is missing"
+  fail "display binding validation/lifecycle, self-tests or public/internal ABI contract is missing/inconsistent"
 fi
 
 # The current display self-test backend is synthetic; it does not bind a real
