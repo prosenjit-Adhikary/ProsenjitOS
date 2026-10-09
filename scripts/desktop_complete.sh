@@ -109,8 +109,9 @@ else
   note "Separate display backend source detected; hardware/runtime operation still requires testing"
 fi
 
-if [[ ! -f kernel/input.c && ! -f kernel/input/keyboard.c && ! -f drivers/input.c ]]; then
-  fail "no keyboard/pointer event implementation detected; include/abi/input.h alone is only a contract"
+if [[ ! -f drivers/ps2_keyboard.c && ! -f drivers/usb_hid.c &&
+      ! -f kernel/ps2_keyboard.c && ! -f kernel/usb_hid.c ]]; then
+  fail "no PS/2 or USB-HID keyboard/pointer driver detected; include/abi/input.h alone is only a contract"
 fi
 
 if [[ ! -f user/Makefile && ! -f user/build.sh ]]; then
