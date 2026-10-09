@@ -1,6 +1,7 @@
 #ifndef PROSENJIT_ABI_DISPLAY_H
 #define PROSENJIT_ABI_DISPLAY_H
 
+#include <stddef.h>
 #include <stdint.h>
 #define PROSENJIT_DISPLAY_ABI_VERSION 1u
 
@@ -27,10 +28,20 @@ struct pros_display_info {
     uint32_t height;
     uint32_t pitch;
     uint32_t format;
+    uint32_t reserved; /* Must be zero; explicit alignment keeps the ABI stable. */
     uint64_t framebuffer;
     uint64_t framebuffer_bytes;
 };
 struct pros_display_event { uint32_t type,flags; uint64_t timestamp,value0,value1; };
+
+/* Freeze the public layout so compiler/architecture changes cannot silently
+ * alter the kernel/userspace binary contract. */
+_Static_assert(offsetof(struct pros_display_info, framebuffer) == 24u,
+               "pros_display_info.framebuffer ABI offset changed");
+_Static_assert(sizeof(struct pros_display_info) == 40u,
+               "pros_display_info ABI size changed");
+_Static_assert(sizeof(struct pros_display_event) == 32u,
+               "pros_display_event ABI size changed");
 #define PROS_DISPLAY_EVENT_NONE 0u
 #define PROS_DISPLAY_EVENT_RESIZE 1u
 #define PROS_DISPLAY_EVENT_HOTPLUG 2u
