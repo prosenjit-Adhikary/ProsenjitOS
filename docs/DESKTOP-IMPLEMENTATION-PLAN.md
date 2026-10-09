@@ -20,6 +20,8 @@ Kernel process/address-space/syscall foundation and ELF loading
 - Display/input ABI headers exist. The display binding self-test uses a synthetic backend; the inspected tree did not show a separate real display backend or input event implementation.
 - The boot path constructs a test ELF from the embedded user-test section. This is a CPL3 smoke path, not a general filesystem-backed userspace distribution.
 - Existing Xorg/Wayland and XFCE runtimes are not integrated into the current boot path.
+- The public `include/abi/syscall.h` currently declares version/test-completion, handle operations and IPC only; it does not define a filesystem open/read/write, process spawn/exec, display-present or input-event wait interface.
+- The kernel display contract and public display ABI use the same struct tag name `pros_display_info` with different layouts. A deliberate translation/API boundary is required before exposing display data to userspace; do not pass one structure across that boundary as-is.
 
 ## Gates
 1. Verify process/address-space/usercopy and ELF execution foundation.
