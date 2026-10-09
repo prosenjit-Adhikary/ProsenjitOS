@@ -389,6 +389,10 @@ int pros_elf_selftest(void)
         rc = pros_elf_load_with_args(&process, image, data_off + 2,
                                      0, 0u, 0, 0u, &loaded);
         if (rc != PROS_ELF_OK ||
+            loaded.entry != ELF_TEST_CODE_VA ||
+            process.user_entry != loaded.entry ||
+            loaded.stack_top != process.user_stack_top ||
+            (loaded.stack_top & 0xFULL) != 0 ||
             address_space_translate_user(&process.address_space,
                                          PROSENJIT_USER_STACK_VA,
                                          &physical, &flags) != 0 ||
