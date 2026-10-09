@@ -104,10 +104,12 @@ fi
 echo "[5/7] Real display/input path and desktop runtime"
 if [[ -f kernel/display.c ]] &&
    grep -qE '^int pros_display_bind\(' kernel/display.c &&
-   grep -qE '^int pros_display_selftest\(' kernel/display.c; then
-  note "Display binding abstraction and mock-backend self-test exist"
+   grep -qE '^int pros_display_selftest\(' kernel/display.c &&
+   grep -qF 'static int display_info_valid(' kernel/display.c &&
+   grep -qF 'return pros_driver_unbind(id);' kernel/display.c; then
+  note "Display binding includes metadata validation, manager-owned unbind and mock-backend self-tests"
 else
-  fail "display binding abstraction/self-test source is missing"
+  fail "display binding validation/lifecycle implementation or self-test source is missing"
 fi
 
 # The current display self-test backend is synthetic; it does not bind a real
