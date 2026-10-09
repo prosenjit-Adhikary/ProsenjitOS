@@ -75,10 +75,9 @@ grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
 
 echo "Built: $ISO"
 
-# Native BIOS boot artifact. This path deliberately does not depend on GRUB
-# or a filesystem: the stage-1/2 loader reads the kernel from a fixed LBA
-# layout. The reserved PFS range below is raw space only; this script does not
-# create an MBR/GPT partition entry or format it as ProsenjitFS.
+# Native BIOS boot artifact. The stage-1 sector embeds an MBR partition entry
+# for the PFS range, while the stage-1/2 loader reads the kernel from fixed
+# LBAs. The build does not format that partition as ProsenjitFS or add /init.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
 NATIVE_STAGE2_SECTORS=32
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
@@ -117,4 +116,4 @@ dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" 
 
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
-echo "Reserved raw ProsenjitFS region (not partitioned/formatted): LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
+echo "MBR ProsenjitFS partition entry present; filesystem not formatted: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
