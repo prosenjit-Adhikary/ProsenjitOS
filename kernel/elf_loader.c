@@ -51,6 +51,16 @@ static int canonical_user(uint64_t va)
     return va < ELF_USER_MAX;
 }
 
+static void clear_load_result(struct pros_elf_load_result *result)
+{
+    if (!result) return;
+    result->entry = 0;
+    result->image_start = 0;
+    result->image_end = 0;
+    result->stack_top = 0;
+    result->mapped_pages = 0;
+}
+
 static int phdr_table_ok(const struct elf64_ehdr *eh, uint64_t size)
 {
     uint64_t bytes;
@@ -563,7 +573,9 @@ int pros_elf_load_with_args(struct pros_process *process,
                              const char *const *envp,
                              uint32_t envc,
                              struct pros_elf_load_result *result) {
-    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp))
+    clear_load_result(result);
+    if (!result || argc > 64u || envc > 64u ||
+        (argc && !argv) || (envc && !envp))
         return PROS_ELF_EINVAL;
     int rc = pros_elf_load(process, image, size, result);
     if (rc != PROS_ELF_OK) return rc;
@@ -596,6 +608,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     uint64_t start, end, entry;
     uint64_t mapped = 0;
 
+    clear_load_result(result);
     if (!process || !image || !result ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE)
