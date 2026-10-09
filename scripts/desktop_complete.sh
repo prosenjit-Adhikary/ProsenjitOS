@@ -18,7 +18,7 @@ fail() { failures+=("$1"); failure_count=$((failure_count + 1)); }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
 echo "[1/7] Kernel/userspace boundary"
-if grep -RInE '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^>"]*(X11|Xorg|wayland|xfce)|\\b(XOpenDisplay|wl_display_connect|xfce4-session)\\b' \
+if grep -RInE '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^>"]*(X11|Xorg|wayland|xfce)|\b(XOpenDisplay|wl_display_connect|xfce4-session)\b' \
     kernel --include='*.c' --include='*.h' --include='*.asm' --include='*.S' \
     >/tmp/prosenjitos_kernel_gui_hits 2>/dev/null; then
   fail "desktop-stack include/API reference detected in kernel source; inspect /tmp/prosenjitos_kernel_gui_hits"
