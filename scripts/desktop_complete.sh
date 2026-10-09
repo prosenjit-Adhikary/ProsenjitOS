@@ -8,6 +8,12 @@ if [[ -z "$ROOT" ]]; then
 fi
 cd "$ROOT"
 
+# Fail fast on shell syntax errors before running source checks or destructive build steps.
+if ! bash -n "$ROOT/scripts/desktop_complete.sh"; then
+  echo "ERROR: scripts/desktop_complete.sh has a shell syntax error." >&2
+  exit 2
+fi
+
 REPORT="reports/desktop-integration-report.md"
 mkdir -p reports
 failures=()
