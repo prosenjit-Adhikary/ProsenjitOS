@@ -38,6 +38,7 @@ if [[ -f kernel/elf_loader.c ]] &&
    grep -qF 'pros_elf_load_with_args(&process, image, data_off + 2,' kernel/elf_loader.c &&
    grep -qF 'loaded.stack_top != process.user_stack_top' kernel/elf_loader.c &&
    grep -qF '(loaded.stack_top & 0xFULL) != 0' kernel/elf_loader.c &&
+   grep -qF 'clear_load_result(result);' kernel/elf_loader.c &&
    grep -qF 'Failure-atomic output regression' kernel/elf_loader.c &&
    grep -qF 'A failed load must not expose a partly valid result' kernel/elf_loader.c &&
    grep -qF 'loaded.mapped_pages != 0' kernel/elf_loader.c &&
