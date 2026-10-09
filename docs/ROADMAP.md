@@ -27,6 +27,23 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 ### CI note
 The repository contains build/boot and security-architecture GitHub Actions workflows. The latest verified storage/security implementation passed both repository GitHub Actions workflows: build/boot and security-architecture CI. Future storage changes must preserve both gates.
 
+## Version 2 — Unified Application Runtime (design approved; implementation pending)
+
+Version 2 targets a single ProsenjitOS desktop for native applications and supported Windows applications, without requiring a complete Windows OS installation, a Windows VM as the normal app path, or Wine as a runtime dependency. Windows binaries still require an independently implemented or properly licensed Windows ABI/API runtime; this is a substantial compatibility-engineering effort, not something that can be omitted.
+
+The detailed architecture, constraints, security boundaries, phases, and verification gates are documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
+
+- [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
+- [ ] Implement a bounded PE32/PE32+ parser and loader with malformed-input tests.
+- [ ] Run a minimal controlled Windows console application through a user-space runtime.
+- [ ] Add only the Windows API/DLL behavior required by selected, documented test applications.
+- [ ] Integrate supported GUI applications into the existing desktop/window system.
+- [ ] Implement safe application installation, dependency management, update, and uninstall flows.
+- [ ] Maintain a tested application/API compatibility matrix; do not claim universal support.
+- [ ] Keep Windows kernel-driver execution as a separate later research track; never load Windows `.sys` files directly as native ProsenjitOS kernel drivers.
+
+**Sequencing rule:** finish the current native filesystem, security, process, and user-mode stability work before starting broad Windows application-runtime implementation. Version 2 is a roadmap target, not a claim that Windows applications currently run.
+
 ## Phase 0 — Repository bootstrap
 - [x] Repository created
 - [x] Initial README
@@ -220,7 +237,7 @@ The repository contains build/boot and security-architecture GitHub Actions work
 - [ ] POSIX-compatible user API
 - [ ] Linux ELF compatibility environment
 - [ ] Linux application packaging/container integration
-- [ ] Windows API compatibility layer integration
+- [ ] Independent Windows App Runtime (PE/DLL loader and selected Windows API contracts; no Wine runtime dependency)
 - [ ] Windows application installer
 - [ ] Microsoft Office compatibility validation (Word/Excel/PowerPoint/Outlook)
 - [ ] OneDrive-compatible authentication and background-sync validation
