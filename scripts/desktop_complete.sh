@@ -101,7 +101,7 @@ display_backend_hits=/tmp/prosenjitos_display_backend_hits
 : > "$display_backend_hits"
 grep -RIlE 'PROS_DISPLAY_BACKEND_MAGIC|pros_display_backend' drivers kernel \
   --include='*.c' --include='*.h' 2>/dev/null > "$display_backend_candidates" || true
-grep -vE '^kernel/display\\.c$|^kernel/include/display\\.h$' \
+grep -vE '^kernel/display\.c$|^kernel/include/display\\.h$' \
   "$display_backend_candidates" > "$display_backend_hits" || true
 if [[ ! -s "$display_backend_hits" ]]; then
   fail "no separate real display backend implementation detected (mock display self-test is not hardware support)"
