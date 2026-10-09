@@ -211,3 +211,21 @@ The readdir directory-inode read now uses `pfs_vnode_validate_inode()`, keeping 
 
 ### Verification status
 Source-level stale-vnode audit completed for directory traversal and mutation callbacks. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
+
+
+## 2026-10-09 — ProsenjitFS unused static helper build blocker
+
+### Finding
+A source audit of the current `main` branch found `pfs_data_start()` defined in `kernel/prosenjitfs.c` but never referenced anywhere in that translation unit. The build uses `-Wall -Wextra -Werror`, so GCC's `-Wunused-function` diagnostic is promoted to a compile error.
+
+### Fix prepared
+Removed only the unused static helper. No filesystem behavior, on-disk format, allocator, journal, or VFS logic was changed.
+
+### Verification status
+- [x] Confirmed the helper has exactly one occurrence (its definition) in the current source.
+- [x] Confirmed the build script enables `-Wall -Wextra -Werror`.
+- [x] Scanned static function definitions in `kernel/prosenjitfs.c` and `kernel/vfs.c`; no other unannotated one-occurrence static function was found by this source-level check.
+- [x] Prepared the fix on branch `fix/prosenjitfs-unused-helper-20261009`.
+- [ ] Clean build and QEMU tests: not run in this execution environment. The repository's existing debug log records GitHub Actions runner-allocation failures; no runtime pass is claimed.
+- [ ] Merge: pending review and build/QEMU verification.
+
