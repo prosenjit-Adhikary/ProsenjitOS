@@ -419,6 +419,46 @@ int pros_elf_selftest(void)
             return -17;
     }
 
+    /*
+     * Failure-atomic output regression: an image can load successfully while
+     * its requested argument vector does not fit the single-page bootstrap
+     * stack. The loader must roll back both mappings and result metadata.
+     */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        char oversized_arg[4097];
+        const char *argv[1];
+        uint64_t physical = 0;
+        for (uint32_t i = 0; i < 4096u; ++i)
+            oversized_arg[i] = 'x';
+        oversized_arg[4096] = '\0';
+        argv[0] = oversized_arg;
+        int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -18;
+        loaded.entry = loaded.image_start = loaded.image_end = UINT64_MAX;
+        loaded.stack_top = loaded.mapped_pages = UINT64_MAX;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     argv, 1u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_EOVERFLOW ||
+            loaded.entry != 0 || loaded.image_start != 0 ||
+            loaded.image_end != 0 || loaded.stack_top != 0 ||
+            loaded.mapped_pages != 0 || process.user_entry != 0 ||
+            process.user_stack_top != 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &physical, 0) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA,
+                                         &physical, 0) == 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -19;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -20;
+    }
+
     return PROS_ELF_OK;
 }
 
@@ -537,6 +577,11 @@ int pros_elf_load_with_args(struct pros_process *process,
             physical_page_free(physical);
         process->user_entry = 0;
         process->user_stack_top = 0;
+        /* A failed load must not expose a partly valid result to callers. */
+        result->entry = 0;
+        result->image_start = 0;
+        result->image_end = 0;
+        result->stack_top = 0;
         result->mapped_pages = 0;
         return rc;
     }
