@@ -367,6 +367,54 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /*
+     * Empty argv/envp is the filesystem /init bootstrap case until a
+     * userspace launcher supplies arguments. Verify that the argument-aware
+     * loader still builds the three-word argc/argv-null/envp-null prefix.
+     */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        uint64_t physical = 0, flags = 0, index = 0;
+        int rc = process_init(&process, 0xE1F2u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -14;
+        image[data_off + 0] = 0x90;
+        image[data_off + 1] = 0xC3;
+        ph[0].flags = PF_R | PF_X;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].align = ELF_PAGE;
+        eh->entry = ELF_TEST_CODE_VA;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     0, 0u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_OK ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA,
+                                         &physical, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(flags & PROSENJIT_PAGE_NX) ||
+            process.user_stack_top < PROSENJIT_USER_STACK_VA ||
+            process.user_stack_top > PROSENJIT_USER_STACK_TOP) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -15;
+        }
+        index = (process.user_stack_top - PROSENJIT_USER_STACK_VA) /
+                sizeof(uint64_t);
+        if (index + 2u >= ELF_PAGE / sizeof(uint64_t) ||
+            ((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[index] != 0u ||
+            ((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[index + 1u] != 0u ||
+            ((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[index + 2u] != 0u) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -16;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -17;
+    }
+
     return PROS_ELF_OK;
 }
 
