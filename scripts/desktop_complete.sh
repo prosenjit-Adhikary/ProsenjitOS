@@ -33,8 +33,10 @@ echo "[3/7] ELF loader and kernel user-entry foundation"
 if [[ -f kernel/elf_loader.c ]] &&
    grep -qE '^int pros_elf_validate\(' kernel/elf_loader.c &&
    grep -qE '^int pros_elf_load_with_args\(' kernel/elf_loader.c &&
-   grep -qE '^int pros_elf_selftest\(' kernel/elf_loader.c; then
-  note "Kernel ELF loader source and self-test entry point exist (not proof of a general userspace runtime)"
+   grep -qE '^int pros_elf_selftest\(' kernel/elf_loader.c &&
+   grep -qF 'Empty argv/envp is the filesystem /init bootstrap case' kernel/elf_loader.c &&
+   grep -qF 'pros_elf_load_with_args(&process, image, data_off + 2,' kernel/elf_loader.c; then
+  note "ELF loader has an empty-argv/envp initial-stack regression case; this is not proof of a general userspace runtime"
 else
   fail "kernel ELF loader implementation/self-test source is missing"
 fi
