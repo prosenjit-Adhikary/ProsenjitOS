@@ -70,18 +70,26 @@ fi
 # Ordinary userspace needs a complete minimum path, not just one syscall
 # symbol: file open/read/write plus process launch. Keep these as separate
 # gates so a partial ABI cannot accidentally count as sufficient.
-if grep -qE 'PROSENJIT_SYS_OPEN' include/abi/syscall.h &&
-   grep -qE 'PROSENJIT_SYS_READ' include/abi/syscall.h &&
-   grep -qE 'PROSENJIT_SYS_WRITE' include/abi/syscall.h; then
-  note "Public file-I/O syscall names detected; implementation and user-pointer validation still require runtime tests"
-else
-  fail "public syscall ABI lacks one or more of OPEN/READ/WRITE; filesystem-backed desktop programs cannot access files"
-fi
+for call in OPEN READ WRITE; do
+  if grep -qF "PROSENJIT_SYS_${call}" include/abi/syscall.h &&
+     grep -qF "case PROSENJIT_SYS_${call}:" kernel/syscall.c; then
+    note "Public ABI and kernel dispatcher both define ${call}"
+  else
+    fail "file syscall ${call} is missing from the public ABI or kernel dispatcher"
+  fi
+done
 
-if grep -qE 'PROSENJIT_SYS_(EXEC|SPAWN|PROCESS_CREATE)' include/abi/syscall.h; then
-  note "Public process-launch syscall name detected; process lifecycle and permission checks still require runtime tests"
-else
-  fail "public syscall ABI lacks EXEC/SPAWN/PROCESS_CREATE; userspace init cannot launch services or a desktop session"
+process_launch_found=0
+for call in EXEC SPAWN PROCESS_CREATE; do
+  if grep -qF "PROSENJIT_SYS_${call}" include/abi/syscall.h &&
+     grep -qF "case PROSENJIT_SYS_${call}:" kernel/syscall.c; then
+    process_launch_found=1
+    note "Public ABI and kernel dispatcher define process launch via ${call}"
+    break
+  fi
+done
+if ((process_launch_found == 0)); then
+  fail "public ABI/kernel dispatcher lack EXEC, SPAWN or PROCESS_CREATE; init cannot launch services or a desktop session"
 fi
 
 # The boot path currently constructs an embedded test ELF. Require the
