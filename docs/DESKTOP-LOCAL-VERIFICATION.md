@@ -17,6 +17,7 @@ From the repository root:
 git status --short
 git rev-parse HEAD
 bash -n scripts/desktop_complete.sh
+bash -n scripts/build.sh
 ./scripts/desktop_complete.sh
 ```
 
