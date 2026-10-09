@@ -449,6 +449,18 @@ int pros_elf_selftest(void)
         loaded.entry = loaded.image_start = loaded.image_end = UINT64_MAX;
         loaded.stack_top = loaded.mapped_pages = UINT64_MAX;
         rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     0, 1u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_EINVAL ||
+            loaded.entry != 0 || loaded.image_start != 0 ||
+            loaded.image_end != 0 || loaded.stack_top != 0 ||
+            loaded.mapped_pages != 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -21;
+        }
+        loaded.entry = loaded.image_start = loaded.image_end = UINT64_MAX;
+        loaded.stack_top = loaded.mapped_pages = UINT64_MAX;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
                                      argv, 1u, 0, 0u, &loaded);
         if (rc != PROS_ELF_EOVERFLOW ||
             loaded.entry != 0 || loaded.image_start != 0 ||
