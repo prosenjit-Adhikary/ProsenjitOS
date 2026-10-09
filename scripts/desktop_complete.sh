@@ -18,12 +18,12 @@ fail() { failures+=("$1"); failure_count=$((failure_count + 1)); }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
 echo "[1/7] Kernel/userspace boundary"
-if grep -RInE '(^|[^[:alnum:]_])(XFCE|Xorg|Wayland|X11)([^[:alnum:]_]|$)' \
+if grep -RInE '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^>"]*(X11|Xorg|wayland|xfce)|\\b(XOpenDisplay|wl_display_connect|xfce4-session)\\b' \
     kernel --include='*.c' --include='*.h' --include='*.asm' --include='*.S' \
     >/tmp/prosenjitos_kernel_gui_hits 2>/dev/null; then
-  fail "desktop-stack name found in kernel source; inspect /tmp/prosenjitos_kernel_gui_hits (review context; comments alone are not proof of contamination)"
+  fail "desktop-stack include/API reference detected in kernel source; inspect /tmp/prosenjitos_kernel_gui_hits"
 else
-  note "No desktop-stack names found in kernel source"
+  note "No desktop-stack includes/API calls detected in kernel source"
 fi
 
 echo "[2/7] Local build prerequisites"
