@@ -110,8 +110,12 @@ if [[ -f kernel/display.c ]] &&
    grep -qF 'PROS_DISPLAY_FORMAT_XRGB8888 1u' kernel/include/display.h &&
    grep -qF 'PROS_DISPLAY_XRGB8888 = 1' include/abi/display.h &&
    grep -qF 'framebuffer_bytes' include/abi/display.h &&
-   grep -qF 'permission-checked mapping/handle' include/abi/display.h; then
-  note "Display metadata validation, manager-owned unbind, mock tests and public/internal format contract are present"
+   grep -qF 'permission-checked mapping/handle' include/abi/display.h &&
+   grep -qF 'sizeof(struct pros_display_info) == 40u' include/abi/display.h &&
+   grep -qF 'sizeof(struct pros_display_event) == 32u' include/abi/display.h &&
+   grep -qF 'sizeof(struct pros_input_event) == 32u' include/abi/input.h &&
+   grep -qF 'uint32_t flags,reserved;' include/abi/input.h; then
+  note "Display/input ABI layouts are explicitly sized and checked at compile time; display security and lifecycle contract is present"
 else
   fail "display binding validation/lifecycle, self-tests or public/internal ABI contract is missing/inconsistent"
 fi
