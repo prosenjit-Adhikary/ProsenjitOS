@@ -15,6 +15,8 @@ The normal kernel path currently does the following:
 
 The normal path does not call `pros_init_load()`. The storage and filesystem self-tests are not a mounted root filesystem and do not prove that a real `/init` file is available during boot.
 
+The hardware path is also not yet connected to this sequence: `kernel/kernel.c` includes the ATA PIO interface but does not call `pros_ata_pio_probe()` or `pros_storage_discover()` in the normal boot path. The existing ATA PIO probe targets the primary ATA master, while the documented ISO-only QEMU smoke command does not establish a writable root-disk fixture. Therefore there is currently no proven live block device → partition → active ProsenjitFS root mount → `/init` chain to pass into the loader. Do not make boot depend on a disk that the boot configuration has not explicitly attached and validated.
+
 ## Why the loader must not be wired in blindly
 
 `pros_init_load()` requires a non-null, active `pros_vfs_mount`, a live process object, and security metadata. It opens `/init` through VFS, reads a bounded image, performs file admission and execution-security admission, and then calls the ELF loader.
