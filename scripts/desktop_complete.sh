@@ -35,7 +35,9 @@ if [[ -f kernel/elf_loader.c ]] &&
    grep -qE '^int pros_elf_load_with_args\(' kernel/elf_loader.c &&
    grep -qE '^int pros_elf_selftest\(' kernel/elf_loader.c &&
    grep -qF 'Empty argv/envp is the filesystem /init bootstrap case' kernel/elf_loader.c &&
-   grep -qF 'pros_elf_load_with_args(&process, image, data_off + 2,' kernel/elf_loader.c; then
+   grep -qF 'pros_elf_load_with_args(&process, image, data_off + 2,' kernel/elf_loader.c &&
+   grep -qF 'loaded.stack_top != process.user_stack_top' kernel/elf_loader.c &&
+   grep -qF '(loaded.stack_top & 0xFULL) != 0' kernel/elf_loader.c; then
   note "ELF loader has an empty-argv/envp initial-stack regression case; this is not proof of a general userspace runtime"
 else
   fail "kernel ELF loader implementation/self-test source is missing"
