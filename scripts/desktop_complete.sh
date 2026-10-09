@@ -80,7 +80,7 @@ else
 fi
 
 # Keep the normal boot wiring separate from merely having a callable loader API.
-if grep -qE '^[[:space:]]*pros_init_load[[:space:]]*\\(' kernel/kernel.c; then
+if grep -qE '^[[:space:]]*pros_init_load[[:space:]]*\(' kernel/kernel.c; then
   note "Normal boot path contains a direct pros_init_load() call; mount readiness and runtime evidence still require verification"
 else
   fail "filesystem-backed /init loader is not called from normal boot; boot remains on the embedded user-test path"
