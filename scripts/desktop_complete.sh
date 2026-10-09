@@ -67,12 +67,21 @@ if [[ ! -f user/init.c && ! -f user/init/main.c && ! -f user/init/Makefile ]]; t
   fail "no userspace init/PID 1 source/build target detected; current service manager is kernel-side"
 fi
 
-# The public ABI must offer a real path for ordinary programs to access
-# files and launch child programs. Handle/IPC calls alone do not provide this.
-if grep -qE 'PROSENJIT_SYS_(OPEN|READ|WRITE|EXEC|SPAWN)' include/abi/syscall.h; then
-  note "At least one public file/process syscall name exists; verify its semantics and security tests"
+# Ordinary userspace needs a complete minimum path, not just one syscall
+# symbol: file open/read/write plus process launch. Keep these as separate
+# gates so a partial ABI cannot accidentally count as sufficient.
+if grep -qE 'PROSENJIT_SYS_OPEN' include/abi/syscall.h &&
+   grep -qE 'PROSENJIT_SYS_READ' include/abi/syscall.h &&
+   grep -qE 'PROSENJIT_SYS_WRITE' include/abi/syscall.h; then
+  note "Public file-I/O syscall names detected; implementation and user-pointer validation still require runtime tests"
 else
-  fail "public syscall ABI has no file-I/O or process-launch call; existing desktop binaries cannot run through this ABI yet"
+  fail "public syscall ABI lacks one or more of OPEN/READ/WRITE; filesystem-backed desktop programs cannot access files"
+fi
+
+if grep -qE 'PROSENJIT_SYS_(EXEC|SPAWN|PROCESS_CREATE)' include/abi/syscall.h; then
+  note "Public process-launch syscall name detected; process lifecycle and permission checks still require runtime tests"
+else
+  fail "public syscall ABI lacks EXEC/SPAWN/PROCESS_CREATE; userspace init cannot launch services or a desktop session"
 fi
 
 # The boot path currently constructs an embedded test ELF. Require the
