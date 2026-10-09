@@ -95,9 +95,18 @@ fi
 
 # The current display self-test backend is synthetic; it does not bind a real
 # framebuffer device or expose a userspace mapping/event queue.
-if ! grep -RIlE 'PROS_DISPLAY_BACKEND_MAGIC|pros_display_backend' drivers kernel \
-    --include='*.c' --include='*.h' | grep -qvE '^kernel/display\.c$|^kernel/include/display\.h$'; then
+display_backend_candidates=/tmp/prosenjitos_display_backend_candidates
+display_backend_hits=/tmp/prosenjitos_display_backend_hits
+: > "$display_backend_candidates"
+: > "$display_backend_hits"
+grep -RIlE 'PROS_DISPLAY_BACKEND_MAGIC|pros_display_backend' drivers kernel \
+  --include='*.c' --include='*.h' 2>/dev/null > "$display_backend_candidates" || true
+grep -vE '^kernel/display\\.c$|^kernel/include/display\\.h$' \
+  "$display_backend_candidates" > "$display_backend_hits" || true
+if [[ ! -s "$display_backend_hits" ]]; then
   fail "no separate real display backend implementation detected (mock display self-test is not hardware support)"
+else
+  note "Separate display backend source detected; hardware/runtime operation still requires testing"
 fi
 
 if [[ ! -f kernel/input.c && ! -f kernel/input/keyboard.c && ! -f drivers/input.c ]]; then
