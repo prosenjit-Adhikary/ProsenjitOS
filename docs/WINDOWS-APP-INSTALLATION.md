@@ -116,10 +116,10 @@ The existing `kernel/pe_inspect.c` is a **metadata inspector only**, not an exec
 
 - Require the full 70-byte optional-header prefix before reading the two-byte subsystem field.
 - Read the import data-directory entry only when the complete entry is within `SizeOfOptionalHeader` and `NumberOfRvaAndSizes` declares it.
-- Reject inconsistent import RVA/size pairs.
-- Clear the output structure before parsing so failed inspections do not leave stale partial metadata.
+- Reject inconsistent import RVA/size pairs and unsupported machine/optional-header combinations (I386 with PE32; AMD64 with PE32+ only).
+- Parse into a temporary result and publish metadata only after all checks pass; test that failed inspections do not leave stale partial metadata.
 - Correct the minimal PE32 self-test fixture's optional-header magic from PE32+ to PE32.
-- Add tests for a truncated optional header, a truncated import-directory region, inconsistent import metadata, and non-PE input.
+- Add tests for a truncated optional header, an optional header too short for a complete import-directory entry, inconsistent import metadata, machine/magic mismatch, cleared output on failure, and non-PE input.
 
 Run the host-side parser self-test locally with:
 
