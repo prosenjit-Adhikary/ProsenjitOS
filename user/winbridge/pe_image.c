@@ -129,3 +129,69 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
     }
     return WB_PE_EBOUNDS; /* RVA may point into zero-filled virtual tail. */
 }
+
+int wb_pe_import_at(const uint8_t *data, size_t size,
+                    const struct wb_pe_image *pe, uint32_t index,
+                    struct wb_pe_import *out)
+{
+    size_t off;
+    uint64_t descriptor_rva;
+    uint32_t fields[5];
+    uint32_t i;
+    if (!out) return WB_PE_EINVAL;
+    out->original_first_thunk = 0;
+    out->timestamp = 0;
+    out->forwarder_chain = 0;
+    out->name_rva = 0;
+    out->first_thunk = 0;
+    if (!data || !pe) return WB_PE_EINVAL;
+    if (pe->import_rva == 0u || pe->import_size < 20u ||
+        (pe->import_size % 20u) != 0u)
+        return WB_PE_EFORMAT;
+    if (index >= pe->import_size / 20u) return WB_PE_EBOUNDS;
+    descriptor_rva = (uint64_t)pe->import_rva + (uint64_t)index * 20u;
+    if (descriptor_rva > UINT32_MAX) return WB_PE_EBOUNDS;
+    if (wb_pe_rva_to_file(data, size, pe, (uint32_t)descriptor_rva,
+                          20u, &off) != WB_PE_OK)
+        return WB_PE_EBOUNDS;
+    for (i = 0; i < 5u; ++i) fields[i] = rd32(data + off + i * 4u);
+    if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u)
+        return WB_PE_ENOTFOUND;
+    if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
+    out->original_first_thunk = fields[0];
+    out->timestamp = fields[1];
+    out->forwarder_chain = fields[2];
+    out->name_rva = fields[3];
+    out->first_thunk = fields[4];
+    return WB_PE_OK;
+}
+
+int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
+                            const struct wb_pe_image *pe, uint32_t rva,
+                            char *out, size_t capacity)
+{
+    size_t i;
+    if (!out || capacity == 0u) return WB_PE_EINVAL;
+    out[0] = '\\0';
+    if (!data || !pe || rva == 0u) return WB_PE_EINVAL;
+    for (i = 0; i < capacity; ++i) {
+        size_t off;
+        uint64_t current = (uint64_t)rva + i;
+        uint8_t ch;
+        if (current > UINT32_MAX ||
+            wb_pe_rva_to_file(data, size, pe, (uint32_t)current, 1u,
+                              &off) != WB_PE_OK) {
+            out[0] = '\\0';
+            return WB_PE_EBOUNDS;
+        }
+        ch = data[off];
+        if (ch == 0u) return WB_PE_OK;
+        if (ch < 0x20u || ch > 0x7eu) {
+            out[0] = '\\0';
+            return WB_PE_EFORMAT;
+        }
+        out[i] = (char)ch;
+    }
+    out[0] = '\\0';
+    return WB_PE_EBOUNDS; /* No NUL terminator within the caller's bound. */
+}
