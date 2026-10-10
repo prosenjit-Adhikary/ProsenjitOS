@@ -11,6 +11,7 @@
 
 /* Registers a real Multiboot2 RGB framebuffer, if the bootloader supplied one.
  * Unsupported/native BIOS boot paths fail closed and continue without it. */
+int pros_framebuffer_device_selftest(void);
 int pros_framebuffer_device_init(uint32_t boot_magic, uint32_t boot_info);
 
 #endif
