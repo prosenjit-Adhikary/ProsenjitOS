@@ -386,5 +386,34 @@ int paging_selftest(void) {
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -7;
 
+    /* MMIO mapping is explicit, supervisor-only, and does not widen RAM allocation limits. */
+    {
+        const uint64_t device_va = PROSENJIT_KERNEL_TEST_VA + 0x2000ULL;
+        const uint64_t device_pa = 0xFD000000ULL;
+        if (paging_map_page(device_va, device_pa,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
+            return -8;
+        if (paging_map_device_page(device_va, device_pa,
+                                   PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+            return -9;
+        if (paging_translate(device_va) != device_pa ||
+            paging_query_page(device_va, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_PRESENT) ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(flags & PROSENJIT_PAGE_NX) || (flags & PROSENJIT_PAGE_USER)) {
+            paging_unmap_page(device_va);
+            return -10;
+        }
+        paging_unmap_page(device_va);
+        if (paging_translate(device_va) != 0)
+            return -11;
+        if (paging_map_device_page(device_va, device_pa,
+                                   PROSENJIT_PAGE_WRITABLE |
+                                   PROSENJIT_PAGE_USER) == 0) {
+            paging_unmap_page(device_va);
+            return -12;
+        }
+    }
+
     return 0;
 }
