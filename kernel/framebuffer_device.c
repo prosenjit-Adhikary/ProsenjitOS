@@ -183,7 +183,7 @@ static int map_framebuffer(uint64_t physical, uint64_t bytes)
     for (uint64_t i = 0; i < pages; ++i) {
         uint64_t va = FB_VIRTUAL_BASE + i * FB_PAGE_SIZE;
         uint64_t pa = page_start + i * FB_PAGE_SIZE;
-        if (paging_map_page(va, pa,
+        if (paging_map_device_page(va, pa,
                             PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
             for (uint64_t j = 0; j < i; ++j)
                 paging_unmap_page(FB_VIRTUAL_BASE + j * FB_PAGE_SIZE);
