@@ -31,9 +31,9 @@ A libFuzzer entry point is provided in `fuzz_pe_image.c`; actual fuzz campaigns 
 - Section raw/virtual bounds, overlapping section rejection, and rejection of writable+executable sections.
 - Entry point must land in file-backed executable section bytes.
 - Import/base-relocation directory metadata consistency and image-range checks.
-- RVA-to-file-offset translation for headers and raw-backed section data; virtual zero-fill tails are deliberately not treated as file bytes.
+- RVA-to-file-offset translation for headers and raw-backed section data; virtual zero-fill tails are deliberately not treated as file bytes. The public translation helper also validates caller-supplied metadata bounds rather than assuming every caller passed parser output.
 - Failure clears the output structure; metadata is published only after successful validation.
-- Synthetic host tests cover PE32/PE32+, architecture/magic mismatch, out-of-range offsets, image/entry bounds, directory-count corruption, W^X conflicts, zero-filled entry points, RVA translation, and cleared output on failure.
+- Synthetic host tests cover PE32/PE32+, architecture/magic mismatch, out-of-range offsets, image/entry bounds, directory-count corruption, W^X conflicts, zero-filled entry points, RVA translation, malformed caller-supplied metadata rejection, and cleared output on failure.
 
 ## Explicitly not implemented
 
