@@ -344,7 +344,9 @@ int pros_elf_selftest(void)
     /* Rollback must preserve a pre-existing mapping in a PT_LOAD gap. */
     {
         struct pros_process process;
-        uint64_t segment_page = 0, gap_page = 0, translated = 0, flags = 0;
+        uint64_t segment_page = 0, gap_page = 0, released = 0;
+        uint64_t translated = 0, flags = 0;
+        int segment_mapped = 0, gap_mapped = 0;
         int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
         if (rc != 0) return -16;
 
@@ -357,23 +359,40 @@ int pros_elf_selftest(void)
 
         segment_page = physical_page_alloc_user();
         gap_page = physical_page_alloc_user();
-        if (!segment_page || !gap_page ||
+        if (segment_page &&
             address_space_map_user_page_owned(&process.address_space,
                                               ph[0].vaddr, segment_page,
-                                              PROSENJIT_PAGE_NX) != 0 ||
+                                              PROSENJIT_PAGE_NX) == 0)
+            segment_mapped = 1;
+        if (gap_page &&
             address_space_map_user_page_owned(&process.address_space,
                                               ELF_TEST_CODE_VA + 2u * ELF_PAGE,
                                               gap_page,
                                               PROSENJIT_PAGE_WRITABLE |
-                                              PROSENJIT_PAGE_NX) != 0) {
-            if (segment_page) physical_page_free(segment_page);
-            if (gap_page) physical_page_free(gap_page);
+                                              PROSENJIT_PAGE_NX) == 0)
+            gap_mapped = 1;
+        if (!segment_mapped || !gap_mapped) {
+            if (segment_mapped) {
+                if (address_space_unmap_user_page(&process.address_space,
+                                                  ph[0].vaddr, &released) == 0)
+                    physical_page_free(released);
+            } else if (segment_page) {
+                physical_page_free(segment_page);
+            }
+            if (gap_mapped) {
+                if (address_space_unmap_user_page(&process.address_space,
+                                                  ELF_TEST_CODE_VA + 2u * ELF_PAGE,
+                                                  &released) == 0)
+                    physical_page_free(released);
+            } else if (gap_page) {
+                physical_page_free(gap_page);
+            }
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
             return -17;
         }
 
-        rollback_user_pages(&process, image, data_off + 4u, 
+        rollback_user_pages(&process, image, data_off + 4u,
                             ELF_TEST_CODE_VA,
                             ELF_TEST_CODE_VA + 4u * ELF_PAGE);
         if (address_space_validate_user_range(&process.address_space,
@@ -389,12 +408,12 @@ int pros_elf_selftest(void)
 
         if (address_space_unmap_user_page(&process.address_space,
                                           ELF_TEST_CODE_VA + 2u * ELF_PAGE,
-                                          &translated) != 0) {
+                                          &released) != 0) {
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
             return -19;
         }
-        physical_page_free(translated);
+        physical_page_free(released);
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
             return -20;
