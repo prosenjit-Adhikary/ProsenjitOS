@@ -114,13 +114,22 @@ int pros_gfx_copy_rect(struct pros_gfx_surface *dst,
 
 int pros_gfx_present(struct pros_gfx_surface *s, uint32_t display_id)
 {
+    struct pros_kernel_display_info info;
     uint64_t bytes;
     if (!valid(s) || display_id == 0u)
         return PROS_GFX_EINVAL;
+    if (pros_display_get_info(display_id, &info) != PROS_DRIVER_OK)
+        return PROS_GFX_EIO;
+    if (info.format != PROS_DISPLAY_FORMAT_XRGB8888 ||
+        (info.pitch & 3u) != 0u ||
+        s->width != info.width || s->height != info.height ||
+        s->stride != info.pitch / 4u)
+        return PROS_GFX_EFORMAT;
     bytes = (uint64_t)s->stride * s->height * sizeof(uint32_t);
-    if (bytes > UINT32_MAX)
+    if (bytes > UINT32_MAX || bytes != info.framebuffer_size)
         return PROS_GFX_ERANGE;
-    return pros_display_present(display_id, s->pixels, bytes) == PROS_DRIVER_OK ? PROS_GFX_OK : PROS_GFX_EIO;
+    return pros_display_present(display_id, s->pixels, bytes) == PROS_DRIVER_OK
+        ? PROS_GFX_OK : PROS_GFX_EIO;
 }
 
 int pros_gfx_selftest(void)
