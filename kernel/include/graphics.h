@@ -7,6 +7,7 @@
 #define PROS_GFX_EINVAL  -1
 #define PROS_GFX_ERANGE  -2
 #define PROS_GFX_EFORMAT -3
+#define PROS_GFX_EIO     -4
 
 #define PROS_GFX_FORMAT_ARGB8888 1u
 
