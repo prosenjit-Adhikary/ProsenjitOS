@@ -86,7 +86,9 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
         if (raw_size && (!span_ok(raw,raw_size,size) || raw < tmp.headers_size)) return WB_PE_EBOUNDS;
         if (extent && (!range32(va,extent,tmp.image_size) || va < tmp.headers_size)) return WB_PE_EBOUNDS;
         if ((d->characteristics & (WB_SCN_MEM_WRITE|WB_SCN_MEM_EXECUTE)) == (WB_SCN_MEM_WRITE|WB_SCN_MEM_EXECUTE)) return WB_PE_ECONFLICT;
-        if (tmp.entry_rva >= va && tmp.entry_rva-va < extent && (d->characteristics & WB_SCN_MEM_EXECUTE)) entry_exec=1;
+        /* The entry point must be backed by file bytes, not a zero-filled tail. */
+        if (tmp.entry_rva >= va && tmp.entry_rva-va < raw_size &&
+            (d->characteristics & WB_SCN_MEM_EXECUTE)) entry_exec=1;
         for (uint32_t j=0;j<i;j++) {
             const struct wb_pe_section *p=&tmp.sections[j];
             uint32_t pextent=p->virtual_size > p->raw_size ? p->virtual_size : p->raw_size;
