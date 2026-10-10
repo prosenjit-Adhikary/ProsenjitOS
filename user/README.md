@@ -11,6 +11,8 @@ bootable general-purpose userspace or a working graphical desktop.
 - `kernel/service_manager.c`: kernel-side service dependency/lifecycle registry and self-tests.
 - `include/abi/display.h` and `include/abi/input.h`: versioned ABI declarations.
 - `kernel/display.c`: display-device binding abstraction with a synthetic test backend.
+- `kernel/graphics.c` and `kernel/compositor.c`: bounded ARGB8888 surface operations, clipping, alpha composition, window ordering and deterministic self-tests.
+- `kernel/input.c`: bounded event-queue/device registry foundation with deterministic self-test; it does not yet read physical keyboard/mouse hardware.
 
 The current boot path builds a small ELF image from the kernel's embedded user-test
 section and enters CPL3 for a kernel/user-mode test. That is **not** equivalent to
