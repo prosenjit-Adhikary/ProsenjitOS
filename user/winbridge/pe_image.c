@@ -108,6 +108,11 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
                       uint32_t rva, uint32_t length, size_t *offset_out) {
     uint32_t i;
     if (!data || !pe || !offset_out) return WB_PE_EINVAL;
+    /* This is a public helper: do not assume callers only pass parser output. */
+    if (pe->section_count == 0u || pe->section_count > WB_PE_MAX_SECTIONS ||
+        pe->image_size == 0u || pe->headers_size == 0u ||
+        pe->headers_size > pe->image_size)
+        return WB_PE_EINVAL;
     if (!range32(rva,length,pe->image_size)) return WB_PE_EBOUNDS;
     if (rva < pe->headers_size) {
         if (!span_ok(rva,length,size) || !range32(rva,length,pe->headers_size)) return WB_PE_EBOUNDS;
