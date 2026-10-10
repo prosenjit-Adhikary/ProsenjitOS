@@ -38,8 +38,11 @@ int main(void){
         if(wb_pe_read_ascii_string(b,sizeof b,&pe,imp.name_rva,dll,sizeof dll)!=WB_PE_OK)return 15;
         if(strcmp(dll,"KERNEL32.dll")!=0)return 16;
         if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 17;
+        w32(b+0x21c,0);memset(&imp,0xff,sizeof imp);
+        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT||imp.name_rva!=0)return 18;
+        w32(b+0x21c,0x1040);
         b[0x2ff]='A';
-        if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x10ff,dll,sizeof dll)!=WB_PE_EBOUNDS||dll[0]!='\0')return 18;
+        if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x10ff,dll,sizeof dll)!=WB_PE_EBOUNDS||dll[0]!='\0')return 19;
     }
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 19;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
