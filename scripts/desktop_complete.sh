@@ -159,7 +159,9 @@ else
 fi
 
 if [[ -f kernel/framebuffer_device.c && -f kernel/include/framebuffer_device.h ]] &&
-   grep -qF 'pros_framebuffer_device_init' kernel/kernel.c &&\n   grep -qF 'pros_framebuffer_device_selftest()' kernel/kernel.c &&\n   grep -qF 'int pros_framebuffer_device_selftest(void)' kernel/framebuffer_device.c &&
+   grep -qF 'pros_framebuffer_device_init' kernel/kernel.c &&
+   grep -qF 'pros_framebuffer_device_selftest()' kernel/kernel.c &&
+   grep -qF 'int pros_framebuffer_device_selftest(void)' kernel/framebuffer_device.c &&
    grep -qF 'framebuffer_device.o' scripts/build.sh &&
    grep -qF 'dw 5' boot/multiboot2_header.asm &&
    grep -qF 'paging_map_device_page(va, pa' kernel/framebuffer_device.c; then
