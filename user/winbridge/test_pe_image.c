@@ -44,8 +44,8 @@ int main(void){
         b[0x2ff]='A';
         if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x10ff,dll,sizeof dll)!=WB_PE_EBOUNDS||dll[0]!='\0')return 19;
     }
-    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 19;
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 20;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
-    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 20;
+    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 21;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
