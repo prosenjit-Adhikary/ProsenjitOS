@@ -66,6 +66,10 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
         return PROS_DRIVER_ENOTSUP;
 
     parsed.machine = rd16(image + pe_off + 4u);
+    /* Only accept machine/magic pairs defined by this inspector's ABI. */
+    if ((magic == 0x10bu && parsed.machine != PROS_PE_MACHINE_I386) ||
+        (magic == 0x20bu && parsed.machine != PROS_PE_MACHINE_AMD64))
+        return PROS_DRIVER_ENOTSUP;
     parsed.sections = sections;
     parsed.entry_rva = rd32(image + opt_off + 16u);
     parsed.image_size = rd32(image + opt_off + 56u);
@@ -188,6 +192,15 @@ int pros_pe_selftest(void)
     pe[p + 24u + 104u] = 1u; /* Import RVA nonzero, size remains zero. */
     if (pros_pe_inspect(pe, sizeof(pe), &info) != PROS_DRIVER_EIO)
         return PROS_DRIVER_EIO;
+
+    /* A PE32+ optional header paired with the I386 machine is unsupported. */
+    pe[p + 24u] = 0x0bu;
+    pe[p + 25u] = 0x02u;
+    if (pros_pe_inspect(pe, sizeof(pe), &info) != PROS_DRIVER_ENOTSUP ||
+        info.machine != 0u)
+        return PROS_DRIVER_EIO;
+    pe[p + 24u] = 0x0bu;
+    pe[p + 25u] = 0x01u;
 
     /* A non-PE buffer must be rejected. */
     pe[0] = 'N';
