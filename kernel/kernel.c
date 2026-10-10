@@ -22,6 +22,9 @@
 #include "network.h"
 #include "device_broker.h"
 #include "display.h"
+#include "graphics.h"
+#include "compositor.h"
+#include "input.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -863,6 +866,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: display-device binding self-test passed\\n");
+    if (pros_gfx_selftest() != PROS_GFX_OK) {
+        serial_write("ProsenjitOS: ERROR graphics surface self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (pros_compositor_self_test() != 0) {
+        serial_write("ProsenjitOS: ERROR window compositor self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (pros_input_selftest() != PROS_INPUT_OK) {
+        serial_write("ProsenjitOS: ERROR input event queue self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: graphics/compositor/input queue self-tests passed (synthetic devices only)\\n");
 
     if (pros_net_selftest() != PROS_NET_OK) {
         serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\\n");
