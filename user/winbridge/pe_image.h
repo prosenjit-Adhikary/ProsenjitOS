@@ -21,6 +21,11 @@ struct wb_pe_section {
     uint32_t raw_size;
     uint32_t characteristics;
 };
+struct wb_pe_import_symbol {
+    uint8_t is_ordinal;
+    uint16_t ordinal;
+    uint16_t hint;
+};
 struct wb_pe_import {
     uint32_t original_first_thunk;
     uint32_t timestamp;
@@ -46,6 +51,11 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out);
 int wb_pe_import_at(const uint8_t *data, size_t size,
                     const struct wb_pe_image *pe, uint32_t index,
                     struct wb_pe_import *out);
+int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
+                           const struct wb_pe_image *pe,
+                           const struct wb_pe_import *import_entry,
+                           uint32_t index, struct wb_pe_import_symbol *symbol,
+                           char *name, size_t name_capacity);
 int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
                             const struct wb_pe_image *pe, uint32_t rva,
                             char *out, size_t capacity);
