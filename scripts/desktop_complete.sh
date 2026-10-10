@@ -126,6 +126,20 @@ else
 fi
 
 echo "[5/7] Real display/input path and desktop runtime"
+if [[ -f kernel/graphics.c && -f kernel/include/graphics.h &&
+      -f kernel/compositor.c && -f kernel/include/compositor.h &&
+      -f kernel/input.c && -f kernel/include/input.h ]] &&
+   grep -qF 'kernel/graphics.c' scripts/build.sh &&
+   grep -qF 'kernel/compositor.c' scripts/build.sh &&
+   grep -qF 'kernel/input.c' scripts/build.sh &&
+   grep -qF 'pros_gfx_selftest()' kernel/kernel.c &&
+   grep -qF 'pros_compositor_self_test()' kernel/kernel.c &&
+   grep -qF 'pros_input_selftest()' kernel/kernel.c; then
+  note "Bounded graphics surfaces, compositor, input event queue and boot-time self-tests are integrated; these are foundations, not hardware/user-session proof"
+else
+  fail "graphics/compositor/input foundations or build/self-test integration is missing"
+fi
+
 if [[ -f kernel/display.c ]] &&
    grep -qE '^int pros_display_bind\(' kernel/display.c &&
    grep -qE '^int pros_display_selftest\(' kernel/display.c &&
