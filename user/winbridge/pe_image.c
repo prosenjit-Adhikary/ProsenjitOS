@@ -172,7 +172,7 @@ int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
 {
     size_t i;
     if (!out || capacity == 0u) return WB_PE_EINVAL;
-    out[0] = '\\0';
+    out[0] = '\0';
     if (!data || !pe || rva == 0u) return WB_PE_EINVAL;
     for (i = 0; i < capacity; ++i) {
         size_t off;
@@ -181,17 +181,17 @@ int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
         if (current > UINT32_MAX ||
             wb_pe_rva_to_file(data, size, pe, (uint32_t)current, 1u,
                               &off) != WB_PE_OK) {
-            out[0] = '\\0';
+            out[0] = '\0';
             return WB_PE_EBOUNDS;
         }
         ch = data[off];
-        if (ch == 0u) return WB_PE_OK;
+        if (ch == 0u) { out[i] = '\0'; return WB_PE_OK; }
         if (ch < 0x20u || ch > 0x7eu) {
-            out[0] = '\\0';
+            out[0] = '\0';
             return WB_PE_EFORMAT;
         }
         out[i] = (char)ch;
     }
-    out[0] = '\\0';
+    out[0] = '\0';
     return WB_PE_EBOUNDS; /* No NUL terminator within the caller's bound. */
 }
