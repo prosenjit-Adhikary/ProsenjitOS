@@ -162,7 +162,7 @@ if [[ -f kernel/framebuffer_device.c && -f kernel/include/framebuffer_device.h ]
    grep -qF 'pros_framebuffer_device_init' kernel/kernel.c &&
    grep -qF 'framebuffer_device.o' scripts/build.sh &&
    grep -qF 'dw 5' boot/multiboot2_header.asm &&
-   grep -qF 'paging_map_page(va, pa' kernel/framebuffer_device.c; then
+   grep -qF 'paging_map_device_page(va, pa' kernel/framebuffer_device.c; then
   note "Multiboot2 framebuffer provider source is registered in boot/build paths; actual availability and pixel output still require QEMU/hardware verification"
 else
   fail "Multiboot2 framebuffer request/provider/build/boot integration is missing"
