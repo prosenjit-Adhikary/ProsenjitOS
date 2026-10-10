@@ -35,7 +35,7 @@ The detailed runtime architecture is documented in [docs/V2-UNIFIED-APPLICATION-
 
 - [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
 - [~] Kernel-side PE metadata inspector hardening is isolated for review in PR #122; run `sh scripts/test-pe-inspect.sh` on that branch. It is not an executable loader.
-- [~] First user-space PE32/PE32+ metadata parser added under `user/winbridge/`, with local synthetic host tests passing under C11 `-Wall -Wextra -Werror -O2`. Reproduce with `sh user/winbridge/test-pe-image.sh`. This is parser-only evidence; mapping, relocations, import walking, DLL resolution, fuzzing, native process integration, and runtime execution remain pending.
+- [~] First user-space PE32/PE32+ metadata parser added under `user/winbridge/`, with local synthetic host tests passing under C11 `-Wall -Wextra -Werror -O2` and under AddressSanitizer/UndefinedBehaviorSanitizer. Reproduce with `sh user/winbridge/test-pe-image.sh` and `sh user/winbridge/test-pe-image-sanitize.sh`. A libFuzzer entry point exists, but fuzz campaigns have not yet run. This is parser-only evidence; mapping, relocations, import walking, DLL resolution, fuzzing, native process integration, and runtime execution remain pending.
 - [ ] Run a minimal controlled Windows console application through a user-space runtime.
 - [ ] Add only the Windows API/DLL behavior required by selected, documented test applications.
 - [ ] Integrate supported GUI applications into the existing desktop/window system.
