@@ -194,13 +194,43 @@ static int page_mapped(const struct pros_address_space *space, uint64_t va)
 }
 
 static void rollback_user_pages(struct pros_process *process,
+                                const uint8_t *image, uint64_t size,
                                 uint64_t start, uint64_t end)
 {
-    for (uint64_t va = start; va < end; va += ELF_PAGE) {
-        uint64_t physical = 0;
-        if (address_space_unmap_user_page(&process->address_space, va,
-                                          &physical) == 0)
-            physical_page_free(physical);
+    const struct elf64_ehdr *eh = (const struct elf64_ehdr *)image;
+
+    /*
+     * The image envelope [start, end) can contain holes between PT_LOAD
+     * segments. Never unmap the envelope blindly: a hole may contain an
+     * unrelated mapping owned by the process. Reclaim only pages covered
+     * by validated PT_LOAD segments. Validation has already checked every
+     * segment range and the program-header table before this helper runs.
+     */
+    if (!process || !image || size < sizeof(*eh) ||
+        !phdr_table_ok(eh, size))
+        return;
+
+    for (uint16_t i = 0; i < eh->phnum; ++i) {
+        const struct elf64_phdr *ph =
+            (const struct elf64_phdr *)(image + eh->phoff +
+                                        (uint64_t)i * sizeof(*ph));
+        uint64_t seg_end, page_end;
+        if (ph->type != PT_LOAD || ph->memsz == 0 ||
+            !range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
+            seg_end > UINT64_MAX - (ELF_PAGE - 1ULL))
+            continue;
+
+        uint64_t page_start = ph->vaddr & ~(ELF_PAGE - 1ULL);
+        page_end = (seg_end + ELF_PAGE - 1ULL) & ~(ELF_PAGE - 1ULL);
+        if (page_start < start) page_start = start;
+        if (page_end > end) page_end = end;
+
+        for (uint64_t va = page_start; va < page_end; va += ELF_PAGE) {
+            uint64_t physical = 0;
+            if (address_space_unmap_user_page(&process->address_space, va,
+                                              &physical) == 0)
+                physical_page_free(physical);
+        }
     }
 }
 
@@ -548,14 +578,14 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             if (f < 0) continue;
             if (flags < 0) flags = f;
             else if (flags != f) {
-                rollback_user_pages(process, start, end);
+                rollback_user_pages(process, image, size, start, end);
                 return PROS_ELF_ECONFLICT;
             }
         }
         if (flags < 0) continue;
         uint64_t physical = physical_page_alloc_user();
         if (!physical) {
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, size, start, end);
             return PROS_ELF_ENOMEM;
         }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
@@ -564,7 +594,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         if (address_space_map_user_page_owned(&process->address_space, va,
                                               physical, (uint64_t)flags) != 0) {
             physical_page_free(physical);
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, size, start, end);
             return PROS_ELF_EINVAL;
         }
         ++mapped;
@@ -577,7 +607,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             uint64_t seg_end = 0, page_end = 0;
             if (!range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
                 seg_end > UINT64_MAX - (ELF_PAGE - 1ULL)) {
-                rollback_user_pages(process, start, end);
+                rollback_user_pages(process, image, size, start, end);
                 return PROS_ELF_EOVERFLOW;
             }
             page_end = (seg_end + ELF_PAGE - 1ULL) & ~(ELF_PAGE - 1ULL);
@@ -595,12 +625,12 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                 copy_len = ELF_PAGE - dst_delta;
             if (copy_len != 0) {
                 if (ph->offset > UINT64_MAX - src_delta) {
-                    rollback_user_pages(process, start, end);
+                    rollback_user_pages(process, image, size, start, end);
                     return PROS_ELF_EOVERFLOW;
                 }
                 uint64_t file_off = ph->offset + src_delta;
                 if (file_off > size || copy_len > size - file_off) {
-                    rollback_user_pages(process, start, end);
+                    rollback_user_pages(process, image, size, start, end);
                     return PROS_ELF_EBOUNDS;
                 }
                 for (uint64_t j = 0; j < copy_len; ++j)
@@ -618,13 +648,13 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
      * caller-supplied stack addresses.
      */
     if (page_mapped(&process->address_space, PROSENJIT_USER_STACK_VA)) {
-        rollback_user_pages(process, start, end);
+        rollback_user_pages(process, image, size, start, end);
         return PROS_ELF_ECONFLICT;
     }
     {
         uint64_t stack_page = physical_page_alloc_user();
         if (!stack_page) {
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, size, start, end);
             return PROS_ELF_ENOMEM;
         }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
@@ -635,7 +665,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                                               PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_NX) != 0) {
             physical_page_free(stack_page);
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, size, start, end);
             return PROS_ELF_EINVAL;
         }
         ++mapped;
