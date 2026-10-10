@@ -72,9 +72,10 @@ static int paging_map_page_impl(uint64_t virtual_address, uint64_t physical_addr
         (virtual_address & 0xFFFULL) != 0 || (physical_address & 0xFFFULL) != 0)
         return -1;
     if (!canonical_address(virtual_address) ||
-        (device_mapping ? (physical_address < PROSENJIT_PHYS_LIMIT || physical_address >= (1ULL << 52) || (flags & PROSENJIT_PAGE_USER)) : physical_address >= PROSENJIT_PHYS_LIMIT) ||
+        (device_mapping ? (physical_address < PROSENJIT_PHYS_LIMIT || physical_address >= (1ULL << 52) || (flags & PROSENJIT_PAGE_USER) || !(flags & PROSENJIT_PAGE_CACHE_DISABLE)) : physical_address >= PROSENJIT_PHYS_LIMIT) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
-                   PROSENJIT_PAGE_NX)) != 0)
+                   PROSENJIT_PAGE_NX | PROSENJIT_PAGE_WRITE_THROUGH |
+                   PROSENJIT_PAGE_CACHE_DISABLE)) != 0)
         return -1;
 
     uint64_t table_flags = PROSENJIT_PAGE_WRITABLE;
@@ -133,7 +134,9 @@ static int paging_map_page_impl(uint64_t virtual_address, uint64_t physical_addr
     pt[PT_INDEX(virtual_address)] = (physical_address & PAGE_MASK) |
                                     (flags & (PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_USER |
-                                              PROSENJIT_PAGE_NX)) |
+                                              PROSENJIT_PAGE_NX |
+                                              PROSENJIT_PAGE_WRITE_THROUGH |
+                                              PROSENJIT_PAGE_CACHE_DISABLE)) |
                                     PROSENJIT_PAGE_PRESENT;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
@@ -394,13 +397,15 @@ int paging_selftest(void) {
                             PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
             return -8;
         if (paging_map_device_page(device_va, device_pa,
-                                   PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
+                                   PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX |
+                                   PROSENJIT_PAGE_CACHE_DISABLE) != 0)
             return -9;
         if (paging_translate(device_va) != device_pa ||
             paging_query_page(device_va, &flags) != 0 ||
             !(flags & PROSENJIT_PAGE_PRESENT) ||
             !(flags & PROSENJIT_PAGE_WRITABLE) ||
-            !(flags & PROSENJIT_PAGE_NX) || (flags & PROSENJIT_PAGE_USER)) {
+            !(flags & PROSENJIT_PAGE_NX) || !(flags & PROSENJIT_PAGE_CACHE_DISABLE) ||
+            (flags & PROSENJIT_PAGE_USER)) {
             paging_unmap_page(device_va);
             return -10;
         }
@@ -409,6 +414,7 @@ int paging_selftest(void) {
             return -11;
         if (paging_map_device_page(device_va, device_pa,
                                    PROSENJIT_PAGE_WRITABLE |
+                                   PROSENJIT_PAGE_CACHE_DISABLE |
                                    PROSENJIT_PAGE_USER) == 0) {
             paging_unmap_page(device_va);
             return -12;
