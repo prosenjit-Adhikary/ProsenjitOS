@@ -236,6 +236,14 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     if (wb_pe_rva_to_file(data, size, pe, (uint32_t)value, 2u, &off) != WB_PE_OK)
         return WB_PE_EBOUNDS;
     symbol->hint = rd16(data + off);
-    return wb_pe_read_ascii_string(data, size, pe, (uint32_t)value + 2u,
-                                   name, name_capacity);
+    {
+        int rc = wb_pe_read_ascii_string(data, size, pe, (uint32_t)value + 2u,
+                                         name, name_capacity);
+        if (rc != WB_PE_OK) {
+            symbol->hint = 0;
+            name[0] = '\0';
+            return rc;
+        }
+    }
+    return WB_PE_OK;
 }
