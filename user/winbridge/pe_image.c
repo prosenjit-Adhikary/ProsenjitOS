@@ -213,7 +213,7 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     symbol->is_ordinal = 0;
     symbol->ordinal = 0;
     symbol->hint = 0;
-    name[0] = '\\0';
+    name[0] = '\0';
     if (!data || !pe || !import_entry) return WB_PE_EINVAL;
     width = pe->pe32_plus ? 8u : 4u;
     thunk_rva = import_entry->original_first_thunk ?
