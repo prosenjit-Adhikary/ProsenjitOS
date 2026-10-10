@@ -158,6 +158,16 @@ else
   fail "display binding validation/lifecycle, self-tests or public/internal ABI contract is missing/inconsistent"
 fi
 
+if [[ -f kernel/framebuffer_device.c && -f kernel/include/framebuffer_device.h ]] &&
+   grep -qF 'pros_framebuffer_device_init' kernel/kernel.c &&
+   grep -qF 'framebuffer_device.o' scripts/build.sh &&
+   grep -qF 'dw 5' boot/multiboot2_header.asm &&
+   grep -qF 'paging_map_page(va, pa' kernel/framebuffer_device.c; then
+  note "Multiboot2 framebuffer provider source is registered in boot/build paths; actual availability and pixel output still require QEMU/hardware verification"
+else
+  fail "Multiboot2 framebuffer request/provider/build/boot integration is missing"
+fi
+
 # The current display self-test backend is synthetic; it does not bind a real
 # framebuffer device or expose a userspace mapping/event queue.
 display_backend_candidates=/tmp/prosenjitos_display_backend_candidates
