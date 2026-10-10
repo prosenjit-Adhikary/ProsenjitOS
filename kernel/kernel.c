@@ -22,6 +22,7 @@
 #include "network.h"
 #include "device_broker.h"
 #include "display.h"
+#include "framebuffer_device.h"
 #include "graphics.h"
 #include "compositor.h"
 #include "input.h"
@@ -866,6 +867,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: display-device binding self-test passed\\n");
+    {
+        int fb_rc = pros_framebuffer_device_init(boot_magic, boot_info);
+        if (fb_rc == PROS_FBDEV_OK) {
+            serial_write("ProsenjitOS: real Multiboot2 framebuffer provider bound\\n");
+        } else if (fb_rc == PROS_FBDEV_ENODEV) {
+            serial_write("ProsenjitOS: no Multiboot2 framebuffer available on this boot path\\n");
+        } else {
+            serial_write("ProsenjitOS: WARNING framebuffer provider rejected boot metadata rc=");
+            serial_hex64((uint64_t)(int64_t)fb_rc);
+            serial_write("\\n");
+        }
+    }
     if (pros_gfx_selftest() != PROS_GFX_OK) {
         serial_write("ProsenjitOS: ERROR graphics surface self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
