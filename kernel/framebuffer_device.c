@@ -168,6 +168,57 @@ static int find_framebuffer_tag(uint32_t boot_info,
     return PROS_FBDEV_ENODEV;
 }
 
+int pros_framebuffer_device_selftest(void)
+{
+    struct mb2_framebuffer_tag tag = {0};
+    uint64_t bytes = 0u;
+
+    tag.type = MB2_TAG_FRAMEBUFFER;
+    tag.size = sizeof(tag);
+    tag.address = 0xFD000000ULL;
+    tag.pitch = 640u * 4u;
+    tag.width = 640u;
+    tag.height = 480u;
+    tag.bpp = 32u;
+    tag.framebuffer_type = MB2_FRAMEBUFFER_RGB;
+    tag.red_position = 16u; tag.red_mask = 8u;
+    tag.green_position = 8u; tag.green_mask = 8u;
+    tag.blue_position = 0u; tag.blue_mask = 8u;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_OK ||
+        bytes != 640ULL * 480ULL * 4ULL)
+        return -1;
+
+    tag.size = (uint32_t)sizeof(tag) - 1u;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_EINVAL)
+        return -2;
+    tag.size = sizeof(tag);
+
+    tag.pitch = 2559u;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_EINVAL)
+        return -3;
+    tag.pitch = 640u * 4u;
+
+    tag.framebuffer_type = 0u;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_ENOTSUP)
+        return -4;
+    tag.framebuffer_type = MB2_FRAMEBUFFER_RGB;
+
+    tag.address = PROSENJIT_PHYS_LIMIT - FB_PAGE_SIZE;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_EINVAL)
+        return -5;
+    tag.address = 0xFD000000ULL;
+
+    tag.red_position = 0u;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_ENOTSUP)
+        return -6;
+    tag.red_position = 16u;
+
+    tag.width = FB_MAX_WIDTH + 1u;
+    if (framebuffer_tag_valid(&tag, &bytes) != PROS_FBDEV_ENOTSUP)
+        return -7;
+    return 0;
+}
+
 static int map_framebuffer(uint64_t physical, uint64_t bytes)
 {
     uint64_t page_start = physical & ~(FB_PAGE_SIZE - 1u);
