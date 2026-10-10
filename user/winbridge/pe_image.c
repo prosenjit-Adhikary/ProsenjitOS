@@ -11,6 +11,9 @@ static uint32_t rd32(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
+static uint64_t rd64(const uint8_t *p) {
+    return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4u) << 32);
+}
 static int span_ok(size_t off, size_t len, size_t total) {
     return off <= total && len <= total - off;
 }
@@ -194,4 +197,45 @@ int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
     }
     out[0] = '\0';
     return WB_PE_EBOUNDS; /* No NUL terminator within the caller's bound. */
+}
+
+int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
+                           const struct wb_pe_image *pe,
+                           const struct wb_pe_import *import_entry,
+                           uint32_t index, struct wb_pe_import_symbol *symbol,
+                           char *name, size_t name_capacity)
+{
+    uint32_t thunk_rva;
+    uint64_t slot_rva, value, ordinal_flag;
+    size_t off;
+    uint32_t width;
+    if (!symbol || !name || name_capacity == 0u) return WB_PE_EINVAL;
+    symbol->is_ordinal = 0;
+    symbol->ordinal = 0;
+    symbol->hint = 0;
+    name[0] = '\\0';
+    if (!data || !pe || !import_entry) return WB_PE_EINVAL;
+    width = pe->pe32_plus ? 8u : 4u;
+    thunk_rva = import_entry->original_first_thunk ?
+                import_entry->original_first_thunk : import_entry->first_thunk;
+    if (thunk_rva == 0u) return WB_PE_EFORMAT;
+    slot_rva = (uint64_t)thunk_rva + (uint64_t)index * width;
+    if (slot_rva > UINT32_MAX ||
+        wb_pe_rva_to_file(data, size, pe, (uint32_t)slot_rva, width, &off) != WB_PE_OK)
+        return WB_PE_EBOUNDS;
+    value = width == 8u ? rd64(data + off) : rd32(data + off);
+    if (value == 0u) return WB_PE_ENOTFOUND;
+    ordinal_flag = pe->pe32_plus ? 0x8000000000000000ULL : 0x80000000ULL;
+    if (value & ordinal_flag) {
+        if ((value & ~(ordinal_flag | 0xffffULL)) != 0u) return WB_PE_EFORMAT;
+        symbol->is_ordinal = 1u;
+        symbol->ordinal = (uint16_t)(value & 0xffffu);
+        return WB_PE_OK;
+    }
+    if (value > UINT32_MAX || value > UINT32_MAX - 2u) return WB_PE_EBOUNDS;
+    if (wb_pe_rva_to_file(data, size, pe, (uint32_t)value, 2u, &off) != WB_PE_OK)
+        return WB_PE_EBOUNDS;
+    symbol->hint = rd16(data + off);
+    return wb_pe_read_ascii_string(data, size, pe, (uint32_t)value + 2u,
+                                   name, name_capacity);
 }
