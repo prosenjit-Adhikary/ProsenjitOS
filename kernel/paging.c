@@ -215,7 +215,9 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
         *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
                               PROSENJIT_PAGE_WRITABLE |
                               PROSENJIT_PAGE_USER |
-                              PROSENJIT_PAGE_NX);
+                              PROSENJIT_PAGE_NX |
+                              PROSENJIT_PAGE_WRITE_THROUGH |
+                              PROSENJIT_PAGE_CACHE_DISABLE);
         return 0;
     }
 
@@ -227,7 +229,9 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
     *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
                           PROSENJIT_PAGE_WRITABLE |
                           PROSENJIT_PAGE_USER |
-                          PROSENJIT_PAGE_NX);
+                          PROSENJIT_PAGE_NX |
+                          PROSENJIT_PAGE_WRITE_THROUGH |
+                          PROSENJIT_PAGE_CACHE_DISABLE);
     return 0;
 }
 
