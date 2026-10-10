@@ -507,7 +507,7 @@ int pros_elf_load_with_args(struct pros_process *process,
     if (rc != PROS_ELF_OK) return rc;
     rc = build_initial_stack(process, argv, argc, envp, envc);
     if (rc != PROS_ELF_OK) {
-        rollback_user_pages(process, result->image_start, result->image_end);
+        rollback_user_pages(process, image, size, result->image_start, result->image_end);
         uint64_t physical = 0;
         if (address_space_unmap_user_page(&process->address_space,
                                           PROSENJIT_USER_STACK_VA,
