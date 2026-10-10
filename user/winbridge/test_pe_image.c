@@ -30,22 +30,29 @@ int main(void){
     w32(b+0x98+104,0x1010);w32(b+0x98+108,40);
     w32(b+0x210,0x1050);w32(b+0x21c,0x1040);w32(b+0x220,0x1060);
     memcpy(b+0x240,"KERNEL32.dll",13);
+    w32(b+0x250,0x1070);w16(b+0x270,7);memcpy(b+0x272,"ExitProcess",12);
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 13;
     {
-        struct wb_pe_import imp;char dll[32];
+        struct wb_pe_import imp;struct wb_pe_import_symbol sym;char dll[32],symbol_name[32];
         if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_OK||imp.name_rva!=0x1040)return 14;
         memset(dll,'X',sizeof dll);
         if(wb_pe_read_ascii_string(b,sizeof b,&pe,imp.name_rva,dll,sizeof dll)!=WB_PE_OK)return 15;
         if(strcmp(dll,"KERNEL32.dll")!=0)return 16;
-        if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 17;
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,symbol_name,sizeof symbol_name)!=WB_PE_OK)return 17;
+        if(sym.is_ordinal||sym.hint!=7||strcmp(symbol_name,"ExitProcess")!=0)return 18;
+        w32(b+0x250,0x80000005u);
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,symbol_name,sizeof symbol_name)!=WB_PE_OK||!sym.is_ordinal||sym.ordinal!=5)return 19;
+        w32(b+0x250,0x1070);
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,1,&sym,symbol_name,sizeof symbol_name)!=WB_PE_ENOTFOUND)return 20;
+        if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 21;
         w32(b+0x21c,0);memset(&imp,0xff,sizeof imp);
-        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT||imp.name_rva!=0)return 18;
+        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT||imp.name_rva!=0)return 22;
         w32(b+0x21c,0x1040);
         b[0x2ff]='A';
-        if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x10ff,dll,sizeof dll)!=WB_PE_EBOUNDS||dll[0]!='\0')return 19;
+        if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x10ff,dll,sizeof dll)!=WB_PE_EBOUNDS||dll[0]!='\0')return 23;
     }
-    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 20;
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 24;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
-    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 21;
+    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 25;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
