@@ -35,6 +35,9 @@ int main(void){
     {
         struct wb_pe_import imp;struct wb_pe_import_symbol sym;char dll[32],symbol_name[32];
         if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_OK||imp.name_rva!=0x1040)return 14;
+        pe.pe32_plus=2u;
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EINVAL)return 15;
+        pe.pe32_plus=0u;
         memset(dll,'X',sizeof dll);
         if(wb_pe_read_ascii_string(b,sizeof b,&pe,imp.name_rva,dll,sizeof dll)!=WB_PE_OK)return 15;
         if(strcmp(dll,"KERNEL32.dll")!=0)return 16;
