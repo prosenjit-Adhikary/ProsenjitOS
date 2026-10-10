@@ -14,7 +14,7 @@ mb2_header:
 
     ; Request a 1024x768x32 RGB framebuffer when GRUB supports it.
     dw 5                       ; framebuffer header tag
-    dw 0                       ; optional
+    dw 0                       ; required framebuffer request
     dd 20                      ; tag size
     dd 1024                    ; requested width
     dd 768                     ; requested height
