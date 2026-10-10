@@ -30,10 +30,12 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
     uint32_t pe_off, opt_off, sec_off, i;
     uint16_t magic, opt_size, sections;
     uint32_t directory_count = 0;
+    struct pros_pe_image_info parsed;
 
     if (!out)
         return PROS_DRIVER_EINVAL;
     clear_info(out);
+    clear_info(&parsed);
     if (!image || size < 0x40u)
         return PROS_DRIVER_EINVAL;
     if (image[0] != 'M' || image[1] != 'Z')
@@ -63,13 +65,13 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
     if (magic != 0x10bu && magic != 0x20bu)
         return PROS_DRIVER_ENOTSUP;
 
-    out->machine = rd16(image + pe_off + 4u);
-    out->sections = sections;
-    out->entry_rva = rd32(image + opt_off + 16u);
-    out->image_size = rd32(image + opt_off + 56u);
-    out->subsystem = rd16(image + opt_off + 68u);
-    out->section_count = sections;
-    out->is_pe32_plus = (magic == 0x20bu) ? 1u : 0u;
+    parsed.machine = rd16(image + pe_off + 4u);
+    parsed.sections = sections;
+    parsed.entry_rva = rd32(image + opt_off + 16u);
+    parsed.image_size = rd32(image + opt_off + 56u);
+    parsed.subsystem = rd16(image + opt_off + 68u);
+    parsed.section_count = sections;
+    parsed.is_pe32_plus = (magic == 0x20bu) ? 1u : 0u;
 
     /*
      * The import directory is data-directory entry 1. Only read it when
@@ -79,15 +81,15 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
         if (opt_size >= 96u)
             directory_count = rd32(image + opt_off + 92u);
         if (directory_count > 1u && opt_size >= 112u) {
-            out->import_rva = rd32(image + opt_off + 104u);
-            out->import_size = rd32(image + opt_off + 108u);
+            parsed.import_rva = rd32(image + opt_off + 104u);
+            parsed.import_size = rd32(image + opt_off + 108u);
         }
     } else {
         if (opt_size >= 112u)
             directory_count = rd32(image + opt_off + 108u);
         if (directory_count > 1u && opt_size >= 128u) {
-            out->import_rva = rd32(image + opt_off + 120u);
-            out->import_size = rd32(image + opt_off + 124u);
+            parsed.import_rva = rd32(image + opt_off + 120u);
+            parsed.import_size = rd32(image + opt_off + 124u);
         }
     }
 
@@ -103,18 +105,19 @@ int pros_pe_inspect(const uint8_t *image, uint32_t size,
             return PROS_DRIVER_EIO;
     }
 
-    if ((out->import_rva == 0u) != (out->import_size == 0u))
+    if ((parsed.import_rva == 0u) != (parsed.import_size == 0u))
         return PROS_DRIVER_EIO;
-    out->has_imports = (out->import_rva != 0u) ? 1u : 0u;
+    parsed.has_imports = (parsed.import_rva != 0u) ? 1u : 0u;
 
     /*
      * This is inspection only, not an execution authorization decision.
      * A future loader must validate architecture, imports, relocations,
      * section mappings, permissions, and the supported ABI separately.
      */
-    if (out->image_size == 0u || out->entry_rva >= out->image_size)
+    if (parsed.image_size == 0u || parsed.entry_rva >= parsed.image_size)
         return PROS_DRIVER_EIO;
 
+    *out = parsed;
     return PROS_DRIVER_OK;
 }
 
@@ -139,7 +142,7 @@ static void make_minimal_pe32(uint8_t *pe, uint32_t size)
     pe[p + 40u] = 0x00u;
     pe[p + 41u] = 0x10u; /* AddressOfEntryPoint = 0x1000. */
     pe[p + 80u] = 0x00u;
-    pe[p + 81u] = 0x10u; /* SizeOfImage = 0x1000. */
+    pe[p + 81u] = 0x20u; /* SizeOfImage = 0x2000; entry RVA is 0x1000. */
     pe[p + 92u] = PROS_PE_SUBSYSTEM_WINDOWS_CUI;
 }
 
