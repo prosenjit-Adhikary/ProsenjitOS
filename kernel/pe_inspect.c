@@ -165,7 +165,8 @@ int pros_pe_selftest(void)
     saved_opt_size = rd16(pe + p + 20u);
     pe[p + 20u] = 69u;
     pe[p + 21u] = 0u;
-    if (pros_pe_inspect(pe, sizeof(pe), &info) != PROS_DRIVER_EIO)
+    if (pros_pe_inspect(pe, sizeof(pe), &info) != PROS_DRIVER_EIO ||
+        info.machine != 0u || info.import_rva != 0u)
         return PROS_DRIVER_EIO;
     pe[p + 20u] = (uint8_t)saved_opt_size;
     pe[p + 21u] = (uint8_t)(saved_opt_size >> 8);
