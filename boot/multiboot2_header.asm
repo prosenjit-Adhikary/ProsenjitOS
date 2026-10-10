@@ -12,6 +12,14 @@ mb2_header:
     dd mb2_header_end - mb2_header
     dd -(0xE85250D6 + 0 + (mb2_header_end - mb2_header))
 
+    ; Request a 1024x768x32 RGB framebuffer when GRUB supports it.
+    dw 5                       ; framebuffer header tag
+    dw 0                       ; optional
+    dd 20                      ; tag size
+    dd 1024                    ; requested width
+    dd 768                     ; requested height
+    dd 32                      ; requested depth
+
     ; End tag
     dw 0
     dw 0
