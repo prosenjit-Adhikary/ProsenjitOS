@@ -24,6 +24,7 @@ int main(void){
     fixture(b,sizeof b,0);w32(b+0x98+16,0x1800);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 8;
     fixture(b,sizeof b,0);w32(b+0x98+92,0xffffffffu);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 9;
     fixture(b,sizeof b,0);w32(b+0x178+36,0xa0000000u);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_ECONFLICT)return 10;
-    fixture(b,sizeof b,0);b[0]='X';memset(&pe,0xff,sizeof pe);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT||pe.machine!=0)return 11;
+    fixture(b,sizeof b,0);w32(b+0x178+8,0x100);w32(b+0x178+16,0x10);w32(b+0x98+16,0x1020);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 11;
+    fixture(b,sizeof b,0);b[0]='X';memset(&pe,0xff,sizeof pe);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT||pe.machine!=0)return 12;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
