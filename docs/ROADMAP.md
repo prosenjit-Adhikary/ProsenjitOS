@@ -31,10 +31,10 @@ The repository contains build/boot and security-architecture GitHub Actions work
 
 Version 2 targets a single ProsenjitOS desktop for native applications and supported Windows applications, without requiring a complete Windows OS installation, a Windows VM as the normal app path, or Wine as a runtime dependency. Windows binaries still require an independently implemented or properly licensed Windows ABI/API runtime; this is a substantial compatibility-engineering effort, not something that can be omitted.
 
-The detailed architecture, constraints, security boundaries, phases, and verification gates are documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md).
+The detailed runtime architecture is documented in [docs/V2-UNIFIED-APPLICATION-RUNTIME.md](V2-UNIFIED-APPLICATION-RUNTIME.md); the installation, Office compatibility gates, security workflow, and installer transaction requirements are in [docs/WINDOWS-APP-INSTALLATION.md](WINDOWS-APP-INSTALLATION.md).
 
 - [ ] Stabilize and verify kernel/process/syscall/VFS/security/userspace prerequisites.
-- [ ] Implement a bounded PE32/PE32+ parser and loader with malformed-input tests.
+- [~] Existing kernel-side PE metadata inspector hardened with optional-header/import-directory bounds checks and a host-test entry point; run `sh scripts/test-pe-inspect.sh` to verify. This is **not** a user-space executable loader. Full PE32/PE32+ loader, mapping, relocations, imports/DLL resolution, and malformed-input fuzzing remain pending.
 - [ ] Run a minimal controlled Windows console application through a user-space runtime.
 - [ ] Add only the Windows API/DLL behavior required by selected, documented test applications.
 - [ ] Integrate supported GUI applications into the existing desktop/window system.
