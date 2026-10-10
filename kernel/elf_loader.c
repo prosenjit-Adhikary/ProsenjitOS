@@ -341,6 +341,66 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /* Rollback must preserve a pre-existing mapping in a PT_LOAD gap. */
+    {
+        struct pros_process process;
+        uint64_t segment_page = 0, gap_page = 0, translated = 0, flags = 0;
+        int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -16;
+
+        eh->phnum = 2;
+        ph[0].type = PT_LOAD;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].memsz = ELF_PAGE;
+        ph[1] = ph[0];
+        ph[1].vaddr = ELF_TEST_CODE_VA + 3u * ELF_PAGE;
+
+        segment_page = physical_page_alloc_user();
+        gap_page = physical_page_alloc_user();
+        if (!segment_page || !gap_page ||
+            address_space_map_user_page_owned(&process.address_space,
+                                              ph[0].vaddr, segment_page,
+                                              PROSENJIT_PAGE_NX) != 0 ||
+            address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA + 2u * ELF_PAGE,
+                                              gap_page,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) != 0) {
+            if (segment_page) physical_page_free(segment_page);
+            if (gap_page) physical_page_free(gap_page);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -17;
+        }
+
+        rollback_user_pages(&process, image, data_off + 4u, 
+                            ELF_TEST_CODE_VA,
+                            ELF_TEST_CODE_VA + 4u * ELF_PAGE);
+        if (address_space_validate_user_range(&process.address_space,
+                                              ph[0].vaddr, ELF_PAGE, 0) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA + 2u * ELF_PAGE,
+                                         &translated, &flags) != 0 ||
+            translated != gap_page) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -18;
+        }
+
+        if (address_space_unmap_user_page(&process.address_space,
+                                          ELF_TEST_CODE_VA + 2u * ELF_PAGE,
+                                          &translated) != 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -19;
+        }
+        physical_page_free(translated);
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -20;
+        eh->phnum = 1;
+    }
+
     /* Positive mapping test: verify PT_LOAD bytes, zero-filled BSS, stack
      * construction, entry publication, and owned-page teardown. */
     {
