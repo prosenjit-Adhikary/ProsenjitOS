@@ -425,11 +425,15 @@ int pros_elf_selftest(void)
     {
         struct pros_process process;
         struct pros_elf_load_result loaded;
-        const char *argv[] = {"elf-selftest", "ok"};
+        static char large_arg[2049];
+        const char *argv[] = {"elf-selftest", large_arg};
         const char *envp[] = {"PFS=1"};
         uint64_t physical = 0, flags = 0;
         int rc = process_init(&process, 0xE1F1u, PROS_SECURITY_LIMITED);
         if (rc != 0) return -10;
+        for (uint64_t i = 0; i + 1u < sizeof(large_arg); ++i)
+            large_arg[i] = 'x';
+        large_arg[sizeof(large_arg) - 1u] = '\0';
         image[data_off + 0] = 0x90;
         image[data_off + 1] = 0xC3;
         ph[0].flags = PF_R | PF_X;
@@ -481,7 +485,6 @@ int pros_elf_selftest(void)
             uint64_t argv1 = initial_stack[2];
             uint64_t env0 = initial_stack[4];
             static const char expected_argv0[] = "elf-selftest";
-            static const char expected_argv1[] = "ok";
             static const char expected_env0[] = "PFS=1";
 
             if (initial_stack[0] != 2u || initial_stack[3] != 0 ||
@@ -489,7 +492,7 @@ int pros_elf_selftest(void)
                 argv0 < PROSENJIT_USER_STACK_VA ||
                 argv0 > PROSENJIT_USER_STACK_TOP - sizeof(expected_argv0) ||
                 argv1 < PROSENJIT_USER_STACK_VA ||
-                argv1 > PROSENJIT_USER_STACK_TOP - sizeof(expected_argv1) ||
+                argv1 > PROSENJIT_USER_STACK_TOP - sizeof(large_arg) ||
                 env0 < PROSENJIT_USER_STACK_VA ||
                 env0 > PROSENJIT_USER_STACK_TOP - sizeof(expected_env0)) {
                 (void)address_space_destroy(&process.address_space);
@@ -503,13 +506,13 @@ int pros_elf_selftest(void)
                     (void)object_release(&process.object);
                     return -15;
                 }
-            for (uint64_t i = 0; i < sizeof(expected_argv1); ++i)
-                if (stack_page[argv1 - PROSENJIT_USER_STACK_VA + i] !=
-                    (uint8_t)expected_argv1[i]) {
-                    (void)address_space_destroy(&process.address_space);
-                    (void)object_release(&process.object);
-                    return -21;
-                }
+            if (stack_page[argv1 - PROSENJIT_USER_STACK_VA] != 'x' ||
+                stack_page[argv1 - PROSENJIT_USER_STACK_VA +
+                           sizeof(large_arg) - 1u] != 0) {
+                (void)address_space_destroy(&process.address_space);
+                (void)object_release(&process.object);
+                return -21;
+            }
             for (uint64_t i = 0; i < sizeof(expected_env0); ++i)
                 if (stack_page[env0 - PROSENJIT_USER_STACK_VA + i] !=
                     (uint8_t)expected_env0[i]) {
