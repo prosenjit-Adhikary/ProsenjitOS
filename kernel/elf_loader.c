@@ -471,6 +471,53 @@ int pros_elf_selftest(void)
             (void)object_release(&process.object);
             return -12;
         }
+        {
+            uint8_t *stack_page =
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL));
+            uint64_t *initial_stack =
+                (uint64_t *)(stack_page +
+                    (loaded.stack_top - PROSENJIT_USER_STACK_VA));
+            uint64_t argv0 = initial_stack[1];
+            uint64_t argv1 = initial_stack[2];
+            uint64_t env0 = initial_stack[4];
+            static const char expected_argv0[] = "elf-selftest";
+            static const char expected_argv1[] = "ok";
+            static const char expected_env0[] = "PFS=1";
+
+            if (initial_stack[0] != 2u || initial_stack[3] != 0 ||
+                initial_stack[5] != 0 ||
+                argv0 < PROSENJIT_USER_STACK_VA ||
+                argv0 > PROSENJIT_USER_STACK_TOP - sizeof(expected_argv0) ||
+                argv1 < PROSENJIT_USER_STACK_VA ||
+                argv1 > PROSENJIT_USER_STACK_TOP - sizeof(expected_argv1) ||
+                env0 < PROSENJIT_USER_STACK_VA ||
+                env0 > PROSENJIT_USER_STACK_TOP - sizeof(expected_env0)) {
+                (void)address_space_destroy(&process.address_space);
+                (void)object_release(&process.object);
+                return -14;
+            }
+            for (uint64_t i = 0; i < sizeof(expected_argv0); ++i)
+                if (stack_page[argv0 - PROSENJIT_USER_STACK_VA + i] !=
+                    (uint8_t)expected_argv0[i]) {
+                    (void)address_space_destroy(&process.address_space);
+                    (void)object_release(&process.object);
+                    return -15;
+                }
+            for (uint64_t i = 0; i < sizeof(expected_argv1); ++i)
+                if (stack_page[argv1 - PROSENJIT_USER_STACK_VA + i] !=
+                    (uint8_t)expected_argv1[i]) {
+                    (void)address_space_destroy(&process.address_space);
+                    (void)object_release(&process.object);
+                    return -21;
+                }
+            for (uint64_t i = 0; i < sizeof(expected_env0); ++i)
+                if (stack_page[env0 - PROSENJIT_USER_STACK_VA + i] !=
+                    (uint8_t)expected_env0[i]) {
+                    (void)address_space_destroy(&process.address_space);
+                    (void)object_release(&process.object);
+                    return -22;
+                }
+        }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
             return -13;
@@ -532,7 +579,8 @@ static int build_initial_stack(struct pros_process *process,
         string_bytes + pointer_bytes + 15u > stack_capacity)
         return PROS_ELF_EOVERFLOW;
 
-    uint64_t sp = PROSENJIT_USER_STACK_TOP - string_bytes;
+    /* Begin at the top; each string placement subtracts its own size. */
+    uint64_t sp = PROSENJIT_USER_STACK_TOP;
     for (uint32_t pass = 0; pass < 2u; ++pass) {
         const char *const *list = pass == 0u ? argv : envp;
         uint32_t count = pass == 0u ? argc : envc;
