@@ -11,6 +11,7 @@ bootable general-purpose userspace or a working graphical desktop.
 - `kernel/service_manager.c`: kernel-side service dependency/lifecycle registry and self-tests.
 - `include/abi/display.h` and `include/abi/input.h`: versioned ABI declarations.
 - `kernel/display.c`: display-device binding abstraction with a synthetic test backend.
+- `kernel/framebuffer_device.c`: a Multiboot2 RGB framebuffer provider with bounded geometry, address-range validation, MMIO mapping and driver-manager binding. It is a real provider path only when GRUB supplies a compatible framebuffer tag; native BIOS boot and unsupported modes remain without it until verified.
 - `kernel/graphics.c` and `kernel/compositor.c`: bounded ARGB8888 surface operations, clipping, alpha composition, window ordering and deterministic self-tests.
 - `kernel/input.c`: bounded event-queue/device registry foundation with deterministic self-test; it does not yet read physical keyboard/mouse hardware.
 
