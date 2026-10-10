@@ -67,12 +67,12 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
     return table;
 }
 
-int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+static int paging_map_page_impl(uint64_t virtual_address, uint64_t physical_address, uint64_t flags, int device_mapping) {
     if (!kernel_pml4 ||
         (virtual_address & 0xFFFULL) != 0 || (physical_address & 0xFFFULL) != 0)
         return -1;
     if (!canonical_address(virtual_address) ||
-        physical_address >= (1ULL << 52) ||
+        (device_mapping ? (physical_address < PROSENJIT_PHYS_LIMIT || physical_address >= (1ULL << 52) || (flags & PROSENJIT_PAGE_USER)) : physical_address >= PROSENJIT_PHYS_LIMIT) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
                    PROSENJIT_PAGE_NX)) != 0)
         return -1;
@@ -137,6 +137,18 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
                                     PROSENJIT_PAGE_PRESENT;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
+}
+
+int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags)
+{
+    return paging_map_page_impl(virtual_address, physical_address, flags, 0);
+}
+
+int paging_map_device_page(uint64_t virtual_address, uint64_t physical_address,
+                           uint64_t flags)
+{
+    /* Device mappings are supervisor-only and outside allocator-managed RAM. */
+    return paging_map_page_impl(virtual_address, physical_address, flags, 1);
 }
 
 void paging_unmap_page(uint64_t virtual_address) {
