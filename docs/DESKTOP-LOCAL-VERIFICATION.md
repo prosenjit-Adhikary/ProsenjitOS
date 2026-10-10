@@ -39,6 +39,7 @@ Capture the full output and exit status. A timeout can be expected for a kernel 
 
 - Clean compilation with `-Werror` and no stale build products.
 - ELF loader self-tests pass, including empty argv/envp, invalid argv, oversized-argument rollback, and page permission checks.
+- Serial output includes `ProsenjitOS: graphics/compositor/input queue self-tests passed (synthetic devices only)`, proving only the pure graphics/compositor algorithms and event queue tests ran—not physical display or input hardware.
 - Native boot/QEMU serial logs show the current intended test path passes.
 - A real filesystem-backed `/init` is loaded through VFS and execution-security admission in a normal process path; the embedded CPL3 test ELF alone does not satisfy this.
 - Public file open/read/write and process exec/spawn contracts are implemented, dispatched, and tested with invalid pointers, permission denial, and resource cleanup.
