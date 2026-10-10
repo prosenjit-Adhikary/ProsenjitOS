@@ -215,6 +215,8 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     symbol->hint = 0;
     name[0] = '\0';
     if (!data || !pe || !import_entry) return WB_PE_EINVAL;
+    if (pe->pe32_plus > 1u || pe->section_count == 0u ||
+        pe->section_count > WB_PE_MAX_SECTIONS) return WB_PE_EINVAL;
     width = pe->pe32_plus ? 8u : 4u;
     thunk_rva = import_entry->original_first_thunk ?
                 import_entry->original_first_thunk : import_entry->first_thunk;
