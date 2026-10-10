@@ -839,6 +839,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR driver manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (pros_framebuffer_device_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR framebuffer metadata validation self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: framebuffer metadata validation self-test passed\\n");
+
     if (pros_driver_selftest() != PROS_DRIVER_OK) {
         serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
