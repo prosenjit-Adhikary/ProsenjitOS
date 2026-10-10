@@ -72,7 +72,7 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
         (virtual_address & 0xFFFULL) != 0 || (physical_address & 0xFFFULL) != 0)
         return -1;
     if (!canonical_address(virtual_address) ||
-        physical_address >= PROSENJIT_PHYS_LIMIT ||
+        physical_address >= (1ULL << 52) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
                    PROSENJIT_PAGE_NX)) != 0)
         return -1;
