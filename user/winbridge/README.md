@@ -14,6 +14,14 @@ sh user/winbridge/test-pe-image.sh
 
 The test runner uses the local C compiler with C11, `-Wall -Wextra -Werror -O2`; it does not require GitHub-hosted Actions.
 
+Run the AddressSanitizer/UndefinedBehaviorSanitizer variant with:
+
+```sh
+sh user/winbridge/test-pe-image-sanitize.sh
+```
+
+A libFuzzer entry point is provided in `fuzz_pe_image.c`; actual fuzz campaigns are still pending and require a compatible Clang/libFuzzer toolchain.
+
 ## What is implemented
 
 - Bounded DOS/PE/COFF and optional-header reads.
