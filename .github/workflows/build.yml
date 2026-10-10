@@ -86,6 +86,7 @@ jobs:
           require_log "ProsenjitOS: user address-space isolation foundation test passed"
           require_log "ProsenjitOS: usercopy page-fault recovery test passed"
           require_log "ProsenjitOS: graphics/compositor/input queue self-tests passed (synthetic devices only)"
+          require_log "ProsenjitOS: real Multiboot2 framebuffer provider bound"
 
       - name: Boot-test native BIOS image in QEMU
         run: |
