@@ -9,8 +9,18 @@ int pros_security_exec_admit(
     const struct pros_file_admission_record *record,
     uint64_t timestamp,
     uint64_t *quarantine_id) {
-    if (!process || !record || process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE)
+    if (!process || !record)
+        return -1;
+
+    /*
+     * Execution admission must not act as a way to bypass an existing
+     * quarantine or to restart a blocked/dead process. Only schedulable
+     * processes may request admission; a quarantine must be explicitly
+     * cleared by the security policy before another execution is admitted.
+     */
+    if ((process_state(process) != PROS_PROCESS_READY &&
+         process_state(process) != PROS_PROCESS_RUNNING) ||
+        security_is_quarantined(process))
         return -1;
 
     if (record->security.action == PROS_FILE_ALLOW)
@@ -86,6 +96,16 @@ int pros_security_exec_selftest(void) {
         entry.state != PROS_FILE_SUSPICIOUS ||
         entry.action != PROS_FILE_QUARANTINE ||
         entry.evidence != PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS)
+        goto fail;
+
+    /*
+     * A caller cannot bypass containment by presenting a later ALLOW result
+     * while the process remains quarantined/blocked.
+     */
+    record.security.state = PROS_FILE_TRUSTED;
+    record.security.action = PROS_FILE_ALLOW;
+    if (pros_security_exec_admit(&process, &record, 4u, 0) ==
+            PROS_SECURITY_EXEC_ALLOW)
         goto fail;
 
     if (pros_security_quarantine_release(quarantine_id) != 0 ||
