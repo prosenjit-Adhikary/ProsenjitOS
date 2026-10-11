@@ -96,6 +96,15 @@ int main(void){
         }
     }
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 24;
+    /* Caller-supplied section metadata must be validated as a whole. */
+    pe.sections[0].raw_offset=(uint32_t)sizeof b-1u;
+    pe.sections[0].raw_size=4u;off=77;
+    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EBOUNDS||off!=77)return 36;
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 37;
+    pe.sections[0].virtual_address=0x1fffu;
+    pe.sections[0].virtual_size=2u;off=77;
+    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EBOUNDS||off!=77)return 38;
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 39;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
     if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 25;
     puts("WinBridge PE parser host tests: PASS");return 0;
