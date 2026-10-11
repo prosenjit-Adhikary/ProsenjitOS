@@ -302,7 +302,14 @@ enum pros_security_decision security_authorize(
         decision = PROS_DECISION_QUARANTINE;
         goto record;
     }
-    if (!intent || intent->id == 0 || intent->requested_rights == 0) {
+    if (!intent || intent->id == 0 || intent->requested_rights == 0 ||
+        intent->operation < PROS_INTENT_READ ||
+        intent->operation > PROS_INTENT_DUPLICATE ||
+        intent->object_type > UINT16_MAX) {
+        /*
+         * Do not truncate a caller-supplied 32-bit object type to 16 bits:
+         * values with forged high bits must not alias a real object type.
+         */
         reason = PROS_REASON_INTENT_INVALID;
         goto record;
     }
