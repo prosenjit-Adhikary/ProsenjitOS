@@ -186,21 +186,32 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
                           pe->import_size, &off) != WB_PE_OK)
         return WB_PE_EBOUNDS;
     if (index >= pe->import_size / 20u) return WB_PE_EBOUNDS;
-    descriptor_rva = (uint64_t)pe->import_rva + (uint64_t)index * 20u;
-    if (descriptor_rva > UINT32_MAX) return WB_PE_EBOUNDS;
-    if (wb_pe_rva_to_file(data, size, pe, (uint32_t)descriptor_rva,
-                          20u, &off) != WB_PE_OK)
-        return WB_PE_EBOUNDS;
-    for (i = 0; i < 5u; ++i) fields[i] = rd32(data + off + i * 4u);
-    if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u)
-        return WB_PE_ENOTFOUND;
-    if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
-    out->original_first_thunk = fields[0];
-    out->timestamp = fields[1];
-    out->forwarder_chain = fields[2];
-    out->name_rva = fields[3];
-    out->first_thunk = fields[4];
-    return WB_PE_OK;
+    /* Do not let callers skip an earlier all-zero terminator and interpret
+     * arbitrary bytes later in the declared directory as another descriptor. */
+    for (i = 0; i <= index; ++i) {
+        descriptor_rva = (uint64_t)pe->import_rva + (uint64_t)i * 20u;
+        if (descriptor_rva > UINT32_MAX) return WB_PE_EBOUNDS;
+        if (wb_pe_rva_to_file(data, size, pe, (uint32_t)descriptor_rva,
+                              20u, &off) != WB_PE_OK)
+            return WB_PE_EBOUNDS;
+        {
+            uint32_t fields[5];
+            uint32_t j;
+            for (j = 0; j < 5u; ++j) fields[j] = rd32(data + off + j * 4u);
+            if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u)
+                return WB_PE_ENOTFOUND;
+            if (i == index) {
+                if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
+                out->original_first_thunk = fields[0];
+                out->timestamp = fields[1];
+                out->forwarder_chain = fields[2];
+                out->name_rva = fields[3];
+                out->first_thunk = fields[4];
+                return WB_PE_OK;
+            }
+        }
+    }
+    return WB_PE_ENOTFOUND;
 }
 
 int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
