@@ -150,6 +150,10 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
 
     if (loads == 0 || !entry_exec)
         return PROS_ELF_EFORMAT;
+    /* Bound virtual image span as well as file size. Sparse PT_LOAD ranges
+     * must not make the loader scan/map an effectively unbounded envelope. */
+    if (end <= start || end - start > ELF_MAX_IMAGE)
+        return PROS_ELF_EBOUNDS;
     if (!canonical_user(eh->entry) || eh->entry < PROSENJIT_USER_CODE_VA)
         return PROS_ELF_EBOUNDS;
     if (entry_out) *entry_out = eh->entry;
@@ -252,6 +256,13 @@ int pros_elf_selftest(void)
     ph[0].align = ELF_PAGE;
 
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_OK) return -1;
+
+    /* Sparse PT_LOAD segments must not exceed the bounded virtual span. */
+    eh->phnum = 2;
+    ph[1] = ph[0];
+    ph[1].vaddr = ELF_TEST_CODE_VA + ELF_MAX_IMAGE + ELF_PAGE;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EBOUNDS) return -16;
+    eh->phnum = 1;
 
     /* PT_LOAD page-congruence regression: p_align=1 does not waive the
      * mandatory p_vaddr/p_offset congruence modulo page size. */
