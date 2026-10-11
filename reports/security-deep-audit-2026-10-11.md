@@ -58,6 +58,14 @@ The public void-returning SHA-512 helpers previously passed a null digest throug
 
 During review, the new `S = L` negative-test constant was found to be missing the most significant `0x10` byte. That would not have represented the Ed25519 group order. The test constant has been corrected to the exact 32-byte little-endian value for `L`. The test still requires runtime execution.
 
+### 10. Handle-table/object lifetime concurrency remains an open high-priority finding
+
+**Area:** `kernel/object.c`, `kernel/include/object.h`, `kernel/process.c`, `kernel/syscall.c`, `kernel/ipc.c`
+
+The follow-up source review found that handle-table entries and object reference counts are accessed without a handle-table/object lock. Syscall paths can validate a handle and then later read `entry->object` directly; if another thread in the same process closes or transfers that handle between those operations, validation and use are not one atomic lifetime operation. The current `refcount` increment/decrement is also non-atomic. IPC channel validity/count fields are read before acquiring the channel lock.
+
+This is a **source-level concurrency risk**, not a reproduced exploit in this session. It needs a coordinated design: table locking with non-recursive internal helpers, an object-acquire/pin API that retains the object while a syscall uses it, and audited lock ordering for transfer operations. Simply adding a lock to individual public handle functions would not fix direct-entry syscall use and could deadlock nested duplicate/transfer calls, so no superficial partial lock patch was applied. This item remains a blocker for calling the capability/object lifetime layer deeply verified.
+
 ## Verification still required
 
 - Run the repository build with the configured `-Wall -Wextra -Werror -O2` flags.
