@@ -52,6 +52,10 @@ int main(void){
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,2,&sym,symbol_name,sizeof symbol_name)!=WB_PE_ENOTFOUND)return 47;
         w32(b+0x258,0);
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0xffffffffu,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EBOUNDS)return 48;
+        /* Forged image_size must not truncate the prefix byte count before mapping. */
+        pe.image_size=0xffffffffu;
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0x02000000u,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EBOUNDS)return 49;
+        pe.image_size=0x2000u;
         if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 21;
         w32(b+0x21c,0);memset(&imp,0xff,sizeof imp);
         if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT||imp.name_rva!=0)return 22;
