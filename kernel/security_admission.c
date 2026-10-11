@@ -84,50 +84,42 @@ int pros_file_admission_evaluate_signed(
         (signature_result == PROS_SIGNATURE_RESULT_VALID) ? 1u : 0u;
 
     if (signature_result != PROS_SIGNATURE_RESULT_VALID) {
+        /*
+         * A failed signature must not erase an explicit local deny decision.
+         * Deny policy is authoritative regardless of signature outcome.
+         */
         input.metadata.signature_valid = 0u;
         input.metadata.local_trusted = 0u;
-        input.metadata.local_denied = 0u;
         input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
         input.metadata.provenance_known = 0u;
+        return pros_file_admission_evaluate(&input, record);
     }
 
     /*
-     * The generic evaluator will strip caller-provided signature metadata.
-     * That is intentional for its public contract, so signed evidence needs
-     * a private handoff. Verify again through the same trust authority and
-     * then use the lower-level policy evaluator with an explicit local trust
-     * marker only after cryptographic success.
+     * Only this path may pass verified signature evidence into the policy
+     * engine. Do not convert a cryptographically verified package into
+     * "local trust": preserve the evidence type so VERIFIED remains distinct
+     * from TRUSTED, and never override a local deny rule.
      */
-    if (signature_result != PROS_SIGNATURE_RESULT_VALID)
-        return pros_file_admission_evaluate(&input, record);
-
     input.metadata.signature_present = 1u;
     input.metadata.signature_valid = 1u;
 
-    /*
-     * The current policy engine treats cryptographic evidence as VERIFIED
-     * only when it is present. The signature result was established above
-     * by this function, so no caller-controlled boolean is being trusted.
-     */
-    {
-        struct pros_file_security_metadata trusted = input.metadata;
-        trusted.local_trusted = 1u;
-        trusted.local_denied = 0u;
-        trusted.provenance_known = 1u;
+    if (input.metadata.reputation == PROS_FILE_REPUTATION_UNAVAILABLE) {
+        pros_sha256(data, length, record->sha256);
+        input.metadata.reputation =
+            pros_security_provider_reputation(record->sha256);
+    } else {
+        pros_sha256(data, length, record->sha256);
+    }
 
-        /*
-         * Keep the generic evaluator fail-closed for arbitrary callers.
-         * A dedicated verified-signature path records the cryptographic
-         * decision in the result directly through the same policy routine.
-         */
-        trusted.signature_valid = 0u;
-        trusted.signature_present = 0u;
-        return pros_file_admission_evaluate(
-            &(struct pros_file_admission_input){
-                .data = data,
-                .length = length,
-                .metadata = trusted
-            }, record);
+    {
+        int rc = pros_file_admit(&input.metadata, &record->security);
+        if (rc == 0)
+            (void)pros_health_record_security(
+                0x53454341u, PROS_SECURITY_HEALTH_ADMISSION,
+                ((uint64_t)record->security.action << 32) |
+                (uint64_t)record->security.state);
+        return rc;
     }
 }
 
@@ -208,7 +200,7 @@ int pros_file_admission_selftest(void) {
                 ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
                 &signed_metadata, &record) != 0)
             return -307;
-        if (record.security.state != PROS_FILE_TRUSTED ||
+        if (record.security.state != PROS_FILE_VERIFIED ||
             record.security.action != PROS_FILE_ALLOW)
             return -308;
         {
@@ -225,6 +217,30 @@ int pros_file_admission_selftest(void) {
                 record.security.action == PROS_FILE_ALLOW)
                 return -310;
         }
+
+        /*
+         * A valid signature must never override a local deny rule.
+         */
+        signed_metadata.local_denied = 1u;
+        if (pros_file_admission_evaluate_signed(
+                0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
+                &signed_metadata, &record) != 0 ||
+            record.security.state != PROS_FILE_MALICIOUS ||
+            record.security.action != PROS_FILE_BLOCK)
+            return -311;
+
+        /*
+         * The same deny rule remains authoritative when signature
+         * verification fails; failed crypto must not erase policy.
+         */
+        if (pros_file_admission_evaluate_signed(
+                0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                &signed_metadata, &record) != 0 ||
+            record.security.state != PROS_FILE_MALICIOUS ||
+            record.security.action != PROS_FILE_BLOCK)
+            return -312;
     }
 
     return 0;
