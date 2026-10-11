@@ -164,7 +164,6 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
                     struct wb_pe_import *out)
 {
     size_t off;
-    uint64_t descriptor_rva;
     uint32_t i;
     if (!out) return WB_PE_EINVAL;
     out->original_first_thunk = 0;
@@ -187,16 +186,14 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
     if (index >= pe->import_size / 20u) return WB_PE_EBOUNDS;
     /* Do not let callers skip an earlier all-zero terminator and interpret
      * arbitrary bytes later in the declared directory as another descriptor. */
+    /* The complete directory was mapped above. Reuse its base offset
+     * instead of remapping each descriptor during a potentially large scan. */
     for (i = 0; i <= index; ++i) {
-        descriptor_rva = (uint64_t)pe->import_rva + (uint64_t)i * 20u;
-        if (descriptor_rva > UINT32_MAX) return WB_PE_EBOUNDS;
-        if (wb_pe_rva_to_file(data, size, pe, (uint32_t)descriptor_rva,
-                              20u, &off) != WB_PE_OK)
-            return WB_PE_EBOUNDS;
+        size_t descriptor_off = off + (size_t)i * 20u;
         {
             uint32_t fields[5];
             uint32_t j;
-            for (j = 0; j < 5u; ++j) fields[j] = rd32(data + off + j * 4u);
+            for (j = 0; j < 5u; ++j) fields[j] = rd32(data + descriptor_off + j * 4u);
             if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u)
                 return WB_PE_ENOTFOUND;
             if (i == index) {
