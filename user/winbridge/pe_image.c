@@ -164,7 +164,9 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
                     struct wb_pe_import *out)
 {
     size_t off;
-    uint32_t i;
+    uint32_t i, descriptor_count;
+    struct wb_pe_import requested;
+    int requested_found = 0;
     if (!out) return WB_PE_EINVAL;
     out->original_first_thunk = 0;
     out->timestamp = 0;
@@ -175,39 +177,43 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
     if (pe->import_rva == 0u || pe->import_size < 20u ||
         (pe->import_size % 20u) != 0u)
         return WB_PE_EFORMAT;
-    /* The public API must not trust import metadata merely because inspect()
-     * normally produced it. Validate the declared directory as one complete,
-     * image-bounded, file-backed range before indexing any descriptor. */
+    /* Validate the declared directory as one complete, image-bounded,
+     * file-backed range before indexing any descriptor. */
     if (!range32(pe->import_rva, pe->import_size, pe->image_size))
         return WB_PE_EBOUNDS;
     if (wb_pe_rva_to_file(data, size, pe, pe->import_rva,
                           pe->import_size, &off) != WB_PE_OK)
         return WB_PE_EBOUNDS;
-    if (index >= pe->import_size / 20u) return WB_PE_EBOUNDS;
-    /* Do not let callers skip an earlier all-zero terminator and interpret
-     * arbitrary bytes later in the declared directory as another descriptor. */
-    /* The complete directory was mapped above. Reuse its base offset
-     * instead of remapping each descriptor during a potentially large scan. */
-    for (i = 0; i <= index; ++i) {
+    descriptor_count = pe->import_size / 20u;
+    if (index >= descriptor_count) return WB_PE_EBOUNDS;
+
+    /* PE import descriptors must end with an all-zero descriptor. Scan the
+     * entire declared table so an early successful lookup cannot hide a
+     * missing terminator later in a truncated or forged directory. */
+    for (i = 0; i < descriptor_count; ++i) {
         size_t descriptor_off = off + (size_t)i * 20u;
-        {
-            uint32_t fields[5];
-            uint32_t j;
-            for (j = 0; j < 5u; ++j) fields[j] = rd32(data + descriptor_off + j * 4u);
-            if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u)
-                return WB_PE_ENOTFOUND;
-            if (i == index) {
-                if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
-                out->original_first_thunk = fields[0];
-                out->timestamp = fields[1];
-                out->forwarder_chain = fields[2];
-                out->name_rva = fields[3];
-                out->first_thunk = fields[4];
-                return WB_PE_OK;
-            }
+        uint32_t fields[5];
+        uint32_t j;
+        for (j = 0; j < 5u; ++j)
+            fields[j] = rd32(data + descriptor_off + j * 4u);
+        if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u) {
+            if (i < index) return WB_PE_ENOTFOUND;
+            if (!requested_found) return WB_PE_ENOTFOUND;
+            *out = requested;
+            return WB_PE_OK;
+        }
+        if (i == index) {
+            if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
+            requested.original_first_thunk = fields[0];
+            requested.timestamp = fields[1];
+            requested.forwarder_chain = fields[2];
+            requested.name_rva = fields[3];
+            requested.first_thunk = fields[4];
+            requested_found = 1;
         }
     }
-    return WB_PE_ENOTFOUND;
+    /* No null descriptor exists in the declared directory. */
+    return WB_PE_EFORMAT;
 }
 
 int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
