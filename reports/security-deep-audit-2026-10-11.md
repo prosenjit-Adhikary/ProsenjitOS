@@ -42,13 +42,19 @@ Authorization cast the 32-bit intent object type to 16 bits without first reject
 
 The receive path first observes an empty channel, then registers its waiter. The channel wait routine deliberately returns success without blocking if a sender has published a message in that interval. The syscall path previously treated every successful wait as a real block and returned the internal-block sentinel even when the thread remained RUNNING. This could strand the receive operation or make syscall return handling inconsistent. The syscall now checks the thread state after wait registration: if it did not transition to BLOCKED, it retries receive; it only sets the blocked-syscall continuation after an actual block transition. This is a source-level race fix; it still needs compile and runtime validation.
 
+### 7. Ed25519 negative-test coverage strengthened
+
+**Area:** `kernel/security_signature.c`
+
+Added self-test cases that require rejection of (a) a signature with `S = L`, the group order, which is non-canonical, and (b) the encoded identity point as the public key, which is small-order. These complement the existing RFC 8032 positive vector and mutated-`R` negative case. This is test coverage only; it does not establish complete correctness of the field/scalar/point arithmetic or replace independent fuzzing and broader RFC test vectors.
+
 ## Verification still required
 
 - Run the repository build with the configured `-Wall -Wextra -Werror -O2` flags.
 - Run all security, process, capability, VFS, ELF, and kernel self-tests.
 - Verify the self-hosted build/boot workflow result; GitHub-hosted runner assumptions must not be substituted for the repository's self-hosted runner.
 - On Debian, run the ISO under QEMU and inspect serial output and exception logs.
-- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
+- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
 
 ## Status
 
