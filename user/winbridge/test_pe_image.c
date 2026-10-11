@@ -152,5 +152,16 @@ int main(void){
         struct wb_pe_import imp;
         if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 46;
     }
+    /* A nonzero descriptor table with no all-zero terminator is malformed,
+     * even when the requested first descriptor itself looks valid. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 51;
+    pe.import_rva=0x1010u;pe.import_size=20u;
+    w32(b+0x210,0x1050);w32(b+0x21c,0x1040);w32(b+0x220,0x1060);
+    {
+        struct wb_pe_import imp;
+        memset(&imp,0xff,sizeof imp);
+        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT ||
+           imp.original_first_thunk!=0u || imp.name_rva!=0u)return 52;
+    }
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
