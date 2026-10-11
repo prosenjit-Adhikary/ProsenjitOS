@@ -3,6 +3,7 @@
 #include <string.h>
 static void w16(uint8_t *p,uint16_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}
 static void w32(uint8_t *p,uint32_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);p[2]=(uint8_t)(v>>16);p[3]=(uint8_t)(v>>24);}
+static void w64(uint8_t *p,uint64_t v){w32(p,(uint32_t)v);w32(p+4,(uint32_t)(v>>32));}
 static void fixture(uint8_t *b,size_t n,int plus){
     memset(b,0,n); b[0]='M';b[1]='Z';w32(b+0x3c,0x80);b[0x80]='P';b[0x81]='E';
     w16(b+0x84,plus?WB_PE_MACHINE_AMD64:WB_PE_MACHINE_I386);w16(b+0x86,1);
@@ -53,6 +54,24 @@ int main(void){
         w32(b+0x21c,0x1040);
         b[0x2ff]='A';
         if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x10ff,dll,sizeof dll)!=WB_PE_EBOUNDS||dll[0]!='\0')return 23;
+    }
+    /* Exercise 64-bit import thunks separately from the PE32 fixture. */
+    fixture(b,sizeof b,1);
+    w32(b+0x98+120,0x1010);w32(b+0x98+124,40);
+    w32(b+0x210,0x1050);w32(b+0x21c,0x1040);w32(b+0x220,0x1060);
+    memcpy(b+0x240,"KERNEL32.dll",13);
+    w64(b+0x250,0x1070);w16(b+0x270,9);memcpy(b+0x272,"GetTickCount",13);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 24;
+    {
+        struct wb_pe_import imp;struct wb_pe_import_symbol sym;char name[32];
+        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_OK)return 26;
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,name,sizeof name)!=WB_PE_OK)return 27;
+        if(sym.is_ordinal||sym.hint!=9||strcmp(name,"GetTickCount")!=0)return 28;
+        w64(b+0x250,0x8000000000000005ULL);
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,name,sizeof name)!=WB_PE_OK||
+           !sym.is_ordinal||sym.ordinal!=5)return 29;
+        w64(b+0x250,0x8000000100000005ULL);
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,name,sizeof name)!=WB_PE_EFORMAT)return 30;
     }
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 24;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
