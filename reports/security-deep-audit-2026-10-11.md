@@ -64,7 +64,7 @@ During review, the new `S = L` negative-test constant was found to be missing th
 - Run all security, process, capability, VFS, ELF, and kernel self-tests.
 - Verify the self-hosted build/boot workflow result; GitHub-hosted runner assumptions must not be substituted for the repository's self-hosted runner.
 - On Debian, run the ISO under QEMU and inspect serial output and exception logs.
-- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Execute SHA-512 empty-message and `abc` known-answer tests; add long-message/block-boundary vectors (111/112/127/128/129 bytes) before considering the hash path thoroughly tested.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
+- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Execute SHA-512 empty-message, `abc`, and 111/112/127/128/129-byte repeated-`a` known-answer tests; these boundary vectors are now in the self-test but have not yet been run in a build/runtime.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
 
 ## Status
 
