@@ -10,7 +10,7 @@ This audit reviewed the current `main` security implementation and made changes 
 
 **Area:** `kernel/object.c`, `kernel/process.c`
 
-Handle encoding uses an 8-bit slot and 16-bit generation (bits 0–23), but the original lookup paths truncated high bits instead of rejecting non-canonical 64-bit values. Distinct attacker-controlled values could therefore alias a live handle. Added a canonical-encoding check to handle check, close, duplicate, copy-transfer, and move-transfer operations. Added a process self-test that attempts a high-bit forged alias and confirms it cannot check, duplicate, or close the real handle.
+Handle encoding uses an 8-bit slot and 16-bit generation (bits 0–23), but the original lookup paths truncated high bits instead of rejecting non-canonical 64-bit values. Distinct attacker-controlled values could therefore alias a live handle. Added a canonical-encoding check to handle check, close, duplicate, copy-transfer, and move-transfer operations. Added a process self-test that attempts a high-bit forged alias and confirms it cannot check, duplicate, close, or transfer the real handle. A second truncation path was found in `process_handle_type()`: it parsed slot/generation directly without checking canonical encoding, which could make syscall pre-validation accept a forged alias. It now delegates validity checking to `handle_check()` before returning an object type.
 
 ### 2. Execution admission could return ALLOW for a quarantined process
 
