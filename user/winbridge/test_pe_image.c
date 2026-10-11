@@ -52,6 +52,12 @@ int main(void){
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,2,&sym,symbol_name,sizeof symbol_name)!=WB_PE_ENOTFOUND)return 47;
         w32(b+0x258,0);
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0xffffffffu,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EBOUNDS)return 48;
+        /* A thunk prefix may not extend beyond the section's raw-backed bytes. */
+        imp.original_first_thunk=0x10fcu;
+        memset(&sym,0xff,sizeof sym);memset(symbol_name,'X',sizeof symbol_name);
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,1,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EBOUNDS ||
+           sym.hint!=0u || sym.ordinal!=0u || symbol_name[0]!='\\0')return 50;
+        imp.original_first_thunk=0x1050u;
         /* Forged image_size must not truncate the prefix byte count before mapping. */
         pe.image_size=0xffffffffu;
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0x02000000u,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EBOUNDS)return 49;
