@@ -48,13 +48,23 @@ The receive path first observes an empty channel, then registers its waiter. The
 
 Added self-test cases that require rejection of (a) a signature with `S = L`, the group order, which is non-canonical, and (b) the encoded identity point as the public key, which is small-order. These complement the existing RFC 8032 positive vector and mutated-`R` negative case. This is test coverage only; it does not establish complete correctness of the field/scalar/point arithmetic or replace independent fuzzing and broader RFC test vectors.
 
+### 8. SHA-512 API invalid-pointer guards and known-answer coverage
+
+**Area:** `kernel/sha512.c`
+
+The public void-returning SHA-512 helpers previously passed a null digest through to finalization, and a non-zero length with a null input silently hashed as if no input were supplied. The helpers now return without processing when the digest is null, when the prefix is null, or when a non-zero input length is paired with a null input pointer. The SHA-512 self-test now includes the standard empty-message known-answer vector alongside the existing `abc` vector.
+
+### 9. Corrected Ed25519 scalar-order regression vector
+
+During review, the new `S = L` negative-test constant was found to be missing the most significant `0x10` byte. That would not have represented the Ed25519 group order. The test constant has been corrected to the exact 32-byte little-endian value for `L`. The test still requires runtime execution.
+
 ## Verification still required
 
 - Run the repository build with the configured `-Wall -Wextra -Werror -O2` flags.
 - Run all security, process, capability, VFS, ELF, and kernel self-tests.
 - Verify the self-hosted build/boot workflow result; GitHub-hosted runner assumptions must not be substituted for the repository's self-hosted runner.
 - On Debian, run the ISO under QEMU and inspect serial output and exception logs.
-- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
+- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Execute SHA-512 empty-message and `abc` known-answer tests; add long-message/block-boundary vectors (111/112/127/128/129 bytes) before considering the hash path thoroughly tested.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
 
 ## Status
 
