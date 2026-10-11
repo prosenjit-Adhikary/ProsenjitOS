@@ -104,6 +104,8 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
     if ((tmp.import_rva==0u)!=(tmp.import_size==0u) || (tmp.reloc_rva==0u)!=(tmp.reloc_size==0u)) return WB_PE_EFORMAT;
     if (tmp.import_rva) {
         size_t directory_offset;
+        if (tmp.import_size < 20u || (tmp.import_size % 20u) != 0u) return WB_PE_EFORMAT;
+        if (tmp.import_size / 20u > WB_PE_MAX_IMPORT_DESCRIPTORS) return WB_PE_ENOTSUP;
         if (!range32(tmp.import_rva,tmp.import_size,tmp.image_size)) return WB_PE_EBOUNDS;
         /* A directory must be backed by bytes in the file, not merely fit
          * inside the virtual image or point into a zero-filled section tail. */
