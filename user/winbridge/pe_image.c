@@ -165,7 +165,6 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
 {
     size_t off;
     uint64_t descriptor_rva;
-    uint32_t fields[5];
     uint32_t i;
     if (!out) return WB_PE_EINVAL;
     out->original_first_thunk = 0;
