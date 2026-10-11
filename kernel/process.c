@@ -272,9 +272,11 @@ int process_check_handle(const struct pros_process *process,
 int process_handle_type(const struct pros_process *process,
                         uint64_t handle,
                         uint16_t *type_out) {
-    if (!process_is_active(process) || !type_out || handle == PROSENJIT_HANDLE_INVALID)
+    if (!process_is_active(process) || !type_out ||
+        handle_check(&process->handles, handle, 0u, PROS_OBJECT_NONE) != 0)
         return -1;
 
+    /* handle_check enforces canonical encoding, generation and live object. */
     uint32_t slot = (uint32_t)(handle & 0xFFULL);
     uint16_t generation = (uint16_t)(handle >> 8);
     if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX || generation == 0)
@@ -399,6 +401,7 @@ int process_selftest(void)
                          PROS_OBJECT_PROCESS) != 0 ||
             handle_check(&parent.handles, forged, PROSENJIT_CAP_READ,
                          PROS_OBJECT_PROCESS) == 0 ||
+            process_handle_type(&parent, forged, &(uint16_t){0}) == 0 ||
             handle_duplicate(&parent.handles, forged,
                              PROSENJIT_CAP_READ) !=
                 PROSENJIT_HANDLE_INVALID ||
