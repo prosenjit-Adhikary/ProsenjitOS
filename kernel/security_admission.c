@@ -216,7 +216,6 @@ int pros_file_admission_selftest(void) {
             if (record.security.state == PROS_FILE_VERIFIED ||
                 record.security.action == PROS_FILE_ALLOW)
                 return -310;
-        }
 
         /*
          * A valid signature must never override a local deny rule.
@@ -241,6 +240,7 @@ int pros_file_admission_selftest(void) {
             record.security.state != PROS_FILE_MALICIOUS ||
             record.security.action != PROS_FILE_BLOCK)
             return -312;
+        }
     }
 
     return 0;
