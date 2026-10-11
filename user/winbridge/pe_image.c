@@ -249,7 +249,7 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
                            uint32_t index, struct wb_pe_import_symbol *symbol,
                            char *name, size_t name_capacity)
 {
-    uint32_t thunk_rva;
+    uint32_t thunk_rva, i;
     uint64_t slot_rva, value, ordinal_flag;
     size_t off;
     uint32_t width;
@@ -265,13 +265,17 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     thunk_rva = import_entry->original_first_thunk ?
                 import_entry->original_first_thunk : import_entry->first_thunk;
     if (thunk_rva == 0u) return WB_PE_EFORMAT;
-    slot_rva = (uint64_t)thunk_rva + (uint64_t)index * width;
-    if (slot_rva > UINT32_MAX ||
-        wb_pe_rva_to_file(data, size, pe, (uint32_t)slot_rva, width, &off) != WB_PE_OK)
-        return WB_PE_EBOUNDS;
-    value = width == 8u ? rd64(data + off) : rd32(data + off);
-    if (value == 0u) return WB_PE_ENOTFOUND;
     ordinal_flag = pe->pe32_plus ? 0x8000000000000000ULL : 0x80000000ULL;
+    /* A caller-supplied index must not jump over a null thunk terminator. */
+    for (i = 0; i <= index; ++i) {
+        slot_rva = (uint64_t)thunk_rva + (uint64_t)i * width;
+        if (slot_rva > UINT32_MAX ||
+            wb_pe_rva_to_file(data, size, pe, (uint32_t)slot_rva,
+                              width, &off) != WB_PE_OK)
+            return WB_PE_EBOUNDS;
+        value = width == 8u ? rd64(data + off) : rd32(data + off);
+        if (value == 0u) return WB_PE_ENOTFOUND;
+    }
     if (value & ordinal_flag) {
         if ((value & ~(ordinal_flag | 0xffffULL)) != 0u) return WB_PE_EFORMAT;
         symbol->is_ordinal = 1u;
