@@ -123,6 +123,18 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
     }
     for (i=0;i<pe->section_count;i++) {
         const struct wb_pe_section *s=&pe->sections[i];
+        uint32_t extent = s->virtual_size > s->raw_size ?
+                          s->virtual_size : s->raw_size;
+        /* Public callers may supply a forged/inconsistent image structure.
+         * Validate each complete section range, not only the requested byte. */
+        if (s->raw_size != 0u &&
+            (!span_ok(s->raw_offset, s->raw_size, size) ||
+             s->raw_offset < pe->headers_size))
+            return WB_PE_EBOUNDS;
+        if (extent != 0u &&
+            (!range32(s->virtual_address, extent, pe->image_size) ||
+             s->virtual_address < pe->headers_size))
+            return WB_PE_EBOUNDS;
         if (rva >= s->virtual_address && rva-s->virtual_address <= s->raw_size &&
             length <= s->raw_size-(rva-s->virtual_address)) {
             uint64_t off=(uint64_t)s->raw_offset+(rva-s->virtual_address);
