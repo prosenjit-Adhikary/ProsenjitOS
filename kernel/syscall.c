@@ -275,9 +275,10 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
+            int rc;
 retry_ipc_receive:
-            int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
-                                          message, (uint32_t)capacity, &received);
+            rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
+                                     message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
                 /*
                  * Do not block if there is no runnable successor. Until the
