@@ -81,6 +81,12 @@ int main(void){
     w32(b+0x98+108,40); /* Size without an RVA must fail inspection. */
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 32;
     fixture(b,sizeof b,0);
+    w32(b+0x178+8,0x100);  /* virtual section extends beyond file-backed data */
+    w32(b+0x178+16,0x10);
+    w32(b+0x98+104,0x1020);
+    w32(b+0x98+108,20);    /* import directory points into zero-fill tail */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EBOUNDS)return 40;
+    fixture(b,sizeof b,0);
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 33;
     {
         char tiny[4]={'X','X','X','X'};
