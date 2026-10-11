@@ -72,8 +72,9 @@ This is a **source-level concurrency risk**, not a reproduced exploit in this se
 - Run all security, process, capability, VFS, ELF, and kernel self-tests.
 - Verify the self-hosted build/boot workflow result; GitHub-hosted runner assumptions must not be substituted for the repository's self-hosted runner.
 - On Debian, run the ISO under QEMU and inspect serial output and exception logs.
-- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.\n- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Execute SHA-512 empty-message, `abc`, and 111/112/127/128/129-byte repeated-`a` known-answer tests; these boundary vectors are now in the self-test but have not yet been run in a build/runtime.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
+- Add deterministic regression coverage for the IPC empty→publish→wait race, then run the full build and self-test suite.
+- Execute the expanded Ed25519 negative tests and compare field/scalar/point arithmetic against independent known-answer vectors.\n- Execute SHA-512 empty-message, `abc`, and 111/112/127/128/129-byte repeated-`a` known-answer tests; these boundary vectors are now in the self-test but have not yet been run in a build/runtime.\n- Continue auditing handle/object lifetime and concurrency rules, cryptographic implementation against independent test vectors, syscall authorization call paths, and cross-subsystem integration.
 
 ## Status
 
-The five source-level issues above have been patched on this branch. This is not a claim that all security bugs are eliminated or that the security subsystem is fully verified.
+Source-level fixes and additional regression tests are committed on this branch. The handle-table/object lifetime concurrency finding remains open and high priority; build, self-test, and runtime verification are still pending. This is not a claim that all security bugs are eliminated or that the security subsystem is fully verified.
