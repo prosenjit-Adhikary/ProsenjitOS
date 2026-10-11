@@ -205,7 +205,7 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
     if (!source_table || !target_table ||
         source_table == target_table ||
         source_handle == PROSENJIT_HANDLE_INVALID ||
-        requested_rights == 0 ||
+        !handle_is_canonical(source_handle) || requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
 
