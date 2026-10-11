@@ -123,7 +123,7 @@ int main(void){
            imp.original_first_thunk!=0u || imp.name_rva!=0u)return 42;
     }
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 43;
-    pe.import_rva=0x1010u;pe.import_size=40u;
+    pe.import_rva=0x10f0u;pe.import_size=40u;
     {
         struct wb_pe_import imp;
         memset(&imp,0xff,sizeof imp);
