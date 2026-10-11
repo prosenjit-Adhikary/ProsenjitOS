@@ -275,6 +275,7 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
+retry_ipc_receive:
             int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
                                           message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
@@ -292,6 +293,15 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
+                /*
+                 * ipc_channel_wait may observe a message published after
+                 * receive returned EMPTY. In that case it returns OK without
+                 * blocking the thread. Never report INTERNAL_BLOCK unless
+                 * thread_block actually transitioned this thread to BLOCKED;
+                 * retry the receive and consume the now-available message.
+                 */
+                if (current->state != PROS_THREAD_BLOCKED)
+                    goto retry_ipc_receive;
                 current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
                 registers[0] = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
                 return;
