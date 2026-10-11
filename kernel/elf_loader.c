@@ -699,7 +699,14 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     uint64_t start, end, entry;
     uint64_t mapped = 0;
 
-    if (!process || !image || !result ||
+    if (!result)
+        return PROS_ELF_EINVAL;
+    result->entry = 0;
+    result->image_start = 0;
+    result->image_end = 0;
+    result->stack_top = 0;
+    result->mapped_pages = 0;
+    if (!process || !image ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE)
         return PROS_ELF_EINVAL;
