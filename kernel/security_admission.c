@@ -103,6 +103,8 @@ int pros_file_admission_evaluate_signed(
      */
     input.metadata.signature_present = 1u;
     input.metadata.signature_valid = 1u;
+    /* A caller-supplied local_trusted bit is not signature evidence. */
+    input.metadata.local_trusted = 0u;
 
     if (input.metadata.reputation == PROS_FILE_REPUTATION_UNAVAILABLE) {
         pros_sha256(data, length, record->sha256);
@@ -190,7 +192,7 @@ int pros_file_admission_selftest(void) {
             .format_valid = 1u,
             .signature_valid = 0u,
             .signature_present = 0u,
-            .local_trusted = 0u,
+            .local_trusted = 1u, /* Must not relabel signed evidence TRUSTED. */
             .local_denied = 0u,
             .reputation = PROS_FILE_REPUTATION_UNAVAILABLE,
             .provenance_known = 1u
