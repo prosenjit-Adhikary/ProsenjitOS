@@ -666,6 +666,13 @@ int pros_elf_load_with_args(struct pros_process *process,
                              const char *const *envp,
                              uint32_t envc,
                              struct pros_elf_load_result *result) {
+    if (result) {
+        result->entry = 0;
+        result->image_start = 0;
+        result->image_end = 0;
+        result->stack_top = 0;
+        result->mapped_pages = 0;
+    }
     if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp))
         return PROS_ELF_EINVAL;
     int rc = pros_elf_load(process, image, size, result);
