@@ -30,7 +30,7 @@ A libFuzzer entry point is provided in `fuzz_pe_image.c`; actual fuzz campaigns 
 - Checks that the declared data-directory count fits inside the optional header.
 - Section raw/virtual bounds, overlapping section rejection, and rejection of writable+executable sections.
 - Entry point must land in file-backed executable section bytes.
-- Import/base-relocation directory metadata consistency and image-range checks.
+- Import/base-relocation directory metadata consistency, image-range checks, and rejection of directories that point into non-file-backed virtual tails.
 - RVA-to-file-offset translation for headers and raw-backed section data; virtual zero-fill tails are deliberately not treated as file bytes. The public translation helper also validates caller-supplied metadata bounds rather than assuming every caller passed parser output.
 - Bounded import-descriptor reading, ASCII DLL-name extraction, and import-thunk inspection for named imports (hint + symbol name) and ordinal imports. Malformed, unterminated, and out-of-range names fail closed. This does not resolve symbols to addresses or load DLLs.
 - Failure clears the output structure; metadata is published only after successful validation.
