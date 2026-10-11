@@ -265,6 +265,11 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     thunk_rva = import_entry->original_first_thunk ?
                 import_entry->original_first_thunk : import_entry->first_thunk;
     if (thunk_rva == 0u) return WB_PE_EFORMAT;
+    /* Bound the requested slot against the virtual image before scanning
+     * preceding entries, avoiding needless walks for impossible indices. */
+    if (thunk_rva >= pe->image_size ||
+        (uint64_t)index * width + width > (uint64_t)pe->image_size - thunk_rva)
+        return WB_PE_EBOUNDS;
     ordinal_flag = pe->pe32_plus ? 0x8000000000000000ULL : 0x80000000ULL;
     /* A caller-supplied index must not jump over a null thunk terminator. */
     for (i = 0; i <= index; ++i) {
