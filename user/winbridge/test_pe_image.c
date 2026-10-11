@@ -85,7 +85,7 @@ int main(void){
     {
         char tiny[4]={'X','X','X','X'};
         if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x1000,tiny,sizeof tiny)!=WB_PE_EBOUNDS ||
-           tiny[0]!='\\0')return 34;
+           tiny[0]!='\0')return 34;
         pe.import_rva=0u;pe.import_size=20u;
         {
             struct wb_pe_import imp;
