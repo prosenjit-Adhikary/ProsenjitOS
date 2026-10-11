@@ -247,7 +247,7 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
                            char *name, size_t name_capacity)
 {
     uint32_t thunk_rva, i;
-    uint64_t slot_rva, value, ordinal_flag;
+    uint64_t value, ordinal_flag;
     size_t off;
     uint32_t width, table_bytes;
     uint64_t prefix_bytes;
