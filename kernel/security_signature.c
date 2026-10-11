@@ -145,6 +145,38 @@ int pros_security_signature_selftest(void)
             return -3;
         if (result != PROS_SIGNATURE_RESULT_INVALID)
             return -4;
+
+        /* Reject non-canonical S = L (the group order), not just bad R. */
+        for (uint32_t i = 0; i < 64u; ++i) bad_sig[i] = vector_sig[i];
+        static const uint8_t scalar_l[32] = {
+            0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+        };
+        for (uint32_t i = 0; i < 32u; ++i) bad_sig[32u + i] = scalar_l[i];
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, bad_sig, sizeof(bad_sig),
+                vector_key, sizeof(vector_key), &result) != 0)
+            return -17;
+        if (result != PROS_SIGNATURE_RESULT_INVALID)
+            return -18;
+
+        /* Identity encoding is a small-order public key and must fail closed. */
+        static const uint8_t identity_key[32] = {
+            0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+        };
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, vector_sig, sizeof(vector_sig),
+                identity_key, sizeof(identity_key), &result) != 0)
+            return -19;
+        if (result != PROS_SIGNATURE_RESULT_INVALID)
+            return -20;
     }
 
     if (pros_security_signature_verify(
