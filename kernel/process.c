@@ -416,6 +416,29 @@ int process_selftest(void)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+
+    /*
+     * Transfer entry points must reject forged high-bit aliases and leave
+     * the genuine source capability intact after the failed attempts.
+     */
+    {
+        uint64_t handle = handle_alloc(
+            &parent.handles, &parent.object,
+            PROSENJIT_CAP_READ | PROSENJIT_CAP_TRANSFER);
+        uint64_t forged = handle | (1ULL << 40);
+        uint16_t type = PROS_OBJECT_NONE;
+        if (handle == PROSENJIT_HANDLE_INVALID ||
+            process_transfer_handle_copy(&parent, &child, forged,
+                                         PROSENJIT_CAP_READ) !=
+                PROSENJIT_HANDLE_INVALID ||
+            process_transfer_handle_move(&parent, &child, forged,
+                                         PROSENJIT_CAP_READ) !=
+                PROSENJIT_HANDLE_INVALID ||
+            process_handle_type(&parent, handle, &type) != 0 ||
+            type != PROS_OBJECT_PROCESS ||
+            process_close_handle(&parent, handle) != 0)
+            return -16;
+    }
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
