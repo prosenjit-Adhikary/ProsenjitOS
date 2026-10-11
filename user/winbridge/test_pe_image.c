@@ -73,6 +73,27 @@ int main(void){
         w64(b+0x250,0x8000000100000005ULL);
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,name,sizeof name)!=WB_PE_EFORMAT)return 30;
     }
+    /* Reject inconsistent import-directory metadata and bounded strings. */
+    fixture(b,sizeof b,0);
+    w32(b+0x98+104,0x1010); /* RVA without a size must fail inspection. */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 31;
+    fixture(b,sizeof b,0);
+    w32(b+0x98+108,40); /* Size without an RVA must fail inspection. */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 32;
+    fixture(b,sizeof b,0);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 33;
+    {
+        char tiny[4]={'X','X','X','X'};
+        if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x1000,tiny,sizeof tiny)!=WB_PE_EBOUNDS ||
+           tiny[0]!='\\0')return 34;
+        pe.import_rva=0u;pe.import_size=20u;
+        {
+            struct wb_pe_import imp;
+            memset(&imp,0xff,sizeof imp);
+            if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT ||
+               imp.original_first_thunk!=0u || imp.name_rva!=0u)return 35;
+        }
+    }
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 24;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
     if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 25;
