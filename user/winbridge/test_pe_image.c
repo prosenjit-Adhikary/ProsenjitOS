@@ -48,6 +48,10 @@ int main(void){
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0,&sym,symbol_name,sizeof symbol_name)!=WB_PE_OK||!sym.is_ordinal||sym.ordinal!=5)return 19;
         w32(b+0x250,0x1070);
         if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,1,&sym,symbol_name,sizeof symbol_name)!=WB_PE_ENOTFOUND)return 20;
+        w32(b+0x258,0x1070); /* forged thunk after the null terminator */
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,2,&sym,symbol_name,sizeof symbol_name)!=WB_PE_ENOTFOUND)return 47;
+        w32(b+0x258,0);
+        if(wb_pe_import_symbol_at(b,sizeof b,&pe,&imp,0xffffffffu,&sym,symbol_name,sizeof symbol_name)!=WB_PE_EBOUNDS)return 48;
         if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 21;
         w32(b+0x21c,0);memset(&imp,0xff,sizeof imp);
         if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT||imp.name_rva!=0)return 22;
