@@ -130,5 +130,13 @@ int main(void){
         if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EBOUNDS ||
            imp.original_first_thunk!=0u || imp.name_rva!=0u)return 44;
     }
+    /* A later nonzero descriptor must not be reachable past the null terminator. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 45;
+    pe.import_rva=0x1010u;pe.import_size=40u;
+    w32(b+0x230,0x1040);w32(b+0x234,0x1060);
+    {
+        struct wb_pe_import imp;
+        if(wb_pe_import_at(b,sizeof b,&pe,1,&imp)!=WB_PE_ENOTFOUND)return 46;
+    }
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
