@@ -180,6 +180,8 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
     if (pe->import_rva == 0u || pe->import_size < 20u ||
         (pe->import_size % 20u) != 0u)
         return WB_PE_EFORMAT;
+    if (pe->import_size / 20u > WB_PE_MAX_IMPORT_DESCRIPTORS)
+        return WB_PE_ENOTSUP;
     /* Validate the declared directory as one complete, image-bounded,
      * file-backed range before indexing any descriptor. */
     if (!range32(pe->import_rva, pe->import_size, pe->image_size))
