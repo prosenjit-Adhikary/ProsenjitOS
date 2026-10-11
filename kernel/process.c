@@ -382,6 +382,33 @@ int process_selftest(void)
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+
+    /*
+     * Capability handles occupy only the low 24 bits. High-bit aliases must
+     * be rejected by every public handle operation rather than truncated to
+     * the same slot/generation as a valid authority token.
+     */
+    {
+        uint64_t handle = handle_alloc(
+            &parent.handles, &parent.object,
+            PROSENJIT_CAP_READ | PROSENJIT_CAP_DUPLICATE |
+            PROSENJIT_CAP_TRANSFER);
+        uint64_t forged = handle | (1ULL << 40);
+        if (handle == PROSENJIT_HANDLE_INVALID ||
+            handle_check(&parent.handles, handle, PROSENJIT_CAP_READ,
+                         PROS_OBJECT_PROCESS) != 0 ||
+            handle_check(&parent.handles, forged, PROSENJIT_CAP_READ,
+                         PROS_OBJECT_PROCESS) == 0 ||
+            handle_duplicate(&parent.handles, forged,
+                             PROSENJIT_CAP_READ) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_close(&parent.handles, forged) == 0 ||
+            handle_check(&parent.handles, handle, PROSENJIT_CAP_READ,
+                         PROS_OBJECT_PROCESS) != 0 ||
+            handle_close(&parent.handles, handle) != 0)
+            return -15;
+    }
+
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
