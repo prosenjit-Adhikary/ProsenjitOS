@@ -549,6 +549,8 @@ int pros_elf_selftest(void)
                                          PROSENJIT_USER_STACK_VA, &translated,
                                          &flags) == 0 ||
             process.user_entry != 0 || process.user_stack_top != 0 ||
+            loaded.entry != 0 || loaded.image_start != 0 ||
+            loaded.image_end != 0 || loaded.stack_top != 0 ||
             loaded.mapped_pages != 0) {
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
@@ -678,6 +680,11 @@ int pros_elf_load_with_args(struct pros_process *process,
             physical_page_free(physical);
         process->user_entry = 0;
         process->user_stack_top = 0;
+        /* A failed load must not leave stale success-shaped output behind. */
+        result->entry = 0;
+        result->image_start = 0;
+        result->image_end = 0;
+        result->stack_top = 0;
         result->mapped_pages = 0;
         return rc;
     }
