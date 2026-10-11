@@ -252,7 +252,8 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     uint32_t thunk_rva, i;
     uint64_t slot_rva, value, ordinal_flag;
     size_t off;
-    uint32_t width;
+    uint32_t width, table_bytes;
+    uint64_t prefix_bytes;
     if (!symbol || !name || name_capacity == 0u) return WB_PE_EINVAL;
     symbol->is_ordinal = 0;
     symbol->ordinal = 0;
@@ -265,20 +266,22 @@ int wb_pe_import_symbol_at(const uint8_t *data, size_t size,
     thunk_rva = import_entry->original_first_thunk ?
                 import_entry->original_first_thunk : import_entry->first_thunk;
     if (thunk_rva == 0u) return WB_PE_EFORMAT;
-    /* Bound the requested slot against the virtual image before scanning
-     * preceding entries, avoiding needless walks for impossible indices. */
+    /* Bound the prefix using wide arithmetic before narrowing its length.
+     * The input file limit also prevents caller-forged image metadata from
+     * causing an enormous scan or a truncated uint32_t byte count. */
+    prefix_bytes = ((uint64_t)index + 1u) * width;
     if (thunk_rva >= pe->image_size ||
-        (uint64_t)index * width + width > (uint64_t)pe->image_size - thunk_rva)
+        prefix_bytes > (uint64_t)pe->image_size - thunk_rva ||
+        prefix_bytes > WB_PE_MAX_FILE || prefix_bytes > UINT32_MAX)
+        return WB_PE_EBOUNDS;
+    table_bytes = (uint32_t)prefix_bytes;
+    if (wb_pe_rva_to_file(data, size, pe, thunk_rva, table_bytes, &off) != WB_PE_OK)
         return WB_PE_EBOUNDS;
     ordinal_flag = pe->pe32_plus ? 0x8000000000000000ULL : 0x80000000ULL;
     /* A caller-supplied index must not jump over a null thunk terminator. */
     for (i = 0; i <= index; ++i) {
-        slot_rva = (uint64_t)thunk_rva + (uint64_t)i * width;
-        if (slot_rva > UINT32_MAX ||
-            wb_pe_rva_to_file(data, size, pe, (uint32_t)slot_rva,
-                              width, &off) != WB_PE_OK)
-            return WB_PE_EBOUNDS;
-        value = width == 8u ? rd64(data + off) : rd32(data + off);
+        size_t slot_off = off + (size_t)i * width;
+        value = width == 8u ? rd64(data + slot_off) : rd32(data + slot_off);
         if (value == 0u) return WB_PE_ENOTFOUND;
     }
     if (value & ordinal_flag) {
