@@ -177,6 +177,14 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
     if (pe->import_rva == 0u || pe->import_size < 20u ||
         (pe->import_size % 20u) != 0u)
         return WB_PE_EFORMAT;
+    /* The public API must not trust import metadata merely because inspect()
+     * normally produced it. Validate the declared directory as one complete,
+     * image-bounded, file-backed range before indexing any descriptor. */
+    if (!range32(pe->import_rva, pe->import_size, pe->image_size))
+        return WB_PE_EBOUNDS;
+    if (wb_pe_rva_to_file(data, size, pe, pe->import_rva,
+                          pe->import_size, &off) != WB_PE_OK)
+        return WB_PE_EBOUNDS;
     if (index >= pe->import_size / 20u) return WB_PE_EBOUNDS;
     descriptor_rva = (uint64_t)pe->import_rva + (uint64_t)index * 20u;
     if (descriptor_rva > UINT32_MAX) return WB_PE_EBOUNDS;
