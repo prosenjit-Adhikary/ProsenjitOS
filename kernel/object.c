@@ -17,6 +17,15 @@ static uint16_t handle_generation(uint64_t handle) {
     return (uint16_t)(handle >> HANDLE_GENERATION_SHIFT);
 }
 
+/*
+ * A handle is encoded only in bits 0..23 (8-bit slot, 16-bit generation).
+ * Reject non-canonical high bits instead of silently truncating them: without
+ * this check, many distinct 64-bit user values alias the same capability.
+ */
+static int handle_is_canonical(uint64_t handle) {
+    return (handle >> (HANDLE_SLOT_BITS + 16u)) == 0u;
+}
+
 void object_init(struct pros_object *object, uint16_t type) {
     if (!object || type == PROS_OBJECT_NONE) return;
     object->type = type;
@@ -73,7 +82,8 @@ int handle_check(const struct pros_handle_table *table,
                  uint64_t handle,
                  uint64_t required_rights,
                  uint16_t expected_type) {
-    if (!table || handle == PROSENJIT_HANDLE_INVALID) return -1;
+    if (!table || handle == PROSENJIT_HANDLE_INVALID ||
+        !handle_is_canonical(handle)) return -1;
 
     uint32_t slot = handle_slot(handle);
     uint16_t generation = handle_generation(handle);
@@ -108,7 +118,8 @@ int handle_table_close_all(struct pros_handle_table *table) {
 }
 
 int handle_close(struct pros_handle_table *table, uint64_t handle) {
-    if (!table || handle == PROSENJIT_HANDLE_INVALID) return -1;
+    if (!table || handle == PROSENJIT_HANDLE_INVALID ||
+        !handle_is_canonical(handle)) return -1;
 
     uint32_t slot = handle_slot(handle);
     uint16_t generation = handle_generation(handle);
@@ -137,7 +148,7 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
                           uint64_t source_handle,
                           uint64_t requested_rights) {
     if (!table || source_handle == PROSENJIT_HANDLE_INVALID ||
-        requested_rights == 0 ||
+        !handle_is_canonical(source_handle) || requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
 
@@ -165,7 +176,7 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
                               uint64_t requested_rights) {
     if (!source_table || !target_table ||
         source_handle == PROSENJIT_HANDLE_INVALID ||
-        requested_rights == 0 ||
+        !handle_is_canonical(source_handle) || requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
 
