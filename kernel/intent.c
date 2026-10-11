@@ -282,8 +282,17 @@ enum pros_security_decision security_authorize(
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
-    if (pros_security_hardening_ready() &&
-        pros_security_hardening_check_process(process) != 0) {
+    /*
+     * Authorization is fail-closed until the kernel hardening contract has
+     * successfully validated its page protections and process invariants.
+     * Treating "not initialized" as "skip the check" creates a startup window
+     * in which capabilities could be authorized without the security gate.
+     */
+    if (!pros_security_hardening_ready()) {
+        reason = PROS_REASON_POLICY_RESTRICTED;
+        goto record;
+    }
+    if (pros_security_hardening_check_process(process) != 0) {
         pros_security_hardening_note_violation(2u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
         goto record;
