@@ -1,6 +1,7 @@
 #include "pe_image.h"
 
 #define WB_PE_MAX_FILE (64u * 1024u * 1024u)
+#define WB_PE_MAX_IMPORT_DESCRIPTORS 4096u
 #define WB_SCN_MEM_EXECUTE 0x20000000u
 #define WB_SCN_MEM_WRITE 0x80000000u
 
