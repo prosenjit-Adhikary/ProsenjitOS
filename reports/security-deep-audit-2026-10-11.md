@@ -22,7 +22,7 @@ The original admission path rejected only DEAD/ZOMBIE processes. An already quar
 
 **Area:** `kernel/security_admission.c`
 
-The original verified-signature path cleared `local_denied` and converted successful cryptographic verification into local trust, returning TRUSTED rather than preserving the VERIFIED evidence type. The invalid-signature path also cleared a local deny. The signed path now preserves deny policy for both valid and invalid signatures, uses the verified signature evidence directly in the policy evaluator, and keeps VERIFIED distinct from TRUSTED. Added regression assertions for valid-signature-plus-deny and invalid-signature-plus-deny cases.
+The original verified-signature path cleared `local_denied` and converted successful cryptographic verification into local trust, returning TRUSTED rather than preserving the VERIFIED evidence type. The invalid-signature path also cleared a local deny. The signed path now preserves deny policy for both valid and invalid signatures, uses the verified signature evidence directly in the policy evaluator, clears caller-supplied `local_trusted` metadata so it cannot relabel a signed result as TRUSTED, and keeps VERIFIED distinct from TRUSTED. Added regression assertions for caller-trust/signature separation plus valid-signature-plus-deny and invalid-signature-plus-deny cases.
 
 ### 4. Authorization did not fail closed before hardening initialization
 
