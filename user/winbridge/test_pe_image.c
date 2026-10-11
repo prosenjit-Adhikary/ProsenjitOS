@@ -113,5 +113,22 @@ int main(void){
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 39;
     pe.section_count=WB_PE_MAX_SECTIONS+1u;off=77;
     if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EINVAL||off!=77)return 25;
+    /* Public import reader must reject forged directory ranges and clear output. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 41;
+    pe.import_rva=0x1ff0u;pe.import_size=40u;
+    {
+        struct wb_pe_import imp;
+        memset(&imp,0xff,sizeof imp);
+        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EBOUNDS ||
+           imp.original_first_thunk!=0u || imp.name_rva!=0u)return 42;
+    }
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 43;
+    pe.import_rva=0x1010u;pe.import_size=40u;
+    {
+        struct wb_pe_import imp;
+        memset(&imp,0xff,sizeof imp);
+        if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EBOUNDS ||
+           imp.original_first_thunk!=0u || imp.name_rva!=0u)return 44;
+    }
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
