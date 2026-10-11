@@ -526,6 +526,19 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /* Invalid argument counts must clear caller-visible result fields. */
+    {
+        struct pros_elf_load_result invalid_result = {
+            1u, 2u, 3u, 4u, 5u
+        };
+        int rc = pros_elf_load_with_args(0, image, data_off + 2,
+                                         0, 65u, 0, 0u, &invalid_result);
+        if (rc != PROS_ELF_EINVAL || invalid_result.entry != 0 ||
+            invalid_result.image_start != 0 || invalid_result.image_end != 0 ||
+            invalid_result.stack_top != 0 || invalid_result.mapped_pages != 0)
+            return -26;
+    }
+
     /* Failed argv construction must release both image and stack mappings. */
     {
         struct pros_process process;
