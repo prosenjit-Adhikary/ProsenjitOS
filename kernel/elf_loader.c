@@ -526,6 +526,39 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /* Failed argv construction must release both image and stack mappings. */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        static char oversized_arg[4097];
+        const char *argv[] = {oversized_arg};
+        uint64_t translated = 0, flags = 0;
+        int rc = process_init(&process, 0xE1F4u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -23;
+        for (uint64_t i = 0; i + 1u < sizeof(oversized_arg); ++i)
+            oversized_arg[i] = 'z';
+        oversized_arg[sizeof(oversized_arg) - 1u] = '\0';
+
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     argv, 1u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_EOVERFLOW ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &translated,
+                                         &flags) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA, &translated,
+                                         &flags) == 0 ||
+            process.user_entry != 0 || process.user_stack_top != 0 ||
+            loaded.mapped_pages != 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -24;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -25;
+    }
+
     return PROS_ELF_OK;
 }
 
