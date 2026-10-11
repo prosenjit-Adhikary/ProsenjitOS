@@ -101,8 +101,22 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
     }
     if (!entry_exec) return WB_PE_EFORMAT;
     if ((tmp.import_rva==0u)!=(tmp.import_size==0u) || (tmp.reloc_rva==0u)!=(tmp.reloc_size==0u)) return WB_PE_EFORMAT;
-    if (tmp.import_rva && !range32(tmp.import_rva,tmp.import_size,tmp.image_size)) return WB_PE_EBOUNDS;
-    if (tmp.reloc_rva && !range32(tmp.reloc_rva,tmp.reloc_size,tmp.image_size)) return WB_PE_EBOUNDS;
+    if (tmp.import_rva) {
+        size_t directory_offset;
+        if (!range32(tmp.import_rva,tmp.import_size,tmp.image_size)) return WB_PE_EBOUNDS;
+        /* A directory must be backed by bytes in the file, not merely fit
+         * inside the virtual image or point into a zero-filled section tail. */
+        if (wb_pe_rva_to_file(data, size, &tmp, tmp.import_rva,
+                              tmp.import_size, &directory_offset) != WB_PE_OK)
+            return WB_PE_EBOUNDS;
+    }
+    if (tmp.reloc_rva) {
+        size_t directory_offset;
+        if (!range32(tmp.reloc_rva,tmp.reloc_size,tmp.image_size)) return WB_PE_EBOUNDS;
+        if (wb_pe_rva_to_file(data, size, &tmp, tmp.reloc_rva,
+                              tmp.reloc_size, &directory_offset) != WB_PE_OK)
+            return WB_PE_EBOUNDS;
+    }
     *out=tmp;
     return WB_PE_OK;
 }
