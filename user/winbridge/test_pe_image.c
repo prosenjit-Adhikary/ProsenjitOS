@@ -203,5 +203,21 @@ int main(void){
     { struct wb_pe_import imp;memset(&imp,0xff,sizeof imp);
       if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT ||
          imp.original_first_thunk!=0u || imp.name_rva!=0u)return 57; }
+    /* Base-relocation blocks are structurally checked, never applied here. */
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010);w32(b+0x98+140,8u);
+    w32(b+0x210,0x1000);w32(b+0x214,8u);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 67;
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010);w32(b+0x98+140,8u);
+    w32(b+0x210,0x1001);w32(b+0x214,8u); /* page RVA must be aligned */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 68;
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010);w32(b+0x98+140,8u);
+    w32(b+0x210,0x1000);w32(b+0x214,12u); /* block cannot exceed directory */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 69;
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010);w32(b+0x98+140,4u); /* truncated block header */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 70;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
