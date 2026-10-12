@@ -22,6 +22,8 @@ static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
 static uint64_t ledger_count_value;
 static struct pros_reason_record ledger[PROS_REASON_LEDGER_SIZE];
+/* Startup regression fixtures must not pollute the runtime violation gate. */
+static uint8_t security_selftest_mode;
 
 static uint64_t intent_required_rights(uint32_t operation) {
     switch (operation) {
@@ -83,6 +85,7 @@ static int security_authorize_hardening_failure_selftest(void)
         .tick = 0u
     };
     uint64_t reason = PROS_REASON_NONE;
+    uint64_t violations_before = pros_security_hardening_violations();
 
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1u;
@@ -95,12 +98,16 @@ static int security_authorize_hardening_failure_selftest(void)
     handle_table_init(&process.handles);
     process.security_reserved[0] = 1u;
 
-    if (security_authorize(&process, &intent, 0u, &reason) !=
-            PROS_DECISION_DENY ||
+    security_selftest_mode = 1u;
+    enum pros_security_decision decision =
+        security_authorize(&process, &intent, 0u, &reason);
+    security_selftest_mode = 0u;
+    if (decision != PROS_DECISION_DENY ||
         reason != PROS_REASON_POLICY_RESTRICTED ||
         process.state != PROS_PROCESS_BLOCKED ||
         process.quarantined != 1u ||
-        process.quarantine_previous_state != 0u)
+        process.quarantine_previous_state != 0u ||
+        pros_security_hardening_violations() != violations_before)
         return -1;
 
     if (security_clear_quarantine(&process) != 0 ||
@@ -450,13 +457,15 @@ enum pros_security_decision security_authorize(
      * uninitialized hardening subsystem as a denial, never as a bypass.
      */
     if (!pros_security_hardening_ready()) {
-        pros_security_hardening_note_violation(1u, process->pid);
+        if (!security_selftest_mode)
+            pros_security_hardening_note_violation(1u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
         security_force_containment(process);
         goto record;
     }
     if (pros_security_hardening_check_process(process) != 0) {
-        pros_security_hardening_note_violation(2u, process->pid);
+        if (!security_selftest_mode)
+            pros_security_hardening_note_violation(2u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
         security_force_containment(process);
         goto record;
