@@ -231,6 +231,14 @@ int security_is_quarantined(const struct pros_process *process) {
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
 
+    /*
+     * process_state() deliberately treats zeroed/uninitialized objects as
+     * dead. Build a minimally valid process fixture so this test exercises
+     * quarantine transitions instead of failing its object-liveness guard.
+     */
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.object.refcount = 1u;
+    process.pid = 1u;
     process.state = PROS_PROCESS_READY;
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
