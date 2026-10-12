@@ -470,9 +470,21 @@ int process_selftest(void)
         object.handle_refs = 2u;
         if (handle_close(&table, first_handle) != 0 ||
             handle_close(&table, second_handle) != 0 ||
-            object.refcount != 1u ||
+            object.refcount != 1u || object.handle_refs != 0u ||
             object.type != PROS_OBJECT_FILE)
             return -23;
+
+        /* An owner reference cannot be released out from under a live handle. */
+        first_handle = handle_alloc(&table, &object, PROSENJIT_CAP_READ);
+        if (first_handle == PROSENJIT_HANDLE_INVALID ||
+            object_release(&object) != 0 ||
+            object.refcount != 1u || object.handle_refs != 1u ||
+            object_release(&object) == 0 ||
+            object.refcount != 1u || object.type != PROS_OBJECT_FILE ||
+            handle_close(&table, first_handle) != 0 ||
+            object.refcount != 0u || object.handle_refs != 0u ||
+            object.type != PROS_OBJECT_NONE)
+            return -24;
     }
     if (process_init(&parent, 0u, PROS_SECURITY_SUPER) == 0)
         return -19;
