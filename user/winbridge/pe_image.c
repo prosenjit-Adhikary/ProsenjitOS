@@ -143,6 +143,20 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
                 block_size < 8u || (block_size & 3u) != 0u ||
                 (size_t)block_size > remaining)
                 return WB_PE_EFORMAT;
+            {
+                size_t entry_off;
+                for (entry_off = cursor + 8u;
+                     entry_off < cursor + (size_t)block_size;
+                     entry_off += 2u) {
+                    uint16_t entry = rd16(data + directory_offset + entry_off);
+                    uint16_t type = (uint16_t)(entry >> 12);
+                    uint32_t target_rva;
+                    if (type == 0u) continue; /* IMAGE_REL_BASED_ABSOLUTE padding */
+                    target_rva = page_rva + (uint32_t)(entry & 0x0fffu);
+                    if (target_rva < page_rva || target_rva >= tmp.image_size)
+                        return WB_PE_EBOUNDS;
+                }
+            }
             cursor += block_size;
         }
     }
