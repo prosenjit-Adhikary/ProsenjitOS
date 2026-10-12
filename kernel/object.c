@@ -79,12 +79,35 @@ void handle_table_init(struct pros_handle_table *table) {
     }
 }
 
+static int handle_table_object_aliases_valid(
+    const struct pros_handle_table *table, const struct pros_object *object)
+{
+    uint32_t aliases = 0u;
+    if (!table || !object || !object_type_valid(object->type) ||
+        object->reserved != 0u || object->refcount == 0u)
+        return 0;
+
+    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *entry = &table->entries[i];
+        if (entry->object != object)
+            continue;
+        if (entry->generation == 0u ||
+            entry->generation == UINT16_MAX ||
+            entry->reserved != 0u || entry->rights == 0u ||
+            (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+            return 0;
+        ++aliases;
+    }
+    return object->refcount >= aliases;
+}
+
 uint64_t handle_alloc(struct pros_handle_table *table,
                       struct pros_object *object,
                       uint64_t rights) {
     if (!table || !object || object->refcount == 0 ||
         !object_type_valid(object->type) || object->reserved != 0u ||
-        rights == 0 || (rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
+        rights == 0 || (rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0 ||
+        !handle_table_object_aliases_valid(table, object))
         return PROSENJIT_HANDLE_INVALID;
 
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
@@ -132,7 +155,8 @@ int handle_check(const struct pros_handle_table *table,
          entry->object->type != expected_type))
         return -1;
 
-    if ((entry->rights & required_rights) != required_rights)
+    if ((entry->rights & required_rights) != required_rights ||
+        !handle_table_object_aliases_valid(table, entry->object))
         return -1;
 
     return 0;
@@ -212,19 +236,7 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
      * before mutating the entry; close_all performs a whole-table preflight,
      * but direct close paths need this invariant too.
      */
-    uint32_t aliases = 0u;
-    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
-        const struct pros_handle_entry *alias = &table->entries[i];
-        if (alias->object != entry->object)
-            continue;
-        if (alias->generation == 0u ||
-            alias->generation == UINT16_MAX ||
-            alias->reserved != 0u || alias->rights == 0u ||
-            (alias->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
-            return -1;
-        ++aliases;
-    }
-    if (entry->object->refcount < aliases)
+    if (!handle_table_object_aliases_valid(table, entry->object))
         return -1;
 
     struct pros_object *object = entry->object;
@@ -263,7 +275,8 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
         source->object->reserved != 0u ||
         !object_type_valid(source->object->type) ||
         source->rights == 0u ||
-        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
+        !handle_table_object_aliases_valid(table, source->object))
         return PROSENJIT_HANDLE_INVALID;
 
     /* Duplication can only attenuate authority; it can never add rights. */
@@ -297,7 +310,8 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
         source->object->reserved != 0u ||
         !object_type_valid(source->object->type) ||
         source->rights == 0u ||
-        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
+        !handle_table_object_aliases_valid(source_table, source->object))
         return PROSENJIT_HANDLE_INVALID;
 
     /* Copy-transfer attenuates authority; the source remains valid. */
@@ -332,7 +346,8 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
         source->object->reserved != 0u ||
         !object_type_valid(source->object->type) ||
         source->rights == 0u ||
-        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
+        !handle_table_object_aliases_valid(source_table, source->object))
         return PROSENJIT_HANDLE_INVALID;
 
     /*
