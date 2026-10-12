@@ -157,7 +157,14 @@ The runtime process invariant checker skipped every empty handle slot. Allocatio
 
 **Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot so normal generation retirement does not falsely fail hardening. Added regression cases for malformed free slots and valid retired slots. The permanently reserved slot zero is also checked for its canonical empty state.
 
-### 23. Source cleanup
+### 23. Kernel data hardening boundary could be unaligned
+**Severity: High (boot hardening gate).**
+
+`pros_security_hardening_init()` requires every linker-provided protection range to have page-aligned start and end addresses. Unlike the text, rodata, and BSS end symbols, `__kernel_data_end` was set to the raw end of `.data`, which is not guaranteed to be page-aligned. A valid build could therefore fail the hardening initialization gate at boot.
+
+**Fix:** define `__kernel_data_end = ALIGN(4K)` so the data protection range covers complete pages and satisfies the range validator.
+
+### 24. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
