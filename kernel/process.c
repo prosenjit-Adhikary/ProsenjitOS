@@ -390,6 +390,10 @@ int process_selftest(void)
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+    for (uint32_t i = 0u; i < sizeof(parent.security_reserved); ++i) {
+        if (parent.security_reserved[i] != 0u)
+            return -15;
+    }
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
