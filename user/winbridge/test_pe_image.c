@@ -132,6 +132,12 @@ int main(void){
     pe.sections[1].raw_offset=(uint32_t)sizeof b-1u;pe.sections[1].raw_size=4u;
     off=77;
     if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000u,1u,&off)!=WB_PE_EBOUNDS||off!=77)return 59;
+    /* Header mappings must also reject malformed caller-forged section metadata. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 65;
+    pe.section_count=2u;pe.sections[1]=pe.sections[0];
+    pe.sections[1].raw_offset=(uint32_t)sizeof b-1u;pe.sections[1].raw_size=4u;
+    off=77;
+    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x100u,1u,&off)!=WB_PE_EBOUNDS||off!=77)return 66;
     /* Zero-length requests have no useful file mapping and must not mutate output. */
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 60;
     off=77;
