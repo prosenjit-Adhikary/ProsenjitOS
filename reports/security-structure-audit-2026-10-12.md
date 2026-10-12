@@ -40,12 +40,33 @@ Intent construction only rejected object type NONE, and authorization cast the 3
 
 **Fix:** accept only ABI-defined object types at construction and authorization boundaries; reject undefined requested-rights bits before authorization.
 
-### 6. Source cleanup
+### 6. File-admission policy could erase an explicit local deny
+**Severity: High (policy bypass).**
+
+The signed-admission path cleared `local_denied` on both valid and invalid signature paths. A valid signature could therefore override an administrator's deny decision, while an invalid signature could downgrade an explicit deny to quarantine.
+
+**Fix:** preserve local-deny metadata regardless of signature outcome and add regression tests for both valid and invalid signatures with an explicit deny.
+
+### 7. Malformed file-admission metadata could be treated as trusted
+**Severity: Medium (malformed policy input).**
+
+Unknown reputation enum values and non-boolean trust flags could pass through truthiness checks and reach the allow policy.
+
+**Fix:** malformed flags/reputation now resolve to UNKNOWN/QUARANTINE; regression tests cover unknown enum and invalid flag encodings.
+
+### 8. Monitor enforcement needed containment fallbacks
+**Severity: High (monitor resource exhaustion / teardown failure).**
+
+When the behavior monitor ran out of state slots, received non-monotonic timestamps, or failed to terminate a blocked process, the process could remain runnable without a reliable monitoring decision.
+
+**Fix:** monitor capacity/timestamp failures trigger quarantine, and failed termination attempts fall back to quarantine.
+
+### 9. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
 
-- [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/object.c`, `kernel/process.c`, `kernel/ipc.c`, `kernel/paging.c`, and associated headers.
+- [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/security_admission.c`, `kernel/security_file.c`, `kernel/object.c`, `kernel/process.c`, `kernel/ipc.c`, `kernel/paging.c`, and associated headers.
 - [x] Applied fixes on `security/hardening-audit-20261012`.
 - [ ] Clean `./scripts/build.sh clean` / full `-Wall -Wextra -Werror` build (GitHub Actions run queued; no Debian commands have been run).
 - [ ] QEMU ISO boot and complete startup self-test chain.
