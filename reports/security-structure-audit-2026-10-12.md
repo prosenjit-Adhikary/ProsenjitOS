@@ -61,7 +61,14 @@ When the behavior monitor ran out of state slots, received non-monotonic timesta
 
 **Fix:** monitor capacity/timestamp failures trigger quarantine, and failed termination attempts fall back to quarantine.
 
-### 9. Source cleanup
+### 9. Audit-ledger exhaustion could undo containment
+**Severity: High (fail-closed enforcement).**
+
+When a quarantine decision was made but the reason ledger could not accept another record, the authorization path cleared quarantine before returning DENY. That could leave a process runnable after a privileged request triggered containment.
+
+**Fix:** quarantine remains active when audit storage fails. Added a startup self-test that deliberately exhausts the ledger sequence, attempts a privileged request, and verifies DENY plus persistent BLOCKED/quarantined state before restoring test state.
+
+### 10. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
