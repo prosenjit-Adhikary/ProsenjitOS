@@ -3,7 +3,6 @@
 #define HANDLE_SLOT_BITS 8u
 #define HANDLE_SLOT_MASK 0xFFULL
 #define HANDLE_GENERATION_SHIFT HANDLE_SLOT_BITS
-#define HANDLE_VALUE_BITS (HANDLE_SLOT_BITS + 16u)
 #define HANDLE_VALUE_MASK 0xFFFFFFULL
 
 static int handle_value_canonical(uint64_t handle)
