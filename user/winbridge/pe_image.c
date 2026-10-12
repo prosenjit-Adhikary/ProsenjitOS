@@ -2,6 +2,7 @@
 
 #define WB_PE_MAX_FILE (64u * 1024u * 1024u)
 #define WB_PE_MAX_IMPORT_DESCRIPTORS 4096u
+#define WB_PE_MAX_STRING 4096u
 #define WB_SCN_MEM_EXECUTE 0x20000000u
 #define WB_SCN_MEM_WRITE 0x80000000u
 
@@ -259,6 +260,7 @@ int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
     if (!out || capacity == 0u) return WB_PE_EINVAL;
     out[0] = '\0';
     if (!data || !pe || rva == 0u) return WB_PE_EINVAL;
+    if (capacity > WB_PE_MAX_STRING) return WB_PE_ENOTSUP;
     for (i = 0; i < capacity; ++i) {
         size_t off;
         uint64_t current = (uint64_t)rva + i;
