@@ -248,7 +248,7 @@ int security_quarantine(struct pros_process *process) {
              process->quarantine_previous_state !=
                  (uint8_t)(PROS_PROCESS_READY + 1u) &&
              process->quarantine_previous_state !=
-                 (uint8_t)(PROS_PROCESS_RUNNING + 1u))
+                 (uint8_t)(PROS_PROCESS_RUNNING + 1u)))
             return -1;
         return 0;
     }
