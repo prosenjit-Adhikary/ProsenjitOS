@@ -168,21 +168,21 @@ The runtime process invariant checker skipped every empty handle slot. Allocatio
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ### CI runner availability
-Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. This permits clean build, QEMU boot, and architecture checks to run in GitHub-hosted CI without executing commands on the user's Debian VM.
+Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. However, the latest hosted attempts failed before any steps were reported and the job-log endpoint returned no logs. This does not establish a code/build failure or a successful run; the runner/job-startup issue remains unresolved, and no commands were run on the user's Debian VM.
 
 ## Verification status
 
 - [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/security_admission.c`, `kernel/security_file.c`, `kernel/object.c`, `kernel/process.c`, `kernel/ipc.c`, `kernel/paging.c`, and associated headers.
 - [x] Applied fixes on `security/hardening-audit-20261012`.
-- [ ] Clean `./scripts/build.sh clean` / full `-Wall -Wextra -Werror` build (GitHub Actions run queued; no Debian commands have been run).
-- [ ] QEMU ISO boot and complete startup self-test chain.
+- [ ] Clean `./scripts/build.sh clean` / full `-Wall -Wextra -Werror` build (hosted job failed before steps; no compiler output available).
+- [ ] QEMU ISO boot and complete startup self-test chain (not executed by CI yet).
 - [ ] Confirm the quarantine failure `-11501` is gone.
 - [ ] Confirm security hardening startup gate and live process checks pass.
-- [ ] Review CI results and run full regression tests (both workflows remain queued on the repository's self-hosted runner).
+- [ ] Resolve hosted workflow job-startup failure and review actual build/boot/security-design results.
 - [ ] Sync the final verified log/report to `main`.
 
 ## Status
-**Implementation advanced; verification pending.** Source fixes and regression self-tests are committed to the audit branch. Debian/QEMU commands have intentionally not been run, as requested; the repository's self-hosted GitHub Actions build/boot and security-design workflows are queued. Do not call the hardening fully verified until those checks pass. Any CI failure must be diagnosed and fixed before final sign-off.
+**Implementation advanced; verification pending.** Source fixes and regression self-tests are committed to the audit branch. Debian/QEMU commands have intentionally not been run, as requested; the latest GitHub-hosted build/boot and security-design jobs failed before reporting steps; no build or boot test has been evidenced. Do not call the hardening fully verified until those checks pass. Any CI failure must be diagnosed and fixed before final sign-off.
 
 ## Reproduction commands (Debian VM)
 ```sh
