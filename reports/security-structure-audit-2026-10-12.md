@@ -117,7 +117,7 @@ The monitor's resource-exhaustion, timestamp-rollback, and failed-termination pa
 
 **Fix:** validate object types using an explicit switch over supported types and add a regression assertion for an unknown type value.
 
-### 18. IPC syscalls derived entry pointers before slot validation
+### 17. IPC syscalls derived entry pointers before slot validation
 **Severity: Medium (memory-safety robustness).**
 
 IPC send/receive decoded the low handle byte and formed `&entries[slot]` before checking whether the slot was within the handle-table bound. Although preceding handle validation usually rejected invalid values, the ordering relied on out-of-range pointer formation and did not explicitly recheck object metadata at the final dereference site.
@@ -185,7 +185,7 @@ The process invariant checker verified that each live handle pointed to a live o
 
 **Fix:** count each object's aliases in the process handle table and reject an invariant violation when its refcount is smaller than the number of live slots. Added a regression fixture with two aliased entries and an insufficient refcount.
 
-### 28. Process hardening skipped malformed free capability slots
+### 27. Process hardening skipped malformed free capability slots
 **Severity: Medium (capability-table integrity).**
 
 The runtime process invariant checker skipped every empty handle slot, allowing malformed free-slot metadata to evade the hardening gate.
