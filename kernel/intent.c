@@ -299,7 +299,6 @@ enum pros_security_decision security_authorize(
     uint64_t *reason_out) {
     uint32_t reason = PROS_REASON_NONE;
     enum pros_security_decision decision = PROS_DECISION_DENY;
-    int quarantine_applied_here = 0;
 
     if (!process || process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE) {
@@ -386,8 +385,6 @@ record:
         if (security_quarantine(process) != 0) {
             decision = PROS_DECISION_DENY;
             reason = PROS_REASON_QUARANTINE_FAILED;
-        } else {
-            quarantine_applied_here = 1;
         }
     }
 
@@ -397,8 +394,11 @@ record:
      * audit infrastructure failure rather than misreporting it as policy.
      */
     if (ledger_record(process, intent, tid, decision, reason) != 0) {
-        if (quarantine_applied_here)
-            (void)security_clear_quarantine(process);
+        /*
+         * Do not undo a containment action when auditing fails. The request
+         * is denied and quarantine remains active; restoring execution here
+         * would turn ledger exhaustion into a containment bypass.
+         */
         if (reason_out) *reason_out = PROS_REASON_AUDIT_UNAVAILABLE;
         return PROS_DECISION_DENY;
     }
