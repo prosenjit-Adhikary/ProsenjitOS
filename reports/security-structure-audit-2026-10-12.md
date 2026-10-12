@@ -66,7 +66,7 @@ When the behavior monitor ran out of state slots, received non-monotonic timesta
 
 When a quarantine decision was made but the reason ledger could not accept another record, the authorization path cleared quarantine before returning DENY. That could leave a process runnable after a privileged request triggered containment.
 
-**Fix:** quarantine remains active when audit storage fails. Added a startup self-test that deliberately exhausts the ledger sequence, attempts a privileged request, and verifies DENY plus persistent BLOCKED/quarantined state before restoring test state. A follow-up source review caught that the original test used `PROS_INTENT_ADMIN`, which is rejected as an out-of-range operation before reaching quarantine. The fixture now uses a valid READ operation with READ+ADMIN requested rights against an absent handle, exercising the intended quarantine branch.
+**Fix:** quarantine remains active when audit storage fails. Added a startup self-test that deliberately exhausts the ledger sequence, attempts a privileged request, and verifies DENY plus persistent BLOCKED/quarantined state before restoring test state.
 
 ### 10. Hardening initialization could erase earlier violations
 **Severity: Medium (security telemetry integrity).**
