@@ -144,7 +144,8 @@ int pros_security_hardening_check_process(const struct pros_process *process)
         const struct pros_handle_entry *entry = &process->handles.entries[i];
         if (!entry->object)
             continue;
-        if (entry->generation == 0u || entry->reserved != 0u ||
+        if (entry->generation == 0u ||
+            entry->generation == UINT16_MAX || entry->reserved != 0u ||
             entry->object->refcount == 0u ||
             !valid_object_type(entry->object->type) ||
             entry->object->reserved != 0u || entry->rights == 0u ||
@@ -239,6 +240,12 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].generation = 0u;
     if (pros_security_hardening_check_process(&process) != -6)
         return -7;
+
+    process.handles.entries[1].generation = UINT16_MAX;
+    if (pros_security_hardening_check_process(&process) != -6 ||
+        handle_check(&process.handles, (UINT64_C(0xFFFF) << 8) | 1u,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0)
+        return -18;
 
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].reserved = 1u;
