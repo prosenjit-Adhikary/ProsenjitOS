@@ -92,11 +92,10 @@ int pros_file_admission_evaluate_signed(
     }
 
     /*
-     * The generic evaluator will strip caller-provided signature metadata.
-     * That is intentional for its public contract, so signed evidence needs
-     * a private handoff. Verify again through the same trust authority and
-     * then use the lower-level policy evaluator with an explicit local trust
-     * marker only after cryptographic success.
+     * The generic metadata-only evaluator strips signature flags because
+     * arbitrary callers cannot establish cryptographic trust. On verification
+     * failure, route through that fail-closed path. On success, this function
+     * itself is the trusted handoff to the lower-level policy evaluator.
      */
     if (signature_result != PROS_SIGNATURE_RESULT_VALID)
         return pros_file_admission_evaluate(&input, record);
