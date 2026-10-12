@@ -411,6 +411,9 @@ int process_selftest(void)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+    if (process_set_state(&child, PROS_PROCESS_NEW) == 0 ||
+        process_state(&child) != PROS_PROCESS_READY)
+        return -18;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
