@@ -56,10 +56,16 @@ static int security_authorize_audit_failure_selftest(void)
     struct pros_process process = {0};
     struct pros_intent intent = {
         .id = 1u,
-        .operation = PROS_INTENT_ADMIN,
+        /*
+         * Use a valid READ operation with an absent handle and request the
+         * ADMIN bit as well. The missing capability must select QUARANTINE;
+         * using PROS_INTENT_ADMIN here would be rejected as an invalid
+         * operation before the containment path is reached.
+         */
+        .operation = PROS_INTENT_READ,
         .object_type = PROS_OBJECT_FILE,
         .handle = (1ULL << 8) | 1u,
-        .requested_rights = PROSENJIT_CAP_ADMIN,
+        .requested_rights = PROSENJIT_CAP_READ | PROSENJIT_CAP_ADMIN,
         .tick = 0u
     };
     uint64_t reason = PROS_REASON_NONE;
