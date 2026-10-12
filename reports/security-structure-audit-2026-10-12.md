@@ -80,7 +80,7 @@ The hardening initializer reset its violation counter. A fail-closed authorizati
 
 The generic state setter accepted transitions both into `PROS_PROCESS_ZOMBIE` and from `ZOMBIE` back to active states. This could fabricate a zombie without terminating its threads or revive a terminated process, undermining the `process_wait()` reap path.
 
-**Fix:** restrict `process_set_state()` to scheduler-visible states (`NEW` through `BLOCKED`). Terminal `ZOMBIE`/`DEAD` transitions remain owned by process lifecycle code. Added regression assertions for both attempted transitions and adjusted the execution-admission test to construct its terminal-state fixture directly.
+**Fix:** restrict `process_set_state()` to scheduler-visible states (`NEW` through `BLOCKED`), reject resetting an active process to `NEW`, and keep terminal `ZOMBIE`/`DEAD` transitions inside process lifecycle code. Added regression assertions for fabricated terminal transitions, active-to-NEW reset, and zombie resurrection; adjusted the execution-admission test to construct its terminal-state fixture directly.
 
 ### 12. Quarantine restore trusted corrupted metadata
 **Severity: High (containment integrity).**
