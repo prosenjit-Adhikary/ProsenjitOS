@@ -44,6 +44,30 @@ static struct pros_security_monitor_state *alloc_state(uint64_t pid) {
     return 0;
 }
 
+/*
+ * Monitoring failures must not leave a runnable process merely because its
+ * quarantine metadata is already corrupt. First use the normal transition;
+ * if validation rejects the metadata but the process itself is live, force a
+ * conservative BLOCKED quarantine with no restore target. Clearing that
+ * quarantine will leave the process BLOCKED rather than guessing its history.
+ */
+static int contain_process(struct pros_process *process)
+{
+    uint32_t state = process_state(process);
+    if (state != PROS_PROCESS_READY &&
+        state != PROS_PROCESS_RUNNING &&
+        state != PROS_PROCESS_BLOCKED)
+        return -1;
+
+    if (security_quarantine(process) == 0)
+        return 0;
+
+    process->state = PROS_PROCESS_BLOCKED;
+    process->quarantined = 1u;
+    process->quarantine_previous_state = 0u;
+    return 0;
+}
+
 static enum pros_security_monitor_action decide(
     enum pros_security_event_type type, uint32_t score) {
     if (type == PROS_SECURITY_EVENT_SECURITY_TAMPER ||
@@ -134,14 +158,14 @@ int pros_security_monitor_enforce(
          * Fail closed by containing the process instead of silently leaving
          * it runnable without reliable monitoring.
          */
-        (void)security_quarantine(process);
+        (void)contain_process(process);
         return action;
     }
     if (action < 0)
         return action;
 
     if (action == PROS_SECURITY_MONITOR_QUARANTINE)
-        return security_quarantine(process) == 0 ? action : -2;
+        return contain_process(process) == 0 ? action : -2;
 
     if (action == PROS_SECURITY_MONITOR_BLOCK) {
         if (process_exit(process, -0x5344) != 0) {
@@ -151,7 +175,7 @@ int pros_security_monitor_enforce(
              * blocked process runnable: attempt quarantine as a containment
              * fallback while preserving the reported block failure.
              */
-            (void)security_quarantine(process);
+            (void)contain_process(process);
             return -3;
         }
         return action;
