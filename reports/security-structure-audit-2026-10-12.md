@@ -216,6 +216,13 @@ The runtime process invariant checker skipped every empty handle slot, allowing 
 ### 31. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
+### 32. ProsenjitFS probe accepted superblocks larger than the device
+**Severity: Medium (filesystem discovery / storage boundary).**
+
+`prosenjitfs_mount()` rejected a superblock whose declared `total_blocks` exceeded `device->sector_count`, but `prosenjitfs_probe()` only checked the internal superblock geometry. This could make discovery identify an image as ProsenjitFS even though its declared capacity extends beyond the actual block device, creating inconsistent probe-versus-mount behavior.
+
+**Fix:** apply the device-capacity bound to both primary and backup superblocks during probe. This is defense-in-depth and aligns discovery with mount admission. No build or runtime test has yet verified the change.
+
 ### CI runner availability
 Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. However, the latest hosted attempts failed before any steps were reported and the job-log endpoint returned no logs. This does not establish a code/build failure or a successful run; the runner/job-startup issue remains unresolved, and no commands were run on the user's Debian VM.
 
