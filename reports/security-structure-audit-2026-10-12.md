@@ -131,10 +131,17 @@ IPC send/receive decoded the low handle byte and formed `&entries[slot]` before 
 
 **Fix:** validate process object type, reserved metadata, and nonzero PID before unlinking; add a regression assertion that corrupt metadata is rejected while the process remains registered.
 
-### 19. Bulk handle cleanup could partially mutate a corrupt table
+### 19. Monitor fallback could miss a live process with a corrupt object header
+**Severity: High (containment bypass under metadata corruption).**
+
+The fallback `contain_process()` used `process_state()`, which intentionally maps invalid process-object metadata to `DEAD`. If a READY/RUNNING process had a corrupt object header, fallback containment returned without blocking it.
+
+**Fix:** containment now inspects the raw scheduler-visible state after a null check, attempts the normal validated quarantine transition, and force-canonicalizes containment if metadata validation fails. Added regression coverage for a READY process with corrupt object-reserved metadata.
+
+### 20. Bulk handle cleanup could partially mutate a corrupt table
 **Severity: High (resource cleanup consistency).**
 
-`handle_table_close_all()` previously iterated and closed entries one at a time. If a later slot had malformed generation/rights/object metadata, or multiple slots aliased an object whose refcount was smaller than the number of references, cleanup could release earlier handles before failing. Callers would receive an error with a partially modified capability table and potentially an object already transitioned to `PROS_OBJECT_NONE`.
+`handle_table_close_all()` previously iterated and closed entries one at a time. If a later slot had malformed generation/rights/object metadata, or multiple slots aliased an object whose refcount was smaller than the number of references, cleanup could release earlier handles before failing.
 
 **Fix:** preflight every slot before closing any handle, validate the permanently reserved slot and all free/live metadata, and verify each referenced object's refcount covers its aliases in the table. Added a regression test confirming a malformed later slot leaves earlier valid entries and refcounts untouched.
 
@@ -148,37 +155,37 @@ IPC send/receive decoded the low handle byte and formed `&entries[slot]` before 
 ### 22. VFS path lookup lacked a whole-path length bound
 **Severity: Medium (input validation / resource control).**
 
-`vfs_path_lookup()` bounded each component and counted components, but did not enforce the declared `PROS_VFS_PATH_MAX` over the complete path before walking it. A very long path could trigger unnecessary scanning and inconsistent behavior compared with other path operations.
+`vfs_path_lookup()` bounded each component and counted components, but did not enforce the declared `PROS_VFS_PATH_MAX` over the complete path before walking it.
 
 **Fix:** reject paths longer than `PROS_VFS_PATH_MAX` before acquiring vnode references; added an overlong-path regression case.
 
-### 22. Unused ProsenjitFS helper could fail warnings-as-errors builds
+### 23. Unused ProsenjitFS helper could fail warnings-as-errors builds
 The source contained an unreferenced static `pfs_data_start()` helper. With the project's warnings-as-errors policy, this can stop a clean build.
 
 **Fix:** removed the unused helper and confirmed there are no remaining references in the branch source.
 
-### 23. Authorization denied invariant violations without containing the process
+### 24. Authorization denied invariant violations without containing the process
 **Severity: High (security enforcement).**
 
-When `security_authorize()` detected that hardening was not ready or a live process failed its invariant check, it denied the current operation and recorded a violation but did not necessarily stop the process from continuing user execution. Inconsistent quarantine metadata also made the normal quarantine API reject containment.
+When `security_authorize()` detected that hardening was not ready or a live process failed its invariant check, it denied the current operation but did not necessarily stop the process from continuing user execution. Inconsistent quarantine metadata also made the normal quarantine API reject containment.
 
-**Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added startup regression tests for corrupted security-reserved bytes and invalid object-reserved metadata; clearing the repaired quarantine does not resume the process. The fixture runs under a narrowly scoped self-test mode and asserts the global violation counter is unchanged, preserving the kernel boot gate's zero-violations invariant.
+**Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added startup regression tests for corrupted security-reserved bytes and invalid object-reserved metadata; clearing the repaired quarantine does not resume the process. The fixture runs under a narrowly scoped self-test mode and asserts the global violation counter is unchanged.
 
-### 24. Process hardening skipped malformed free capability slots
+### 25. Process hardening skipped malformed free capability slots
 **Severity: Medium (capability-table integrity).**
 
-The runtime process invariant checker skipped every empty handle slot. Allocation code rejected malformed free slots, so this was not an immediate authority-escalation path, but corruption could evade the process hardening gate and leave the table in a degraded state.
+The runtime process invariant checker skipped every empty handle slot, allowing malformed free-slot metadata to evade the hardening gate.
 
-**Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot so normal generation retirement does not falsely fail hardening. Added regression cases for malformed free slots and valid retired slots. The permanently reserved slot zero is also checked for its canonical empty state.
+**Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot and validate slot zero's canonical empty state.
 
-### 25. Kernel data hardening boundary could be unaligned
+### 26. Kernel data hardening boundary could be unaligned
 **Severity: High (boot hardening gate).**
 
-`pros_security_hardening_init()` requires every linker-provided protection range to have page-aligned start and end addresses. Unlike the text, rodata, and BSS end symbols, `__kernel_data_end` was set to the raw end of `.data`, which is not guaranteed to be page-aligned. A valid build could therefore fail the hardening initialization gate at boot.
+`pros_security_hardening_init()` requires every linker-provided protection range to have page-aligned start and end addresses. `__kernel_data_end` was set to the raw end of `.data`, which is not guaranteed to be page-aligned.
 
 **Fix:** define `__kernel_data_end = ALIGN(4K)` so the data protection range covers complete pages and satisfies the range validator.
 
-### 26. Source cleanup
+### 27. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ### CI runner availability
