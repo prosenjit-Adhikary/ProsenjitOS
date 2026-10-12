@@ -96,7 +96,14 @@ The monitor's resource-exhaustion, timestamp-rollback, and failed-termination pa
 
 **Fix:** add a fail-closed containment helper. If the process is still live but normal quarantine rejects its corrupted metadata, force `BLOCKED` with a canonical quarantine flag and no restore target. Clearing that repaired quarantine therefore leaves the process blocked rather than guessing its previous state. Added a regression test for corrupted quarantine metadata.
 
-### 14. Source cleanup
+### 14. Process initialization identity invariant
+**Severity: Medium (identity invariant).**
+
+`process_init()` could construct a process with identifier zero even though registration and hardening validation reject that identity later, leaving callers with a partially initialized but unusable process.
+
+**Fix:** reject identifier zero before allocating an address space and add a regression assertion.
+
+### 15. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
