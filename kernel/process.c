@@ -435,19 +435,22 @@ int process_selftest(void)
         struct pros_handle_table table;
         struct pros_handle_table target_table;
         struct pros_object object;
-        uint64_t first_handle, second_handle;
+        uint64_t first_handle, second_handle, target_handle;
 
         handle_table_init(&table);
         handle_table_init(&target_table);
         object_init(&object, PROS_OBJECT_FILE);
         first_handle = handle_alloc(&table, &object, PROSENJIT_CAP_RIGHTS_ALL);
-        if (first_handle == PROSENJIT_HANDLE_INVALID)
+        target_handle = handle_alloc(&target_table, &object,
+                                     PROSENJIT_CAP_RIGHTS_ALL);
+        if (first_handle == PROSENJIT_HANDLE_INVALID ||
+            target_handle == PROSENJIT_HANDLE_INVALID)
             return -23;
         table.entries[2] = table.entries[1];
         table.entries[2].generation = 1u;
         second_handle = (UINT64_C(1) << 8) | UINT64_C(2);
-        object.refcount = 1u;
-        object.handle_refs = 2u;
+        object.refcount = 2u;
+        object.handle_refs = 3u;
         if (handle_check(&table, first_handle, PROSENJIT_CAP_DUPLICATE,
                          PROS_OBJECT_FILE) == 0 ||
             handle_alloc(&table, &object, PROSENJIT_CAP_DUPLICATE) !=
@@ -464,12 +467,13 @@ int process_selftest(void)
             handle_close(&table, first_handle) == 0 ||
             table.entries[1].object != &object ||
             table.entries[2].object != &object ||
-            object.refcount != 1u || object.handle_refs != 2u)
+            object.refcount != 2u || object.handle_refs != 3u)
             return -23;
-        object.refcount = 3u;
-        object.handle_refs = 2u;
+        object.refcount = 4u;
+        object.handle_refs = 3u;
         if (handle_close(&table, first_handle) != 0 ||
             handle_close(&table, second_handle) != 0 ||
+            handle_close(&target_table, target_handle) != 0 ||
             object.refcount != 1u || object.handle_refs != 0u ||
             object.type != PROS_OBJECT_FILE)
             return -23;
