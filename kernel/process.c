@@ -447,7 +447,12 @@ int process_selftest(void)
         table.entries[2].generation = 1u;
         second_handle = (UINT64_C(1) << 8) | UINT64_C(2);
         object.refcount = 1u;
-        if (handle_close(&table, first_handle) == 0 ||
+        if (handle_check(&table, first_handle, PROSENJIT_CAP_DUPLICATE,
+                         PROS_OBJECT_FILE) == 0 ||
+            handle_duplicate(&table, first_handle,
+                             PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_close(&table, first_handle) == 0 ||
             table.entries[1].object != &object ||
             table.entries[2].object != &object ||
             object.refcount != 1u)
