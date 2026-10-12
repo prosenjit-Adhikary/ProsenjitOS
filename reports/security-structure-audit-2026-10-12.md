@@ -110,7 +110,28 @@ The monitor's resource-exhaustion, timestamp-rollback, and failed-termination pa
 
 **Fix:** validate object type, reserved fields, and refcount before reference-count changes; validate the handle entry and object before mutating the slot. Added a regression test that corrupts object reserved metadata and verifies retain/release/close all reject it without changing the count or live entry.
 
-### 16. Source cleanup
+### 16. IPC syscalls derived entry pointers before slot validation
+**Severity: Medium (memory-safety robustness).**
+
+IPC send/receive decoded the low handle byte and formed `&entries[slot]` before checking whether the slot was within the handle-table bound. Although preceding handle validation usually rejected invalid values, the ordering relied on out-of-range pointer formation and did not explicitly recheck object metadata at the final dereference site.
+
+**Fix:** validate slot and generation first, then form the entry pointer; recheck live IPC object type, reserved fields, and refcount before using it.
+
+### 17. Self-service syscall policy setter could broaden policy
+**Severity: Medium (least-privilege invariant).**
+
+`process_set_syscall_policy()` was documented as a tightening operation but accepted any valid syscall mask for a Super process, including re-enabling bits previously removed.
+
+**Fix:** require each new mask to be a subset of the current mask and add a regression assertion proving a removed bit cannot be restored through this API.
+
+### 18. Process unregister mutated PID lookup before validating object integrity
+**Severity: Medium (lifecycle consistency).**
+
+`process_unregister()` unlinked the process and cleared monitor state before `object_release()` could reject corrupted type/reserved metadata, potentially leaving a failed unregister no longer discoverable by PID.
+
+**Fix:** validate process object type, reserved metadata, and nonzero PID before unlinking; add a regression assertion that corrupt metadata is rejected while the process remains registered.
+
+### 19. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
