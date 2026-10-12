@@ -429,6 +429,36 @@ int process_selftest(void)
 
     if (process_manager_init() != 0)
         return -1;
+    /*
+     * Direct close must reject an under-counted object shared by two local
+     * capability slots without mutating either slot or releasing the object.
+     */
+    {
+        struct pros_handle_table table;
+        struct pros_object object;
+        uint64_t first_handle, second_handle;
+
+        handle_table_init(&table);
+        object_init(&object, PROS_OBJECT_FILE);
+        first_handle = handle_alloc(&table, &object, PROSENJIT_CAP_RIGHTS_ALL);
+        if (first_handle == PROSENJIT_HANDLE_INVALID)
+            return -23;
+        table.entries[2] = table.entries[1];
+        table.entries[2].generation = 1u;
+        second_handle = (UINT64_C(1) << 8) | UINT64_C(2);
+        object.refcount = 1u;
+        if (handle_close(&table, first_handle) == 0 ||
+            table.entries[1].object != &object ||
+            table.entries[2].object != &object ||
+            object.refcount != 1u)
+            return -23;
+        object.refcount = 3u;
+        if (handle_close(&table, first_handle) != 0 ||
+            handle_close(&table, second_handle) != 0 ||
+            object.refcount != 1u ||
+            object.type != PROS_OBJECT_FILE)
+            return -23;
+    }
     if (process_init(&parent, 0u, PROS_SECURITY_SUPER) == 0)
         return -19;
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
