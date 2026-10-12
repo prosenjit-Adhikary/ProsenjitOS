@@ -136,7 +136,7 @@ IPC send/receive decoded the low handle byte and formed `&entries[slot]` before 
 
 `handle_table_close_all()` previously iterated and closed entries one at a time. If a later slot had malformed generation/rights/object metadata, or multiple slots aliased an object whose refcount was smaller than the number of references, cleanup could release earlier handles before failing. Callers would receive an error with a partially modified capability table and potentially an object already transitioned to `PROS_OBJECT_NONE`.
 
-**Fix:** preflight every slot before closing any handle, validate the permanently reserved slot and all free/live metadata, and verify each referenced object's refcount covers its aliases in the table.
+**Fix:** preflight every slot before closing any handle, validate the permanently reserved slot and all free/live metadata, and verify each referenced object's refcount covers its aliases in the table. Added a regression test confirming a malformed later slot leaves earlier valid entries and refcounts untouched.
 
 ### 21. Process reap could become unrecoverable after unregister validation failed
 **Severity: High (process lifecycle integrity).**
