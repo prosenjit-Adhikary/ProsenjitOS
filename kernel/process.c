@@ -82,8 +82,7 @@ static int process_is_live(const struct pros_process *process) {
 
 static int process_is_active(const struct pros_process *process) {
     return process_is_live(process) &&
-           process->state != PROS_PROCESS_ZOMBIE &&
-           process->state != PROS_PROCESS_DEAD;
+           process->state <= PROS_PROCESS_BLOCKED;
 }
 
 static int process_has_children(const struct pros_process *process) {
