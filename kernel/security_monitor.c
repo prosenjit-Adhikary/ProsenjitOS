@@ -53,7 +53,15 @@ static struct pros_security_monitor_state *alloc_state(uint64_t pid) {
  */
 static int contain_process(struct pros_process *process)
 {
-    uint32_t state = process_state(process);
+    if (!process)
+        return -1;
+
+    /*
+     * process_state() intentionally reports DEAD when object metadata is
+     * invalid. For containment, however, a corrupt object header must not
+     * hide a raw scheduler-visible state and leave that process runnable.
+     */
+    uint32_t state = process->state;
     if (state != PROS_PROCESS_READY &&
         state != PROS_PROCESS_RUNNING &&
         state != PROS_PROCESS_BLOCKED)
@@ -330,6 +338,18 @@ int pros_security_monitor_selftest(void) {
             process.state != PROS_PROCESS_BLOCKED ||
             process.quarantined != 0u)
             return -14;
+
+        /* Invalid object metadata must not make a live raw state invisible. */
+        process.state = PROS_PROCESS_READY;
+        process.object.reserved = 1u;
+        process.quarantined = 0u;
+        process.quarantine_previous_state = 0u;
+        if (contain_process(&process) != 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            process.quarantine_previous_state != 0u)
+            return -15;
+        process.object.reserved = 0u;
     }
 
     return 0;
