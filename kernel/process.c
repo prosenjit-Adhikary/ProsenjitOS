@@ -428,8 +428,9 @@ int process_selftest(void)
     if (process_manager_init() != 0)
         return -1;
     /*
-     * Direct close must reject an under-counted object shared by two local
-     * capability slots without mutating either slot or releasing the object.
+     * Capability operations must reject a corrupted global reference count,
+     * including aliases spanning this table and another process table, without
+     * mutating any handle or releasing the object.
      */
     {
         struct pros_handle_table table;
