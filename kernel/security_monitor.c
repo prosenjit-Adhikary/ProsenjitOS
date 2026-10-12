@@ -308,5 +308,29 @@ int pros_security_monitor_selftest(void) {
         (void)pros_security_monitor_clear(0xA000u + i);
     (void)pros_security_monitor_clear(0xB000u);
 
+    /*
+     * If quarantine metadata is corrupt, monitor containment must still
+     * leave a live process BLOCKED. With no trustworthy prior state, clearing
+     * the repaired quarantine must not resume it.
+     */
+    {
+        struct pros_process process = {0};
+        process.object.type = PROS_OBJECT_PROCESS;
+        process.object.refcount = 1u;
+        process.pid = 0xC000u;
+        process.state = PROS_PROCESS_READY;
+        process.quarantined = 2u;
+        process.quarantine_previous_state = UINT8_MAX;
+        if (contain_process(&process) != 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            process.quarantine_previous_state != 0u)
+            return -13;
+        if (security_clear_quarantine(&process) != 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 0u)
+            return -14;
+    }
+
     return 0;
 }
