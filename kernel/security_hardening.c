@@ -69,7 +69,11 @@ int pros_security_hardening_init(void)
     hardening_magic = PROS_SECURITY_HARDENING_MAGIC;
     if (hardening_generation != UINT64_MAX)
         ++hardening_generation;
-    hardening_violations = 0;
+    /*
+     * Do not erase violations observed before/re-during initialization.
+     * Static storage starts at zero on boot; later initialization must not
+     * make an earlier fail-closed denial disappear from runtime verification.
+     */
     hardening_ready = 0;
 
     if (check_range(text_start, text_end, PROSENJIT_PAGE_PRESENT,
