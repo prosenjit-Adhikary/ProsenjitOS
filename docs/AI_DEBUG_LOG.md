@@ -5,7 +5,7 @@ Branch: `security/hardening-audit-20261012`
 
 ### Findings / changes
 - Fixed invalid `security_quarantine_selftest()` fixture: set process object type, reference count, and PID. This directly addresses the startup self-test path associated with error stage `-11501`.
-- Hardened live capability entries and direct object-layer APIs: reject unknown object types, nonzero reserved fields, zero rights, generation zero, undefined rights, and rights beyond process policy; enforce checks in allocation, check, duplicate, and transfer paths.
+- Hardened live capability entries and direct object-layer APIs: reject unknown object types, nonzero reserved fields, zero rights, generation zero, undefined rights, and rights beyond process policy; enforce checks in allocation, check, duplicate, and transfer paths; reject retired maximum-generation handles and corrupted free slots.
 - Added hardening self-test cases for malformed capability metadata; isolated the referenced test object so unknown-type tests reach the intended validation branch rather than short-circuiting on process identity.
 - Made `security_authorize()` fail closed until kernel hardening is ready.
 - Validate intent object types against the defined ABI object set at creation and authorization; reject undefined rights bits.
@@ -13,6 +13,7 @@ Branch: `security/hardening-audit-20261012`
 - Reject corrupted reserved metadata in IPC objects.
 - Saturate hardening violation/generation counters rather than allowing wraparound.
 - Preserved explicit local deny decisions across both valid and invalid signature admission paths and made a valid local deny outrank malformed metadata; added regression cases.
+- Corrected signed admission so successful cryptographic verification is recorded as VERIFIED (unless separate local-trust policy applies), not relabeled as TRUSTED.
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
 - Behavior-monitor resource exhaustion, timestamp rollback, and failed process termination now attempt quarantine containment.
 - Removed duplicate `ed25519_scalar.h` include.
