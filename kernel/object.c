@@ -176,7 +176,12 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
 
     struct pros_handle_entry *source = &table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->object->refcount == 0)
+        source->generation == 0u || source->reserved != 0u ||
+        source->object->refcount == 0u ||
+        source->object->reserved != 0u ||
+        !object_type_valid(source->object->type) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /* Duplication can only attenuate authority; it can never add rights. */
@@ -204,7 +209,12 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->object->refcount == 0)
+        source->generation == 0u || source->reserved != 0u ||
+        source->object->refcount == 0u ||
+        source->object->reserved != 0u ||
+        !object_type_valid(source->object->type) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /* Copy-transfer attenuates authority; the source remains valid. */
@@ -233,7 +243,12 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->object->refcount == 0)
+        source->generation == 0u || source->reserved != 0u ||
+        source->object->refcount == 0u ||
+        source->object->reserved != 0u ||
+        !object_type_valid(source->object->type) ||
+        source->rights == 0u ||
+        (source->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return PROSENJIT_HANDLE_INVALID;
 
     /*
