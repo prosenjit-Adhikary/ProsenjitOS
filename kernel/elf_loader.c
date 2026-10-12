@@ -329,6 +329,18 @@ int pros_elf_selftest(void)
         ph[0].vaddr = ELF_TEST_CODE_VA;
         ph[0].align = ELF_PAGE;
         eh->entry = ELF_TEST_CODE_VA;
+        /* Invalid process-object metadata must be rejected before mapping. */
+        process.object.reserved = 1u;
+        rc = pros_elf_load(&process, image, data_off + 2, &loaded);
+        process.object.reserved = 0u;
+        if (rc != PROS_ELF_EINVAL ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &physical,
+                                         &flags) == 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -33;
+        }
         rc = pros_elf_load_with_args(&process, image, data_off + 2,
                                      argv, 2u, envp, 1u, &loaded);
         if (rc != PROS_ELF_OK) {
@@ -499,9 +511,10 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     uint64_t start, end, entry;
     uint64_t mapped = 0;
 
-    if (!process || !image || !result ||
+    if (!process || !image || !result || process->pid == 0u ||
         process->state == PROS_PROCESS_DEAD ||
-        process->state == PROS_PROCESS_ZOMBIE)
+        process->state == PROS_PROCESS_ZOMBIE ||
+        process_state(process) == PROS_PROCESS_DEAD)
         return PROS_ELF_EINVAL;
     {
         int validation_rc = pros_elf_validate(image, size);
