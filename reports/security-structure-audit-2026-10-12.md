@@ -237,6 +237,13 @@ Same-table alias counting cannot detect an under-counted object referenced once 
 
 **Fix:** add `pros_object.handle_refs` as a global live-capability-reference count. Handle allocation increments it; close decrements it before releasing the associated reference; `object_release()` refuses to decrement when no non-handle reference remains. Validate `handle_refs <= refcount` and that the count covers all aliases visible in each table. Updated process lifecycle, IPC object checks, hardening invariants, and regression fixtures. Source-reviewed only; full build and runtime verification remain pending.
 
+### 35. ProsenjitFS accepted unsupported feature bits
+**Severity: Medium (on-disk format compatibility / fail-closed parsing).**
+
+The version-1 superblock validator required all four currently implemented feature bits but also accepted arbitrary additional bits. A checksum-valid disk image could therefore claim feature semantics this implementation does not understand and still be mounted as if it were compatible.
+
+**Fix:** reject every feature bit outside the version-1 supported mask. Added a self-test fixture that sets an unknown high bit in both checksum-valid superblock copies, verifies discovery rejects the image, and restores the original formatted copies before the normal mount test. Source-reviewed only; the self-test has not run in a build/boot.
+
 ### CI runner availability
 Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. However, the latest hosted attempts failed before any steps were reported and the job-log endpoint returned no logs. This does not establish a code/build failure or a successful run; the runner/job-startup issue remains unresolved, and no commands were run on the user's Debian VM.
 
