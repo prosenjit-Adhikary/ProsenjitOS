@@ -51,16 +51,20 @@ void object_init(struct pros_object *object, uint16_t type) {
 }
 
 int object_retain(struct pros_object *object) {
-    if (!object || object->refcount == 0 || object->refcount == UINT32_MAX)
+    if (!object || !object_type_valid(object->type) ||
+        object->reserved != 0u || object->refcount == 0u ||
+        object->refcount == UINT32_MAX)
         return -1;
     ++object->refcount;
     return 0;
 }
 
 int object_release(struct pros_object *object) {
-    if (!object || object->refcount == 0) return -1;
+    if (!object || !object_type_valid(object->type) ||
+        object->reserved != 0u || object->refcount == 0u)
+        return -1;
     --object->refcount;
-    if (object->refcount == 0) object->type = PROS_OBJECT_NONE;
+    if (object->refcount == 0u) object->type = PROS_OBJECT_NONE;
     return 0;
 }
 
@@ -157,7 +161,10 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
         return -1;
 
     struct pros_handle_entry *entry = &table->entries[slot];
-    if (!entry->object || entry->generation != generation)
+    if (!entry->object || entry->generation != generation ||
+        entry->reserved != 0u || entry->object->reserved != 0u ||
+        !object_type_valid(entry->object->type) ||
+        entry->object->refcount == 0u)
         return -1;
 
     struct pros_object *object = entry->object;
