@@ -29,6 +29,7 @@ Branch: `security/hardening-audit-20261012`
 ### Verification checklist
 - [x] Current GitHub main source inspected.
 - [x] Source fixes committed to the audit branch.
+- [x] Re-ran a lexical delimiter/comment/string balance scan on all 13 changed C translation units after the ProsenjitFS probe regression addition; no imbalance or unterminated comment/string was detected. This is not a compiler or semantic test.
 - [x] Manually checked all security-design workflow document markers against the current branch (`SECURITY-MALWARE.md` and `ROADMAP.md`); all 14 checks pass in source. CI execution itself remains unverified because the job failed before steps.
 - [ ] Clean GCC build (hosted GitHub Actions job failed before any steps were reported; no compiler run is evidenced).
 - [ ] QEMU boot reaches completion with all security self-tests passing (boot step has not executed).
