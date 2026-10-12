@@ -5,10 +5,13 @@ Branch: `security/hardening-audit-20261012`
 
 ### Findings / changes
 - Fixed invalid `security_quarantine_selftest()` fixture: set process object type, reference count, and PID. This directly addresses the startup self-test path associated with error stage `-11501`.
-- Hardened live capability entries: reject unknown object types, nonzero reserved fields, zero rights, generation zero, undefined rights, and rights beyond process policy.
+- Hardened live capability entries and direct object-layer APIs: reject unknown object types, nonzero reserved fields, zero rights, generation zero, undefined rights, and rights beyond process policy; enforce checks in allocation, check, duplicate, and transfer paths.
 - Added hardening self-test cases for malformed capability metadata; isolated the referenced test object so unknown-type tests reach the intended validation branch rather than short-circuiting on process identity.
 - Made `security_authorize()` fail closed until kernel hardening is ready.
 - Validate intent object types against the defined ABI object set at creation and authorization; reject undefined rights bits.
+- Validate process lifecycle and quarantine-state invariants; initialize reserved process bytes and add a process regression check.
+- Reject corrupted reserved metadata in IPC objects.
+- Saturate hardening violation/generation counters rather than allowing wraparound.
 - Removed duplicate `ed25519_scalar.h` include.
 - Updated audit report: `reports/security-structure-audit-2026-10-12.md`.
 
@@ -18,7 +21,7 @@ Branch: `security/hardening-audit-20261012`
 - [ ] Clean Debian GCC build (GitHub Actions run queued).
 - [ ] QEMU boot reaches completion with all security self-tests passing.
 - [ ] Verify stage `-11501` no longer occurs.
-- [ ] Verify CI and full regression results (build/boot and security-design workflows queued).
+- [ ] Verify CI and full regression results (build/boot and security-design workflows remain queued on self-hosted runner).
 - [ ] Final report and verified log synchronized to main.
 
 ### Important
