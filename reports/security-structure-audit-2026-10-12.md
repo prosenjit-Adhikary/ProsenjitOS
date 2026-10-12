@@ -155,7 +155,7 @@ When `security_authorize()` detected that hardening was not ready or a live proc
 
 The runtime process invariant checker skipped every empty handle slot. Allocation code rejected malformed free slots, so this was not an immediate authority-escalation path, but corruption could evade the process hardening gate and leave the table in a degraded state.
 
-**Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot so normal generation retirement does not falsely fail hardening. Added regression cases for malformed free slots and valid retired slots.
+**Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot so normal generation retirement does not falsely fail hardening. Added regression cases for malformed free slots and valid retired slots. The permanently reserved slot zero is also checked for its canonical empty state.
 
 ### 23. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
