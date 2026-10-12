@@ -257,6 +257,28 @@ int pros_security_hardening_selftest(void)
         allocation_object.refcount != 1u)
         return -24;
 
+    /*
+     * Bulk cleanup must preflight all entries: corruption in a later slot
+     * must not close an earlier valid handle or decrement its object refcount.
+     */
+    handle_table_init(&malformed_table);
+    object_handle = handle_alloc(&malformed_table, &allocation_object,
+                                 PROSENJIT_CAP_READ);
+    if (object_handle == PROSENJIT_HANDLE_INVALID ||
+        allocation_object.refcount != 2u)
+        return -30;
+    malformed_table.entries[2].reserved = 1u;
+    if (handle_table_close_all(&malformed_table) == 0 ||
+        malformed_table.entries[object_handle & 0xFFu].object !=
+            &allocation_object ||
+        allocation_object.refcount != 2u)
+        return -31;
+    malformed_table.entries[2].reserved = 0u;
+    if (handle_table_close_all(&malformed_table) != 0 ||
+        malformed_table.entries[object_handle & 0xFFu].object != 0 ||
+        allocation_object.refcount != 1u)
+        return -32;
+
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
     process.pid = 1;
