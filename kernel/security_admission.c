@@ -105,29 +105,24 @@ int pros_file_admission_evaluate_signed(
     input.metadata.signature_valid = 1u;
 
     /*
-     * The current policy engine treats cryptographic evidence as VERIFIED
-     * only when it is present. The signature result was established above
-     * by this function, so no caller-controlled boolean is being trusted.
+     * This function has just verified the signature itself, so it is the
+     * only path allowed to pass cryptographic metadata directly to the policy
+     * evaluator. Preserve VERIFIED as a distinct state instead of converting
+     * every valid signature into a local-trust decision.
      */
-    {
-        struct pros_file_security_metadata trusted = input.metadata;
-        trusted.local_trusted = 1u;
-        /* A valid signature must not override the local deny policy. */
-        trusted.provenance_known = 1u;
+    pros_sha256(data, length, record->sha256);
+    if (input.metadata.reputation == PROS_FILE_REPUTATION_UNAVAILABLE)
+        input.metadata.reputation =
+            pros_security_provider_reputation(record->sha256);
 
-        /*
-         * Keep the generic evaluator fail-closed for arbitrary callers.
-         * A dedicated verified-signature path records the cryptographic
-         * decision in the result directly through the same policy routine.
-         */
-        trusted.signature_valid = 0u;
-        trusted.signature_present = 0u;
-        return pros_file_admission_evaluate(
-            &(struct pros_file_admission_input){
-                .data = data,
-                .length = length,
-                .metadata = trusted
-            }, record);
+    {
+        int rc = pros_file_admit(&input.metadata, &record->security);
+        if (rc == 0)
+            (void)pros_health_record_security(
+                0x53454341u, PROS_SECURITY_HEALTH_ADMISSION,
+                ((uint64_t)record->security.action << 32) |
+                (uint64_t)record->security.state);
+        return rc;
     }
 }
 
@@ -208,7 +203,7 @@ int pros_file_admission_selftest(void) {
                 ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
                 &signed_metadata, &record) != 0)
             return -307;
-        if (record.security.state != PROS_FILE_TRUSTED ||
+        if (record.security.state != PROS_FILE_VERIFIED ||
             record.security.action != PROS_FILE_ALLOW)
             return -308;
         {
