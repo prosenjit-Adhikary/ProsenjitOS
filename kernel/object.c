@@ -79,7 +79,9 @@ uint64_t handle_alloc(struct pros_handle_table *table,
 
     for (uint32_t i = 1; i < PROSENJIT_HANDLE_MAX; ++i) {
         struct pros_handle_entry *entry = &table->entries[i];
-        if (!entry->object && entry->generation != UINT16_MAX) {
+        if (!entry->object && entry->generation != 0u &&
+            entry->generation != UINT16_MAX && entry->reserved == 0u &&
+            entry->rights == 0u) {
             if (object_retain(object) != 0) return PROSENJIT_HANDLE_INVALID;
             entry->object = object;
             entry->rights = rights;
