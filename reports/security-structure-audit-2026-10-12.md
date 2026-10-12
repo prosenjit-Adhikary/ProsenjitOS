@@ -131,40 +131,47 @@ IPC send/receive decoded the low handle byte and formed `&entries[slot]` before 
 
 **Fix:** validate process object type, reserved metadata, and nonzero PID before unlinking; add a regression assertion that corrupt metadata is rejected while the process remains registered.
 
-### 19. VFS path lookup lacked a whole-path length bound
+### 19. Process reap could become unrecoverable after unregister validation failed
+**Severity: High (process lifecycle integrity).**
+
+`process_wait()` destroyed handles/address space before checking all `process_unregister()` invariants. If the process object metadata was corrupt, unregister could fail after teardown, while the code restored `ZOMBIE`; a later wait would then fail because the address space was already destroyed. The exit code was also published before a successful reap.
+
+**Fix:** preflight process object type/reserved metadata, refcount, PID, address-space presence, and process-list identity before destructive teardown. Require no owned pages at unregister, and publish `exit_code` only after successful reap. Added a regression case showing corrupt object metadata is rejected without destroying the zombie's address space.
+
+### 21. VFS path lookup lacked a whole-path length bound
 **Severity: Medium (input validation / resource control).**
 
 `vfs_path_lookup()` bounded each component and counted components, but did not enforce the declared `PROS_VFS_PATH_MAX` over the complete path before walking it. A very long path could trigger unnecessary scanning and inconsistent behavior compared with other path operations.
 
 **Fix:** reject paths longer than `PROS_VFS_PATH_MAX` before acquiring vnode references; added an overlong-path regression case.
 
-### 20. Unused ProsenjitFS helper could fail warnings-as-errors builds
+### 21. Unused ProsenjitFS helper could fail warnings-as-errors builds
 The source contained an unreferenced static `pfs_data_start()` helper. With the project's warnings-as-errors policy, this can stop a clean build.
 
 **Fix:** removed the unused helper and confirmed there are no remaining references in the branch source.
 
-### 21. Authorization denied invariant violations without containing the process
+### 22. Authorization denied invariant violations without containing the process
 **Severity: High (security enforcement).**
 
 When `security_authorize()` detected that hardening was not ready or a live process failed its invariant check, it denied the current operation and recorded a violation but did not necessarily stop the process from continuing user execution. Inconsistent quarantine metadata also made the normal quarantine API reject containment.
 
 **Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added a startup regression test using corrupted reserved security metadata and confirmed that clearing the repaired quarantine does not resume the process. The fixture runs under a narrowly scoped self-test mode and asserts the global violation counter is unchanged, preserving the kernel boot gate's zero-violations invariant.
 
-### 22. Process hardening skipped malformed free capability slots
+### 23. Process hardening skipped malformed free capability slots
 **Severity: Medium (capability-table integrity).**
 
 The runtime process invariant checker skipped every empty handle slot. Allocation code rejected malformed free slots, so this was not an immediate authority-escalation path, but corruption could evade the process hardening gate and leave the table in a degraded state.
 
 **Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot so normal generation retirement does not falsely fail hardening. Added regression cases for malformed free slots and valid retired slots. The permanently reserved slot zero is also checked for its canonical empty state.
 
-### 23. Kernel data hardening boundary could be unaligned
+### 24. Kernel data hardening boundary could be unaligned
 **Severity: High (boot hardening gate).**
 
 `pros_security_hardening_init()` requires every linker-provided protection range to have page-aligned start and end addresses. Unlike the text, rodata, and BSS end symbols, `__kernel_data_end` was set to the raw end of `.data`, which is not guaranteed to be page-aligned. A valid build could therefore fail the hardening initialization gate at boot.
 
 **Fix:** define `__kernel_data_end = ALIGN(4K)` so the data protection range covers complete pages and satisfies the range validator.
 
-### 24. Source cleanup
+### 25. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ### CI runner availability
