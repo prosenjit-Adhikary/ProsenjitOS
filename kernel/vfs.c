@@ -1192,7 +1192,7 @@ static int vfs_vnode_api_selftest(void)
         return -1;
 
     {
-        char overlong_path[PROS_VFS_PATH_MAX + 2u];
+        static char overlong_path[PROS_VFS_PATH_MAX + 2u];
         for (uint32_t i = 0u; i <= PROS_VFS_PATH_MAX; ++i)
             overlong_path[i] = 'a';
         overlong_path[PROS_VFS_PATH_MAX + 1u] = '\0';
