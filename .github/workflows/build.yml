@@ -11,10 +11,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install toolchain
+      - name: Verify preinstalled toolchain
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools gcc binutils qemu-system-x86
+          set -euo pipefail
+          missing=0
+          for tool in nasm grub-file grub-mkrescue xorriso mformat gcc ld qemu-system-x86_64 python3 timeout; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "OK: $tool"
+            else
+              echo "::error::Required tool '$tool' is missing. Install it on the Debian host as root."
+              missing=1
+            fi
+          done
+          if (( missing != 0 )); then
+            exit 1
+          fi
 
       - name: Build ISO
         run: |
