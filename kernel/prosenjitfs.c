@@ -392,7 +392,7 @@ static int pfs_superblock_valid(const uint8_t *block,
         (sb->features & ~(PROSENJITFS_FEATURE_CRC32C |
                           PROSENJITFS_FEATURE_JOURNAL |
                           PROSENJITFS_FEATURE_EXTENTS |
-                          PROSENJITFS_FEATURE_UTF8)) != 0u
+                          PROSENJITFS_FEATURE_UTF8)) != 0u)
         return PROSENJITFS_ECORRUPT;
     checksum = pfs_crc_with_zero32(block, sb->header_size,
                                    (uint32_t)offsetof(
