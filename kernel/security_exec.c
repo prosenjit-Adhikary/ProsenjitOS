@@ -33,9 +33,26 @@ int pros_security_exec_admit(
         exec_force_containment(process);
         return -1;
     }
-    /* File trust must never override an existing process quarantine. */
-    if (process->quarantined != 0u)
+    /*
+     * File trust must never override process containment. A corrupt quarantine
+     * marker/restore target is not equivalent to a valid quarantine and must
+     * be canonicalized before returning from the execution boundary.
+     */
+    if (process->quarantined != 0u) {
+        if (process->quarantined != 1u ||
+            process->state != PROS_PROCESS_BLOCKED ||
+            (process->quarantine_previous_state != 0u &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_READY + 1u) &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_RUNNING + 1u)))
+            exec_force_containment(process);
         return PROS_SECURITY_EXEC_BLOCK;
+    }
+    if (process->quarantine_previous_state != 0u) {
+        exec_force_containment(process);
+        return PROS_SECURITY_EXEC_BLOCK;
+    }
 
     if (record->security.action == PROS_FILE_ALLOW)
         return PROS_SECURITY_EXEC_ALLOW;
