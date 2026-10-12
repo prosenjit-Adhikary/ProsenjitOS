@@ -16,6 +16,7 @@ Branch: `security/hardening-audit-20261012`
 - Corrected signed admission so successful cryptographic verification is recorded as VERIFIED (unless separate local-trust policy applies), not relabeled as TRUSTED.
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
 - Behavior-monitor resource exhaustion, timestamp rollback, and failed process termination now attempt quarantine containment.
+- Audit-ledger exhaustion no longer clears a quarantine decision; a startup regression self-test forces ledger exhaustion and verifies the process remains quarantined and BLOCKED.
 - Removed duplicate `ed25519_scalar.h` include.
 - Updated audit report: `reports/security-structure-audit-2026-10-12.md`.
 
