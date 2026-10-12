@@ -78,3 +78,21 @@ This is a **source-level concurrency risk**, not a reproduced exploit in this se
 ## Status
 
 Source-level fixes and additional regression tests are committed on this branch. The handle-table/object lifetime concurrency finding remains open and high priority; build, self-test, and runtime verification are still pending. This is not a claim that all security bugs are eliminated or that the security subsystem is fully verified.
+
+### Concurrency remediation plan (source audit follow-up)
+
+The direct-use paths were checked in the current branch. In `kernel/syscall.c`, IPC send dereferences `process->handles.entries[slot].object` at the send path and passes it to `ipc_channel_send()`; IPC receive repeats the same lookup and keeps the entry pointer across receive/wait/retry. The initial `process_handle_type()` validation does not pin that object, so the later lookup is not a lifetime guarantee. The IPC receive path may block while holding this raw entry pointer, making close/reuse/object teardown during the wait especially important to address.
+
+The IPC channel's own spinlock protects queue and waiter mutations, but `ipc_channel_valid()` currently reads `object.type`, `object.refcount`, `head`, `tail`, and `count` before the channel lock is acquired; `ipc_channel_count()` reads `count` without taking that lock. Moving queue validation under the lock is necessary, but by itself is not sufficient until callers hold a stable object reference before attempting to acquire the channel lock.
+
+Required implementation sequence before this finding can be closed:
+
+1. Add a per-handle-table lock and split object-layer operations into public locking wrappers and private `*_locked` helpers. Never call a public wrapper recursively while already holding the same non-recursive lock.
+2. Add an object pin/acquire API that, under the table lock, validates canonical handle, generation, rights, and type, then safely increments a reference before releasing the table lock. Add a matching release path on every syscall exit, including error and blocked-continuation paths.
+3. Rewrite IPC syscalls to use the pinned object pointer, not a raw handle-table entry pointer. For a blocked receive, define how the pin is retained or re-acquired on continuation and how process teardown cancels the waiter; do not retain a stack-local raw entry pointer across scheduling.
+4. Make copy/move transfers atomic across source and target tables with a documented lock order (for example, stable address order), and ensure move consumes the source only after target allocation succeeds while both tables remain protected.
+5. Make object reference updates race-safe under a single documented synchronization rule. Do not mix atomic and non-atomic accesses to the same refcount.
+6. Move IPC mutable-field checks into a locked helper and lock `ipc_channel_count()`. Ensure channel lifetime is pinned before taking its channel lock, and document lock ordering between handle-table/object and channel locks.
+7. Add deterministic tests for close-versus-use, duplicate-versus-close, transfer-versus-close, object final release versus IPC send/receive, and empty→publish→wait scheduling. Run these repeatedly under the native self-test harness and the normal warning-as-error build.
+
+No locking change is recorded as complete in this follow-up: this sequence spans handle allocation, close-all teardown, duplication, cross-process transfer, syscall continuations, and IPC object lifetime. Applying only a lock to individual functions would leave a use-after-release window or introduce nested-lock deadlocks. This remains a high-priority release blocker until implemented and tested.
