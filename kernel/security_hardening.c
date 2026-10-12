@@ -333,10 +333,12 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[2].object = &referenced_object;
     process.handles.entries[2].rights = PROSENJIT_CAP_READ;
+    referenced_object.handle_refs = 2u;
     if (pros_security_hardening_check_process(&process) != -6 ||
         referenced_object.refcount != 1u)
         return -34;
     handle_table_init(&process.handles);
+    referenced_object.handle_refs = 0u;
 
     process.object.reserved = 1u;
     if (pros_security_hardening_check_process(&process) != -1)
@@ -352,6 +354,7 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[1].object = &referenced_object;
+    referenced_object.handle_refs = 1u;
     if (pros_security_hardening_check_process(&process) != 0 ||
         handle_check(&process.handles, (1ULL << 8) | 1u,
                      PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
