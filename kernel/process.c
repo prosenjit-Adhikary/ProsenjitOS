@@ -435,10 +435,12 @@ int process_selftest(void)
      */
     {
         struct pros_handle_table table;
+        struct pros_handle_table target_table;
         struct pros_object object;
         uint64_t first_handle, second_handle;
 
         handle_table_init(&table);
+        handle_table_init(&target_table);
         object_init(&object, PROS_OBJECT_FILE);
         first_handle = handle_alloc(&table, &object, PROSENJIT_CAP_RIGHTS_ALL);
         if (first_handle == PROSENJIT_HANDLE_INVALID)
@@ -449,8 +451,16 @@ int process_selftest(void)
         object.refcount = 1u;
         if (handle_check(&table, first_handle, PROSENJIT_CAP_DUPLICATE,
                          PROS_OBJECT_FILE) == 0 ||
+            handle_alloc(&table, &object, PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
             handle_duplicate(&table, first_handle,
                              PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_transfer_copy(&table, &target_table, first_handle,
+                                 PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_transfer_move(&table, &target_table, first_handle,
+                                 PROSENJIT_CAP_DUPLICATE) !=
                 PROSENJIT_HANDLE_INVALID ||
             handle_close(&table, first_handle) == 0 ||
             table.entries[1].object != &object ||
