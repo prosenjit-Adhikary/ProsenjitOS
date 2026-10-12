@@ -30,7 +30,6 @@ struct pros_process *process_lookup(uint64_t pid) {
 
 int process_register(struct pros_process *process) {
     if (!process_is_live(process) || process->pid == 0 ||
-        process->state < PROS_PROCESS_READY ||
         process->state > PROS_PROCESS_BLOCKED ||
         process_lookup(process->pid) != 0) return -1;
     process->next = process_list;
@@ -84,7 +83,6 @@ static int process_is_live(const struct pros_process *process) {
 
 static int process_is_active(const struct pros_process *process) {
     return process_is_live(process) &&
-           process->state >= PROS_PROCESS_READY &&
            process->state <= PROS_PROCESS_BLOCKED;
 }
 
