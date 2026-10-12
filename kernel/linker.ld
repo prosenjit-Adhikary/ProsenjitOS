@@ -32,7 +32,8 @@ SECTIONS
         __kernel_data_start = .;
         *(.data*)
     }
-    __kernel_data_end = .;
+    /* Hardening range checks operate on complete pages. */
+    __kernel_data_end = ALIGN(4K);
 
     .bss : ALIGN(4K)
     {
