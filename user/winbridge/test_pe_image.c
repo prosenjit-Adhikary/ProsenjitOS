@@ -165,5 +165,9 @@ int main(void){
     }
     fixture(b,sizeof b,0);w32(b+0x98+104,0x1010);w32(b+0x98+108,20u*4097u);
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_ENOTSUP)return 53;
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 54;
+    pe.import_rva=0x1010u;pe.import_size=20u*4097u;
+    { struct wb_pe_import imp;memset(&imp,0xff,sizeof imp);
+      if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_ENOTSUP || imp.name_rva!=0u)return 55; }
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
