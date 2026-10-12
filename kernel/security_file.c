@@ -169,7 +169,8 @@ int pros_file_admit(const struct pros_file_security_metadata *metadata,
         metadata->provenance_known > 1u ||
         (int32_t)metadata->reputation <
             (int32_t)PROS_FILE_REPUTATION_UNAVAILABLE ||
-        metadata->reputation > PROS_FILE_REPUTATION_MALICIOUS) {
+        (int32_t)metadata->reputation >
+            (int32_t)PROS_FILE_REPUTATION_MALICIOUS) {
         result->evidence = PROS_FILE_EVIDENCE_NONE;
         result->state = PROS_FILE_UNKNOWN;
         result->action = PROS_FILE_QUARANTINE;
