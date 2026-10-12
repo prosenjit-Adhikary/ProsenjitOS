@@ -107,11 +107,29 @@ int pros_security_hardening_check_process(const struct pros_process *process)
     if ((process->capability_policy & ~PROSENJIT_CAP_RIGHTS_ALL) != 0 ||
         (process->syscall_policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0)
         return -3;
-    if (process->quarantined > 1u)
+    if (process->state < PROS_PROCESS_READY ||
+        process->state > PROS_PROCESS_BLOCKED)
         return -4;
+    if (process->quarantined > 1u)
+        return -5;
+    for (uint32_t i = 0u; i < sizeof(process->security_reserved); ++i) {
+        if (process->security_reserved[i] != 0u)
+            return -6;
+    }
+    if (process->quarantined) {
+        if (process->state != PROS_PROCESS_BLOCKED ||
+            (process->quarantine_previous_state != 0u &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_READY + 1u) &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_RUNNING + 1u)))
+            return -7;
+    } else if (process->quarantine_previous_state != 0u) {
+        return -7;
+    }
     if (process->security_level == PROS_SECURITY_LIMITED &&
         (process->capability_policy & PROSENJIT_CAP_ADMIN) != 0)
-        return -5;
+        return -8;
 
     /*
      * The process capability table is part of the trusted security state.
@@ -168,6 +186,7 @@ int pros_security_hardening_selftest(void)
     process.object.refcount = 1;
     process.pid = 1;
     process.security_level = PROS_SECURITY_LIMITED;
+    process.state = PROS_PROCESS_READY;
     process.capability_policy =
         PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
     process.syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
@@ -190,6 +209,10 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].rights = 1ULL << 63;
     if (pros_security_hardening_check_process(&process) != -6)
         return -5;
+
+    process.handles.entries[1].rights = 0u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -12;
 
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.capability_policy = PROSENJIT_CAP_READ;
@@ -219,6 +242,25 @@ int pros_security_hardening_selftest(void)
         return -10;
 
     referenced_object.type = PROS_OBJECT_FILE;
+    referenced_object.refcount = 0u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -13;
+    referenced_object.refcount = 1u;
+
+    process.security_reserved[0] = 1u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -14;
+    process.security_reserved[0] = 0u;
+
+    process.state = PROS_PROCESS_NEW;
+    if (pros_security_hardening_check_process(&process) != -4)
+        return -15;
+    process.state = PROS_PROCESS_READY;
+    process.quarantine_previous_state = 1u;
+    if (pros_security_hardening_check_process(&process) != -7)
+        return -16;
+    process.quarantine_previous_state = 0u;
+
     process.handles.entries[1].object = 0;
     process.handles.entries[1].rights = 0u;
     process.handles.entries[1].generation = 1u;
