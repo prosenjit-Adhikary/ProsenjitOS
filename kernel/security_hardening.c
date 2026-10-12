@@ -39,6 +39,22 @@ static int check_range(uint64_t start, uint64_t end,
     return 0;
 }
 
+static int valid_object_type(uint16_t type)
+{
+    switch (type) {
+    case PROS_OBJECT_PROCESS:
+    case PROS_OBJECT_THREAD:
+    case PROS_OBJECT_ADDRESS_SPACE:
+    case PROS_OBJECT_FILE:
+    case PROS_OBJECT_DEVICE:
+    case PROS_OBJECT_SOCKET:
+    case PROS_OBJECT_IPC:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 int pros_security_hardening_init(void)
 {
     uint64_t text_start = (uint64_t)(uintptr_t)__kernel_text_start;
@@ -108,9 +124,10 @@ int pros_security_hardening_check_process(const struct pros_process *process)
         const struct pros_handle_entry *entry = &process->handles.entries[i];
         if (!entry->object)
             continue;
-        if (entry->generation == 0u ||
+        if (entry->generation == 0u || entry->reserved != 0u ||
             entry->object->refcount == 0u ||
-            entry->object->type == PROS_OBJECT_NONE ||
+            !valid_object_type(entry->object->type) ||
+            entry->object->reserved != 0u || entry->rights == 0u ||
             (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
             (entry->rights & ~process->capability_policy) != 0u)
             return -6;
@@ -168,6 +185,41 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].rights = 1ULL << 63;
     if (pros_security_hardening_check_process(&process) != -6)
         return -5;
+
+    process.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    process.capability_policy = PROSENJIT_CAP_READ;
+    process.handles.entries[1].rights |= PROSENJIT_CAP_WRITE;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -6;
+
+    process.capability_policy = PROSENJIT_CAP_RIGHTS_ALL;
+    process.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    process.handles.entries[1].generation = 0u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -7;
+
+    process.handles.entries[1].generation = 1u;
+    process.handles.entries[1].reserved = 1u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -8;
+
+    process.handles.entries[1].reserved = 0u;
+    process.object.reserved = 1u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -9;
+
+    process.object.reserved = 0u;
+    process.object.type = 0xFFFFu;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -10;
+
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.handles.entries[1].object = 0;
+    process.handles.entries[1].rights = 0u;
+    process.handles.entries[1].generation = 1u;
+    process.handles.entries[1].reserved = 0u;
+    if (pros_security_hardening_check_process(&process) != 0)
+        return -11;
 
     return 0;
 }
