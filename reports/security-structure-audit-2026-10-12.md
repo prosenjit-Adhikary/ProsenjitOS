@@ -221,7 +221,7 @@ Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 `prosenjitfs_mount()` rejected a superblock whose declared `total_blocks` exceeded `device->sector_count`, but `prosenjitfs_probe()` only checked the internal superblock geometry. This could make discovery identify an image as ProsenjitFS even though its declared capacity extends beyond the actual block device, creating inconsistent probe-versus-mount behavior.
 
-**Fix:** apply the device-capacity bound to both primary and backup superblocks during probe. This is defense-in-depth and aligns discovery with mount admission. No build or runtime test has yet verified the change.
+**Fix:** apply the device-capacity bound to both primary and backup superblocks during probe. Added a self-test fixture that recomputes checksums for oversized primary/backup copies, asserts probe rejection, and restores the formatted copies before continuing. The fixture has not yet been executed in a build/boot.
 
 ### CI runner availability
 Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. However, the latest hosted attempts failed before any steps were reported and the job-log endpoint returned no logs. This does not establish a code/build failure or a successful run; the runner/job-startup issue remains unresolved, and no commands were run on the user's Debian VM.
