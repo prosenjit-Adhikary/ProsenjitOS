@@ -223,6 +223,13 @@ Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 **Fix:** apply the device-capacity bound to both primary and backup superblocks during probe. Added a self-test fixture that recomputes checksums for oversized primary/backup copies, asserts probe rejection, and restores the formatted copies before continuing. The fixture has not yet been executed in a build/boot.
 
+### 33. Direct capability close could release an under-counted aliased object
+**Severity: High (capability/object lifetime integrity).**
+
+`handle_table_close_all()` already preflighted same-table alias counts, but direct `handle_close()` only validated the selected entry. If corrupted metadata left two slots pointing to one object while its reference count was smaller than the alias count, closing one handle could drop the object to `PROS_OBJECT_NONE` while another live slot still pointed to it. The direct close path also did not reject all malformed rights/generation metadata before mutation.
+
+**Fix:** validate generation and rights on the selected entry, validate metadata on every same-table alias, count aliases before mutation, and reject when `refcount < aliases`. Added a `process_selftest()` regression that proves an under-counted two-slot alias is rejected without changing either slot or the object reference count. Source-reviewed only; build/runtime verification remains pending.
+
 ### CI runner availability
 Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. However, the latest hosted attempts failed before any steps were reported and the job-log endpoint returned no logs. This does not establish a code/build failure or a successful run; the runner/job-startup issue remains unresolved, and no commands were run on the user's Debian VM.
 
