@@ -150,9 +150,9 @@ int pros_security_hardening_check_process(const struct pros_process *process)
             /* Free slots are security state too: malformed metadata must not
              * be silently accepted and later treated as a fresh capability. */
             if (entry->generation == 0u ||
-                entry->generation == UINT16_MAX ||
                 entry->reserved != 0u || entry->rights != 0u)
                 return -6;
+            /* UINT16_MAX is a valid permanently retired empty slot. */
             continue;
         }
         if (entry->generation == 0u ||
