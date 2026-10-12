@@ -452,6 +452,7 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].reserved = 0u;
     if (pros_security_hardening_check_process(&process) != 0)
         return -11;
+    referenced_object.handle_refs = 0u;
 
     return 0;
 }
