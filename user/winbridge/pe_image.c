@@ -138,12 +138,14 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
         if (!span_ok(rva,length,size) || !range32(rva,length,pe->headers_size)) return WB_PE_EBOUNDS;
         *offset_out=(size_t)rva; return WB_PE_OK;
     }
+    /* Validate the complete caller-supplied section map before returning any
+     * match. Otherwise an early matching section could hide malformed or
+     * overlapping metadata later in the array. */
     for (i=0;i<pe->section_count;i++) {
         const struct wb_pe_section *s=&pe->sections[i];
         uint32_t extent = s->virtual_size > s->raw_size ?
                           s->virtual_size : s->raw_size;
-        /* Public callers may supply a forged/inconsistent image structure.
-         * Validate each complete section range, not only the requested byte. */
+        uint32_t j;
         if (s->raw_size != 0u &&
             (!span_ok(s->raw_offset, s->raw_size, size) ||
              s->raw_offset < pe->headers_size))
@@ -152,6 +154,22 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
             (!range32(s->virtual_address, extent, pe->image_size) ||
              s->virtual_address < pe->headers_size))
             return WB_PE_EBOUNDS;
+        for (j=0;j<i;j++) {
+            const struct wb_pe_section *p=&pe->sections[j];
+            uint32_t pextent=p->virtual_size > p->raw_size ?
+                             p->virtual_size : p->raw_size;
+            if (extent && pextent &&
+                s->virtual_address < p->virtual_address + pextent &&
+                p->virtual_address < s->virtual_address + extent)
+                return WB_PE_ECONFLICT;
+            if (s->raw_size && p->raw_size &&
+                s->raw_offset < p->raw_offset + p->raw_size &&
+                p->raw_offset < s->raw_offset + s->raw_size)
+                return WB_PE_ECONFLICT;
+        }
+    }
+    for (i=0;i<pe->section_count;i++) {
+        const struct wb_pe_section *s=&pe->sections[i];
         if (rva >= s->virtual_address && rva-s->virtual_address <= s->raw_size &&
             length <= s->raw_size-(rva-s->virtual_address)) {
             uint64_t off=(uint64_t)s->raw_offset+(rva-s->virtual_address);
