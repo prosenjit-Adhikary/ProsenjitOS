@@ -78,9 +78,9 @@ The hardening initializer reset its violation counter. A fail-closed authorizati
 ### 11. Process lifecycle setter could revive a zombie
 **Severity: High (process lifecycle integrity).**
 
-The generic state setter accepted a transition from `PROS_PROCESS_ZOMBIE` back to `READY` or `RUNNING`. A terminated process could then evade the normal `process_wait()` reap path and appear active again.
+The generic state setter accepted transitions both into `PROS_PROCESS_ZOMBIE` and from `ZOMBIE` back to active states. This could fabricate a zombie without terminating its threads or revive a terminated process, undermining the `process_wait()` reap path.
 
-**Fix:** reject transitions out of `ZOMBIE` through `process_set_state()` and add a regression assertion that a zombie remains zombie until the lifecycle reaper processes it.
+**Fix:** restrict `process_set_state()` to scheduler-visible states (`NEW` through `BLOCKED`). Terminal `ZOMBIE`/`DEAD` transitions remain owned by process lifecycle code. Added regression assertions for both attempted transitions and adjusted the execution-admission test to construct its terminal-state fixture directly.
 
 ### 12. Quarantine restore trusted corrupted metadata
 **Severity: High (containment integrity).**
