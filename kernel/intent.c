@@ -231,51 +231,65 @@ int security_make_intent(struct pros_intent *intent,
 }
 
 int security_quarantine(struct pros_process *process) {
+    uint32_t state = process_state(process);
     if (!process ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED))
+        (state != PROS_PROCESS_READY &&
+         state != PROS_PROCESS_RUNNING &&
+         state != PROS_PROCESS_BLOCKED))
         return -1;
-    /* Repeated quarantine must be idempotent and preserve the original
-     * pre-quarantine state metadata. */
-    if (process->quarantined)
+    /*
+     * Do not treat corrupted quarantine metadata as an already-enforced
+     * quarantine. That would let inconsistent state bypass containment.
+     */
+    if (process->quarantined != 0u) {
+        if (process->quarantined != 1u ||
+            state != PROS_PROCESS_BLOCKED ||
+            (process->quarantine_previous_state != 0u &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_READY + 1u) &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_RUNNING + 1u))
+            return -1;
         return 0;
+    }
+    if (process->quarantine_previous_state != 0u)
+        return -1;
     /*
      * Preserve the pre-quarantine schedulable state. A process that was
      * already BLOCKED for an unrelated reason must remain BLOCKED when its
      * security quarantine is cleared.
      */
-    if (process_state(process) == PROS_PROCESS_RUNNING ||
-        process_state(process) == PROS_PROCESS_READY)
-        process->quarantine_previous_state = (uint8_t)process_state(process) + 1u;
+    if (state == PROS_PROCESS_RUNNING || state == PROS_PROCESS_READY)
+        process->quarantine_previous_state = (uint8_t)state + 1u;
     else
         process->quarantine_previous_state = 0u;
 
-    process->quarantined = 1;
-    if (process_state(process) == PROS_PROCESS_RUNNING ||
-        process_state(process) == PROS_PROCESS_READY)
+    process->quarantined = 1u;
+    if (state == PROS_PROCESS_RUNNING || state == PROS_PROCESS_READY)
         process->state = PROS_PROCESS_BLOCKED;
     return 0;
 }
 
 int security_clear_quarantine(struct pros_process *process) {
+    uint32_t state = process_state(process);
     if (!process ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED))
-        return -1;
-    if (!process->quarantined)
+        (state != PROS_PROCESS_READY &&
+         state != PROS_PROCESS_RUNNING &&
+         state != PROS_PROCESS_BLOCKED) ||
+        process->quarantined != 1u ||
+        state != PROS_PROCESS_BLOCKED ||
+        (process->quarantine_previous_state != 0u &&
+         process->quarantine_previous_state !=
+             (uint8_t)(PROS_PROCESS_READY + 1u) &&
+         process->quarantine_previous_state !=
+             (uint8_t)(PROS_PROCESS_RUNNING + 1u)))
         return -1;
 
-    process->quarantined = 0;
-    if (process_state(process) == PROS_PROCESS_BLOCKED) {
-        uint8_t previous_state = process->quarantine_previous_state;
-        process->quarantine_previous_state = 0u;
-        if (previous_state != 0u)
-            process->state = (uint32_t)previous_state - 1u;
-    } else {
-        process->quarantine_previous_state = 0u;
-    }
+    uint8_t previous_state = process->quarantine_previous_state;
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
+    if (previous_state != 0u)
+        process->state = (uint32_t)previous_state - 1u;
     return 0;
 }
 
@@ -305,6 +319,13 @@ int security_quarantine_selftest(void) {
         process.quarantine_previous_state != (PROS_PROCESS_READY + 1u) ||
         process.state != PROS_PROCESS_BLOCKED)
         return -11;
+    /* Invalid restore metadata must never be used to restore an arbitrary state. */
+    process.quarantine_previous_state = UINT8_MAX;
+    if (security_clear_quarantine(&process) == 0 ||
+        !process.quarantined ||
+        process.state != PROS_PROCESS_BLOCKED)
+        return -12;
+    process.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
     if (security_clear_quarantine(&process) != 0 ||
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
