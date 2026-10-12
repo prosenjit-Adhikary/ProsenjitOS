@@ -120,6 +120,12 @@ int main(void){
     pe.sections[0].raw_offset=(uint32_t)sizeof b-1u;
     pe.sections[0].raw_size=4u;off=77;
     if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000,1,&off)!=WB_PE_EBOUNDS||off!=77)return 36;
+    /* A matching first section must not hide forged metadata in a later section. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 58;
+    pe.section_count=2u;pe.sections[1]=pe.sections[0];
+    pe.sections[1].raw_offset=(uint32_t)sizeof b-1u;pe.sections[1].raw_size=4u;
+    off=77;
+    if(wb_pe_rva_to_file(b,sizeof b,&pe,0x1000u,1u,&off)!=WB_PE_EBOUNDS||off!=77)return 59;
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 37;
     pe.sections[0].virtual_address=0x1fffu;
     pe.sections[0].virtual_size=2u;off=77;
