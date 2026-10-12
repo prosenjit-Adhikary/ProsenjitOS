@@ -168,6 +168,18 @@ int pros_security_hardening_check_process(const struct pros_process *process)
             (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
             (entry->rights & ~process->capability_policy) != 0u)
             return -6;
+
+        /*
+         * Every live table entry owns a reference. An under-counted object
+         * aliased by multiple slots could otherwise be released to NONE while
+         * another capability still points at it.
+         */
+        uint32_t table_references = 0u;
+        for (uint32_t j = 1u; j < PROSENJIT_HANDLE_MAX; ++j)
+            if (process->handles.entries[j].object == entry->object)
+                ++table_references;
+        if (entry->object->refcount < table_references)
+            return -6;
     }
     return 0;
 }
@@ -312,6 +324,16 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) != -6)
         return -27;
     process.handles.entries[2].rights = 0u;
+
+    /* Aliased slots cannot outnumber the references held by their object. */
+    process.handles.entries[1].object = &referenced_object;
+    process.handles.entries[1].rights = PROSENJIT_CAP_READ;
+    process.handles.entries[2].object = &referenced_object;
+    process.handles.entries[2].rights = PROSENJIT_CAP_READ;
+    if (pros_security_hardening_check_process(&process) != -6 ||
+        referenced_object.refcount != 1u)
+        return -34;
+    handle_table_init(&process.handles);
 
     process.object.reserved = 1u;
     if (pros_security_hardening_check_process(&process) != -1)
