@@ -155,6 +155,11 @@ int pros_security_hardening_ready(void)
 int pros_security_hardening_selftest(void)
 {
     struct pros_process process = {0};
+    struct pros_object referenced_object = {
+        .type = PROS_OBJECT_FILE,
+        .reserved = 0u,
+        .refcount = 1u
+    };
 
     if (!pros_security_hardening_ready())
         return -1;
@@ -178,7 +183,7 @@ int pros_security_hardening_selftest(void)
         PROSENJIT_CAP_RIGHTS_ALL;
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
-    process.handles.entries[1].object = &process.object;
+    process.handles.entries[1].object = &referenced_object;
     if (pros_security_hardening_check_process(&process) != 0)
         return -4;
 
@@ -204,16 +209,16 @@ int pros_security_hardening_selftest(void)
         return -8;
 
     process.handles.entries[1].reserved = 0u;
-    process.object.reserved = 1u;
+    referenced_object.reserved = 1u;
     if (pros_security_hardening_check_process(&process) != -6)
         return -9;
 
-    process.object.reserved = 0u;
-    process.object.type = 0xFFFFu;
+    referenced_object.reserved = 0u;
+    referenced_object.type = 0xFFFFu;
     if (pros_security_hardening_check_process(&process) != -6)
         return -10;
 
-    process.object.type = PROS_OBJECT_PROCESS;
+    referenced_object.type = PROS_OBJECT_FILE;
     process.handles.entries[1].object = 0;
     process.handles.entries[1].rights = 0u;
     process.handles.entries[1].generation = 1u;
