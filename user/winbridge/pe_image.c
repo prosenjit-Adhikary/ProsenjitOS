@@ -116,10 +116,26 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
     }
     if (tmp.reloc_rva) {
         size_t directory_offset;
+        size_t cursor = 0u;
+        if (tmp.reloc_size < 8u) return WB_PE_EFORMAT;
         if (!range32(tmp.reloc_rva,tmp.reloc_size,tmp.image_size)) return WB_PE_EBOUNDS;
         if (wb_pe_rva_to_file(data, size, &tmp, tmp.reloc_rva,
                               tmp.reloc_size, &directory_offset) != WB_PE_OK)
             return WB_PE_EBOUNDS;
+        /* Validate relocation-block framing without applying relocations.
+         * Each block has an 8-byte header followed by 16-bit entries. */
+        while (cursor < tmp.reloc_size) {
+            uint32_t page_rva, block_size;
+            size_t remaining = (size_t)tmp.reloc_size - cursor;
+            if (remaining < 8u) return WB_PE_EFORMAT;
+            page_rva = rd32(data + directory_offset + cursor);
+            block_size = rd32(data + directory_offset + cursor + 4u);
+            if ((page_rva & 0xfffu) != 0u || page_rva >= tmp.image_size ||
+                block_size < 8u || (block_size & 1u) != 0u ||
+                (size_t)block_size > remaining)
+                return WB_PE_EFORMAT;
+            cursor += block_size;
+        }
     }
     *out=tmp;
     return WB_PE_OK;
