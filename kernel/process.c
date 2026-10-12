@@ -483,7 +483,7 @@ int process_selftest(void)
     /* Refuse corrupt object metadata without unlinking the process from PID lookup. */
     parent.object.reserved = 1u;
     if (process_unregister(&parent) == 0 ||
-        process_lookup(parent.pid) != &parent)
+        process_list != &parent || parent.next != 0)
         return -21;
     parent.object.reserved = 0u;
     if (process_unregister(&parent) != 0)
