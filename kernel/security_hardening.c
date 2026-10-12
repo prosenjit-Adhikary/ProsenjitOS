@@ -197,6 +197,11 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) != 0)
         return -2;
 
+    process.object.reserved = 1u;
+    if (pros_security_hardening_check_process(&process) != -1)
+        return -17;
+    process.object.reserved = 0u;
+
     process.capability_policy |= PROSENJIT_CAP_ADMIN;
     if (pros_security_hardening_check_process(&process) == 0)
         return -3;
@@ -206,15 +211,21 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[1].object = &referenced_object;
-    if (pros_security_hardening_check_process(&process) != 0)
+    if (pros_security_hardening_check_process(&process) != 0 ||
+        handle_check(&process.handles, (1ULL << 8) | 1u,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0)
         return -4;
 
     process.handles.entries[1].rights = 1ULL << 63;
-    if (pros_security_hardening_check_process(&process) != -6)
+    if (pros_security_hardening_check_process(&process) != -6 ||
+        handle_check(&process.handles, (1ULL << 8) | 1u,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0)
         return -5;
 
     process.handles.entries[1].rights = 0u;
-    if (pros_security_hardening_check_process(&process) != -6)
+    if (pros_security_hardening_check_process(&process) != -6 ||
+        handle_check(&process.handles, (1ULL << 8) | 1u,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0)
         return -12;
 
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
