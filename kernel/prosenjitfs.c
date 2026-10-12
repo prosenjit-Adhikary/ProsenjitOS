@@ -5741,6 +5741,51 @@ int prosenjitfs_selftest(void)
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
+    /*
+     * Discovery must enforce the same device-capacity bound as mount. Make
+     * both valid superblocks internally consistent but oversized, then restore
+     * the exact formatted copies before the normal mount path continues.
+     */
+    {
+        uint8_t saved_primary[512];
+        uint8_t saved_backup[512];
+        uint8_t altered[512];
+        struct pros_prosenjitfs_superblock oversized;
+        const uint32_t checksum_offset = (uint32_t)offsetof(
+            struct pros_prosenjitfs_superblock, checksum);
+        int probe_rc;
+
+        if (pfs_read_block(&device, 0u, saved_primary) != PROSENJITFS_OK ||
+            pfs_read_block(&device, 1u, saved_backup) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        pfs_copy(altered, saved_primary, sizeof(altered));
+        pfs_copy(&oversized, altered, sizeof(oversized));
+        oversized.total_blocks = device.sector_count + 1u;
+        pfs_copy(altered, &oversized, sizeof(oversized));
+        pfs_put32(altered + checksum_offset,
+                  pfs_crc_with_zero32(altered, oversized.header_size,
+                                      checksum_offset));
+        if (pfs_write_block(&device, 0u, altered) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        pfs_copy(altered, saved_backup, sizeof(altered));
+        pfs_copy(&oversized, altered, sizeof(oversized));
+        oversized.total_blocks = device.sector_count + 1u;
+        pfs_copy(altered, &oversized, sizeof(oversized));
+        pfs_put32(altered + checksum_offset,
+                  pfs_crc_with_zero32(altered, oversized.header_size,
+                                      checksum_offset));
+        if (pfs_write_block(&device, 1u, altered) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+
+        probe_rc = prosenjitfs_probe(&device);
+        if (pfs_write_block(&device, 0u, saved_primary) != PROSENJITFS_OK ||
+            pfs_write_block(&device, 1u, saved_backup) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+        if (probe_rc == PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+    }
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
     if (fs.sb.root_inode != 0u ||
