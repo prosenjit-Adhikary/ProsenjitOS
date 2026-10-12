@@ -7,7 +7,6 @@
 #include "ed25519_field.h"
 #include "ed25519_point.h"
 #include "ed25519_scalar.h"
-#include "ed25519_scalar.h"
 #include "security_signature.h"
 #include "security_provider.h"
 #include "security_admission.h"
@@ -33,6 +32,22 @@ static uint64_t intent_required_rights(uint32_t operation) {
     case PROS_INTENT_TRANSFER: return PROSENJIT_CAP_TRANSFER;
     case PROS_INTENT_DUPLICATE: return PROSENJIT_CAP_DUPLICATE;
     default: return 0;
+    }
+}
+
+static int intent_object_type_valid(uint32_t type)
+{
+    switch (type) {
+    case PROS_OBJECT_PROCESS:
+    case PROS_OBJECT_THREAD:
+    case PROS_OBJECT_ADDRESS_SPACE:
+    case PROS_OBJECT_FILE:
+    case PROS_OBJECT_DEVICE:
+    case PROS_OBJECT_SOCKET:
+    case PROS_OBJECT_IPC:
+        return 1;
+    default:
+        return 0;
     }
 }
 
@@ -144,7 +159,8 @@ int security_make_intent(struct pros_intent *intent,
                          uint64_t handle,
                          uint64_t requested_rights) {
     if (!intent || operation < PROS_INTENT_READ ||
-        operation > PROS_INTENT_DUPLICATE || object_type == PROS_OBJECT_NONE ||
+        operation > PROS_INTENT_DUPLICATE ||
+        !intent_object_type_valid(object_type) ||
         handle == PROSENJIT_HANDLE_INVALID || requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return -1;
@@ -282,8 +298,17 @@ enum pros_security_decision security_authorize(
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
-    if (pros_security_hardening_ready() &&
-        pros_security_hardening_check_process(process) != 0) {
+    /*
+     * Authorization is not available until the kernel memory protections
+     * and process invariants have passed their startup gate. Treat an
+     * uninitialized hardening subsystem as a denial, never as a bypass.
+     */
+    if (!pros_security_hardening_ready()) {
+        pros_security_hardening_note_violation(1u, process->pid);
+        reason = PROS_REASON_POLICY_RESTRICTED;
+        goto record;
+    }
+    if (pros_security_hardening_check_process(process) != 0) {
         pros_security_hardening_note_violation(2u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
         goto record;
@@ -293,7 +318,9 @@ enum pros_security_decision security_authorize(
         decision = PROS_DECISION_QUARANTINE;
         goto record;
     }
-    if (!intent || intent->id == 0 || intent->requested_rights == 0) {
+    if (!intent || intent->id == 0 || intent->requested_rights == 0 ||
+        (intent->requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
+        !intent_object_type_valid(intent->object_type)) {
         reason = PROS_REASON_INTENT_INVALID;
         goto record;
     }
