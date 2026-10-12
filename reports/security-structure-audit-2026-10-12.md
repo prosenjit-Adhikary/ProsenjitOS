@@ -150,7 +150,14 @@ When `security_authorize()` detected that hardening was not ready or a live proc
 
 **Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added a startup regression test using corrupted reserved security metadata and confirmed that clearing the repaired quarantine does not resume the process.
 
-### 22. Source cleanup
+### 22. Process hardening skipped malformed free capability slots
+**Severity: Medium (capability-table integrity).**
+
+The runtime process invariant checker skipped every empty handle slot. Allocation code rejected malformed free slots, so this was not an immediate authority-escalation path, but corruption could evade the process hardening gate and leave the table in a degraded state.
+
+**Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot so normal generation retirement does not falsely fail hardening. Added regression cases for malformed free slots and valid retired slots.
+
+### 23. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
