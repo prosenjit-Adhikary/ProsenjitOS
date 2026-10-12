@@ -555,6 +555,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
         waited_exit != 13 ||
         lifecycle_object.refcount != 1 ||
+        lifecycle_object.handle_refs != 0u ||
         lifecycle_parent.address_space.root != 0) {
         serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
