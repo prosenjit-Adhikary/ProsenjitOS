@@ -285,7 +285,8 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->generation == 0u || entry->reserved != 0u ||
+        entry->generation == 0u || entry->generation == UINT16_MAX ||
+        entry->reserved != 0u ||
         entry->object->refcount == 0u || entry->object->reserved != 0u ||
         entry->object->type < PROS_OBJECT_PROCESS ||
         entry->object->type > PROS_OBJECT_IPC ||
