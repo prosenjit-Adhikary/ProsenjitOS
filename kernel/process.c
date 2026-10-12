@@ -66,6 +66,7 @@ int process_unregister(struct pros_process *process) {
         process->address_space.root != 0 ||
         process->address_space.owned_pages != 0 ||
         process->object.refcount != 1u ||
+        process->object.handle_refs != 0u ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
     struct pros_process **link = &process_list;
@@ -329,12 +330,8 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->generation == 0u || entry->generation == UINT16_MAX ||
-        entry->reserved != 0u ||
-        entry->object->refcount == 0u || entry->object->reserved != 0u ||
-        !process_object_type_valid(entry->object->type) ||
-        entry->rights == 0u ||
-        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+        handle_check(&process->handles, handle, entry->rights,
+                     PROS_OBJECT_NONE) != 0)
         return -1;
 
     *type_out = entry->object->type;
