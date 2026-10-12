@@ -214,6 +214,9 @@ int process_set_state(struct pros_process *process, uint32_t state) {
      */
     if (process->state >= PROS_PROCESS_ZOMBIE)
         return -1;
+    /* NEW is an initialization state, not a state an active process may regain. */
+    if (state == PROS_PROCESS_NEW && process->state != PROS_PROCESS_NEW)
+        return -1;
     /* A quarantined process must remain scheduler-blocked until the security
      * quarantine is explicitly cleared. */
     if (process->quarantined && state != PROS_PROCESS_BLOCKED)
