@@ -204,12 +204,16 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
-    if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
-    if (process->state == PROS_PROCESS_DEAD &&
-        state != PROS_PROCESS_DEAD) return -1;
-    /* A zombie remains terminal until process_wait() successfully reaps it. */
-    if (process->state == PROS_PROCESS_ZOMBIE &&
-        state != PROS_PROCESS_ZOMBIE) return -1;
+    if (!process_is_live(process) || state > PROS_PROCESS_BLOCKED)
+        return -1;
+    /*
+     * This API is for scheduler-visible states only. Terminal lifecycle
+     * transitions are owned by process_exit()/process_wait(); otherwise a
+     * caller could fabricate a zombie without terminating its threads, or
+     * revive a process whose threads have already exited.
+     */
+    if (process->state >= PROS_PROCESS_ZOMBIE)
+        return -1;
     /* A quarantined process must remain scheduler-blocked until the security
      * quarantine is explicitly cleared. */
     if (process->quarantined && state != PROS_PROCESS_BLOCKED)
@@ -422,6 +426,10 @@ int process_selftest(void)
     /* Parent cannot exit while it still has a live child. */
     if (process_exit(&parent, 7) == 0)
         return -7;
+    /* Generic state changes cannot bypass process_exit() to fabricate a zombie. */
+    if (process_set_state(&child, PROS_PROCESS_ZOMBIE) == 0 ||
+        process_state(&child) != PROS_PROCESS_READY)
+        return -17;
 
     /* Security quarantine metadata must be cleared when a process exits. */
     child.quarantined = 1u;
