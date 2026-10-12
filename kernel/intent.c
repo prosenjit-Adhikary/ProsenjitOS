@@ -376,9 +376,8 @@ enum pros_security_decision security_authorize(
 record:
     /*
      * A quarantine decision is an enforcement action, not merely an audit
-     * label. Apply it before committing the decision to the ledger, while
-     * remembering whether this authorization call changed the process state.
-     * Pre-existing quarantine must never be rolled back by an audit failure.
+     * label. Apply it before committing the decision to the ledger. Any
+     * resulting containment remains in force even if audit storage fails.
      */
     if (decision == PROS_DECISION_QUARANTINE &&
         !security_is_quarantined(process)) {
