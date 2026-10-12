@@ -169,5 +169,14 @@ int main(void){
     pe.import_rva=0x1010u;pe.import_size=20u*4097u;
     { struct wb_pe_import imp;memset(&imp,0xff,sizeof imp);
       if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_ENOTSUP || imp.name_rva!=0u)return 55; }
+    /* A nonzero descriptor after the null terminator must invalidate the table,
+     * even if the requested descriptor occurs before the terminator. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 56;
+    pe.import_rva=0x1010u;pe.import_size=60u;
+    w32(b+0x210,0x1050);w32(b+0x21c,0x1040);w32(b+0x220,0x1060);
+    w32(b+0x238,0x1050);
+    { struct wb_pe_import imp;memset(&imp,0xff,sizeof imp);
+      if(wb_pe_import_at(b,sizeof b,&pe,0,&imp)!=WB_PE_EFORMAT ||
+         imp.original_first_thunk!=0u || imp.name_rva!=0u)return 57; }
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
