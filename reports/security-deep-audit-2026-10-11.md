@@ -96,3 +96,17 @@ Required implementation sequence before this finding can be closed:
 7. Add deterministic tests for close-versus-use, duplicate-versus-close, transfer-versus-close, object final release versus IPC send/receive, and empty→publish→wait scheduling. Run these repeatedly under the native self-test harness and the normal warning-as-error build.
 
 No locking change is recorded as complete in this follow-up: this sequence spans handle allocation, close-all teardown, duplication, cross-process transfer, syscall continuations, and IPC object lifetime. Applying only a lock to individual functions would leave a use-after-release window or introduce nested-lock deadlocks. This remains a high-priority release blocker until implemented and tested.
+
+
+### Additional cross-check: process-level wrappers share the same race
+
+The follow-up was extended beyond the syscall IPC paths. The process-level helpers have the same validate-then-dereference pattern:
+
+- `process_handle_type()` calls `handle_check()`, then independently reads the handle-table slot and object fields to return the type. Without a table lock or object pin, a concurrent close/reuse can invalidate the first check before the second read.
+- `process_transfer_handle_copy()` calls `handle_check()`, then separately reads the source entry's object and rights before allocating into the target table. A concurrent close or transfer can invalidate those values between steps.
+- `handle_duplicate()`, `handle_transfer_copy()`, and `handle_transfer_move()` in `kernel/object.c` also read source entries and call allocation/close helpers without a table-level transaction. The move operation's "allocate target first" property protects against target exhaustion, but does not make the overall transfer atomic against concurrent source mutation.
+- `object_retain()` / `object_release()` update a plain `uint32_t refcount`. This cannot safely be mixed with lock-free reads from `handle_check()`, IPC validation, and process lifetime checks.
+
+This confirms that fixing only the two IPC syscall entry lookups would leave equivalent races in public process/object APIs. The fix boundary must include all public handle-table operations and their process wrappers. The proposed object pin API should return both a stable object pointer and (where authorization needs it) a snapshot of validated rights/type; callers must release the pin on every path. For operations that mutate two tables, acquire both table locks in a stable global order and use private locked helpers.
+
+A separate implementation caution: adding a spinlock only to `struct pros_handle_table` is not enough by itself. Any path that can block or yield must not hold the table lock across the scheduling point. IPC receive therefore needs a lifetime pin that survives the wait or a well-defined continuation that safely reacquires the object after wakeup; it must not hold the table lock while blocking.
