@@ -207,6 +207,9 @@ int process_set_state(struct pros_process *process, uint32_t state) {
     if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
     if (process->state == PROS_PROCESS_DEAD &&
         state != PROS_PROCESS_DEAD) return -1;
+    /* A zombie remains terminal until process_wait() successfully reaps it. */
+    if (process->state == PROS_PROCESS_ZOMBIE &&
+        state != PROS_PROCESS_ZOMBIE) return -1;
     /* A quarantined process must remain scheduler-blocked until the security
      * quarantine is explicitly cleared. */
     if (process->quarantined && state != PROS_PROCESS_BLOCKED)
@@ -428,6 +431,9 @@ int process_selftest(void)
         child.quarantined ||
         child.quarantine_previous_state != 0u)
         return -8;
+    if (process_set_state(&child, PROS_PROCESS_READY) == 0 ||
+        process_state(&child) != PROS_PROCESS_ZOMBIE)
+        return -16;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
