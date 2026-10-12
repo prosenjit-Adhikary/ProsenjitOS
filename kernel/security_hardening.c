@@ -201,6 +201,21 @@ int pros_security_hardening_selftest(void)
         allocation_object.refcount != 1u)
         return -19;
 
+    handle_table_init(&malformed_table);
+    for (uint32_t i = 2u; i < PROSENJIT_HANDLE_MAX; ++i)
+        malformed_table.entries[i].generation = UINT16_MAX;
+    malformed_table.entries[1].reserved = 1u;
+    if (handle_alloc(&malformed_table, &allocation_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        allocation_object.refcount != 1u)
+        return -20;
+    malformed_table.entries[1].reserved = 0u;
+    malformed_table.entries[1].rights = PROSENJIT_CAP_READ;
+    if (handle_alloc(&malformed_table, &allocation_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        allocation_object.refcount != 1u)
+        return -21;
+
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
     process.pid = 1;
