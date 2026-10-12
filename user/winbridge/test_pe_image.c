@@ -115,6 +115,12 @@ int main(void){
                imp.original_first_thunk!=0u || imp.name_rva!=0u)return 35;
         }
     }
+    /* Caller-controlled output capacity must not create an unbounded string scan. */
+    fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 63;
+    { char name[2]={'X','Y'};
+      if(wb_pe_read_ascii_string(b,sizeof b,&pe,0x1000u,name,
+                                 (size_t)4096u+1u)!=WB_PE_ENOTSUP ||
+         name[0]!='\0')return 64; }
     fixture(b,sizeof b,0);if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 24;
     /* Caller-supplied section metadata must be validated as a whole. */
     pe.sections[0].raw_offset=(uint32_t)sizeof b-1u;
