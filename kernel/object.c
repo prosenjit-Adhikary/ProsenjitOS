@@ -105,7 +105,8 @@ int handle_check(const struct pros_handle_table *table,
 
     const struct pros_handle_entry *entry = &table->entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->generation == 0u || entry->reserved != 0u ||
+        entry->generation == 0u || entry->generation == UINT16_MAX ||
+        entry->reserved != 0u ||
         entry->object->refcount == 0u ||
         entry->object->reserved != 0u ||
         !object_type_valid(entry->object->type) ||
@@ -178,7 +179,8 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
 
     struct pros_handle_entry *source = &table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->generation == 0u || source->reserved != 0u ||
+        source->generation == 0u || source->generation == UINT16_MAX ||
+        source->reserved != 0u ||
         source->object->refcount == 0u ||
         source->object->reserved != 0u ||
         !object_type_valid(source->object->type) ||
