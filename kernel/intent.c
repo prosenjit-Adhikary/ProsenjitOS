@@ -51,6 +51,57 @@ static int intent_object_type_valid(uint32_t type)
     }
 }
 
+static int security_authorize_audit_failure_selftest(void)
+{
+    struct pros_process process = {0};
+    struct pros_intent intent = {
+        .id = 1u,
+        .operation = PROS_INTENT_ADMIN,
+        .object_type = PROS_OBJECT_FILE,
+        .handle = (1ULL << 8) | 1u,
+        .requested_rights = PROSENJIT_CAP_ADMIN,
+        .tick = 0u
+    };
+    uint64_t reason = PROS_REASON_NONE;
+    uint64_t saved_sequence = ledger_sequence;
+    uint64_t saved_count = ledger_count_value;
+    int rc = 0;
+
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.object.refcount = 1u;
+    process.pid = 1u;
+    process.security_level = PROS_SECURITY_LIMITED;
+    process.state = PROS_PROCESS_READY;
+    process.capability_policy =
+        PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
+    process.syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+    handle_table_init(&process.handles);
+
+    /*
+     * Force the bounded reason ledger into its exhausted state. A denied
+     * privileged request must still quarantine the process even though its
+     * audit record cannot be committed.
+     */
+    ledger_sequence = UINT64_MAX;
+    if (security_authorize(&process, &intent, 0u, &reason) !=
+            PROS_DECISION_DENY ||
+        reason != PROS_REASON_AUDIT_UNAVAILABLE ||
+        !security_is_quarantined(&process) ||
+        process.state != PROS_PROCESS_BLOCKED)
+        rc = -1;
+
+    if (security_is_quarantined(&process) &&
+        security_clear_quarantine(&process) != 0)
+        rc = -2;
+
+    ledger_sequence = saved_sequence;
+    ledger_count_value = saved_count;
+    for (uint32_t i = 0u; i < PROS_REASON_LEDGER_SIZE; ++i)
+        ledger[i].sequence = UINT64_MAX;
+
+    return rc;
+}
+
 static int ledger_record(const struct pros_process *process,
                           const struct pros_intent *intent,
                           uint64_t tid,
@@ -119,6 +170,10 @@ int security_manager_init(void) {
     ledger_count_value = 0;
     for (uint32_t i = 0; i < PROS_REASON_LEDGER_SIZE; ++i)
         ledger[i].sequence = UINT64_MAX;
+
+    rc = security_authorize_audit_failure_selftest();
+    if (rc != 0)
+        return -14000 + rc;
     return 0;
 }
 
