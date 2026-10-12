@@ -153,6 +153,18 @@ int pros_security_exec_selftest(void) {
         !security_is_quarantined(&process) ||
         security_clear_quarantine(&process) != 0)
         goto fail;
+
+    process.state = PROS_PROCESS_READY;
+    process.quarantined = 2u;
+    process.quarantine_previous_state = UINT8_MAX;
+    if (pros_security_exec_admit(&process, &record, 5u, 0) !=
+            PROS_SECURITY_EXEC_BLOCK ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantined != 1u ||
+        process.quarantine_previous_state != 0u ||
+        security_clear_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_BLOCKED)
+        goto fail;
     if (address_space_destroy(&process.address_space) != 0)
         return -5;
 
