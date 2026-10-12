@@ -3,6 +3,13 @@
 #define HANDLE_SLOT_BITS 8u
 #define HANDLE_SLOT_MASK 0xFFULL
 #define HANDLE_GENERATION_SHIFT HANDLE_SLOT_BITS
+#define HANDLE_VALUE_BITS (HANDLE_SLOT_BITS + 16u)
+#define HANDLE_VALUE_MASK 0xFFFFFFULL
+
+static int handle_value_canonical(uint64_t handle)
+{
+    return (handle & ~HANDLE_VALUE_MASK) == 0u;
+}
 
 static int object_type_valid(uint16_t type)
 {
@@ -97,7 +104,7 @@ int handle_check(const struct pros_handle_table *table,
                  uint64_t required_rights,
                  uint16_t expected_type) {
     if (!table || handle == PROSENJIT_HANDLE_INVALID ||
-        required_rights == 0u)
+        !handle_value_canonical(handle) || required_rights == 0u)
         return -1;
 
     uint32_t slot = handle_slot(handle);
@@ -141,7 +148,9 @@ int handle_table_close_all(struct pros_handle_table *table) {
 }
 
 int handle_close(struct pros_handle_table *table, uint64_t handle) {
-    if (!table || handle == PROSENJIT_HANDLE_INVALID) return -1;
+    if (!table || handle == PROSENJIT_HANDLE_INVALID ||
+        !handle_value_canonical(handle))
+        return -1;
 
     uint32_t slot = handle_slot(handle);
     uint16_t generation = handle_generation(handle);
@@ -204,6 +213,7 @@ uint64_t handle_transfer_copy(struct pros_handle_table *source_table,
                               uint64_t requested_rights) {
     if (!source_table || !target_table ||
         source_handle == PROSENJIT_HANDLE_INVALID ||
+        !handle_value_canonical(source_handle) ||
         requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
@@ -238,6 +248,7 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
     if (!source_table || !target_table ||
         source_table == target_table ||
         source_handle == PROSENJIT_HANDLE_INVALID ||
+        !handle_value_canonical(source_handle) ||
         requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
