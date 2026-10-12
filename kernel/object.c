@@ -179,6 +179,7 @@ uint64_t handle_duplicate(struct pros_handle_table *table,
                           uint64_t source_handle,
                           uint64_t requested_rights) {
     if (!table || source_handle == PROSENJIT_HANDLE_INVALID ||
+        !handle_value_canonical(source_handle) ||
         requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
