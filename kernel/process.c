@@ -76,7 +76,8 @@ int process_unregister(struct pros_process *process) {
 
 static int process_is_live(const struct pros_process *process) {
     return process && process->object.type == PROS_OBJECT_PROCESS &&
-           process->object.refcount != 0;
+           process->object.reserved == 0u &&
+           process->object.refcount != 0u;
 }
 
 static int process_is_active(const struct pros_process *process) {
@@ -282,7 +283,12 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->object->refcount == 0)
+        entry->generation == 0u || entry->reserved != 0u ||
+        entry->object->refcount == 0u || entry->object->reserved != 0u ||
+        entry->object->type < PROS_OBJECT_PROCESS ||
+        entry->object->type > PROS_OBJECT_IPC ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     *type_out = entry->object->type;
