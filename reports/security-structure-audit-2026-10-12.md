@@ -17,7 +17,7 @@ Reviewed the current `main` source for the security startup chain, process quara
 
 The hardening check rejected `PROS_OBJECT_NONE` but did not reject unknown object type values, nonzero reserved fields, or zero-rights live entries.
 
-**Fix:** validate object types against the ABI-defined set; reject corrupted object/entry reserved fields and zero-rights live entries. Enforce the same invariants at allocation, handle-check, duplicate, copy-transfer, move-transfer, and process-handle-type boundaries rather than relying only on the top-level authorization path. Expanded the hardening self-test for unknown types, reserved-field corruption, generation zero, zero rights, dead referenced objects, and rights outside policy/undefined rights bits.
+**Fix:** validate object types against the ABI-defined set; reject corrupted object/entry reserved fields, zero-rights live entries, retired maximum-generation handles, and malformed free slots. Enforce the same invariants at allocation, handle-check, duplicate, copy-transfer, move-transfer, and process-handle-type boundaries rather than relying only on the top-level authorization path. Expanded the hardening self-test for unknown types, reserved-field corruption, generation zero, zero rights, dead referenced objects, and rights outside policy/undefined rights bits.
 
 ### 3. Process metadata needed explicit initialization and lifecycle validation
 **Severity: High (nondeterministic authorization denial / corrupted-state handling).**
@@ -45,7 +45,7 @@ Intent construction only rejected object type NONE, and authorization cast the 3
 
 The signed-admission path cleared `local_denied` on both valid and invalid signature paths. A valid signature could therefore override an administrator's deny decision, while an invalid signature could downgrade an explicit deny to quarantine.
 
-**Fix:** preserve local-deny metadata regardless of signature outcome, make a well-formed local deny the highest-priority admission decision even when other metadata is malformed, and add regression tests for valid/invalid signatures and malformed reputation combined with explicit deny.
+**Fix:** preserve local-deny metadata regardless of signature outcome, make a well-formed local deny the highest-priority admission decision even when other metadata is malformed, and add regression tests for valid/invalid signatures and malformed reputation combined with explicit deny. A valid signature now remains `VERIFIED` rather than being relabeled as locally `TRUSTED`.
 
 ### 7. Malformed file-admission metadata could be treated as trusted
 **Severity: Medium (malformed policy input).**
