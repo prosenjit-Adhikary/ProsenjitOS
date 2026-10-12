@@ -114,8 +114,10 @@ int process_init(struct pros_process *process,
     process->security_level = security_level;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
-    process->quarantined = 0;
-    process->quarantine_previous_state = 0;
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
+    for (uint32_t i = 0u; i < sizeof(process->security_reserved); ++i)
+        process->security_reserved[i] = 0u;
     process->user_entry = 0;
     process->user_stack_top = 0;
     process->parent = 0;
