@@ -99,7 +99,8 @@ int process_unregister(struct pros_process *process) {
 static int process_is_live(const struct pros_process *process) {
     return process && process->object.type == PROS_OBJECT_PROCESS &&
            process->object.reserved == 0u &&
-           process->object.refcount != 0u;
+           process->object.refcount != 0u &&
+           process->object.handle_refs <= process->object.refcount;
 }
 
 static int process_is_active(const struct pros_process *process) {
