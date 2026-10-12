@@ -47,7 +47,9 @@ int process_unregister(struct pros_process *process) {
     if (!process || process->object.type != PROS_OBJECT_PROCESS ||
         process->object.reserved != 0u || process->pid == 0u ||
         process->state != PROS_PROCESS_DEAD ||
-        process->address_space.root != 0 || process->object.refcount != 1u ||
+        process->address_space.root != 0 ||
+        process->address_space.owned_pages != 0 ||
+        process->object.refcount != 1u ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
     struct pros_process **link = &process_list;
@@ -194,14 +196,25 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
     if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
-    *exit_code = child->exit_code;
+    /*
+     * Validate every unregister invariant before destructive resource release.
+     * Otherwise corrupted object metadata could make unregister fail after
+     * the address space was already destroyed, leaving an unreapable zombie.
+     */
+    if (child->object.type != PROS_OBJECT_PROCESS ||
+        child->object.reserved != 0u || child->object.refcount != 1u ||
+        child->pid == 0u || child->address_space.root == 0 ||
+        process_lookup(pid) != child)
+        return -5;
+    int32_t saved_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
-        /* Keep a fully reaped process visible if final unlinking fails. */
+        /* All unregister invariants were preflighted before teardown. */
         child->state = PROS_PROCESS_ZOMBIE;
-        return -5;
+        return -6;
     }
+    *exit_code = saved_exit_code;
     return 0;
 }
 
@@ -460,6 +473,12 @@ int process_selftest(void)
     if (process_set_state(&child, PROS_PROCESS_READY) == 0 ||
         process_state(&child) != PROS_PROCESS_ZOMBIE)
         return -16;
+    child.object.reserved = 1u;
+    if (process_wait(&parent, child.pid, &exit_code) == 0 ||
+        child.address_space.root == 0 ||
+        process_state(&child) != PROS_PROCESS_ZOMBIE)
+        return -22;
+    child.object.reserved = 0u;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
