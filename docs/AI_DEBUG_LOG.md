@@ -11,7 +11,7 @@ Branch: `security/hardening-audit-20261012`
 - Validate intent object types against the defined ABI object set at creation and authorization; reject undefined rights bits.
 - Validate process lifecycle and quarantine-state invariants; initialize reserved process bytes and add a process regression check.
 - Reject corrupted reserved metadata in IPC objects.
-- Saturate hardening violation/generation counters rather than allowing wraparound.
+- Saturate hardening violation/generation counters rather than allowing wraparound; preserve violation counts across reinitialization instead of erasing earlier fail-closed events.
 - Preserved explicit local deny decisions across both valid and invalid signature admission paths and made a valid local deny outrank malformed metadata; added regression cases.
 - Corrected signed admission so successful cryptographic verification is recorded as VERIFIED (unless separate local-trust policy applies), not relabeled as TRUSTED.
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
