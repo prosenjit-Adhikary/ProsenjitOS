@@ -357,6 +357,12 @@ int pros_security_hardening_selftest(void)
         looked_up_type != PROS_OBJECT_FILE)
         return -4;
 
+    referenced_object.type = 0x8000u;
+    if (process_handle_type(&process, (1ULL << 8) | 1u,
+                            &looked_up_type) == 0)
+        return -35;
+    referenced_object.type = PROS_OBJECT_FILE;
+
     process.handles.entries[1].rights |= PROSENJIT_CAP_DUPLICATE;
     if (handle_check(&process.handles, (1ULL << 40) | (1ULL << 8) | 1u,
                      PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 ||
