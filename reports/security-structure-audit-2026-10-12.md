@@ -17,34 +17,41 @@ Reviewed the current `main` source for the security startup chain, process quara
 
 The hardening check rejected `PROS_OBJECT_NONE` but did not reject unknown object type values, nonzero reserved fields, or zero-rights live entries.
 
-**Fix:** validate object types against the ABI-defined set; reject corrupted object/entry reserved fields and zero-rights live entries. Expanded the hardening self-test for unknown types, reserved-field corruption, generation zero, rights outside policy, and undefined rights bits.
+**Fix:** validate object types against the ABI-defined set; reject corrupted object/entry reserved fields and zero-rights live entries. Enforce the same invariants at allocation, handle-check, duplicate, copy-transfer, move-transfer, and process-handle-type boundaries rather than relying only on the top-level authorization path. Expanded the hardening self-test for unknown types, reserved-field corruption, generation zero, zero rights, dead referenced objects, and rights outside policy/undefined rights bits.
 
-### 3. Authorization was permissive before hardening initialization
+### 3. Process metadata needed explicit initialization and lifecycle validation
+**Severity: High (nondeterministic authorization denial / corrupted-state handling).**
+
+The process structure contains reserved security bytes that were not explicitly initialized by process_init(). Once reserved bytes are validated, uninitialized stack contents could make a valid process fail hardening checks.
+
+**Fix:** zero all reserved process bytes during initialization, reject nonzero object/process reserved fields, and validate process lifecycle plus quarantine previous-state consistency. Added a process self-test for the reserved-byte initialization contract. IPC object validation also now rejects a nonzero object reserved field.
+
+### 4. Authorization was permissive before hardening initialization
 **Severity: High (startup ordering / fail-closed).**
 
 `security_authorize()` checked process invariants only when hardening was already ready. If called before initialization, that check was skipped.
 
 **Fix:** authorization now denies while the hardening startup gate is not ready and records a security violation. Once ready, process invariant checks are mandatory.
 
-### 4. Intent object type and rights validation
+### 5. Intent object type and rights validation
 **Severity: Medium (malformed intent rejection).**
 
 Intent construction only rejected object type NONE, and authorization cast the 32-bit intent object type to 16 bits for handle checking. Invalid values could be truncated before comparison.
 
 **Fix:** accept only ABI-defined object types at construction and authorization boundaries; reject undefined requested-rights bits before authorization.
 
-### 5. Source cleanup
+### 6. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
 
-- [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/object.c`, `kernel/process.c`, `kernel/paging.c`, and associated headers.
+- [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/object.c`, `kernel/process.c`, `kernel/ipc.c`, `kernel/paging.c`, and associated headers.
 - [x] Applied fixes on `security/hardening-audit-20261012`.
-- [ ] Clean `./scripts/build.sh clean` / full `-Wall -Wextra -Werror` build.
+- [ ] Clean `./scripts/build.sh clean` / full `-Wall -Wextra -Werror` build (GitHub Actions run queued; no Debian commands have been run).
 - [ ] QEMU ISO boot and complete startup self-test chain.
 - [ ] Confirm the quarantine failure `-11501` is gone.
 - [ ] Confirm security hardening startup gate and live process checks pass.
-- [ ] Review CI results and run full regression tests.
+- [ ] Review CI results and run full regression tests (both workflows remain queued on the repository's self-hosted runner).
 - [ ] Sync the final verified log/report to `main`.
 
 ## Status
