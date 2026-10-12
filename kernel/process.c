@@ -476,7 +476,7 @@ int process_selftest(void)
     child.object.reserved = 1u;
     if (process_wait(&parent, child.pid, &exit_code) == 0 ||
         child.address_space.root == 0 ||
-        process_state(&child) != PROS_PROCESS_ZOMBIE)
+        child.state != PROS_PROCESS_ZOMBIE)
         return -22;
     child.object.reserved = 0u;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
