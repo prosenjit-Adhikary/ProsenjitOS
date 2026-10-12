@@ -45,7 +45,7 @@ Intent construction only rejected object type NONE, and authorization cast the 3
 
 The signed-admission path cleared `local_denied` on both valid and invalid signature paths. A valid signature could therefore override an administrator's deny decision, while an invalid signature could downgrade an explicit deny to quarantine.
 
-**Fix:** preserve local-deny metadata regardless of signature outcome and add regression tests for both valid and invalid signatures with an explicit deny.
+**Fix:** preserve local-deny metadata regardless of signature outcome, make a well-formed local deny the highest-priority admission decision even when other metadata is malformed, and add regression tests for valid/invalid signatures and malformed reputation combined with explicit deny.
 
 ### 7. Malformed file-admission metadata could be treated as trusted
 **Severity: Medium (malformed policy input).**
