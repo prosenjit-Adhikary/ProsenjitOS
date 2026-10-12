@@ -245,10 +245,6 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
         return -1;
 
     struct pros_object *object = entry->object;
-    if (object->handle_refs == 0u ||
-        object->handle_refs > object->refcount ||
-        !handle_table_object_aliases_valid(table, object))
-        return -1;
     entry->object = 0;
     entry->rights = 0;
     --object->handle_refs;
