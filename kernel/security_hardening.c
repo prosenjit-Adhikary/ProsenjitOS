@@ -188,6 +188,7 @@ int pros_security_hardening_selftest(void)
         .refcount = 1u
     };
     struct pros_handle_table malformed_table = {0};
+    uint16_t looked_up_type = 0u;
 
     if (!pros_security_hardening_ready())
         return -1;
@@ -244,8 +245,23 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].object = &referenced_object;
     if (pros_security_hardening_check_process(&process) != 0 ||
         handle_check(&process.handles, (1ULL << 8) | 1u,
-                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0)
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        process_handle_type(&process, (1ULL << 8) | 1u,
+                            &looked_up_type) != 0 ||
+        looked_up_type != PROS_OBJECT_FILE)
         return -4;
+
+    process.handles.entries[1].rights |= PROSENJIT_CAP_DUPLICATE;
+    if (handle_check(&process.handles, (1ULL << 40) | (1ULL << 8) | 1u,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 ||
+        process_handle_type(&process, (1ULL << 40) | (1ULL << 8) | 1u,
+                            &looked_up_type) == 0 ||
+        handle_duplicate(&process.handles,
+                         (1ULL << 40) | (1ULL << 8) | 1u,
+                         PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        referenced_object.refcount != 1u)
+        return -22;
+    process.handles.entries[1].rights = PROSENJIT_CAP_READ;
 
     process.handles.entries[1].rights = 1ULL << 63;
     if (pros_security_hardening_check_process(&process) != -6 ||
