@@ -103,6 +103,13 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
     }
     if (!entry_exec) return WB_PE_EFORMAT;
     if ((tmp.import_rva==0u)!=(tmp.import_size==0u) || (tmp.reloc_rva==0u)!=(tmp.reloc_size==0u)) return WB_PE_EFORMAT;
+    /* Import and relocation directories describe distinct structures.
+     * Reject overlapping ranges rather than letting two parsers interpret
+     * the same bytes under different formats. */
+    if (tmp.import_rva && tmp.reloc_rva &&
+        tmp.import_rva < tmp.reloc_rva + tmp.reloc_size &&
+        tmp.reloc_rva < tmp.import_rva + tmp.import_size)
+        return WB_PE_ECONFLICT;
     if (tmp.import_rva) {
         size_t directory_offset;
         if (tmp.import_size < 20u || (tmp.import_size % 20u) != 0u) return WB_PE_EFORMAT;
