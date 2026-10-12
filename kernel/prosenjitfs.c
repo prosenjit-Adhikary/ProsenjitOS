@@ -388,7 +388,11 @@ static int pfs_superblock_valid(const uint8_t *block,
                          (PROSENJITFS_FEATURE_CRC32C |
                           PROSENJITFS_FEATURE_JOURNAL |
                           PROSENJITFS_FEATURE_EXTENTS |
-                          PROSENJITFS_FEATURE_UTF8))
+                          PROSENJITFS_FEATURE_UTF8) ||
+        (sb->features & ~(PROSENJITFS_FEATURE_CRC32C |
+                          PROSENJITFS_FEATURE_JOURNAL |
+                          PROSENJITFS_FEATURE_EXTENTS |
+                          PROSENJITFS_FEATURE_UTF8)) != 0u
         return PROSENJITFS_ECORRUPT;
     checksum = pfs_crc_with_zero32(block, sb->header_size,
                                    (uint32_t)offsetof(
@@ -5785,6 +5789,51 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -18);
         if (probe_rc == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
+    }
+    /*
+     * Version 1 has no optional/unknown feature-bit contract. Reject unknown
+     * bits even when both copies carry valid checksums, then restore both
+     * formatted superblocks before the ordinary mount regression proceeds.
+     */
+    {
+        uint8_t saved_primary[512];
+        uint8_t saved_backup[512];
+        uint8_t altered[512];
+        struct pros_prosenjitfs_superblock candidate;
+        const uint32_t checksum_offset = (uint32_t)offsetof(
+            struct pros_prosenjitfs_superblock, checksum);
+        int probe_rc;
+
+        if (pfs_read_block(&device, 0u, saved_primary) != PROSENJITFS_OK ||
+            pfs_read_block(&device, 1u, saved_backup) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+
+        pfs_copy(altered, saved_primary, sizeof(altered));
+        pfs_copy(&candidate, altered, sizeof(candidate));
+        candidate.features |= (uint32_t)1u << 31;
+        pfs_copy(altered, &candidate, sizeof(candidate));
+        pfs_put32(altered + checksum_offset,
+                  pfs_crc_with_zero32(altered, candidate.header_size,
+                                      checksum_offset));
+        if (pfs_write_block(&device, 0u, altered) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+
+        pfs_copy(altered, saved_backup, sizeof(altered));
+        pfs_copy(&candidate, altered, sizeof(candidate));
+        candidate.features |= (uint32_t)1u << 31;
+        pfs_copy(altered, &candidate, sizeof(candidate));
+        pfs_put32(altered + checksum_offset,
+                  pfs_crc_with_zero32(altered, candidate.header_size,
+                                      checksum_offset));
+        if (pfs_write_block(&device, 1u, altered) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+
+        probe_rc = prosenjitfs_probe(&device);
+        if (pfs_write_block(&device, 0u, saved_primary) != PROSENJITFS_OK ||
+            pfs_write_block(&device, 1u, saved_backup) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        if (probe_rc == PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
     }
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
