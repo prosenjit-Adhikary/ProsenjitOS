@@ -17,6 +17,7 @@ Branch: `security/hardening-audit-20261012`
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
 - Behavior-monitor resource exhaustion, timestamp rollback, and failed process termination now attempt quarantine containment.
 - Audit-ledger exhaustion no longer clears a quarantine decision; a startup regression self-test forces ledger exhaustion and verifies the process remains quarantined and BLOCKED.
+- Follow-up source review found the audit-exhaustion self-test used `PROS_INTENT_ADMIN`, which is outside the currently accepted operation range and therefore did not reach the quarantine branch. Changed the fixture to a valid READ operation requesting READ plus ADMIN against an absent handle, so the missing privileged capability selects QUARANTINE before ledger failure.
 - Added regression coverage ensuring high bits cannot alias a valid capability handle across check, lookup, and duplication paths.
 - Removed duplicate `ed25519_scalar.h` include.
 - Updated audit report: `reports/security-structure-audit-2026-10-12.md`.
