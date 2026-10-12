@@ -195,30 +195,36 @@ int wb_pe_import_at(const uint8_t *data, size_t size,
     /* PE import descriptors must end with an all-zero descriptor. Scan the
      * entire declared table so an early successful lookup cannot hide a
      * missing terminator later in a truncated or forged directory. */
-    for (i = 0; i < descriptor_count; ++i) {
-        size_t descriptor_off = off + (size_t)i * 20u;
-        uint32_t fields[5];
-        uint32_t j;
-        for (j = 0; j < 5u; ++j)
-            fields[j] = rd32(data + descriptor_off + j * 4u);
-        if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u) {
-            if (i < index) return WB_PE_ENOTFOUND;
-            if (!requested_found) return WB_PE_ENOTFOUND;
-            *out = requested;
-            return WB_PE_OK;
+    {
+        int terminator_seen = 0;
+        for (i = 0; i < descriptor_count; ++i) {
+            size_t descriptor_off = off + (size_t)i * 20u;
+            uint32_t fields[5];
+            uint32_t j;
+            for (j = 0; j < 5u; ++j)
+                fields[j] = rd32(data + descriptor_off + j * 4u);
+            if ((fields[0] | fields[1] | fields[2] | fields[3] | fields[4]) == 0u) {
+                terminator_seen = 1;
+                continue;
+            }
+            /* A descriptor after the required null terminator is malformed;
+             * do not silently ignore hidden trailing import records. */
+            if (terminator_seen) return WB_PE_EFORMAT;
+            if (i == index) {
+                if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
+                requested.original_first_thunk = fields[0];
+                requested.timestamp = fields[1];
+                requested.forwarder_chain = fields[2];
+                requested.name_rva = fields[3];
+                requested.first_thunk = fields[4];
+                requested_found = 1;
+            }
         }
-        if (i == index) {
-            if (fields[3] == 0u || fields[4] == 0u) return WB_PE_EFORMAT;
-            requested.original_first_thunk = fields[0];
-            requested.timestamp = fields[1];
-            requested.forwarder_chain = fields[2];
-            requested.name_rva = fields[3];
-            requested.first_thunk = fields[4];
-            requested_found = 1;
-        }
+        if (!terminator_seen) return WB_PE_EFORMAT;
+        if (!requested_found) return WB_PE_ENOTFOUND;
+        *out = requested;
+        return WB_PE_OK;
     }
-    /* No null descriptor exists in the declared directory. */
-    return WB_PE_EFORMAT;
 }
 
 int wb_pe_read_ascii_string(const uint8_t *data, size_t size,
