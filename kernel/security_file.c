@@ -167,7 +167,8 @@ int pros_file_admit(const struct pros_file_security_metadata *metadata,
         metadata->local_trusted > 1u ||
         metadata->local_denied > 1u ||
         metadata->provenance_known > 1u ||
-        metadata->reputation < PROS_FILE_REPUTATION_UNAVAILABLE ||
+        (int32_t)metadata->reputation <
+            (int32_t)PROS_FILE_REPUTATION_UNAVAILABLE ||
         metadata->reputation > PROS_FILE_REPUTATION_MALICIOUS) {
         result->evidence = PROS_FILE_EVIDENCE_NONE;
         result->state = PROS_FILE_UNKNOWN;
@@ -349,6 +350,13 @@ int pros_file_security_selftest(void) {
         r.state != PROS_FILE_UNKNOWN ||
         r.action != PROS_FILE_QUARANTINE)
         return -11;
+
+    m.format_valid = 1u;
+    m.reputation = (enum pros_file_reputation)-1;
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_UNKNOWN ||
+        r.action != PROS_FILE_QUARANTINE)
+        return -12;
 
     return 0;
 }
