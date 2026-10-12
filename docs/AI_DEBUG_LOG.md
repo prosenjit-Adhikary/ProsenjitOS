@@ -24,6 +24,8 @@ Branch: `security/hardening-audit-20261012`
 - Removed duplicate `ed25519_scalar.h` include.
 - Updated audit report: `reports/security-structure-audit-2026-10-12.md`.
 
+- ProsenjitFS discovery now rejects a structurally valid/checksummed superblock whose `total_blocks` exceeds the probed block device's `sector_count`, for both primary and backup copies. Mount already enforced this boundary; probe previously could report an undersized device as a valid filesystem. This is source-reviewed only; no runtime regression test/build has run.
+
 ### Verification checklist
 - [x] Current GitHub main source inspected.
 - [x] Source fixes committed to the audit branch.
