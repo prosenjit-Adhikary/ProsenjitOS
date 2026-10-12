@@ -182,9 +182,24 @@ int pros_security_hardening_selftest(void)
         .reserved = 0u,
         .refcount = 1u
     };
+    struct pros_object allocation_object = {
+        .type = PROS_OBJECT_FILE,
+        .reserved = 0u,
+        .refcount = 1u
+    };
+    struct pros_handle_table malformed_table = {0};
 
     if (!pros_security_hardening_ready())
         return -1;
+
+    /*
+     * Zero-generation free slots are corrupt, not fresh slots. Allocation
+     * must fail without retaining the object or returning an unusable handle.
+     */
+    if (handle_alloc(&malformed_table, &allocation_object,
+                     PROSENJIT_CAP_READ) != PROSENJIT_HANDLE_INVALID ||
+        allocation_object.refcount != 1u)
+        return -19;
 
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
