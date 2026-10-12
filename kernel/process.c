@@ -44,8 +44,10 @@ int process_register(struct pros_process *process) {
 }
 
 int process_unregister(struct pros_process *process) {
-    if (!process || process->state != PROS_PROCESS_DEAD ||
-        process->address_space.root != 0 || process->object.refcount != 1 ||
+    if (!process || process->object.type != PROS_OBJECT_PROCESS ||
+        process->object.reserved != 0u || process->pid == 0u ||
+        process->state != PROS_PROCESS_DEAD ||
+        process->address_space.root != 0 || process->object.refcount != 1u ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
     struct pros_process **link = &process_list;
@@ -478,6 +480,12 @@ int process_selftest(void)
     if (process_release_resources(&parent) != 0)
         return -13;
     parent.state = PROS_PROCESS_DEAD;
+    /* Refuse corrupt object metadata without unlinking the process from PID lookup. */
+    parent.object.reserved = 1u;
+    if (process_unregister(&parent) == 0 ||
+        process_lookup(parent.pid) != &parent)
+        return -21;
+    parent.object.reserved = 0u;
     if (process_unregister(&parent) != 0)
         return -14;
     return 0;
