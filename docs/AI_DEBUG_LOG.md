@@ -25,6 +25,7 @@ Branch: `security/hardening-audit-20261012`
 - Updated audit report: `reports/security-structure-audit-2026-10-12.md`.
 
 - ProsenjitFS discovery now rejects a structurally valid/checksummed superblock whose `total_blocks` exceeds the probed block device's `sector_count`, for both primary and backup copies. Added a regression fixture that rewrites both superblock copies with an oversized capacity and recomputed valid checksums, verifies probe rejection, then restores the original copies before normal mount tests. This fixture is source-reviewed only; the self-test has not been executed in a build/boot.
+- Hardened direct `handle_close()` so malformed generation/rights metadata and malformed aliases are rejected before mutation; it counts same-table aliases and refuses to decrement a shared object whose reference count is smaller than the live alias count. Added a process self-test that deliberately undercounts a two-slot alias and verifies rejection leaves both slots and the object count untouched, then restores the count and verifies both closes.
 
 ### Verification checklist
 - [x] Current GitHub main source inspected.
