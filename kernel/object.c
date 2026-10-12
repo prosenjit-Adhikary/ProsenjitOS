@@ -213,9 +213,17 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
      * but direct close paths need this invariant too.
      */
     uint32_t aliases = 0u;
-    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i)
-        if (table->entries[i].object == entry->object)
-            ++aliases;
+    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
+        const struct pros_handle_entry *alias = &table->entries[i];
+        if (alias->object != entry->object)
+            continue;
+        if (alias->generation == 0u ||
+            alias->generation == UINT16_MAX ||
+            alias->reserved != 0u || alias->rights == 0u ||
+            (alias->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+            return -1;
+        ++aliases;
+    }
     if (entry->object->refcount < aliases)
         return -1;
 
