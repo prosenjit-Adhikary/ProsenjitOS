@@ -105,7 +105,9 @@ int pros_security_hardening_check_process(const struct pros_process *process)
 {
     if (!process || process->object.type != PROS_OBJECT_PROCESS ||
         process->object.reserved != 0u ||
-        process->object.refcount == 0u || process->pid == 0u)
+        process->object.refcount == 0u ||
+        process->object.handle_refs > process->object.refcount ||
+        process->pid == 0u)
         return -1;
     if (process->security_level != PROS_SECURITY_LIMITED &&
         process->security_level != PROS_SECURITY_SUPER)
@@ -163,6 +165,7 @@ int pros_security_hardening_check_process(const struct pros_process *process)
         if (entry->generation == 0u ||
             entry->generation == UINT16_MAX || entry->reserved != 0u ||
             entry->object->refcount == 0u ||
+            entry->object->handle_refs > entry->object->refcount ||
             !valid_object_type(entry->object->type) ||
             entry->object->reserved != 0u || entry->rights == 0u ||
             (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
@@ -178,7 +181,7 @@ int pros_security_hardening_check_process(const struct pros_process *process)
         for (uint32_t j = 1u; j < PROSENJIT_HANDLE_MAX; ++j)
             if (process->handles.entries[j].object == entry->object)
                 ++table_references;
-        if (entry->object->refcount < table_references)
+        if (entry->object->handle_refs < table_references)
             return -6;
     }
     return 0;
