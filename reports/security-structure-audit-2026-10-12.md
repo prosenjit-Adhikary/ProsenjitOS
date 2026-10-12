@@ -89,7 +89,14 @@ The generic state setter accepted transitions both into `PROS_PROCESS_ZOMBIE` an
 
 **Fix:** require an exact quarantine flag, BLOCKED state, and a valid previous-state encoding before either treating quarantine as idempotent or clearing it. Invalid metadata is rejected without mutating containment state. Added a regression test for an invalid saved state.
 
-### 13. Source cleanup
+### 13. Monitor fallback could silently fail on corrupted quarantine metadata
+**Severity: High (containment reliability).**
+
+The monitor's resource-exhaustion, timestamp-rollback, and failed-termination paths attempted `security_quarantine()` but ignored failure. Once quarantine APIs correctly reject inconsistent metadata, these paths could return a monitoring failure while leaving an otherwise live process runnable.
+
+**Fix:** add a fail-closed containment helper. If the process is still live but normal quarantine rejects its corrupted metadata, force `BLOCKED` with a canonical quarantine flag and no restore target. Clearing that repaired quarantine therefore leaves the process blocked rather than guessing its previous state. Added a regression test for corrupted quarantine metadata.
+
+### 14. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
