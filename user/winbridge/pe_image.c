@@ -131,7 +131,7 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
             page_rva = rd32(data + directory_offset + cursor);
             block_size = rd32(data + directory_offset + cursor + 4u);
             if ((page_rva & 0xfffu) != 0u || page_rva >= tmp.image_size ||
-                block_size < 8u || (block_size & 1u) != 0u ||
+                block_size < 8u || (block_size & 3u) != 0u ||
                 (size_t)block_size > remaining)
                 return WB_PE_EFORMAT;
             cursor += block_size;
