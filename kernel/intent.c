@@ -121,6 +121,30 @@ static int security_authorize_hardening_failure_selftest(void)
          process.quarantined != 0u))
         rc = -2;
 
+    /* Invalid object metadata must also trigger containment, not just denial. */
+    if (rc == 0) {
+        process.state = PROS_PROCESS_READY;
+        process.quarantined = 0u;
+        process.quarantine_previous_state = 0u;
+        process.object.reserved = 1u;
+        reason = PROS_REASON_NONE;
+        security_selftest_mode = 1u;
+        decision = security_authorize(&process, &intent, 0u, &reason);
+        security_selftest_mode = 0u;
+        if (decision != PROS_DECISION_DENY ||
+            reason != PROS_REASON_PROCESS_INVALID ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            pros_security_hardening_violations() != violations_before)
+            rc = -3;
+        process.object.reserved = 0u;
+        if (rc == 0 &&
+            (security_clear_quarantine(&process) != 0 ||
+             process.state != PROS_PROCESS_BLOCKED ||
+             process.quarantined != 0u))
+            rc = -4;
+    }
+
     /* Keep the synthetic fixture out of the runtime audit history. */
     ledger_sequence = saved_sequence;
     ledger_count_value = saved_count;
