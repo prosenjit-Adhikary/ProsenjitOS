@@ -72,9 +72,9 @@ int pros_file_admission_evaluate_signed(
     }
 
     /*
-     * Cryptographic failure is deliberately mapped to UNKNOWN/quarantine,
-     * not to MALICIOUS. Invalidity is evidence of failed verification, not
-     * proof of malware.
+     * Cryptographic failure alone maps to UNKNOWN/quarantine, not MALICIOUS.
+     * Independent local-deny, malformed-format, or malicious-reputation
+     * evidence can still require BLOCK.
      */
     input.data = data;
     input.length = length;
