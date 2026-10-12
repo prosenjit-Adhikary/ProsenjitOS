@@ -68,7 +68,14 @@ When a quarantine decision was made but the reason ledger could not accept anoth
 
 **Fix:** quarantine remains active when audit storage fails. Added a startup self-test that deliberately exhausts the ledger sequence, attempts a privileged request, and verifies DENY plus persistent BLOCKED/quarantined state before restoring test state.
 
-### 10. Source cleanup
+### 10. Hardening initialization could erase earlier violations
+**Severity: Medium (security telemetry integrity).**
+
+The hardening initializer reset its violation counter. A fail-closed authorization denial before initialization or during a later reinitialization could disappear from the runtime verification counter.
+
+**Fix:** preserve the counter across initialization and saturate it at `UINT64_MAX`; static zero initialization provides the clean boot state.
+
+### 11. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
