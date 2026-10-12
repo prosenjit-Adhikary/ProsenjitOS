@@ -75,7 +75,21 @@ The hardening initializer reset its violation counter. A fail-closed authorizati
 
 **Fix:** preserve the counter across initialization and saturate it at `UINT64_MAX`; static zero initialization provides the clean boot state.
 
-### 11. Source cleanup
+### 11. Process lifecycle setter could revive a zombie
+**Severity: High (process lifecycle integrity).**
+
+The generic state setter accepted a transition from `PROS_PROCESS_ZOMBIE` back to `READY` or `RUNNING`. A terminated process could then evade the normal `process_wait()` reap path and appear active again.
+
+**Fix:** reject transitions out of `ZOMBIE` through `process_set_state()` and add a regression assertion that a zombie remains zombie until the lifecycle reaper processes it.
+
+### 12. Quarantine restore trusted corrupted metadata
+**Severity: High (containment integrity).**
+
+`security_clear_quarantine()` subtracted one from `quarantine_previous_state` without first constraining it to the valid saved READY/RUNNING encodings. Corrupted metadata could therefore restore an invalid process state while clearing quarantine. The quarantine entry path also treated any nonzero quarantine flag as a valid already-contained state.
+
+**Fix:** require an exact quarantine flag, BLOCKED state, and a valid previous-state encoding before either treating quarantine as idempotent or clearing it. Invalid metadata is rejected without mutating containment state. Added a regression test for an invalid saved state.
+
+### 13. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
