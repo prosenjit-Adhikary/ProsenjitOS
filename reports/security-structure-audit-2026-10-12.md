@@ -131,7 +131,19 @@ IPC send/receive decoded the low handle byte and formed `&entries[slot]` before 
 
 **Fix:** validate process object type, reserved metadata, and nonzero PID before unlinking; add a regression assertion that corrupt metadata is rejected while the process remains registered.
 
-### 19. Source cleanup
+### 19. VFS path lookup lacked a whole-path length bound
+**Severity: Medium (input validation / resource control).**
+
+`vfs_path_lookup()` bounded each component and counted components, but did not enforce the declared `PROS_VFS_PATH_MAX` over the complete path before walking it. A very long path could trigger unnecessary scanning and inconsistent behavior compared with other path operations.
+
+**Fix:** reject paths longer than `PROS_VFS_PATH_MAX` before acquiring vnode references; added an overlong-path regression case.
+
+### 20. Unused ProsenjitFS helper could fail warnings-as-errors builds
+The source contained an unreferenced static `pfs_data_start()` helper. With the project's warnings-as-errors policy, this can stop a clean build.
+
+**Fix:** removed the unused helper and confirmed there are no remaining references in the branch source.
+
+### 21. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
