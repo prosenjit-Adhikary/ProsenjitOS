@@ -15,6 +15,7 @@ static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
            channel->object.type == PROS_OBJECT_IPC &&
            channel->object.reserved == 0u &&
            channel->object.refcount != 0u &&
+           channel->object.handle_refs <= channel->object.refcount &&
            channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
            channel->count <= PROSENJIT_IPC_CAPACITY;
