@@ -242,7 +242,8 @@ int process_set_syscall_policy(struct pros_process *process, uint64_t policy) {
         (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0)
         return -1;
     /* Only a Super process may tighten its own policy at this layer. */
-    if (process->security_level != PROS_SECURITY_SUPER)
+    if (process->security_level != PROS_SECURITY_SUPER ||
+        (policy & ~process->syscall_policy) != 0u)
         return -1;
     process->syscall_policy = policy;
     return 0;
@@ -418,6 +419,13 @@ int process_selftest(void)
         return -18;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
+
+    /* Self-policy updates may reduce authority but must never restore bits. */
+    uint64_t initial_syscall_policy = parent.syscall_policy;
+    if (process_set_syscall_policy(&parent, UINT64_C(1)) != 0 ||
+        process_set_syscall_policy(&parent, initial_syscall_policy) == 0 ||
+        parent.syscall_policy != UINT64_C(1))
+        return -20;
 
     /* Quarantine must prevent an ordinary state transition from escaping
      * the security-enforced BLOCKED state. */
