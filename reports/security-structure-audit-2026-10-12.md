@@ -143,7 +143,14 @@ The source contained an unreferenced static `pfs_data_start()` helper. With the 
 
 **Fix:** removed the unused helper and confirmed there are no remaining references in the branch source.
 
-### 21. Source cleanup
+### 21. Authorization denied invariant violations without containing the process
+**Severity: High (security enforcement).**
+
+When `security_authorize()` detected that hardening was not ready or a live process failed its invariant check, it denied the current operation and recorded a violation but did not necessarily stop the process from continuing user execution. Inconsistent quarantine metadata also made the normal quarantine API reject containment.
+
+**Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added a startup regression test using corrupted reserved security metadata and confirmed that clearing the repaired quarantine does not resume the process.
+
+### 22. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
