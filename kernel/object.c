@@ -94,7 +94,9 @@ int handle_check(const struct pros_handle_table *table,
                  uint64_t handle,
                  uint64_t required_rights,
                  uint16_t expected_type) {
-    if (!table || handle == PROSENJIT_HANDLE_INVALID) return -1;
+    if (!table || handle == PROSENJIT_HANDLE_INVALID ||
+        required_rights == 0u)
+        return -1;
 
     uint32_t slot = handle_slot(handle);
     uint16_t generation = handle_generation(handle);
