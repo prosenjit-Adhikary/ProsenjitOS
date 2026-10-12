@@ -233,6 +233,10 @@ int main(void){
     w32(b+0x98+136,0x1010);w32(b+0x98+140,10u);
     w32(b+0x210,0x1000);w32(b+0x214,10u); /* block must be 4-byte aligned */
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 71;
-    /* Regression: non-padding relocation target must remain in image. */
+    /* A non-padding relocation target beyond SizeOfImage must fail. */
+    fixture(b,sizeof b,0);w32(b+0x98+56,0x1800u);
+    w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0x3fffu);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EBOUNDS)return 74;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
