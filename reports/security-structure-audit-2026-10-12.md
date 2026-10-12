@@ -192,7 +192,14 @@ The runtime process invariant checker skipped every empty handle slot, allowing 
 
 **Fix:** execution admission rejects non-scheduler-visible states, returns BLOCK for a pre-existing quarantine regardless of file trust, and canonicalizes containment for a scheduler-visible process whose object metadata is invalid. Added regression cases for both. It also canonicalizes malformed quarantine flags/restore-state metadata to BLOCKED, with a regression test ensuring a READY process cannot remain runnable with corrupt quarantine state.
 
-### 28. Source cleanup
+### 28. ELF loader trusted raw lifecycle state without validating process identity
+**Severity: High (user-image mapping boundary).**
+
+`pros_elf_load()` checked raw `state` for ZOMBIE/DEAD but did not verify that the process object itself was valid. A READY/NEW process with corrupt object type/reserved metadata or PID zero could reach image validation and mapping logic.
+
+**Fix:** reject PID zero and require `process_state()` to recognize a live process object before mapping; add a regression case proving corrupt object metadata is rejected without creating the code mapping.
+
+### 29. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ### CI runner availability
