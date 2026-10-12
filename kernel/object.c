@@ -249,8 +249,8 @@ uint64_t handle_transfer_move(struct pros_handle_table *source_table,
 
     struct pros_handle_entry *source = &source_table->entries[slot];
     if (!source->object || source->generation != generation ||
-        source->generation == 0u || source->reserved != 0u ||
-        source->object->refcount == 0u ||
+        source->generation == 0u || source->generation == UINT16_MAX ||
+        source->reserved != 0u || source->object->refcount == 0u ||
         source->object->reserved != 0u ||
         !object_type_valid(source->object->type) ||
         source->rights == 0u ||
