@@ -264,6 +264,11 @@ int pros_security_hardening_selftest(void)
 
     if (pros_security_hardening_check_process(&process) != 0)
         return -2;
+    /* Retired slots are valid and must not poison an otherwise sound process. */
+    process.handles.entries[2].generation = UINT16_MAX;
+    if (pros_security_hardening_check_process(&process) != 0)
+        return -28;
+    process.handles.entries[2].generation = 1u;
     process.handles.entries[2].generation = 0u;
     if (pros_security_hardening_check_process(&process) != -6)
         return -25;
