@@ -230,6 +230,13 @@ Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 **Fix:** added a shared same-table alias invariant check to `handle_check()`, `handle_alloc()`, duplicate, copy-transfer, move-transfer, and direct close. Malformed alias generation/rights/reserved metadata or `refcount < aliases` is rejected before capability mutation. Added a `process_selftest()` regression that deliberately undercounts a two-slot alias and verifies check/allocate/duplicate/copy/move/close all reject without changing either slot or the reference count; after restoring the count, both handles close normally. Source-reviewed only; build/runtime verification remains pending.
 
+### 34. Object refcount could not distinguish owner references from cross-table capability references
+**Severity: High (cross-process capability lifetime integrity).**
+
+Same-table alias counting cannot detect an under-counted object referenced once in each of multiple process tables. If `refcount` were corrupted below the global number of capability references, releasing one process's handle could set the object type to `NONE` while another process still held a live handle. Likewise, an owner release could consume the last reference even though a handle remained.
+
+**Fix:** add `pros_object.handle_refs` as a global live-capability-reference count. Handle allocation increments it; close decrements it before releasing the associated reference; `object_release()` refuses to decrement when no non-handle reference remains. Validate `handle_refs <= refcount` and that the count covers all aliases visible in each table. Updated process lifecycle, IPC object checks, hardening invariants, and regression fixtures. Source-reviewed only; full build and runtime verification remain pending.
+
 ### CI runner availability
 Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. However, the latest hosted attempts failed before any steps were reported and the job-log endpoint returned no logs. This does not establish a code/build failure or a successful run; the runner/job-startup issue remains unresolved, and no commands were run on the user's Debian VM.
 
