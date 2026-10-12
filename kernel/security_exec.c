@@ -104,8 +104,9 @@ int pros_security_exec_selftest(void) {
      */
     if (process_init(&process, 0x1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
-    if (process_set_state(&process, PROS_PROCESS_ZOMBIE) != 0)
-        goto zombie_fail;
+    /* Build a terminal-state fixture directly; the generic state API
+     * intentionally cannot manufacture terminal lifecycle transitions. */
+    process.state = PROS_PROCESS_ZOMBIE;
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
     if (pros_security_exec_admit(&process, &record, 4u, 0) == 
