@@ -141,13 +141,9 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
         pe->headers_size > size)
         return WB_PE_EINVAL;
     if (!range32(rva,length,pe->image_size)) return WB_PE_EBOUNDS;
-    if (rva < pe->headers_size) {
-        if (!span_ok(rva,length,size) || !range32(rva,length,pe->headers_size)) return WB_PE_EBOUNDS;
-        *offset_out=(size_t)rva; return WB_PE_OK;
-    }
     /* Validate the complete caller-supplied section map before returning any
-     * match. Otherwise an early matching section could hide malformed or
-     * overlapping metadata later in the array. */
+     * match, including header mappings. Otherwise an early header match could
+     * hide malformed or overlapping metadata in caller-forged section entries. */
     for (i=0;i<pe->section_count;i++) {
         const struct wb_pe_section *s=&pe->sections[i];
         uint32_t extent = s->virtual_size > s->raw_size ?
@@ -174,6 +170,10 @@ int wb_pe_rva_to_file(const uint8_t *data, size_t size, const struct wb_pe_image
                 p->raw_offset < s->raw_offset + s->raw_size)
                 return WB_PE_ECONFLICT;
         }
+    }
+    if (rva < pe->headers_size) {
+        if (!span_ok(rva,length,size) || !range32(rva,length,pe->headers_size)) return WB_PE_EBOUNDS;
+        *offset_out=(size_t)rva; return WB_PE_OK;
     }
     for (i=0;i<pe->section_count;i++) {
         const struct wb_pe_section *s=&pe->sections[i];
