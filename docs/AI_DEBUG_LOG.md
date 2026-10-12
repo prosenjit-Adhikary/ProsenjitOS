@@ -35,3 +35,5 @@ Branch: `security/hardening-audit-20261012`
 
 ### Important
 Do not mark this work complete until build, QEMU, and regression checks pass. The GitHub source edits have not yet been built or boot-tested in the Debian VM.
+
+- Harden object reference-count operations and handle close against corrupt object metadata; add regression coverage that preserves both refcounts and live handle entries on rejection.
