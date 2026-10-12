@@ -5,7 +5,7 @@ Branch: `security/hardening-audit-20261012`
 
 ### Findings / changes
 - Fixed invalid `security_quarantine_selftest()` fixture: set process object type, reference count, and PID. This directly addresses the startup self-test path associated with error stage `-11501`.
-- Hardened live capability entries and direct object-layer APIs: reject unknown object types, nonzero reserved fields, zero rights, generation zero, undefined rights, and rights beyond process policy; enforce checks in allocation, check, duplicate, and transfer paths; reject retired maximum-generation handles and corrupted free slots.
+- Hardened live capability entries and direct object-layer APIs: reject unknown object types, nonzero reserved fields, zero rights, generation zero, undefined rights, and rights beyond process policy; enforce checks in allocation, check, duplicate, and transfer paths; reject retired maximum-generation handles, high-bit aliases of 24-bit handles, and corrupted free slots.
 - Added hardening self-test cases for malformed capability metadata; isolated the referenced test object so unknown-type tests reach the intended validation branch rather than short-circuiting on process identity.
 - Made `security_authorize()` fail closed until kernel hardening is ready.
 - Validate intent object types against the defined ABI object set at creation and authorization; reject undefined rights bits.
@@ -17,6 +17,7 @@ Branch: `security/hardening-audit-20261012`
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
 - Behavior-monitor resource exhaustion, timestamp rollback, and failed process termination now attempt quarantine containment.
 - Audit-ledger exhaustion no longer clears a quarantine decision; a startup regression self-test forces ledger exhaustion and verifies the process remains quarantined and BLOCKED.
+- Added regression coverage ensuring high bits cannot alias a valid capability handle across check, lookup, and duplication paths.
 - Removed duplicate `ed25519_scalar.h` include.
 - Updated audit report: `reports/security-structure-audit-2026-10-12.md`.
 
