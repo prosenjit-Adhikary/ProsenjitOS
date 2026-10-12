@@ -12,7 +12,7 @@ Branch: `security/hardening-audit-20261012`
 - Validate process lifecycle and quarantine-state invariants; initialize reserved process bytes and add a process regression check.
 - Reject corrupted reserved metadata in IPC objects.
 - Saturate hardening violation/generation counters rather than allowing wraparound.
-- Preserved explicit local deny decisions across both valid and invalid signature admission paths; added regression cases.
+- Preserved explicit local deny decisions across both valid and invalid signature admission paths and made a valid local deny outrank malformed metadata; added regression cases.
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
 - Behavior-monitor resource exhaustion, timestamp rollback, and failed process termination now attempt quarantine containment.
 - Removed duplicate `ed25519_scalar.h` include.
