@@ -90,7 +90,7 @@ Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 - [ ] Sync the final verified log/report to `main`.
 
 ## Status
-**Not complete yet.** Source fixes are committed to the audit branch, but this environment cannot run the user's Debian VM/QEMU commands directly. Do not call the hardening complete until the build and runtime/CI checks above pass. Any CI failure must be diagnosed and fixed before final sign-off.
+**Implementation advanced; verification pending.** Source fixes and regression self-tests are committed to the audit branch. Debian/QEMU commands have intentionally not been run, as requested; the repository's self-hosted GitHub Actions build/boot and security-design workflows are queued. Do not call the hardening fully verified until those checks pass. Any CI failure must be diagnosed and fixed before final sign-off.
 
 ## Reproduction commands (Debian VM)
 ```sh
