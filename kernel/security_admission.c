@@ -86,7 +86,7 @@ int pros_file_admission_evaluate_signed(
     if (signature_result != PROS_SIGNATURE_RESULT_VALID) {
         input.metadata.signature_valid = 0u;
         input.metadata.local_trusted = 0u;
-        input.metadata.local_denied = 0u;
+        /* Preserve an explicit local deny even when signature verification fails. */
         input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
         input.metadata.provenance_known = 0u;
     }
@@ -112,7 +112,7 @@ int pros_file_admission_evaluate_signed(
     {
         struct pros_file_security_metadata trusted = input.metadata;
         trusted.local_trusted = 1u;
-        trusted.local_denied = 0u;
+        /* A valid signature must not override the local deny policy. */
         trusted.provenance_known = 1u;
 
         /*
@@ -224,6 +224,27 @@ int pros_file_admission_selftest(void) {
             if (record.security.state == PROS_FILE_VERIFIED ||
                 record.security.action == PROS_FILE_ALLOW)
                 return -310;
+
+            /*
+             * Explicit local denial outranks both a valid signature and a
+             * failed signature. Neither cryptographic outcome may erase an
+             * administrator's deny decision.
+             */
+            signed_metadata.local_denied = 1u;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0 ||
+                record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK)
+                return -311;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0 ||
+                record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK)
+                return -312;
         }
     }
 
