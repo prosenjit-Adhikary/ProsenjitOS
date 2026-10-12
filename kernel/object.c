@@ -238,15 +238,12 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
         return -1;
 
     /*
-     * A corrupted under-counted object must not be released through one alias
-     * while another live slot still points at it. Count aliases in this table
-     * before mutating the entry; close_all performs a whole-table preflight,
-     * but direct close paths need this invariant too.
+     * Global handle_refs protects aliases across different process tables;
+     * the table-local check additionally validates every alias before mutation.
      */
     if (!handle_table_object_aliases_valid(table, entry->object))
         return -1;
 
-    struct pros_object *object = entry->object;
     struct pros_object *object = entry->object;
     if (object->handle_refs == 0u ||
         object->handle_refs > object->refcount ||
