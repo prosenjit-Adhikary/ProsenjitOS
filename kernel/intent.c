@@ -326,7 +326,11 @@ enum pros_security_decision security_authorize(
         decision = PROS_DECISION_QUARANTINE;
         goto record;
     }
-    if (!intent || intent->id == 0 || intent->requested_rights == 0 ||
+    if (!intent || intent->id == 0 ||
+        intent->operation < PROS_INTENT_READ ||
+        intent->operation > PROS_INTENT_DUPLICATE ||
+        intent->handle == PROSENJIT_HANDLE_INVALID ||
+        intent->requested_rights == 0 ||
         (intent->requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
         !intent_object_type_valid(intent->object_type)) {
         reason = PROS_REASON_INTENT_INVALID;
