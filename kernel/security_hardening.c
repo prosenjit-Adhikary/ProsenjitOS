@@ -146,8 +146,15 @@ int pros_security_hardening_check_process(const struct pros_process *process)
      */
     for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
         const struct pros_handle_entry *entry = &process->handles.entries[i];
-        if (!entry->object)
+        if (!entry->object) {
+            /* Free slots are security state too: malformed metadata must not
+             * be silently accepted and later treated as a fresh capability. */
+            if (entry->generation == 0u ||
+                entry->generation == UINT16_MAX ||
+                entry->reserved != 0u || entry->rights != 0u)
+                return -6;
             continue;
+        }
         if (entry->generation == 0u ||
             entry->generation == UINT16_MAX || entry->reserved != 0u ||
             entry->object->refcount == 0u ||
@@ -253,9 +260,22 @@ int pros_security_hardening_selftest(void)
     process.capability_policy =
         PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
     process.syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+    handle_table_init(&process.handles);
 
     if (pros_security_hardening_check_process(&process) != 0)
         return -2;
+    process.handles.entries[2].generation = 0u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -25;
+    process.handles.entries[2].generation = 1u;
+    process.handles.entries[2].reserved = 1u;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -26;
+    process.handles.entries[2].reserved = 0u;
+    process.handles.entries[2].rights = PROSENJIT_CAP_READ;
+    if (pros_security_hardening_check_process(&process) != -6)
+        return -27;
+    process.handles.entries[2].rights = 0u;
 
     process.object.reserved = 1u;
     if (pros_security_hardening_check_process(&process) != -1)
