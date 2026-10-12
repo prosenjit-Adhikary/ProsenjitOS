@@ -86,6 +86,11 @@ static int security_authorize_hardening_failure_selftest(void)
     };
     uint64_t reason = PROS_REASON_NONE;
     uint64_t violations_before = pros_security_hardening_violations();
+    uint64_t saved_sequence = ledger_sequence;
+    uint64_t saved_count = ledger_count_value;
+    uint64_t saved_slot = saved_sequence % PROS_REASON_LEDGER_SIZE;
+    struct pros_reason_record saved_record = ledger[saved_slot];
+    int rc = 0;
 
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1u;
@@ -108,13 +113,19 @@ static int security_authorize_hardening_failure_selftest(void)
         process.quarantined != 1u ||
         process.quarantine_previous_state != 0u ||
         pros_security_hardening_violations() != violations_before)
-        return -1;
+        rc = -1;
 
-    if (security_clear_quarantine(&process) != 0 ||
-        process.state != PROS_PROCESS_BLOCKED ||
-        process.quarantined != 0u)
-        return -2;
-    return 0;
+    if (rc == 0 &&
+        (security_clear_quarantine(&process) != 0 ||
+         process.state != PROS_PROCESS_BLOCKED ||
+         process.quarantined != 0u))
+        rc = -2;
+
+    /* Keep the synthetic fixture out of the runtime audit history. */
+    ledger_sequence = saved_sequence;
+    ledger_count_value = saved_count;
+    ledger[saved_slot] = saved_record;
+    return rc;
 }
 
 static int security_authorize_audit_failure_selftest(void)
