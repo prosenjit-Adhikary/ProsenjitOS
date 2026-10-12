@@ -190,7 +190,7 @@ The runtime process invariant checker skipped every empty handle slot, allowing 
 
 `pros_security_exec_admit()` returned ALLOW based only on the file's admission record. A process already marked quarantined could therefore receive an ALLOW result for a trusted file, and invalid process-object metadata caused an early denial without containing an otherwise READY process.
 
-**Fix:** execution admission rejects non-scheduler-visible states, returns BLOCK for a pre-existing quarantine regardless of file trust, and canonicalizes containment for a scheduler-visible process whose object metadata is invalid. Added regression cases for both.
+**Fix:** execution admission rejects non-scheduler-visible states, returns BLOCK for a pre-existing quarantine regardless of file trust, and canonicalizes containment for a scheduler-visible process whose object metadata is invalid. Added regression cases for both. It also canonicalizes malformed quarantine flags/restore-state metadata to BLOCKED, with a regression test ensuring a READY process cannot remain runnable with corrupt quarantine state.
 
 ### 28. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
