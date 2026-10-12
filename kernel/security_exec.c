@@ -4,14 +4,38 @@
 #include "security_quarantine.h"
 #include "intent.h"
 
+static void exec_force_containment(struct pros_process *process)
+{
+    if (!process)
+        return;
+    if (process->state != PROS_PROCESS_READY &&
+        process->state != PROS_PROCESS_RUNNING &&
+        process->state != PROS_PROCESS_BLOCKED)
+        return;
+    process->state = PROS_PROCESS_BLOCKED;
+    process->quarantined = 1u;
+    process->quarantine_previous_state = 0u;
+}
+
 int pros_security_exec_admit(
     struct pros_process *process,
     const struct pros_file_admission_record *record,
     uint64_t timestamp,
     uint64_t *quarantine_id) {
-    if (!process || !record || process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE)
+    if (!process || !record)
         return -1;
+    if (process->state == PROS_PROCESS_DEAD ||
+        process->state == PROS_PROCESS_ZOMBIE ||
+        process->state == PROS_PROCESS_NEW ||
+        process->state > PROS_PROCESS_BLOCKED)
+        return -1;
+    if (process_state(process) == PROS_PROCESS_DEAD) {
+        exec_force_containment(process);
+        return -1;
+    }
+    /* File trust must never override an existing process quarantine. */
+    if (process->quarantined != 0u)
+        return PROS_SECURITY_EXEC_BLOCK;
 
     if (record->security.action == PROS_FILE_ALLOW)
         return PROS_SECURITY_EXEC_ALLOW;
@@ -98,18 +122,53 @@ int pros_security_exec_selftest(void) {
     if (address_space_destroy(&process.address_space) != 0)
         return -3;
 
+    /* A pre-existing quarantine outranks even a trusted file decision. */
+    if (process_init(&process, 0x1002u, PROS_SECURITY_LIMITED) != 0)
+        return -4;
+    if (process_set_state(&process, PROS_PROCESS_READY) != 0 ||
+        security_quarantine(&process) != 0)
+        goto fail;
+    record.security.state = PROS_FILE_TRUSTED;
+    record.security.action = PROS_FILE_ALLOW;
+    if (pros_security_exec_admit(&process, &record, 4u, 0) !=
+            PROS_SECURITY_EXEC_BLOCK ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        !security_is_quarantined(&process) ||
+        security_clear_quarantine(&process) != 0)
+        goto fail;
+    if (address_space_destroy(&process.address_space) != 0)
+        return -5;
+
+    /* Corrupt object metadata cannot leave a scheduler-visible process runnable. */
+    if (process_init(&process, 0x1003u, PROS_SECURITY_LIMITED) != 0)
+        return -6;
+    if (process_set_state(&process, PROS_PROCESS_READY) != 0)
+        goto fail;
+    process.object.reserved = 1u;
+    if (pros_security_exec_admit(&process, &record, 5u, 0) ==
+            PROS_SECURITY_EXEC_ALLOW ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        !security_is_quarantined(&process))
+        goto fail;
+    process.object.reserved = 0u;
+    if (security_clear_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_BLOCKED)
+        goto fail;
+    if (address_space_destroy(&process.address_space) != 0)
+        return -7;
+
     /*
      * A zombie has completed execution and is awaiting reap; it must never
      * cross the execution-admission boundary again.
      */
-    if (process_init(&process, 0x1002u, PROS_SECURITY_LIMITED) != 0)
-        return -4;
+    if (process_init(&process, 0x1004u, PROS_SECURITY_LIMITED) != 0)
+        return -8;
     /* Build a terminal-state fixture directly; the generic state API
      * intentionally cannot manufacture terminal lifecycle transitions. */
     process.state = PROS_PROCESS_ZOMBIE;
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
-    if (pros_security_exec_admit(&process, &record, 4u, 0) == 
+    if (pros_security_exec_admit(&process, &record, 6u, 0) ==
         PROS_SECURITY_EXEC_ALLOW)
         goto zombie_fail;
     if (address_space_destroy(&process.address_space) != 0)
