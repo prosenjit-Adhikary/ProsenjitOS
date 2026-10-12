@@ -18,7 +18,7 @@ Branch: `security/hardening-audit-20261012`
 - Corrected signed admission so successful cryptographic verification is recorded as VERIFIED (unless separate local-trust policy applies), not relabeled as TRUSTED.
 - Invalid file-admission flags and unknown reputation values now fail closed to UNKNOWN/QUARANTINE, with regression coverage.
 - Behavior-monitor resource exhaustion, timestamp rollback, and failed process termination now attempt quarantine containment.
-- Added a fail-closed monitor containment fallback: if normal quarantine rejects corrupted quarantine metadata on an otherwise live process, force BLOCKED with a canonical quarantine marker and no restore target; added a regression test proving quarantine clear leaves it BLOCKED.
+- Added a fail-closed monitor containment fallback: if normal quarantine rejects corrupted quarantine metadata on an otherwise live process, force BLOCKED with a canonical quarantine marker and no restore target; added a regression test proving quarantine clear leaves it BLOCKED. The fallback now inspects the raw scheduler-visible state when object metadata is corrupt (since `process_state()` intentionally maps invalid objects to DEAD), with a regression case proving a corrupt object header cannot leave a READY process runnable.
 - Audit-ledger exhaustion no longer clears a quarantine decision; a startup regression self-test forces ledger exhaustion and verifies the process remains quarantined and BLOCKED.
 - Added regression coverage ensuring high bits cannot alias a valid capability handle across check, lookup, and duplication paths.
 - Removed duplicate `ed25519_scalar.h` include.
