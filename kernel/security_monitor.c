@@ -127,6 +127,16 @@ int pros_security_monitor_enforce(
         return -1;
 
     action = pros_security_monitor_record(event, state);
+    if (action == -2 || action == -3) {
+        /*
+         * Exhausted monitor capacity or non-monotonic event time means the
+         * monitor cannot safely establish the process's behavior history.
+         * Fail closed by containing the process instead of silently leaving
+         * it runnable without reliable monitoring.
+         */
+        (void)security_quarantine(process);
+        return action;
+    }
     if (action < 0)
         return action;
 
@@ -134,8 +144,16 @@ int pros_security_monitor_enforce(
         return security_quarantine(process) == 0 ? action : -2;
 
     if (action == PROS_SECURITY_MONITOR_BLOCK) {
-        if (process_exit(process, -0x5344) != 0)
+        if (process_exit(process, -0x5344) != 0) {
+            /*
+             * Exit can fail when teardown is temporarily unavailable (for
+             * example, an address-space switch failure). Do not leave the
+             * blocked process runnable: attempt quarantine as a containment
+             * fallback while preserving the reported block failure.
+             */
+            (void)security_quarantine(process);
             return -3;
+        }
         return action;
     }
 
