@@ -42,4 +42,6 @@ A libFuzzer entry point is provided in `fuzz_pe_image.c`; actual fuzz campaigns 
 - Authenticode verification or an execution-trust decision.
 - Compatibility claims for arbitrary applications or Microsoft Office.
 
+Before any future relocation-application implementation, validate architecture-specific relocation types, type-specific write widths (not only the starting target RVA), and paired-entry semantics such as PE32 HIGHADJ. The current inspector does not apply relocation writes.
+
 The parser is untrusted-input handling code and must receive fuzz/property testing and review before it is used on installer input. The host tests validate only their fixtures; they do not prove OS integration or runtime safety. Do not connect this parser to an executable launch path until the native process/address-space interfaces and security admission contracts have been audited.
