@@ -199,9 +199,24 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
 
     struct pros_handle_entry *entry = &table->entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->reserved != 0u || entry->object->reserved != 0u ||
+        entry->generation == UINT16_MAX || entry->reserved != 0u ||
+        entry->object->reserved != 0u ||
         !object_type_valid(entry->object->type) ||
-        entry->object->refcount == 0u)
+        entry->object->refcount == 0u || entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
+        return -1;
+
+    /*
+     * A corrupted under-counted object must not be released through one alias
+     * while another live slot still points at it. Count aliases in this table
+     * before mutating the entry; close_all performs a whole-table preflight,
+     * but direct close paths need this invariant too.
+     */
+    uint32_t aliases = 0u;
+    for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i)
+        if (table->entries[i].object == entry->object)
+            ++aliases;
+    if (entry->object->refcount < aliases)
         return -1;
 
     struct pros_object *object = entry->object;
