@@ -103,7 +103,14 @@ The monitor's resource-exhaustion, timestamp-rollback, and failed-termination pa
 
 **Fix:** reject identifier zero before allocating an address space and add a regression assertion.
 
-### 15. Source cleanup
+### 15. Object reference operations trusted corrupt metadata
+**Severity: High (capability/object integrity).**
+
+`object_retain()` and `object_release()` previously changed reference counts without validating object type or reserved metadata. `handle_close()` cleared the handle slot before discovering a corrupted object could not be safely released, potentially destroying recovery information and desynchronizing references.
+
+**Fix:** validate object type, reserved fields, and refcount before reference-count changes; validate the handle entry and object before mutating the slot. Added a regression test that corrupts object reserved metadata and verifies retain/release/close all reject it without changing the count or live entry.
+
+### 16. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ## Verification status
