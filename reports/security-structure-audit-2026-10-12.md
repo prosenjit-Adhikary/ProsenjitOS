@@ -155,7 +155,7 @@ The source contained an unreferenced static `pfs_data_start()` helper. With the 
 
 When `security_authorize()` detected that hardening was not ready or a live process failed its invariant check, it denied the current operation and recorded a violation but did not necessarily stop the process from continuing user execution. Inconsistent quarantine metadata also made the normal quarantine API reject containment.
 
-**Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added a startup regression test using corrupted reserved security metadata and confirmed that clearing the repaired quarantine does not resume the process. The fixture runs under a narrowly scoped self-test mode and asserts the global violation counter is unchanged, preserving the kernel boot gate's zero-violations invariant.
+**Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added startup regression tests for corrupted security-reserved bytes and invalid object-reserved metadata; clearing the repaired quarantine does not resume the process. The fixture runs under a narrowly scoped self-test mode and asserts the global violation counter is unchanged, preserving the kernel boot gate's zero-violations invariant.
 
 ### 23. Process hardening skipped malformed free capability slots
 **Severity: Medium (capability-table integrity).**
