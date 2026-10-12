@@ -37,3 +37,4 @@ Branch: `security/hardening-audit-20261012`
 Do not mark this work complete until build, QEMU, and regression checks pass. The GitHub source edits have not yet been built or boot-tested in the Debian VM.
 
 - Harden object reference-count operations and handle close against corrupt object metadata; add regression coverage that preserves both refcounts and live handle entries on rejection.
+- Fixed IPC send/receive syscall paths to validate the decoded slot range before deriving an entry pointer; they also recheck live IPC object metadata before dereferencing it. Added a monotonicity guard to `process_set_syscall_policy()` so self-service policy changes cannot re-enable syscall bits, with a regression assertion. Hardened `process_unregister()` to reject invalid process-object identity/reserved metadata before unlinking PID lookup state, with a regression assertion.
