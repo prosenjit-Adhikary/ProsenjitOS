@@ -167,6 +167,9 @@ The runtime process invariant checker skipped every empty handle slot. Allocatio
 ### 24. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
+### CI runner availability
+Both required workflows were configured for an offline self-hosted runner and repeatedly remained queued. They now target `ubuntu-latest`, with the build workflow installing its NASM/GRUB/xorriso/mtools/GCC/binutils/QEMU dependencies. This permits clean build, QEMU boot, and architecture checks to run in GitHub-hosted CI without executing commands on the user's Debian VM.
+
 ## Verification status
 
 - [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/security_admission.c`, `kernel/security_file.c`, `kernel/object.c`, `kernel/process.c`, `kernel/ipc.c`, `kernel/paging.c`, and associated headers.
