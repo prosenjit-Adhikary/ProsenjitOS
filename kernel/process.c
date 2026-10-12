@@ -14,6 +14,22 @@ static int process_has_children(const struct pros_process *process);
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
+static int process_object_type_valid(uint16_t type)
+{
+    switch (type) {
+    case PROS_OBJECT_PROCESS:
+    case PROS_OBJECT_THREAD:
+    case PROS_OBJECT_ADDRESS_SPACE:
+    case PROS_OBJECT_FILE:
+    case PROS_OBJECT_DEVICE:
+    case PROS_OBJECT_SOCKET:
+    case PROS_OBJECT_IPC:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 int process_manager_init(void) {
     process_list = 0;
     current_process = 0;
@@ -316,8 +332,7 @@ int process_handle_type(const struct pros_process *process,
         entry->generation == 0u || entry->generation == UINT16_MAX ||
         entry->reserved != 0u ||
         entry->object->refcount == 0u || entry->object->reserved != 0u ||
-        entry->object->type < PROS_OBJECT_PROCESS ||
-        entry->object->type > PROS_OBJECT_IPC ||
+        !process_object_type_valid(entry->object->type) ||
         entry->rights == 0u ||
         (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
