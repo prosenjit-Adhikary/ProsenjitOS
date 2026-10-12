@@ -456,8 +456,18 @@ enum pros_security_decision security_authorize(
     uint32_t reason = PROS_REASON_NONE;
     enum pros_security_decision decision = PROS_DECISION_DENY;
 
-    if (!process || process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE) {
+    if (!process) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        goto record;
+    }
+    if (process->state == PROS_PROCESS_DEAD ||
+        process->state == PROS_PROCESS_ZOMBIE) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        goto record;
+    }
+    if (process_state(process) == PROS_PROCESS_DEAD) {
+        if (!security_selftest_mode)
+            pros_security_hardening_note_violation(3u, process->pid);
         reason = PROS_REASON_PROCESS_INVALID;
         security_force_containment(process);
         goto record;
