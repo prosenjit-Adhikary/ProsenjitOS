@@ -103,7 +103,7 @@ static int process_release_resources(struct pros_process *process) {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
-    if (!process) return -1;
+    if (!process || pid == 0u) return -1;
     if (security_level != PROS_SECURITY_LIMITED &&
         security_level != PROS_SECURITY_SUPER) return -1;
     if (address_space_create(&process->address_space) != 0) return -1;
@@ -398,6 +398,8 @@ int process_selftest(void)
 
     if (process_manager_init() != 0)
         return -1;
+    if (process_init(&parent, 0u, PROS_SECURITY_SUPER) == 0)
+        return -19;
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
     if (parent.state != PROS_PROCESS_READY ||
