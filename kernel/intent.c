@@ -51,6 +51,65 @@ static int intent_object_type_valid(uint32_t type)
     }
 }
 
+/*
+ * A corrupt security invariant is itself a containment event. Do not rely on
+ * security_quarantine(), because that API correctly rejects malformed
+ * quarantine metadata. The caller supplies a kernel-owned process pointer;
+ * for scheduler-visible states, canonicalize quarantine metadata and block
+ * before returning the authorization denial.
+ */
+static void security_force_containment(struct pros_process *process)
+{
+    if (!process)
+        return;
+    if (process->state != PROS_PROCESS_READY &&
+        process->state != PROS_PROCESS_RUNNING &&
+        process->state != PROS_PROCESS_BLOCKED)
+        return;
+    process->state = PROS_PROCESS_BLOCKED;
+    process->quarantined = 1u;
+    process->quarantine_previous_state = 0u;
+}
+
+static int security_authorize_hardening_failure_selftest(void)
+{
+    struct pros_process process = {0};
+    struct pros_intent intent = {
+        .id = 1u,
+        .operation = PROS_INTENT_READ,
+        .object_type = PROS_OBJECT_FILE,
+        .handle = (1ULL << 8) | 1u,
+        .requested_rights = PROSENJIT_CAP_READ,
+        .tick = 0u
+    };
+    uint64_t reason = PROS_REASON_NONE;
+
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.object.refcount = 1u;
+    process.pid = 0xC101u;
+    process.security_level = PROS_SECURITY_LIMITED;
+    process.state = PROS_PROCESS_READY;
+    process.capability_policy =
+        PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
+    process.syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+    handle_table_init(&process.handles);
+    process.security_reserved[0] = 1u;
+
+    if (security_authorize(&process, &intent, 0u, &reason) !=
+            PROS_DECISION_DENY ||
+        reason != PROS_REASON_POLICY_RESTRICTED ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantined != 1u ||
+        process.quarantine_previous_state != 0u)
+        return -1;
+
+    if (security_clear_quarantine(&process) != 0 ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantined != 0u)
+        return -2;
+    return 0;
+}
+
 static int security_authorize_audit_failure_selftest(void)
 {
     struct pros_process process = {0};
@@ -174,6 +233,9 @@ int security_manager_init(void) {
     rc = security_authorize_audit_failure_selftest();
     if (rc != 0)
         return -14000 + rc;
+    rc = security_authorize_hardening_failure_selftest();
+    if (rc != 0)
+        return -15000 + rc;
     return 0;
 }
 
@@ -379,6 +441,7 @@ enum pros_security_decision security_authorize(
     if (!process || process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE) {
         reason = PROS_REASON_PROCESS_INVALID;
+        security_force_containment(process);
         goto record;
     }
     /*
@@ -389,11 +452,13 @@ enum pros_security_decision security_authorize(
     if (!pros_security_hardening_ready()) {
         pros_security_hardening_note_violation(1u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
+        security_force_containment(process);
         goto record;
     }
     if (pros_security_hardening_check_process(process) != 0) {
         pros_security_hardening_note_violation(2u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
+        security_force_containment(process);
         goto record;
     }
     if (process->quarantined) {
