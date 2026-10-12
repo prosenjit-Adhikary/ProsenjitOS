@@ -4,6 +4,22 @@
 #define HANDLE_SLOT_MASK 0xFFULL
 #define HANDLE_GENERATION_SHIFT HANDLE_SLOT_BITS
 
+static int object_type_valid(uint16_t type)
+{
+    switch (type) {
+    case PROS_OBJECT_PROCESS:
+    case PROS_OBJECT_THREAD:
+    case PROS_OBJECT_ADDRESS_SPACE:
+    case PROS_OBJECT_FILE:
+    case PROS_OBJECT_DEVICE:
+    case PROS_OBJECT_SOCKET:
+    case PROS_OBJECT_IPC:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static uint64_t make_handle(uint32_t slot, uint16_t generation) {
     return ((uint64_t)generation << HANDLE_GENERATION_SHIFT) |
            (uint64_t)slot;
@@ -18,10 +34,14 @@ static uint16_t handle_generation(uint64_t handle) {
 }
 
 void object_init(struct pros_object *object, uint16_t type) {
-    if (!object || type == PROS_OBJECT_NONE) return;
+    if (!object) return;
+    object->type = PROS_OBJECT_NONE;
+    object->reserved = 0u;
+    object->refcount = 0u;
+    if (!object_type_valid(type))
+        return;
     object->type = type;
-    object->reserved = 0;
-    object->refcount = 1;
+    object->refcount = 1u;
 }
 
 int object_retain(struct pros_object *object) {
@@ -53,6 +73,7 @@ uint64_t handle_alloc(struct pros_handle_table *table,
                       struct pros_object *object,
                       uint64_t rights) {
     if (!table || !object || object->refcount == 0 ||
+        !object_type_valid(object->type) || object->reserved != 0u ||
         rights == 0 || (rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return PROSENJIT_HANDLE_INVALID;
 
@@ -82,11 +103,18 @@ int handle_check(const struct pros_handle_table *table,
 
     const struct pros_handle_entry *entry = &table->entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->object->refcount == 0)
+        entry->generation == 0u || entry->reserved != 0u ||
+        entry->object->refcount == 0u ||
+        entry->object->reserved != 0u ||
+        !object_type_valid(entry->object->type) ||
+        entry->rights == 0u ||
+        (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
+        (required_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u)
         return -1;
 
     if (expected_type != PROS_OBJECT_NONE &&
-        entry->object->type != expected_type)
+        (!object_type_valid(expected_type) ||
+         entry->object->type != expected_type))
         return -1;
 
     if ((entry->rights & required_rights) != required_rights)
