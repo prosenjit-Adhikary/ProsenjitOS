@@ -181,6 +181,7 @@ Both required workflows were configured for an offline self-hosted runner and re
 
 - [x] Source-level inspection of `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_quarantine.c`, `kernel/security_monitor.c`, `kernel/security_admission.c`, `kernel/security_file.c`, `kernel/object.c`, `kernel/process.c`, `kernel/ipc.c`, `kernel/syscall.c`, `kernel/address_space.c`, `kernel/usercopy.c`, `kernel/elf_loader.c`, `kernel/vfs.c`, `kernel/prosenjitfs.c`, `kernel/linker.ld`, and associated headers.
 - [x] Applied fixes on `security/hardening-audit-20261012`.
+- [x] Manually evaluated all 14 document-marker assertions from the security-design workflow against the branch's `SECURITY-MALWARE.md` and `ROADMAP.md`; every marker is present. This is a source-content check, not a substitute for a successful CI job.
 - [ ] Clean `./scripts/build.sh clean` / full `-Wall -Wextra -Werror` build (hosted job failed before steps; no compiler output available).
 - [ ] QEMU ISO boot and complete startup self-test chain (not executed by CI yet).
 - [ ] Confirm the quarantine failure `-11501` is gone.
