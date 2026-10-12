@@ -221,6 +221,30 @@ int pros_security_hardening_selftest(void)
         allocation_object.refcount != 1u)
         return -21;
 
+    /*
+     * Object reference-count operations must reject corrupted metadata without
+     * changing either the object or a live capability-table entry.
+     */
+    handle_table_init(&malformed_table);
+    uint64_t object_handle = handle_alloc(&malformed_table,
+                                          &allocation_object,
+                                          PROSENJIT_CAP_READ);
+    if (object_handle == PROSENJIT_HANDLE_INVALID ||
+        allocation_object.refcount != 2u)
+        return -22;
+    allocation_object.reserved = 1u;
+    if (object_retain(&allocation_object) == 0 ||
+        object_release(&allocation_object) == 0 ||
+        handle_close(&malformed_table, object_handle) == 0 ||
+        malformed_table.entries[object_handle & 0xFFu].object !=
+            &allocation_object ||
+        allocation_object.refcount != 2u)
+        return -23;
+    allocation_object.reserved = 0u;
+    if (handle_close(&malformed_table, object_handle) != 0 ||
+        allocation_object.refcount != 1u)
+        return -24;
+
     process.object.type = PROS_OBJECT_PROCESS;
     process.object.refcount = 1;
     process.pid = 1;
