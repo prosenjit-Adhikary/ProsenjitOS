@@ -523,10 +523,16 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     const char *cursor;
     char component[PROS_VFS_NAME_MAX + 1u];
     uint32_t components = 0;
+    uint32_t path_length = 0u;
 
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+    while (path_length <= PROS_VFS_PATH_MAX &&
+           path[path_length] != '\0')
+        ++path_length;
+    if (path_length > PROS_VFS_PATH_MAX)
+        return PROS_VFS_EOVERFLOW;
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
@@ -1185,6 +1191,15 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -1;
 
+    {
+        char overlong_path[PROS_VFS_PATH_MAX + 2u];
+        for (uint32_t i = 0u; i <= PROS_VFS_PATH_MAX; ++i)
+            overlong_path[i] = 'a';
+        overlong_path[PROS_VFS_PATH_MAX + 1u] = '\0';
+        if (vfs_path_lookup(&mount, overlong_path, &found) !=
+            PROS_VFS_EOVERFLOW)
+            return -2;
+    }
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
         return -1;
