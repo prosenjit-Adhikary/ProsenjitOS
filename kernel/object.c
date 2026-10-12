@@ -44,6 +44,7 @@ void object_init(struct pros_object *object, uint16_t type) {
     object->type = PROS_OBJECT_NONE;
     object->reserved = 0u;
     object->refcount = 0u;
+    object->handle_refs = 0u;
     if (!object_type_valid(type))
         return;
     object->type = type;
@@ -53,6 +54,7 @@ void object_init(struct pros_object *object, uint16_t type) {
 int object_retain(struct pros_object *object) {
     if (!object || !object_type_valid(object->type) ||
         object->reserved != 0u || object->refcount == 0u ||
+        object->handle_refs > object->refcount ||
         object->refcount == UINT32_MAX)
         return -1;
     ++object->refcount;
@@ -61,7 +63,8 @@ int object_retain(struct pros_object *object) {
 
 int object_release(struct pros_object *object) {
     if (!object || !object_type_valid(object->type) ||
-        object->reserved != 0u || object->refcount == 0u)
+        object->reserved != 0u || object->refcount == 0u ||
+        object->handle_refs >= object->refcount)
         return -1;
     --object->refcount;
     if (object->refcount == 0u) object->type = PROS_OBJECT_NONE;
@@ -84,7 +87,8 @@ static int handle_table_object_aliases_valid(
 {
     uint32_t aliases = 0u;
     if (!table || !object || !object_type_valid(object->type) ||
-        object->reserved != 0u || object->refcount == 0u)
+        object->reserved != 0u || object->refcount == 0u ||
+        object->handle_refs > object->refcount)
         return 0;
 
     for (uint32_t i = 1u; i < PROSENJIT_HANDLE_MAX; ++i) {
@@ -98,7 +102,7 @@ static int handle_table_object_aliases_valid(
             return 0;
         ++aliases;
     }
-    return object->refcount >= aliases;
+    return object->handle_refs >= aliases;
 }
 
 uint64_t handle_alloc(struct pros_handle_table *table,
@@ -107,6 +111,7 @@ uint64_t handle_alloc(struct pros_handle_table *table,
     if (!table || !object || object->refcount == 0 ||
         !object_type_valid(object->type) || object->reserved != 0u ||
         rights == 0 || (rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0 ||
+        object->handle_refs == UINT32_MAX ||
         !handle_table_object_aliases_valid(table, object))
         return PROSENJIT_HANDLE_INVALID;
 
@@ -116,6 +121,7 @@ uint64_t handle_alloc(struct pros_handle_table *table,
             entry->generation != UINT16_MAX && entry->reserved == 0u &&
             entry->rights == 0u) {
             if (object_retain(object) != 0) return PROSENJIT_HANDLE_INVALID;
+            ++object->handle_refs;
             entry->object = object;
             entry->rights = rights;
             return make_handle(i, entry->generation);
@@ -189,7 +195,8 @@ int handle_table_close_all(struct pros_handle_table *table) {
             (entry->rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
             !object_type_valid(entry->object->type) ||
             entry->object->reserved != 0u ||
-            entry->object->refcount == 0u)
+            entry->object->refcount == 0u ||
+            entry->object->handle_refs > entry->object->refcount)
             return -1;
 
         /* Ensure aliased entries cannot exhaust one shared refcount mid-loop. */
@@ -197,7 +204,7 @@ int handle_table_close_all(struct pros_handle_table *table) {
         for (uint32_t j = 1u; j < PROSENJIT_HANDLE_MAX; ++j)
             if (table->entries[j].object == entry->object)
                 ++references;
-        if (entry->object->refcount < references)
+        if (entry->object->handle_refs < references)
             return -1;
     }
 
@@ -240,8 +247,14 @@ int handle_close(struct pros_handle_table *table, uint64_t handle) {
         return -1;
 
     struct pros_object *object = entry->object;
+    struct pros_object *object = entry->object;
+    if (object->handle_refs == 0u ||
+        object->handle_refs > object->refcount ||
+        !handle_table_object_aliases_valid(table, object))
+        return -1;
     entry->object = 0;
     entry->rights = 0;
+    --object->handle_refs;
     /*
      * Never wrap a handle generation. A wrapped generation would allow a
      * very old stale handle value to become valid again after enough reuse.
