@@ -219,5 +219,9 @@ int main(void){
     fixture(b,sizeof b,0);
     w32(b+0x98+136,0x1010);w32(b+0x98+140,4u); /* truncated block header */
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 70;
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010);w32(b+0x98+140,10u);
+    w32(b+0x210,0x1000);w32(b+0x214,10u); /* block must be 4-byte aligned */
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EFORMAT)return 71;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
