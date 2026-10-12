@@ -10,7 +10,7 @@ Branch: `security/hardening-audit-20261012`
 - Made `security_authorize()` fail closed until kernel hardening is ready.
 - Validate intent object types against the defined ABI object set at creation and authorization; reject undefined rights bits.
 - Validate process lifecycle and quarantine-state invariants; initialize reserved process bytes and add a process regression check.
-- Prevent generic process state changes from moving a `ZOMBIE` process back to an active state; added a regression assertion before `process_wait()`.
+- Restrict `process_set_state()` to scheduler-visible states (`NEW` through `BLOCKED`): terminal `ZOMBIE`/`DEAD` transitions are lifecycle-owned. This prevents both fabricated zombies (without thread teardown) and zombie resurrection; added regression assertions and adjusted the execution-admission test fixture.
 - Harden `security_quarantine()` and `security_clear_quarantine()` against inconsistent quarantine flags and corrupted restore-state metadata. Invalid previous-state values now fail without clearing containment or writing an arbitrary process state; added a regression test for a corrupted restore state.
 - Reject corrupted reserved metadata in IPC objects.
 - Saturate hardening violation/generation counters rather than allowing wraparound; preserve violation counts across reinitialization instead of erasing earlier fail-closed events.
