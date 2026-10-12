@@ -504,7 +504,8 @@ int prosenjitfs_probe(struct pros_block_device *device)
         kfree(block);
         return PROSENJITFS_EIO;
     }
-    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
+    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK &&
+        sb.total_blocks <= device->sector_count) {
         kfree(block);
         return PROSENJITFS_OK;
     }
@@ -512,7 +513,8 @@ int prosenjitfs_probe(struct pros_block_device *device)
         kfree(block);
         return PROSENJITFS_EIO;
     }
-    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
+    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK &&
+        sb.total_blocks <= device->sector_count) {
         kfree(block);
         return PROSENJITFS_OK;
     }
