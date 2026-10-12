@@ -171,35 +171,42 @@ When `security_authorize()` detected that hardening was not ready or a live proc
 
 **Fix:** add a fail-closed containment fallback for scheduler-visible process states. On a hardening/invariant failure, canonicalize the quarantine marker, clear any untrusted restore target, and force `BLOCKED` before returning the denial. Added startup regression tests for corrupted security-reserved bytes and invalid object-reserved metadata; clearing the repaired quarantine does not resume the process. The fixture runs under a narrowly scoped self-test mode and asserts the global violation counter is unchanged.
 
-### 25. Process hardening skipped malformed free capability slots
+### 25. Process hardening did not verify aliased capability reference counts
+**Severity: High (object lifetime integrity).**
+
+The process invariant checker verified that each live handle pointed to a live object, but did not ensure that an object referenced by multiple slots held at least that many references. An under-counted object could reach zero and become `PROS_OBJECT_NONE` while another live handle still referenced it.
+
+**Fix:** count each object's aliases in the process handle table and reject an invariant violation when its refcount is smaller than the number of live slots. Added a regression fixture with two aliased entries and an insufficient refcount.
+
+### 27. Process hardening skipped malformed free capability slots
 **Severity: Medium (capability-table integrity).**
 
 The runtime process invariant checker skipped every empty handle slot, allowing malformed free-slot metadata to evade the hardening gate.
 
 **Fix:** validate empty slots for nonzero generation, zero reserved metadata, and zero rights. Preserve `UINT16_MAX` as a valid retired empty slot and validate slot zero's canonical empty state.
 
-### 26. Kernel data hardening boundary could be unaligned
+### 27. Kernel data hardening boundary could be unaligned
 **Severity: High (boot hardening gate).**
 
 `pros_security_hardening_init()` requires every linker-provided protection range to have page-aligned start and end addresses. `__kernel_data_end` was set to the raw end of `.data`, which is not guaranteed to be page-aligned.
 
 **Fix:** define `__kernel_data_end = ALIGN(4K)` so the data protection range covers complete pages and satisfies the range validator.
 
-### 27. Execution admission could bypass an existing process quarantine
+### 28. Execution admission could bypass an existing process quarantine
 **Severity: High (execution boundary).**
 
 `pros_security_exec_admit()` returned ALLOW based only on the file's admission record. A process already marked quarantined could therefore receive an ALLOW result for a trusted file, and invalid process-object metadata caused an early denial without containing an otherwise READY process.
 
 **Fix:** execution admission rejects non-scheduler-visible states, returns BLOCK for a pre-existing quarantine regardless of file trust, and canonicalizes containment for a scheduler-visible process whose object metadata is invalid. Added regression cases for both. It also canonicalizes malformed quarantine flags/restore-state metadata to BLOCKED, with a regression test ensuring a READY process cannot remain runnable with corrupt quarantine state.
 
-### 28. ELF loader trusted raw lifecycle state without validating process identity
+### 29. ELF loader trusted raw lifecycle state without validating process identity
 **Severity: High (user-image mapping boundary).**
 
 `pros_elf_load()` checked raw `state` for ZOMBIE/DEAD but did not verify that the process object itself was valid. A READY/NEW process with corrupt object type/reserved metadata or PID zero could reach image validation and mapping logic.
 
 **Fix:** reject PID zero and require `process_state()` to recognize a live process object before mapping; add a regression case proving corrupt object metadata is rejected without creating the code mapping.
 
-### 29. Source cleanup
+### 30. Source cleanup
 Removed a duplicate `ed25519_scalar.h` include from `kernel/intent.c`.
 
 ### CI runner availability
