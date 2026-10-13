@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for tool in nasm grub-file grub-mkrescue xorriso mformat gcc ld qemu-system-x86_64 python3 timeout; do
+          for tool in nasm grub-file grub-mkrescue xorriso mformat gcc ld objcopy qemu-system-x86_64 python3 timeout; do
             if command -v "$tool" >/dev/null 2>&1; then
               echo "OK: $tool"
             else
