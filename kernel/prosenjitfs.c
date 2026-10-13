@@ -7483,7 +7483,8 @@ int prosenjitfs_selftest(void)
      * journal on a minimum-size filesystem, then verifies recovery/reuse.
      */
     {
-        struct pfs_test_disk small_disk;
+        /* The simulated disk is 512 KiB; keep it out of the 128 KiB kernel stack. */
+        static struct pfs_test_disk small_disk;
         struct pros_block_device small_device;
         struct pros_prosenjitfs small_fs;
         uint64_t block;
