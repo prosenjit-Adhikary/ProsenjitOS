@@ -797,10 +797,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         int prosenjitfs_rc = prosenjitfs_selftest();
         if (prosenjitfs_rc != PROSENJITFS_OK) {
             uint32_t mkdir_stage = 0u, tx_stage = 0u, tx_count = 0u;
-            uint32_t selftest_stage = 0u;
+            uint32_t selftest_stage = 0u, create_stage = 0u;
             uint32_t tx_count_before_clear = 0u, tx_count_after_clear = 0u;
             int mkdir_rc = PROSENJITFS_OK;
             int selftest_diag_rc = PROSENJITFS_OK;
+            int create_diag_rc = PROSENJITFS_OK;
             int tx_clear_rc = PROSENJITFS_OK;
             (void)prosenjitfs_mkdir_diag_get(&mkdir_stage, &mkdir_rc,
                                              &tx_stage, &tx_count);
@@ -809,6 +810,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                           &tx_count_after_clear,
                                           &tx_clear_rc);
             prosenjitfs_selftest_diag_get(&selftest_stage, &selftest_diag_rc);
+            prosenjitfs_create_diag_get(&create_stage, &create_diag_rc);
             serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed rc=");
             serial_hex64((uint64_t)(int64_t)prosenjitfs_rc);
             serial_write(" selftest_stage=");
@@ -819,6 +821,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_hex64(mkdir_stage);
             serial_write(" mkdir_rc=");
             serial_hex64((uint64_t)(int64_t)mkdir_rc);
+            serial_write(" create_stage=");
+            serial_hex64(create_stage);
+            serial_write(" create_rc=");
+            serial_hex64((uint64_t)(int64_t)create_diag_rc);
             serial_write(" tx_stage=");
             serial_hex64(tx_stage);
             serial_write(" tx_count=");
