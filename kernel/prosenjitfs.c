@@ -6156,7 +6156,7 @@ int prosenjitfs_selftest(void)
      * Sparse + delayed-allocation cross-regression: create a high logical
      * extent first, then fill a lower hole and finally write the immediately
      * following logical block. The lower two blocks must coalesce without
-     * disturbing the higher extent or over-counting allocated_bytes.
+     * disturbing the higher extent or under- or over-counting allocated_bytes.
      */
     {
         struct pros_vfs_file file;
@@ -6201,7 +6201,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
             cross_inode.size != (high_block * bs) + 1u ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             cross_inode.extent_head == 0u)
             return pfs_selftest_fail(__LINE__, -14);
 
@@ -6238,7 +6238,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
                 PROSENJITFS_OK ||
             first_extent.logical_block != low_block ||
