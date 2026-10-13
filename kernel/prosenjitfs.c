@@ -5400,15 +5400,19 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (!allocated) {
             if (rc != PROSENJITFS_ENOENT) {
+                pfs_consistency_diag_stage =
+                    inode_number <= (UINT32_MAX - 20009u) / 10u
+                        ? 20000u + (uint32_t)inode_number * 10u + 5u : 25u;
                 rc = PROSENJITFS_ECORRUPT;
                 goto consistency_out;
             }
             continue;
         }
         if (rc == PROSENJITFS_ENOENT) {
-            /* After mount/recovery an allocated inode must have a valid
-             * on-disk inode image. Reservation is an in-memory transaction
-             * concern and must never survive as an apparently clean state. */
+            /* An allocated inode must have a valid on-disk inode image. */
+            pfs_consistency_diag_stage =
+                inode_number <= (UINT32_MAX - 20009u) / 10u
+                    ? 20000u + (uint32_t)inode_number * 10u + 6u : 26u;
             rc = PROSENJITFS_ECORRUPT;
             goto consistency_out;
         }
