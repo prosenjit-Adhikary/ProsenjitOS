@@ -16,7 +16,7 @@ Working branch: `work/desktop-integration-gate-fix`
 ### Blocking gaps
 
 - `user/` contains a README but no actual C/assembly userspace program or desktop/session launcher source.
-- The input ABI declaration does not establish a working keyboard/mouse driver, event queue, or userspace input syscall.
+- `kernel/input.c` now polls the legacy PS/2 controller with a bounded budget, decodes set-1 keyboard make/break events, queues them in a bounded FIFO, and exposes one event through permission-checked `PROSENJIT_SYS_INPUT_POLL` with user-buffer validation/copy. The boot self-test covers scan-code decoding and FIFO ordering. This is keyboard-only polling, not mouse support or a complete desktop input stack.
 - The display backend's mock self-test does not establish a real hardware/framebuffer backend or a userspace graphics interface.
 - A kernel ELF loader and a kernel service manager do not establish a booted userspace init process or a running service/session lifecycle.
 - No working Xorg/Wayland port, XFCE session, required POSIX/system-call/library compatibility, or GUI application launch has been demonstrated.
@@ -37,7 +37,7 @@ Working branch: `work/desktop-integration-gate-fix`
 ## Required next implementation milestones
 
 1. Implement and test a real kernel display device/backend and bounded userspace presentation interface.
-2. Implement keyboard/mouse drivers, an input event queue, and a permission-checked userspace event interface.
+2. Extend input from legacy PS/2 keyboard polling to robust IRQ-driven keyboard and mouse support, then add a real userspace consumer.
 3. Complete executable userspace startup and service lifecycle, including a minimal test program that can run from the filesystem.
 4. Add the OS compatibility prerequisites and build/port path for an existing userspace window system.
 5. Bring up XFCE and verify input, rendering, app launch, session shutdown/restart, and QEMU/local regression.
