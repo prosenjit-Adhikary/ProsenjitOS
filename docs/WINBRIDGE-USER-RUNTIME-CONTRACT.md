@@ -116,7 +116,7 @@ Use Microsoft's official deployment documentation and content endpoints. Keep Cu
 
 ## Current verified status
 
-- The repository has a kernel-side PE **metadata inspector**, not a user-space PE loader.
-- The PE-inspection hardening work is isolated in draft PR #122; its host-test script was added but has not been run in this session.
-- This contract is documentation only. Loader, DLL resolver, WinAPI runtime, installer manager, desktop integration and Office support remain unimplemented/unverified unless separate source and runtime evidence is recorded.
+- The repository has a kernel-side PE **metadata inspector** and a separate user-space PE metadata parser under `user/winbridge/`; neither is a PE executable loader.
+- The original user-space parser-only synthetic host test passed with C11, `-Wall -Wextra -Werror -O2` in the development workspace before import-reader additions. The current branch now includes import-reader regressions for PE32 and PE32+ (including malformed PE32+ ordinal flags), but these latest tests have **not** been executed. Run both `sh user/winbridge/test-pe-image.sh` and `sh user/winbridge/test-pe-image-sanitize.sh` from the checked-out PR branch before claiming the current branch is verified. This is not kernel integration, fuzzing, or runtime verification.
+- Image mapping, relocations, import walking, DLL resolver, WinAPI runtime, installer manager, desktop integration and Office support remain unimplemented/unverified unless separate source and runtime evidence is recorded.
 - Kernel/process/syscall/VFS/security/user-mode prerequisites remain a gating dependency. Do not mark the runtime milestone complete until the repository build, host tests, integration tests and native runtime tests pass.
