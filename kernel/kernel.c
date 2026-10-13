@@ -896,9 +896,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: keyboard input decoder/ring self-test passed\\n");
 
-    if (pros_net_selftest() != PROS_NET_OK) {
-        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int network_selftest_rc = pros_net_selftest();
+        if (network_selftest_rc != PROS_NET_OK) {
+            serial_write("ProsenjitOS: ERROR network protocol/socket self-test rc = ");
+            serial_hex64((uint64_t)(int64_t)network_selftest_rc);
+            serial_write("\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: network protocol/socket self-test passed\\n");
 
