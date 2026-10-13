@@ -254,6 +254,11 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("ProsenjitOS: exception RIP = ");
     serial_hex64(frame[2]);
     serial_write("\n");
+    serial_write("ProsenjitOS: exception CS = ");
+    serial_hex64(frame[3]);
+    serial_write(" RFLAGS = ");
+    serial_hex64(frame[4]);
+    serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
     if (vector != 128 && !usercopy_fault_active()) {
