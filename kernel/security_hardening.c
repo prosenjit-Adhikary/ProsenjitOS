@@ -157,8 +157,13 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) == 0)
         return -3;
 
+    /*
+     * Keep this limited process within its privilege ceiling while testing
+     * handle validation; otherwise the earlier admin-capability check masks
+     * the intended handle-table assertions.
+     */
     process.capability_policy =
-        PROSENJIT_CAP_RIGHTS_ALL;
+        PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[1].object = &process.object;
