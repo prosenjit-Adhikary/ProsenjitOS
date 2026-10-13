@@ -129,6 +129,8 @@ static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
 static uint32_t pfs_create_diag_stage;
 static int pfs_create_diag_rc;
+static uint32_t pfs_create_diag_stage;
+static int pfs_create_diag_rc;
 static uint32_t pfs_tx_diag_stage;
 static uint32_t pfs_tx_diag_count;
 static uint32_t pfs_tx_diag_count_before_clear;
@@ -165,6 +167,14 @@ void prosenjitfs_write_diag_reset(void)
     pfs_tx_diag_count_before_clear = 0u;
     pfs_tx_diag_count_after_clear = 0u;
     pfs_tx_diag_clear_rc = PROSENJITFS_OK;
+}
+
+int prosenjitfs_create_diag_get(uint32_t *stage, int *rc)
+{
+    if (!stage || !rc) return PROSENJITFS_EINVAL;
+    *stage = pfs_create_diag_stage;
+    *rc = pfs_create_diag_rc;
+    return PROSENJITFS_OK;
 }
 
 int prosenjitfs_mkdir_diag_get(uint32_t *mkdir_stage, int *mkdir_rc,
@@ -3029,9 +3039,11 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         if (inode_block) kfree(inode_block);
         pfs_create_diag_stage = 13u;
         pfs_create_diag_rc = PROS_VFS_EIO;
+        pfs_create_diag_stage = 11u; pfs_create_diag_rc = PROS_VFS_EIO;
         return PROS_VFS_EIO;
     }
 
+    pfs_create_diag_stage = 12u;
     rc = pfs_read_block(data->fs->mount.device, parent_inode.dir_index, dir_block);
     if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
@@ -3039,6 +3051,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         pfs_create_diag_rc = pfs_vfs_error(rc);
         return pfs_create_diag_rc;
     }
+    pfs_create_diag_stage = 13u;
     rc = pfs_read_block(data->fs->mount.device, entry_lba, entry_block);
     if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
@@ -3102,6 +3115,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         }
     }
     inode_offset = (uint32_t)(byte_offset % data->fs->sb.block_size);
+    pfs_create_diag_stage = 14u;
     rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
     if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
@@ -3117,6 +3131,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                                   (uint32_t)offsetof(
                                       struct pros_prosenjitfs_inode, checksum)));
 
+    pfs_create_diag_stage = 15u;
     rc = pfs_tx_reset(data->fs);
     if (rc == PROSENJITFS_OK)
         rc = pfs_inode_bitmap_stage(data->fs, inode_number, 1u);
