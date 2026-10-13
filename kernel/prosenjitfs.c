@@ -7378,19 +7378,33 @@ int prosenjitfs_selftest(void)
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
-            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
-                vfs_file_close(&file) != PROS_VFS_OK ||
+            {
+                int op_rc = vfs_file_truncate(&file, 0u);
+                if (op_rc != PROS_VFS_EOVERFLOW)
+                    return pfs_selftest_fail(0xF401u, op_rc);
+                op_rc = vfs_file_close(&file);
+                if (op_rc != PROS_VFS_OK)
+                    return pfs_selftest_fail(0xF402u, op_rc);
                 /*
                  * Closing drops the vnode reference and may release
                  * file_data. Use the inode number captured before close,
                  * never dereference the private-data pointer afterwards.
                  */
-                prosenjitfs_read_inode(&fs, inode_number,
-                                       &before_inode) != PROSENJITFS_OK ||
-                before_inode.size != before_size ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
-                vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
-                return pfs_selftest_fail(__LINE__, -15);
+                op_rc = prosenjitfs_read_inode(&fs, inode_number, &before_inode);
+                if (op_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(0xF403u, op_rc);
+                if (before_inode.size != before_size)
+                    return pfs_selftest_fail(0xF404u, -15);
+                op_rc = pfs_selftest_consistency(&fs);
+                if (op_rc != PROSENJITFS_OK)
+                    return pfs_selftest_fail(
+                        0x80000000u |
+                            (pfs_consistency_diag_stage & 0x7fffffffu),
+                        op_rc);
+                op_rc = vfs_unlink(&fs.mount, "/truncate-bound.bin");
+                if (op_rc != PROS_VFS_OK)
+                    return pfs_selftest_fail(0xF406u, op_rc);
+            }
         }
 
         /*
