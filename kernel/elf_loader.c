@@ -262,6 +262,9 @@ int pros_elf_selftest(void)
     eh->phnum = 2;
     ph[1] = ph[0];
     ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
+    /* Keep the second segment file-backed and page-congruent so the
+     * intended overlap rejection is reached before unrelated validation. */
+    ph[1].offset = 0x800ULL;
     ph[1].align = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
