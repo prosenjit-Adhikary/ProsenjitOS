@@ -7276,26 +7276,34 @@ int prosenjitfs_selftest(void)
             uint8_t block[512];
             struct pros_prosenjitfs_extent invalid_extent;
             if (pfs_lba_add(&device, device.sector_count - 1u, 0u, &lba) !=
-                    PROSENJITFS_OK ||
-                pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
-                    PROSENJITFS_EINVAL ||
-                pfs_lba_add(&device, 1u, UINT64_MAX, &lba) !=
-                    PROSENJITFS_EOVERFLOW ||
-                pfs_read_block(&device, device.sector_count, block) !=
-                    PROSENJITFS_EINVAL ||
-                pfs_write_block(&device, device.sector_count, block) !=
-                    PROSENJITFS_EINVAL ||
-                pfs_inode_block_location(&fs, fs.sb.inode_count,
-                                          &lba, (uint32_t *)&done) !=
-                    PROSENJITFS_EINVAL ||
-                pfs_inode_block_location(&fs, UINT64_MAX, &lba,
-                                          (uint32_t *)&done) !=
-                    PROSENJITFS_EINVAL ||
-                prosenjitfs_read_inode(&fs, fs.sb.inode_count, &inode) !=
-                    PROSENJITFS_EINVAL ||
-                pfs_read_extent(&fs, fs.sb.total_blocks, &invalid_extent) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -151);
+            if (pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
+                    PROSENJITFS_EINVAL)
+                return pfs_selftest_fail(__LINE__, -152);
+            if (pfs_lba_add(&device, 1u, UINT64_MAX, &lba) !=
+                    PROSENJITFS_EOVERFLOW)
+                return pfs_selftest_fail(__LINE__, -153);
+            if (pfs_read_block(&device, device.sector_count, block) !=
+                    PROSENJITFS_EINVAL)
+                return pfs_selftest_fail(__LINE__, -154);
+            if (pfs_write_block(&device, device.sector_count, block) !=
+                    PROSENJITFS_EINVAL)
+                return pfs_selftest_fail(__LINE__, -155);
+            if (pfs_inode_block_location(&fs, fs.sb.inode_count,
+                                         &lba, (uint32_t *)&done) !=
+                    PROSENJITFS_EINVAL)
+                return pfs_selftest_fail(__LINE__, -156);
+            if (pfs_inode_block_location(&fs, UINT64_MAX, &lba,
+                                         (uint32_t *)&done) !=
+                    PROSENJITFS_EINVAL)
+                return pfs_selftest_fail(__LINE__, -157);
+            if (prosenjitfs_read_inode(&fs, fs.sb.inode_count, &inode) !=
+                    PROSENJITFS_EINVAL)
+                return pfs_selftest_fail(__LINE__, -158);
+            if (pfs_read_extent(&fs, fs.sb.total_blocks, &invalid_extent) !=
                     PROSENJITFS_ECORRUPT)
-                return pfs_selftest_fail(__LINE__, -15);
+                return pfs_selftest_fail(__LINE__, -159);
         }
 
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
