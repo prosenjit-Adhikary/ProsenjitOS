@@ -5799,6 +5799,7 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
+    pfs_selftest_diag_stage = 10u;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
@@ -5837,6 +5838,7 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -5);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
         return pfs_selftest_fail(__LINE__, -5);
+    pfs_selftest_diag_stage = 100u;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
@@ -5850,6 +5852,7 @@ int prosenjitfs_selftest(void)
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -5);
     }
+    pfs_selftest_diag_stage = 200u;
     {
         struct pros_vfs_file file;
         uint8_t write_data[700];
@@ -5895,6 +5898,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -6);
     }
 
+    pfs_selftest_diag_stage = 300u;
     /*
      * Mount lifecycle regression: an open handle must pin the vnode tree and
      * make unmount fail with EBUSY. After the handle closes, the same mount
@@ -5933,6 +5937,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    pfs_selftest_diag_stage = 400u;
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
@@ -6239,6 +6244,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    pfs_selftest_diag_stage = 500u;
     /*
      * Sparse + delayed-allocation cross-regression: create a high logical
      * extent first, then fill a lower hole and finally write the immediately
