@@ -6323,6 +6323,14 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -7);
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -8);
+    /*
+     * alloc_inode reserves the bitmap entry; this low-level allocator test
+     * intentionally does not create an inode record. Release that reservation
+     * so the later consistency scan does not mistake the test fixture for a
+     * leaked/corrupt on-disk inode.
+     */
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -8);
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -9);
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
