@@ -233,6 +233,16 @@ void exception_dispatch(uint64_t *frame) {
     health_last_exception_rip = frame[2];
     if (frame[0] == 14u) ++health_page_fault_count;
     uint64_t vector = frame[0];
+    if (vector != 128u) {
+        uint32_t pfs_stage = 0u;
+        int pfs_rc = PROSENJITFS_OK;
+        prosenjitfs_selftest_diag_get(&pfs_stage, &pfs_rc);
+        serial_write("ProsenjitOS: exception PFS selftest stage=");
+        serial_hex64(pfs_stage);
+        serial_write(" rc=");
+        serial_hex64((uint64_t)(int64_t)pfs_rc);
+        serial_write("\n");
+    }
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
