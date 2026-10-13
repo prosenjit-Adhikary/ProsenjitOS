@@ -1,4 +1,4 @@
-name: Desktop input integration validation
+name: Desktop input host regression
 
 on:
   push:
@@ -13,72 +13,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  desktop-input:
-    # Use the same Debian self-hosted runner as the main build workflow.
-    # ubuntu-latest failed before allocating a runner in this repository.
+  desktop-input-host:
+    # The main build workflow owns full ISO/native BIOS QEMU testing.
+    # Keep this workflow focused on the fast host-side input ABI/decoder test.
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify boot-test toolchain
+      - name: Verify host compiler
         run: |
           set -eu
-          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld objdump qemu-system-x86_64 timeout; do
-            if ! command -v "$tool" >/dev/null 2>&1; then
-              echo "::error::Missing required tool: $tool"
-              exit 1
-            fi
-          done
+          command -v gcc
+          command -v timeout
 
       - name: Host-side input ABI and FIFO regression test
         run: |
           chmod +x scripts/test_input_host.sh
           ./scripts/test_input_host.sh
-
-      - name: Build with warnings as errors
-        run: |
-          chmod +x scripts/build.sh
-          ./scripts/build.sh
-
-      - name: Boot-test GRUB ISO
-        shell: bash
-        run: |
-          set +e
-          timeout 20s qemu-system-x86_64 \
-            -cdrom build/prosenjitOS.iso \
-            -display none \
-            -serial file:build/desktop-iso-serial.log \
-            -no-reboot -no-shutdown
-          rc=$?
-          set -e
-          if (( rc != 0 && rc != 124 )); then
-            echo "::error::GRUB ISO QEMU failed with status $rc"
-            exit "$rc"
-          fi
-          cat build/desktop-iso-serial.log
-          grep -Fq "ProsenjitOS: x86-64 long mode active" build/desktop-iso-serial.log
-          grep -Fq "ProsenjitOS: keyboard input decoder/ring self-test passed" build/desktop-iso-serial.log
-          grep -Fq "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" build/desktop-iso-serial.log
-
-      - name: Boot-test native BIOS image
-        shell: bash
-        run: |
-          set +e
-          timeout 20s qemu-system-x86_64 \
-            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
-            -display none \
-            -serial file:build/desktop-native-serial.log \
-            -no-reboot -no-shutdown
-          rc=$?
-          set -e
-          if (( rc != 0 && rc != 124 )); then
-            echo "::error::Native BIOS QEMU failed with status $rc"
-            exit "$rc"
-          fi
-          cat build/desktop-native-serial.log
-          grep -Fq "ProsenjitOS: native bootloader handoff accepted" build/desktop-native-serial.log
-          grep -Fq "ProsenjitOS: keyboard input decoder/ring self-test passed" build/desktop-native-serial.log
-          grep -Fq "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" build/desktop-native-serial.log
-
