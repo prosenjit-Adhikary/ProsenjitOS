@@ -2676,6 +2676,7 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
     uint32_t bucket;
     uint64_t steps = 0u;
     int rc = PROSENJITFS_EIO;
+    int return_vfs_error = 0;
 
     if (!parent || !name || !parent->private_data ||
         parent->type != PROS_VFS_NODE_DIRECTORY)
@@ -2764,8 +2765,11 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
         if (inode_rc != PROSENJITFS_OK)
             { rc = inode_rc; goto out; }
     }
-    if (child_inode.type == PROSENJITFS_INODE_DIR)
-        { rc = PROS_VFS_EISDIR; goto out; }
+    if (child_inode.type == PROSENJITFS_INODE_DIR) {
+        rc = PROS_VFS_EISDIR;
+        return_vfs_error = 1;
+        goto out;
+    }
     if (entry.type != PROSENJITFS_INODE_FILE ||
         child_inode.parent_inode != parent_data->inode_number) {
         rc = PROSENJITFS_ECORRUPT;
@@ -2915,6 +2919,7 @@ out:
     if (inode_block) kfree(inode_block);
     if (entry_block) kfree(entry_block);
     if (rc == PROS_VFS_OK) return PROS_VFS_OK;
+    if (return_vfs_error) return rc;
     return pfs_vfs_error(rc);
 }
 
