@@ -86,6 +86,10 @@ struct pfs_write_diag {
 };
 
 static struct pfs_write_diag pfs_diag;
+/* Allocation diagnostics are referenced by the allocator before the self-test block. */
+static uint32_t pfs_alloc_inode_diag_stage;
+static uint64_t pfs_alloc_inode_diag_number;
+static int pfs_alloc_inode_diag_rc;
 
 static int pfs_vfs_error(int rc)
 {
