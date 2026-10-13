@@ -2443,7 +2443,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
     if (parent_inode.type != PROSENJITFS_INODE_DIR) {
-        rc = PROS_VFS_ENOTDIR;
+        rc = PROSENJITFS_ENOTDIR;
         goto rmdir_out;
     }
     rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
@@ -2502,7 +2502,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
         current = entry.next;
     }
     if (target_lba == 0u) { rc = PROSENJITFS_ENOENT; goto rmdir_out; }
-    if (inode_number == data->inode_number) { rc = PROS_VFS_EPERM; goto rmdir_out; }
+    if (inode_number == data->inode_number) { rc = PROSENJITFS_EPERM; goto rmdir_out; }
     if (inode_number >= data->fs->sb.inode_count) {
         rc = PROSENJITFS_ECORRUPT;
         goto rmdir_out;
@@ -2526,7 +2526,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     /* A directory is removable only when every bucket is empty. */
     {
         uint8_t *scan = (uint8_t *)kmalloc(data->fs->sb.block_size);
-        if (!scan) { rc = PROS_VFS_EIO; goto rmdir_out; }
+        if (!scan) { rc = PROSENJITFS_EIO; goto rmdir_out; }
         rc = pfs_read_dir_index(data->fs, &child_inode, &child_dir_index);
         if (rc != PROSENJITFS_OK) { kfree(scan); goto rmdir_out; }
         for (uint32_t b = 0u; b < PROSENJITFS_DIR_BUCKETS; ++b) {
@@ -2561,7 +2561,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                         rc = PROSENJITFS_ECORRUPT;
                         goto rmdir_scan_out;
                     }
-                    rc = PROS_VFS_ENOTEMPTY;
+                    rc = PROSENJITFS_ENOTEMPTY;
                     goto rmdir_scan_out;
                 }
 rmdir_scan_out:
