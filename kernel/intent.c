@@ -215,6 +215,12 @@ int security_is_quarantined(const struct pros_process *process) {
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
 
+    /*
+     * process_state() treats an uninitialized object as DEAD. This test
+     * exercises quarantine state transitions without allocating an address
+     * space, so initialize the process object's lifetime metadata directly.
+     */
+    object_init(&process.object, PROS_OBJECT_PROCESS);
     process.state = PROS_PROCESS_READY;
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
