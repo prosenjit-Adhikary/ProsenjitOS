@@ -37,7 +37,7 @@ jobs:
           nm -n build/prosenjit.elf | grep block_device_init || true
           nm -n build/prosenjit.elf | grep prosenjitfs_selftest || true
           echo "===== ProsenjitFS self-test call-site disassembly ====="
-          objdump -d --disassemble=prosenjitfs_selftest build/prosenjit.elf | grep -B 12 -A 8 block_device_init || true
+          objdump -d --disassemble=prosenjitfs_selftest build/prosenjit.elf | grep -B 60 -A 12 block_device_init || true
 
       - name: Boot-test ISO in QEMU
         run: |
