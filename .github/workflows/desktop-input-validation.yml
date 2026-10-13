@@ -27,6 +27,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
 
+      - name: Host-side input ABI and FIFO regression test
+        run: |
+          chmod +x scripts/test_input_host.sh
+          ./scripts/test_input_host.sh
+
       - name: Build with warnings as errors
         run: |
           chmod +x scripts/build.sh
