@@ -13,6 +13,8 @@ extern char ist1_stack_bottom[];
 extern char ist1_stack_top[];
 extern char ist2_stack_bottom[];
 extern char ist2_stack_top[];
+extern char ist3_stack_bottom[];
+extern char ist3_stack_top[];
 
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
@@ -293,12 +295,16 @@ int paging_init(void) {
     uint64_t ist1_end = (uint64_t)(uintptr_t)ist1_stack_top;
     uint64_t ist2_start = (uint64_t)(uintptr_t)ist2_stack_bottom;
     uint64_t ist2_end = (uint64_t)(uintptr_t)ist2_stack_top;
+    uint64_t ist3_start = (uint64_t)(uintptr_t)ist3_stack_bottom;
+    uint64_t ist3_end = (uint64_t)(uintptr_t)ist3_stack_top;
 
     if (map_identity_range(stack_start, stack_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         map_identity_range(ist1_start, ist1_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         map_identity_range(ist2_start, ist2_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        map_identity_range(ist3_start, ist3_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
         return -1;
 
@@ -311,10 +317,11 @@ int paging_init(void) {
     }
 
     if (stack_end <= stack_start || ist1_end <= ist1_start ||
-        ist2_end <= ist2_start ||
+        ist2_end <= ist2_start || ist3_end <= ist3_start ||
         paging_translate(stack_end - 1u) == 0 ||
         paging_translate(ist1_end - 1u) == 0 ||
-        paging_translate(ist2_end - 1u) == 0) {
+        paging_translate(ist2_end - 1u) == 0 ||
+        paging_translate(ist3_end - 1u) == 0) {
         paging_unmap_page(PROSENJIT_KERNEL_TEST_VA);
         physical_page_free(test_page);
         return -1;
