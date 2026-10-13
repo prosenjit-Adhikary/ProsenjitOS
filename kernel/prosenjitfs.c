@@ -7501,7 +7501,7 @@ int prosenjitfs_selftest(void)
         /* The simulated disk is 512 KiB; keep it out of the 128 KiB kernel stack. */
         static struct pfs_test_disk small_disk;
         struct pros_block_device small_device;
-        struct pros_prosenjitfs small_fs;
+        struct pros_prosenjitfs small_fs = { 0 };
         uint64_t block;
         uint64_t first_reused = 0u;
         uint32_t allocated = 0u;
