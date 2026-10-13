@@ -62,6 +62,7 @@ jobs:
           }
 
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: keyboard input decoder/ring self-test passed"
           require_log "ProsenjitOS: x86-64 long mode active"
           require_log "ProsenjitOS: page allocation/free test passed"
           require_log "ProsenjitOS: kernel heap allocation/free test passed"
@@ -135,6 +136,7 @@ jobs:
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
           require_native_log "ProsenjitOS: block storage health self-test passed"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_native_log "ProsenjitOS: keyboard input decoder/ring self-test passed"
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
