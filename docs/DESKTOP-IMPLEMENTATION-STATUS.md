@@ -37,7 +37,7 @@ Working branch: `work/desktop-integration-gate-fix`
 - Source inspection completed for the desktop plan, user-mode README, display ABI/backend, input ABI, init/service manager, Makefile, build script, and build workflow.
 - The new input module was separately compiled with `-Wall -Wextra -Werror` in an isolated local harness, and its decoder/FIFO self-test returned `0` (pass). This does not replace compiling the exact integrated kernel image or booting it under QEMU.
 - The desktop gate script and kernel input changes are committed on this branch, but they have **not** been executed on the user's Debian host in this session.
-- The latest self-hosted build/security workflow runs remain queued. The new GitHub-hosted validation jobs fail before any step starts; the job API reports `runner_id: 0`, an empty runner name, and no steps. This is runner/workflow execution infrastructure failure, not evidence of a source compilation failure. No build or QEMU test actually ran, so no build, keyboard runtime, display, or GUI pass is claimed.
+- The self-hosted `office` runner has executed the integrated build and QEMU ISO test. The integrated ISO build passed on the preceding commit, but QEMU stopped at the ELF loader self-test with return `-8` (`PROS_ELF_ECONFLICT`) before the CPL3 milestone. The overlap-test fixture was corrected in commit `7dea3459672d242df53cb360ff8b4db68331aa95`; the follow-up run was queued at last inspection, so the fix is not yet runtime-verified. The native BIOS QEMU stage was skipped after the ISO assertion failed. No desktop GUI or display pass is claimed.
 
 ## Required next implementation milestones
 
@@ -47,3 +47,10 @@ Working branch: `work/desktop-integration-gate-fix`
 4. Add the OS compatibility prerequisites and build/port path for an existing userspace window system.
 5. Bring up XFCE and verify input, rendering, app launch, session shutdown/restart, and QEMU/local regression.
 6. Update this log with command output and test evidence at each milestone. Do not mark the desktop complete based on documentation, symbol searches, mock backends, or kernel boot alone.
+
+
+## 2026-10-13 CI follow-up
+- Corrected the ELF overlapping-segment self-test fixture to ensure its file offset and virtual address are congruent modulo the page size, while preserving the intended overlapping virtual ranges.
+- Removed artifact-upload steps from the build and desktop-input validation workflows after GitHub reported the Actions artifact storage quota was exhausted.
+- Adjusted workflow concurrency grouping and push triggers to reduce redundant self-hosted runner jobs.
+- Verification pending: rerun the corrected commit through ISO QEMU and native BIOS QEMU. The desktop remains incomplete until a real display backend, userspace session/application startup, and end-to-end input/rendering are implemented and tested.
