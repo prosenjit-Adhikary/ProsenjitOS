@@ -268,6 +268,7 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
     eh->phnum = 1;
+    ph[0].filesz = 0;
     ph[0].memsz = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
 
