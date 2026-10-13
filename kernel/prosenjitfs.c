@@ -127,6 +127,8 @@ static int pfs_vfs_error(int rc)
 /* Temporary mkdir regression trace: stage identifies the first failing operation. */
 static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
+static uint32_t pfs_create_diag_stage;
+static int pfs_create_diag_rc;
 static uint32_t pfs_tx_diag_stage;
 static uint32_t pfs_tx_diag_count;
 static uint32_t pfs_tx_diag_count_before_clear;
@@ -2945,40 +2947,78 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     uint32_t dir_bucket;
     int rc;
 
+    pfs_create_diag_stage = 0u;
+    pfs_create_diag_rc = PROSENJITFS_OK;
     if (!parent || !name || !result || !parent->private_data ||
-        parent->type != PROS_VFS_NODE_DIRECTORY)
+        parent->type != PROS_VFS_NODE_DIRECTORY) {
+        pfs_create_diag_stage = 1u;
+        pfs_create_diag_rc = PROS_VFS_EINVAL;
         return PROS_VFS_EINVAL;
+    }
     *result = 0;
     data = (struct pfs_vnode_data *)parent->private_data;
-    if (!data->fs || data->fs->read_only)
+    if (!data->fs || data->fs->read_only) {
+        pfs_create_diag_stage = 2u;
+        pfs_create_diag_rc = PROS_VFS_EPERM;
         return PROS_VFS_EPERM;
-    if (!parent->mount || !parent->mount->active)
+    }
+    if (!parent->mount || !parent->mount->active) {
+        pfs_create_diag_stage = 3u;
+        pfs_create_diag_rc = PROS_VFS_EPERM;
         return PROS_VFS_EPERM;
-    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
+    }
+    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK) {
+        pfs_create_diag_stage = 4u;
+        pfs_create_diag_rc = PROS_VFS_EINVAL;
         return PROS_VFS_EINVAL;
+    }
 
     { int inode_read_rc = pfs_vnode_validate_inode(data, &parent_inode);
-        if (inode_read_rc != PROSENJITFS_OK)
-            return pfs_vfs_error(inode_read_rc);
-        if (parent_inode.type != PROSENJITFS_INODE_DIR)
-            return PROS_VFS_ENOTDIR; }
+        if (inode_read_rc != PROSENJITFS_OK) {
+            pfs_create_diag_stage = 5u;
+            pfs_create_diag_rc = pfs_vfs_error(inode_read_rc);
+            return pfs_create_diag_rc;
+        }
+        if (parent_inode.type != PROSENJITFS_INODE_DIR) {
+            pfs_create_diag_stage = 6u;
+            pfs_create_diag_rc = PROS_VFS_ENOTDIR;
+            return PROS_VFS_ENOTDIR;
+        } }
     rc = pfs_find_dir_entry(data->fs, &parent_inode, name, 0);
-    if (rc == PROSENJITFS_OK)
+    if (rc == PROSENJITFS_OK) {
+        pfs_create_diag_stage = 7u;
+        pfs_create_diag_rc = PROS_VFS_EEXIST;
         return PROS_VFS_EEXIST;
-    if (rc != PROSENJITFS_ENOENT)
-        return pfs_vfs_error(rc);
+    }
+    if (rc != PROSENJITFS_ENOENT) {
+        pfs_create_diag_stage = 8u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
+    }
     { int dir_read_rc = pfs_read_dir_index(data->fs, &parent_inode, &dir_index);
-        if (dir_read_rc != PROSENJITFS_OK)
-            return pfs_vfs_error(dir_read_rc); }
+        if (dir_read_rc != PROSENJITFS_OK) {
+            pfs_create_diag_stage = 9u;
+            pfs_create_diag_rc = pfs_vfs_error(dir_read_rc);
+            return pfs_create_diag_rc;
+        } }
     rc = pfs_find_free_inode(data->fs, &inode_number);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
+    if (rc != PROSENJITFS_OK) {
+        pfs_create_diag_stage = 10u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
+    }
     rc = pfs_allocate_generation(data->fs, inode_number, &child_generation);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
+    if (rc != PROSENJITFS_OK) {
+        pfs_create_diag_stage = 11u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
+    }
     rc = pfs_find_free_data_block(data->fs, &entry_lba);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
+    if (rc != PROSENJITFS_OK) {
+        pfs_create_diag_stage = 12u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
+    }
 
     dir_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
@@ -2987,18 +3027,24 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         if (dir_block) kfree(dir_block);
         if (entry_block) kfree(entry_block);
         if (inode_block) kfree(inode_block);
+        pfs_create_diag_stage = 13u;
+        pfs_create_diag_rc = PROS_VFS_EIO;
         return PROS_VFS_EIO;
     }
 
     rc = pfs_read_block(data->fs->mount.device, parent_inode.dir_index, dir_block);
     if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
-        return pfs_vfs_error(rc);
+        pfs_create_diag_stage = 14u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
     }
     rc = pfs_read_block(data->fs->mount.device, entry_lba, entry_block);
     if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
-        return pfs_vfs_error(rc);
+        pfs_create_diag_stage = 15u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
     }
     pfs_zero(entry_block, data->fs->sb.block_size);
     pfs_zero(&dir_entry, sizeof(dir_entry));
@@ -3038,6 +3084,8 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
 
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
+        pfs_create_diag_stage = 16u;
+        pfs_create_diag_rc = PROS_VFS_EOVERFLOW;
         return PROS_VFS_EOVERFLOW;
     }
     byte_offset = inode_number * PROSENJITFS_INODE_SIZE;
@@ -3048,14 +3096,18 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
                                  &inode_lba);
         if (lba_rc != PROSENJITFS_OK) {
             kfree(dir_block); kfree(entry_block); kfree(inode_block);
-            return pfs_vfs_error(lba_rc);
+            pfs_create_diag_stage = 17u;
+            pfs_create_diag_rc = pfs_vfs_error(lba_rc);
+            return pfs_create_diag_rc;
         }
     }
     inode_offset = (uint32_t)(byte_offset % data->fs->sb.block_size);
     rc = pfs_read_block(data->fs->mount.device, inode_lba, inode_block);
     if (rc != PROSENJITFS_OK) {
         kfree(dir_block); kfree(entry_block); kfree(inode_block);
-        return pfs_vfs_error(rc);
+        pfs_create_diag_stage = 18u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
     }
     pfs_copy(inode_block + inode_offset, &child_inode, sizeof(child_inode));
     pfs_put32(inode_block + inode_offset +
@@ -3082,10 +3134,18 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     kfree(dir_block);
     kfree(entry_block);
     kfree(inode_block);
-    if (rc != PROSENJITFS_OK)
-        return pfs_vfs_error(rc);
+    if (rc != PROSENJITFS_OK) {
+        pfs_create_diag_stage = 19u;
+        pfs_create_diag_rc = pfs_vfs_error(rc);
+        return pfs_create_diag_rc;
+    }
 
-    return pfs_make_vnode(data->fs, inode_number, parent, result);
+    pfs_create_diag_stage = 20u;
+    rc = pfs_make_vnode(data->fs, inode_number, parent, result);
+    pfs_create_diag_rc = rc;
+    if (rc == PROS_VFS_OK)
+        pfs_create_diag_stage = 0u;
+    return rc;
 }
 
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
@@ -5275,6 +5335,14 @@ void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc)
         return;
     *stage = pfs_selftest_diag_stage;
     *rc = pfs_selftest_diag_rc;
+}
+
+void prosenjitfs_create_diag_get(uint32_t *stage, int *rc)
+{
+    if (!stage || !rc)
+        return;
+    *stage = pfs_create_diag_stage;
+    *rc = pfs_create_diag_rc;
 }
 
 
