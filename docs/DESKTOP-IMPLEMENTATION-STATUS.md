@@ -33,6 +33,7 @@ Working branch: `work/desktop-integration-gate-fix`
 ## Verification state
 
 - Source inspection completed for the desktop plan, user-mode README, display ABI/backend, input ABI, init/service manager, Makefile, build script, and build workflow.
+- The new input module was separately compiled with `-Wall -Wextra -Werror` in an isolated local harness, and its decoder/FIFO self-test returned `0` (pass). This does not replace compiling the exact integrated kernel image or booting it under QEMU.
 - The desktop gate script and kernel input changes are committed on this branch, but they have **not** been executed on the user's Debian host in this session.
 - The latest self-hosted build/security workflow runs remain queued. The new GitHub-hosted validation jobs fail before any step starts; the job API reports `runner_id: 0`, an empty runner name, and no steps. This is runner/workflow execution infrastructure failure, not evidence of a source compilation failure. No build or QEMU test actually ran, so no build, keyboard runtime, display, or GUI pass is claimed.
 
