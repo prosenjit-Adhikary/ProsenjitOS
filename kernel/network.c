@@ -724,7 +724,8 @@ int pros_net_selftest(void)
         pros_net_socket_bind(sid, 0xC0A80101u, 4000u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 100u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
-        pros_net_socket_send(sid, payload, sizeof(payload)) != 1 ||
+        pros_net_socket_send(sid, payload, sizeof(payload)) !=
+            (int)sizeof(payload) ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
         return -9;
 
