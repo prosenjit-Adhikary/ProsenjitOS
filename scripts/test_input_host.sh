@@ -27,7 +27,7 @@ int main(void)
 {
     int rc = pros_input_selftest();
     if (rc != PROS_INPUT_OK) {
-        fprintf(stderr, "input self-test failed: %d\\n", rc);
+        fprintf(stderr, "input self-test failed: %d\n", rc);
         return 1;
     }
     puts("input host self-test passed");
