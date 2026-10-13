@@ -6422,12 +6422,17 @@ int prosenjitfs_selftest(void)
 
         if (pfs_find_extent(&fs, &after, 1u, &extent,
                              &extent_found_lba, &extent_tail_lba) !=
-                PROSENJITFS_OK ||
-            pfs_lba_add(fs.mount.device, extent.physical_block,
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -151);
+        if (extent.logical_block > 1u || extent.block_count == 0u ||
+            1u - extent.logical_block >= extent.block_count)
+            return pfs_selftest_fail(__LINE__, -152);
+        if (pfs_lba_add(fs.mount.device, extent.physical_block,
                          1u - extent.logical_block, &first_block) !=
-                PROSENJITFS_OK ||
-            pfs_read_block(&device, first_block, zero) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -10);
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -153);
+        if (pfs_read_block(&device, first_block, zero) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -154);
 
         for (uint32_t i = 0u; i < sizeof(zero); ++i)
             if (zero[i] != 0u)
