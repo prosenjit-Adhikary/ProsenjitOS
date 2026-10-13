@@ -7534,6 +7534,9 @@ int prosenjitfs_selftest(void)
             (void)prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(0x80000001u, -17);
         }
+        /* ENOSPC clears the allocator's output parameter; recover the last
+         * successful block from the allocation ledger before testing reuse. */
+        block = allocated_blocks[allocated - 1u];
 
         /*
          * These are raw allocator reservations, not inode-owned extents.
