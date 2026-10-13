@@ -87,11 +87,13 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
             continue;
         ++loads;
 
+        /* A zero-sized PT_LOAD is malformed regardless of filesz; check
+         * this structural error before the generic bounds/size relations. */
+        if (ph->memsz == 0)
+            return PROS_ELF_EFORMAT;
         if (ph->filesz > ph->memsz ||
             ph->offset > size || ph->filesz > size - ph->offset)
             return PROS_ELF_EBOUNDS;
-        if (ph->memsz == 0)
-            return PROS_ELF_EFORMAT;
         if (ph->vaddr < PROSENJIT_USER_CODE_VA ||
             ph->vaddr > ELF_USER_MAX ||
             !range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
