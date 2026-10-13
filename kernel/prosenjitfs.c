@@ -5818,7 +5818,7 @@ consistency_out:
 
 int prosenjitfs_selftest(void)
 {
-    pfs_selftest_diag_stage = 0u;
+    pfs_selftest_diag_stage = 1u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
     pfs_crash_inject_stage = 0u;
     pfs_crash_injected = 0u;
@@ -5829,9 +5829,11 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
+    pfs_selftest_diag_stage = 10u;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
+    pfs_selftest_diag_stage = 11u;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
     /*
@@ -5839,6 +5841,7 @@ int prosenjitfs_selftest(void)
      * and the checked addition must reject both arithmetic overflow and the
      * first sector outside the device.
      */
+    pfs_selftest_diag_stage = 20u;
     {
         uint64_t lba = 0u;
         if (pfs_lba_add(&device, 0u, 0u, &lba) != PROSENJITFS_OK ||
@@ -5854,9 +5857,11 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_EINVAL)
             return pfs_selftest_fail(__LINE__, -2);
     }
+    pfs_selftest_diag_stage = 30u;
     pfs_zero(&disk, sizeof(disk));
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
+    pfs_selftest_diag_stage = 40u;
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
     if (fs.sb.root_inode != 0u ||
