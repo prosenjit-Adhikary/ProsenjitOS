@@ -7082,7 +7082,10 @@ int prosenjitfs_selftest(void)
         {
             int check_rc = pfs_selftest_consistency(&fs);
             if (check_rc != PROSENJITFS_OK)
-                return pfs_selftest_fail(0xF201u, check_rc);
+                return pfs_selftest_fail(
+                    0x80000000u |
+                        (pfs_consistency_diag_stage & 0x7fffffffu),
+                    check_rc);
             check_rc = vfs_path_lookup(&fs.mount,
                                        "/persist/config/sub/tree.bin", &node);
             if (check_rc != PROS_VFS_OK)
