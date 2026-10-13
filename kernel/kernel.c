@@ -233,6 +233,12 @@ void exception_dispatch(uint64_t *frame) {
     health_last_exception_rip = frame[2];
     if (frame[0] == 14u) ++health_page_fault_count;
     uint64_t vector = frame[0];
+    if (vector == 6u) {
+        uint8_t user_stage = ((volatile uint8_t *)(uintptr_t)(USER_DATA_VA + 128u))[0];
+        serial_write("ProsenjitOS: CPL3 diagnostic stage=");
+        serial_hex64(user_stage);
+        serial_write("\n");
+    }
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
