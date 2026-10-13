@@ -7484,6 +7484,8 @@ int prosenjitfs_selftest(void)
          * Restore a clean image before the journal/crash matrix. This keeps
          * the negative corruption fixture isolated from subsequent tests.
          */
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
         pfs_zero(&disk, sizeof(disk));
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
