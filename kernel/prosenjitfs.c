@@ -129,8 +129,6 @@ static uint32_t pfs_mkdir_diag_stage;
 static int pfs_mkdir_diag_rc;
 static uint32_t pfs_create_diag_stage;
 static int pfs_create_diag_rc;
-static uint32_t pfs_create_diag_stage;
-static int pfs_create_diag_rc;
 static uint32_t pfs_tx_diag_stage;
 static uint32_t pfs_tx_diag_count;
 static uint32_t pfs_tx_diag_count_before_clear;
@@ -162,6 +160,8 @@ void prosenjitfs_write_diag_reset(void)
     pfs_diag.enabled = 1u;
     pfs_mkdir_diag_stage = 0u;
     pfs_mkdir_diag_rc = PROSENJITFS_OK;
+    pfs_create_diag_stage = 0u;
+    pfs_create_diag_rc = PROSENJITFS_OK;
     pfs_tx_diag_stage = 0u;
     pfs_tx_diag_count = 0u;
     pfs_tx_diag_count_before_clear = 0u;
@@ -5351,15 +5351,6 @@ void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc)
     *stage = pfs_selftest_diag_stage;
     *rc = pfs_selftest_diag_rc;
 }
-
-void prosenjitfs_create_diag_get(uint32_t *stage, int *rc)
-{
-    if (!stage || !rc)
-        return;
-    *stage = pfs_create_diag_stage;
-    *rc = pfs_create_diag_rc;
-}
-
 
 static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
                                    uint64_t block)
