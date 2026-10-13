@@ -151,9 +151,26 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
                     uint16_t entry = rd16(data + directory_offset + entry_off);
                     uint16_t type = (uint16_t)(entry >> 12);
                     uint32_t target_rva;
+                    uint32_t width;
                     if (type == 0u) continue; /* IMAGE_REL_BASED_ABSOLUTE padding */
+                    if (type == 1u || type == 2u) {
+                        width = 2u; /* HIGH / LOW */
+                    } else if (type == 3u && !tmp.pe32_plus) {
+                        width = 4u; /* HIGHLOW */
+                    } else if (type == 10u && tmp.pe32_plus) {
+                        width = 8u; /* DIR64 */
+                    } else if (type == 4u && !tmp.pe32_plus) {
+                        /* HIGHADJ consumes the following 16-bit adjustment. */
+                        if (entry_off + 2u >= cursor + (size_t)block_size)
+                            return WB_PE_EFORMAT;
+                        width = 2u;
+                        entry_off += 2u;
+                    } else {
+                        return WB_PE_ENOTSUP;
+                    }
                     target_rva = page_rva + (uint32_t)(entry & 0x0fffu);
-                    if (target_rva < page_rva || target_rva >= tmp.image_size)
+                    if (target_rva < page_rva ||
+                        !range32(target_rva, width, tmp.image_size))
                         return WB_PE_EBOUNDS;
                 }
             }
