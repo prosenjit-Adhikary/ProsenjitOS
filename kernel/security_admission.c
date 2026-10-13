@@ -55,7 +55,7 @@ int pros_file_admission_evaluate_signed(
     const struct pros_file_security_metadata *metadata,
     struct pros_file_admission_record *record)
 {
-    struct pros_file_admission_input input;
+    struct pros_file_security_metadata trusted;
     enum pros_signature_result signature_result;
 
     if (!record || (length != 0u && !data) ||
@@ -72,63 +72,32 @@ int pros_file_admission_evaluate_signed(
     }
 
     /*
-     * Cryptographic failure is deliberately mapped to UNKNOWN/quarantine,
-     * not to MALICIOUS. Invalidity is evidence of failed verification, not
-     * proof of malware.
+     * Only this entry point may set signature_valid, and only after the
+     * cryptographic verifier has returned VALID. Keep explicit local-deny
+     * and reputation policy intact for both valid and invalid signatures.
+     * Invalid signatures are quarantined by pros_file_admit unless a hard
+     * deny or malicious reputation requires blocking.
      */
-    input.data = data;
-    input.length = length;
-    input.metadata = *metadata;
-    input.metadata.signature_present = 1u;
-    input.metadata.signature_valid =
+    trusted = *metadata;
+    trusted.signature_present = 1u;
+    trusted.signature_valid =
         (signature_result == PROS_SIGNATURE_RESULT_VALID) ? 1u : 0u;
+    /* A signature is cryptographic verification, not a local-trust label. */
+    trusted.local_trusted = 0u;
 
-    if (signature_result != PROS_SIGNATURE_RESULT_VALID) {
-        input.metadata.signature_valid = 0u;
-        input.metadata.local_trusted = 0u;
-        input.metadata.local_denied = 0u;
-        input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
-        input.metadata.provenance_known = 0u;
-    }
+    pros_sha256(data, length, record->sha256);
+    if (trusted.reputation == PROS_FILE_REPUTATION_UNAVAILABLE)
+        trusted.reputation =
+            pros_security_provider_reputation(record->sha256);
 
-    /*
-     * The generic evaluator will strip caller-provided signature metadata.
-     * That is intentional for its public contract, so signed evidence needs
-     * a private handoff. Verify again through the same trust authority and
-     * then use the lower-level policy evaluator with an explicit local trust
-     * marker only after cryptographic success.
-     */
-    if (signature_result != PROS_SIGNATURE_RESULT_VALID)
-        return pros_file_admission_evaluate(&input, record);
+    if (pros_file_admit(&trusted, &record->security) != 0)
+        return -3;
 
-    input.metadata.signature_present = 1u;
-    input.metadata.signature_valid = 1u;
-
-    /*
-     * The current policy engine treats cryptographic evidence as VERIFIED
-     * only when it is present. The signature result was established above
-     * by this function, so no caller-controlled boolean is being trusted.
-     */
-    {
-        struct pros_file_security_metadata trusted = input.metadata;
-        trusted.local_trusted = 1u;
-        trusted.local_denied = 0u;
-        trusted.provenance_known = 1u;
-
-        /*
-         * Keep the generic evaluator fail-closed for arbitrary callers.
-         * A dedicated verified-signature path records the cryptographic
-         * decision in the result directly through the same policy routine.
-         */
-        trusted.signature_valid = 0u;
-        trusted.signature_present = 0u;
-        return pros_file_admission_evaluate(
-            &(struct pros_file_admission_input){
-                .data = data,
-                .length = length,
-                .metadata = trusted
-            }, record);
-    }
+    (void)pros_health_record_security(
+        0x53454341u, PROS_SECURITY_HEALTH_ADMISSION,
+        ((uint64_t)record->security.action << 32) |
+        (uint64_t)record->security.state);
+    return 0;
 }
 
 int pros_file_admission_selftest(void) {
@@ -208,8 +177,10 @@ int pros_file_admission_selftest(void) {
                 ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
                 &signed_metadata, &record) != 0)
             return -307;
-        if (record.security.state != PROS_FILE_TRUSTED ||
-            record.security.action != PROS_FILE_ALLOW)
+        if (record.security.state != PROS_FILE_VERIFIED ||
+            record.security.action != PROS_FILE_ALLOW ||
+            (record.security.evidence & PROS_FILE_EVIDENCE_SIGNATURE_VALID) == 0u ||
+            (record.security.evidence & PROS_FILE_EVIDENCE_LOCAL_TRUST) != 0u)
             return -308;
         {
             uint8_t bad_sig[64];
@@ -221,9 +192,22 @@ int pros_file_admission_selftest(void) {
                     bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
                     &signed_metadata, &record) != 0)
                 return -309;
-            if (record.security.state == PROS_FILE_VERIFIED ||
-                record.security.action == PROS_FILE_ALLOW)
+            if (record.security.state != PROS_FILE_SUSPICIOUS ||
+                record.security.action != PROS_FILE_QUARANTINE ||
+                (record.security.evidence & PROS_FILE_EVIDENCE_SIGNATURE_INVALID) == 0u)
                 return -310;
+
+            /* Invalid cryptographic evidence must not override explicit deny. */
+            signed_metadata.local_denied = 1u;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0)
+                return -311;
+            if (record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK ||
+                (record.security.evidence & PROS_FILE_EVIDENCE_LOCAL_DENY) == 0u)
+                return -312;
         }
     }
 
