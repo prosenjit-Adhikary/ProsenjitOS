@@ -1114,8 +1114,10 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
             done += want;
             continue;
         }
-        if (rc != PROSENJITFS_OK || extent_lba == 0u)
-            return done ? (int)done : PROS_VFS_EIO;
+        if (rc != PROSENJITFS_OK)
+            return done ? (int)done : pfs_vfs_error(rc);
+        if (extent_lba == 0u)
+            return done ? (int)done : PROS_VFS_ECORRUPT;
 
         {
             uint64_t delta = logical_block - extent.logical_block;
