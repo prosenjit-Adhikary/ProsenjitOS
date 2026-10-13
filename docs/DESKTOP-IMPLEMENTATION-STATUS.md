@@ -29,6 +29,7 @@ Working branch: `work/desktop-integration-gate-fix`
 - Added `desktop-input-validation.yml` to attempt the same build and both QEMU boot paths on `ubuntu-latest`, with serial-log assertions and artifact upload. Its jobs currently cannot obtain a runner in this repository context.
 - Added workflow concurrency groups so superseded queued runs are cancelled instead of accumulating indefinitely.
 - Added `scripts/test_input_host.sh`, a host-side warnings-as-errors compile/run test for the actual kernel input module. It checks event ABI layout with compile-time assertions and exercises scan-code decoding, Pause-sequence handling, FIFO ordering, capacity, and overflow without executing privileged I/O instructions. The hosted CI workflow now runs this test before the full kernel build.
+- Hardened `PROSENJIT_SYS_INPUT_POLL` to require a CPL3-origin interrupt frame before any PS/2 I/O and added a dispatcher regression check that expects CPL0 calls to return `EPERM`.
 - Expanded build-tool preflight and made the generated report explicitly distinguish kernel boot health from desktop completion.
 
 ## Verification state
