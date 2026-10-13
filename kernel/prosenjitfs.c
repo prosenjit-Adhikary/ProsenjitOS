@@ -5348,7 +5348,7 @@ static uint32_t pfs_consistency_diag_stage;
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
     pfs_selftest_diag_stage =
-        (stage >= 6967u && stage <= 7000u && rc == PROSENJITFS_ECORRUPT &&
+        (stage >= 6967u && stage <= 7200u && rc == PROSENJITFS_ECORRUPT &&
          pfs_consistency_diag_stage != 0u)
             ? (0x80000000u | pfs_consistency_diag_stage) : stage;
     pfs_selftest_diag_rc = rc;
@@ -5376,6 +5376,9 @@ static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
 
 static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
 {
+    /* Keep the diagnostic local to this invocation; a prior failed check
+     * must never mislabel a later self-test failure. */
+    pfs_consistency_diag_stage = 0u;
     uint64_t bits_per_block;
     uint64_t owner_bytes;
     uint8_t *owner = 0;
