@@ -12,6 +12,7 @@ static struct pros_input_event input_ring[PROS_INPUT_RING_SIZE];
 static volatile uint32_t input_head;
 static volatile uint32_t input_tail;
 static uint8_t input_extended_prefix;
+static uint8_t input_pause_bytes_remaining;
 static uint32_t input_dropped_events;
 
 static inline uint8_t input_in8(uint16_t port)
@@ -23,16 +24,22 @@ static inline uint8_t input_in8(uint16_t port)
 
 /* Returns 1 for a key event, 0 for a prefix/unsupported byte. */
 static int input_decode_set1(uint8_t scan, uint8_t *extended,
+                             uint8_t *pause_remaining,
                              struct pros_input_event *event)
 {
-    if (!extended || !event) return 0;
+    if (!extended || !pause_remaining || !event) return 0;
+    if (*pause_remaining != 0u) {
+        --*pause_remaining;
+        return 0;
+    }
     if (scan == 0xE0u) {
         *extended = 1u;
         return 0;
     }
-    /* Ignore the multi-byte Pause/Break sequence instead of mis-decoding it. */
+    /* Set-1 Pause is E1 1D 45 E1 9D C5: ignore its five trailing bytes. */
     if (scan == 0xE1u) {
         *extended = 0u;
+        *pause_remaining = 5u;
         return 0;
     }
 
@@ -92,7 +99,8 @@ int pros_input_poll(struct pros_input_event *event)
         if ((status & PS2_STATUS_AUXILIARY) != 0u) continue;
 
         struct pros_input_event decoded;
-        if (input_decode_set1(scan, &input_extended_prefix, &decoded))
+        if (input_decode_set1(scan, &input_extended_prefix,
+                              &input_pause_bytes_remaining, &decoded))
             (void)input_enqueue(&decoded);
     }
 
@@ -102,30 +110,38 @@ int pros_input_poll(struct pros_input_event *event)
 int pros_input_selftest(void)
 {
     uint8_t extended = 0u;
+    uint8_t pause_remaining = 0u;
     struct pros_input_event event = {0};
 
-    if (input_decode_set1(0x1Eu, &extended, &event) != 1 ||
+    if (input_decode_set1(0x1Eu, &extended, &pause_remaining, &event) != 1 ||
         event.version != PROSENJIT_INPUT_ABI_VERSION ||
         event.type != PROS_INPUT_KEY || event.value0 != 0x1E ||
         event.flags != PROS_INPUT_FLAG_PRESS || extended != 0u)
         return -1;
 
-    if (input_decode_set1(0x9Eu, &extended, &event) != 1 ||
+    if (input_decode_set1(0x9Eu, &extended, &pause_remaining, &event) != 1 ||
         event.value0 != 0x1E || event.flags != PROS_INPUT_FLAG_RELEASE)
         return -2;
 
-    if (input_decode_set1(0xE0u, &extended, &event) != 0 || extended != 1u)
+    if (input_decode_set1(0xE0u, &extended, &pause_remaining, &event) != 0 || extended != 1u)
         return -3;
-    if (input_decode_set1(0x48u, &extended, &event) != 1 ||
+    if (input_decode_set1(0x48u, &extended, &pause_remaining, &event) != 1 ||
         event.value0 != 0x148 || event.flags != PROS_INPUT_FLAG_PRESS ||
         extended != 0u)
         return -4;
 
     extended = 0u;
-    if (input_decode_set1(0xE1u, &extended, &event) != 0 || extended != 0u)
+    if (input_decode_set1(0xE1u, &extended, &pause_remaining, &event) != 0 ||
+        extended != 0u || pause_remaining != 5u)
         return -5;
-    if (input_decode_set1(0x00u, &extended, &event) != 0)
-        return -6;
+    static const uint8_t pause_tail[5] = {0x1Du, 0x45u, 0xE1u, 0x9Du, 0xC5u};
+    for (uint32_t i = 0; i < 5u; ++i) {
+        if (input_decode_set1(pause_tail[i], &extended, &pause_remaining, &event) != 0)
+            return -6;
+    }
+    if (pause_remaining != 0u || input_decode_set1(0x00u, &extended,
+                                                    &pause_remaining, &event) != 0)
+        return -7;
 
     /*
      * This self-test runs before user mode starts polling the device. Reset
@@ -142,7 +158,7 @@ int pros_input_selftest(void)
     struct pros_input_event out = {0};
     if (input_enqueue(&first) != PROS_INPUT_OK ||
         input_enqueue(&second) != PROS_INPUT_OK)
-        return -7;
+        return -10;
     if (input_dequeue(&out) != PROS_INPUT_OK ||
         out.timestamp != 1u || out.value0 != 0x1E)
         return -8;
@@ -151,6 +167,6 @@ int pros_input_selftest(void)
         out.flags != PROS_INPUT_FLAG_RELEASE)
         return -9;
     if (input_dequeue(&out) != PROS_INPUT_EMPTY)
-        return -10;
+        return -11;
     return PROS_INPUT_OK;
 }
