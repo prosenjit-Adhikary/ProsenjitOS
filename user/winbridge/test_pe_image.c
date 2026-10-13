@@ -238,5 +238,15 @@ int main(void){
     w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
     w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0x3fffu);
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EBOUNDS)return 74;
+    /* A relocation write must fit completely, not just start inside the image. */
+    fixture(b,sizeof b,0);w32(b+0x98+56,0x2001u);
+    w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0x3fffu);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EBOUNDS)return 75;
+    /* Unknown relocation encodings are unsupported by this metadata parser. */
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0x5fffu);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_ENOTSUP)return 76;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
