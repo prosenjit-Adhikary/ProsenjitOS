@@ -5589,13 +5589,19 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 uint64_t end_logical;
                 uint64_t physical;
 
+                pfs_consistency_diag_stage = 61u;
                 if (++steps > fs->sb.total_blocks ||
                     pfs_consistency_mark(owner, fs->sb.total_blocks,
-                                         current) != PROSENJITFS_OK ||
-                    pfs_read_extent(fs, current, &extent) != PROSENJITFS_OK) {
+                                         current) != PROSENJITFS_OK) {
                     rc = PROSENJITFS_ECORRUPT;
                     goto consistency_out;
                 }
+                pfs_consistency_diag_stage = 62u;
+                if (pfs_read_extent(fs, current, &extent) != PROSENJITFS_OK) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    goto consistency_out;
+                }
+                pfs_consistency_diag_stage = 63u;
                 if (extent.logical_block < logical_end ||
                     extent.logical_block >
                         UINT64_MAX - extent.block_count ||
@@ -5608,6 +5614,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                     rc = PROSENJITFS_ECORRUPT;
                     goto consistency_out;
                 }
+                pfs_consistency_diag_stage = 64u;
                 for (uint64_t n = 0u; n < extent.block_count; ++n) {
                     physical = extent.physical_block + n;
                     if (physical < fs->sb.data_start ||
@@ -5624,6 +5631,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 logical_end = end_logical;
                 current = extent.next;
             }
+            pfs_consistency_diag_stage = 65u;
             if (allocated_bytes != inode.allocated_bytes) {
                 rc = PROSENJITFS_ECORRUPT;
                 goto consistency_out;
