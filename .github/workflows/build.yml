@@ -34,7 +34,13 @@ jobs:
       - name: Inspect ProsenjitFS init call target
         run: |
           echo "===== block_device_init symbol ====="
-          nm -n build/prosenjit.elf | grep -E ' block_device_init$| prosenjitfs_selftest        run: |
+          nm -n build/prosenjit.elf | grep block_device_init || true
+          nm -n build/prosenjit.elf | grep prosenjitfs_selftest || true
+          echo "===== ProsenjitFS self-test call-site disassembly ====="
+          objdump -d --disassemble=prosenjitfs_selftest build/prosenjit.elf | grep -B 12 -A 8 block_device_init || true
+
+      - name: Boot-test ISO in QEMU
+        run: |
           set +e
           timeout 20s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
