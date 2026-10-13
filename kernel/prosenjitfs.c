@@ -4707,6 +4707,14 @@ run_found:
         updated.physical_block = run_start;
         updated.block_count = count;
         updated.next = 0u;
+        /*
+         * With no existing extent, publish this first extent through the
+         * inode's head pointer in the same transaction as its metadata and
+         * allocator reservations. Otherwise allocated_bytes grows while the
+         * inode still appears to have no data extents.
+         */
+        if (!have_tail)
+            inode.extent_head = extent_lba;
         pfs_zero(extent_image, fs->sb.block_size);
         pfs_copy(extent_image, &updated, sizeof(updated));
         pfs_put32(extent_image +
