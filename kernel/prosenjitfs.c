@@ -4918,34 +4918,55 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t block[4096];
 
+    pfs_alloc_inode_diag_stage = 1u;
+    pfs_alloc_inode_diag_number = UINT64_MAX;
+    pfs_alloc_inode_diag_rc = PROSENJITFS_OK;
     if (!fs || !inode_number || fs->read_only ||
-        fs->sb.block_size > sizeof(block))
+        fs->sb.block_size > sizeof(block)) {
+        pfs_alloc_inode_diag_rc = PROSENJITFS_EINVAL;
         return PROSENJITFS_EINVAL;
+    }
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     for (uint64_t inode = 1u; inode < fs->sb.inode_count; ++inode) {
         uint64_t bi = inode / bits_per_block;
         uint64_t within = inode % bits_per_block;
+        pfs_alloc_inode_diag_number = inode;
+        pfs_alloc_inode_diag_stage = 2u;
 
-        if (bi >= fs->sb.inode_bitmap_blocks)
+        if (bi >= fs->sb.inode_bitmap_blocks) {
+            pfs_alloc_inode_diag_rc = PROSENJITFS_ECORRUPT;
             return PROSENJITFS_ECORRUPT;
+        }
         {
             uint64_t bitmap_lba;
             int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
                                  bi, &bitmap_lba);
-            if (rc != PROSENJITFS_OK)
+            if (rc != PROSENJITFS_OK) {
+                pfs_alloc_inode_diag_rc = rc;
                 return rc;
+            }
+            pfs_alloc_inode_diag_stage = 3u;
             rc = pfs_read_block(fs->mount.device, bitmap_lba, block);
-            if (rc != PROSENJITFS_OK)
+            if (rc != PROSENJITFS_OK) {
+                pfs_alloc_inode_diag_rc = rc;
                 return rc;
+            }
         }
         if (!pfs_bitmap_bit(block, within)) {
             uint64_t generation;
+            pfs_alloc_inode_diag_stage = 4u;
             int gen_rc = pfs_allocate_generation(fs, inode, &generation);
-            if (gen_rc != PROSENJITFS_OK)
+            if (gen_rc != PROSENJITFS_OK) {
+                pfs_alloc_inode_diag_stage = 5u;
+                pfs_alloc_inode_diag_rc = gen_rc;
                 return gen_rc;
+            }
             *inode_number = inode;
-            return pfs_inode_bitmap_update(fs, inode, 1u);
+            pfs_alloc_inode_diag_stage = 6u;
+            int update_rc = pfs_inode_bitmap_update(fs, inode, 1u);
+            pfs_alloc_inode_diag_rc = update_rc;
+            return update_rc;
         }
     }
     return PROSENJITFS_ENOSPC;
@@ -5264,6 +5285,19 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
 
 static uint32_t pfs_selftest_diag_stage;
 static int pfs_selftest_diag_rc;
+static uint32_t pfs_alloc_inode_diag_stage;
+static uint64_t pfs_alloc_inode_diag_number;
+static int pfs_alloc_inode_diag_rc;
+
+void prosenjitfs_alloc_inode_diag_get(uint32_t *stage, uint64_t *inode_number,
+                                      int *rc)
+{
+    if (!stage || !inode_number || !rc)
+        return;
+    *stage = pfs_alloc_inode_diag_stage;
+    *inode_number = pfs_alloc_inode_diag_number;
+    *rc = pfs_alloc_inode_diag_rc;
+}
 /* Last phase reached by the deep consistency checker; exposed via failed self-test stage. */
 static uint32_t pfs_consistency_diag_stage;
 static uint32_t pfs_consistency_diag_inode;
