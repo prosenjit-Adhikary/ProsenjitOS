@@ -58,6 +58,10 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
     struct pros_process *policy_process = process_current();
     uint64_t syscall_number = registers[0];
+    /* Boot-time CPL3 regression trace: identifies the last syscall before a user test stalls. */
+    syscall_serial_write("ProsenjitOS: CPL3 syscall entry number=");
+    syscall_serial_hex64(syscall_number);
+    syscall_serial_write("\\n");
     if (policy_process && syscall_number >= 1 && syscall_number <= 64 &&
         (process_allowed_syscalls(policy_process) & (1ULL << (syscall_number - 1U))) == 0) {
         registers[0] = PROSENJIT_SYSCALL_EPERM;
