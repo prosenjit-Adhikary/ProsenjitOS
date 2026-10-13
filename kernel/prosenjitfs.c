@@ -5261,6 +5261,9 @@ static uint32_t pfs_selftest_diag_stage;
 static int pfs_selftest_diag_rc;
 /* Last phase reached by the deep consistency checker; exposed via failed self-test stage. */
 static uint32_t pfs_consistency_diag_stage;
+static uint32_t pfs_consistency_diag_inode;
+static uint64_t pfs_consistency_diag_expected;
+static uint64_t pfs_consistency_diag_recorded;
 
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
@@ -5278,6 +5281,17 @@ void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc)
         return;
     *stage = pfs_selftest_diag_stage;
     *rc = pfs_selftest_diag_rc;
+}
+
+void prosenjitfs_consistency_diag_get(uint32_t *inode,
+                                      uint64_t *expected,
+                                      uint64_t *recorded)
+{
+    if (!inode || !expected || !recorded)
+        return;
+    *inode = pfs_consistency_diag_inode;
+    *expected = pfs_consistency_diag_expected;
+    *recorded = pfs_consistency_diag_recorded;
 }
 
 
@@ -5660,6 +5674,9 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 pfs_consistency_diag_stage =
                     inode_number <= UINT32_MAX - 6500u
                         ? 6500u + (uint32_t)inode_number : 65u;
+                pfs_consistency_diag_inode = (uint32_t)inode_number;
+                pfs_consistency_diag_expected = allocated_bytes;
+                pfs_consistency_diag_recorded = inode.allocated_bytes;
                 rc = PROSENJITFS_ECORRUPT;
                 goto consistency_out;
             }
