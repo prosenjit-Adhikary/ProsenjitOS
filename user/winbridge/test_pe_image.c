@@ -248,5 +248,26 @@ int main(void){
     w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
     w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0x5fffu);
     if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_ENOTSUP)return 76;
+    /* PE32+ must reject PE32-only HIGHLOW relocation entries. */
+    fixture(b,sizeof b,1);
+    w32(b+0x98+152,0x1010u);w32(b+0x98+156,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0x3fffu);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_ENOTSUP)return 77;
+    /* PE32 must reject PE32+ DIR64 relocation entries. */
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0xafffu);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_ENOTSUP)return 78;
+    /* DIR64's complete 8-byte target must fit in SizeOfImage. */
+    fixture(b,sizeof b,1);w32(b+0x98+56,0x2000u);
+    w32(b+0x98+152,0x1010u);w32(b+0x98+156,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);w16(b+0x218,0xaff9u);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_EBOUNDS)return 79;
+    /* HIGHADJ consumes the following 16-bit adjustment word as a pair. */
+    fixture(b,sizeof b,0);
+    w32(b+0x98+136,0x1010u);w32(b+0x98+140,12u);
+    w32(b+0x210,0x1000u);w32(b+0x214,12u);
+    w16(b+0x218,0x4020u);w16(b+0x21a,0x1234u);
+    if(wb_pe_inspect(b,sizeof b,&pe)!=WB_PE_OK)return 80;
     puts("WinBridge PE parser host tests: PASS");return 0;
 }
