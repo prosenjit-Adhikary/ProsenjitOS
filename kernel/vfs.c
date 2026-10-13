@@ -1247,11 +1247,13 @@ uint64_t vfs_health_dir_read_count(void) { return health_dir_read_count; }
 
 int vfs_security_selftest(void)
 {
+    int rc;
     if (vfs_probe_selftest() != 0)
         return -40;
     if (vfs_security_admission_selftest() != 0)
         return -41;
-    if (vfs_vnode_api_selftest() != 0)
-        return -42;
+    rc = vfs_vnode_api_selftest();
+    if (rc != 0)
+        return rc;
     return 0;
 }
