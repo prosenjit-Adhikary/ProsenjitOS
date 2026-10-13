@@ -32,7 +32,8 @@ SECTIONS
         __kernel_data_start = .;
         *(.data*)
     }
-    __kernel_data_end = .;
+    /* Security hardening validates page-granular data permissions. */
+    __kernel_data_end = ALIGN(4K);
 
     .bss : ALIGN(4K)
     {
