@@ -37,6 +37,7 @@ int prosenjitfs_tx_diag_get(uint32_t *stage, uint32_t *count,
                             uint32_t *count_before_clear,
                             uint32_t *count_after_clear, int *clear_rc);
 void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc);
+void prosenjitfs_create_diag_get(uint32_t *stage, int *rc);
 int prosenjitfs_selftest(void);
 
 #endif
