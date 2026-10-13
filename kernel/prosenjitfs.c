@@ -7325,7 +7325,8 @@ int prosenjitfs_selftest(void)
 
         {
             int op_rc = vfs_file_open(&fs.mount, "/hello.bin",
-                                      PROS_VFS_O_WRITE, &file);
+                                      PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                      &file);
             if (op_rc != PROS_VFS_OK)
                 return pfs_selftest_fail(0xF301u, op_rc);
             op_rc = vfs_file_truncate(&file, UINT64_MAX);
