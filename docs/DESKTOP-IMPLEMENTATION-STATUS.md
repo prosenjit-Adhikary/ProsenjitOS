@@ -31,7 +31,7 @@ Working branch: `work/desktop-integration-gate-fix`
 ## Verification state
 
 - Source inspection completed for the desktop plan, user-mode README, display ABI/backend, input ABI, init/service manager, Makefile, build script, and build workflow.
-- The new gate script has been committed on this branch, but it has **not** been executed on the user's Debian host in this session.
+- The desktop gate script and kernel input changes are committed on this branch, but they have **not** been executed on the user's Debian host in this session.
 - GitHub Actions runs for this branch are queued; no CI result is available yet. Therefore no build, QEMU, keyboard, display, or GUI runtime pass is claimed.
 
 ## Required next implementation milestones
