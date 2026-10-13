@@ -31,6 +31,126 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
+      - name: Inspect ProsenjitFS init call target
+        run: |
+          echo "===== block_device_init symbol ====="
+          nm -n build/prosenjit.elf | grep -E ' block_device_init$| prosenjitfs_selftest        run: |
+          set +e
+          timeout 20s qemu-system-x86_64 \
+            -cdrom build/prosenjitOS.iso \
+            -display none \
+            -serial file:build/qemu-serial.log \
+            -no-reboot \
+            -no-shutdown \
+            -d int \
+            -D build/qemu-debug.log
+          qemu_status=$?
+          set -e
+
+          echo "QEMU exit status: $qemu_status"
+          # The OS normally remains halted after successful milestones, so timeout(124)
+          # is an expected termination. Any other QEMU/timeout failure is a real failure.
+          if (( qemu_status != 0 && qemu_status != 124 )); then
+            echo "::error::QEMU exited with unexpected status: $qemu_status"
+            exit "$qemu_status"
+          fi
+          cat build/qemu-serial.log
+          echo "===== QEMU interrupt trace (exceptions) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
+          echo "===== QEMU exception diagnostics (tail) ====="
+          tail -n 200 build/qemu-debug.log || true
+
+          require_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/qemu-serial.log; then
+              echo "::error::Missing QEMU milestone: $marker"
+              return 1
+            fi
+          }
+
+          require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: keyboard input decoder/ring self-test passed"
+          require_log "ProsenjitOS: x86-64 long mode active"
+          require_log "ProsenjitOS: page allocation/free test passed"
+          require_log "ProsenjitOS: kernel heap allocation/free test passed"
+          require_log "ProsenjitOS: system health monitor initialized"
+          require_log "ProsenjitOS: persistent crash record self-test passed"
+          require_log "ProsenjitOS: block storage health self-test passed"
+          require_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
+          require_log "ProsenjitOS: process state validation regression passed"
+          require_log "ProsenjitOS: process resource cleanup regression passed"
+          require_log "ProsenjitOS: IPC channel/capability foundation test passed"
+          require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
+          require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
+          require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
+          require_log "ProsenjitOS: duplicate authorization attenuation test passed"
+          require_log "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed"
+          require_log "ProsenjitOS: limited-process capability policy test passed"
+          require_log "ProsenjitOS: capability handle/rights test passed"
+          require_log "ProsenjitOS: process capability authorization test passed"
+          require_log "ProsenjitOS: syscall sandbox enforcement test passed"
+          require_log "ProsenjitOS: limited-process syscall sandbox test passed"
+          require_log "ProsenjitOS: partition discovery self-test passed"
+          require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
+          require_log "ProsenjitOS: capability copy-transfer test passed"
+          require_log "ProsenjitOS: capability move-transfer test passed"
+          require_log "ProsenjitOS: inactive capability move regression passed"
+          require_log "ProsenjitOS: user address-space isolation foundation test passed"
+          require_log "ProsenjitOS: usercopy page-fault recovery test passed"
+
+      - name: Boot-test native BIOS image in QEMU
+        run: |
+          set +e
+          timeout 20s qemu-system-x86_64 \
+            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
+            -display none \
+            -serial file:build/native-qemu-serial.log \
+            -no-reboot \
+            -no-shutdown \
+            -d int \
+            -D build/native-qemu-debug.log
+          qemu_status=$?
+          set -e
+
+          echo "Native QEMU exit status: $qemu_status"
+          # A timeout after all required milestones is expected; every other
+          # non-zero QEMU result must fail the job rather than being masked.
+          if (( qemu_status != 0 && qemu_status != 124 )); then
+            echo "::error::Native QEMU exited with unexpected status: $qemu_status"
+            exit "$qemu_status"
+          fi
+          cat build/native-qemu-serial.log
+          echo "===== Native QEMU interrupt trace (exceptions) ====="
+          grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
+          echo "===== Native QEMU exception diagnostics (tail) ====="
+          tail -n 200 build/native-qemu-debug.log || true
+
+          require_native_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/native-qemu-serial.log; then
+              echo "::error::Missing native BIOS milestone: $marker"
+              return 1
+            fi
+          }
+
+          require_native_log "ProsenjitOS: native bootloader handoff accepted"
+          require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
+          require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
+          require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
+          require_native_log "ProsenjitOS: x86-64 long mode active"
+          require_native_log "ProsenjitOS: system health monitor initialized"
+          require_native_log "ProsenjitOS: persistent crash record self-test passed"
+          require_native_log "ProsenjitOS: block storage health self-test passed"
+          require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_native_log "ProsenjitOS: keyboard input decoder/ring self-test passed"
+          require_native_log "ProsenjitOS: partition discovery self-test passed"
+          require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
+
+ || true
+          echo "===== ProsenjitFS self-test call-site disassembly ====="
+          objdump -d --disassemble=prosenjitfs_selftest build/prosenjit.elf | grep -B 12 -A 8 'block_device_init' || true
+
       - name: Boot-test ISO in QEMU
         run: |
           set +e
