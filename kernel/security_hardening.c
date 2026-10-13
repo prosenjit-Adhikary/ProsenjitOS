@@ -157,8 +157,9 @@ int pros_security_hardening_selftest(void)
     if (pros_security_hardening_check_process(&process) == 0)
         return -3;
 
-    process.capability_policy =
-        PROSENJIT_CAP_RIGHTS_ALL;
+    /* Exercise an all-rights handle table only under Super policy. */
+    process.security_level = PROS_SECURITY_SUPER;
+    process.capability_policy = PROSENJIT_CAP_RIGHTS_ALL;
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[1].object = &process.object;
