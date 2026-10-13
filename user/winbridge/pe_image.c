@@ -153,7 +153,7 @@ int wb_pe_inspect(const uint8_t *data, size_t size, struct wb_pe_image *out) {
                     uint32_t target_rva;
                     uint32_t width;
                     if (type == 0u) continue; /* IMAGE_REL_BASED_ABSOLUTE padding */
-                    if (type == 1u || type == 2u) {
+                    if ((type == 1u || type == 2u) && !tmp.pe32_plus) {
                         width = 2u; /* HIGH / LOW */
                     } else if (type == 3u && !tmp.pe32_plus) {
                         width = 4u; /* HIGHLOW */
