@@ -319,6 +319,12 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
         }
 
         case PROSENJIT_SYS_INPUT_POLL: {
+            /* The input device is a user-facing resource; reject CPL0 callers. */
+            if ((cpu_frame[1] & 3ULL) != 3ULL) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
             struct pros_process *process = process_current();
             uint64_t event_address = registers[4];
             if (!process ||
