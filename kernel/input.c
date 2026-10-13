@@ -168,5 +168,22 @@ int pros_input_selftest(void)
         return -9;
     if (input_dequeue(&out) != PROS_INPUT_EMPTY)
         return -11;
+
+    /* Fill the bounded ring to capacity, then prove overflow is rejected. */
+    for (uint32_t i = 0; i < PROS_INPUT_RING_SIZE - 1u; ++i) {
+        first.timestamp = i;
+        first.value0 = (int32_t)i;
+        if (input_enqueue(&first) != PROS_INPUT_OK)
+            return -12;
+    }
+    if (input_enqueue(&second) != PROS_INPUT_EMPTY)
+        return -13;
+    for (uint32_t i = 0; i < PROS_INPUT_RING_SIZE - 1u; ++i) {
+        if (input_dequeue(&out) != PROS_INPUT_OK ||
+            out.timestamp != i || out.value0 != (int32_t)i)
+            return -14;
+    }
+    if (input_dequeue(&out) != PROS_INPUT_EMPTY)
+        return -15;
     return PROS_INPUT_OK;
 }
