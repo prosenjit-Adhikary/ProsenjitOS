@@ -7050,14 +7050,60 @@ int prosenjitfs_selftest(void)
             }
         }
 
-        if (prosenjitfs_alloc_blocks(&fs, 2u, &allocated_block) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
-                PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int alloc_rc;
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint64_t inode_bitmap_lba;
+            uint8_t inode_bitmap[4096];
+
+            alloc_rc = prosenjitfs_alloc_blocks(&fs, 2u, &allocated_block);
+            if (alloc_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, alloc_rc);
+            alloc_rc = prosenjitfs_alloc_inode(&fs, &allocated_inode);
+            if (alloc_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, alloc_rc);
+
+            /*
+             * alloc_inode reserves a bitmap slot but does not create an inode
+             * record. Verify reservation persistence across remount, then
+             * release this test-only reservation before consistency checking.
+             */
+            if (allocated_inode >= fs.sb.inode_count ||
+                pfs_lba_add(&device, fs.sb.inode_bitmap_start,
+                            allocated_inode / bits_per_block,
+                            &inode_bitmap_lba) != PROSENJITFS_OK ||
+                pfs_read_block(&device, inode_bitmap_lba, inode_bitmap) !=
+                    PROSENJITFS_OK ||
+                !pfs_bitmap_bit(inode_bitmap,
+                                allocated_inode % bits_per_block))
+                return pfs_selftest_fail(__LINE__, -15);
+
+            alloc_rc = prosenjitfs_unmount(&fs);
+            if (alloc_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, alloc_rc);
+            alloc_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (alloc_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, alloc_rc);
+
+            if (pfs_lba_add(&device, fs.sb.inode_bitmap_start,
+                            allocated_inode / bits_per_block,
+                            &inode_bitmap_lba) != PROSENJITFS_OK ||
+                pfs_read_block(&device, inode_bitmap_lba, inode_bitmap) !=
+                    PROSENJITFS_OK ||
+                !pfs_bitmap_bit(inode_bitmap,
+                                allocated_inode % bits_per_block))
+                return pfs_selftest_fail(__LINE__, -15);
+
+            alloc_rc = pfs_inode_bitmap_update(&fs, allocated_inode, 0u);
+            if (alloc_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, alloc_rc);
+            if (prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
+                PROSENJITFS_ENOENT)
+                return pfs_selftest_fail(__LINE__, -15);
+            alloc_rc = pfs_selftest_consistency(&fs);
+            if (alloc_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, alloc_rc);
+        }
 
         {
             uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
