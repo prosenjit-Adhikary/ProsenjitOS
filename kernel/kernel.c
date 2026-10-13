@@ -418,7 +418,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: persistent crash record self-test passed\n");
-    if (pros_elf_selftest() != PROS_ELF_OK) {
+    int elf_selftest_rc = pros_elf_selftest();
+    if (elf_selftest_rc != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF validation self-test rc = ");
+        serial_hex64((uint64_t)(int64_t)elf_selftest_rc);
+        serial_write("\n");
         serial_write("ProsenjitOS: ERROR ELF validation negative self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
