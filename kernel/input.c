@@ -127,10 +127,30 @@ int pros_input_selftest(void)
     if (input_decode_set1(0x00u, &extended, &event) != 0)
         return -6;
 
-    /* Verify ring FIFO semantics without touching real controller state. */
-    struct pros_input_event ring[2];
-    ring[0] = event;
-    ring[1] = event;
-    if (ring[0].type != ring[1].type) return -7;
+    /*
+     * This self-test runs before user mode starts polling the device. Reset
+     * the empty queue, then exercise actual enqueue/dequeue FIFO behavior.
+     */
+    input_head = 0u;
+    input_tail = 0u;
+    struct pros_input_event first = {PROSENJIT_INPUT_ABI_VERSION,
+                                     PROS_INPUT_KEY, 1u, 0x1Eu, 0,
+                                     PROS_INPUT_FLAG_PRESS};
+    struct pros_input_event second = {PROSENJIT_INPUT_ABI_VERSION,
+                                      PROS_INPUT_KEY, 2u, 0x30u, 0,
+                                      PROS_INPUT_FLAG_RELEASE};
+    struct pros_input_event out = {0};
+    if (input_enqueue(&first) != PROS_INPUT_OK ||
+        input_enqueue(&second) != PROS_INPUT_OK)
+        return -7;
+    if (input_dequeue(&out) != PROS_INPUT_OK ||
+        out.timestamp != 1u || out.value0 != 0x1E)
+        return -8;
+    if (input_dequeue(&out) != PROS_INPUT_OK ||
+        out.timestamp != 2u || out.value0 != 0x30 ||
+        out.flags != PROS_INPUT_FLAG_RELEASE)
+        return -9;
+    if (input_dequeue(&out) != PROS_INPUT_EMPTY)
+        return -10;
     return PROS_INPUT_OK;
 }
