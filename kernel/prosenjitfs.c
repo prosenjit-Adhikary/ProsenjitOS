@@ -7494,8 +7494,8 @@ int prosenjitfs_selftest(void)
     }
 
     /*
-     * Tiny-image allocation exhaustion.  This uses the real allocator and
-     * journal on a minimum-size filesystem, then verifies recovery/reuse.
+     * Tiny-image allocation exhaustion.  This exercises the real allocator
+     * and journal on a minimum-size filesystem, then verifies recovery/reuse.
      */
     {
         /* The simulated disk is 512 KiB; keep it out of the 128 KiB kernel stack. */
@@ -7504,6 +7504,7 @@ int prosenjitfs_selftest(void)
         struct pros_prosenjitfs small_fs = { 0 };
         uint64_t block;
         uint64_t first_reused = 0u;
+        uint64_t allocated_blocks[PFS_MIN_BLOCKS];
         uint32_t allocated = 0u;
         uint64_t inode_tmp;
 
@@ -7519,23 +7520,42 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
 
         for (;;) {
-            int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
-            if (rc == PROSENJITFS_ENOSPC)
+            int alloc_rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
+            if (alloc_rc == PROSENJITFS_ENOSPC)
                 break;
-            if (rc != PROSENJITFS_OK)
-                {
-                    prosenjitfs_unmount(&small_fs);
-                    return pfs_selftest_fail(__LINE__, -17);
-                }
-            if (++allocated > PFS_MIN_BLOCKS)
-                {
-                    prosenjitfs_unmount(&small_fs);
-                    return pfs_selftest_fail(__LINE__, -17);
-                }
+            if (alloc_rc != PROSENJITFS_OK ||
+                allocated >= PFS_MIN_BLOCKS) {
+                (void)prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+            allocated_blocks[allocated++] = block;
         }
         if (allocated == 0u) {
             (void)prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(0x80000001u, -17);
+        }
+
+        /*
+         * These are raw allocator reservations, not inode-owned extents.
+         * The global consistency checker correctly rejects such orphaned
+         * allocations, so prove exhaustion/reuse first and return every
+         * reservation before running the ownership invariant.
+         */
+        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
+                PROSENJITFS_OK ||
+            first_reused != block) {
+            (void)prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
+
+        for (uint32_t i = 0u; i < allocated; ++i) {
+            if (prosenjitfs_free_blocks(&small_fs, allocated_blocks[i], 1u) !=
+                PROSENJITFS_OK) {
+                (void)prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
         }
         {
             int consistency_rc = pfs_selftest_consistency(&small_fs);
@@ -7548,33 +7568,31 @@ int prosenjitfs_selftest(void)
             }
         }
 
-        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
-                PROSENJITFS_OK ||
-            first_reused != block ||
-            prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
-                PROSENJITFS_OK)
-            {
-                prosenjitfs_unmount(&small_fs);
-                return pfs_selftest_fail(__LINE__, -17);
-            }
-
+        /*
+         * Inode allocation alone reserves a bitmap bit but does not create
+         * an initialized inode record.  Test inode exhaustion separately;
+         * do not feed this deliberately incomplete fixture to the full
+         * mounted-filesystem consistency checker.
+         */
+        if (prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
+            PROSENJITFS_OK) {
+            (void)prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -17);
+        }
         {
             uint32_t inode_allocated = 1u;
             for (;;) {
-                int rc = prosenjitfs_alloc_inode(&small_fs, &inode_tmp);
-                if (rc == PROSENJITFS_ENOSPC)
+                int alloc_rc = prosenjitfs_alloc_inode(&small_fs, &inode_tmp);
+                if (alloc_rc == PROSENJITFS_ENOSPC)
                     break;
-                if (rc != PROSENJITFS_OK ||
+                if (alloc_rc != PROSENJITFS_OK ||
                     ++inode_allocated > small_fs.sb.inode_count) {
-                    prosenjitfs_unmount(&small_fs);
+                    (void)prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
             }
-            if (inode_allocated < small_fs.sb.inode_count - 1u ||
-                pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
-                prosenjitfs_unmount(&small_fs);
+            if (inode_allocated < small_fs.sb.inode_count - 1u) {
+                (void)prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
             }
         }
