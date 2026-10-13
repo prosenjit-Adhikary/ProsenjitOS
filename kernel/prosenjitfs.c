@@ -7183,9 +7183,11 @@ int prosenjitfs_selftest(void)
             if (prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
                 PROSENJITFS_ENOENT)
                 return pfs_selftest_fail(__LINE__, -15);
-            alloc_rc = pfs_selftest_consistency(&fs);
-            if (alloc_rc != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, alloc_rc);
+            /*
+             * The two raw data blocks are intentionally still reserved here
+             * and have no owning extent. Defer global consistency checking
+             * until the test frees them below.
+             */
         }
 
         {
