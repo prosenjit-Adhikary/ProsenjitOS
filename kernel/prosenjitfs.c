@@ -4647,6 +4647,10 @@ run_found:
                 return rc;
             pfs_copy(&tail, tail_image, sizeof(tail));
             tail.next = extent_lba;
+            /* Publish the updated link into the transaction image before
+             * calculating its checksum; otherwise the checksum would cover
+             * the old next pointer and the new extent would be unreachable. */
+            pfs_copy(tail_image, &tail, sizeof(tail));
             pfs_put32(tail_image +
                       offsetof(struct pros_prosenjitfs_extent, checksum),
                       pfs_crc_with_zero32(
