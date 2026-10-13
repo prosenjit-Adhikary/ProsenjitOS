@@ -29,6 +29,7 @@ struct pros_block_device {
     void *private_data;
 };
 
+uint32_t block_device_init_diag_stage_get(void);
 int block_device_init(struct pros_block_device *, uint32_t, uint64_t,
                       pros_block_read_fn, pros_block_write_fn, void *);
 int block_device_read(struct pros_block_device *, uint64_t, uint32_t, void *);
