@@ -6247,7 +6247,8 @@ int prosenjitfs_selftest(void)
             delayed_extent.physical_block + 1u != second_physical)
             return pfs_selftest_fail(__LINE__, -14);
 
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
