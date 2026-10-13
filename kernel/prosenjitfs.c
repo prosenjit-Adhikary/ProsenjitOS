@@ -7079,10 +7079,15 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
-        if (vfs_unlink(&fs.mount, "/persist/config/sub/renamed.bin") !=
-                PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_ENOTEMPTY)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int cleanup_rc = vfs_unlink(
+                &fs.mount, "/persist/config/sub/renamed.bin");
+            if (cleanup_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, cleanup_rc);
+            cleanup_rc = vfs_rmdir(&fs.mount, "/persist/config/sub");
+            if (cleanup_rc != PROS_VFS_ENOTEMPTY)
+                return pfs_selftest_fail(__LINE__, cleanup_rc);
+        }
 
         if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
                 PROS_VFS_OK ||
