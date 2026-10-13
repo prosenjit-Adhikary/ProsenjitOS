@@ -130,6 +130,8 @@ user_mode_exit_trampoline:
     call paging_switch_kernel
     call user_mode_test_complete
 .user_halt:
+    ; Debug fail-fast: kernel exception diagnostics report the last syscall stage.
+    ud2
     jmp .user_halt
 
 cpu_security_init:
@@ -214,6 +216,7 @@ user_test_entry:
 
     ; Exercise the shared user/kernel ABI and verify the return value.
     mov rax, 1
+    mov byte [r14 + 128], 1
     int 0x80
     cmp rax, 0x0000000000010000
     jne .user_halt
@@ -221,6 +224,7 @@ user_test_entry:
     ; Input polling must reject a null user buffer before touching the device.
     mov rax, 8
     xor rsi, rsi
+    mov byte [r14 + 128], 2
     int 0x80
     mov rbx, 0xFFFFFFFFFFFFFFF6 ; PROSENJIT_SYSCALL_EBADF
     cmp rax, rbx
@@ -231,6 +235,7 @@ user_test_entry:
     ; that QEMU has a key queued at the instant of the test.
     mov rax, 8
     lea rsi, [r14 + 64]
+    mov byte [r14 + 128], 3
     int 0x80
     test rax, rax
     jz .input_poll_ok
@@ -240,6 +245,7 @@ user_test_entry:
 
     ; Unknown syscall numbers must fail closed with ENOSYS.
     mov rax, 0x7FFF
+    mov byte [r14 + 128], 4
     int 0x80
     cmp rax, -38                  ; PROSENJIT_SYSCALL_ENOSYS
     jne .user_halt
@@ -248,6 +254,7 @@ user_test_entry:
     mov rax, 4
     mov rdi, r12
     xor rsi, rsi
+    mov byte [r14 + 128], 5
     int 0x80
     cmp rax, -13                  ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
@@ -256,6 +263,7 @@ user_test_entry:
     mov rax, 4
     mov rdi, r12
     mov rsi, 0x8000000000000000
+    mov byte [r14 + 128], 6
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
@@ -264,6 +272,7 @@ user_test_entry:
     mov rax, 4
     xor rdi, rdi
     mov rsi, 1
+    mov byte [r14 + 128], 7
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
@@ -277,6 +286,7 @@ user_test_entry:
     mov rax, 4
     mov rdi, r12
     mov rsi, 1                  ; PROSENJIT_CAP_READ
+    mov byte [r14 + 128], 8
     int 0x80
     ; Handles are bounded generation/slot values. Any non-zero upper
     ; 32 bits means the syscall returned an ABI error, not a handle.
@@ -292,6 +302,7 @@ user_test_entry:
     mov rax, 4
     mov rdi, r12
     mov rsi, 4                  ; PROSENJIT_CAP_EXECUTE
+    mov byte [r14 + 128], 9
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
@@ -304,6 +315,7 @@ user_test_entry:
     mov rdi, r12
     lea rsi, [r14 + 1]
     mov rdx, 3
+    mov byte [r14 + 128], 10
     int 0x80
     test rax, rax
     jnz .user_halt
@@ -314,6 +326,7 @@ user_test_entry:
     lea rsi, [r14 + 32]
     mov rdx, 64
     lea rcx, [r14 + 16]
+    mov byte [r14 + 128], 11
     int 0x80
     cmp rax, 3
     jne .user_halt
@@ -329,6 +342,7 @@ user_test_entry:
     ; Close the duplicated READ-only capability.
     mov rdi, r13
     mov rax, 3
+    mov byte [r14 + 128], 12
     int 0x80
     test rax, rax
     jnz .user_halt
@@ -336,6 +350,7 @@ user_test_entry:
     ; Close the original READ|DUP capability.
     mov rdi, r12
     mov rax, 3
+    mov byte [r14 + 128], 13
     int 0x80
     test rax, rax
     jnz .user_halt
@@ -345,12 +360,14 @@ user_test_entry:
     mov rax, 4
     mov rdi, r12
     mov rsi, 1                  ; PROSENJIT_CAP_READ
+    mov byte [r14 + 128], 14
     int 0x80
     cmp rax, 0xFFFFFFFFFFFFFFF3 ; PROSENJIT_SYSCALL_EPERM
     jne .user_halt
 
     mov rdi, r12
     mov rax, 3
+    mov byte [r14 + 128], 15
     int 0x80
     mov rbx, 0xFFFFFFFFFFFFFFF6
     cmp rax, rbx
@@ -359,6 +376,7 @@ user_test_entry:
     ; Ask the kernel to finish the CPL3 test. The kernel validates the
     ; caller privilege and user mapping before returning to its trampoline.
     mov rax, 2
+    mov byte [r14 + 128], 16
     int 0x80
 .user_halt:
     jmp .user_halt
