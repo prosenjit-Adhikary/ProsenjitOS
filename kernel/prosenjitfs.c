@@ -7414,7 +7414,7 @@ int prosenjitfs_selftest(void)
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
-            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
+            if (vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
                 prosenjitfs_read_inode(&fs, inode_number,
                                        &before_inode) != PROSENJITFS_OK ||
