@@ -413,17 +413,26 @@ int syscall_selftest(struct pros_process *process) {
 
         process->syscall_policy = saved_policy;
 
-        /* Even an allowed syscall policy must not let CPL0 enter user input. */
+        /*
+         * Even an allowed syscall policy must not let CPL0 enter user input.
+         * Set the actual current process policy too, so the policy gate cannot
+         * make this test pass before the CPL check is reached.
+         */
+        struct pros_process *current_process = process_current();
+        uint64_t current_saved_policy = current_process
+                                      ? current_process->syscall_policy : 0;
         process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+        if (current_process)
+            current_process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
         regs[0] = PROSENJIT_SYS_INPUT_POLL;
         regs[4] = 0;
         frame[1] = 0; /* kernel CS: must fail before touching the PS/2 ports */
         syscall_dispatch(regs, frame);
-        if (regs[0] != PROSENJIT_SYSCALL_EPERM) {
-            process->syscall_policy = saved_policy;
-            return -4;
-        }
+        if (current_process)
+            current_process->syscall_policy = current_saved_policy;
         process->syscall_policy = saved_policy;
+        if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+            return -4;
 
         regs[0] = 0xFFFFFFFFULL;
         syscall_dispatch(regs, frame);
