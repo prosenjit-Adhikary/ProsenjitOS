@@ -52,6 +52,12 @@ if [[ -f kernel/display.c ]] && grep -Eq 'pros_display_(get_info|present)' kerne
 else
   fail "kernel display backend boundary not found"
 fi
+if [[ -f kernel/input.c ]] && grep -Eq 'pros_input_(poll|selftest)' kernel/input.c &&
+   grep -q 'PROSENJIT_SYS_INPUT_POLL' include/abi/syscall.h; then
+  note "bounded PS/2 input poll syscall and decoder self-test source exist; hardware/userland integration still needs runtime proof"
+else
+  fail "kernel input polling implementation or syscall ABI is missing"
+fi
 
 echo "[4/7] Actual userspace desktop implementation"
 user_sources="$(find user -type f \( -name '*.c' -o -name '*.h' -o -name '*.S' -o -name '*.asm' \) ! -name 'README.md' -print 2>/dev/null || true)"
@@ -111,7 +117,8 @@ if [[ -f build/prosenjitOS.iso ]] && command -v qemu-system-x86_64 >/dev/null 2>
     note "QEMU serial log generated"
     for marker in \
       "ProsenjitOS: x86-64 long mode active" \
-      "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"; do
+      "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" \
+      "ProsenjitOS: keyboard input decoder/ring self-test passed"; do
       if grep -Fq "$marker" build/desktop-qemu-serial.log; then
         note "boot marker present: $marker"
       else
