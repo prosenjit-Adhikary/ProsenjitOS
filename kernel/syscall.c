@@ -7,6 +7,8 @@
 #include "intent.h"
 #include "ipc.h"
 #include "usercopy.h"
+#include "input.h"
+#include "../include/abi/input.h"
 #include "../include/abi/syscall.h"
 
 #define COM1_PORT 0x3F8u
@@ -313,6 +315,33 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 return;
             }
             registers[0] = received;
+            return;
+        }
+
+        case PROSENJIT_SYS_INPUT_POLL: {
+            struct pros_process *process = process_current();
+            uint64_t event_address = registers[4];
+            if (!process ||
+                address_space_validate_user_range(&process->address_space,
+                                                  event_address,
+                                                  sizeof(struct pros_input_event), 1) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+
+            struct pros_input_event event;
+            int rc = pros_input_poll(&event);
+            if (rc == PROS_INPUT_EMPTY) {
+                registers[0] = 0; /* no pending keyboard event */
+                return;
+            }
+            if (rc != PROS_INPUT_OK ||
+                copy_to_user(&process->address_space, event_address,
+                             &event, sizeof(event)) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            registers[0] = 1; /* one event copied */
             return;
         }
 
