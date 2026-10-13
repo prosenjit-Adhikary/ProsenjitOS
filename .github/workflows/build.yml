@@ -145,15 +145,5 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
-      - name: Upload ISO and boot diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosenjitOS-boot-test
-          path: |
-            build/prosenjitOS.iso
-            build/prosenjit-native-bios.img
-            build/qemu-serial.log
-            build/qemu-debug.log
-            build/native-qemu-serial.log
-            build/native-qemu-debug.log
+      # Artifact upload is intentionally omitted: CI must not depend on
+      # GitHub Actions artifact-storage quota. Boot logs are printed above.
