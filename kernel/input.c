@@ -158,14 +158,14 @@ int pros_input_selftest(void)
     struct pros_input_event out = {0};
     if (input_enqueue(&first) != PROS_INPUT_OK ||
         input_enqueue(&second) != PROS_INPUT_OK)
-        return -10;
+        return -8;
     if (input_dequeue(&out) != PROS_INPUT_OK ||
         out.timestamp != 1u || out.value0 != 0x1E)
-        return -8;
+        return -9;
     if (input_dequeue(&out) != PROS_INPUT_OK ||
         out.timestamp != 2u || out.value0 != 0x30 ||
         out.flags != PROS_INPUT_FLAG_RELEASE)
-        return -9;
+        return -10;
     if (input_dequeue(&out) != PROS_INPUT_EMPTY)
         return -11;
 
