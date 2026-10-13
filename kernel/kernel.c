@@ -1083,6 +1083,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
 
     serial_write("ProsenjitOS: switching to CPL3 user address space\\n");
+    /* Re-establish the process context after earlier lifecycle/security self-tests. */
+    process_set_current(&init_process);
+    if (process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR CPL3 current-process binding failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
