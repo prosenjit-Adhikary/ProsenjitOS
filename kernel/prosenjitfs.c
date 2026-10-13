@@ -6994,16 +6994,18 @@ int prosenjitfs_selftest(void)
                                        "/persist/config/sub/renamed.bin", &node);
             if (check_rc != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -154);
+            node_data = (struct pfs_vnode_data *)node->private_data;
+            if (!node_data || node_data->inode_number != rename_inode_before ||
+                node_data->inode_number == inode_before) {
+                (void)vfs_vnode_put(node);
+                return pfs_selftest_fail(__LINE__, -156);
+            }
             check_rc = vfs_vnode_put(node);
             if (check_rc != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -155);
         }
-        node_data = (struct pfs_vnode_data *)node->private_data;
-        if (!node_data || node_data->inode_number != rename_inode_before ||
-            node_data->inode_number == inode_before ||
-            vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config",
-                            &node) != PROS_VFS_OK ||
+        if (vfs_path_lookup(&fs.mount, "/persist/config", &node) !=
+                PROS_VFS_OK ||
             vfs_vnode_put(node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
