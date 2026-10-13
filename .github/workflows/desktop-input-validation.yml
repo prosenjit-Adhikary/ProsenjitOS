@@ -16,16 +16,23 @@ concurrency:
 
 jobs:
   desktop-input:
-    runs-on: ubuntu-latest
+    # Use the same Debian self-hosted runner as the main build workflow.
+    # ubuntu-latest failed before allocating a runner in this repository.
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install boot-test toolchain
+      - name: Verify boot-test toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
+          set -eu
+          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld objdump qemu-system-x86_64 timeout; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Missing required tool: $tool"
+              exit 1
+            fi
+          done
 
       - name: Host-side input ABI and FIFO regression test
         run: |
