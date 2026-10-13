@@ -331,23 +331,38 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             struct pros_process *process = process_current();
             uint64_t event_address = registers[4];
-            if (!process ||
-                address_space_validate_user_range(&process->address_space,
-                                                  event_address,
-                                                  sizeof(struct pros_input_event), 1) != 0) {
+            int range_rc = process
+                ? address_space_validate_user_range(&process->address_space,
+                                                    event_address,
+                                                    sizeof(struct pros_input_event), 1)
+                : -1;
+            syscall_serial_write("ProsenjitOS: INPUT_POLL address=");
+            syscall_serial_hex64(event_address);
+            syscall_serial_write(" range_rc=");
+            syscall_serial_hex64((uint64_t)(int64_t)range_rc);
+            syscall_serial_write("\n");
+            if (!process || range_rc != 0) {
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
 
             struct pros_input_event event;
             int rc = pros_input_poll(&event);
+            syscall_serial_write("ProsenjitOS: INPUT_POLL device_rc=");
+            syscall_serial_hex64((uint64_t)(int64_t)rc);
+            syscall_serial_write("\n");
             if (rc == PROS_INPUT_EMPTY) {
                 registers[0] = 0; /* no pending keyboard event */
                 return;
             }
-            if (rc != PROS_INPUT_OK ||
-                copy_to_user(&process->address_space, event_address,
-                             &event, sizeof(event)) != 0) {
+            int copy_rc = rc == PROS_INPUT_OK
+                ? copy_to_user(&process->address_space, event_address,
+                               &event, sizeof(event))
+                : -1;
+            syscall_serial_write("ProsenjitOS: INPUT_POLL copy_rc=");
+            syscall_serial_hex64((uint64_t)(int64_t)copy_rc);
+            syscall_serial_write("\n");
+            if (rc != PROS_INPUT_OK || copy_rc != 0) {
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
