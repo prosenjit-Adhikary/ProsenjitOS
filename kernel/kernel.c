@@ -252,6 +252,8 @@ void exception_dispatch(uint64_t *frame) {
         serial_hex64(pfs_stage);
         serial_write(" rc=");
         serial_hex64((uint64_t)(int64_t)pfs_rc);
+        serial_write(" block_init_stage=");
+        serial_hex64(block_device_init_diag_stage_get());
         serial_write("\\n");
     }
     if (vector != 128 && !usercopy_fault_active()) {
