@@ -11,10 +11,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install toolchain
+      - name: Verify toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm grub-pc-bin grub-common xorriso mtools gcc binutils qemu-system-x86
+          set -eu
+          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              echo "::error::Missing required tool: $tool"
+              exit 1
+            fi
+          done
 
       - name: Build ISO
         run: |
