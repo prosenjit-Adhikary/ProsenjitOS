@@ -4505,9 +4505,10 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
                                              : bits_per_block - 1u;
         for (uint64_t bit = start; bit <= end; ++bit) {
             uint8_t allocated = (uint8_t)pfs_bitmap_bit(bitmap, bit);
+            /* A bitmap state mismatch is an invalid range state, not
+             * allocation exhaustion. ENOSPC is reserved for first-fit search. */
             if (allocated != want_allocated)
-                return want_allocated ? PROSENJITFS_ENOSPC
-                                       : PROSENJITFS_EINVAL;
+                return PROSENJITFS_EINVAL;
         }
     }
     return PROSENJITFS_OK;
