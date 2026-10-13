@@ -7045,20 +7045,39 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -15);
         }
         rename_inode_before = node_data->inode_number;
-        if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_rename(&fs.mount, "/persist/config/rename.bin",
-                       "/persist/config/sub/renamed.bin") != PROS_VFS_OK ||
-            vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
-                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
-            vfs_file_truncate(&file, 513u) != PROS_VFS_OK ||
-            vfs_file_seek(&file, 513u) != PROS_VFS_OK ||
-            vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(small_data) ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int op_rc = vfs_vnode_put(node);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF101u, op_rc);
+            op_rc = vfs_rename(&fs.mount, "/persist/config/rename.bin",
+                               "/persist/config/sub/renamed.bin");
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF102u, op_rc);
+            op_rc = vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
+                                  PROS_VFS_O_WRITE, &file);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF103u, op_rc);
+            op_rc = vfs_file_truncate(&file, 513u);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF104u, op_rc);
+            op_rc = vfs_file_seek(&file, 513u);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF105u, op_rc);
+            op_rc = vfs_file_write(&file, small_data, sizeof(small_data), &done);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF106u, op_rc);
+            if (done != sizeof(small_data))
+                return pfs_selftest_fail(0xF107u, -15);
+            op_rc = vfs_file_close(&file);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF108u, op_rc);
+            op_rc = prosenjitfs_unmount(&fs);
+            if (op_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(0xF109u, op_rc);
+            op_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (op_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(0xF10Au, op_rc);
+        }
 
         if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
             vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
