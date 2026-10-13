@@ -7304,7 +7304,12 @@ int prosenjitfs_selftest(void)
             before_size = before_inode.size;
             if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
-                prosenjitfs_read_inode(&fs, file_data->inode_number,
+                /*
+                 * Closing drops the vnode reference and may release
+                 * file_data. Use the inode number captured before close,
+                 * never dereference the private-data pointer afterwards.
+                 */
+                prosenjitfs_read_inode(&fs, inode_number,
                                        &before_inode) != PROSENJITFS_OK ||
                 before_inode.size != before_size ||
                 pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
