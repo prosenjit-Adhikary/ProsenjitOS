@@ -244,6 +244,16 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    if (vector == 14u) {
+        uint32_t pfs_stage = 0u;
+        int pfs_rc = PROSENJITFS_OK;
+        prosenjitfs_selftest_diag_get(&pfs_stage, &pfs_rc);
+        serial_write("ProsenjitOS: page-fault PFS selftest stage=");
+        serial_hex64(pfs_stage);
+        serial_write(" rc=");
+        serial_hex64((uint64_t)(int64_t)pfs_rc);
+        serial_write("\\n");
+    }
     if (vector != 128 && !usercopy_fault_active()) {
         /*
          * Exception context is capture-only. Do not enter the block/ATA stack
