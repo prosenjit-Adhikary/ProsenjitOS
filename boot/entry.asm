@@ -218,6 +218,26 @@ user_test_entry:
     cmp rax, 0x0000000000010000
     jne .user_halt
 
+    ; Input polling must reject a null user buffer before touching the device.
+    mov rax, 8
+    xor rsi, rsi
+    int 0x80
+    mov rbx, 0xFFFFFFFFFFFFFFF6 ; PROSENJIT_SYSCALL_EBADF
+    cmp rax, rbx
+    jne .user_halt
+
+    ; A valid user buffer may return 0 (no event) or 1 (event copied).
+    ; This exercises the CPL3 -> kernel input syscall path without assuming
+    ; that QEMU has a key queued at the instant of the test.
+    mov rax, 8
+    lea rsi, [r14 + 64]
+    int 0x80
+    test rax, rax
+    jz .input_poll_ok
+    cmp rax, 1
+    jne .user_halt
+.input_poll_ok:
+
     ; Unknown syscall numbers must fail closed with ENOSYS.
     mov rax, 0x7FFF
     int 0x80
