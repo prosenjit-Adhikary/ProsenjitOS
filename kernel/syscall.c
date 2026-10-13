@@ -392,6 +392,15 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 }
 
 
+
+void syscall_trace_result(uint64_t number, uint64_t result) {
+    syscall_serial_write("ProsenjitOS: CPL3 syscall result number=");
+    syscall_serial_hex64(number);
+    syscall_serial_write(" value=");
+    syscall_serial_hex64(result);
+    syscall_serial_write("\n");
+}
+
 int syscall_selftest(struct pros_process *process) {
     volatile uint64_t regs[6] = { 0, 0, 0, 0, 0, 0 };
     volatile uint64_t frame[7] = { 0, 0, 0, 0, 0, 0, 0 };
