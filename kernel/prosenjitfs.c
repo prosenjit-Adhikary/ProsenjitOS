@@ -7457,12 +7457,23 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
 
         done = 0u;
-        if (vfs_file_open(&fs.mount, "/corrupt.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, data, sizeof(small_data), &done) !=
-                PROS_VFS_ECORRUPT ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+        {
+            int corrupt_open_rc = vfs_file_open(&fs.mount, "/corrupt.bin",
+                                                PROS_VFS_O_READ, &file);
+            if (corrupt_open_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, corrupt_open_rc);
+            int corrupt_read_rc =
+                vfs_file_read(&file, data, sizeof(small_data), &done);
+            if (corrupt_read_rc != PROS_VFS_ECORRUPT) {
+                (void)vfs_file_close(&file);
+                return pfs_selftest_fail(
+                    __LINE__, corrupt_read_rc == PROS_VFS_OK
+                                  ? -162 : corrupt_read_rc);
+            }
+            int corrupt_close_rc = vfs_file_close(&file);
+            if (corrupt_close_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, corrupt_close_rc);
+        }
 
         if (pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
