@@ -7079,14 +7079,26 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(0xF10Au, op_rc);
         }
 
-        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
-                            &node) != PROS_VFS_OK ||
-            node->size != 513u + sizeof(small_data) ||
-            vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config/sub/renamed.bin",
-                            &node) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int check_rc = pfs_selftest_consistency(&fs);
+            if (check_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(0xF201u, check_rc);
+            check_rc = vfs_path_lookup(&fs.mount,
+                                       "/persist/config/sub/tree.bin", &node);
+            if (check_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF202u, check_rc);
+            if (node->size != 513u + sizeof(small_data)) {
+                (void)vfs_vnode_put(node);
+                return pfs_selftest_fail(0xF203u, -15);
+            }
+            check_rc = vfs_vnode_put(node);
+            if (check_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF204u, check_rc);
+            check_rc = vfs_path_lookup(&fs.mount,
+                                       "/persist/config/sub/renamed.bin", &node);
+            if (check_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF205u, check_rc);
+        }
         node_data = (struct pfs_vnode_data *)node->private_data;
         if (!node_data || node_data->inode_number != rename_inode_before ||
             node_data->inode_number == inode_before ||
