@@ -84,13 +84,3 @@ jobs:
           grep -Fq "ProsenjitOS: keyboard input decoder/ring self-test passed" build/desktop-native-serial.log
           grep -Fq "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" build/desktop-native-serial.log
 
-      - name: Upload boot logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-input-qemu-logs
-          path: |
-            build/desktop-iso-serial.log
-            build/desktop-native-serial.log
-            build/prosenjitOS.iso
-            build/prosenjit-native-bios.img
