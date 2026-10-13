@@ -4425,9 +4425,14 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
                                              : bits_per_block - 1u;
         for (uint64_t bit = start; bit <= end; ++bit) {
             uint8_t allocated = (uint8_t)pfs_bitmap_bit(bitmap, bit);
+            /*
+             * A state mismatch means the caller's requested range is not
+             * in the required bitmap state. ENOSPC is reserved for a search
+             * that cannot find any free run; returning it for a double-free
+             * would misreport allocator corruption as ordinary exhaustion.
+             */
             if (allocated != want_allocated)
-                return want_allocated ? PROSENJITFS_ENOSPC
-                                       : PROSENJITFS_EINVAL;
+                return PROSENJITFS_EINVAL;
         }
     }
     return PROSENJITFS_OK;
