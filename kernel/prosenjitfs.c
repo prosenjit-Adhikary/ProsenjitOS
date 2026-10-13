@@ -2452,14 +2452,14 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
 
     entry_block = (uint8_t *)kmalloc(data->fs->sb.block_size);
     if (!entry_block)
-        { rc = PROS_VFS_EIO; goto rmdir_out; }
+        { rc = PROSENJITFS_EIO; goto rmdir_out; }
 
     bucket = pfs_name_hash((const uint8_t *)name, name_length) %
              PROSENJITFS_DIR_BUCKETS;
     current = dir_index.heads[bucket];
     while (current != 0u) {
         if (++steps > data->fs->sb.total_blocks) {
-            rc = PROS_VFS_EIO;
+            rc = PROSENJITFS_EIO;
             goto rmdir_out;
         }
         if (current < data->fs->sb.data_start ||
