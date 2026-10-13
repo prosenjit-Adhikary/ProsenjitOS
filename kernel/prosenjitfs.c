@@ -7323,12 +7323,21 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
-            vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int op_rc = vfs_file_open(&fs.mount, "/hello.bin",
+                                      PROS_VFS_O_WRITE, &file);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF301u, op_rc);
+            op_rc = vfs_file_truncate(&file, UINT64_MAX);
+            if (op_rc != PROS_VFS_EOVERFLOW)
+                return pfs_selftest_fail(0xF302u, op_rc);
+            op_rc = vfs_file_truncate(&file, 0x100000000ULL);
+            if (op_rc != PROS_VFS_EOVERFLOW)
+                return pfs_selftest_fail(0xF303u, op_rc);
+            op_rc = vfs_file_close(&file);
+            if (op_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(0xF304u, op_rc);
+        }
 
         /*
          * Bounded-truncate regression: eight independent extents exceed the
