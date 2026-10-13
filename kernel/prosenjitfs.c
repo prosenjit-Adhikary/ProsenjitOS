@@ -6315,9 +6315,15 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -10);
 
         {
-            int extent_rc = pfs_find_extent(&fs, &after, 1u, &extent,
-                                            &extent_found_lba,
-                                            &extent_tail_lba);
+            int extent_rc = pfs_read_extent(&fs, after.extent_head, &extent);
+            if (extent_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, extent_rc);
+            if (after.extent_head >= extent.physical_block &&
+                after.extent_head - extent.physical_block < extent.block_count)
+                return pfs_selftest_fail(__LINE__, -101);
+            extent_rc = pfs_find_extent(&fs, &after, 1u, &extent,
+                                        &extent_found_lba,
+                                        &extent_tail_lba);
             if (extent_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, extent_rc);
             if (extent.logical_block > 1u)
