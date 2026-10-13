@@ -76,6 +76,13 @@ int pros_device_revoke(uint32_t device_id, uint32_t process_id)
 {
     if (!broker_ready || device_id == 0u || process_id == 0u)
         return PROS_DRIVER_EINVAL;
+    /*
+     * Distinguish an unknown device from a known device for which this
+     * process has no active grant. Match pros_device_check(): ENODEV means
+     * the device is absent; EPERM means the requested authority is absent.
+     */
+    if (!pros_device_get(device_id))
+        return PROS_DRIVER_ENODEV;
 
     for (uint32_t i = 0u; i < PROS_DEVICE_BROKER_MAX_GRANTS; ++i) {
         if (grants[i].active && grants[i].device_id == device_id &&
@@ -85,7 +92,7 @@ int pros_device_revoke(uint32_t device_id, uint32_t process_id)
             return PROS_DRIVER_OK;
         }
     }
-    return PROS_DRIVER_ENODEV;
+    return PROS_DRIVER_EPERM;
 }
 
 int pros_device_check(uint32_t device_id, uint32_t process_id,
