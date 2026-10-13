@@ -7089,12 +7089,21 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, cleanup_rc);
         }
 
-        if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
-                PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist/config") != PROS_VFS_OK ||
-            vfs_rmdir(&fs.mount, "/persist") != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int cleanup_rc = vfs_unlink(
+                &fs.mount, "/persist/config/sub/tree.bin");
+            if (cleanup_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, cleanup_rc);
+            cleanup_rc = vfs_rmdir(&fs.mount, "/persist/config/sub");
+            if (cleanup_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, cleanup_rc);
+            cleanup_rc = vfs_rmdir(&fs.mount, "/persist/config");
+            if (cleanup_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, cleanup_rc);
+            cleanup_rc = vfs_rmdir(&fs.mount, "/persist");
+            if (cleanup_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, cleanup_rc);
+        }
 
 
         /*
