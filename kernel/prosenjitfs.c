@@ -6314,14 +6314,22 @@ int prosenjitfs_selftest(void)
                 before.allocated_bytes + 2u * fs.sb.block_size)
             return pfs_selftest_fail(__LINE__, -10);
 
-        if (pfs_find_extent(&fs, &after, 1u, &extent,
-                             &extent_found_lba, &extent_tail_lba) !=
-                PROSENJITFS_OK ||
-            pfs_lba_add(fs.mount.device, extent.physical_block,
-                         1u - extent.logical_block, &first_block) !=
-                PROSENJITFS_OK ||
-            pfs_read_block(&device, first_block, zero) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -10);
+        {
+            int extent_rc = pfs_find_extent(&fs, &after, 1u, &extent,
+                                            &extent_found_lba,
+                                            &extent_tail_lba);
+            if (extent_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, extent_rc);
+            if (extent.logical_block > 1u)
+                return pfs_selftest_fail(__LINE__, PROSENJITFS_ECORRUPT);
+            extent_rc = pfs_lba_add(fs.mount.device, extent.physical_block,
+                                    1u - extent.logical_block, &first_block);
+            if (extent_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, extent_rc);
+            extent_rc = pfs_read_block(fs.mount.device, first_block, zero);
+            if (extent_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, extent_rc);
+        }
 
         for (uint32_t i = 0u; i < sizeof(zero); ++i)
             if (zero[i] != 0u)
