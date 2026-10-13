@@ -173,8 +173,11 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].generation = 1u;
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[1].object = &process.object;
-    if (pros_security_hardening_check_process(&process) != 0)
-        return -4;
+    {
+        int rc = pros_security_hardening_check_process(&process);
+        if (rc != 0)
+            return -40 + rc;
+    }
 
     process.handles.entries[1].rights = 1ULL << 63;
     if (pros_security_hardening_check_process(&process) != -6)
