@@ -25,16 +25,18 @@ static int check_range(uint64_t start, uint64_t end,
 {
     if (start > end || (start & 0xFFFULL) != 0 ||
         (end & 0xFFFULL) != 0)
-        return -1;
+        return -1; /* malformed or unaligned linker range */
     if (start == end)
         return 0;
 
     for (uint64_t va = start; va < end; va += 0x1000ULL) {
         uint64_t flags = 0;
-        if (paging_query_page(va, &flags) != 0 ||
-            (flags & required) != required ||
-            (flags & forbidden) != 0)
-            return -1;
+        if (paging_query_page(va, &flags) != 0)
+            return -2; /* missing page-table mapping */
+        if ((flags & required) != required)
+            return -3; /* required protection bit missing */
+        if ((flags & forbidden) != 0)
+            return -4; /* forbidden protection bit present */
     }
     return 0;
 }
@@ -55,24 +57,32 @@ int pros_security_hardening_init(void)
     hardening_violations = 0;
     hardening_ready = 0;
 
-    if (check_range(text_start, text_end, PROSENJIT_PAGE_PRESENT,
-                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
-                    PROSENJIT_PAGE_NX) != 0)
-        return -1;
-    if (check_range(rodata_start, rodata_end,
-                    PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_NX,
-                    PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER) != 0)
-        return -2;
-    if (check_range(data_start, data_end,
-                    PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
-                    PROSENJIT_PAGE_NX,
-                    PROSENJIT_PAGE_USER) != 0)
-        return -3;
-    if (check_range(bss_start, bss_end,
-                    PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
-                    PROSENJIT_PAGE_NX,
-                    PROSENJIT_PAGE_USER) != 0)
-        return -4;
+    {
+        int rc = check_range(text_start, text_end, PROSENJIT_PAGE_PRESENT,
+                             PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
+                             PROSENJIT_PAGE_NX);
+        if (rc != 0) return -100 + rc;
+    }
+    {
+        int rc = check_range(rodata_start, rodata_end,
+                             PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_NX,
+                             PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER);
+        if (rc != 0) return -200 + rc;
+    }
+    {
+        int rc = check_range(data_start, data_end,
+                             PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
+                             PROSENJIT_PAGE_NX,
+                             PROSENJIT_PAGE_USER);
+        if (rc != 0) return -300 + rc;
+    }
+    {
+        int rc = check_range(bss_start, bss_end,
+                             PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_WRITABLE |
+                             PROSENJIT_PAGE_NX,
+                             PROSENJIT_PAGE_USER);
+        if (rc != 0) return -400 + rc;
+    }
 
     hardening_ready = 1;
     (void)pros_health_record_security(0x53454348u, 1u,
