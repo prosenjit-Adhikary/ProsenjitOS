@@ -203,8 +203,8 @@ void idt_init(void) {
     };
     for (uint32_t i = 0; i < IDT_ENTRIES; ++i) idt[i].type_attr = 0;
     for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
-    /* Keep divide-error diagnostics off a potentially exhausted kernel stack. */
-    idt_set_gate(0, handlers[0], 2);
+    /* Keep divide-error diagnostics on their own IST, separate from #DF. */
+    idt_set_gate(0, handlers[0], 3);
     idt_set_gate(8, handlers[8], 2); /* dedicated double-fault stack */
     /*
      * Keep #GP/#PF on the normal CPL0 stack while debugging the user entry
