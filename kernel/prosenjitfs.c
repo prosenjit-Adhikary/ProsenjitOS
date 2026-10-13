@@ -5634,6 +5634,14 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             }
             pfs_consistency_diag_stage = 65u;
             if (allocated_bytes != inode.allocated_bytes) {
+                /*
+                 * Preserve the failing inode number in the diagnostic stage
+                 * so a boot self-test can distinguish accounting drift in
+                 * one file from a general extent-map validation failure.
+                 */
+                pfs_consistency_diag_stage =
+                    inode_number <= UINT32_MAX - 6500u
+                        ? 6500u + (uint32_t)inode_number : 65u;
                 rc = PROSENJITFS_ECORRUPT;
                 goto consistency_out;
             }
