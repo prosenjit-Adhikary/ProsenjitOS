@@ -6269,8 +6269,11 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -9);
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
-    if (prosenjitfs_free_blocks(&fs, first_block, 1u) != PROSENJITFS_EINVAL)
-        return pfs_selftest_fail(__LINE__, -10);
+    {
+        int double_free_rc = prosenjitfs_free_blocks(&fs, first_block, 1u);
+        if (double_free_rc != PROSENJITFS_EINVAL)
+            return pfs_selftest_fail(__LINE__, double_free_rc);
+    }
 
     /* Keep-size preallocation regression: reserve future blocks without
      * changing EOF, verify zero initialization, persistence, and subsequent
