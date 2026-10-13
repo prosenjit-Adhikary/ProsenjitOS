@@ -5294,7 +5294,6 @@ static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
 
 static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
 {
-    pfs_consistency_diag_stage = 1u;
     uint64_t bits_per_block;
     uint64_t owner_bytes;
     uint8_t *owner = 0;
@@ -5304,6 +5303,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     uint32_t name_length = 0u;
     int rc = PROSENJITFS_EIO;
 
+    pfs_consistency_diag_stage = 1u;
     if (!fs || !fs->mount.device || !fs->mount.active ||
         fs->sb.block_size == 0u || fs->sb.block_size > sizeof(bitmap) ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
