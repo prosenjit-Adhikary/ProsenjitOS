@@ -20,7 +20,7 @@ Run the AddressSanitizer/UndefinedBehaviorSanitizer variant with:
 sh user/winbridge/test-pe-image-sanitize.sh
 ```
 
-A libFuzzer entry point is provided in `fuzz_pe_image.c`; actual fuzz campaigns are still pending and require a compatible Clang/libFuzzer toolchain.
+A libFuzzer entry point is provided in `fuzz_pe_image.c`. Run a bounded local campaign (requires Clang with libFuzzer support) with `sh user/winbridge/fuzz-pe-image.sh`; set `FUZZ_SECONDS` to change the default 60-second duration. Actual fuzz campaigns are still pending until that command is run and its result is reviewed.
 
 ## What is implemented
 
