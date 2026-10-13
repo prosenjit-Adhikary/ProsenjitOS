@@ -5251,10 +5251,15 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
 
 static uint32_t pfs_selftest_diag_stage;
 static int pfs_selftest_diag_rc;
+/* Last phase reached by the deep consistency checker; exposed on failure. */
+static uint32_t pfs_consistency_diag_stage;
 
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
-    pfs_selftest_diag_stage = stage;
+    pfs_selftest_diag_stage =
+        (stage >= 6967u && stage <= 7000u && rc == PROSENJITFS_ECORRUPT &&
+         pfs_consistency_diag_stage != 0u)
+            ? (0x80000000u | pfs_consistency_diag_stage) : stage;
     pfs_selftest_diag_rc = rc;
     return rc;
 }
