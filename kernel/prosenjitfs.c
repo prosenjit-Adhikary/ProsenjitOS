@@ -5403,6 +5403,11 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         uint64_t lba;
         int allocated;
 
+        /* Encode inode and validation substage so a stale file-extent stage
+         * cannot hide a later inode-table/parent consistency failure. */
+        pfs_consistency_diag_stage =
+            inode_number <= (UINT32_MAX - 20004u) / 10u
+                ? 20000u + (uint32_t)inode_number * 10u + 1u : 20u;
         if (bi >= fs->sb.inode_bitmap_blocks ||
             pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
                         bi, &lba) != PROSENJITFS_OK ||
@@ -5411,6 +5416,9 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             goto consistency_out;
         }
 
+        pfs_consistency_diag_stage =
+            inode_number <= (UINT32_MAX - 20004u) / 10u
+                ? 20000u + (uint32_t)inode_number * 10u + 2u : 20u;
         allocated = pfs_bitmap_bit(bitmap, within);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (!allocated) {
@@ -5427,6 +5435,9 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             rc = PROSENJITFS_ECORRUPT;
             goto consistency_out;
         }
+        pfs_consistency_diag_stage =
+            inode_number <= (UINT32_MAX - 20004u) / 10u
+                ? 20000u + (uint32_t)inode_number * 10u + 3u : 20u;
         if (rc != PROSENJITFS_OK ||
             (inode.type != PROSENJITFS_INODE_FILE &&
              inode.type != PROSENJITFS_INODE_DIR &&
@@ -5438,6 +5449,9 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
 
         if (inode_number != fs->sb.root_inode) {
             struct pros_prosenjitfs_inode parent_inode;
+            pfs_consistency_diag_stage =
+                inode_number <= (UINT32_MAX - 20004u) / 10u
+                    ? 20000u + (uint32_t)inode_number * 10u + 4u : 20u;
             rc = prosenjitfs_read_inode(fs, inode.parent_inode, &parent_inode);
             if (rc != PROSENJITFS_OK || parent_inode.type != PROSENJITFS_INODE_DIR) {
                 rc = PROSENJITFS_ECORRUPT;
