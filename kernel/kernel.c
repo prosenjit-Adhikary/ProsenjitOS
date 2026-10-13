@@ -57,6 +57,7 @@ static volatile uint64_t health_last_exception_rip;
 static volatile uint64_t health_previous_crash_sequence;
 static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
+void prosenjitfs_alloc_inode_diag_get(uint32_t *stage, uint64_t *inode_number, int *rc);
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -802,6 +803,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             int mkdir_rc = PROSENJITFS_OK;
             int selftest_diag_rc = PROSENJITFS_OK;
             int tx_clear_rc = PROSENJITFS_OK;
+            uint32_t alloc_inode_stage = 0u;
+            uint64_t alloc_inode_number = 0u;
+            int alloc_inode_rc = PROSENJITFS_OK;
+            prosenjitfs_alloc_inode_diag_get(&alloc_inode_stage,
+                                              &alloc_inode_number,
+                                              &alloc_inode_rc);
             (void)prosenjitfs_mkdir_diag_get(&mkdir_stage, &mkdir_rc,
                                              &tx_stage, &tx_count);
             (void)prosenjitfs_tx_diag_get(&tx_stage, &tx_count,
@@ -838,6 +845,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_hex64(tx_count_before_clear);
             serial_write(" tx_count_after_clear=");
             serial_hex64(tx_count_after_clear);
+            serial_write(" alloc_inode_stage=");
+            serial_hex64(alloc_inode_stage);
+            serial_write(" alloc_inode_number=");
+            serial_hex64(alloc_inode_number);
+            serial_write(" alloc_inode_rc=");
+            serial_hex64((uint64_t)(int64_t)alloc_inode_rc);
             serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
