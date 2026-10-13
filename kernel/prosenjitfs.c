@@ -6343,7 +6343,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
                 PROSENJITFS_OK ||
             first_extent.logical_block != low_block ||
