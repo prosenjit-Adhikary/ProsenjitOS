@@ -3039,7 +3039,6 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
         if (inode_block) kfree(inode_block);
         pfs_create_diag_stage = 13u;
         pfs_create_diag_rc = PROS_VFS_EIO;
-        pfs_create_diag_stage = 11u; pfs_create_diag_rc = PROS_VFS_EIO;
         return PROS_VFS_EIO;
     }
 
