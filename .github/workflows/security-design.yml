@@ -2,6 +2,7 @@ name: Security architecture checks
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
