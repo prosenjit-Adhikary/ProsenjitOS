@@ -26,13 +26,15 @@ Working branch: `work/desktop-integration-gate-fix`
 
 - Hardened `scripts/desktop_complete.sh` so it checks for real userspace sources, display/input dispatch, session-launcher sources, and window-system integration evidence instead of treating kernel-side symbols as proof of a desktop.
 - Corrected the QEMU smoke-test interpretation: a 20-second timeout can be normal for a kernel that keeps running; required serial boot markers must still be present.
+- Added `desktop-input-validation.yml` to attempt the same build and both QEMU boot paths on `ubuntu-latest`, with serial-log assertions and artifact upload. Its jobs currently cannot obtain a runner in this repository context.
+- Added workflow concurrency groups so superseded queued runs are cancelled instead of accumulating indefinitely.
 - Expanded build-tool preflight and made the generated report explicitly distinguish kernel boot health from desktop completion.
 
 ## Verification state
 
 - Source inspection completed for the desktop plan, user-mode README, display ABI/backend, input ABI, init/service manager, Makefile, build script, and build workflow.
 - The desktop gate script and kernel input changes are committed on this branch, but they have **not** been executed on the user's Debian host in this session.
-- GitHub Actions runs for this branch are queued; no CI result is available yet. Therefore no build, QEMU, keyboard, display, or GUI runtime pass is claimed.
+- The latest self-hosted build/security workflow runs remain queued. The new GitHub-hosted validation jobs fail before any step starts; the job API reports `runner_id: 0`, an empty runner name, and no steps. This is runner/workflow execution infrastructure failure, not evidence of a source compilation failure. No build or QEMU test actually ran, so no build, keyboard runtime, display, or GUI pass is claimed.
 
 ## Required next implementation milestones
 
