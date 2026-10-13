@@ -5259,10 +5259,15 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
 
 static uint32_t pfs_selftest_diag_stage;
 static int pfs_selftest_diag_rc;
+/* Last phase reached by the deep consistency checker; exposed via failed self-test stage. */
+static uint32_t pfs_consistency_diag_stage;
 
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
-    pfs_selftest_diag_stage = stage;
+    pfs_selftest_diag_stage =
+        (stage == 6967u && rc == PROSENJITFS_ECORRUPT &&
+         pfs_consistency_diag_stage != 0u)
+            ? (0x80000000u | pfs_consistency_diag_stage) : stage;
     pfs_selftest_diag_rc = rc;
     return rc;
 }
@@ -5289,6 +5294,7 @@ static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
 
 static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
 {
+    pfs_consistency_diag_stage = 1u;
     uint64_t bits_per_block;
     uint64_t owner_bytes;
     uint8_t *owner = 0;
@@ -5389,6 +5395,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
      * bitmap is intentionally built from metadata references and then
      * compared with the on-disk allocation bitmap below.
      */
+    pfs_consistency_diag_stage = 2u;
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
         uint64_t bi = inode_number / bits_per_block;
@@ -5439,6 +5446,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
 
         if (inode.type == PROSENJITFS_INODE_DIR) {
+            pfs_consistency_diag_stage = 3u;
             struct pros_prosenjitfs_dir_index index;
             if (inode.extent_head != 0u ||
                 inode.dir_index < fs->sb.data_start ||
@@ -5450,6 +5458,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 goto consistency_out;
             }
 
+            pfs_consistency_diag_stage = 4u;
             for (uint32_t bucket = 0u;
                  bucket < PROSENJITFS_DIR_BUCKETS; ++bucket) {
                 uint64_t current = index.heads[bucket];
@@ -5543,6 +5552,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                         }
                     }
                     {
+                        pfs_consistency_diag_stage = 5u;
                         struct pros_prosenjitfs_inode child;
                         int child_rc = prosenjitfs_read_inode(
                             fs, entry.inode, &child);
@@ -5565,6 +5575,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 }
             }
         } else if (inode.type == PROSENJITFS_INODE_FILE) {
+            pfs_consistency_diag_stage = 6u;
             uint64_t current = inode.extent_head;
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
@@ -5620,6 +5631,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
     }
 
+    pfs_consistency_diag_stage = 7u;
     /* Bits beyond inode_count are permanently invalid and must never
      * survive as allocated state. This catches bitmap tail corruption that
      * cannot be observed by inode lookup alone. */
@@ -5641,6 +5653,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
     }
 
+    pfs_consistency_diag_stage = 8u;
     if (dir_refs[fs->sb.root_inode] != 0u) {
         rc = PROSENJITFS_ECORRUPT;
         goto consistency_out;
@@ -5668,6 +5681,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
     }
 
+    pfs_consistency_diag_stage = 9u;
     /*
      * Metadata blocks are never allocatable. Every block below data_start
      * must be marked used; every referenced data/extent/directory-entry block
