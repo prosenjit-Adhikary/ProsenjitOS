@@ -7600,6 +7600,11 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
+        /* Discard the intentionally exhausted inode bitmap before remount tests. */
+        pfs_zero(&small_disk, sizeof(small_disk));
+        if (prosenjitfs_format(&small_device) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
         /*
          * A partition view that is one sector shorter than the durable
          * filesystem must be rejected before any filesystem I/O can cross
