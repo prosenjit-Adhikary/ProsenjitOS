@@ -796,6 +796,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (prosenjitfs_rc != PROSENJITFS_OK) {
             uint32_t mkdir_stage = 0u, tx_stage = 0u, tx_count = 0u;
             uint32_t selftest_stage = 0u;
+            uint32_t consistency_inode = 0u;
+            uint64_t consistency_expected = 0u, consistency_recorded = 0u;
             uint32_t tx_count_before_clear = 0u, tx_count_after_clear = 0u;
             int mkdir_rc = PROSENJITFS_OK;
             int selftest_diag_rc = PROSENJITFS_OK;
@@ -807,12 +809,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                           &tx_count_after_clear,
                                           &tx_clear_rc);
             prosenjitfs_selftest_diag_get(&selftest_stage, &selftest_diag_rc);
+            prosenjitfs_consistency_diag_get(&consistency_inode,
+                                             &consistency_expected,
+                                             &consistency_recorded);
             serial_write("ProsenjitOS: ERROR ProsenjitFS self-test failed rc=");
             serial_hex64((uint64_t)(int64_t)prosenjitfs_rc);
             serial_write(" selftest_stage=");
             serial_hex64(selftest_stage);
             serial_write(" selftest_rc=");
             serial_hex64((uint64_t)(int64_t)selftest_diag_rc);
+            serial_write(" consistency_inode=");
+            serial_hex64(consistency_inode);
+            serial_write(" allocated_expected=");
+            serial_hex64(consistency_expected);
+            serial_write(" allocated_recorded=");
+            serial_hex64(consistency_recorded);
             serial_write(" mkdir_stage=");
             serial_hex64(mkdir_stage);
             serial_write(" mkdir_rc=");
