@@ -4432,8 +4432,13 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
         for (uint64_t bit = start; bit <= end; ++bit) {
             uint8_t allocated = (uint8_t)pfs_bitmap_bit(bitmap, bit);
             if (allocated != want_allocated)
-                return want_allocated ? PROSENJITFS_ENOSPC
-                                       : PROSENJITFS_EINVAL;
+                /*
+                 * A caller requiring free space gets ENOSPC when the bit is
+                 * already allocated; a caller requiring allocated space
+                 * gets EINVAL when the bit is already free (double free).
+                 */
+                return want_allocated ? PROSENJITFS_EINVAL
+                                       : PROSENJITFS_ENOSPC;
         }
     }
     return PROSENJITFS_OK;
