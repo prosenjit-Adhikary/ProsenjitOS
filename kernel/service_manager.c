@@ -411,5 +411,38 @@ int service_manager_selftest(void)
             state != PROS_SERVICE_FAILED || retries != 3u)
             return -13;
     }
+
+    /*
+     * Registration must not retain pointers into caller-owned strings.
+     * Mutate every source string immediately after registration; the manager
+     * must still resolve the copied service names and dependency edge.
+     */
+    if (service_manager_init() != PROS_SERVICE_OK)
+        return -15;
+    {
+        char base_name[] = "owned-base";
+        char child_name[] = "owned-child";
+        char dependency_name[] = "owned-base";
+        struct pros_service_definition owned_base = {
+            .name = base_name, .start = sm_test_start, .stop = sm_test_stop,
+            .context = &a, .dependency_count = 0, .max_retries = 0
+        };
+        struct pros_service_definition owned_child = {
+            .name = child_name, .start = sm_test_start, .stop = sm_test_stop,
+            .context = &b, .dependency_count = 1,
+            .dependencies = { dependency_name }, .max_retries = 0
+        };
+        a = 0u;
+        b = 0u;
+        if (service_register(&owned_base) != PROS_SERVICE_OK ||
+            service_register(&owned_child) != PROS_SERVICE_OK)
+            return -16;
+        base_name[0] = 'X';
+        child_name[0] = 'X';
+        dependency_name[0] = 'X';
+        if (service_start("owned-child") != PROS_SERVICE_OK ||
+            a != 1u || b != 1u)
+            return -17;
+    }
     return PROS_SERVICE_OK;
 }
