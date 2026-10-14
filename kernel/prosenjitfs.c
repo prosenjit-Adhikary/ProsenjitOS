@@ -4650,6 +4650,14 @@ run_found:
                       (uint32_t)offsetof(struct pros_prosenjitfs_extent,
                                          checksum)));
 
+        /*
+         * If the inode has no existing extent chain, this new reservation
+         * must become its head. Otherwise the committed extent is allocated
+         * but unreachable, and lookup returns ENOENT.
+         */
+        if (!have_tail)
+            inode.extent_head = extent_lba;
+
         if (have_tail) {
             uint8_t tail_image[4096];
             rc = pfs_read_block(fs->mount.device, tail_lba, tail_image);
