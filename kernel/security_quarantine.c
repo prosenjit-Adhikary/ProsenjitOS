@@ -25,8 +25,8 @@ int pros_security_quarantine_add(
     const struct pros_file_admission_record *record,
     uint64_t timestamp,
     uint64_t *entry_id) {
-    if (!record || record->security.action != PROS_FILE_QUARANTINE ||
-        owner_pid == 0)
+    if (!record || !pros_file_admission_record_valid(record) ||
+        record->security.action != PROS_FILE_QUARANTINE || owner_pid == 0)
         return -1;
 
     for (uint32_t i = 0; i < PROS_SECURITY_QUARANTINE_MAX; ++i) {
@@ -123,6 +123,13 @@ int pros_security_quarantine_selftest(void) {
     uint64_t id = 0;
 
     (void)digest;
+    {
+        struct pros_file_admission_record invalid = record;
+        invalid.security.state = PROS_FILE_TRUSTED;
+        if (pros_security_quarantine_add(1u, &invalid, 1u, &id) == 0 ||
+            pros_security_quarantine_count() != 0u)
+            return -13;
+    }
     if (pros_security_quarantine_add(1, &record, 1, &id) != 0 || id == 0)
         return -1;
     if (pros_security_quarantine_get(id, &copy) != 0 ||
