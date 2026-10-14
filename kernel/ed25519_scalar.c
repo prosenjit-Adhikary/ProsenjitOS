@@ -84,12 +84,20 @@ void pros_ed25519_scalar_add(uint8_t out[32], const uint8_t a[32],
 void pros_ed25519_scalar_sub(uint8_t out[32], const uint8_t a[32],
                              const uint8_t b[32]) {
     uint8_t tmp[32], wide[64] = {0};
+    uint8_t ar[32], br[32], aw[64] = {0}, bw[64] = {0};
     uint16_t borrow = 0;
     if (!out || !a || !b) return;
 
     for (uint32_t i = 0; i < 32u; ++i) {
-        uint16_t ai = a[i];
-        uint16_t bi = (uint16_t)b[i] + borrow;
+        aw[i] = a[i];
+        bw[i] = b[i];
+    }
+    pros_ed25519_scalar_reduce(ar, aw);
+    pros_ed25519_scalar_reduce(br, bw);
+
+    for (uint32_t i = 0; i < 32u; ++i) {
+        uint16_t ai = ar[i];
+        uint16_t bi = (uint16_t)br[i] + borrow;
         tmp[i] = (uint8_t)(ai - bi);
         borrow = (ai < bi) ? 1u : 0u;
     }
