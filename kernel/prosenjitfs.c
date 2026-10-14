@@ -6430,6 +6430,19 @@ int prosenjitfs_selftest(void)
                                      -3000 + double_free_rc);
     }
 
+    /* Baseline consistency before keep-size preallocation regression. */
+    {
+        int consistency_rc = pfs_selftest_consistency(&fs);
+        if (consistency_rc != PROSENJITFS_OK) {
+            int diagnostic_rc = -1900 + consistency_rc;
+            if (consistency_rc == PROSENJITFS_ECORRUPT &&
+                pfs_consistency_diag_stage != 0u)
+                diagnostic_rc = -1900 -
+                    (int)(pfs_consistency_diag_stage * 1000u +
+                          (pfs_consistency_diag_inode % 1000u));
+            return pfs_selftest_fail(__LINE__, diagnostic_rc);
+        }
+    }
     /* Keep-size preallocation regression: reserve future blocks without
      * changing EOF, verify zero initialization, persistence, and subsequent
      * in-place write reuse. */
