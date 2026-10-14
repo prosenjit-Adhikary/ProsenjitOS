@@ -334,3 +334,14 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 **Fix:** commit `5781a215643517cabbd1df51c70ae007e229c7da` moves process-state validation after pointer/PID matching, checks the raw scheduler-visible state, and attempts canonical containment when the validated helper reports DEAD. Added a regression test through the public enforcement API. The code change is not yet compiler- or runtime-verified.
 
 **Current verification blocker:** Build #5760 (run ID `38532057578`) and Security #5262 (run ID `38532058158`) remain queued with no job steps/logs. The new test must run after the self-hosted runner is accepting jobs. No claim of passing build or QEMU boot is made.
+
+
+## 2026-10-14 — Admission record coherence enforcement
+
+**Finding (High: trust-decision integrity).** The execution admission boundary previously selected behavior from record->security.action without validating that the action agreed with the trust state. A contradictory MALICIOUS + ALLOW record could therefore reach the allow branch. The quarantine table similarly accepted any record whose action was QUARANTINE, even when its state claimed TRUSTED.
+
+**Fix:** introduced pros_file_admission_record_valid() in the admission layer. It rejects out-of-range state/action values, unknown evidence bits, incoherent state/action pairs, TRUSTED without local-trust evidence, VERIFIED without format-valid and signature-valid evidence, and SUSPICIOUS without suspicious-reputation or invalid-signature evidence. Both pros_security_exec_admit() and pros_security_quarantine_add() now enforce this contract. Regression cases cover contradictory MALICIOUS/ALLOW execution input and TRUSTED/QUARANTINE insertion.
+
+**Commits:** 80ce57a37adc68719b26a90e3380a3c48a57b569, d36f01305be223bca53ab127c0e5ab67a7aee253, 379f0f02d331482d436e21704173f188fe9e1d1deb, 3ff8941ae3f5a28afbe9e3d52c9f8fbbcc1ad0b5.
+
+**Verification caveat:** source-level only. No compiler, self-test, or QEMU result is available for these commits yet. Do not mark this issue verified until the self-hosted build and runtime tests execute successfully.
