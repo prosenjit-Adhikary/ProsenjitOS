@@ -483,6 +483,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR initial IPC test handle grant failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    serial_write("ProsenjitOS: IPC channel/capability foundation test passed\\n");
     process_set_current(&init_process);
     if (syscall_selftest(&init_process) != 0) {
         serial_write("ProsenjitOS: ERROR syscall dispatcher runtime self-test failed\n");
