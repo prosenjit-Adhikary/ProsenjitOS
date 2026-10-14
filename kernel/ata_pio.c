@@ -257,14 +257,20 @@ static int ata_read(struct pros_block_device *device, uint64_t lba,
                     ata_in16(ata->io_base + ATA_REG_DATA);
             dst += 512u;
         }
-        {
+        remaining -= chunk;
+        /*
+         * Do not compute a one-past-the-end LBA after the final chunk.
+         * block_device_lba_add() deliberately rejects results outside the
+         * device, so advancing after a valid final sector would turn a
+         * successful read/write ending at the last sector into an I/O error.
+         */
+        if (remaining != 0u) {
             uint64_t next_lba;
             if (block_device_lba_add(device, lba, chunk, &next_lba) !=
                     PROS_BLOCK_OK)
                 return PROS_BLOCK_EIO;
             lba = next_lba;
         }
-        remaining -= chunk;
     }
     return PROS_BLOCK_OK;
 }
@@ -310,14 +316,20 @@ static int ata_write(struct pros_block_device *device, uint64_t lba,
                 return PROS_BLOCK_EIO;
         }
 
-        {
+        remaining -= chunk;
+        /*
+         * Do not compute a one-past-the-end LBA after the final chunk.
+         * block_device_lba_add() deliberately rejects results outside the
+         * device, so advancing after a valid final sector would turn a
+         * successful read/write ending at the last sector into an I/O error.
+         */
+        if (remaining != 0u) {
             uint64_t next_lba;
             if (block_device_lba_add(device, lba, chunk, &next_lba) !=
                     PROS_BLOCK_OK)
                 return PROS_BLOCK_EIO;
             lba = next_lba;
         }
-        remaining -= chunk;
     }
 
     return PROS_BLOCK_OK;
