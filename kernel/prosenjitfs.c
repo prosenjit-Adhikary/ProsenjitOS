@@ -4457,32 +4457,55 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint64_t first_bitmap;
     uint64_t last_bitmap;
+    uint64_t end_abs;
     uint8_t bitmap[4096];
 
-    if (!fs || (want_allocated > 1u))
+    if (!fs || want_allocated > 1u || count == 0u ||
+        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(bitmap) ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
+    if (!fs->mount.active || !fs->mount.device)
+        return PROSENJITFS_EPERM;
+    if (fs->mount.device->sector_size != fs->sb.block_size ||
+        fs->mount.device->sector_count < fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
+    if (first < fs->sb.data_start || first >= fs->sb.total_blocks ||
+        (uint64_t)count > fs->sb.total_blocks - first)
+        return PROSENJITFS_EINVAL;
+
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
+    end_abs = first + (uint64_t)count - 1u;
     first_bitmap = first / bits_per_block;
-    last_bitmap = ((uint64_t)first + count - 1u) / bits_per_block;
-    if (last_bitmap >= fs->sb.block_bitmap_blocks)
+    last_bitmap = end_abs / bits_per_block;
+    if (last_bitmap < first_bitmap ||
+        last_bitmap >= fs->sb.block_bitmap_blocks)
         return PROSENJITFS_ECORRUPT;
 
     for (uint64_t bi = first_bitmap; bi <= last_bitmap; ++bi) {
         uint64_t lba;
-        int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                             bi, &lba);
+        uint64_t base;
+        uint64_t start;
+        uint64_t bitmap_last;
+        uint64_t end;
+        int rc;
+
+        if (bi > UINT64_MAX / bits_per_block)
+            return PROSENJITFS_EOVERFLOW;
+        base = bi * bits_per_block;
+        start = first > base ? first - base : 0u;
+        bitmap_last = bits_per_block - 1u <= UINT64_MAX - base
+                    ? base + bits_per_block - 1u : UINT64_MAX;
+        end = end_abs < bitmap_last ? end_abs - base
+                                    : bits_per_block - 1u;
+
+        rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                         bi, &lba);
         if (rc != PROSENJITFS_OK)
             return rc;
         rc = pfs_read_block(fs->mount.device, lba, bitmap);
         if (rc != PROSENJITFS_OK)
             return rc;
 
-        uint64_t base = bi * bits_per_block;
-        uint64_t start = first > base ? first - base : 0u;
-        uint64_t end_abs = (uint64_t)first + count - 1u;
-        uint64_t bitmap_last = base + bits_per_block - 1u;
-        uint64_t end = end_abs < bitmap_last ? end_abs - base
-                                             : bits_per_block - 1u;
         for (uint64_t bit = start; bit <= end; ++bit) {
             uint8_t allocated = (uint8_t)pfs_bitmap_bit(bitmap, bit);
             /*
