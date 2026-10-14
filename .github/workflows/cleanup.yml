@@ -1,22 +1,90 @@
-name: Emergency Artifact Cleanup
+```yaml
+name: Cleanup GitHub Actions Artifacts
 
 on:
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-  
-  # Optional: Runs automatically every day at midnight to prevent future quota issues
+    inputs:
+      retention_days:
+        description: "Keep artifacts newer than this many days"
+        required: true
+        default: "14"
+        type: string
+
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "30 2 * * 0"
+
+permissions:
+  actions: write
+
+concurrency:
+  group: artifact-cleanup
+  cancel-in-progress: false
 
 jobs:
-  delete-artifacts:
+  cleanup:
+    name: Delete Old Workflow Artifacts
     runs-on: ubuntu-latest
-    permissions:
-      actions: write # Required permission to delete artifacts
-    
+
     steps:
-      - name: Delete all old artifacts
-        uses: jimschubert/delete-artifacts-action@v1
+      - name: Delete artifacts older than retention period
+        uses: actions/github-script@v7
+        env:
+          RETENTION_DAYS: ${{ inputs.retention_days || '14' }}
         with:
-          log_level: 'info'
-          min_bytes: '0' # Delete everything regardless of size
+          script: |
+            const days = Number(process.env.RETENTION_DAYS);
+
+            if (!Number.isInteger(days) || days < 1 || days > 365) {
+              throw new Error(
+                "Retention days must be an integer between 1 and 365."
+              );
+            }
+
+            const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner,
+                repo,
+                per_page: 100
+              }
+            );
+
+            let deleted = 0;
+            let kept = 0;
+            let deletedBytes = 0;
+
+            for (const artifact of artifacts) {
+              const created = Date.parse(artifact.created_at);
+
+              if (created < cutoff) {
+                console.log(
+                  `Deleting: ${artifact.name}, ` +
+                  `created ${artifact.created_at}, ` +
+                  `size ${artifact.size_in_bytes} bytes`
+                );
+
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id
+                });
+
+                deleted++;
+                deletedBytes += artifact.size_in_bytes;
+              } else {
+                kept++;
+              }
+            }
+
+            console.log(`Artifacts found: ${artifacts.length}`);
+            console.log(`Artifacts deleted: ${deleted}`);
+            console.log(`Artifacts retained: ${kept}`);
+            console.log(
+              `Deleted artifact payload size: ${deletedBytes} bytes`
+            );
+            console.log(`Retention period: ${days} days`);
+```
