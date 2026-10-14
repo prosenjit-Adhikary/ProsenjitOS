@@ -196,6 +196,7 @@ int vfs_mount_activate(struct pros_vfs_mount *mount)
 
 int vfs_mount_deactivate(struct pros_vfs_mount *mount)
 {
+    int rc;
     if (!mount || !mount->active)
         return PROS_VFS_EINVAL;
 
@@ -206,14 +207,25 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
      * has externally visible vnode state. Refuse deactivation instead of
      * freeing fs-private state underneath an open handle.
      */
-    if (mount->root && mount->root->refcount > 1u)
-        return PROS_VFS_EBUSY;
-
-    mount->active = 0;
     if (mount->root) {
-        vfs_vnode_put(mount->root);
+        if (!mount->root->initialized || mount->root->mount != mount ||
+            mount->root->refcount == 0u)
+            return PROS_VFS_EINVAL;
+        if (mount->root->refcount > 1u)
+            return PROS_VFS_EBUSY;
+
+        /*
+         * Do not discard mount ownership or clear device/private state when
+         * the root reference cannot be released. This keeps a failed teardown
+         * visible to the caller instead of silently leaking the root vnode.
+         */
+        rc = vfs_vnode_put(mount->root);
+        if (rc != PROS_VFS_OK)
+            return rc;
         mount->root = 0;
     }
+
+    mount->active = 0;
     /*
      * Inactive mounts must not retain a usable device/private-data path.
      * This makes stale low-level handles fail closed even if a caller keeps
