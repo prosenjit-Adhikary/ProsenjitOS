@@ -532,8 +532,12 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     char component[PROS_VFS_NAME_MAX + 1u];
     uint32_t components = 0;
 
-    if (!mount || !path || !result || !mount->active || !mount->root ||
-        path[0] == '\0')
+    if (!result)
+        return PROS_VFS_EINVAL;
+    /* Never expose a stale caller-owned vnode when lookup fails. */
+    *result = 0;
+    if (!mount || !path || !mount->active || !mount->root ||
+        path[0] == '\\0')
         return PROS_VFS_EINVAL;
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
