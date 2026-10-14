@@ -257,17 +257,19 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !bytes_read ||
-        !file->vnode || file->position > 0xFFFFFFFFULL)
+        !file->ops || !file->ops->read || !bytes_read || !file->vnode)
         return PROS_VFS_EINVAL;
+    /* Keep the caller's output deterministic on permission/overflow errors. */
+    *bytes_read = 0u;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
+    if (file->position > 0xFFFFFFFFULL)
+        return PROS_VFS_EOVERFLOW;
 
     /*
      * A zero-length read is a successful no-op and does not require a data
      * buffer. Non-zero reads require a valid destination before dispatch.
      */
-    *bytes_read = 0u;
     if (length == 0u)
         return PROS_VFS_OK;
     if (!buffer)
