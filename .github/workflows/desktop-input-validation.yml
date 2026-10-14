@@ -1,0 +1,34 @@
+name: Desktop input host regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-input-host:
+    # The main build workflow owns full ISO/native BIOS QEMU testing.
+    # Keep this workflow focused on the fast host-side input ABI/decoder test.
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify host compiler
+        run: |
+          set -eu
+          command -v gcc
+          command -v timeout
+
+      - name: Host-side input ABI and FIFO regression test
+        run: |
+          chmod +x scripts/test_input_host.sh
+          ./scripts/test_input_host.sh

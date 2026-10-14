@@ -10,15 +10,19 @@
  * advertise unsupported devices as operational.
  */
 
+/*
+ * This is the legacy driver-internal event format. Keep its name distinct
+ * from the stable userspace ABI struct pros_input_event in abi/input.h.
+ */
 #define PROS_INPUT_MAX_EVENTS 32u
-struct pros_input_event {
+struct pros_driver_input_event {
     uint16_t type;
     uint16_t code;
     int32_t value;
 };
 
 struct pros_input_ops {
-    int (*read)(struct pros_driver_device *, struct pros_input_event *, uint32_t);
+    int (*read)(struct pros_driver_device *, struct pros_driver_input_event *, uint32_t);
 };
 
 struct pros_display_mode {

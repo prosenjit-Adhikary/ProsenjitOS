@@ -87,11 +87,13 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
             continue;
         ++loads;
 
+        /* A zero-sized PT_LOAD is malformed regardless of filesz; check
+         * this structural error before the generic bounds/size relations. */
+        if (ph->memsz == 0)
+            return PROS_ELF_EFORMAT;
         if (ph->filesz > ph->memsz ||
             ph->offset > size || ph->filesz > size - ph->offset)
             return PROS_ELF_EBOUNDS;
-        if (ph->memsz == 0)
-            return PROS_ELF_EFORMAT;
         if (ph->vaddr < PROSENJIT_USER_CODE_VA ||
             ph->vaddr > ELF_USER_MAX ||
             !range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
@@ -262,6 +264,9 @@ int pros_elf_selftest(void)
     eh->phnum = 2;
     ph[1] = ph[0];
     ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
+    /* Keep the second segment file-backed and page-congruent so the
+     * intended overlap rejection is reached before unrelated validation. */
+    ph[1].offset = 0x800ULL;
     ph[1].align = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 

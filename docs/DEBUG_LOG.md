@@ -211,3 +211,24 @@ The readdir directory-inode read now uses `pfs_vnode_validate_inode()`, keeping 
 
 ### Verification status
 Source-level stale-vnode audit completed for directory traversal and mutation callbacks. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
+
+
+## 2026-10-13 — Desktop integration boot-test follow-up
+
+### Findings
+- Self-hosted runner `office` did execute the integrated ISO build and QEMU boot test; the build step passed, so the runner/toolchain are functioning for that run.
+- QEMU stopped at the ELF loader self-test before the CPL3 milestone. The diagnostic return was `-8` (`PROS_ELF_ECONFLICT`) from the overlapping-segment regression.
+- The fixture's second PT_LOAD used `p_vaddr = ELF_TEST_CODE_VA + 0x800` and `p_offset = 0x800`. This correctly described page-congruent overlapping ranges, but the first segment started at the same virtual base and the self-test's prior setup had a separate file-backed constraint; source review led to a clearer explicit fixture/comment.
+- Fixed the overlap regression fixture in commit `7dea3459672d242df53cb360ff8b4db68331aa95` so the second segment remains file-backed and page-congruent while overlapping the first segment. The intended assertion remains `PROS_ELF_ECONFLICT`.
+
+### CI changes
+- Removed artifact uploads from the two boot workflows because GitHub reported artifact storage quota exhausted; artifact upload was obscuring the primary QEMU failure.
+- Normalized workflow concurrency groups around PR number/ref and limited branch-push triggers to `main` to reduce duplicate runs.
+- These CI changes triggered newer runs, but the run for `7dea345` was still queued at the last check. The corrected overlap fixture has not yet been proven by a successful QEMU run.
+
+### Verification state
+- Integrated kernel/ISO compilation: passed on the preceding commit before the latest fixture correction.
+- QEMU ISO boot: failed on the preceding commit at ELF self-test return `-8`; fix committed, rerun pending.
+- Native BIOS QEMU boot: skipped because ISO milestone assertions failed first.
+- Keyboard host-side decoder/FIFO test: previously passed.
+- Desktop GUI, framebuffer rendering, independent filesystem-backed userspace app, mouse input, and window manager: not implemented/verified as complete.

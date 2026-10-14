@@ -419,12 +419,22 @@ int pros_net_socket_create(uint32_t *socket_id)
 int pros_net_socket_bind(uint32_t socket_id, uint32_t addr, uint16_t port)
 {
     struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || s->state != PROS_NET_TCP_CLOSED || port_conflict(addr, port, s))
+    if (!s || s->state != PROS_NET_TCP_CLOSED)
         return PROS_NET_ESTATE;
+
+    /*
+     * Port zero requests an ephemeral port. Resolve it before checking for
+     * conflicts: port_conflict() correctly treats zero as invalid for an
+     * already-selected port, so checking it first rejects every such bind.
+     */
     if (port == 0u) {
         port = allocate_ephemeral(addr, s);
-        if (port == 0u) return PROS_NET_ENOSPC;
+        if (port == 0u)
+            return PROS_NET_ENOSPC;
+    } else if (port_conflict(addr, port, s)) {
+        return PROS_NET_ESTATE;
     }
+
     s->local_addr = addr;
     s->local_port = port;
     return PROS_NET_OK;
@@ -724,7 +734,8 @@ int pros_net_selftest(void)
         pros_net_socket_bind(sid, 0xC0A80101u, 4000u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 100u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
-        pros_net_socket_send(sid, payload, sizeof(payload)) != 1 ||
+        pros_net_socket_send(sid, payload, sizeof(payload)) !=
+            (int)sizeof(payload) ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
         return -9;
 
@@ -732,7 +743,8 @@ int pros_net_selftest(void)
         const uint8_t rxdata[2] = {0x11, 0x22};
         uint32_t received = 0;
         if (pros_net_socket_receive_segment(sid, 0u, rxdata, 2u, TCP_ACK) != PROS_NET_OK ||
-            pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EBOUNDS ||
+            pros_net_socket_receive(sid, payload, 1u, &received) != PROS_NET_EBOUNDS ||
+            received != 0u ||
             pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK ||
             received != 2u || payload[0] != 0x11u || payload[1] != 0x22u ||
             pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE ||
@@ -773,6 +785,9 @@ int pros_net_selftest(void)
     if (pros_net_socket_create(&sid) != PROS_NET_OK ||
         pros_net_socket_bind(sid, 0u, 0u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK ||
+        /* Establish first so the oversized-send assertion exercises the
+         * payload bound rather than the earlier TCP-state guard. */
+        pros_net_socket_ack(sid, 11u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE ||
         pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
         return -13;

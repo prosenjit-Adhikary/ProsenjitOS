@@ -2,7 +2,12 @@ name: Build and boot-test ProsenjitOS
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -25,6 +30,14 @@ jobs:
         run: |
           chmod +x scripts/build.sh
           ./scripts/build.sh
+
+      - name: Inspect ProsenjitFS init call target
+        run: |
+          echo "===== block_device_init symbol ====="
+          nm -n build/prosenjit.elf | grep block_device_init || true
+          nm -n build/prosenjit.elf | grep prosenjitfs_selftest || true
+          echo "===== ProsenjitFS self-test call-site disassembly ====="
+          objdump -d --disassemble=prosenjitfs_selftest build/prosenjit.elf | grep -B 60 -A 12 block_device_init || true
 
       - name: Boot-test ISO in QEMU
         run: |
@@ -62,6 +75,7 @@ jobs:
           }
 
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: keyboard input decoder/ring self-test passed"
           require_log "ProsenjitOS: x86-64 long mode active"
           require_log "ProsenjitOS: page allocation/free test passed"
           require_log "ProsenjitOS: kernel heap allocation/free test passed"
@@ -76,19 +90,10 @@ jobs:
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
-          require_log "ProsenjitOS: duplicate authorization attenuation test passed"
-          require_log "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed"
-          require_log "ProsenjitOS: limited-process capability policy test passed"
-          require_log "ProsenjitOS: capability handle/rights test passed"
-          require_log "ProsenjitOS: process capability authorization test passed"
-          require_log "ProsenjitOS: syscall sandbox enforcement test passed"
-          require_log "ProsenjitOS: limited-process syscall sandbox test passed"
+          require_log "ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)"
+          require_log "ProsenjitOS: address-space deep isolation self-test passed"
           require_log "ProsenjitOS: partition discovery self-test passed"
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
-          require_log "ProsenjitOS: capability copy-transfer test passed"
-          require_log "ProsenjitOS: capability move-transfer test passed"
-          require_log "ProsenjitOS: inactive capability move regression passed"
-          require_log "ProsenjitOS: user address-space isolation foundation test passed"
           require_log "ProsenjitOS: usercopy page-fault recovery test passed"
 
       - name: Boot-test native BIOS image in QEMU
@@ -135,18 +140,6 @@ jobs:
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
           require_native_log "ProsenjitOS: block storage health self-test passed"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_native_log "ProsenjitOS: keyboard input decoder/ring self-test passed"
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
-
-      - name: Upload ISO and boot diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosenjitOS-boot-test
-          path: |
-            build/prosenjitOS.iso
-            build/prosenjit-native-bios.img
-            build/qemu-serial.log
-            build/qemu-debug.log
-            build/native-qemu-serial.log
-            build/native-qemu-debug.log

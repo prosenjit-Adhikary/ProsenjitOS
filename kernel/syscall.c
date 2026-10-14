@@ -7,6 +7,8 @@
 #include "intent.h"
 #include "ipc.h"
 #include "usercopy.h"
+#include "input.h"
+#include "../include/abi/input.h"
 #include "../include/abi/syscall.h"
 
 #define COM1_PORT 0x3F8u
@@ -56,6 +58,10 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
     struct pros_process *policy_process = process_current();
     uint64_t syscall_number = registers[0];
+    /* Boot-time CPL3 regression trace: identifies the last syscall before a user test stalls. */
+    syscall_serial_write("ProsenjitOS: CPL3 syscall entry number=");
+    syscall_serial_hex64(syscall_number);
+    syscall_serial_write("\n");
     if (policy_process && syscall_number >= 1 && syscall_number <= 64 &&
         (process_allowed_syscalls(policy_process) & (1ULL << (syscall_number - 1U))) == 0) {
         registers[0] = PROSENJIT_SYSCALL_EPERM;
@@ -316,6 +322,54 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             return;
         }
 
+        case PROSENJIT_SYS_INPUT_POLL: {
+            /* The input device is a user-facing resource; reject CPL0 callers. */
+            if ((cpu_frame[1] & 3ULL) != 3ULL) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
+            struct pros_process *process = process_current();
+            uint64_t event_address = registers[4];
+            int range_rc = process
+                ? address_space_validate_user_range(&process->address_space,
+                                                    event_address,
+                                                    sizeof(struct pros_input_event), 1)
+                : -1;
+            syscall_serial_write("ProsenjitOS: INPUT_POLL address=");
+            syscall_serial_hex64(event_address);
+            syscall_serial_write(" range_rc=");
+            syscall_serial_hex64((uint64_t)(int64_t)range_rc);
+            syscall_serial_write("\n");
+            if (!process || range_rc != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+
+            struct pros_input_event event;
+            int rc = pros_input_poll(&event);
+            syscall_serial_write("ProsenjitOS: INPUT_POLL device_rc=");
+            syscall_serial_hex64((uint64_t)(int64_t)rc);
+            syscall_serial_write("\n");
+            if (rc == PROS_INPUT_EMPTY) {
+                registers[0] = 0; /* no pending keyboard event */
+                return;
+            }
+            int copy_rc = rc == PROS_INPUT_OK
+                ? copy_to_user(&process->address_space, event_address,
+                               &event, sizeof(event))
+                : -1;
+            syscall_serial_write("ProsenjitOS: INPUT_POLL copy_rc=");
+            syscall_serial_hex64((uint64_t)(int64_t)copy_rc);
+            syscall_serial_write("\n");
+            if (rc != PROS_INPUT_OK || copy_rc != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            registers[0] = 1; /* one event copied */
+            return;
+        }
+
         case PROSENJIT_SYS_USER_TEST_COMPLETE: {
             struct pros_process *process = process_current();
             if ((cpu_frame[1] & 3ULL) != 3ULL) {
@@ -353,6 +407,15 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 }
 
 
+
+void syscall_trace_result(uint64_t number, uint64_t result) {
+    syscall_serial_write("ProsenjitOS: CPL3 syscall result number=");
+    syscall_serial_hex64(number);
+    syscall_serial_write(" value=");
+    syscall_serial_hex64(result);
+    syscall_serial_write("\n");
+}
+
 int syscall_selftest(struct pros_process *process) {
     volatile uint64_t regs[6] = { 0, 0, 0, 0, 0, 0 };
     volatile uint64_t frame[7] = { 0, 0, 0, 0, 0, 0, 0 };
@@ -377,10 +440,32 @@ int syscall_selftest(struct pros_process *process) {
         }
 
         process->syscall_policy = saved_policy;
+
+        /*
+         * Even an allowed syscall policy must not let CPL0 enter user input.
+         * Set the actual current process policy too, so the policy gate cannot
+         * make this test pass before the CPL check is reached.
+         */
+        struct pros_process *current_process = process_current();
+        uint64_t current_saved_policy = current_process
+                                      ? current_process->syscall_policy : 0;
+        process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+        if (current_process)
+            current_process->syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+        regs[0] = PROSENJIT_SYS_INPUT_POLL;
+        regs[4] = 0;
+        frame[1] = 0; /* kernel CS: must fail before touching the PS/2 ports */
+        syscall_dispatch(regs, frame);
+        if (current_process)
+            current_process->syscall_policy = current_saved_policy;
+        process->syscall_policy = saved_policy;
+        if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+            return -4;
+
         regs[0] = 0xFFFFFFFFULL;
         syscall_dispatch(regs, frame);
         if (regs[0] != PROSENJIT_SYSCALL_ENOSYS)
-            return -4;
+            return -5;
     }
 
     syscall_dispatch(0, frame);

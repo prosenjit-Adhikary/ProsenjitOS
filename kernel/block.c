@@ -6,6 +6,10 @@ static uint64_t write_count;
 static uint64_t error_count;
 static uint64_t flush_count;
 static uint64_t flush_error_count;
+static volatile uint32_t block_init_diag_stage;
+static volatile uint64_t block_init_diag_return;
+uint64_t block_device_init_diag_return_get(void) { return block_init_diag_return; }
+uint32_t block_device_init_diag_stage_get(void) { return block_init_diag_stage; }
 
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
@@ -14,14 +18,23 @@ int block_device_init(struct pros_block_device *device,
                       pros_block_write_fn write,
                       void *private_data)
 {
+    block_init_diag_stage = 1u;
+    block_init_diag_return = (uint64_t)(uintptr_t)__builtin_return_address(0);
     if (!device || sector_size == 0 || sector_count == 0 || !read)
         return PROS_BLOCK_EINVAL;
+    block_init_diag_stage = 2u;
     device->sector_size = sector_size;
+    block_init_diag_stage = 3u;
     device->sector_count = sector_count;
+    block_init_diag_stage = 4u;
     device->read = read;
+    block_init_diag_stage = 5u;
     device->write = write;
+    block_init_diag_stage = 6u;
     device->flush = 0;
+    block_init_diag_stage = 7u;
     device->private_data = private_data;
+    block_init_diag_stage = 8u;
     return PROS_BLOCK_OK;
 }
 

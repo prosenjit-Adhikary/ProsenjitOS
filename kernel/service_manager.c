@@ -315,6 +315,8 @@ int service_manager_selftest(void)
 
     if (service_manager_init() != PROS_SERVICE_OK)
         return -8;
+    a = 0u;
+    b = 0u;
     {
         const struct pros_service_definition loop_a = {
             .name = "loop-a", .start = sm_test_start, .stop = sm_test_stop,
@@ -335,6 +337,8 @@ int service_manager_selftest(void)
     /* Missing dependencies must fail closed rather than partially starting. */
     if (service_manager_init() != PROS_SERVICE_OK)
         return -10;
+    a = 0u;
+    b = 0u;
     {
         const struct pros_service_definition missing_dep = {
             .name = "missing-dep", .start = sm_test_start, .stop = sm_test_stop,
@@ -351,6 +355,8 @@ int service_manager_selftest(void)
     /* Retry exhaustion is bounded: max_retries=2 means exactly three starts. */
     if (service_manager_init() != PROS_SERVICE_OK)
         return -12;
+    a = 0u;
+    b = 0u;
     {
         const struct pros_service_definition failing = {
             .name = "failing", .start = sm_test_fail, .stop = sm_test_stop,
