@@ -299,10 +299,14 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->write || !bytes_written || !file->vnode)
         return PROS_VFS_EINVAL;
+    /* Never leave a caller's stale byte count on a failed/no-op write. */
+    *bytes_written = 0u;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
     if (length != 0u && !buffer)
         return PROS_VFS_EINVAL;
+    if (length == 0u)
+        return PROS_VFS_OK;
     /*
      * O_APPEND is an operation-time filesystem contract. Do not derive the
      * write offset from a cached vnode EOF; another handle may have extended
