@@ -5079,7 +5079,12 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         (device->sector_size & (device->sector_size - 1u)) != 0u ||
         device->sector_count < 2u)
         return PROSENJITFS_EINVAL;
-    if (fs->mount.active)
+    /*
+     * Do not zero an inactive-but-not-clean mount object: a failed teardown
+     * may intentionally preserve its root pointer for diagnosis/retry, and
+     * clearing the structure here would orphan that vnode and its ownership.
+     */
+    if (fs->mount.active || fs->mount.root)
         return PROSENJITFS_EBUSY;
     pfs_zero(fs, sizeof(*fs));
     block = (uint8_t *)kmalloc(device->sector_size);
