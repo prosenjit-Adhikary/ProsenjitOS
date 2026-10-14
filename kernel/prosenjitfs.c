@@ -2138,8 +2138,11 @@ static int pfs_find_free_data_block(const struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t *block;
 
-    if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u)
+    if (!block_number)
+        return PROSENJITFS_EINVAL;
+    *block_number = 0u;
+    if (!fs || !fs->mount.active || !fs->mount.device ||
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
@@ -2177,8 +2180,11 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t *block;
 
-    if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u)
+    if (!block_number)
+        return PROSENJITFS_EINVAL;
+    *block_number = 0u;
+    if (!fs || !fs->mount.active || !fs->mount.device ||
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
