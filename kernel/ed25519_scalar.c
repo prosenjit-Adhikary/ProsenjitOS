@@ -237,14 +237,6 @@ int pros_ed25519_scalar_selftest(void) {
             uint8_t alias[32];
             for (uint32_t i = 0; i < 32u; ++i) alias[i] = l_minus_one[i];
             pros_ed25519_scalar_sub(alias, alias, one_scalar);
-            for (uint32_t i = 0; i < 32u; ++i)
-                if (alias[i] != (i == 0u ? 0xebu :
-                                 (i == 1u ? 0xd3u :
-                                  (i == 2u ? 0xf5u : 0u)))) {
-                    /* Expected value is checked below using an independent
-                     * reference subtraction to avoid fragile byte literals. */
-                    break;
-                }
             {
                 uint8_t expected_sub[32];
                 uint16_t borrow = 0;
