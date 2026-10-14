@@ -4321,11 +4321,16 @@ static int pfs_allocator_stage_unchecked(struct pros_prosenjitfs *fs,
     uint64_t first_bitmap;
     uint64_t last_bitmap;
 
-    if (!fs || count == 0u || allocate > 1u || first < fs->sb.data_start ||
-        first >= fs->sb.total_blocks ||
+    if (!fs || count == 0u || allocate > 1u ||
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        first < fs->sb.data_start || first >= fs->sb.total_blocks ||
         (uint64_t)count > fs->sb.total_blocks - first ||
-        fs->sb.block_size == 0u || fs->sb.block_size > 4096u)
+        !fs->mount.active || !fs->mount.device)
         return PROSENJITFS_EINVAL;
+    if (fs->mount.device->sector_size != fs->sb.block_size ||
+        fs->mount.device->sector_count < fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     last = first + (uint64_t)count - 1u;
