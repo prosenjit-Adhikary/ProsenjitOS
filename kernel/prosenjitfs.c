@@ -7347,12 +7347,34 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        if (pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
-                PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int release_inode_rc =
+                pfs_inode_bitmap_update(&fs, allocated_inode, 0u);
+            if (release_inode_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -2500 + release_inode_rc);
+        }
+        {
+            int consistency_rc = pfs_selftest_consistency(&fs);
+            if (consistency_rc != PROSENJITFS_OK) {
+                int diagnostic_rc = -2600 + consistency_rc;
+                if (consistency_rc == PROSENJITFS_ECORRUPT &&
+                    pfs_consistency_diag_stage != 0u)
+                    diagnostic_rc = -2600 -
+                        (int)(pfs_consistency_diag_stage * 1000u +
+                              (pfs_consistency_diag_inode % 1000u));
+                return pfs_selftest_fail(__LINE__, diagnostic_rc);
+            }
+        }
+        {
+            int unmount_rc = prosenjitfs_unmount(&fs);
+            if (unmount_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -2700 + unmount_rc);
+        }
+        {
+            int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (mount_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -2800 + mount_rc);
+        }
 
         if (prosenjitfs_free_blocks(&fs, allocated_block, 2u) !=
                 PROSENJITFS_OK ||
