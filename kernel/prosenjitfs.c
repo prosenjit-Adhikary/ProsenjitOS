@@ -6414,6 +6414,11 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -7);
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -8);
+    /* The allocator test reserves an inode only to inspect its empty state.
+     * Release that reservation so the later consistency audit sees no orphan
+     * allocated bitmap bit for a PROSENJITFS_INODE_FREE table entry. */
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -8);
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -9);
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
