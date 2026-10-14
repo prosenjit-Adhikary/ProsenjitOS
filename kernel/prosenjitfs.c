@@ -6264,7 +6264,7 @@ int prosenjitfs_selftest(void)
         uint8_t high = 0xE7u;
         uint32_t done = 0u;
         uint32_t bs;
-        uint64_t high_block = 4u;
+        uint64_t high_block = 5u;
         uint64_t low_block = 2u;
         uint64_t high_lba = 0u;
         int open_rc = PROS_VFS_OK;
@@ -6308,7 +6308,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
             cross_inode.size != (high_block * bs) + 1u ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             cross_inode.extent_head == 0u)
             return pfs_selftest_fail(__LINE__, -14);
 
@@ -6345,7 +6345,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
                 PROSENJITFS_OK ||
             first_extent.logical_block != low_block ||
