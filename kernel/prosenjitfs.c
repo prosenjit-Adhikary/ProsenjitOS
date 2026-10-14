@@ -5925,7 +5925,46 @@ int prosenjitfs_selftest(void)
         if (probe_rc == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -19);
     }
+    /*
+     * Mount regression: a checksummed primary copy that claims more sectors
+     * than the device must not mask a valid in-range backup. The backup path
+     * is deliberately read-only because the primary copy is degraded.
+     */
     pfs_selftest_progress = 110u;
+    {
+        uint8_t saved_primary[512];
+        uint8_t altered[512];
+        struct pros_prosenjitfs_superblock candidate;
+        struct pros_prosenjitfs fallback_fs = { 0 };
+        const uint32_t checksum_offset = (uint32_t)offsetof(
+            struct pros_prosenjitfs_superblock, checksum);
+        int mount_rc;
+
+        if (pfs_read_block(&device, 0u, saved_primary) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        pfs_copy(altered, saved_primary, sizeof(altered));
+        pfs_copy(&candidate, altered, sizeof(candidate));
+        candidate.total_blocks = device.sector_count + 1u;
+        pfs_copy(altered, &candidate, sizeof(candidate));
+        pfs_put32(altered + checksum_offset,
+                  pfs_crc_with_zero32(altered, candidate.header_size,
+                                      checksum_offset));
+        if (pfs_write_block(&device, 0u, altered) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+
+        mount_rc = prosenjitfs_mount(&fallback_fs, &device, 0u);
+        if (mount_rc == PROSENJITFS_OK) {
+            if (!fallback_fs.degraded_superblock || !fallback_fs.read_only ||
+                prosenjitfs_unmount(&fallback_fs) != PROSENJITFS_OK) {
+                (void)pfs_write_block(&device, 0u, saved_primary);
+                return pfs_selftest_fail(__LINE__, -20);
+            }
+        }
+        if (pfs_write_block(&device, 0u, saved_primary) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+        if (mount_rc != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -20);
+    }
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
     pfs_selftest_progress = 111u;
