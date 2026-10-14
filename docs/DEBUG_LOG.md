@@ -228,3 +228,17 @@ A direct pre-check of the bitmap range returned the expected `PROSENJITFS_EINVAL
 
 ### Verification status
 The latest completed build before the stage-marker commit (#5874) still failed at the double-free regression with `selftest_rc=-3106`; QEMU timed out because the kernel stopped before the CPL3 milestone. Security architecture checks passed on the previous revision. The latest stage-marker change awaits a fresh build/QEMU run. Artifact upload also failed because GitHub Actions artifact storage quota is full; that is secondary to the QEMU failure. PR #128 remains Draft.
+
+
+## 2026-10-14 — ProsenjitFS preallocation extent-head fix
+
+### Root cause
+Build #5876 advanced past the sparse/delayed-allocation regression and the allocator double-free check, then failed in the keep-size preallocation regression. `prosenjitfs_preallocate_blocks()` could create and commit a new extent when the inode had no prior extent chain, but it did not set `inode.extent_head`. The extent was therefore allocated and accounted in `allocated_bytes`, yet unreachable to `pfs_find_extent()`, which returned `PROSENJITFS_ENOENT` (`-6`; the self-test diagnostic was `-3106`).
+
+### Fix
+When a new non-coalesced extent is created and `have_tail == 0`, the implementation now assigns `inode.extent_head = extent_lba` before the inode is checksummed and staged in the same transaction as the extent record and allocator bitmap. Existing-tail linking and coalescing paths remain unchanged.
+
+Source fix commit: `f8fc2f798f003a7a46e2d4c2ab098fd8c120aa29`.
+
+### Verification
+The previous QEMU build #5876 failed at the old extent-head bug. A fresh build/QEMU run for the new commit is required. Security architecture checks passed on the preceding commit; PR #128 remains Draft pending clean build and boot milestones.
