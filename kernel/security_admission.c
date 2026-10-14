@@ -18,6 +18,16 @@ int pros_file_admission_record_valid(
         PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS |
         PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS |
         PROS_FILE_EVIDENCE_PROVENANCE_KNOWN;
+    const uint32_t deny_evidence =
+        PROS_FILE_EVIDENCE_LOCAL_DENY |
+        PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+    const uint32_t suspicious_evidence =
+        PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+        PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS;
+    const uint32_t contradictory_reputation =
+        PROS_FILE_EVIDENCE_REPUTATION_CLEAN |
+        PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS |
+        PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
 
     if (!record ||
         record->security.state < PROS_FILE_TRUSTED ||
@@ -27,10 +37,26 @@ int pros_file_admission_record_valid(
         (record->security.evidence & ~known_evidence) != 0u)
         return 0;
 
+    /* Evidence cannot simultaneously assert mutually exclusive outcomes. */
+    if ((record->security.evidence & contradictory_reputation) != 0u) {
+        uint32_t reputation_bits =
+            record->security.evidence & contradictory_reputation;
+        if ((reputation_bits & (reputation_bits - 1u)) != 0u)
+            return 0;
+    }
+    if ((record->security.evidence &
+         (PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+          PROS_FILE_EVIDENCE_SIGNATURE_INVALID)) ==
+        (PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+         PROS_FILE_EVIDENCE_SIGNATURE_INVALID))
+        return 0;
+
     switch (record->security.state) {
     case PROS_FILE_TRUSTED:
         return record->security.action == PROS_FILE_ALLOW &&
-            (record->security.evidence & PROS_FILE_EVIDENCE_LOCAL_TRUST) != 0u;
+            (record->security.evidence & PROS_FILE_EVIDENCE_LOCAL_TRUST) != 0u &&
+            (record->security.evidence &
+             (deny_evidence | suspicious_evidence)) == 0u;
     case PROS_FILE_VERIFIED:
         return record->security.action == PROS_FILE_ALLOW &&
             (record->security.evidence &
@@ -39,16 +65,23 @@ int pros_file_admission_record_valid(
              (PROS_FILE_EVIDENCE_FORMAT_VALID |
               PROS_FILE_EVIDENCE_SIGNATURE_VALID) &&
             (record->security.evidence &
-             PROS_FILE_EVIDENCE_SIGNATURE_INVALID) == 0u;
+             (PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST |
+              deny_evidence |
+              PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS)) == 0u;
     case PROS_FILE_UNKNOWN:
-        return record->security.action == PROS_FILE_QUARANTINE;
-    case PROS_FILE_SUSPICIOUS:
         return record->security.action == PROS_FILE_QUARANTINE &&
             (record->security.evidence &
-             (PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
-              PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS)) != 0u;
+             (deny_evidence | suspicious_evidence |
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID)) == 0u;
+    case PROS_FILE_SUSPICIOUS:
+        return record->security.action == PROS_FILE_QUARANTINE &&
+            (record->security.evidence & suspicious_evidence) != 0u &&
+            (record->security.evidence &
+             (deny_evidence | PROS_FILE_EVIDENCE_REPUTATION_CLEAN)) == 0u;
     case PROS_FILE_MALICIOUS:
-        return record->security.action == PROS_FILE_BLOCK;
+        return record->security.action == PROS_FILE_BLOCK &&
+            (record->security.evidence & deny_evidence) != 0u;
     default:
         return 0;
     }
