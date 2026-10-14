@@ -354,3 +354,12 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 **Commit:** ad5507a3af7419929ec8f4d26d7434eb7422f3f2.
 
 **Verification caveat:** source-level only; compiler and self-test execution remain pending.
+
+
+## 2026-10-14 — Admission evidence coherence follow-up
+
+The first record validator still needed stricter evidence coherence. It now rejects VERIFIED/ALLOW records carrying LOCAL_DENY or malicious-reputation evidence, TRUSTED/ALLOW records carrying deny/suspicious evidence, contradictory reputation flags, simultaneous signature-valid and signature-invalid bits, and UNKNOWN/SUSPICIOUS records inconsistent with their evidence. Regression cases cover those combinations and confirm malformed-format MALICIOUS/BLOCK decisions remain representable (the format-invalid path has no dedicated evidence bit).
+
+**Commits:** 395f1fd5cbf3866c514b92c211345ced8d352a0f, ebbf8450a10895c3daa9fd5440575ce2c647b282, 4a0e78b1cbde3733bd4d2f746dec2fa2aa999f72.
+
+**Verification caveat:** source-level only; compiler, self-tests and QEMU remain pending.
