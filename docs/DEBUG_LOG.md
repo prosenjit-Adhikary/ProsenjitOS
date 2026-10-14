@@ -221,5 +221,8 @@ The delayed-allocation persistence regression unmounted `fs` after its remount/r
 ### Fix
 The sparse cross-regression now remounts ProsenjitFS before reading the block size or invoking VFS operations. A dedicated `-142` diagnostic reports failure of this remount. The existing open-error diagnostic remains in place so a different VFS error is visible if the test advances and fails later.
 
+### Follow-up finding
+After the mount-lifecycle correction, Build #5852 advanced beyond file-open and exposed a second test setup defect at the extent-shape assertion: the test wrote `low_b` immediately after `low_a`, so both bytes landed in logical block 2, while the assertion/readback expected `low_b` in logical block 3. The test now explicitly seeks to `(low_block + 1) * bs` before writing `low_b`; seek failure has its own diagnostic code `-149`.
+
 ### Verification status
-Source change committed as `5eb08f44d7ab5ceade06db17c02239d8de409190`. Build/boot run #5852 is queued on the self-hosted runner; runtime success is not yet established. Security architecture run #5354 is in progress. The PR remains Draft pending successful build and QEMU verification.
+Mount-lifecycle correction committed as `5eb08f44d7ab5ceade06db17c02239d8de409190`. The follow-up sparse-test correction is committed as `1b6ab210a6ece517f7a00da0421dd1f212d4dac4`. Build #5852 failed on the pre-follow-up commit at the extent-shape assertion; the new correction still requires a fresh QEMU run. Security architecture check #5354 passed on the mount-lifecycle commit. The PR remains Draft pending successful build and QEMU verification.
