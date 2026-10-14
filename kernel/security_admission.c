@@ -5,6 +5,55 @@
 #include "security_provider.h"
 #include "health.h"
 
+int pros_file_admission_record_valid(
+    const struct pros_file_admission_record *record)
+{
+    const uint32_t known_evidence =
+        PROS_FILE_EVIDENCE_FORMAT_VALID |
+        PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+        PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+        PROS_FILE_EVIDENCE_LOCAL_TRUST |
+        PROS_FILE_EVIDENCE_LOCAL_DENY |
+        PROS_FILE_EVIDENCE_REPUTATION_CLEAN |
+        PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS |
+        PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS |
+        PROS_FILE_EVIDENCE_PROVENANCE_KNOWN;
+
+    if (!record ||
+        record->security.state < PROS_FILE_TRUSTED ||
+        record->security.state > PROS_FILE_MALICIOUS ||
+        record->security.action < PROS_FILE_ALLOW ||
+        record->security.action > PROS_FILE_BLOCK ||
+        (record->security.evidence & ~known_evidence) != 0u)
+        return 0;
+
+    switch (record->security.state) {
+    case PROS_FILE_TRUSTED:
+        return record->security.action == PROS_FILE_ALLOW &&
+            (record->security.evidence & PROS_FILE_EVIDENCE_LOCAL_TRUST) != 0u;
+    case PROS_FILE_VERIFIED:
+        return record->security.action == PROS_FILE_ALLOW &&
+            (record->security.evidence &
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID)) ==
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID) &&
+            (record->security.evidence &
+             PROS_FILE_EVIDENCE_SIGNATURE_INVALID) == 0u;
+    case PROS_FILE_UNKNOWN:
+        return record->security.action == PROS_FILE_QUARANTINE;
+    case PROS_FILE_SUSPICIOUS:
+        return record->security.action == PROS_FILE_QUARANTINE &&
+            (record->security.evidence &
+             (PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+              PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS)) != 0u;
+    case PROS_FILE_MALICIOUS:
+        return record->security.action == PROS_FILE_BLOCK;
+    default:
+        return 0;
+    }
+}
+
 int pros_file_admission_evaluate(
     const struct pros_file_admission_input *input,
     struct pros_file_admission_record *record) {
