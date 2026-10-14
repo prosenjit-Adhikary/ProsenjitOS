@@ -942,9 +942,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: display-device binding self-test passed\\n");
 
-    if (pros_net_selftest() != PROS_NET_OK) {
-        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int net_test_rc = pros_net_selftest();
+        if (net_test_rc != PROS_NET_OK) {
+            serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)net_test_rc);
+            serial_write("\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: network protocol/socket self-test passed\\n");
 
