@@ -331,6 +331,8 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
+        entry->generation == UINT16_MAX || entry->reserved != 0u ||
+        !process_object_type_valid(entry->object->type) ||
         handle_check(&process->handles, handle, entry->rights,
                      PROS_OBJECT_NONE) != 0)
         return -1;
