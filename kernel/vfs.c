@@ -269,7 +269,9 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !bytes_read || !file->vnode)
+        !file->ops || !file->ops->read || !bytes_read || !file->vnode ||
+        !file->vnode->initialized || file->vnode->refcount == 0u ||
+        file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     /* Keep the caller's output deterministic on permission/overflow errors. */
     *bytes_read = 0u;
@@ -311,7 +313,9 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !bytes_written || !file->vnode)
+        !file->ops || !file->ops->write || !bytes_written || !file->vnode ||
+        !file->vnode->initialized || file->vnode->refcount == 0u ||
+        file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     /* Never leave a caller's stale byte count on a failed/no-op write. */
     *bytes_written = 0u;
@@ -350,7 +354,9 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->truncate || !file->vnode)
+        !file->ops || !file->ops->truncate || !file->vnode ||
+        !file->vnode->initialized || file->vnode->refcount == 0u ||
+        file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
@@ -403,7 +409,8 @@ int vfs_file_close(struct pros_vfs_file *file)
 int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->vnode)
+        !file->vnode || !file->vnode->initialized ||
+        file->vnode->refcount == 0u || file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     if (position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
