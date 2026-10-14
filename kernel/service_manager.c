@@ -184,7 +184,7 @@ int service_register(const struct pros_service_definition *definition)
         uint32_t name_len = 0;
 
         while (name_len < PROS_SERVICE_NAME_MAX &&
-               definition->name[name_len] != '\\0')
+               definition->name[name_len] != '\0')
             ++name_len;
         if (name_len == 0u || name_len >= PROS_SERVICE_NAME_MAX)
             return PROS_SERVICE_EINVAL;
@@ -192,21 +192,21 @@ int service_register(const struct pros_service_definition *definition)
         *service = (struct pros_service){0};
         for (uint32_t i = 0; i < name_len; ++i)
             service->name_storage[i] = definition->name[i];
-        service->name_storage[name_len] = '\\0';
+        service->name_storage[name_len] = '\0';
 
         service->definition = *definition;
         service->definition.name = service->name_storage;
         for (uint32_t d = 0; d < definition->dependency_count; ++d) {
             uint32_t dep_len = 0;
             while (dep_len < PROS_SERVICE_NAME_MAX &&
-                   definition->dependencies[d][dep_len] != '\\0')
+                   definition->dependencies[d][dep_len] != '\0')
                 ++dep_len;
             if (dep_len == 0u || dep_len >= PROS_SERVICE_NAME_MAX)
                 return PROS_SERVICE_EINVAL;
             for (uint32_t i = 0; i < dep_len; ++i)
                 service->dependency_storage[d][i] =
                     definition->dependencies[d][i];
-            service->dependency_storage[d][dep_len] = '\\0';
+            service->dependency_storage[d][dep_len] = '\0';
             service->definition.dependencies[d] =
                 service->dependency_storage[d];
         }
