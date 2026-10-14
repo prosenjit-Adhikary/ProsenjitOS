@@ -221,13 +221,20 @@ The delayed-allocation persistence regression unmounted `fs` after its remount/r
 ### Fix
 The sparse cross-regression now remounts ProsenjitFS before reading the block size or invoking VFS operations. A dedicated `-142` diagnostic reports failure of this remount. The existing open-error diagnostic remains in place so a different VFS error is visible if the test advances and fails later.
 
-### Follow-up finding
-Build #5867 passed the sparse/delayed-allocation regression after the earlier extent-shape correction, then failed the allocator double-free assertion. The diagnostic encoded the returned value as `-3000 + double_free_rc`; boot log value `-3106` therefore means the API returned `-106`, which is outside the public ProsenjitFS error-code contract (`0`, `-1` through `-13`). This is not safe to “fix” by changing the expected error: the unexpected value must be localized.
+### Corrected interpretation of the allocator/preallocation failure
+The earlier interpretation of `-3106` as an allocator double-free return code was incorrect. The self-test uses the same diagnostic encoding in more than one location:
+- `-3000 + double_free_rc` is the allocator double-free diagnostic.
+- `-3100 + extent_rc` is the preallocation extent lookup diagnostic.
 
-A direct pre-check of the bitmap range returned the expected `PROSENJITFS_EINVAL`, yet the subsequent public `prosenjitfs_free_blocks()` call still returned `-106`. This contradiction suggests either state changing between calls or a deeper runtime/source/ABI issue. The latest diagnostic commit `cdf4467cc5379a3861a13ccbe4385107cf5a753e` adds a stage marker inside `prosenjitfs_free_blocks()` to distinguish argument validation, range validation, bitmap-state validation, and transaction update. Its next QEMU log is required before changing allocator semantics.
+For Build #5873, `selftest_stage=0x191D` maps to the preallocation `pfs_find_extent()` assertion, so `-3106` means `extent_rc=-6` (`PROSENJITFS_ENOENT`). The double-free test had already passed. Build #5878 reproduced the same preallocation failure at a later line after the extent-head fix.
+
+### Root cause and fix
+Two related extent-chain publication bugs were found in `prosenjitfs_preallocate_blocks()`:
+1. When no prior extent exists, the newly created extent must be assigned to `inode.extent_head`. This was fixed in `f8fc2f798f003a7a46e2d4c2ab098fd8c120aa29`.
+2. When an existing tail extent is present, the code updated `tail.next` only in the local struct, then recalculated the checksum over the old `tail_image` without copying the updated struct back. The committed tail therefore remained linked to `0`, leaving the newly allocated extent unreachable. The code now copies the updated `tail` into `tail_image` before checksumming and staging it. Fix commit: `fa613ea43677cc64f349d3f88a66c8618563a6c7`.
 
 ### Verification status
-The latest completed build before the stage-marker commit (#5874) still failed at the double-free regression with `selftest_rc=-3106`; QEMU timed out because the kernel stopped before the CPL3 milestone. Security architecture checks passed on the previous revision. The latest stage-marker change awaits a fresh build/QEMU run. Artifact upload also failed because GitHub Actions artifact storage quota is full; that is secondary to the QEMU failure. PR #128 remains Draft.
+Build #5878 failed at the preallocation extent lookup before the tail-link fix. Build #5879 is running against `fa613ea43677cc64f349d3f88a66c8618563a6c7`; its QEMU result is required to confirm the chain is now reachable. The prior allocator double-free test is not the current blocker. Artifact upload quota exhaustion remains a secondary diagnostics-storage issue. PR #128 remains Draft.
 
 
 ## 2026-10-14 — ProsenjitFS preallocation extent-head fix
