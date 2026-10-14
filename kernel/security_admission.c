@@ -81,7 +81,9 @@ int pros_file_admission_record_valid(
              deny_evidence) == 0u;
     case PROS_FILE_MALICIOUS:
         return record->security.action == PROS_FILE_BLOCK &&
-            (record->security.evidence & deny_evidence) != 0u;
+            ((record->security.evidence & deny_evidence) != 0u ||
+             (record->security.evidence &
+              PROS_FILE_EVIDENCE_FORMAT_VALID) == 0u);
     default:
         return 0;
     }
@@ -362,6 +364,12 @@ int pros_file_admission_selftest(void) {
         candidate.security.evidence |= 1u << 31;
         if (pros_file_admission_record_valid(&candidate))
             return -317;
+
+        candidate.security.state = PROS_FILE_MALICIOUS;
+        candidate.security.action = PROS_FILE_BLOCK;
+        candidate.security.evidence = PROS_FILE_EVIDENCE_NONE;
+        if (!pros_file_admission_record_valid(&candidate))
+            return -318;
     }
 
     return 0;
