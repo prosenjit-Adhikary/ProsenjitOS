@@ -1038,7 +1038,8 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         }
         rc = vfs_path_lookup(mount, parent_path, &vnode);
         if (rc != PROS_VFS_OK) return rc;
-        if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops->create) {
+        if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops ||
+            !vnode->ops->create) {
             vfs_vnode_put(vnode); return PROS_VFS_ENOSYS;
         }
         struct pros_vfs_vnode *created = 0;
@@ -1085,7 +1086,7 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOTDIR;
     }
-    if (!vnode->ops->readdir) {
+    if (!vnode->ops || !vnode->ops->readdir) {
         vfs_vnode_put(vnode);
         return PROS_VFS_ENOSYS;
     }
