@@ -3,9 +3,8 @@
 #include "heap.h"
 #include <stddef.h>
 
-/* Temporary QEMU fault-localization markers; remove after the failing phase
- * has been identified and the runtime regression is fixed. */
-extern void serial_write(const char *);
+/* Temporary QEMU fault-localization phase, sampled by the exception handler. */
+volatile uint64_t pfs_selftest_progress;
 
 #define PFS_MIN_BLOCKS 256u
 #define PFS_MIN_JOURNAL 16u
@@ -7460,7 +7459,7 @@ int prosenjitfs_selftest(void)
             }
         }
 
-        serial_write("PFSDBG: oversized-truncate begin\n");
+        pfs_selftest_progress = 1u;
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -3001);
@@ -7480,7 +7479,7 @@ int prosenjitfs_selftest(void)
         }
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -3200);
-        serial_write("PFSDBG: oversized-truncate passed\n");
+        pfs_selftest_progress = 2u;
 
         /*
          * Bounded-truncate regression: eight independent extents exceed the
@@ -7496,7 +7495,7 @@ int prosenjitfs_selftest(void)
             struct pfs_vnode_data *file_data;
             uint64_t inode_number;
 
-            serial_write("PFSDBG: bounded-truncate begin\n");
+            pfs_selftest_progress = 3u;
             if (vfs_file_open(&fs.mount, "/truncate-bound.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK)
@@ -7521,7 +7520,7 @@ int prosenjitfs_selftest(void)
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
-            serial_write("PFSDBG: bounded-truncate before shrink\n");
+            pfs_selftest_progress = 4u;
             if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
                 /* file_data belongs to the vnode released by close; use the
@@ -7534,7 +7533,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        serial_write("PFSDBG: bounded-truncate passed\n");
+        pfs_selftest_progress = 5u;
         /*
          * Semantic corruption: preserve the inode checksum while replacing
          * its extent head with an impossible filesystem block. Mount can
@@ -7567,7 +7566,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
 
-        serial_write("PFSDBG: semantic-corruption begin\n");
+        pfs_selftest_progress = 6u;
         done = 0u;
         if (vfs_file_open(&fs.mount, "/corrupt.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
@@ -7578,7 +7577,7 @@ int prosenjitfs_selftest(void)
 
         if (pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
-        serial_write("PFSDBG: semantic-corruption passed\n");
+        pfs_selftest_progress = 7u;
 
         /*
          * Restore a clean image before the journal/crash matrix. This keeps
@@ -7591,7 +7590,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
-    serial_write("PFSDBG: tiny-image-exhaustion begin\n");
+    pfs_selftest_progress = 8u;
     /*
      * Tiny-image allocation exhaustion.  This uses the real allocator and
      * journal on a minimum-size filesystem, then verifies recovery/reuse.
