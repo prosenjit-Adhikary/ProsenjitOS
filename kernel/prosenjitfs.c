@@ -5100,7 +5100,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
             return rc;
         }
     }
-    primary_ok = pfs_superblock_valid(block, device->sector_size, &primary) == PROSENJITFS_OK;
+    primary_ok = pfs_superblock_valid(block, device->sector_size, &primary) == PROSENJITFS_OK &&
+                 primary.total_blocks <= device->sector_count;
     {
         int rc = pfs_read_block(device, 1u, block);
         if (rc != PROSENJITFS_OK) {
@@ -5108,17 +5109,19 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
             return rc;
         }
     }
-    backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK;
+    backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK &&
+                backup.total_blocks <= device->sector_count;
+    /*
+     * Validate each copy against the actual device/partition view before
+     * selecting it. A structurally valid primary that extends beyond this
+     * device must not mask a usable in-range backup copy.
+     */
     if (!primary_ok && !backup_ok) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
     fs->sb = primary_ok ? primary : backup;
     fs->degraded_superblock = primary_ok ? 0u : 1u;
-    if (fs->sb.total_blocks > device->sector_count) {
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_ECORRUPT;
-    }
     fs->read_only = read_only || fs->degraded_superblock;
     if (vfs_mount_init(&fs->mount, PROS_FS_PROSENJIT, device, fs,
                        fs->read_only) != PROS_VFS_OK) {
