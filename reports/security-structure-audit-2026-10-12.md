@@ -386,3 +386,10 @@ The first record validator still needed stricter evidence coherence. It now reje
 - Added a regression case asserting invalid signature + malicious reputation yields `MALICIOUS/BLOCK` without relying on local-deny metadata.
 - Commit: `9f52d37b17d268e4c3ed94e01cbfae40169cdcb1`.
 - Source-only change; compile and runtime tests remain pending.
+
+
+## 2026-10-14 — Ed25519 point-encoding negative tests
+
+- Expanded `pros_ed25519_point_selftest()` to reject the non-canonical field encoding `y = p` and the invalid negative-zero encoding (sign bit set while recovered x is zero). This specifically covers strict decoder branches rather than only the RFC positive vector.
+- Commit: `ded8273e90ef31091aec9399caf619a8e6fbf633`.
+- Runtime execution is pending; the test code has been committed but is not yet proven by a build or boot.
