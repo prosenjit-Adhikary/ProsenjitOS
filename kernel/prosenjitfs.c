@@ -6917,6 +6917,22 @@ int prosenjitfs_selftest(void)
         }
     }
     /*
+     * Baseline consistency check before stale-handle unlink/recreate. If this
+     * fails, the leaked inode predates the stale-handle regression itself.
+     */
+    {
+        int consistency_rc = pfs_selftest_consistency(&fs);
+        if (consistency_rc != PROSENJITFS_OK) {
+            int diagnostic_rc = -1700 + consistency_rc;
+            if (consistency_rc == PROSENJITFS_ECORRUPT &&
+                pfs_consistency_diag_stage != 0u)
+                diagnostic_rc = -1700 -
+                    (int)(pfs_consistency_diag_stage * 1000u +
+                          (pfs_consistency_diag_inode % 1000u));
+            return pfs_selftest_fail(__LINE__, diagnostic_rc);
+        }
+    }
+    /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
      * the same inode number must never make the old handle target the new
