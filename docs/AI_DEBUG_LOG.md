@@ -119,3 +119,12 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Expanded `pros_ed25519_point_selftest()` to reject the non-canonical field encoding `y = p` and the invalid negative-zero encoding (sign bit set while recovered x is zero). This specifically covers strict decoder branches rather than only the RFC positive vector.
 - Commit: `ded8273e90ef31091aec9399caf619a8e6fbf633`.
 - Runtime execution is pending; the test code has been committed but is not yet proven by a build or boot.
+
+
+## 2026-10-14 — QEMU boot fault localization after storage discovery
+
+- Reproduced from Build #5901 (run ID `38569112345`, job ID `115869312895`): toolchain verification and ISO build passed; QEMU stopped before the required CPL3/IPC milestone. Serial output reached `storage volume discovery self-test passed`, then repeated CPU exceptions with `RIP=0` and `CR2=0`.
+- The failure output does not yet prove a specific faulty statement. The exception storm obscures the original execution point; artifact upload also reported repository artifact storage quota exhausted, so it is not a reliable diagnostic path.
+- Added temporary early `pfs_selftest_progress` checkpoints (100–113) around ProsenjitFS block-device setup, LBA checks, format, superblock validation, mount, and initial VFS operations. Added a serial marker and checkpoint 99 at the call site in `kernel/kernel.c`. The exception handler already prints this progress value when nonzero.
+- Purpose: the next QEMU run should identify the first stage active when the exception occurs. These changes are diagnostic only; they are not a claimed root-cause fix. Once the failing operation is identified, fix it, remove or formalize temporary instrumentation, and verify ISO + native BIOS boot and the CPL3/IPC milestone.
+- Verification status for this diagnostic commit: source edits committed; compiler/build/QEMU results pending. Do not mark the boot issue resolved until a new run demonstrates the failing stage and a subsequent fixed run passes.
