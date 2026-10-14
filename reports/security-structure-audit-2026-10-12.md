@@ -288,3 +288,14 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 - Fixed in commit `c19c3caf766ea2564676207bbb3a14e975ab0656`: branch now targets the explicit non-local `security_halt` label, and the halt label is defined in that global scope.
 - VFS source re-check: the current branch contains the whole-path bound in `vfs_path_lookup()` and the provider-registry self-test snapshots/restores existing provider order. These are source observations only; the full kernel build has not reached C compilation yet, so they do not prove the recurring runtime VFS/provider self-test passes.
 - New build/boot run #5740 (run ID 38530679161) and security architecture run #5242 (run ID 38530679146) were queued after the fix. Until the new build passes, ISO generation and both QEMU boot tests remain unverified. ProsenjitFS persistence/remount and crash-recovery are also not yet proven by runtime tests.
+
+
+## 2026-10-14 — Follow-up build diagnosis: unused process object validator
+
+- Build/boot run #5740 (run ID 38530679161) progressed past NASM and toolchain setup, then failed C compilation under `-Werror`:
+  `kernel/process.c:17:12: error: ‘process_object_type_valid’ defined but not used [-Werror=unused-function]`.
+- Root cause: the branch introduced an explicit ABI object-type validator but `process_handle_type()` did not call it. This was a real compile failure, not a runner/billing issue.
+- Fixed in commit `ae48763aaaaf77ad8f06ae90f8d1160815479fa5`: `process_handle_type()` now rejects undefined object types, reserved handle-entry state, and retired maximum-generation entries before returning the object type; it still delegates full capability/entry validation to `handle_check()`.
+- Source re-check confirms the helper is now referenced in the same translation unit. This is not yet a compiler pass; a fresh PR build must verify it and reveal any subsequent diagnostics.
+- Security architecture run #5242 (run ID 38530679146) passed its architecture-contract check, but that is not equivalent to runtime security self-tests.
+- ISO creation and QEMU boot tests were skipped in #5740 because compilation failed. VFS runtime tests and ProsenjitFS persistence/remount/crash-recovery remain unproven.
