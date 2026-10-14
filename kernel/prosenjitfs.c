@@ -7908,6 +7908,38 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
             return pfs_selftest_fail(__LINE__, -12);
 
+        /*
+         * A correctly checksummed journal that targets the primary
+         * superblock must be rejected before replay; recovery must never
+         * overwrite filesystem identity/geometry metadata.
+         */
+        {
+            uint8_t primary_before[512];
+            if (pfs_read_block(&device, 0u, primary_before) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+
+            pfs_zero(header, sizeof(header));
+            pfs_zero(&h, sizeof(h));
+            h.magic = PROSENJITFS_JOURNAL_MAGIC;
+            h.record_count = 1u;
+            h.transaction_id = 0xA11CE00000000001ULL;
+            h.targets[0] = 0u;
+            pfs_copy(header, &h, sizeof(h));
+            h.checksum = pfs_crc_with_zero32(header, sizeof(header),
+                (uint32_t)offsetof(struct pros_prosenjitfs_journal_header,
+                                   checksum));
+            pfs_copy(header, &h, sizeof(h));
+
+            if (pfs_write_block(&device, journal_start, header) != PROSENJITFS_OK ||
+                pfs_flush(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT ||
+                pfs_read_block(&device, 0u, verify) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+            for (uint32_t i = 0u; i < sizeof(primary_before); ++i)
+                if (verify[i] != primary_before[i])
+                    return pfs_selftest_fail(__LINE__, -12);
+        }
+
         pfs_zero(header, sizeof(header));
         for (uint32_t i = 0u; i < journal_blocks; ++i)
             if (pfs_write_block(&device, journal_start + i, header) != PROSENJITFS_OK)
