@@ -5939,6 +5939,8 @@ int prosenjitfs_selftest(void)
         const uint32_t checksum_offset = (uint32_t)offsetof(
             struct pros_prosenjitfs_superblock, checksum);
         int mount_rc;
+        int fallback_state_ok;
+        int unmount_rc;
 
         if (pfs_read_block(&device, 0u, saved_primary) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
@@ -5953,16 +5955,16 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -20);
 
         mount_rc = prosenjitfs_mount(&fallback_fs, &device, 0u);
-        if (mount_rc == PROSENJITFS_OK) {
-            if (!fallback_fs.degraded_superblock || !fallback_fs.read_only ||
-                prosenjitfs_unmount(&fallback_fs) != PROSENJITFS_OK) {
-                (void)pfs_write_block(&device, 0u, saved_primary);
-                return pfs_selftest_fail(__LINE__, -20);
-            }
-        }
+        fallback_state_ok = mount_rc == PROSENJITFS_OK &&
+                            fallback_fs.degraded_superblock &&
+                            fallback_fs.read_only;
+        unmount_rc = mount_rc == PROSENJITFS_OK
+                   ? prosenjitfs_unmount(&fallback_fs)
+                   : PROSENJITFS_OK;
         if (pfs_write_block(&device, 0u, saved_primary) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
-        if (mount_rc != PROSENJITFS_OK)
+        if (mount_rc != PROSENJITFS_OK || !fallback_state_ok ||
+            unmount_rc != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
     }
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
