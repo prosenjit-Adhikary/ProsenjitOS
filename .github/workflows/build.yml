@@ -124,8 +124,10 @@ jobs:
 
           require_native_log "ProsenjitOS: native bootloader handoff accepted"
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
-          require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
-          require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
+          # The current native BIOS image uses a fixed-LBA loader and does not
+          # contain an MBR partition table or a formatted ProsenjitFS volume.
+          # Do not require filesystem-mount milestones until build.sh creates
+          # and formats that on-disk layout; ISO boot separately tests PFS.
           require_native_log "ProsenjitOS: x86-64 long mode active"
           require_native_log "ProsenjitOS: system health monitor initialized"
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
