@@ -180,8 +180,15 @@ int pros_security_monitor_enforce(
         (void)contain_process(process);
         return action;
     }
-    if (action < 0)
+    if (action < 0) {
+        /*
+         * The caller has already matched the event PID to a live scheduler
+         * state. An invalid event type/record is therefore a monitoring
+         * failure, not a reason to leave that process runnable unobserved.
+         */
+        (void)contain_process(process);
         return action;
+    }
 
     if (action == PROS_SECURITY_MONITOR_QUARANTINE)
         return contain_process(process) == 0 ? action : -2;
@@ -326,6 +333,27 @@ int pros_security_monitor_selftest(void) {
     for (uint32_t i = 0u; i < PROS_SECURITY_MONITOR_MAX_PROCESSES; ++i)
         (void)pros_security_monitor_clear(0xA000u + i);
     (void)pros_security_monitor_clear(0xB000u);
+
+    /*
+     * A malformed telemetry event for the matching live PID must fail closed.
+     * Otherwise a producer bug could bypass enforcement by supplying an
+     * unsupported event type that record() rejects.
+     */
+    {
+        struct pros_process process = {0};
+        process.object.type = PROS_OBJECT_PROCESS;
+        process.object.refcount = 1u;
+        process.pid = 0xB100u;
+        process.state = PROS_PROCESS_READY;
+        event.pid = process.pid;
+        event.timestamp = 1u;
+        event.type = PROS_SECURITY_EVENT_NONE;
+        event.severity = 1u;
+        if (pros_security_monitor_enforce(&process, &event, &state) != -1 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u)
+            return -17;
+    }
 
     /*
      * If quarantine metadata is corrupt, monitor containment must still
