@@ -419,11 +419,17 @@ int pros_net_socket_create(uint32_t *socket_id)
 int pros_net_socket_bind(uint32_t socket_id, uint32_t addr, uint16_t port)
 {
     struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || s->state != PROS_NET_TCP_CLOSED || port_conflict(addr, port, s))
+    if (!s || s->state != PROS_NET_TCP_CLOSED)
         return PROS_NET_ESTATE;
+    /*
+     * Port zero requests an ephemeral port. Do not pass that request to
+     * port_conflict(), which correctly treats zero as an invalid bound port.
+     */
     if (port == 0u) {
         port = allocate_ephemeral(addr, s);
         if (port == 0u) return PROS_NET_ENOSPC;
+    } else if (port_conflict(addr, port, s)) {
+        return PROS_NET_ESTATE;
     }
     s->local_addr = addr;
     s->local_port = port;
