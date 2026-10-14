@@ -31,7 +31,7 @@ Status labels below distinguish source changes from runtime evidence.
   to caller-owned (potentially stack-lifetime) strings. It rejects duplicate
   dependencies. The existing service-manager self-test exercises use after the
   local service-definition scope, and now includes duplicate-dependency rejection.
-- `kernel/init.c` now clears the ELF load result before attempting a load, initializes local file/admission records, distinguishes a missing `/init` from other open failures, and maps ELF bounds/overflow and permission/conflict failures to explicit init errors. This reduces stale-output and diagnostic ambiguity on failure; it does not connect the helper to normal boot.
+- `kernel/init.c` now clears the ELF load result before attempting a load, initializes local file/admission records, distinguishes a missing `/init` from other open failures, and maps ELF bounds/overflow and permission/conflict failures to explicit init errors. This reduces stale-output and diagnostic ambiguity on failure; it does not connect the helper to normal boot. The init-loader self-test now seeds a nonzero result and checks that an inactive-mount failure clears all result fields.
 
 ### SOURCE-REVIEWED — not runtime tested
 
