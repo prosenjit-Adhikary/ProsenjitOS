@@ -123,6 +123,12 @@ int pros_init_selftest(void)
 
     if (pros_init_load(0, process, &metadata, &result) != PROS_INIT_EINVAL)
         return -1;
+    if (pros_init_load(&inactive, 0, &metadata, &result) != PROS_INIT_EINVAL)
+        return -4;
+    if (pros_init_load(&inactive, process, 0, &result) != PROS_INIT_EINVAL)
+        return -5;
+    if (pros_init_load(&inactive, process, &metadata, 0) != PROS_INIT_EINVAL)
+        return -6;
     inactive.active = 0u;
     result.entry = 0x1111u;
     result.image_start = 0x2222u;
