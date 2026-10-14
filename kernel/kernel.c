@@ -22,6 +22,10 @@
 #include "network.h"
 #include "device_broker.h"
 #include "display.h"
+#include "framebuffer_device.h"
+#include "graphics.h"
+#include "compositor.h"
+#include "input.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -835,6 +839,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR driver manager initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    if (pros_framebuffer_device_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR framebuffer metadata validation self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: framebuffer metadata validation self-test passed\\n");
+
     if (pros_driver_selftest() != PROS_DRIVER_OK) {
         serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -863,6 +873,31 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: display-device binding self-test passed\\n");
+    {
+        int fb_rc = pros_framebuffer_device_init(boot_magic, boot_info);
+        if (fb_rc == PROS_FBDEV_OK) {
+            serial_write("ProsenjitOS: real Multiboot2 framebuffer provider bound\\n");
+        } else if (fb_rc == PROS_FBDEV_ENODEV) {
+            serial_write("ProsenjitOS: no Multiboot2 framebuffer available on this boot path\\n");
+        } else {
+            serial_write("ProsenjitOS: WARNING framebuffer provider rejected boot metadata rc=");
+            serial_hex64((uint64_t)(int64_t)fb_rc);
+            serial_write("\\n");
+        }
+    }
+    if (pros_gfx_selftest() != PROS_GFX_OK) {
+        serial_write("ProsenjitOS: ERROR graphics surface self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (pros_compositor_self_test() != 0) {
+        serial_write("ProsenjitOS: ERROR window compositor self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (pros_input_selftest() != PROS_INPUT_OK) {
+        serial_write("ProsenjitOS: ERROR input event queue self-test failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: graphics/compositor/input queue self-tests passed (synthetic devices only)\\n");
 
     if (pros_net_selftest() != PROS_NET_OK) {
         serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\\n");

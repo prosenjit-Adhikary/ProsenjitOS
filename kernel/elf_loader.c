@@ -51,6 +51,16 @@ static int canonical_user(uint64_t va)
     return va < ELF_USER_MAX;
 }
 
+static void clear_load_result(struct pros_elf_load_result *result)
+{
+    if (!result) return;
+    result->entry = 0;
+    result->image_start = 0;
+    result->image_end = 0;
+    result->stack_top = 0;
+    result->mapped_pages = 0;
+}
+
 static int phdr_table_ok(const struct elf64_ehdr *eh, uint64_t size)
 {
     uint64_t bytes;
@@ -367,6 +377,110 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /*
+     * Empty argv/envp is the filesystem /init bootstrap case until a
+     * userspace launcher supplies arguments. Verify that the argument-aware
+     * loader still builds the three-word argc/argv-null/envp-null prefix.
+     */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        uint64_t physical = 0, flags = 0, index = 0;
+        int rc = process_init(&process, 0xE1F2u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -14;
+        image[data_off + 0] = 0x90;
+        image[data_off + 1] = 0xC3;
+        ph[0].flags = PF_R | PF_X;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].align = ELF_PAGE;
+        eh->entry = ELF_TEST_CODE_VA;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     0, 0u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_OK ||
+            loaded.entry != ELF_TEST_CODE_VA ||
+            process.user_entry != loaded.entry ||
+            loaded.stack_top != process.user_stack_top ||
+            (loaded.stack_top & 0xFULL) != 0 ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA,
+                                         &physical, &flags) != 0 ||
+            !(flags & PROSENJIT_PAGE_WRITABLE) ||
+            !(flags & PROSENJIT_PAGE_NX) ||
+            process.user_stack_top < PROSENJIT_USER_STACK_VA ||
+            process.user_stack_top > PROSENJIT_USER_STACK_TOP) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -15;
+        }
+        index = (process.user_stack_top - PROSENJIT_USER_STACK_VA) /
+                sizeof(uint64_t);
+        if (index + 2u >= ELF_PAGE / sizeof(uint64_t) ||
+            ((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[index] != 0u ||
+            ((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[index + 1u] != 0u ||
+            ((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[index + 2u] != 0u) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -16;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -17;
+    }
+
+    /*
+     * Failure-atomic output regression: an image can load successfully while
+     * its requested argument vector does not fit the single-page bootstrap
+     * stack. The loader must roll back both mappings and result metadata.
+     */
+    {
+        struct pros_process process;
+        struct pros_elf_load_result loaded;
+        char oversized_arg[4097];
+        const char *argv[1];
+        uint64_t physical = 0;
+        for (uint32_t i = 0; i < 4096u; ++i)
+            oversized_arg[i] = 'x';
+        oversized_arg[4096] = '\0';
+        argv[0] = oversized_arg;
+        int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -18;
+        loaded.entry = loaded.image_start = loaded.image_end = UINT64_MAX;
+        loaded.stack_top = loaded.mapped_pages = UINT64_MAX;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     0, 1u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_EINVAL ||
+            loaded.entry != 0 || loaded.image_start != 0 ||
+            loaded.image_end != 0 || loaded.stack_top != 0 ||
+            loaded.mapped_pages != 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -21;
+        }
+        loaded.entry = loaded.image_start = loaded.image_end = UINT64_MAX;
+        loaded.stack_top = loaded.mapped_pages = UINT64_MAX;
+        rc = pros_elf_load_with_args(&process, image, data_off + 2,
+                                     argv, 1u, 0, 0u, &loaded);
+        if (rc != PROS_ELF_EOVERFLOW ||
+            loaded.entry != 0 || loaded.image_start != 0 ||
+            loaded.image_end != 0 || loaded.stack_top != 0 ||
+            loaded.mapped_pages != 0 || process.user_entry != 0 ||
+            process.user_stack_top != 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &physical, 0) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         PROSENJIT_USER_STACK_VA,
+                                         &physical, 0) == 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -19;
+        }
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -20;
+    }
+
     return PROS_ELF_OK;
 }
 
@@ -471,7 +585,9 @@ int pros_elf_load_with_args(struct pros_process *process,
                              const char *const *envp,
                              uint32_t envc,
                              struct pros_elf_load_result *result) {
-    if (argc > 64u || envc > 64u || (argc && !argv) || (envc && !envp))
+    clear_load_result(result);
+    if (!result || argc > 64u || envc > 64u ||
+        (argc && !argv) || (envc && !envp))
         return PROS_ELF_EINVAL;
     int rc = pros_elf_load(process, image, size, result);
     if (rc != PROS_ELF_OK) return rc;
@@ -485,6 +601,11 @@ int pros_elf_load_with_args(struct pros_process *process,
             physical_page_free(physical);
         process->user_entry = 0;
         process->user_stack_top = 0;
+        /* A failed load must not expose a partly valid result to callers. */
+        result->entry = 0;
+        result->image_start = 0;
+        result->image_end = 0;
+        result->stack_top = 0;
         result->mapped_pages = 0;
         return rc;
     }
@@ -499,6 +620,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     uint64_t start, end, entry;
     uint64_t mapped = 0;
 
+    clear_load_result(result);
     if (!process || !image || !result ||
         process->state == PROS_PROCESS_DEAD ||
         process->state == PROS_PROCESS_ZOMBIE)

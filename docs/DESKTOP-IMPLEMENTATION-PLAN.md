@@ -5,26 +5,42 @@ The desktop environment is userspace. Kernel-core must not contain XFCE,
 Xorg/X11, Wayland, a desktop shell, or desktop applications.
 
 ## Dependency chain
-Display/input device binding
--> userspace graphics ABI/boundary
--> userspace init/service manager
--> Xorg/X11 or Wayland
+Kernel process/address-space/syscall foundation and ELF loading
+-> filesystem-backed userspace execution
+-> userspace PID 1 and service/session manager
+-> real display backend + userspace display API and keyboard/pointer event path
+-> existing Xorg/X11 or Wayland
 -> XFCE session
 -> desktop applications
 
+## Source-inspected status (2026-10-09)
+- Kernel ELF64 loader implementation and self-tests exist.
+- Kernel-side service dependency/lifecycle manager and self-tests exist; this is not a userspace PID 1.
+- A conditional Multiboot2 RGB framebuffer provider now parses the boot tag, bounds mode/range sizes, maps the device range outside allocator-managed RAM, and registers through the driver/display model. GRUB is asked for 1024x768x32 RGB; this provider is unavailable on native BIOS handoff and must be confirmed by a clean build/QEMU serial log plus actual pixel output.\n- Bounded ARGB8888 graphics-surface operations and a window compositor (clipping, z-order and alpha blending) are now linked into the kernel build with deterministic self-tests. The input event queue/device registry also has a self-test. These are reusable primitives only: they do not create a userspace desktop, and the queue is not a physical keyboard/mouse driver. The compositor is not an X11/Wayland server.
+- A filesystem-backed `/init` loading API exists, but its existence alone does not prove normal boot integration.
+- Display/input ABI headers exist. The kernel-private display struct now has a distinct name from the public ABI struct. Display metadata validation checks the supported XRGB8888 format, byte pitch, total framebuffer size and 64-bit address-range overflow, with negative self-test cases for unsupported format, invalid pitch, undersized framebuffer and wrapping address ranges. The public display ABI now documents version/dimension/pitch/size requirements and explicitly warns that a physical framebuffer address must not be treated as a userspace pointer before a permission-checked mapping/handle contract exists. Display and input event structures have explicit reserved fields and compile-time size/offset assertions to prevent silent ABI drift; the completion gate checks the public/kernel format constants and these layout assertions. Display unbind delegates teardown to the driver manager. These source changes still need a local clean compile and runtime test. The display binding self-test remains synthetic; the inspected tree did not show a separate real display backend or input event implementation.
+- The boot path constructs a test ELF from the embedded user-test section. This is a CPL3 smoke path, not a general filesystem-backed userspace distribution.
+- Existing Xorg/Wayland and XFCE runtimes are not integrated into the current boot path.
+- The public `include/abi/syscall.h` currently declares version/test-completion, handle operations and IPC only; it does not define a filesystem open/read/write, process spawn/exec, display-present or input-event wait interface.
+- The kernel-private display data type has been renamed to `pros_kernel_display_info` to avoid colliding with the public ABI tag `pros_display_info`. A deliberate translation/API boundary is still required before exposing display data to userspace; do not pass the internal structure across that boundary as-is.
+
 ## Gates
 1. Verify process/address-space/usercopy and ELF execution foundation.
-2. Define a stable userspace display/input interface; keep hardware access behind kernel/device boundaries.
-3. Add userspace service/session startup infrastructure.
-4. Bring up an existing Xorg/X11 or Wayland stack as an external userspace component.
-5. Bring up XFCE as the desktop environment.
-6. Validate keyboard, mouse, display, session lifecycle and application launch.
-7. Add security-policy integration for graphical sessions without privileged desktop shortcuts.
-8. Add deterministic QEMU/local regression coverage.
+2. Connect filesystem-backed executable loading to a normal process/exec path and test failure/cleanup cases.
+3. Implement userspace PID 1 and service/session startup infrastructure.
+4. Implement a real display backend and safe userspace presentation contract; keep hardware access behind kernel/device boundaries.
+5. Implement keyboard/pointer event delivery to userspace.
+6. Bring up an existing Xorg/X11 or Wayland stack as an external userspace component.
+7. Bring up XFCE as the desktop environment.
+8. Validate keyboard, mouse, display, session lifecycle and application launch.
+9. Add security-policy integration for graphical sessions without privileged desktop shortcuts.
+10. Add deterministic QEMU/local regression coverage for the full graphical boot.
 
 ## Verification rule
 Every completed gate must be rechecked from source and by the strongest available
-local/runtime test. Documentation alone is never treated as implementation.
+local/runtime test. Documentation alone is never treated as implementation. A QEMU
+timeout is acceptable only when the serial trace reaches the expected live checkpoint;
+it is not proof of graphical desktop startup.
 
 ## Execution constraint
 Prefer the local Debian/self-hosted runner. Do not require GitHub-hosted Actions

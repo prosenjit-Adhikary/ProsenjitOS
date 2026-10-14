@@ -13,9 +13,12 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
 7. **Regression/CI:** keep every storage/security milestone tied to QEMU boot markers and focused synthetic filesystem tests; investigate any failed CI run before starting the next dependent milestone. The latest GitHub Actions runner failure occurs before workflow steps are created, so post-change CI verification remains pending.
 8. **Desktop/compatibility strategy:** use mature existing desktop/display components first (for example XFCE with existing X11/Xorg and/or Wayland components); do not build a new windowing system at this stage.
+   - **Completion status:** desktop remains incomplete. Source inspection found a kernel ELF loader and kernel-side service manager, but the boot path uses an embedded CPL3 test ELF; a userspace PID 1, filesystem-backed normal process launch, real display backend, keyboard/pointer event path, and Xorg/Wayland + XFCE session integration are not yet verified. See `docs/DESKTOP-IMPLEMENTATION-PLAN.md`.
 9. **Windows/OneDrive compatibility:** track Win32/Office application compatibility and reliable OneDrive-style background synchronization as long-term application-level compatibility targets.
 10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
-11. **Display binding:** kernel owns only device discovery/binding, framebuffer/backend validation, permissions and lifecycle; window systems and desktop components remain userspace.\n\n- **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
+11. **Display binding:** kernel owns only device discovery/binding, framebuffer/backend validation, permissions and lifecycle; window systems and desktop components remain userspace.
+
+- **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
@@ -212,7 +215,8 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 
 ## Phase 7 — User mode and CUI
 - [x] User address spaces
-- [x] ELF64 loader (ET_EXEC validation, PT_LOAD mapping, NX/W^X enforcement, argv/env stack construction, rollback; dynamic relocation deferred)\n- [x] ELF64 loader runtime verification (boot-time real address-space mapping/permission checks, loaded-code byte check, argv/env stack/argc validation, then CPL3 entry; dynamic relocation deferred)
+- [x] ELF64 loader (ET_EXEC validation, PT_LOAD mapping, NX/W^X enforcement, argv/env stack construction, rollback; dynamic relocation deferred)
+- [x] ELF64 loader runtime verification (boot-time real address-space mapping/permission checks, loaded-code byte check, argv/env stack/argc validation, then CPL3 entry; dynamic relocation deferred)
 - [ ] Process startup
 - [ ] Init/service manager
 - [ ] Secure shell

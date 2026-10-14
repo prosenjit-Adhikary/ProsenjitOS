@@ -85,8 +85,15 @@ int pros_init_load(struct pros_vfs_mount *mount,
         return PROS_INIT_EFORMAT;
     }
 
+    /*
+     * Always build the initial userspace stack through the argument-aware
+     * loader, even when /init has no explicit argv/envp yet. The plain ELF
+     * loader maps an image and reserves a stack page but does not construct
+     * the process-entry stack contract.
+     */
     {
-        int rc = pros_elf_load(process, image, length, result);
+        int rc = pros_elf_load_with_args(process, image, length,
+                                         0, 0u, 0, 0u, result);
         kfree(image);
         if (rc != PROS_ELF_OK)
             return rc == PROS_ELF_ENOMEM ? PROS_INIT_ENOMEM : PROS_INIT_EFORMAT;

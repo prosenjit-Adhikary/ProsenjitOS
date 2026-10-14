@@ -61,12 +61,16 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/network.c" -o "$BUILD/obj/network.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/driver_bundle.c" -o "$BUILD/obj/driver_bundle.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/device_broker.c" -o "$BUILD/obj/device_broker.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/display.c" -o "$BUILD/obj/display.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/framebuffer_device.c" -o "$BUILD/obj/framebuffer_device.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/graphics.c" -o "$BUILD/obj/graphics.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/compositor.c" -o "$BUILD/obj/compositor.o"
+gcc "${CFLAGS[@]}" -c "$ROOT/kernel/input.c" -o "$BUILD/obj/input.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/driver_compat.c" -o "$BUILD/obj/driver_compat.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/nt_compat.c" -o "$BUILD/obj/nt_compat.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pe_inspect.c" -o "$BUILD/obj/pe_inspect.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o"
 
-ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/elf_loader.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/init.o" "$BUILD/obj/service_manager.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/sha512.o" "$BUILD/obj/ed25519_field.o" "$BUILD/obj/ed25519_point.o" "$BUILD/obj/ed25519_scalar.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_signature.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/security_monitor.o" "$BUILD/obj/security_hardening.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/vfs.o" "$BUILD/obj/vfs_provider.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/pci.o" "$BUILD/obj/driver.o" "$BUILD/obj/health.o" "$BUILD/obj/crash_record.o" "$BUILD/obj/log.o" "$BUILD/obj/log_persist.o" "$BUILD/obj/driver_class.o" "$BUILD/obj/network.o" "$BUILD/obj/driver_bundle.o" "$BUILD/obj/device_broker.o" "$BUILD/obj/display.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
+ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/elf_loader.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/init.o" "$BUILD/obj/service_manager.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/sha512.o" "$BUILD/obj/ed25519_field.o" "$BUILD/obj/ed25519_point.o" "$BUILD/obj/ed25519_scalar.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_signature.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/security_monitor.o" "$BUILD/obj/security_hardening.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/vfs.o" "$BUILD/obj/vfs_provider.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/pci.o" "$BUILD/obj/driver.o" "$BUILD/obj/health.o" "$BUILD/obj/crash_record.o" "$BUILD/obj/log.o" "$BUILD/obj/log_persist.o" "$BUILD/obj/driver_class.o" "$BUILD/obj/network.o" "$BUILD/obj/driver_bundle.o" "$BUILD/obj/device_broker.o" "$BUILD/obj/display.o" "$BUILD/obj/framebuffer_device.o" "$BUILD/obj/graphics.o" "$BUILD/obj/compositor.o" "$BUILD/obj/input.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
 
 grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
@@ -75,10 +79,9 @@ grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
 
 echo "Built: $ISO"
 
-# Native BIOS boot artifact. This path deliberately does not depend on GRUB,
-# MBR partition parsing, or a filesystem: the stage-1/2 loader reads the
-# kernel from a fixed LBA layout. Partition/filesystem discovery remains a
-# later storage concern.
+# Native BIOS boot artifact. The stage-1 sector embeds an MBR partition entry
+# for the PFS range, while the stage-1/2 loader reads the kernel from fixed
+# LBAs. The build does not format that partition as ProsenjitFS or add /init.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
 NATIVE_STAGE2_SECTORS=32
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
@@ -109,12 +112,35 @@ fi
 
 NATIVE_KERNEL_END=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
 NATIVE_PFS_END=$((NATIVE_PFS_START_LBA + NATIVE_PFS_SECTORS))
+if (( NATIVE_KERNEL_END > NATIVE_PFS_START_LBA )); then
+    echo "Native kernel payload overlaps the reserved ProsenjitFS partition" >&2
+    exit 1
+fi
+if (( NATIVE_PFS_START_LBA > 0xFFFFFFFF || NATIVE_PFS_SECTORS > 0xFFFFFFFF ||
+      NATIVE_PFS_SECTORS == 0 || NATIVE_PFS_END > 0x100000000 )); then
+    echo "Native ProsenjitFS partition geometry exceeds MBR LBA fields" >&2
+    exit 1
+fi
 NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_END > NATIVE_PFS_END ? NATIVE_KERNEL_END : NATIVE_PFS_END))
 truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
 dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
 
+# Verify the on-disk MBR contract emitted by native_stage1.asm. This proves
+# partition geometry only; it does not prove that the partition is formatted.
+MBR_SIGNATURE="$(od -An -tx1 -j510 -N2 "$NATIVE_DISK" | tr -d ' \n')"
+MBR_TYPE="$(od -An -tx1 -j450 -N1 "$NATIVE_DISK" | tr -d ' \n')"
+MBR_START="$(od -An -tx1 -j454 -N4 "$NATIVE_DISK" | tr -d ' \n')"
+MBR_COUNT="$(od -An -tx1 -j458 -N4 "$NATIVE_DISK" | tr -d ' \n')"
+EXPECTED_START="$(printf '%02x%02x%02x%02x' $((NATIVE_PFS_START_LBA & 255)) $(((NATIVE_PFS_START_LBA >> 8) & 255)) $(((NATIVE_PFS_START_LBA >> 16) & 255)) $(((NATIVE_PFS_START_LBA >> 24) & 255)))"
+EXPECTED_COUNT="$(printf '%02x%02x%02x%02x' $((NATIVE_PFS_SECTORS & 255)) $(((NATIVE_PFS_SECTORS >> 8) & 255)) $(((NATIVE_PFS_SECTORS >> 16) & 255)) $(((NATIVE_PFS_SECTORS >> 24) & 255)))"
+if [[ "$MBR_SIGNATURE" != "55aa" || "$MBR_TYPE" != "da" ||
+      "$MBR_START" != "$EXPECTED_START" || "$MBR_COUNT" != "$EXPECTED_COUNT" ]]; then
+    echo "Native BIOS MBR partition entry does not match the configured PFS geometry" >&2
+    exit 1
+fi
+
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
-echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
+echo "MBR ProsenjitFS partition entry present; filesystem not formatted: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"

@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$ROOT" ]]; then echo "ERROR: run from the ProsenjitOS repository." >&2; exit 2; fi
+if [[ -z "$ROOT" ]]; then
+  echo "ERROR: run from the ProsenjitOS repository." >&2
+  exit 2
+fi
 cd "$ROOT"
+
+# Fail fast on shell syntax errors before running source checks or destructive build steps.
+if ! bash -n "$ROOT/scripts/desktop_complete.sh"; then
+  echo "ERROR: scripts/desktop_complete.sh has a shell syntax error." >&2
+  exit 2
+fi
+
 REPORT="reports/desktop-integration-report.md"
 mkdir -p reports
 failures=()
@@ -12,75 +23,247 @@ note() { notes+=("$1"); }
 fail() { failures+=("$1"); failure_count=$((failure_count + 1)); }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
-echo "[1/6] Architecture boundary"
-if grep -RInE '(^|[^[:alnum:]_])(XFCE|Xorg|Wayland|X11)([^[:alnum:]_]|$)' kernel --include='*.c' --include='*.h' --include='*.asm' --include='*.S' >/tmp/prosenjitos_kernel_gui_hits 2>/dev/null; then
-  fail "desktop-stack reference detected inside kernel/; inspect /tmp/prosenjitos_kernel_gui_hits"
+echo "[1/7] Kernel/userspace boundary"
+if grep -RInE '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^>"]*(X11|Xorg|wayland|xfce)|\b(XOpenDisplay|wl_display_connect|xfce4-session)\b' \
+    kernel --include='*.c' --include='*.h' --include='*.asm' --include='*.S' \
+    >/tmp/prosenjitos_kernel_gui_hits 2>/dev/null; then
+  fail "desktop-stack include/API reference detected in kernel source; inspect /tmp/prosenjitos_kernel_gui_hits"
 else
-  note "kernel GUI-stack contamination check: clean"
+  note "No desktop-stack includes/API calls detected in kernel source"
 fi
 
-echo "[2/6] Build prerequisites"
-for c in git make gcc ld nasm qemu-system-x86_64 timeout; do need_cmd "$c"; done
+echo "[2/7] Local build prerequisites"
+for c in git make gcc ld nasm qemu-system-x86_64 timeout grep; do need_cmd "$c"; done
 
-echo "[3/6] User-mode and graphics foundations"
-# A filename/comment containing "ELF" is not evidence of an ELF loader. Require
-# an implementation-shaped symbol/header reference instead.
-if ! grep -RIlE 'elf(64)?_(validate|load|exec|load_image)|ELF64|PT_LOAD|Elf64_Ehdr|Elf64_Phdr' kernel user include --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
-  fail "functional ELF-loader implementation was not detected"
+echo "[3/7] ELF loader and kernel user-entry foundation"
+if [[ -f kernel/elf_loader.c ]] &&
+   grep -qE '^int pros_elf_validate\(' kernel/elf_loader.c &&
+   grep -qE '^int pros_elf_load_with_args\(' kernel/elf_loader.c &&
+   grep -qE '^int pros_elf_selftest\(' kernel/elf_loader.c &&
+   grep -qF 'Empty argv/envp is the filesystem /init bootstrap case' kernel/elf_loader.c &&
+   grep -qF 'pros_elf_load_with_args(&process, image, data_off + 2,' kernel/elf_loader.c &&
+   grep -qF 'loaded.stack_top != process.user_stack_top' kernel/elf_loader.c &&
+   grep -qF '(loaded.stack_top & 0xFULL) != 0' kernel/elf_loader.c &&
+   grep -qF 'clear_load_result(result);' kernel/elf_loader.c &&
+   grep -qF 'rc != PROS_ELF_EINVAL' kernel/elf_loader.c &&
+   grep -qF 'Failure-atomic output regression' kernel/elf_loader.c &&
+   grep -qF 'A failed load must not expose a partly valid result' kernel/elf_loader.c &&
+   grep -qF 'loaded.mapped_pages != 0' kernel/elf_loader.c &&
+   grep -qF 'oversized_arg[4096]' kernel/elf_loader.c; then
+  note "ELF loader has an empty-argv/envp initial-stack regression case; this is not proof of a general userspace runtime"
 else
-  note "ELF loader implementation-shaped symbols detected"
-fi
-if ! grep -RIlE 'service_manager|service_manager_init|service_start|service_spawn|PID[[:space:]-]?1|init_main' kernel user include --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
-  fail "functional init/service-manager implementation was not detected"
-else
-  note "init/service-manager implementation-shaped symbols detected"
-fi
-if ! grep -RIlE 'CPL3|USER_MODE|user_mode|iretq|sysret|process_create' kernel --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
-  fail "userspace process-entry foundation not detected"
-else
-  note "userspace process-entry foundation detected"
-fi
-if ! grep -RIlE 'display|framebuffer|graphics|input' kernel include drivers --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
-  fail "display/input boundary not detected"
-else
-  note "display/input boundary detected"
+  fail "kernel ELF loader implementation/self-test source is missing"
 fi
 
-echo "[4/6] Local build"
-if ! make clean >/tmp/prosenjitos_make_clean.log 2>&1; then fail "make clean failed; see /tmp/prosenjitos_make_clean.log"; fi
-if ! make iso >/tmp/prosenjitos_make_iso.log 2>&1; then fail "make iso failed; see /tmp/prosenjitos_make_iso.log"; fi
+if [[ -f kernel/kernel.c ]] &&
+   grep -qF 'enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);' kernel/kernel.c; then
+  note "Kernel has a CPL3 entry path for its built-in user-mode test"
+else
+  fail "CPL3 user-mode entry call was not detected"
+fi
 
-echo "[5/6] QEMU smoke test"
+echo "[4/7] Init/service infrastructure"
+if [[ -f kernel/service_manager.c ]] &&
+   grep -qE '^int service_manager_selftest\(' kernel/service_manager.c &&
+   grep -qE '^int service_start_all\(' kernel/service_manager.c; then
+  note "Kernel-side service dependency manager and self-test source exist"
+else
+  fail "kernel service manager implementation/self-test source is missing"
+fi
+
+if [[ -f kernel/init.c ]] &&
+   grep -qE '^int pros_init_load\(' kernel/init.c &&
+   grep -qF 'pros_elf_load_with_args(process, image, length,' kernel/init.c; then
+  note "Filesystem-backed /init loader constructs an initial argc/envp stack; live boot integration is still required"
+else
+  fail "filesystem-backed init loader or argument-aware initial-stack construction is missing"
+fi
+
+# Keep the normal boot wiring separate from merely having a callable loader API.
+if grep -qE '^[[:space:]]*pros_init_load[[:space:]]*\(' kernel/kernel.c; then
+  note "Normal boot path contains a direct pros_init_load() call; mount readiness and runtime evidence still require verification"
+else
+  fail "filesystem-backed /init loader is not called from normal boot; boot remains on the embedded user-test path"
+fi
+
+# A kernel-side loader/service registry is not equivalent to a userspace PID 1.
+if [[ ! -f user/init.c && ! -f user/init/main.c && ! -f user/init/Makefile ]]; then
+  fail "no userspace init/PID 1 source/build target detected; current service manager is kernel-side"
+fi
+
+# Ordinary userspace needs a complete minimum path, not just one syscall
+# symbol: file open/read/write plus process launch. Keep these as separate
+# gates so a partial ABI cannot accidentally count as sufficient.
+for call in OPEN READ WRITE; do
+  if grep -qF "PROSENJIT_SYS_${call}" include/abi/syscall.h &&
+     grep -qF "case PROSENJIT_SYS_${call}:" kernel/syscall.c; then
+    note "Public ABI and kernel dispatcher both define ${call}"
+  else
+    fail "file syscall ${call} is missing from the public ABI or kernel dispatcher"
+  fi
+done
+
+process_launch_found=0
+for call in EXEC SPAWN PROCESS_CREATE; do
+  if grep -qF "PROSENJIT_SYS_${call}" include/abi/syscall.h &&
+     grep -qF "case PROSENJIT_SYS_${call}:" kernel/syscall.c; then
+    process_launch_found=1
+    note "Public ABI and kernel dispatcher define process launch via ${call}"
+    break
+  fi
+done
+if ((process_launch_found == 0)); then
+  fail "public ABI/kernel dispatcher lack EXEC, SPAWN or PROCESS_CREATE; init cannot launch services or a desktop session"
+fi
+
+# The boot path currently constructs an embedded test ELF. Require the
+# filesystem-backed /init loader to be called from the real boot path before
+# treating it as normal userspace startup.
+if grep -qF 'pros_init_load(' kernel/kernel.c; then
+  note "Normal boot path references filesystem-backed init loading"
+else
+  fail "pros_init_load() is not wired into kernel/kernel.c; boot still uses the embedded CPL3 test image"
+fi
+
+echo "[5/7] Real display/input path and desktop runtime"
+if [[ -f kernel/graphics.c && -f kernel/include/graphics.h &&
+      -f kernel/compositor.c && -f kernel/include/compositor.h &&
+      -f kernel/input.c && -f kernel/include/input.h ]] &&
+   grep -qF 'kernel/graphics.c' scripts/build.sh &&
+   grep -qF 'kernel/compositor.c' scripts/build.sh &&
+   grep -qF 'kernel/input.c' scripts/build.sh &&
+   grep -qF 'pros_gfx_selftest()' kernel/kernel.c &&
+   grep -qF 'pros_compositor_self_test()' kernel/kernel.c &&
+   grep -qF 'pros_input_selftest()' kernel/kernel.c; then
+  note "Bounded graphics surfaces, compositor, input event queue and boot-time self-tests are integrated; these are foundations, not hardware/user-session proof"
+else
+  fail "graphics/compositor/input foundations or build/self-test integration is missing"
+fi
+
+if [[ -f kernel/display.c ]] &&
+   grep -qE '^int pros_display_bind\(' kernel/display.c &&
+   grep -qE '^int pros_display_selftest\(' kernel/display.c &&
+   grep -qF 'static int display_info_valid(' kernel/display.c &&
+   grep -qF 'return pros_driver_unbind(id);' kernel/display.c &&
+   grep -qF 'PROS_DISPLAY_FORMAT_XRGB8888 1u' kernel/include/display.h &&
+   grep -qF 'PROS_DISPLAY_XRGB8888 = 1' include/abi/display.h &&
+   grep -qF 'framebuffer_bytes' include/abi/display.h &&
+   grep -qF 'permission-checked mapping/handle' include/abi/display.h &&
+   grep -qF 'sizeof(struct pros_display_info) == 40u' include/abi/display.h &&
+   grep -qF 'sizeof(struct pros_display_event) == 32u' include/abi/display.h &&
+   grep -qF 'sizeof(struct pros_input_event) == 32u' include/abi/input.h &&
+   grep -qF 'uint32_t flags,reserved;' include/abi/input.h; then
+  note "Display/input ABI layouts are explicitly sized and checked at compile time; display security and lifecycle contract is present"
+else
+  fail "display binding validation/lifecycle, self-tests or public/internal ABI contract is missing/inconsistent"
+fi
+
+if [[ -f kernel/framebuffer_device.c && -f kernel/include/framebuffer_device.h ]] &&
+   grep -qF 'pros_framebuffer_device_init' kernel/kernel.c &&
+   grep -qF 'pros_framebuffer_device_selftest()' kernel/kernel.c &&
+   grep -qF 'int pros_framebuffer_device_selftest(void)' kernel/framebuffer_device.c &&
+   grep -qF 'framebuffer_device.o' scripts/build.sh &&
+   grep -qF 'dw 5' boot/multiboot2_header.asm &&
+   grep -qF 'paging_map_device_page(va, pa' kernel/framebuffer_device.c; then
+  note "Multiboot2 framebuffer provider source is registered in boot/build paths; actual availability and pixel output still require QEMU/hardware verification"
+else
+  fail "Multiboot2 framebuffer request/provider/build/boot integration is missing"
+fi
+
+# The current display self-test backend is synthetic; it does not bind a real
+# framebuffer device or expose a userspace mapping/event queue.
+display_backend_candidates=/tmp/prosenjitos_display_backend_candidates
+display_backend_hits=/tmp/prosenjitos_display_backend_hits
+: > "$display_backend_candidates"
+: > "$display_backend_hits"
+grep -RIlE 'PROS_DISPLAY_BACKEND_MAGIC|pros_display_backend' drivers kernel \
+  --include='*.c' --include='*.h' 2>/dev/null > "$display_backend_candidates" || true
+grep -vE '^kernel/display\.c$|^kernel/include/display[.]h$' \
+  "$display_backend_candidates" > "$display_backend_hits" || true
+if [[ ! -s "$display_backend_hits" ]]; then
+  fail "no separate real display backend implementation detected (mock display self-test is not hardware support)"
+else
+  note "Separate display backend source detected; hardware/runtime operation still requires testing"
+fi
+
+if [[ ! -f drivers/ps2_keyboard.c && ! -f drivers/usb_hid.c &&
+      ! -f kernel/ps2_keyboard.c && ! -f kernel/usb_hid.c ]]; then
+  fail "no PS/2 or USB-HID keyboard/pointer driver detected; include/abi/input.h alone is only a contract"
+fi
+
+if [[ ! -f user/Makefile && ! -f user/build.sh ]]; then
+  fail "no userspace build/package target detected for an external Xorg/Wayland + XFCE stack"
+fi
+if [[ ! -d user/xfce && ! -d user/desktop && ! -d user/session ]]; then
+  fail "no desktop session integration/configuration detected for XFCE or an existing window system"
+fi
+
+echo "[6/7] Clean local build and QEMU kernel/user-entry smoke test"
+for c in make; do need_cmd "$c"; done
+if make clean >/tmp/prosenjitos_make_clean.log 2>&1; then
+  note "make clean passed"
+else
+  fail "make clean failed; see /tmp/prosenjitos_make_clean.log"
+fi
+
+if make iso >/tmp/prosenjitos_make_iso.log 2>&1; then
+  note "make iso passed with repository warning/error policy"
+else
+  fail "make iso failed; see /tmp/prosenjitos_make_iso.log"
+fi
+
 if [[ -f build/prosenjitOS.iso ]]; then
   rm -f build/desktop-qemu-serial.log build/desktop-qemu-debug.log
   qemu_rc=0
   set +e
-  timeout 20s qemu-system-x86_64 -display none -serial file:build/desktop-qemu-serial.log -no-reboot -no-shutdown -cdrom build/prosenjitOS.iso -d int -D build/desktop-qemu-debug.log >/tmp/prosenjitos_qemu_stdout.log 2>/tmp/prosenjitos_qemu_stderr.log
+  timeout 20s qemu-system-x86_64 -display none \
+    -serial file:build/desktop-qemu-serial.log -no-reboot -no-shutdown \
+    -cdrom build/prosenjitOS.iso -d int -D build/desktop-qemu-debug.log \
+    >/tmp/prosenjitos_qemu_stdout.log 2>/tmp/prosenjitos_qemu_stderr.log
   qemu_rc=$?
   set -e
-  case "$qemu_rc" in
-    0) note "QEMU exited normally" ;;
-    124) fail "QEMU timed out after 20 seconds; inspect serial/debug logs" ;;
-    *) fail "QEMU exited with status $qemu_rc; inspect serial/debug logs" ;;
-  esac
-  [[ -s build/desktop-qemu-serial.log ]] && note "QEMU serial log generated" || fail "QEMU produced no serial log"
+
+  if [[ -s build/desktop-qemu-serial.log ]]; then
+    note "QEMU serial log generated"
+  else
+    fail "QEMU produced no serial log"
+  fi
+
+  # The kernel is designed to remain running; timeout(124) is expected only
+  # when the serial trace proves that it reached the CPL3 entry checkpoint.
+  if grep -qF 'ProsenjitOS: entering CPL3 user-mode syscall test' build/desktop-qemu-serial.log 2>/dev/null; then
+    note "QEMU reached the CPL3 user-mode entry checkpoint"
+    if [[ "$qemu_rc" == "124" ]]; then
+      note "QEMU remained running until the 20-second timeout (expected for a non-shutdown kernel)"
+    elif [[ "$qemu_rc" == "0" ]]; then
+      note "QEMU exited normally after reaching the user-entry checkpoint"
+    else
+      fail "QEMU exited with status $qemu_rc after the user-entry checkpoint; inspect build/desktop-qemu-debug.log and /tmp/prosenjitos_qemu_stderr.log"
+    fi
+  else
+    fail "QEMU did not reach the CPL3 entry checkpoint; inspect build/desktop-qemu-serial.log and build/desktop-qemu-debug.log (QEMU status $qemu_rc)"
+  fi
+
+  if grep -qF 'ProsenjitOS: ERROR' build/desktop-qemu-serial.log 2>/dev/null; then
+    fail "kernel emitted an ERROR marker; inspect build/desktop-qemu-serial.log"
+  fi
 else
   fail "build/prosenjitOS.iso was not produced"
 fi
 
-echo "[6/6] Report"
+echo "[7/7] Report"
 {
   echo "# ProsenjitOS Desktop Integration Gate"
   echo
   echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   echo
-  echo "## Rules"
-  echo "- Desktop environment is userspace."
-  echo "- Existing Xorg/X11 or Wayland and XFCE are integration targets."
-  echo "- No desktop stack is added to kernel-core."
-  echo "- GitHub-hosted Actions are not required."
+  echo "## Scope"
+  echo "- This script validates source/build/kernel user-entry foundations; it does not itself implement a desktop."
+  echo "- QEMU timeout is accepted only if the serial log reaches the CPL3 entry checkpoint."
+  echo "- A successful kernel/user-entry smoke test is not a successful graphical desktop boot."
+  echo "- Prefer local Debian/self-hosted verification; no GitHub-hosted Actions dependency is required."
   echo
-  echo "## Notes"
+  echo "## Passed checks / notes"
   for n in "${notes[@]}"; do echo "- $n"; done
   echo
   echo "## Blockers"
@@ -97,5 +280,6 @@ if ((failure_count > 0)); then
   echo "Report: $REPORT"
   exit 1
 fi
+
 echo "DESKTOP GATE: PASS"
 echo "Report: $REPORT"
