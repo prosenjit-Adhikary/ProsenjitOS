@@ -436,10 +436,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      */
     if (service_manager_selftest() != PROS_SERVICE_OK ||
         service_manager_init() != PROS_SERVICE_OK) {
-        serial_write("ProsenjitOS: ERROR service-manager self-test/init failed\\n");
+        serial_write("ProsenjitOS: ERROR service-manager self-test/init failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: service-manager lifecycle self-test passed\\n");
+    serial_write("ProsenjitOS: service-manager lifecycle self-test passed\n");
 
     if (block_device_selftest() != PROS_BLOCK_OK) {
         serial_write("ProsenjitOS: ERROR block storage health self-test failed\n");
