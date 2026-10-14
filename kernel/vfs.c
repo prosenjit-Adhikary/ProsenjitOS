@@ -299,6 +299,8 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->write || !bytes_written || !file->vnode)
         return PROS_VFS_EINVAL;
+    /* Never leave a caller's previous count looking like this write's result. */
+    *bytes_written = 0u;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
     if (length != 0u && !buffer)
