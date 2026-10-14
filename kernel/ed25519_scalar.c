@@ -222,6 +222,43 @@ int pros_ed25519_scalar_selftest(void) {
         for (uint32_t i = 0; i < 32u; ++i)
             if (reduced[i] != l_minus_one[i]) return -11;
 
+        /* Regression: 1 - 0 = 1. */
+        pros_ed25519_scalar_sub(reduced, one_scalar, zero_scalar);
+        if (reduced[0] != 1u) return -14;
+        for (uint32_t i = 1; i < 32u; ++i)
+            if (reduced[i]) return -15;
+
+        /* Regression: a - a = 0, including output/input aliasing. */
+        pros_ed25519_scalar_sub(reduced, l_minus_one, l_minus_one);
+        for (uint32_t i = 0; i < 32u; ++i)
+            if (reduced[i]) return -16;
+
+        {
+            uint8_t alias[32];
+            for (uint32_t i = 0; i < 32u; ++i) alias[i] = l_minus_one[i];
+            pros_ed25519_scalar_sub(alias, alias, one_scalar);
+            for (uint32_t i = 0; i < 32u; ++i)
+                if (alias[i] != (i == 0u ? 0xebu :
+                                 (i == 1u ? 0xd3u :
+                                  (i == 2u ? 0xf5u : 0u)))) {
+                    /* Expected value is checked below using an independent
+                     * reference subtraction to avoid fragile byte literals. */
+                    break;
+                }
+            {
+                uint8_t expected_sub[32];
+                uint16_t borrow = 0;
+                for (uint32_t i = 0; i < 32u; ++i) {
+                    uint16_t ai = l_minus_one[i];
+                    uint16_t bi = (uint16_t)one_scalar[i] + borrow;
+                    expected_sub[i] = (uint8_t)(ai - bi);
+                    borrow = (ai < bi) ? 1u : 0u;
+                }
+                for (uint32_t i = 0; i < 32u; ++i)
+                    if (alias[i] != expected_sub[i]) return -17;
+            }
+        }
+
         pros_ed25519_scalar_mul(reduced, l_minus_one, l_minus_one);
         if (reduced[0] != 1u) return -12;
         for (uint32_t i = 1; i < 32u; ++i)
