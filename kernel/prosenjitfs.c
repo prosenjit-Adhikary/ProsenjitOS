@@ -4075,9 +4075,17 @@ static int pfs_tx_validate(const struct pros_prosenjitfs *fs)
         sizeof(struct pros_prosenjitfs_journal_commit) > fs->sb.block_size ||
         (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
-    if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
+    if (!fs->mount.active || !fs->mount.device)
+        return PROSENJITFS_EPERM;
+    if (fs->mount.device->sector_size != fs->sb.block_size ||
+        fs->mount.device->sector_count < fs->sb.total_blocks ||
+        fs->sb.total_blocks < 3u)
+        return PROSENJITFS_ECORRUPT;
+    if (fs->sb.journal_start < 2u ||
+        pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
                        &journal_end) != PROSENJITFS_OK ||
         fs->sb.journal_blocks < 2u ||
+        journal_end > fs->sb.total_blocks ||
         fs->tx.count > fs->sb.journal_blocks - 2u)
         return PROSENJITFS_ECORRUPT;
 
