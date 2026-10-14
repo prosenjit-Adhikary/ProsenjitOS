@@ -313,6 +313,9 @@ static int pfs_write_block(struct pros_block_device *device, uint64_t block,
 
 static int pfs_flush(struct pros_block_device *device)
 {
+    /* Match read/write wrappers: reject a missing device before dispatch. */
+    if (!device)
+        return PROSENJITFS_EINVAL;
     return block_device_flush(device) == PROS_BLOCK_OK
          ? PROSENJITFS_OK : PROSENJITFS_EIO;
 }
