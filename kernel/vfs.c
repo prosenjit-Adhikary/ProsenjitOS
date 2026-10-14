@@ -311,7 +311,13 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
      */
     if (file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
-    if ((uint64_t)length > UINT32_MAX - file->position)
+    /*
+     * APPEND providers choose the authoritative inode EOF under their own
+     * serialization. A stale seek position must not reject a valid append
+     * merely because position + length would overflow the 32-bit offset.
+     */
+    if ((file->flags & PROS_VFS_O_APPEND) == 0u &&
+        (uint64_t)length > UINT32_MAX - file->position)
         return PROS_VFS_EOVERFLOW;
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
