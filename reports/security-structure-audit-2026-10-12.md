@@ -325,3 +325,12 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 - This is currently a runner availability/dispatch blocker. It is not evidence that these latest attempts found a new code defect, and it is not evidence of a passing build.
 - Latest actual code/runtime evidence remains Build #5748: C compilation and ISO generation completed, then QEMU failed at the ELF negative self-test. The overlap fixture was corrected in `b92dc74f0765dd23c9df9424b5d78752aaf8b4b0`, but that fix has not yet been executed by a successful build/boot run.
 - Required next step: restore/confirm the self-hosted runner is online and accepting jobs, then rerun Build/QEMU. Do not close the PR or claim verification complete before the corrected ELF self-test and the remaining startup milestones pass.
+
+
+## 2026-10-14 — Additional source-level monitor containment defect
+
+**Finding (High: fail-closed behavior monitoring).** `pros_security_monitor_enforce()` previously rejected a process by calling `process_state()` in its initial guard. Since `process_state()` intentionally maps invalid process-object metadata to DEAD, a raw READY/RUNNING/BLOCKED process with corrupted object metadata returned early and never reached `contain_process()`. This contradicted the intended fallback that prevents corrupted metadata from leaving a scheduler-visible process runnable.
+
+**Fix:** commit `5781a215643517cabbd1df51c70ae007e229c7da` moves process-state validation after pointer/PID matching, checks the raw scheduler-visible state, and attempts canonical containment when the validated helper reports DEAD. Added a regression test through the public enforcement API. The code change is not yet compiler- or runtime-verified.
+
+**Current verification blocker:** Build #5760 (run ID `38532057578`) and Security #5262 (run ID `38532058158`) remain queued with no job steps/logs. The new test must run after the self-hosted runner is accepting jobs. No claim of passing build or QEMU boot is made.
