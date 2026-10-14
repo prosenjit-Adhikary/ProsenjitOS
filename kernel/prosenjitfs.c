@@ -6267,13 +6267,14 @@ int prosenjitfs_selftest(void)
         uint64_t high_block = 4u;
         uint64_t low_block = 2u;
         uint64_t high_lba = 0u;
+        int open_rc = PROS_VFS_OK;
 
         if (bs != 512u)
             return pfs_selftest_fail(__LINE__, -141);
-        if (vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
-                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-            PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -142);
+        open_rc = vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+                                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+        if (open_rc != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -2000 + open_rc);
         if (vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -143);
         if (vfs_file_write(&file, &high, 1u, &done) != PROS_VFS_OK ||
