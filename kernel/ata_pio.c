@@ -390,6 +390,12 @@ int pros_ata_pio_selftest(void)
     if (block_device_read(&ata.block, 0u, 1u, sector) != PROS_BLOCK_OK)
         return PROS_ATA_EIO;
 
+    /* A real disk read must provide the conventional MBR signature or a
+     * non-partitioned volume may be present. Do not guess a filesystem. */
+    if ((sector[510] != 0x55u || sector[511] != 0xAAu) &&
+        !(sector[0] == 0u && sector[1] == 0u))
+        return PROS_ATA_EIO;
+
     /*
      * Regression for a valid request that ends exactly at the device boundary.
      * The last sector must be readable; advancing to the one-past-end LBA after
@@ -398,12 +404,6 @@ int pros_ata_pio_selftest(void)
     if (ata.block.sector_count == 0u ||
         block_device_read(&ata.block, ata.block.sector_count - 1u, 1u,
                           sector) != PROS_BLOCK_OK)
-        return PROS_ATA_EIO;
-
-    /* A real disk read must provide the conventional MBR signature or a
-     * non-partitioned volume may be present. Do not guess a filesystem. */
-    if ((sector[510] != 0x55u || sector[511] != 0xAAu) &&
-        !(sector[0] == 0u && sector[1] == 0u))
         return PROS_ATA_EIO;
 
     return PROS_ATA_OK;
