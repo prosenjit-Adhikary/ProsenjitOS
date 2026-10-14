@@ -1043,9 +1043,17 @@ int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
 
 int vfs_dir_close(struct pros_vfs_dir *dir)
 {
+    int rc;
     if (!dir || !dir->open || !dir->vnode)
         return PROS_VFS_EINVAL;
-    vfs_vnode_put(dir->vnode);
+    /*
+     * Do not discard the only handle to a vnode if its reference state is
+     * corrupt. Propagate the failed release and leave the directory handle
+     * intact so callers can diagnose the ownership failure.
+     */
+    rc = vfs_vnode_put(dir->vnode);
+    if (rc != PROS_VFS_OK)
+        return rc;
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
