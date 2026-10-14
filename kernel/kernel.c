@@ -1122,6 +1122,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    /*
+     * Scheduler and subsystem self-tests use temporary process contexts.
+     * Re-establish the boot process explicitly before entering userspace so
+     * syscall authorization never inherits a stale/null current-process slot.
+     */
+    process_set_current(&init_process);
+    if (process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR current process restore before CPL3 failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     serial_write("ProsenjitOS: switching to CPL3 user address space\\n");
     if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\\n");
