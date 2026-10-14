@@ -5762,11 +5762,15 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
+    /* 100-series checkpoints localize early boot faults within this test. */
+    pfs_selftest_progress = 100u;
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
+    pfs_selftest_progress = 101u;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
+    pfs_selftest_progress = 102u;
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the
@@ -5787,9 +5791,12 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_EINVAL)
             return pfs_selftest_fail(__LINE__, -2);
     }
+    pfs_selftest_progress = 103u;
     pfs_zero(&disk, sizeof(disk));
+    pfs_selftest_progress = 104u;
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
+    pfs_selftest_progress = 105u;
     /*
      * Discovery must enforce the same device-capacity bound as mount. Make
      * both valid superblocks internally consistent but oversized, then restore
@@ -5804,6 +5811,7 @@ int prosenjitfs_selftest(void)
             struct pros_prosenjitfs_superblock, checksum);
         int probe_rc;
 
+        pfs_selftest_progress = 106u;
         if (pfs_read_block(&device, 0u, saved_primary) != PROSENJITFS_OK ||
             pfs_read_block(&device, 1u, saved_backup) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
@@ -5828,7 +5836,9 @@ int prosenjitfs_selftest(void)
         if (pfs_write_block(&device, 1u, altered) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
 
+        pfs_selftest_progress = 107u;
         probe_rc = prosenjitfs_probe(&device);
+        pfs_selftest_progress = 108u;
         if (pfs_write_block(&device, 0u, saved_primary) != PROSENJITFS_OK ||
             pfs_write_block(&device, 1u, saved_backup) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
@@ -5840,6 +5850,7 @@ int prosenjitfs_selftest(void)
      * bits even when both copies carry valid checksums, then restore both
      * formatted superblocks before the ordinary mount regression proceeds.
      */
+    pfs_selftest_progress = 109u;
     {
         uint8_t saved_primary[512];
         uint8_t saved_backup[512];
@@ -5880,8 +5891,10 @@ int prosenjitfs_selftest(void)
         if (probe_rc == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -19);
     }
+    pfs_selftest_progress = 110u;
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+    pfs_selftest_progress = 111u;
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
@@ -5890,6 +5903,7 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -5);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
         return pfs_selftest_fail(__LINE__, -5);
+    pfs_selftest_progress = 112u;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
@@ -5903,6 +5917,7 @@ int prosenjitfs_selftest(void)
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -5);
     }
+    pfs_selftest_progress = 113u;
     {
         struct pros_vfs_file file;
         uint8_t write_data[700];
