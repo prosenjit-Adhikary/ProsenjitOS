@@ -97,3 +97,10 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Verification now additionally checks [L]R and [L]A are identity, where L is the Ed25519 subgroup order. The RFC 8032 empty-message vector self-test explicitly checks both encoded points satisfy the subgroup predicate.
 - Commit: 42c7d6b20c5adb82a399d17e62d47c4c2535caf1.
 - Verification status: source-only. This adds scalar multiplications to signature verification and needs timing/performance review plus build/runtime self-test before being considered complete.
+
+
+## 2026-10-14 — Ed25519 rejection-path regression coverage
+
+- Added signature self-test cases requiring rejection of a small-order identity public key, a small-order identity R encoding, and a non-canonical S scalar equal to subgroup order L. These supplement the RFC 8032 positive vector and the altered-signature negative case.
+- Commit: f24cd1d000f5d183afb2a5a3ff1a52d35a66a473.
+- Verification remains pending: no compile, self-test execution, timing review, or QEMU boot has run for this latest crypto change.
