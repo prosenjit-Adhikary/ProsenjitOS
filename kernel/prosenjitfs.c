@@ -2142,16 +2142,26 @@ static int pfs_find_free_data_block(const struct pros_prosenjitfs *fs,
         return PROSENJITFS_EINVAL;
     *block_number = 0u;
     if (!fs || !fs->mount.active || !fs->mount.device ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u)
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        fs->sb.total_blocks > fs->mount.device->sector_count ||
+        fs->sb.data_start >= fs->sb.total_blocks ||
+        fs->sb.block_bitmap_blocks == 0u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
         return PROSENJITFS_EIO;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
+        uint64_t bitmap_index = b / bits_per_block;
         uint64_t bitmap_lba;
-        int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                             b / bits_per_block, &bitmap_lba);
+        int rc;
+        if (bitmap_index >= fs->sb.block_bitmap_blocks) {
+            kfree(block);
+            return PROSENJITFS_ECORRUPT;
+        }
+        rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                         bitmap_index, &bitmap_lba);
         if (rc != PROSENJITFS_OK) {
             kfree(block);
             return rc;
@@ -2184,28 +2194,37 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
         return PROSENJITFS_EINVAL;
     *block_number = 0u;
     if (!fs || !fs->mount.active || !fs->mount.device ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u)
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        fs->sb.total_blocks > fs->mount.device->sector_count ||
+        fs->sb.data_start >= fs->sb.total_blocks ||
+        fs->sb.block_bitmap_blocks == 0u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
         return PROSENJITFS_EIO;
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     for (uint64_t b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
+        uint64_t bitmap_index;
+        uint64_t bitmap_lba;
+        int rc;
         if (b == excluded)
             continue;
-        uint64_t bitmap_lba;
-        {
-            int rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                                 b / bits_per_block, &bitmap_lba);
-            if (rc != PROSENJITFS_OK) {
-                kfree(block);
-                return rc;
-            }
-            rc = pfs_read_block(fs->mount.device, bitmap_lba, block);
-            if (rc != PROSENJITFS_OK) {
-                kfree(block);
-                return rc;
-            }
+        bitmap_index = b / bits_per_block;
+        if (bitmap_index >= fs->sb.block_bitmap_blocks) {
+            kfree(block);
+            return PROSENJITFS_ECORRUPT;
+        }
+        rc = pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
+                         bitmap_index, &bitmap_lba);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
+        }
+        rc = pfs_read_block(fs->mount.device, bitmap_lba, block);
+        if (rc != PROSENJITFS_OK) {
+            kfree(block);
+            return rc;
         }
         if (!pfs_bitmap_bit(block, b % bits_per_block)) {
             *block_number = b;
