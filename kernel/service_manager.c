@@ -7,7 +7,7 @@ static int service_name_valid(const char *name)
 {
     if (!name || name[0] == '\0')
         return 0;
-    for (uint32_t i = 0; i < 128u; ++i) {
+    for (uint32_t i = 0; i < PROS_SERVICE_NAME_MAX; ++i) {
         if (name[i] == '\0')
             return 1;
         if (name[i] == '/' || name[i] == ' ')
@@ -168,11 +168,49 @@ int service_register(const struct pros_service_definition *definition)
     if (service_count >= PROS_SERVICE_MAX)
         return PROS_SERVICE_ENOSPC;
 
-    services[service_count].definition = *definition;
-    services[service_count].state = PROS_SERVICE_DEFINED;
-    services[service_count].restart_count = 0;
-    services[service_count].registered = 1u;
-    ++service_count;
+    /*
+     * The manager outlives the caller's definition object. Copy every name
+     * into manager-owned bounded storage before publishing the registration;
+     * retaining caller pointers can otherwise turn a valid registration into
+     * a dangling pointer after a stack frame returns.
+     */
+    {
+        struct pros_service *service = &services[service_count];
+        uint32_t name_len = 0;
+
+        while (definition->name[name_len] != '\\0' &&
+               name_len < PROS_SERVICE_NAME_MAX)
+            ++name_len;
+        if (name_len == 0u || name_len >= PROS_SERVICE_NAME_MAX)
+            return PROS_SERVICE_EINVAL;
+
+        *service = (struct pros_service){0};
+        for (uint32_t i = 0; i < name_len; ++i)
+            service->name_storage[i] = definition->name[i];
+        service->name_storage[name_len] = '\\0';
+
+        service->definition = *definition;
+        service->definition.name = service->name_storage;
+        for (uint32_t d = 0; d < definition->dependency_count; ++d) {
+            uint32_t dep_len = 0;
+            while (definition->dependencies[d][dep_len] != '\\0' &&
+                   dep_len < PROS_SERVICE_NAME_MAX)
+                ++dep_len;
+            if (dep_len == 0u || dep_len >= PROS_SERVICE_NAME_MAX)
+                return PROS_SERVICE_EINVAL;
+            for (uint32_t i = 0; i < dep_len; ++i)
+                service->dependency_storage[d][i] =
+                    definition->dependencies[d][i];
+            service->dependency_storage[d][dep_len] = '\\0';
+            service->definition.dependencies[d] =
+                service->dependency_storage[d];
+        }
+
+        service->state = PROS_SERVICE_DEFINED;
+        service->restart_count = 0;
+        service->registered = 1u;
+        ++service_count;
+    }
     return PROS_SERVICE_OK;
 }
 
