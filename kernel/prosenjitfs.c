@@ -3923,20 +3923,25 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
     uint64_t lba;
     int rc;
 
-    if (!fs) return -101;
-    if (!fs->scratch) return -102;
-    if (!fs->mount.device) return -103;
+    if (!fs || !fs->scratch || !fs->mount.device)
+        return PROSENJITFS_EINVAL;
+    if (fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        return PROSENJITFS_ECORRUPT;
 
     pfs_zero(fs->scratch, fs->sb.block_size);
-    
+
     rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, 0u, &lba);
-    if (rc != PROSENJITFS_OK) return -104;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
-    if (rc != PROSENJITFS_OK) return -105;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     rc = pfs_flush(fs->mount.device);
-    if (rc != PROSENJITFS_OK) return -106;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     fs->tx.count = 0u;
     return PROSENJITFS_OK;
