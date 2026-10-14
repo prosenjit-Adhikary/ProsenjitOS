@@ -31,6 +31,9 @@
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
 
+/* Temporary ProsenjitFS QEMU fault-localization phase. */
+extern volatile uint64_t pfs_selftest_progress;
+
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
 #define VGA_ADDRESS 0xB8000u
@@ -235,6 +238,11 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
+    if (pfs_selftest_progress != 0u) {
+        serial_write("ProsenjitOS: ProsenjitFS self-test progress = ");
+        serial_hex64(pfs_selftest_progress);
+        serial_write("\n");
+    }
     serial_write("ProsenjitOS: exception error code = ");
     serial_hex64(frame[1]);
     serial_write("\n");
