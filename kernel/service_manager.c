@@ -164,6 +164,11 @@ int service_register(const struct pros_service_definition *definition)
         if (!service_name_valid(dependency) ||
             service_name_equal(dependency, definition->name))
             return PROS_SERVICE_EINVAL;
+        for (uint32_t prior = 0; prior < d; ++prior) {
+            if (service_name_equal(dependency,
+                                   definition->dependencies[prior]))
+                return PROS_SERVICE_EINVAL;
+        }
     }
     if (service_count >= PROS_SERVICE_MAX)
         return PROS_SERVICE_ENOSPC;
@@ -316,8 +321,14 @@ int service_manager_selftest(void)
             .name = "bad/name", .start = sm_test_start, .stop = sm_test_stop,
             .context = &a, .dependency_count = 0, .max_retries = 0
         };
+        const struct pros_service_definition duplicate_deps = {
+            .name = "duplicate-deps", .start = sm_test_start,
+            .stop = sm_test_stop, .context = &a, .dependency_count = 2,
+            .dependencies = {"base", "base"}, .max_retries = 0
+        };
         if (service_register(&bad_self) != PROS_SERVICE_EINVAL ||
-            service_register(&bad_name) != PROS_SERVICE_EINVAL)
+            service_register(&bad_name) != PROS_SERVICE_EINVAL ||
+            service_register(&duplicate_deps) != PROS_SERVICE_EINVAL)
             return -14;
     }
 
