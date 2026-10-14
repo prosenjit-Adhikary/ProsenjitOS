@@ -345,3 +345,12 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 **Commits:** 80ce57a37adc68719b26a90e3380a3c48a57b569, d36f01305be223bca53ab127c0e5ab67a7aee253, 379f0f02d331482d436e21704173f188fe9e1d1deb, 3ff8941ae3f5a28afbe9e3d52c9f8fbbcc1ad0b5.
 
 **Verification caveat:** source-level only. No compiler, self-test, or QEMU result is available for these commits yet. Do not mark this issue verified until the self-hosted build and runtime tests execute successfully.
+
+
+## 2026-10-14 — Provider registration flag validation
+
+**Finding (Medium: provider state canonicalization).** Provider registration copied the enabled field as supplied, while lookup interprets any nonzero value as enabled. Registration now rejects noncanonical enabled values (>1) and includes a regression assertion that a rejected registration leaves the provider count unchanged.
+
+**Commit:** ad5507a3af7419929ec8f4d26d7434eb7422f3f2.
+
+**Verification caveat:** source-level only; compiler and self-test execution remain pending.
