@@ -851,11 +851,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (service_manager_selftest() != PROS_SERVICE_OK) {
-        serial_write("ProsenjitOS: ERROR service manager self-test failed\\n");
+    /*
+     * The lifecycle self-test already ran earlier during boot and resets the
+     * registry as part of its setup. Do not run it again here: it leaves
+     * synthetic services registered on success. Clear the registry once more
+     * immediately before CPL3 handoff so only real services can be published.
+     */
+    if (service_manager_init() != PROS_SERVICE_OK) {
+        serial_write("ProsenjitOS: ERROR service manager reset before CPL3 handoff failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: service manager dependency/lifecycle self-test passed\\n");
+    serial_write("ProsenjitOS: service manager registry reset before CPL3 handoff passed\n");
 
     serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
