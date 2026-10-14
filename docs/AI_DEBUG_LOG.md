@@ -66,3 +66,12 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Fixed in commit `5781a215643517cabbd1df51c70ae007e229c7da`: first verify the process/event pointers and matching PID, then inspect the raw scheduler-visible state; if `process_state()` reports DEAD for that live raw state, attempt containment and reject the event. A mismatched PID still returns without touching the process.
 - Added a regression case to `pros_security_monitor_selftest()` that exercises the public enforcement entry point with a READY process whose object reserved field is corrupt, and requires BLOCKED + canonical quarantine metadata.
 - This is a source-level fix only. Build #5760 / Security #5262 are queued without steps or logs, so compilation and runtime execution of the new regression remain unverified.
+
+
+## 2026-10-14 — Admission-record consistency bypass at execution/quarantine boundary
+
+- Source cross-check found that pros_security_exec_admit() trusted the action field alone: a caller-supplied record marked MALICIOUS but paired with ALLOW could pass the execution boundary. The quarantine insertion API likewise checked only QUARANTINE, allowing contradictory trust-state/action metadata into the quarantine table.
+- Added pros_file_admission_record_valid() to validate trust-state/action pairings, reject unknown evidence bits, require local-trust evidence for TRUSTED, require format+signature evidence for VERIFIED, and require suspicious/signature-invalid evidence for SUSPICIOUS.
+- Both execution admission and quarantine insertion now reject inconsistent records. Added regressions for a MALICIOUS/ALLOW record at the exec boundary and a TRUSTED/QUARANTINE record at quarantine insertion.
+- Commits: 80ce57a37adc68719b26a90e3380a3c48a57b569, d36f01305be223bca53ab127c0e5ab67a7aee253, 379f0f02d331482d436e21704173f188fe9e1d1deb, 3ff8941ae3f5a28afbe9e3d52c9f8fbbcc1ad0b5.
+- Verification status: source edits committed; compiler, security self-tests, and QEMU have NOT been run for this change. The self-hosted workflow queue must be checked separately; queued/no-step jobs are not a pass or a source failure.
