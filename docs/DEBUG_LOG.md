@@ -211,3 +211,15 @@ The readdir directory-inode read now uses `pfs_vnode_validate_inode()`, keeping 
 
 ### Verification status
 Source-level stale-vnode audit completed for directory traversal and mutation callbacks. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
+
+
+## 2026-10-14 — ProsenjitFS sparse/delayed-allocation regression mount lifecycle
+
+### Root cause
+The delayed-allocation persistence regression unmounted `fs` after its remount/readback check. The following sparse + delayed-allocation cross-regression immediately called `vfs_file_open()` using that inactive mount, so the test failed with `PROS_VFS_EINVAL` (self-test diagnostic `-2001`). This was a test setup/lifecycle defect, not evidence that the sparse file-open path itself rejected a valid path.
+
+### Fix
+The sparse cross-regression now remounts ProsenjitFS before reading the block size or invoking VFS operations. A dedicated `-142` diagnostic reports failure of this remount. The existing open-error diagnostic remains in place so a different VFS error is visible if the test advances and fails later.
+
+### Verification status
+Source change committed as `5eb08f44d7ab5ceade06db17c02239d8de409190`. Build/boot run #5852 is queued on the self-hosted runner; runtime success is not yet established. Security architecture run #5354 is in progress. The PR remains Draft pending successful build and QEMU verification.
