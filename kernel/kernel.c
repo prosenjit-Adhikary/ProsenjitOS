@@ -800,6 +800,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: storage volume discovery self-test passed\n");
     {
+        /* 99 means control reached the call site; 100+ are inside ProsenjitFS. */
+        pfs_selftest_progress = 99u;
+        serial_write("ProsenjitOS: entering ProsenjitFS self-test\n");
         int prosenjitfs_rc = prosenjitfs_selftest();
         if (prosenjitfs_rc != PROSENJITFS_OK) {
             uint32_t mkdir_stage = 0u, tx_stage = 0u, tx_count = 0u;
