@@ -744,6 +744,39 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
 
+    /*
+     * A quarantined process is temporarily unschedulable, not dead. Exercise
+     * queue rotation with another runnable process, then verify that clearing
+     * quarantine makes its original thread runnable again.
+     */
+    {
+        struct pros_process quarantine_process;
+        struct pros_thread quarantine_thread;
+        if (process_create(&init_process, &quarantine_process, 11,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            thread_init(&quarantine_thread, &quarantine_process, 11,
+                        (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                        (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                              sizeof(lifecycle_thread_stack))) != 0 ||
+            thread_set_state(&quarantine_thread, PROS_THREAD_READY) != 0 ||
+            thread_enqueue(&quarantine_thread) != 0 ||
+            security_quarantine(&quarantine_process) != 0 ||
+            thread_schedule() != 0 ||
+            thread_schedule() != 0 ||
+            thread_state(&quarantine_thread) != PROS_THREAD_READY ||
+            security_clear_quarantine(&quarantine_process) != 0 ||
+            thread_schedule() != 0 ||
+            thread_current() != &quarantine_thread ||
+            process_exit(&quarantine_process, 22) != 0 ||
+            thread_schedule() != 0 ||
+            thread_schedule() != 0 ||
+            thread_current() != &init_thread) {
+            serial_write("ProsenjitOS: ERROR scheduler quarantine recovery regression failed\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: scheduler quarantine preservation/recovery test passed\\n");
+
     serial_write("ProsenjitOS: initial limited process and capability context online\n");
     {
         int security_init_status = security_manager_init();
