@@ -1055,11 +1055,29 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
 
 int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
 {
-    if (!dir || !dir->open || !dir->vnode || !entry ||
-        !dir->vnode->ops->readdir)
+    struct pros_vfs_vnode *vnode;
+    int rc;
+
+    if (!dir || !dir->open || !dir->vnode || !entry)
         return PROS_VFS_EINVAL;
-    int rc = dir->vnode->ops->readdir(dir->vnode, &dir->cookie, entry);
-    if (rc < 0) vfs_health_error(rc); else ++health_dir_read_count;
+
+    /*
+     * Validate the complete vnode dispatch chain before dereferencing it.
+     * Directory handles normally keep the vnode alive, but a stale/corrupt
+     * handle must fail closed rather than call through a missing ops table or
+     * dispatch a non-directory vnode as a directory.
+     */
+    vnode = dir->vnode;
+    if (!vnode->initialized || vnode->refcount == 0u || !vnode->mount ||
+        !vnode->mount->active || vnode->type != PROS_VFS_NODE_DIRECTORY ||
+        !vnode->ops || !vnode->ops->readdir)
+        return PROS_VFS_EINVAL;
+
+    rc = vnode->ops->readdir(vnode, &dir->cookie, entry);
+    if (rc < 0)
+        vfs_health_error(rc);
+    else
+        ++health_dir_read_count;
     return rc;
 }
 
