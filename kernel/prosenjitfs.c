@@ -7957,11 +7957,9 @@ int prosenjitfs_selftest(void)
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
             if (mount_rc != PROSENJITFS_EIO ||
                 pfs_crash_injected == 0u) {
-                int recovery_test_rc = mount_rc != PROSENJITFS_EIO
-                    ? mount_rc : -140;
                 pfs_crash_inject_stage = 0u;
-                pfs_zero(&fs, sizeof(fs));
-                return pfs_selftest_fail(__LINE__, recovery_test_rc);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
             }
 
             /*
@@ -7970,8 +7968,13 @@ int prosenjitfs_selftest(void)
              * device-cache blocks and losing the failed mount's CPU state.
              */
             pfs_crash_inject_stage = 0u;
-            pfs_test_power_loss(&disk);
-            pfs_zero(&fs, sizeof(fs));
+            /*
+             * Drop the old mount's vnode references and release its journal
+             * image/scratch allocations before reconstructing the filesystem.
+             * A raw memset here leaked both allocations on each recovery pass,
+             * eventually making the next mount fail with ENOMEM.
+             */
+            pfs_test_crash_reset(&fs, &disk);
 
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
