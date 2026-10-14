@@ -7205,9 +7205,13 @@ int prosenjitfs_selftest(void)
         if (vfs_unlink(&fs.mount, "/persist/config/sub/renamed.bin") !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -1510);
-        if (vfs_rmdir(&fs.mount, "/persist/config/sub") !=
-                PROS_VFS_ENOTEMPTY)
-            return pfs_selftest_fail(__LINE__, -1520);
+        {
+            int nonempty_rmdir_rc =
+                vfs_rmdir(&fs.mount, "/persist/config/sub");
+            if (nonempty_rmdir_rc != PROS_VFS_ENOTEMPTY)
+                return pfs_selftest_fail(__LINE__,
+                                         -2000 + nonempty_rmdir_rc);
+        }
 
         if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
                 PROS_VFS_OK)
