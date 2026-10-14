@@ -128,3 +128,11 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Added temporary early `pfs_selftest_progress` checkpoints (100–113) around ProsenjitFS block-device setup, LBA checks, format, superblock validation, mount, and initial VFS operations. Added a serial marker and checkpoint 99 at the call site in `kernel/kernel.c`. The exception handler already prints this progress value when nonzero.
 - Purpose: the next QEMU run should identify the first stage active when the exception occurs. These changes are diagnostic only; they are not a claimed root-cause fix. Once the failing operation is identified, fix it, remove or formalize temporary instrumentation, and verify ISO + native BIOS boot and the CPL3/IPC milestone.
 - Verification status for this diagnostic commit: source edits committed; compiler/build/QEMU results pending. Do not mark the boot issue resolved until a new run demonstrates the failing stage and a subsequent fixed run passes.
+
+
+### Follow-up from Build #5908 (2026-10-14)
+
+- Build #5908 (run ID `38571307558`, job ID `115876927285`) compiled and generated the ISO successfully, then failed during QEMU boot. The new serial marker confirmed execution entered `prosenjitfs_selftest()`; the reported progress value was `0x64` (decimal 100).
+- The code sets progress 100 immediately before `block_device_init()` and 101 immediately after it returns successfully. Thus the fault is narrowed to the call/return window around this initializer, but the existing evidence does not yet distinguish a fault in the initializer from stack/return-address corruption at its call boundary.
+- Added temporary checkpoints inside `block_device_init()`: 1001 at entry, 1002 after input validation, and 1003 after populating the device structure. This intentionally temporary cross-layer instrumentation is diagnostic only and should be removed after root cause is proven.
+- Build #5908 did NOT resolve the boot failure. Next run must show whether the last progress is 1001, 1002, 1003, or 101; use that to isolate the exact instruction/call boundary before changing functional behavior.
