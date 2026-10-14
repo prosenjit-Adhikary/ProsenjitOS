@@ -124,7 +124,16 @@ int pros_init_selftest(void)
     if (pros_init_load(0, process, &metadata, &result) != PROS_INIT_EINVAL)
         return -1;
     inactive.active = 0u;
+    result.entry = 0x1111u;
+    result.image_start = 0x2222u;
+    result.image_end = 0x3333u;
+    result.stack_top = 0x4444u;
+    result.mapped_pages = 0x5555u;
     if (pros_init_load(&inactive, process, &metadata, &result) != PROS_INIT_EIO)
         return -2;
+    if (result.entry != 0u || result.image_start != 0u ||
+        result.image_end != 0u || result.stack_top != 0u ||
+        result.mapped_pages != 0u)
+        return -3;
     return PROS_INIT_OK;
 }
