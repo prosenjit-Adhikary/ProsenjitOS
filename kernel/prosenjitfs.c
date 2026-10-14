@@ -6962,6 +6962,23 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&stale) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
     }
+    /*
+     * Check inode bitmap/table consistency immediately after stale-handle
+     * unlink/recreate/close. This localizes any leaked inode before later
+     * persistence and rename operations add more state.
+     */
+    {
+        int consistency_rc = pfs_selftest_consistency(&fs);
+        if (consistency_rc != PROSENJITFS_OK) {
+            int diagnostic_rc = -1600 + consistency_rc;
+            if (consistency_rc == PROSENJITFS_ECORRUPT &&
+                pfs_consistency_diag_stage != 0u)
+                diagnostic_rc = -1600 -
+                    (int)(pfs_consistency_diag_stage * 1000u +
+                          (pfs_consistency_diag_inode % 1000u));
+            return pfs_selftest_fail(__LINE__, diagnostic_rc);
+        }
+    }
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
     {
