@@ -366,20 +366,37 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
 int vfs_file_close(struct pros_vfs_file *file)
 {
+    struct pros_vfs_vnode *vnode;
     int rc;
-    if (!file || !file->open || !file->ops || !file->ops->close)
+
+    if (!file || !file->open || !file->mount || !file->vnode ||
+        !file->ops || !file->ops->close)
         return PROS_VFS_EINVAL;
+
+    vnode = file->vnode;
+    /*
+     * Validate ownership before provider close so obviously stale handles
+     * fail closed before provider resources are changed.
+     */
+    if (!vnode->initialized || vnode->refcount == 0u ||
+        vnode->mount != file->mount || !file->mount->active)
+        return PROS_VFS_EINVAL;
+
     rc = file->ops->close(file);
     if (rc != PROS_VFS_OK)
         return rc;
+
+    rc = vfs_vnode_put(vnode);
+    if (rc != PROS_VFS_OK)
+        return rc;
+
     file->open = 0u;
-    if (file->vnode)
-        vfs_vnode_put(file->vnode);
     file->vnode = 0;
     file->mount = 0;
     file->ops = 0;
     file->private_data = 0;
     file->position = 0;
+    file->flags = 0u;
     return PROS_VFS_OK;
 }
 
