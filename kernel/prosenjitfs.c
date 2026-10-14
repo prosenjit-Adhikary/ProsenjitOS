@@ -4665,6 +4665,8 @@ run_found:
                 return rc;
             pfs_copy(&tail, tail_image, sizeof(tail));
             tail.next = extent_lba;
+            /* Persist the updated link before checksumming the on-disk image. */
+            pfs_copy(tail_image, &tail, sizeof(tail));
             pfs_put32(tail_image +
                       offsetof(struct pros_prosenjitfs_extent, checksum),
                       pfs_crc_with_zero32(
