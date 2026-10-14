@@ -355,13 +355,16 @@ int pros_security_hardening_selftest(void)
     process.handles.entries[1].rights = PROSENJIT_CAP_READ;
     process.handles.entries[1].object = &referenced_object;
     referenced_object.handle_refs = 1u;
-    if (pros_security_hardening_check_process(&process) != 0 ||
-        handle_check(&process.handles, (1ULL << 8) | 1u,
-                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
-        process_handle_type(&process, (1ULL << 8) | 1u,
-                            &looked_up_type) != 0 ||
-        looked_up_type != PROS_OBJECT_FILE)
-        return -4;
+    if (pros_security_hardening_check_process(&process) != 0)
+        return -36;
+    if (handle_check(&process.handles, (1ULL << 8) | 1u,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0)
+        return -37;
+    if (process_handle_type(&process, (1ULL << 8) | 1u,
+                            &looked_up_type) != 0)
+        return -38;
+    if (looked_up_type != PROS_OBJECT_FILE)
+        return -39;
 
     referenced_object.type = 0x8000u;
     if (process_handle_type(&process, (1ULL << 8) | 1u,
