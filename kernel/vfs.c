@@ -1091,7 +1091,7 @@ static int vfs_selftest_readdir(struct pros_vfs_vnode *vnode,
     struct vfs_selftest_node *node =
         (struct vfs_selftest_node *)child->private_data;
     uint32_t i = 0;
-    while (node->name[i] && i < PROS_VFS_NAME_MAX) {
+    while (i < PROS_VFS_NAME_MAX && node->name[i]) {
         entry->name[i] = node->name[i];
         ++i;
     }
