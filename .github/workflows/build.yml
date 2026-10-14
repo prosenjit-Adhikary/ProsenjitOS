@@ -1,8 +1,13 @@
 name: Build and boot-test ProsenjitOS
 
 on:
+  # Run once for pushes to the protected integration branch. Feature branches
+  # are validated by pull_request so each PR update does not launch duplicate
+  # push + pull_request builds on the self-hosted runner.
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   build:
