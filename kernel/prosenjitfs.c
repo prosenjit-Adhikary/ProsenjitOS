@@ -3477,7 +3477,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         pfs_utf8_name_valid(new_name, &new_len) != PROSENJITFS_OK)
         return PROS_VFS_EINVAL;
 
-    if (old_parent == new_parent && old_len == new_len) {
+    if (old_data->inode_number == new_data->inode_number && old_len == new_len) {
         uint32_t same = 1u;
         for (uint32_t i = 0u; i < old_len; ++i)
             if (old_name[i] != new_name[i]) { same = 0u; break; }
@@ -3529,7 +3529,7 @@ static int pfs_vnode_rename(struct pros_vfs_vnode *old_parent,
         if (rc != PROSENJITFS_OK) goto rename_out_error;
     }
 
-    if (old_parent == new_parent) {
+    if (old_data->inode_number == new_data->inode_number) {
         rc = pfs_read_dir_index(old_data->fs, &old_dir, &old_index);
         if (rc != PROSENJITFS_OK) goto rename_out_error;
 
