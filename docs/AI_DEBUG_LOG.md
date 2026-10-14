@@ -58,3 +58,11 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Both jobs still use `[self-hosted, linux, x64]`; each job has no steps and no log URL yet. Therefore these attempts have not produced new compiler or QEMU results. Do not label them as code failures or passes.
 - The prior Build #5748 result remains the latest actual runtime evidence: kernel compiled and ISO was generated, but QEMU boot stopped at the ELF negative self-test. The overlap fixture correction is still awaiting execution.
 - Next verification needs the configured self-hosted runner to be online and accepting jobs, or an explicitly approved alternative runner. No commands have been run on the user's Debian VM in this session.
+
+
+## 2026-10-14 — Monitor enforcement guard bypassed corrupt-state containment
+
+- Source cross-check found a real fail-closed gap in `pros_security_monitor_enforce()`: its initial guard called `process_state()` and returned immediately when invalid object metadata made that helper report `DEAD`. This prevented the already-implemented raw-state containment fallback from running for an otherwise scheduler-visible READY/RUNNING/BLOCKED process.
+- Fixed in commit `5781a215643517cabbd1df51c70ae007e229c7da`: first verify the process/event pointers and matching PID, then inspect the raw scheduler-visible state; if `process_state()` reports DEAD for that live raw state, attempt containment and reject the event. A mismatched PID still returns without touching the process.
+- Added a regression case to `pros_security_monitor_selftest()` that exercises the public enforcement entry point with a READY process whose object reserved field is corrupt, and requires BLOCKED + canonical quarantine metadata.
+- This is a source-level fix only. Build #5760 / Security #5262 are queued without steps or logs, so compilation and runtime execution of the new regression remain unverified.
