@@ -5314,6 +5314,7 @@ static int pfs_consistency_mark(uint8_t *owner, uint64_t total_blocks,
 
 /* Self-test-only detail for locating a consistency-check corruption. */
 static uint32_t pfs_consistency_diag_stage;
+static uint64_t pfs_consistency_diag_inode;
 
 static int pfs_consistency_corrupt(uint32_t stage)
 {
@@ -5333,6 +5334,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     int rc = PROSENJITFS_EIO;
 
     pfs_consistency_diag_stage = 0u;
+    pfs_consistency_diag_inode = UINT64_MAX;
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
         fs->sb.block_size == 0u || fs->sb.block_size > sizeof(bitmap) ||
@@ -5427,6 +5429,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
      */
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
+        pfs_consistency_diag_inode = inode_number;
         uint64_t bi = inode_number / bits_per_block;
         uint64_t within = inode_number % bits_per_block;
         uint64_t lba;
@@ -7094,9 +7097,12 @@ int prosenjitfs_selftest(void)
             if (consistency_rc != PROSENJITFS_OK) {
                 int diagnostic_rc = -1500 + consistency_rc;
                 if (consistency_rc == PROSENJITFS_ECORRUPT &&
-                    pfs_consistency_diag_stage != 0u)
+                    pfs_consistency_diag_stage != 0u) {
+                    /* Encode stage and inode for this self-test-only failure. */
                     diagnostic_rc = -1500 -
-                                    (int)pfs_consistency_diag_stage;
+                        (int)(pfs_consistency_diag_stage * 1000u +
+                              (pfs_consistency_diag_inode % 1000u));
+                }
                 return pfs_selftest_fail(__LINE__, diagnostic_rc);
             }
         }
