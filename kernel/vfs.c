@@ -580,6 +580,11 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+    if (!mount->root->initialized || mount->root->refcount == 0u ||
+        mount->root->mount != mount ||
+        mount->root->type != PROS_VFS_NODE_DIRECTORY ||
+        !mount->root->ops || !mount->root->ops->lookup)
+        return PROS_VFS_EINVAL;
     while (path_length <= PROS_VFS_PATH_MAX &&
            path[path_length] != '\0')
         ++path_length;
@@ -617,15 +622,19 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             current = parent;
             continue;
         }
-        if (current->type != PROS_VFS_NODE_DIRECTORY ||
-            !current->ops->lookup) {
+        if (!current->initialized || current->refcount == 0u ||
+            current->mount != mount ||
+            current->type != PROS_VFS_NODE_DIRECTORY ||
+            !current->ops || !current->ops->lookup) {
             vfs_vnode_put(current);
             return PROS_VFS_ENOTDIR;
         }
         struct pros_vfs_vnode *next = 0;
         int lookup_rc = current->ops->lookup(current, component, &next);
         if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
-            next->mount != mount) {
+            next->refcount == 0u || next->mount != mount || !next->ops ||
+            (next->type != PROS_VFS_NODE_FILE &&
+             next->type != PROS_VFS_NODE_DIRECTORY)) {
             /*
              * A successful lookup transfers one owned vnode reference to the
              * caller.  A malformed provider result can still return a vnode
