@@ -26,6 +26,7 @@ Status labels below distinguish source changes from runtime evidence.
   across the display, graphics/compositor, input/syscall ABI and boot-test code
   represented by the open desktop PRs. Their presence on a PR branch does not
   mean they are integrated into `main`.
+- The normal kernel boot path now invokes the service-manager lifecycle self-test and resets the registry afterward, so synthetic test callbacks do not leak into later service registration. This is a kernel self-test integration only; it does not launch userspace services.
 - This branch hardens service registration so the manager owns bounded copies of
   registered service names and dependency names, rather than retaining pointers
   to caller-owned (potentially stack-lifetime) strings. It rejects duplicate
