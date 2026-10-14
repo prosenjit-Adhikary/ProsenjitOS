@@ -316,3 +316,12 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 - Source inspection found a deterministic test-fixture inconsistency: the overlap regression set the second PT_LOAD virtual address to `ELF_TEST_CODE_VA + 0x800` while keeping `p_offset = 0x1000`. The validator correctly enforces `p_vaddr % 4096 == p_offset % 4096`, so this fixture returns `PROS_ELF_EFORMAT` before reaching the intended overlap check; the test incorrectly expected `PROS_ELF_ECONFLICT`.
 - Corrected the fixture in commit `b92dc74f0765dd23c9df9424b5d78752aaf8b4b0`: the first segment's test memory range is enlarged to `0x1800`, and the second segment starts at `ELF_TEST_CODE_VA + ELF_PAGE`, preserving page congruence while producing a real overlap. The test now exercises the overlap branch rather than failing earlier for alignment.
 - This is a source-level root-cause diagnosis and fix; it is not yet runtime-verified. A fresh self-hosted Build/QEMU run must confirm the fix. Security architecture checks do not substitute for QEMU/runtime evidence.
+
+
+## 2026-10-14 — Latest verification blocker: self-hosted jobs remain queued
+
+- Latest associated Build and boot-test run #5756 (run ID `38531760665`) and Security architecture run #5258 (run ID `38531760723`) are both queued. Their jobs have no steps and no logs, so they have not compiled or tested the current head.
+- Current workflow files explicitly use `runs-on: [self-hosted, linux, x64]`. An earlier statement in `docs/AI_DEBUG_LOG.md` that these workflows had switched to `ubuntu-latest` was inaccurate; it has been corrected. No runner change was made because the user's preference is to avoid GitHub-hosted/paid services when possible.
+- This is currently a runner availability/dispatch blocker. It is not evidence that these latest attempts found a new code defect, and it is not evidence of a passing build.
+- Latest actual code/runtime evidence remains Build #5748: C compilation and ISO generation completed, then QEMU failed at the ELF negative self-test. The overlap fixture was corrected in `b92dc74f0765dd23c9df9424b5d78752aaf8b4b0`, but that fix has not yet been executed by a successful build/boot run.
+- Required next step: restore/confirm the self-hosted runner is online and accepting jobs, then rerun Build/QEMU. Do not close the PR or claim verification complete before the corrected ELF self-test and the remaining startup milestones pass.
