@@ -6849,6 +6849,21 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
     }
+    /*
+     * Baseline check after truncate/remount tests and before hidden-name rename.
+     */
+    {
+        int consistency_rc = pfs_selftest_consistency(&fs);
+        if (consistency_rc != PROSENJITFS_OK) {
+            int diagnostic_rc = -1800 + consistency_rc;
+            if (consistency_rc == PROSENJITFS_ECORRUPT &&
+                pfs_consistency_diag_stage != 0u)
+                diagnostic_rc = -1800 -
+                    (int)(pfs_consistency_diag_stage * 1000u +
+                          (pfs_consistency_diag_inode % 1000u));
+            return pfs_selftest_fail(__LINE__, diagnostic_rc);
+        }
+    }
     {
         struct pros_prosenjitfs_inode before;
         struct pros_prosenjitfs_inode after;
