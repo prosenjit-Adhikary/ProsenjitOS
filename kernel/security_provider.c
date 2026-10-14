@@ -25,6 +25,7 @@ static enum pros_file_reputation merge_reputation(
 int pros_security_provider_register(
     const struct pros_security_provider *provider) {
     if (!provider || !provider->name || !provider->query ||
+        provider->enabled > 1u ||
         provider_count >= PROS_SECURITY_MAX_PROVIDERS) {
         (void)pros_health_record_security(0x53454350u,
                                           PROS_SECURITY_HEALTH_PROVIDER, 0u);
@@ -103,7 +104,13 @@ int pros_security_provider_selftest(void) {
         .name = "selftest-suspicious", .query = selftest_suspicious, .enabled = 1
     };
     uint32_t before = provider_count;
+    struct pros_security_provider invalid = {
+        .name = "selftest-invalid-enabled", .query = selftest_clean, .enabled = 2u
+    };
 
+    if (pros_security_provider_register(&invalid) >= 0 ||
+        provider_count != before)
+        return -1;
     if (pros_security_provider_register(&clean) < 0)
         return -1;
     if (pros_security_provider_reputation(digest) !=
