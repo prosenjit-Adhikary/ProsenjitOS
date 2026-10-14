@@ -7957,9 +7957,11 @@ int prosenjitfs_selftest(void)
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
             if (mount_rc != PROSENJITFS_EIO ||
                 pfs_crash_injected == 0u) {
+                int recovery_test_rc = mount_rc != PROSENJITFS_EIO
+                    ? mount_rc : -140;
                 pfs_crash_inject_stage = 0u;
                 pfs_zero(&fs, sizeof(fs));
-                return pfs_selftest_fail(__LINE__, -14);
+                return pfs_selftest_fail(__LINE__, recovery_test_rc);
             }
 
             /*
