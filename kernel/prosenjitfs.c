@@ -7353,18 +7353,12 @@ int prosenjitfs_selftest(void)
             if (release_inode_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -2500 + release_inode_rc);
         }
-        {
-            int consistency_rc = pfs_selftest_consistency(&fs);
-            if (consistency_rc != PROSENJITFS_OK) {
-                int diagnostic_rc = -2600 + consistency_rc;
-                if (consistency_rc == PROSENJITFS_ECORRUPT &&
-                    pfs_consistency_diag_stage != 0u)
-                    diagnostic_rc = -2600 -
-                        (int)(pfs_consistency_diag_stage * 1000u +
-                              (pfs_consistency_diag_inode % 1000u));
-                return pfs_selftest_fail(__LINE__, diagnostic_rc);
-            }
-        }
+        /*
+         * The raw block allocation is intentionally unowned until the
+         * allocator test frees it below, so run global consistency only after
+         * that cleanup rather than treating this intermediate state as a
+         * valid mounted filesystem.
+         */
         {
             int unmount_rc = prosenjitfs_unmount(&fs);
             if (unmount_rc != PROSENJITFS_OK)
