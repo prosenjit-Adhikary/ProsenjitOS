@@ -155,12 +155,6 @@ void pros_sha512_prefix(const uint8_t prefix[64], const uint8_t *data,
     sha512_final(&ctx, digest);
 }
 
-static int digest_equal(const uint8_t *a,const uint8_t *b) {
-    uint8_t diff=0;
-    for(uint32_t i=0;i<PROS_SHA512_BYTES;++i) diff|=(uint8_t)(a[i]^b[i]);
-    return diff==0;
-}
-
 static int digest_matches_hex(const uint8_t digest[PROS_SHA512_BYTES],
                               const char *hex) {
     static const char digits[] = "0123456789abcdef";
