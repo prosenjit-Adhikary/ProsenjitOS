@@ -299,3 +299,12 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 - Source re-check confirms the helper is now referenced in the same translation unit. This is not yet a compiler pass; a fresh PR build must verify it and reveal any subsequent diagnostics.
 - Security architecture run #5242 (run ID 38530679146) passed its architecture-contract check, but that is not equivalent to runtime security self-tests.
 - ISO creation and QEMU boot tests were skipped in #5740 because compilation failed. VFS runtime tests and ProsenjitFS persistence/remount/crash-recovery remain unproven.
+
+
+## 2026-10-14 — Build #5746 diagnosis: missing syscall ABI include
+
+- Build/boot run #5746 (run ID 38530932047) passed runner setup, checkout, and toolchain verification, then stopped during C compilation in `kernel/intent.c` because `PROSENJIT_SYSCALL_POLICY_ALL` was undeclared in the two authorization self-test fixtures.
+- Root cause: `intent.c` used the syscall-policy ABI macro without directly including its defining shared ABI header. This was a genuine compile error, not a runner issue.
+- Fixed in commit `1e851346f83c073e6f98ac00d968bd3d5e4fee17` by directly including `../../include/abi/syscall.h` after `process.h`, matching the kernel's shared ABI header layout.
+- Security architecture run #5248 passed the architecture-contract check; this does not test compilation or runtime behavior.
+- A fresh build/boot run must still confirm this include fix and reveal any further diagnostics. ISO generation, QEMU boot, the startup quarantine self-tests, VFS/provider runtime checks, and ProsenjitFS persistence/recovery remain unverified.
