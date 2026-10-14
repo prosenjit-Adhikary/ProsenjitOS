@@ -4951,8 +4951,15 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
     pfs_alloc_inode_diag_stage = 1u;
     pfs_alloc_inode_diag_number = UINT64_MAX;
     pfs_alloc_inode_diag_rc = PROSENJITFS_OK;
-    if (!fs || !inode_number || fs->read_only ||
-        fs->sb.block_size > sizeof(block)) {
+    if (!inode_number) {
+        pfs_alloc_inode_diag_rc = PROSENJITFS_EINVAL;
+        return PROSENJITFS_EINVAL;
+    }
+    /* An error must never leave a previous/candidate inode as the result. */
+    *inode_number = 0u;
+    if (!fs || fs->read_only || fs->sb.block_size < 512u ||
+        fs->sb.block_size > sizeof(block) || !fs->mount.active ||
+        !fs->mount.device) {
         pfs_alloc_inode_diag_rc = PROSENJITFS_EINVAL;
         return PROSENJITFS_EINVAL;
     }
@@ -4992,10 +4999,11 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
                 pfs_alloc_inode_diag_rc = gen_rc;
                 return gen_rc;
             }
-            *inode_number = inode;
             pfs_alloc_inode_diag_stage = 6u;
             int update_rc = pfs_inode_bitmap_update(fs, inode, 1u);
             pfs_alloc_inode_diag_rc = update_rc;
+            if (update_rc == PROSENJITFS_OK)
+                *inode_number = inode;
             return update_rc;
         }
     }
