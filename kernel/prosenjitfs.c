@@ -7205,6 +7205,36 @@ int prosenjitfs_selftest(void)
         if (vfs_unlink(&fs.mount, "/persist/config/sub/renamed.bin") !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -1510);
+        /*
+         * Probe the directory path, inode and index separately before rmdir.
+         * This distinguishes namespace lookup/index corruption from an error
+         * inside the rmdir implementation.
+         */
+        {
+            struct pros_vfs_vnode *sub_probe = 0;
+            struct pros_prosenjitfs_inode sub_inode;
+            struct pros_prosenjitfs_dir_index sub_index;
+            int probe_rc = vfs_path_lookup(&fs.mount,
+                                           "/persist/config/sub",
+                                           &sub_probe);
+            if (probe_rc != PROS_VFS_OK || !sub_probe)
+                return pfs_selftest_fail(__LINE__, -2100 + probe_rc);
+            struct pfs_vnode_data *sub_data =
+                (struct pfs_vnode_data *)sub_probe->private_data;
+            if (!sub_data ||
+                prosenjitfs_read_inode(&fs, sub_data->inode_number,
+                                       &sub_inode) != PROSENJITFS_OK) {
+                (void)vfs_vnode_put(sub_probe);
+                return pfs_selftest_fail(__LINE__, -2200);
+            }
+            int index_rc = pfs_read_dir_index(&fs, &sub_inode, &sub_index);
+            if (index_rc != PROSENJITFS_OK) {
+                (void)vfs_vnode_put(sub_probe);
+                return pfs_selftest_fail(__LINE__, -2300 + index_rc);
+            }
+            if (vfs_vnode_put(sub_probe) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -2400);
+        }
         {
             int nonempty_rmdir_rc =
                 vfs_rmdir(&fs.mount, "/persist/config/sub");
