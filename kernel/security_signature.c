@@ -231,5 +231,53 @@ int pros_security_signature_selftest(void)
             key, sizeof(key), 0) != -1)
         return -16;
 
+    {
+        static const uint8_t identity[32] = {
+            1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+        };
+        static const uint8_t subgroup_order[32] = {
+            0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+        };
+        uint8_t malformed[64];
+
+        /* Small-order public key must not validate even with a valid vector. */
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, vector_sig, sizeof(vector_sig),
+                identity, sizeof(identity), &result) != 0 ||
+            result != PROS_SIGNATURE_RESULT_INVALID)
+            return -19;
+
+        /* Small-order R must be rejected independently of equation checking. */
+        for (uint32_t i = 0; i < 64u; ++i)
+            malformed[i] = vector_sig[i];
+        for (uint32_t i = 0; i < 32u; ++i)
+            malformed[i] = identity[i];
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, malformed, sizeof(malformed),
+                vector_key, sizeof(vector_key), &result) != 0 ||
+            result != PROS_SIGNATURE_RESULT_INVALID)
+            return -20;
+
+        /* S = L is non-canonical; only scalars strictly below L are valid. */
+        for (uint32_t i = 0; i < 64u; ++i)
+            malformed[i] = vector_sig[i];
+        for (uint32_t i = 0; i < 32u; ++i)
+            malformed[32u + i] = subgroup_order[i];
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, malformed, sizeof(malformed),
+                vector_key, sizeof(vector_key), &result) != 0 ||
+            result != PROS_SIGNATURE_RESULT_INVALID)
+            return -21;
+    }
+
     return 0;
 }
