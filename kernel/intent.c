@@ -1,5 +1,6 @@
 #include "intent.h"
 #include "process.h"
+#include "../../include/abi/syscall.h"
 #include "health.h"
 #include "timer.h"
 #include "security_file.h"
