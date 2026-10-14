@@ -279,3 +279,12 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 - Workflow fix commit: `3baf5912fb6dc16ede10c253c90d92feaf9e0f28`.
 - New build/boot run #5735 (run ID 38530172950) and security architecture run #5237 (run ID 38530172909) were observed queued when this note was written. No successful build, QEMU boot, or runtime self-test is claimed until those jobs finish.
 - The capability-table/object lifetime concurrency finding described above remains an open high-priority source-level risk. This workflow correction does not fix or verify that race.
+
+
+## 2026-10-14 — Build #5735 diagnosis and boot-label fix
+
+- Build/boot run #5735 (run ID 38530172950) did start on the self-hosted Debian runner. Toolchain verification passed; assembly stopped before C compilation at `boot/entry.asm:90` with `symbol `long_mode_entry.security_halt' not defined`.
+- Root cause: NASM local labels are scoped to the preceding non-local label. The branch to `.security_halt` was scoped under `long_mode_entry`, but the definition followed the non-local `cpu_security_init` label and therefore belonged to a different scope.
+- Fixed in commit `c19c3caf766ea2564676207bbb3a14e975ab0656`: branch now targets the explicit non-local `security_halt` label, and the halt label is defined in that global scope.
+- VFS source re-check: the current branch contains the whole-path bound in `vfs_path_lookup()` and the provider-registry self-test snapshots/restores existing provider order. These are source observations only; the full kernel build has not reached C compilation yet, so they do not prove the recurring runtime VFS/provider self-test passes.
+- New build/boot run #5740 (run ID 38530679161) and security architecture run #5242 (run ID 38530679146) were queued after the fix. Until the new build passes, ISO generation and both QEMU boot tests remain unverified. ProsenjitFS persistence/remount and crash-recovery are also not yet proven by runtime tests.
