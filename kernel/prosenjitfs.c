@@ -4116,6 +4116,28 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                                          checksum));
     pfs_copy(header, &h, sizeof(h));
 
+    /*
+     * Invalidate this transaction's commit slot before publishing its new
+     * header. The transaction sequence is not persisted in the superblock,
+     * so after remount an old commit record can have the same transaction ID
+     * and record count. Without this ordering, a crash before the new commit
+     * write can make recovery mistake that stale record for this transaction
+     * and report a checksum failure instead of discarding an incomplete log.
+     */
+    {
+        uint64_t commit_lba;
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                             1u + fs->tx.count, &commit_lba);
+        if (rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(rc);
+        pfs_zero(commit, fs->sb.block_size);
+        rc = pfs_write_block(fs->mount.device, commit_lba, commit);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_flush(fs->mount.device);
+        if (rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(rc);
+    }
+
     pfs_tx_diag_stage = 2u;
     {
         int rc = pfs_write_block(fs->mount.device, fs->sb.journal_start,
