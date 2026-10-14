@@ -75,3 +75,9 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Both execution admission and quarantine insertion now reject inconsistent records. Added regressions for a MALICIOUS/ALLOW record at the exec boundary and a TRUSTED/QUARANTINE record at quarantine insertion.
 - Commits: 80ce57a37adc68719b26a90e3380a3c48a57b569, d36f01305be223bca53ab127c0e5ab67a7aee253, 379f0f02d331482d436e21704173f188fe1d1deb, 3ff8941ae3f5a28afbe9e3d52c9f8fbbcc1ad0b5.
 - Verification status: source edits committed; compiler, security self-tests, and QEMU have NOT been run for this change. The self-hosted workflow queue must be checked separately; queued/no-step jobs are not a pass or a source failure.
+
+
+## 2026-10-14 — Provider enable-flag canonicalization
+
+- Source review found provider registration copied the caller's enabled field without checking its boolean encoding; reputation lookup treats any nonzero value as enabled. Registration now rejects enabled values greater than 1, and the provider self-test verifies rejection does not change provider_count.
+- Commit: ad5507a3af7419929ec8f4d26d7434eb7422f3f2. Source-only change; build and self-test are still pending because the latest self-hosted jobs are queued without steps/logs.
