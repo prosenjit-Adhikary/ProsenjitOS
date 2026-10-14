@@ -7544,13 +7544,23 @@ int prosenjitfs_selftest(void)
          * allocations, so prove exhaustion/reuse first and return every
          * reservation before running the ownership invariant.
          */
-        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
-                PROSENJITFS_OK ||
-            first_reused != block) {
-            (void)prosenjitfs_unmount(&small_fs);
-            return pfs_selftest_fail(__LINE__, -17);
+        {
+            int free_rc = prosenjitfs_free_blocks(&small_fs, block, 1u);
+            if (free_rc != PROSENJITFS_OK) {
+                (void)prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(0x80001D71u, free_rc);
+            }
+            int reuse_rc = prosenjitfs_alloc_blocks(
+                &small_fs, 1u, &first_reused);
+            if (reuse_rc != PROSENJITFS_OK) {
+                (void)prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(0x80001D72u, reuse_rc);
+            }
+            if (first_reused != block) {
+                (void)prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(0x80001D73u,
+                                         PROSENJITFS_ECORRUPT);
+            }
         }
 
         for (uint32_t i = 0u; i < allocated; ++i) {
