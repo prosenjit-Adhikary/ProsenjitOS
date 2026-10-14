@@ -117,13 +117,18 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     if (!ipc_channel_valid(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
     ipc_lock(channel);
+    /*
+     * Tell the caller when data arrived between its empty receive and this
+     * wait attempt. Returning OK here would make the syscall path mark a
+     * runnable thread as blocked even though no waiter was registered.
+     */
+    if (channel->count != 0) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EREADY;
+    }
     if (channel->waiter_count >= PROSENJIT_IPC_CAPACITY) {
         ipc_unlock(channel);
         return PROSENJIT_IPC_EINVAL;
-    }
-    if (channel->count != 0) {
-        ipc_unlock(channel);
-        return PROSENJIT_IPC_OK;
     }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] == thread) {
