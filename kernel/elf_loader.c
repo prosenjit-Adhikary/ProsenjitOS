@@ -260,8 +260,11 @@ int pros_elf_selftest(void)
     eh->entry = ELF_TEST_CODE_VA;
 
     eh->phnum = 2;
+    /* Keep the second segment page-congruent while overlapping the first:
+     * a misaligned address would correctly fail EFORMAT before overlap logic. */
+    ph[0].memsz = 0x1800ULL;
     ph[1] = ph[0];
-    ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
+    ph[1].vaddr = ELF_TEST_CODE_VA + ELF_PAGE;
     ph[1].align = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
