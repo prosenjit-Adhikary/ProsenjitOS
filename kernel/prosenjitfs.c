@@ -4912,16 +4912,20 @@ static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
     uint8_t mask;
 
     if (!fs || fs->read_only || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
+        allocate > 1u || fs->sb.block_size < 512u ||
+        fs->sb.block_size > sizeof(block) ||
         (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
         !fs->mount.active || !fs->mount.device)
         return PROSENJITFS_EINVAL;
+    if (fs->mount.device->sector_size != fs->sb.block_size ||
+        fs->mount.device->sector_count < fs->sb.total_blocks)
+        return PROSENJITFS_ECORRUPT;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
     bi = inode_number / bits_per_block;
     within = inode_number % bits_per_block;
     if (bi >= fs->sb.inode_bitmap_blocks)
-        return PROSENJITFS_EOVERFLOW;
+        return PROSENJITFS_ECORRUPT;
 
     {
         int rc = pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
@@ -4933,20 +4937,18 @@ static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
     while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
         ++slot;
     if (slot == fs->tx.count) {
-        {
-            int rc = pfs_read_block(fs->mount.device, lba, block);
-            if (rc != PROSENJITFS_OK)
-                return rc;
-            rc = pfs_tx_add(fs, lba, block);
-            if (rc != PROSENJITFS_OK)
-                return rc;
-        }
+        int rc = pfs_read_block(fs->mount.device, lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
+        rc = pfs_tx_add(fs, lba, block);
+        if (rc != PROSENJITFS_OK)
+            return rc;
         slot = 0u;
         while (slot < fs->tx.count && fs->tx.targets[slot] != lba)
             ++slot;
     }
     if (slot == fs->tx.count)
-        return PROSENJITFS_EINVAL;
+        return PROSENJITFS_ECORRUPT;
 
     mask = (uint8_t)(1u << (within & 7u));
     {
