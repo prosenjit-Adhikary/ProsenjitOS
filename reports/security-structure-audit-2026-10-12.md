@@ -363,3 +363,11 @@ The first record validator still needed stricter evidence coherence. It now reje
 **Commits:** 395f1fd5cbf3866c514b92c211345ced8d352a0f, ebbf8450a10895c3daa9fd5440575ce2c647b282, 4a0e78b1cbde3733bd4d2f746dec2fa2aa999f72.
 
 **Verification caveat:** source-level only; compiler, self-tests and QEMU remain pending.
+
+
+## 2026-10-14 — Strict Ed25519 subgroup validation
+
+- Cryptographic source audit found the verifier rejected small-order points via [8]P = identity but did not prove R and A belong to the prime-order subgroup. Mixed-order points are not excluded by an order-8 test alone.
+- Verification now additionally checks [L]R and [L]A are identity, where L is the Ed25519 subgroup order. The RFC 8032 empty-message vector self-test explicitly checks both encoded points satisfy the subgroup predicate.
+- Commit: 42c7d6b20c5adb82a399d17e62d47c4c2535caf1.
+- Verification status: source-only. This adds scalar multiplications to signature verification and needs timing/performance review plus build/runtime self-test before being considered complete.
