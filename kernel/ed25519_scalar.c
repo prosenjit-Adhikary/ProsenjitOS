@@ -194,6 +194,32 @@ int pros_ed25519_scalar_selftest(void) {
     if (reduced[0] != 2) return -5;
     for (uint32_t i = 1; i < 32u; ++i) if (reduced[i]) return -6;
 
+    {
+        static const uint8_t l_minus_one[32] = {
+            0xec,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+        };
+        uint8_t zero_scalar[32] = {0};
+        if (!pros_ed25519_scalar_is_canonical(l_minus_one) ||
+            pros_ed25519_scalar_is_canonical(scalar_l))
+            return -9;
+
+        pros_ed25519_scalar_add(reduced, l_minus_one, one_scalar);
+        for (uint32_t i = 0; i < 32u; ++i)
+            if (reduced[i]) return -10;
+
+        pros_ed25519_scalar_sub(reduced, zero_scalar, one_scalar);
+        for (uint32_t i = 0; i < 32u; ++i)
+            if (reduced[i] != l_minus_one[i]) return -11;
+
+        pros_ed25519_scalar_mul(reduced, l_minus_one, l_minus_one);
+        if (reduced[0] != 1u) return -12;
+        for (uint32_t i = 1; i < 32u; ++i)
+            if (reduced[i]) return -13;
+    }
+
     pros_ed25519_basepoint(&b);
     pros_ed25519_point_scalar_mul(&p, &b, one_scalar);
     if (!pros_ed25519_point_on_curve(&p)) return -7;
