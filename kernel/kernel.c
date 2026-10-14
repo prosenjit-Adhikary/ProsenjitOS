@@ -327,6 +327,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
         serial_write("ProsenjitOS: native bootloader handoff accepted\n");
+        /*
+         * The native BIOS path must prove that the same primary-master ATA
+         * device used by the loader is readable through the kernel block API.
+         * Keep this read-only: boot-time verification must never overwrite
+         * arbitrary sectors on the boot disk.
+         */
+        int ata_rc = pros_ata_pio_selftest();
+        if (ata_rc != PROS_ATA_OK) {
+            serial_write("ProsenjitOS: ERROR ATA PIO real-disk block path self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)ata_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
     } else {
         serial_write("ProsenjitOS: Multiboot2/GRUB handoff accepted\n");
     }
