@@ -6421,18 +6421,26 @@ int prosenjitfs_selftest(void)
                 before.allocated_bytes + 2u * fs.sb.block_size)
             return pfs_selftest_fail(__LINE__, -10);
 
-        if (pfs_find_extent(&fs, &after, 1u, &extent,
-                             &extent_found_lba, &extent_tail_lba) !=
-                PROSENJITFS_OK ||
-            pfs_lba_add(fs.mount.device, extent.physical_block,
-                         1u - extent.logical_block, &first_block) !=
-                PROSENJITFS_OK ||
-            pfs_read_block(&device, first_block, zero) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -10);
+        {
+            int extent_rc = pfs_find_extent(&fs, &after, 1u, &extent,
+                                             &extent_found_lba,
+                                             &extent_tail_lba);
+            if (extent_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -3100 + extent_rc);
+            if (extent.logical_block > 1u)
+                return pfs_selftest_fail(__LINE__, -3200);
+            int lba_rc = pfs_lba_add(fs.mount.device, extent.physical_block,
+                                     1u - extent.logical_block, &first_block);
+            if (lba_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -3300 + lba_rc);
+            int read_rc = pfs_read_block(&device, first_block, zero);
+            if (read_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -3400 + read_rc);
+        }
 
         for (uint32_t i = 0u; i < sizeof(zero); ++i)
             if (zero[i] != 0u)
-                return pfs_selftest_fail(__LINE__, -10);
+                return pfs_selftest_fail(__LINE__, -3500);
 
         if (vfs_file_open(&fs.mount, "/append.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK ||
