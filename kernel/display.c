@@ -78,8 +78,12 @@ int pros_display_present(uint32_t id, const void *pixels, uint64_t size)
     const struct pros_display_backend *b = backend_of(pros_device_get(id));
     if (!b) return PROS_DRIVER_ENODEV;
     struct pros_display_info info;
-    if (b->get_info(b->ctx, &info) != PROS_DRIVER_OK ||
-        !info.framebuffer_size || size > info.framebuffer_size)
+    int info_rc = b->get_info(b->ctx, &info);
+    if (info_rc != PROS_DRIVER_OK)
+        return info_rc;
+    if (!display_info_valid(&info))
+        return PROS_DRIVER_EIO;
+    if (size > info.framebuffer_size)
         return PROS_DRIVER_EINVAL;
     return b->present(b->ctx, pixels, size);
 }
