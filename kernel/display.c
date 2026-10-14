@@ -42,8 +42,9 @@ static int display_info_valid(const struct pros_display_info *info)
     if (!info || !info->width || !info->height ||
         info->width > PROS_DISPLAY_MAX_WIDTH ||
         info->height > PROS_DISPLAY_MAX_HEIGHT ||
-        info->pitch < info->width || !info->framebuffer ||
-        !info->framebuffer_size)
+        info->pitch < info->width ||
+        info->pitch > PROS_DISPLAY_MAX_WIDTH ||
+        !info->framebuffer || !info->framebuffer_size)
         return 0;
 
     /*
@@ -53,12 +54,7 @@ static int display_info_valid(const struct pros_display_info *info)
      * too small for its row padding or full height.
      */
     if (info->format == 1u) {
-        if ((uint64_t)info->pitch > UINT64_MAX / 4u)
-            return 0;
-        required_bytes = (uint64_t)info->pitch * 4u;
-        if (required_bytes > UINT64_MAX / info->height)
-            return 0;
-        required_bytes *= info->height;
+        required_bytes = (uint64_t)info->pitch * 4u * info->height;
         if (required_bytes > info->framebuffer_size)
             return 0;
     }
