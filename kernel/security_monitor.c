@@ -151,12 +151,23 @@ int pros_security_monitor_enforce(
     struct pros_security_monitor_state *state) {
     int action;
 
-    if (!process || !event ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED) ||
-        process->pid != event->pid)
+    if (!process || !event || process->pid != event->pid)
         return -1;
+
+    /*
+     * A malformed process object makes process_state() conservatively report
+     * DEAD. Do not let that validation mapping bypass containment when the raw
+     * scheduler state still says the process could be runnable. Only contain
+     * the process after matching the event PID and checking the raw state.
+     */
+    if (process->state != PROS_PROCESS_READY &&
+        process->state != PROS_PROCESS_RUNNING &&
+        process->state != PROS_PROCESS_BLOCKED)
+        return -1;
+    if (process_state(process) == PROS_PROCESS_DEAD) {
+        (void)contain_process(process);
+        return -1;
+    }
 
     action = pros_security_monitor_record(event, state);
     if (action == -2 || action == -3) {
@@ -349,6 +360,26 @@ int pros_security_monitor_selftest(void) {
             process.quarantined != 1u ||
             process.quarantine_previous_state != 0u)
             return -15;
+        process.object.reserved = 0u;
+
+        /*
+         * Exercise the public enforcement entry point, not just its fallback:
+         * invalid object metadata must not make a raw READY process escape
+         * containment through the process_state() validation guard.
+         */
+        process.state = PROS_PROCESS_READY;
+        process.quarantined = 0u;
+        process.quarantine_previous_state = 0u;
+        process.object.reserved = 1u;
+        event.pid = process.pid;
+        event.timestamp = 1u;
+        event.type = PROS_SECURITY_EVENT_MASS_FILE_MODIFY;
+        event.severity = 1u;
+        if (pros_security_monitor_enforce(&process, &event, &state) >= 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            process.quarantine_previous_state != 0u)
+            return -16;
         process.object.reserved = 0u;
     }
 
