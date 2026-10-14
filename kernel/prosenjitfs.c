@@ -7952,6 +7952,13 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -14);
             }
 
+            /*
+             * The injected write failure leaves the old mount active in
+             * memory. Simulate power loss and release its volatile state
+             * before attempting the recovery mount.
+             */
+            pfs_crash_inject_stage = 0u;
+            pfs_test_crash_reset(&fs, &disk);
             pfs_crash_inject_stage = recovery_stages[recovery_index];
             pfs_crash_injected = 0u;
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
@@ -7968,12 +7975,6 @@ int prosenjitfs_selftest(void)
              * device-cache blocks and losing the failed mount's CPU state.
              */
             pfs_crash_inject_stage = 0u;
-            /*
-             * Drop the old mount's vnode references and release its journal
-             * image/scratch allocations before reconstructing the filesystem.
-             * A raw memset here leaked both allocations on each recovery pass,
-             * eventually making the next mount fail with ENOMEM.
-             */
             pfs_test_crash_reset(&fs, &disk);
 
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
