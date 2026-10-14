@@ -7417,7 +7417,7 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -4100 + rc);
             }
             {
-                int rc = pfs_lba_add(&device, 0u, UINT64_MAX, &lba);
+                int rc = pfs_lba_add(&device, 1u, UINT64_MAX, &lba);
                 if (rc != PROSENJITFS_EOVERFLOW)
                     return pfs_selftest_fail(__LINE__, -4200 + rc);
             }
