@@ -308,3 +308,11 @@ timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -displ
 - Fixed in commit `1e851346f83c073e6f98ac00d968bd3d5e4fee17` by directly including `../../include/abi/syscall.h` after `process.h`, matching the kernel's shared ABI header layout.
 - Security architecture run #5248 passed the architecture-contract check; this does not test compilation or runtime behavior.
 - A fresh build/boot run must still confirm this include fix and reveal any further diagnostics. ISO generation, QEMU boot, the startup quarantine self-tests, VFS/provider runtime checks, and ProsenjitFS persistence/recovery remain unverified.
+
+
+## 2026-10-14 — ELF overlap self-test corrected by source-level diagnosis
+
+- Build/boot run #5748 compiled the kernel and generated the ISO, but the QEMU ISO boot failed at the ELF validation negative self-test before later boot milestones. The previous log did not include the self-test's internal return code.
+- Source inspection found a deterministic test-fixture inconsistency: the overlap regression set the second PT_LOAD virtual address to `ELF_TEST_CODE_VA + 0x800` while keeping `p_offset = 0x1000`. The validator correctly enforces `p_vaddr % 4096 == p_offset % 4096`, so this fixture returns `PROS_ELF_EFORMAT` before reaching the intended overlap check; the test incorrectly expected `PROS_ELF_ECONFLICT`.
+- Corrected the fixture in commit `b92dc74f0765dd23c9df9424b5d78752aaf8b4b0`: the first segment's test memory range is enlarged to `0x1800`, and the second segment starts at `ELF_TEST_CODE_VA + ELF_PAGE`, preserving page congruence while producing a real overlap. The test now exercises the overlap branch rather than failing earlier for alignment.
+- This is a source-level root-cause diagnosis and fix; it is not yet runtime-verified. A fresh self-hosted Build/QEMU run must confirm the fix. Security architecture checks do not substitute for QEMU/runtime evidence.
