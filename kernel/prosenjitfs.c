@@ -5156,10 +5156,33 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     /* vfs_mount_set_root() acquired the mount's ownership reference. */
     vfs_vnode_put(root_vnode);
 
-    if (vfs_mount_activate(&fs->mount) != PROS_VFS_OK) {
-        vfs_mount_deactivate(&fs->mount);
-        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
-        return PROSENJITFS_EINVAL;
+    {
+        int activate_rc = vfs_mount_activate(&fs->mount);
+        if (activate_rc != PROS_VFS_OK) {
+            /*
+             * Activation can fail before the mount becomes active. In that
+             * case vfs_mount_deactivate() rejects the call and would leave
+             * the root vnode owning filesystem-private state. Release the
+             * root explicitly when inactive; if already active, use the
+             * normal deactivation path. Do not free backing state if cleanup
+             * itself fails, because that would leave dangling vnode pointers.
+             */
+            int cleanup_rc = PROS_VFS_OK;
+            if (fs->mount.active) {
+                cleanup_rc = vfs_mount_deactivate(&fs->mount);
+            } else if (fs->mount.root) {
+                cleanup_rc = vfs_vnode_put(fs->mount.root);
+                if (cleanup_rc == PROS_VFS_OK)
+                    fs->mount.root = 0;
+            }
+            if (cleanup_rc != PROS_VFS_OK)
+                return pfs_vfs_error(cleanup_rc);
+            kfree(fs->tx.images);
+            kfree(fs->scratch);
+            fs->tx.images = 0;
+            fs->scratch = 0;
+            return pfs_vfs_error(activate_rc);
+        }
     }
     return PROSENJITFS_OK;
 }
