@@ -138,16 +138,32 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
-      - name: Upload ISO and boot diagnostics
-        if: always()
+      - name: Prepare compact failure diagnostics
+        if: failure()
+        run: |
+          set -eu
+          mkdir -p build/failure-diagnostics
+          for file in build/qemu-serial.log build/native-qemu-serial.log; do
+            if [ -f "$file" ]; then
+              cp "$file" build/failure-diagnostics/
+            fi
+          done
+          for file in build/qemu-debug.log build/native-qemu-debug.log; do
+            if [ -f "$file" ]; then
+              {
+                echo "===== $file: exception/interrupt matches ====="
+                grep -E "v=0[0-9a-f]|exception|check_exception" "$file" | tail -n 120 || true
+                echo "===== $file: final 200 lines ====="
+                tail -n 200 "$file" || true
+              } > "build/failure-diagnostics/$(basename "$file").tail.txt"
+            fi
+          done
+
+      - name: Upload compact boot diagnostics
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: prosenjitOS-boot-test
+          name: prosenjitOS-boot-failure-diagnostics
           retention-days: 3
-          path: |
-            build/prosenjitOS.iso
-            build/prosenjit-native-bios.img
-            build/qemu-serial.log
-            build/qemu-debug.log
-            build/native-qemu-serial.log
-            build/native-qemu-debug.log
+          if-no-files-found: ignore
+          path: build/failure-diagnostics/
