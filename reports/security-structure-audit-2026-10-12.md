@@ -378,3 +378,11 @@ The first record validator still needed stricter evidence coherence. It now reje
 - Added signature self-test cases requiring rejection of a small-order identity public key, a small-order identity R encoding, and a non-canonical S scalar equal to subgroup order L. These supplement the RFC 8032 positive vector and the altered-signature negative case.
 - Commit: f24cd1d000f5d183afb2a5a3ff1a52d35a66a473.
 - Verification remains pending: no compile, self-test execution, timing review, or QEMU boot has run for this latest crypto change.
+
+
+## 2026-10-14 — Preserve independent malicious reputation evidence
+
+- Follow-up review found `pros_file_admission_evaluate_signed()` discarded all reputation metadata when signature verification failed, even though its policy comment says independent malicious reputation may still require a block. The failure path now preserves only `PROS_FILE_REPUTATION_MALICIOUS`; clean/suspicious reputation and provenance are still not accepted as trust signals after failed verification.
+- Added a regression case asserting invalid signature + malicious reputation yields `MALICIOUS/BLOCK` without relying on local-deny metadata.
+- Commit: `9f52d37b17d268e4c3ed94e01cbfae40169cdcb1`.
+- Source-only change; compile and runtime tests remain pending.
