@@ -42,7 +42,7 @@ static void fe_neg(struct pros_ed25519_fe *r,
     pros_ed25519_fe_sub(r, &zero, a);
 }
 
-/* Exponentiation by (p+3)/8 = 2^252 - 2. */
+/* Exponentiation by (p-5)/8 = 2^252 - 3. */
 static void fe_pow_p_minus_5_over_8(struct pros_ed25519_fe *r,
                                      const struct pros_ed25519_fe *a) {
     static const uint8_t exponent[32] = {
