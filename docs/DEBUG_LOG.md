@@ -229,5 +229,8 @@ The range-state helper returns an error when the observed bitmap bit differs fro
 
 The sparse cross-regression is also corrected: high write at logical block 5, hole at block 4, lower contiguous blocks 2–3, and three allocated blocks across two extents. A temporary self-test diagnostic records the exact unexpected double-free return code if the assertion fails again.
 
+### New verification finding
+Build #5871 passed the double-free assertion after the error mapping fix, then failed the keep-size preallocation zero-read compound check at source line 6431. That compound check could fail in extent lookup, LBA mapping, or block read, so the test now reports distinct diagnostic ranges (`-3100 + rc`, `-3200`, `-3300 + rc`, `-3400 + rc`) and uses `-3500` if the read succeeds but the block is not zero-filled. This is diagnostic instrumentation only; no preallocation production logic has been changed based on an ambiguous failure.
+
 ### Verification status
-Build #5867 failed on the sparse test's old extent-shape assertion. Build #5869 passed that section but exposed the reversed allocator error mapping; the latest production fix now awaits a fresh build/QEMU run. Security architecture checks passed on the diagnostic commit before the production fix. PR #128 remains Draft pending clean build and boot milestones.
+Build #5867 failed on the sparse test's old extent-shape assertion. Build #5869 exposed the allocator double-free error mapping; the fix in `332168e6a058a56322400236ffb0fcc97ed9a961` passed that assertion in Build #5871. Build #5871 then exposed the preallocation zero-read compound check. The new diagnostics are committed as `e85e0c38ce5c4875b81c091b42e9ac328a18c6b7` and require a fresh QEMU run. Security architecture checks passed on the previous commit; PR #128 remains Draft pending clean build and boot milestones.
