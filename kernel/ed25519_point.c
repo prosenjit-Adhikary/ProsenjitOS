@@ -299,6 +299,34 @@ int pros_ed25519_point_selftest(void) {
     for (uint32_t i = 0; i < 32u; ++i)
         if (encoded[i] != base_encoding[i]) return -9;
 
+    /*
+     * Reject y = p rather than silently reducing a non-canonical encoding.
+     */
+    {
+        static const uint8_t noncanonical_y[32] = {
+            0xed,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x7f
+        };
+        if (pros_ed25519_point_from_bytes(&decoded, noncanonical_y) == 0)
+            return -14;
+    }
+
+    /*
+     * The sign bit cannot encode negative zero when x = 0.
+     */
+    {
+        static const uint8_t negative_zero[32] = {
+            1u,0u,0u,0u,0u,0u,0u,0u,
+            0u,0u,0u,0u,0u,0u,0u,0u,
+            0u,0u,0u,0u,0u,0u,0u,0u,
+            0u,0u,0u,0u,0u,0u,0u,0x80
+        };
+        if (pros_ed25519_point_from_bytes(&decoded, negative_zero) == 0)
+            return -15;
+    }
+
     pros_ed25519_point_add(&p, &p, &p);
     if (!pros_ed25519_point_is_identity(&p)) return -10;
     if (!pros_ed25519_point_on_curve(&p)) return -11;
