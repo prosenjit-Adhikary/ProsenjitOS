@@ -290,18 +290,28 @@ retry_ipc_receive:
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
+                /*
+                 * Publish the blocked-syscall continuation before registering
+                 * the waiter. ipc_channel_wait() drops the channel lock before
+                 * returning, so a sender may wake this thread immediately.
+                 * Do not write the saved return frame after successful
+                 * registration: thread_wake() may already have rewound it to
+                 * retry this syscall.
+                 */
+                current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+                registers[0] = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
                 int wait_rc = ipc_channel_wait(
                     (struct pros_ipc_channel *)entry->object, current);
                 if (wait_rc == PROSENJIT_IPC_EREADY) {
+                    current->blocked_syscall = 0;
                     /* A sender published data before we could register. */
                     goto retry_ipc_receive;
                 }
                 if (wait_rc != PROSENJIT_IPC_OK) {
+                    current->blocked_syscall = 0;
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
-                current->blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
-                registers[0] = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
                 return;
             }
             if (rc != PROSENJIT_IPC_OK) {
