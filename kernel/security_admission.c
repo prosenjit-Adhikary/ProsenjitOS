@@ -78,7 +78,7 @@ int pros_file_admission_record_valid(
         return record->security.action == PROS_FILE_QUARANTINE &&
             (record->security.evidence & suspicious_evidence) != 0u &&
             (record->security.evidence &
-             (deny_evidence | PROS_FILE_EVIDENCE_REPUTATION_CLEAN)) == 0u;
+             deny_evidence) == 0u;
     case PROS_FILE_MALICIOUS:
         return record->security.action == PROS_FILE_BLOCK &&
             (record->security.evidence & deny_evidence) != 0u;
@@ -322,6 +322,46 @@ int pros_file_admission_selftest(void) {
                 record.security.action != PROS_FILE_BLOCK)
                 return -312;
         }
+    }
+
+    {
+        struct pros_file_admission_record candidate = { 0 };
+
+        candidate.security.state = PROS_FILE_VERIFIED;
+        candidate.security.action = PROS_FILE_ALLOW;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_FORMAT_VALID |
+            PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+            PROS_FILE_EVIDENCE_LOCAL_DENY;
+        if (pros_file_admission_record_valid(&candidate))
+            return -313;
+
+        candidate.security.state = PROS_FILE_TRUSTED;
+        candidate.security.action = PROS_FILE_ALLOW;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_LOCAL_TRUST |
+            PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+        if (pros_file_admission_record_valid(&candidate))
+            return -314;
+
+        candidate.security.state = PROS_FILE_SUSPICIOUS;
+        candidate.security.action = PROS_FILE_QUARANTINE;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+            PROS_FILE_EVIDENCE_REPUTATION_CLEAN;
+        if (!pros_file_admission_record_valid(&candidate))
+            return -315;
+
+        candidate.security.state = PROS_FILE_MALICIOUS;
+        candidate.security.action = PROS_FILE_BLOCK;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+        if (!pros_file_admission_record_valid(&candidate))
+            return -316;
+
+        candidate.security.evidence |= 1u << 31;
+        if (pros_file_admission_record_valid(&candidate))
+            return -317;
     }
 
     return 0;
