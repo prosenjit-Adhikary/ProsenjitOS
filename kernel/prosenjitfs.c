@@ -87,6 +87,10 @@ struct pfs_write_diag {
 
 static struct pfs_write_diag pfs_diag;
 
+/* Narrow diagnostic for the allocator double-free self-test. */
+static uint32_t pfs_free_diag_stage;
+static int pfs_free_diag_rc;
+
 static int pfs_vfs_error(int rc)
 {
     switch (rc) {
@@ -4802,9 +4806,13 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
 {
     int rc;
 
+    pfs_free_diag_stage = 1u;
+    pfs_free_diag_rc = PROSENJITFS_EINVAL;
     if (!fs || count == 0u || fs->read_only)
         return PROSENJITFS_EINVAL;
+    pfs_free_diag_stage = 2u;
     rc = pfs_allocator_range_valid(fs, first_block, count);
+    pfs_free_diag_rc = rc;
     if (rc != PROSENJITFS_OK)
         return rc;
 
@@ -4813,10 +4821,15 @@ int prosenjitfs_free_blocks(struct pros_prosenjitfs *fs,
      * prevents a mixed allocated/free range from being partially staged and
      * makes double-free detection atomic at the allocator API boundary.
      */
+    pfs_free_diag_stage = 3u;
     rc = pfs_allocator_range_state(fs, first_block, count, 1u);
+    pfs_free_diag_rc = rc;
     if (rc != PROSENJITFS_OK)
         return rc;
-    return pfs_allocator_update(fs, first_block, count, 0u);
+    pfs_free_diag_stage = 4u;
+    rc = pfs_allocator_update(fs, first_block, count, 0u);
+    pfs_free_diag_rc = rc;
+    return rc;
 }
 
 static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
@@ -6389,7 +6402,8 @@ int prosenjitfs_selftest(void)
 
         int double_free_rc = prosenjitfs_free_blocks(&fs, first_block, 1u);
         if (double_free_rc != PROSENJITFS_EINVAL)
-            return pfs_selftest_fail(__LINE__, -3000 + double_free_rc);
+            return pfs_selftest_fail(pfs_free_diag_stage,
+                                     -3000 + double_free_rc);
     }
 
     /* Keep-size preallocation regression: reserve future blocks without
