@@ -29,7 +29,8 @@ Status labels below distinguish source changes from runtime evidence.
 - This branch hardens service registration so the manager owns bounded copies of
   registered service names and dependency names, rather than retaining pointers
   to caller-owned (potentially stack-lifetime) strings. It rejects duplicate
-  dependencies. The service-manager self-test rejects duplicate dependencies
+  dependencies, bounds name comparisons to the fixed limit, and tests an
+  unterminated lookup buffer. The service-manager self-test rejects duplicate dependencies
   and mutates caller-owned service/dependency name buffers after registration to
   verify the manager's copied names remain usable.
 - `kernel/init.c` now clears the ELF load result before attempting a load, initializes local file/admission records, distinguishes a missing `/init` from other open failures, and maps ELF bounds/overflow and permission/conflict failures to explicit init errors. This reduces stale-output and diagnostic ambiguity on failure; it does not connect the helper to normal boot. The init-loader self-test now seeds a nonzero result and checks that an inactive-mount failure clears all result fields.
