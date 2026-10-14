@@ -28,10 +28,10 @@ Status labels below distinguish source changes from runtime evidence.
   mean they are integrated into `main`.
 - The normal kernel boot path invokes the service-manager lifecycle self-test once and resets the registry afterward, so synthetic test callbacks do not leak into later service registration. A source cross-check found a second invocation immediately before CPL3 handoff; that duplicate was removed and replaced with an explicit registry reset, because the self-test intentionally leaves its synthetic registrations in place on success. This is a kernel self-test integration only; it does not launch userspace services.
 - `kernel/display.c` validates the complete XRGB8888 scanout span using a
-  bounded pixel pitch and height. Its self-test rejects a backend advertising a
-  framebuffer one byte smaller than the required scanout size. This is
-  display-boundary hardening, not proof of physical framebuffer output or a
-  userspace display server.
+  bounded pixel pitch and height. Both info-query and present paths reject a
+  backend advertising a framebuffer one byte smaller than the required scanout
+  size; the self-test covers both paths. This is display-boundary hardening,
+  not proof of physical framebuffer output or a userspace display server.
 - This branch hardens service registration so the manager owns bounded copies of
   registered service names and dependency names, rather than retaining pointers
   to caller-owned (potentially stack-lifetime) strings. It rejects duplicate
