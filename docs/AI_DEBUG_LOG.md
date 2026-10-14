@@ -81,3 +81,11 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 
 - Source review found provider registration copied the caller's enabled field without checking its boolean encoding; reputation lookup treats any nonzero value as enabled. Registration now rejects enabled values greater than 1, and the provider self-test verifies rejection does not change provider_count.
 - Commit: ad5507a3af7419929ec8f4d26d7434eb7422f3f2. Source-only change; build and self-test are still pending because the latest self-hosted jobs are queued without steps/logs.
+
+
+## 2026-10-14 — Conflicting admission evidence combinations
+
+- Follow-up cross-check tightened the admission-record validator: ALLOW decisions now reject explicit local-deny/malicious evidence; mutually exclusive reputation outcomes and simultaneous valid/invalid signature evidence are rejected; UNKNOWN/SUSPICIOUS/MALICIOUS states must agree with action and evidence. A malformed-format MALICIOUS/BLOCK decision remains valid even though no dedicated format-invalid evidence bit exists.
+- Added regression cases for VERIFIED+LOCAL_DENY, TRUSTED+malicious reputation, signature-invalid with clean reputation (allowed as independent evidence dimensions), malformed-format block, and unknown evidence bits.
+- Commits: 395f1fd5cbf3866c514b92c211345ced8d352a0f, ebbf8450a10895c3daa9fd5440575ce2c647b282, 4a0e78b1cbde3733bd4d2f746dec2fa2aa999f72.
+- Verification remains source-only; no compile or runtime test has executed for these changes.
