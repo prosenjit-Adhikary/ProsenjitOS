@@ -20,13 +20,18 @@ static int service_name_equal(const char *a, const char *b)
 {
     if (!a || !b)
         return 0;
-    while (*a && *b) {
-        if (*a != *b)
+
+    /*
+     * Names are bounded ABI inputs. Do not let a malformed/non-terminated
+     * lookup string turn a service lookup into an unbounded kernel read.
+     */
+    for (uint32_t i = 0; i < PROS_SERVICE_NAME_MAX; ++i) {
+        if (a[i] != b[i])
             return 0;
-        ++a;
-        ++b;
+        if (a[i] == '\0')
+            return 1;
     }
-    return *a == *b;
+    return 0;
 }
 
 static int service_find(const char *name)
@@ -357,6 +362,13 @@ int service_manager_selftest(void)
         return -5;
     if (service_start("missing") != PROS_SERVICE_ENOENT)
         return -6;
+    {
+        char unterminated_name[PROS_SERVICE_NAME_MAX];
+        for (uint32_t i = 0; i < PROS_SERVICE_NAME_MAX; ++i)
+            unterminated_name[i] = 'x';
+        if (service_start(unterminated_name) != PROS_SERVICE_ENOENT)
+            return -18;
+    }
     if (service_restart("child") != PROS_SERVICE_OK ||
         service_status("child", &state, &retries) != PROS_SERVICE_OK ||
         state != PROS_SERVICE_RUNNING || a != 1u || b != 1u)
