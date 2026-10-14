@@ -5,10 +5,48 @@ static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
+static int thread_process_terminal(const struct pros_thread *thread) {
+    uint32_t state;
+    if (!thread || !thread->process)
+        return 1;
+    state = process_state(thread->process);
+    return state == PROS_PROCESS_ZOMBIE || state == PROS_PROCESS_DEAD;
+}
+
 static int thread_process_runnable(const struct pros_thread *thread) {
-    return thread && thread->process &&
-           process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
-           process_state(thread->process) != PROS_PROCESS_DEAD;
+    uint32_t state;
+    if (!thread || !thread->process || thread->process->quarantined)
+        return 0;
+    state = process_state(thread->process);
+    return state == PROS_PROCESS_READY || state == PROS_PROCESS_RUNNING;
+}
+
+/*
+ * Rotate through the queue at most once. A temporarily blocked/quarantined
+ * process must keep its thread record for later unquarantine; only terminal
+ * processes may have their queued threads retired as DEAD.
+ */
+static struct pros_thread *thread_dequeue_schedulable(void) {
+    uint64_t queued = 0u;
+    for (struct pros_thread *it = runq_head; it; it = it->next)
+        ++queued;
+
+    while (queued-- != 0u) {
+        struct pros_thread *thread = thread_dequeue();
+        if (!thread)
+            return 0;
+        if (thread_process_terminal(thread)) {
+            thread->state = PROS_THREAD_DEAD;
+            continue;
+        }
+        if (thread_process_runnable(thread))
+            return thread;
+
+        /* Preserve a live thread while its process is blocked/quarantined. */
+        if (thread_enqueue(thread) != 0)
+            return 0;
+    }
+    return 0;
 }
 
 
@@ -180,12 +218,8 @@ int thread_schedule(void) {
     struct pros_thread *next;
     struct pros_thread *prev = current_thread;
 
-    do {
-        next = thread_dequeue();
-        if (!next) return -1;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+    next = thread_dequeue_schedulable();
+    if (!next) return -1;
 
     /*
      * Queue the previous runnable thread before changing address spaces.
@@ -193,7 +227,9 @@ int thread_schedule(void) {
      * queueing or the subsequent CR3 switch fails.
      */
     if (prev && prev != next && prev->state == PROS_THREAD_RUNNING) {
-        if (thread_enqueue(prev) != 0) {
+        if (thread_process_terminal(prev)) {
+            prev->state = PROS_THREAD_DEAD;
+        } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
             return -1;
         }
@@ -217,12 +253,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
 
     prev->interrupt_frame = current_frame;
     struct pros_thread *next;
-    do {
-        next = thread_dequeue();
-        if (!next) return current_frame;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+    next = thread_dequeue_schedulable();
+    if (!next) return current_frame;
 
     /*
      * Queue the interrupted thread before changing address spaces. If the
@@ -231,7 +263,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * already safely queued and the candidate is requeued.
      */
     if (prev->state != PROS_THREAD_BLOCKED) {
-        if (!thread_process_runnable(prev)) {
+        if (thread_process_terminal(prev)) {
             prev->state = PROS_THREAD_DEAD;
         } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
