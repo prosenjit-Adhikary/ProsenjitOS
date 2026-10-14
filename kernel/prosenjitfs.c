@@ -6293,6 +6293,8 @@ int prosenjitfs_selftest(void)
         if (vfs_file_write(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
             done != 1u)
             return pfs_selftest_fail(__LINE__, -146);
+        if (vfs_file_seek(&file, (low_block + 1u) * bs) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -149);
         if (vfs_file_write(&file, &low_b, 1u, &done) != PROS_VFS_OK ||
             done != 1u)
             return pfs_selftest_fail(__LINE__, -147);
