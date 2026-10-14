@@ -6382,6 +6382,11 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -10);
     {
+        int bitmap_state_rc =
+            pfs_allocator_range_state(&fs, first_block, 1u, 1u);
+        if (bitmap_state_rc != PROSENJITFS_EINVAL)
+            return pfs_selftest_fail(__LINE__, -4000 + bitmap_state_rc);
+
         int double_free_rc = prosenjitfs_free_blocks(&fs, first_block, 1u);
         if (double_free_rc != PROSENJITFS_EINVAL)
             return pfs_selftest_fail(__LINE__, -3000 + double_free_rc);
