@@ -54,6 +54,9 @@ int pros_security_exec_admit(
         return PROS_SECURITY_EXEC_BLOCK;
     }
 
+    if (!pros_file_admission_record_valid(record))
+        return PROS_SECURITY_EXEC_BLOCK;
+
     if (record->security.action == PROS_FILE_ALLOW)
         return PROS_SECURITY_EXEC_ALLOW;
 
@@ -100,6 +103,15 @@ int pros_security_exec_selftest(void) {
     if (pros_security_exec_admit(&process, &record, 1u, 0) !=
             PROS_SECURITY_EXEC_ALLOW ||
         security_is_quarantined(&process))
+        goto fail;
+
+    /* Contradictory trust/action metadata must never authorize execution. */
+    record.security.state = PROS_FILE_MALICIOUS;
+    record.security.action = PROS_FILE_ALLOW;
+    record.security.evidence = PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+    if (pros_security_exec_admit(&process, &record, 2u, &quarantine_id) !=
+            PROS_SECURITY_EXEC_BLOCK ||
+        security_is_quarantined(&process) || process.state != PROS_PROCESS_READY)
         goto fail;
 
     record.security.state = PROS_FILE_MALICIOUS;
