@@ -270,3 +270,12 @@ git checkout security/hardening-audit-20261012
 ./scripts/build.sh clean
 timeout 30s qemu-system-x86_64 -cdrom build/prosenjitOS.iso -serial stdio -display none -no-reboot -no-shutdown
 ```
+
+
+## 2026-10-14 — Self-hosted build runner recovery
+
+- Investigated build/boot run #5448 (job ID 114725676763). The runner was online and checkout succeeded, but the job stopped at the old toolchain-install step because `sudo apt-get update` required an interactive password. The ISO build and both QEMU boot tests were skipped; this was an environment/workflow failure, not a compiler result.
+- Updated `.github/workflows/build.yml` on this branch to match the repository's current preinstalled-toolchain verification step, avoiding privileged package installation on the self-hosted runner.
+- Workflow fix commit: `3baf5912fb6dc16ede10c253c90d92feaf9e0f28`.
+- New build/boot run #5735 (run ID 38530172950) and security architecture run #5237 (run ID 38530172909) were observed queued when this note was written. No successful build, QEMU boot, or runtime self-test is claimed until those jobs finish.
+- The capability-table/object lifetime concurrency finding described above remains an open high-priority source-level risk. This workflow correction does not fix or verify that race.
