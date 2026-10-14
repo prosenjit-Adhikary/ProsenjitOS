@@ -222,11 +222,12 @@ The delayed-allocation persistence regression unmounted `fs` after its remount/r
 The sparse cross-regression now remounts ProsenjitFS before reading the block size or invoking VFS operations. A dedicated `-142` diagnostic reports failure of this remount. The existing open-error diagnostic remains in place so a different VFS error is visible if the test advances and fails later.
 
 ### Follow-up finding
-Build #5863 confirmed the earlier metadata/extent-shape assertion was inconsistent with its test data. Build #5867 passed that sparse/delayed-allocation section and progressed further, but then failed the allocator double-free assertion: after freeing a four-block allocation, freeing the first block again did not return the expected `PROSENJITFS_EINVAL`. The log's generic `-10` does not reveal the actual return code.
+Build #5869's diagnostic exposed the exact double-free result: `PROSENJITFS_ENOSPC` (-5), not `PROSENJITFS_EINVAL`. This was a production error-code mapping bug in `pfs_allocator_range_state()`, not evidence that the freed bitmap bit remained allocated.
 
-### Fixes and diagnostics
-The sparse test now writes its high extent at logical block 5, leaving block 4 as a real hole; it expects three allocated blocks (logical 2, 3, and 5) and two extents. This correction is committed as `655238655883511af8e1ebec84f53f4630140707`.
-A diagnostic-only change now encodes the exact double-free return code into the self-test failure (`-3000 + double_free_rc`) rather than reporting the ambiguous `-10`. This is committed as `6ce3e304c6654ba31264f7b9052c0c749454f93c`. Do not change allocator production logic until the next QEMU log identifies the actual return code.
+### Root cause and fix
+The range-state helper returns an error when the observed bitmap bit differs from the requested state. Its mismatch mapping was reversed: when a caller requires an allocated block (`want_allocated=1`, as `free_blocks` does), an already-free bit incorrectly returned `ENOSPC`; when a caller requires a free block (`want_allocated=0`, as `alloc_blocks` does), an allocated bit incorrectly returned `EINVAL`. The mapping is now corrected so double-free returns `PROSENJITFS_EINVAL` and allocation collision returns `PROSENJITFS_ENOSPC`. The change is committed as `332168e6a058a56322400236ffb0fcc97ed9a961`.
+
+The sparse cross-regression is also corrected: high write at logical block 5, hole at block 4, lower contiguous blocks 2–3, and three allocated blocks across two extents. A temporary self-test diagnostic records the exact unexpected double-free return code if the assertion fails again.
 
 ### Verification status
-Build #5867 failed at the double-free assertion after the sparse cross-regression advanced past its previous failure. The diagnostic build is queued/running and is required to distinguish a bitmap persistence/state defect from an unexpected API error. Security architecture checks passed on the previous source revision; PR #128 remains Draft pending a clean build and QEMU run.
+Build #5867 failed on the sparse test's old extent-shape assertion. Build #5869 passed that section but exposed the reversed allocator error mapping; the latest production fix now awaits a fresh build/QEMU run. Security architecture checks passed on the diagnostic commit before the production fix. PR #128 remains Draft pending clean build and boot milestones.
