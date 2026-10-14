@@ -6648,10 +6648,12 @@ int prosenjitfs_selftest(void)
         }
 
         /*
-         * Seek beyond EOF must fail without changing the current position.
+         * Seeking beyond EOF is valid for sparse-file writes. The VFS only
+         * rejects offsets outside its supported 32-bit file-position range.
+         * A rejected seek must leave the previous position unchanged.
          */
         if (file.position != 700u ||
-            vfs_file_seek(&file, 701u) != PROS_VFS_EOVERFLOW ||
+            vfs_file_seek(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
             file.position != 700u) {
             vfs_file_close(&file);
             return pfs_selftest_fail(__LINE__, -12);
