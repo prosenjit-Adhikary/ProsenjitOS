@@ -1,8 +1,12 @@
 name: Security architecture checks
 
 on:
+  # Mainline pushes and PR updates cover integration changes without running
+  # the same architecture check twice for each feature-branch push.
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   security-design:
