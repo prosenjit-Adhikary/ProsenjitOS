@@ -6263,12 +6263,20 @@ int prosenjitfs_selftest(void)
         uint8_t low_b = 0xA5u;
         uint8_t high = 0xE7u;
         uint32_t done = 0u;
-        uint32_t bs = fs.sb.block_size;
+        uint32_t bs;
         uint64_t high_block = 4u;
         uint64_t low_block = 2u;
         uint64_t high_lba = 0u;
         int open_rc = PROS_VFS_OK;
 
+        /*
+         * The preceding delayed-allocation test deliberately unmounts after
+         * its persistence check. Remount before starting this independent
+         * cross-regression so VFS operations never use an inactive mount.
+         */
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -142);
+        bs = fs.sb.block_size;
         if (bs != 512u)
             return pfs_selftest_fail(__LINE__, -141);
         open_rc = vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
