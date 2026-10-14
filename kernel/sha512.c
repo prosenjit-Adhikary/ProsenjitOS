@@ -137,17 +137,21 @@ static void sha512_final(struct sha512_ctx *ctx,uint8_t digest[PROS_SHA512_BYTES
 
 void pros_sha512(const uint8_t *data,uint64_t length,uint8_t digest[PROS_SHA512_BYTES]) {
     struct sha512_ctx ctx;
+    if (!digest || (length != 0 && !data))
+        return;
     sha512_init(&ctx);
-    if (length && data) sha512_update(&ctx,data,length);
+    if (length) sha512_update(&ctx,data,length);
     sha512_final(&ctx,digest);
 }
 
 void pros_sha512_prefix(const uint8_t prefix[64], const uint8_t *data,
                         uint64_t length, uint8_t digest[PROS_SHA512_BYTES]) {
     struct sha512_ctx ctx;
+    if (!prefix || !digest || (length != 0 && !data))
+        return;
     sha512_init(&ctx);
     sha512_update(&ctx, prefix, 64u);
-    if (length && data) sha512_update(&ctx, data, length);
+    if (length) sha512_update(&ctx, data, length);
     sha512_final(&ctx, digest);
 }
 
