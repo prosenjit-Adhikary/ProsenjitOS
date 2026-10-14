@@ -87,7 +87,7 @@ long_mode_entry:
     ; Enable CPU memory-protection features that are safe at this stage.
     call cpu_security_init
     test eax, eax
-    jz .security_halt
+    jz security_halt
 
     ; Pass the original Multiboot2 values to C:
     ; System V x86-64 ABI: RDI, RSI.
@@ -187,7 +187,7 @@ cpu_security_init:
     xor eax, eax
     ret
 
-.security_halt:
+security_halt:
     cli
 .halt_security:
     hlt
