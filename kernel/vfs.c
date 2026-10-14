@@ -931,6 +931,13 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
 
     rc = vfs_path_lookup(mount, path, &vnode);
     if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
+        /*
+         * Check the mount policy before calling the filesystem create
+         * operation. A read-only mount must not rely on every provider's
+         * create callback to reject mutation correctly.
+         */
+        if (mount->read_only)
+            return PROS_VFS_EPERM;
         char parent_path[PROS_VFS_PATH_MAX + 1u];
         char name[PROS_VFS_NAME_MAX + 1u];
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
