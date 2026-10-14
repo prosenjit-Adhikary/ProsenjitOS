@@ -170,8 +170,13 @@ int pros_file_admission_evaluate_signed(
     if (signature_result != PROS_SIGNATURE_RESULT_VALID) {
         input.metadata.signature_valid = 0u;
         input.metadata.local_trusted = 0u;
-        /* Preserve an explicit local deny even when signature verification fails. */
-        input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
+        /*
+         * Preserve independent malicious reputation evidence on signature
+         * failure so policy can still block. Do not retain clean/suspicious
+         * reputation or provenance as a trust signal from this failed path.
+         */
+        if (input.metadata.reputation != PROS_FILE_REPUTATION_MALICIOUS)
+            input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
         input.metadata.provenance_known = 0u;
     }
 
@@ -302,6 +307,20 @@ int pros_file_admission_selftest(void) {
             if (record.security.state == PROS_FILE_VERIFIED ||
                 record.security.action == PROS_FILE_ALLOW)
                 return -310;
+
+            /*
+             * Independent malicious reputation must remain a block decision
+             * even when signature verification fails.
+             */
+            signed_metadata.reputation = PROS_FILE_REPUTATION_MALICIOUS;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0 ||
+                record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK)
+                return -319;
+            signed_metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
 
             /*
              * Explicit local denial outranks both a valid signature and a
