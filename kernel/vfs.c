@@ -472,6 +472,16 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     if (!vnode || !mount || !ops ||
         (type != PROS_VFS_NODE_FILE && type != PROS_VFS_NODE_DIRECTORY))
         return PROS_VFS_EINVAL;
+    /*
+     * A parent pointer is part of the vnode lifetime chain. Reject an
+     * uninitialized, cross-mount, or non-directory parent before publishing
+     * this vnode, otherwise path traversal and mount busy checks can follow
+     * invalid ownership links.
+     */
+    if (parent && (!parent->initialized || parent->refcount == 0u ||
+                   parent->mount != mount ||
+                   parent->type != PROS_VFS_NODE_DIRECTORY))
+        return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_DIRECTORY && (!ops->lookup || !ops->readdir))
         return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_FILE && (!file_ops || !file_ops->read ||
