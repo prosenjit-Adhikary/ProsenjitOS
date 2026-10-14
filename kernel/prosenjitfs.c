@@ -4912,7 +4912,9 @@ static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
     uint8_t mask;
 
     if (!fs || fs->read_only || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size > sizeof(block))
+        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        !fs->mount.active || !fs->mount.device)
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
