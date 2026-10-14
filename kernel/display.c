@@ -145,6 +145,10 @@ int pros_display_selftest(void)
             state->info.framebuffer_size = saved_size;
             return -14;
         }
+        if (pros_display_present(dev.id, px, sizeof(px)) != PROS_DRIVER_EIO) {
+            state->info.framebuffer_size = saved_size;
+            return -15;
+        }
         state->info.framebuffer_size = saved_size;
     }
 
