@@ -577,7 +577,10 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     uint32_t components = 0;
     uint32_t path_length = 0u;
 
-    if (!mount || !path || !result || !mount->active || !mount->root ||
+    if (!result)
+        return PROS_VFS_EINVAL;
+    *result = 0;
+    if (!mount || !path || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
     if (!mount->root->initialized || mount->root->refcount == 0u ||
@@ -613,6 +616,13 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             component[2] == '\0') {
             struct pros_vfs_vnode *parent =
                 current->parent ? current->parent : current;
+            if (parent != current &&
+                (!parent->initialized || parent->refcount == 0u ||
+                 parent->mount != mount ||
+                 parent->type != PROS_VFS_NODE_DIRECTORY)) {
+                vfs_vnode_put(current);
+                return PROS_VFS_EINVAL;
+            }
             if (parent != current && vfs_vnode_get(parent) != PROS_VFS_OK) {
                 vfs_vnode_put(current);
                 return PROS_VFS_EINVAL;
