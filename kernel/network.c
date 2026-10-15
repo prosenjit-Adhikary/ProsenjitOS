@@ -646,10 +646,10 @@ int pros_net_selftest(void)
     eth[12] = 0x08; eth[13] = 0x00;
     if (pros_net_parse_ethernet(eth, sizeof(eth), &eh, &off) != PROS_NET_OK ||
         eh.ethertype != PROS_NET_ETH_IPV4 || off != 14u)
-        return -1;
+        return -100;
     eth[12] = 0x12; eth[13] = 0x34;
     if (pros_net_parse_ethernet(eth, sizeof(eth), &eh, &off) != PROS_NET_ENOTSUP)
-        return -2;
+        return -101;
 
     put_be16(arp, ARP_HTYPE_ETHERNET);
     put_be16(arp + 2u, ARP_PTYPE_IPV4);
@@ -657,10 +657,10 @@ int pros_net_selftest(void)
     put_be32(arp + 14u, 0xC0A80101u); put_be32(arp + 24u, 0xC0A80102u);
     if (pros_net_parse_arp(arp, sizeof(arp), &ah) != PROS_NET_OK ||
         ah.spa != 0xC0A80101u || ah.tpa != 0xC0A80102u)
-        return -3;
+        return -102;
     arp[4] = 5u;
     if (pros_net_parse_arp(arp, sizeof(arp), &ah) != PROS_NET_EINVAL)
-        return -4;
+        return -103;
 
     ip[0] = 0x45; put_be16(ip + 2u, 20u); ip[8] = 64u; ip[9] = PROS_NET_IP_TCP;
     put_be32(ip + 12u, 0xC0A80101u); put_be32(ip + 16u, 0xC0A80102u);
@@ -671,39 +671,39 @@ int pros_net_selftest(void)
         struct pros_net_icmp ihc;
         if (pros_net_parse_icmp(icmp, sizeof(icmp), &ihc) != PROS_NET_OK ||
             ihc.type != 8u || ihc.code != 0u)
-            return -5;
+            return -104;
     }
     if (pros_net_parse_icmp((const uint8_t *)0, 0u, 0) != PROS_NET_EBOUNDS)
-        return -6;
+        return -105;
     if (pros_net_parse_ipv4(ip, sizeof(ip), &ih, &off) != PROS_NET_OK ||
         ih.ttl != 64u || ih.protocol != PROS_NET_IP_TCP)
-        return -5;
+        return -106;
     ip[8] = 0u;
     put_be16(ip + 10u, 0u);
     put_be16(ip + 10u, pros_net_checksum(ip, 20u));
     if (pros_net_parse_ipv4(ip, sizeof(ip), &ih, &off) != PROS_NET_EINVAL)
-        return -7;
+        return -107;
 
     tcp[12] = 0x50; tcp[13] = TCP_SYN; put_be16(tcp, 1000u); put_be16(tcp + 2u, 80u);
     if (pros_net_parse_tcp(tcp, sizeof(tcp), &th, &off) != PROS_NET_OK ||
         th.flags != TCP_SYN)
-        return -7;
+        return -108;
     put_be16(tcp + 16u, 0u);
     put_be16(tcp + 16u, pros_net_tcp_checksum(0xC0A80101u, 0xC0A80102u,
                                                tcp, sizeof(tcp)));
     if (pros_net_validate_tcp_checksum(0xC0A80101u, 0xC0A80102u,
                                        tcp, sizeof(tcp)) != PROS_NET_OK)
-        return -8;
+        return -109;
     tcp[16] ^= 0x01u;
     if (pros_net_validate_tcp_checksum(0xC0A80101u, 0xC0A80102u,
                                        tcp, sizeof(tcp)) != PROS_NET_ECHECKSUM)
-        return -9;
+        return -110;
     tcp[16] ^= 0x01u;
     if (pros_net_tcp_transition(PROS_NET_TCP_SYN_SENT, TCP_SYN | TCP_ACK, &state) != PROS_NET_OK ||
         state != PROS_NET_TCP_ESTABLISHED ||
         pros_net_tcp_transition(PROS_NET_TCP_ESTABLISHED, TCP_RST, &state) != PROS_NET_OK ||
         state != PROS_NET_TCP_CLOSED)
-        return -8;
+        return -111;
 
     {
         uint8_t mac[6] = {0,1,2,3,4,5}, got[6] = {0};
@@ -716,7 +716,7 @@ int pros_net_selftest(void)
             pros_net_route_add(0xC0A80000u, 0xFFFF0000u, 0xC0A80101u, 10u) != PROS_NET_OK ||
             pros_net_route_lookup(0xC0A80102u, &gateway, &mask) != PROS_NET_OK ||
             mask != 0xFFFF0000u)
-            return -9;
+            return -112;
     }
 
     if (pros_net_socket_init() != PROS_NET_OK ||
@@ -726,7 +726,7 @@ int pros_net_selftest(void)
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
         pros_net_socket_send(sid, payload, sizeof(payload)) != 1 ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
-        return -9;
+        return -113;
 
     {
         const uint8_t rxdata[2] = {0x11, 0x22};
@@ -738,7 +738,7 @@ int pros_net_selftest(void)
             pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE ||
             pros_net_socket_receive_segment(sid, 2u, rxdata, 0u, TCP_FIN | TCP_ACK) != PROS_NET_OK ||
             pros_net_socket_close(sid) != PROS_NET_OK)
-            return -10;
+            return -114;
     }
 
     {
@@ -754,7 +754,7 @@ int pros_net_selftest(void)
             pros_net_socket_tick(timer_id, 10000u, &retransmit) != PROS_NET_OK ||
             retransmit != 0u ||
             pros_net_socket_close(timer_id) != PROS_NET_OK)
-            return -11;
+            return -115;
     }
 
     {
@@ -766,7 +766,7 @@ int pros_net_selftest(void)
             pros_net_socket_ack(accepted, 1u) != PROS_NET_OK ||
             pros_net_socket_close(accepted) != PROS_NET_OK ||
             pros_net_socket_close(listener) != PROS_NET_OK)
-            return -12;
+            return -116;
     }
 
     /* Invalid ACKs and oversized payloads must not advance transport state. */
@@ -775,7 +775,7 @@ int pros_net_selftest(void)
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE ||
         pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
-        return -13;
+        return -117;
 
     return PROS_NET_OK;
 }
