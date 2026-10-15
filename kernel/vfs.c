@@ -535,7 +535,8 @@ int vfs_vnode_get(struct pros_vfs_vnode *vnode)
 
 int vfs_vnode_put(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    if (!vnode || !vnode->initialized || vnode->refcount == 0u ||
+        !vnode->ops)
         return PROS_VFS_EINVAL;
     --vnode->refcount;
     if (vnode->refcount == 0u) {
