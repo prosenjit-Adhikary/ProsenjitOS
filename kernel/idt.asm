@@ -32,9 +32,9 @@ isr128:
     push rcx
     push rbx
     push rax
-    ; TSS RSP0 is 16-byte aligned. The CPL3 IRET frame (5 qwords) plus
-    ; 15 saved GPRs leaves RSP 0 mod 16, as required before a SysV C call.
-    ; Keep the original RAX frame pointer and CPU frame offsets explicit.
+    ; IDT vector 128 uses IST1, whose top is 16-byte aligned.
+    ; The CPL3 IRET frame (5 qwords) plus 15 saved GPRs leaves RSP
+    ; 0 mod 16, as required before a SysV C call.
     lea rdi, [rsp]
     lea rsi, [rsp + 120]
     call syscall_dispatch
