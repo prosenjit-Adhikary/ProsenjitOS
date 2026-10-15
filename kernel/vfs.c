@@ -1051,6 +1051,14 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         for (uint32_t i = 0u; i < name_length; ++i)
             name[i] = path[last_slash + 1u + i];
         name[name_length] = '\0';
+        /*
+         * Creation must not allow special path components to be handed to a
+         * provider as ordinary filenames. Lookup interprets these names as
+         * traversal, so create must reject them consistently.
+         */
+        if ((name_length == 1u && name[0] == '.') ||
+            (name_length == 2u && name[0] == '.' && name[1] == '.'))
+            return PROS_VFS_EINVAL;
         if (last_slash == 0u) {
             parent_path[0] = '/'; parent_path[1] = '\0';
         } else {
