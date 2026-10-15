@@ -7419,7 +7419,9 @@ int prosenjitfs_selftest(void)
         struct pros_block_device small_device;
         struct pros_prosenjitfs small_fs;
         uint64_t block;
+        uint64_t first_allocated = 0u;
         uint64_t first_reused = 0u;
+        uint64_t allocated_blocks[PFS_MIN_BLOCKS];
         uint32_t allocated = 0u;
         uint64_t inode_tmp;
 
@@ -7447,26 +7449,46 @@ int prosenjitfs_selftest(void)
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
-            if (++allocated > PFS_MIN_BLOCKS)
+            if (allocated >= PFS_MIN_BLOCKS)
                 {
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
+            allocated_blocks[allocated++] = block;
+            if (allocated == 1u)
+                first_allocated = block;
         }
         if (allocated == 0u) {
             prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(__LINE__, -183);
+        }
+
+        /*
+         * Raw allocator reservations intentionally have no inode/extent owner,
+         * so they cannot be passed to the metadata consistency checker while
+         * still allocated. Release the whole reservation set first.
+         */
+        for (uint32_t i = 0u; i < allocated; ++i) {
+            if (prosenjitfs_free_blocks(&small_fs, allocated_blocks[i], 1u) !=
+                    PROSENJITFS_OK) {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -185);
+            }
         }
         if (pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
             prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(__LINE__, -184);
         }
 
-        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+        if (prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
                 PROSENJITFS_OK ||
-            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
+            prosenjitfs_free_blocks(&small_fs, first_reused, 1u) !=
                 PROSENJITFS_OK ||
-            first_reused != block ||
+            prosenjitfs_alloc_blocks(&small_fs, 1u, &block) !=
+                PROSENJITFS_OK ||
+            block != first_reused ||
+            prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+                PROSENJITFS_OK ||
             prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
                 PROSENJITFS_OK)
             {
@@ -7481,15 +7503,30 @@ int prosenjitfs_selftest(void)
                 if (rc == PROSENJITFS_ENOSPC)
                     break;
                 if (rc != PROSENJITFS_OK ||
-                    ++inode_allocated > small_fs.sb.inode_count) {
+                    ++inode_allocated >= small_fs.sb.inode_count) {
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
             }
-            if (inode_allocated < small_fs.sb.inode_count - 1u ||
-                pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
+            if (inode_allocated < small_fs.sb.inode_count - 1u) {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
+            }
+            /*
+             * alloc_inode() reserves bitmap slots but deliberately does not
+             * create inode records or directory references. Return those
+             * temporary reservations before running consistency validation.
+             */
+            for (uint64_t ino = 1u; ino < small_fs.sb.inode_count; ++ino) {
+                if (pfs_inode_bitmap_update(&small_fs, ino, 0u) !=
+                        PROSENJITFS_OK) {
+                    prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, -186);
+                }
+            }
+            if (pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -187);
             }
         }
 
