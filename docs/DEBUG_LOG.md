@@ -211,3 +211,23 @@ The readdir directory-inode read now uses `pfs_vnode_validate_inode()`, keeping 
 
 ### Verification status
 Source-level stale-vnode audit completed for directory traversal and mutation callbacks. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
+
+## 2026-10-15 — Self-hosted CI recovered; build and ELF regression tests advanced
+
+### Runner and CI evidence
+- GitHub Actions build jobs ran on self-hosted runner `office` (machine `debian`). Toolchain verification passed. This confirms the runner is executing jobs; recent failures are source/test failures rather than runner-offline failures.
+- Run #6061 (commit `09100e4ab0debb8a4a93eed78abedb25e6852598`) passed security architecture checks but failed compilation because `kernel/prosenjitfs.c:pfs_data_start()` was defined but unused under `-Werror=unused-function`.
+- Removed the unused helper in commit `e9648a902f0e4faa687f547a0e1ca42b8167c537`. On the subsequent run, ISO build passed and QEMU boot reached kernel initialization.
+
+### Runtime failure and source fixes
+- QEMU log for run #6062 (commit `e9648a902f0e4faa687f547a0e1ca42b8167c537`) reported `ProsenjitOS: ERROR ELF validation negative self-test failed` after paging, heap, address-space isolation, and persistent crash-record self-tests passed.
+- In `kernel/elf_loader.c`, the overlapping-segment regression gave the second PT_LOAD a virtual address offset of `0x800` while retaining a page-aligned file offset. The validator correctly rejects the page-incongruent segment as `PROS_ELF_EFORMAT` before it can reach the intended overlap check. Updated the fixture to use the same page-congruent virtual address as the first segment, so the test specifically expects `PROS_ELF_ECONFLICT`. Commit: `44128ef27138fc22f87a38230071f8a4ee870924`.
+- Also aligned `kernel/security_exec.c` self-test fixtures with the current security contract: TRUSTED/ALLOW records now include both `PROS_FILE_EVIDENCE_FORMAT_VALID` and `PROS_FILE_EVIDENCE_LOCAL_TRUST`; the terminal-process test models an already-zombie process directly because `process_set_state()` intentionally rejects terminal transitions, and it now uses a valid trusted record to test the terminal-state boundary. Commit: `5de14837b20dab928c767efe5da0ec33b4a8222e`.
+- Earlier in the same sequence, fixed the NASM `security_halt` label-scope issue in `boot/entry.asm` (the later main-branch source uses a non-local label) and removed the unused ProsenjitFS helper as described above.
+
+### Verification status / next steps
+- The run after `e9648a9` built the ISO successfully but failed during QEMU boot at the ELF validation negative self-test; it did not reach CPL3/IPC milestones.
+- Commits `44128ef` and `5de1483` are source/test fixes and require a fresh build/QEMU run. Do not mark boot or CPL3/IPC as passed until the new run's logs confirm the corresponding milestones.
+- GitHub Actions artifact upload has separately reported storage quota exhaustion on previous runs; this does not explain the ELF self-test failure.
+- Remaining kernel risks—shared IST1 syscall-frame lifetime, blocked/quarantined scheduler eligibility, no-successor handling, and IPC wait/wakeup synchronization—remain open.
+
