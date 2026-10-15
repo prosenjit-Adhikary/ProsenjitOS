@@ -140,8 +140,10 @@ jobs:
 
       - name: Upload ISO and boot diagnostics
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
+          retention-days: 1
           name: prosenjitOS-boot-test
           path: |
             build/prosenjitOS.iso
