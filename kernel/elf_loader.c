@@ -266,8 +266,13 @@ int pros_elf_selftest(void)
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
     eh->phnum = 1;
+    /* Isolate the zero-memsz case: filesz > memsz is a bounds error and
+     * must be tested independently from the zero-memory format rejection. */
+    ph[0].filesz = 0;
     ph[0].memsz = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
+    ph[0].filesz = 4;
+    ph[0].memsz = 0x1000;
 
     /* Rollback isolation regression: an existing mapping must survive a
      * rejected load that targets the same PT_LOAD page. */
