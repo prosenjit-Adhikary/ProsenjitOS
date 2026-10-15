@@ -671,6 +671,7 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
         int lookup_rc = current->ops->lookup(current, component, &next);
         if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
             next->refcount == 0u || next->mount != mount || !next->ops ||
+            (next == current && next->refcount < 2u) ||
             (next->type != PROS_VFS_NODE_FILE &&
              next->type != PROS_VFS_NODE_DIRECTORY)) {
             /*
