@@ -5256,8 +5256,9 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
     pfs_zero(fs, sizeof(*fs));
 }
 
-static uint32_t pfs_selftest_diag_stage;
-static int pfs_selftest_diag_rc;
+/* Exception handlers may inspect these while the self-test is still active. */
+static volatile uint32_t pfs_selftest_diag_stage;
+static volatile int pfs_selftest_diag_rc;
 
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
