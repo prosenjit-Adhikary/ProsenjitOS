@@ -204,11 +204,13 @@ void idt_init(void) {
     for (uint32_t i = 0; i < 32; ++i) idt_set_gate(i, handlers[i], 0);
     idt_set_gate(8, handlers[8], 2); /* dedicated double-fault stack */
     /*
-     * Keep #GP/#PF on the normal CPL0 stack while debugging the user entry
-     * path. If delivery itself fails, #DF will still have its dedicated IST.
+     * Page faults can occur when the active kernel stack mapping itself is
+     * broken. Enter #PF on the dedicated IST1 stack so diagnostics can run
+     * without pushing the exception frame onto the faulting stack. #DF keeps
+     * its independent IST2 stack.
      */
     idt_set_gate(13, handlers[13], 0);
-    idt_set_gate(14, handlers[14], 0);
+    idt_set_gate(14, handlers[14], 1);
     idt_set_gate(32, isr32, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
