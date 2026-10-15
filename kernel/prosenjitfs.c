@@ -7030,6 +7030,7 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
+        pfs_selftest_diag_stage = __LINE__;
         {
             int unlink_rc = vfs_unlink(&fs.mount,
                                        "/persist/config/sub/renamed.bin");
@@ -7040,6 +7041,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, rmdir_rc);
         }
 
+        pfs_selftest_diag_stage = __LINE__;
         if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
                 PROS_VFS_OK ||
             vfs_rmdir(&fs.mount, "/persist/config/sub") != PROS_VFS_OK ||
@@ -7048,6 +7050,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -15);
 
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Boundary-size persistence matrix: exercise empty, byte, sector and
          * block edges across independent unmount/remount cycles.
@@ -7159,6 +7162,7 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Negative/boundary arithmetic is exercised against the real device
          * contract, including end-of-device and UINT64_MAX overflow cases.
@@ -7197,6 +7201,7 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Bounded-truncate regression: eight independent extents exceed the
          * v1 transaction budget. The operation must fail before changing EOF
@@ -7245,6 +7250,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Semantic corruption: preserve the inode checksum while replacing
          * its extent head with an impossible filesystem block. Mount can
@@ -7299,6 +7305,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Tiny-image allocation exhaustion.  This uses the real allocator and
      * journal on a minimum-size filesystem, then verifies recovery/reuse.
@@ -7379,6 +7386,7 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * A partition view that is one sector shorter than the durable
          * filesystem must be rejected before any filesystem I/O can cross
@@ -7407,6 +7415,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Journal recovery regression:
      *  1. A fully committed redo record must replay on the next mount.
@@ -7533,6 +7542,7 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Crash/power-loss transaction matrix.
      *
@@ -7630,6 +7640,7 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Interrupted-recovery/idempotence regression.
      *
@@ -7733,6 +7744,7 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /* Repeated persistence/reuse regression: 100 complete create/write/
      * unmount/remount/read/unlink/unmount/remount cycles on one image. */
     {
