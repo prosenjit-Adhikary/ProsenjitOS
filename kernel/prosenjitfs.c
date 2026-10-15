@@ -5324,6 +5324,17 @@ static int pfs_test_crash_reset(struct pros_prosenjitfs *fs,
         if (rc != PROS_VFS_OK)
             return pfs_vfs_error(rc);
     } else if (fs->mount.root) {
+        /*
+         * An inactive mount can still retain a root after partial setup or
+         * failed teardown. Do not drop just one reference and then free the
+         * filesystem backing state while another vnode still depends on it.
+         * The active-mount path above uses the same single-owner invariant.
+         */
+        if (!fs->mount.root->initialized ||
+            fs->mount.root->mount != &fs->mount)
+            return PROSENJITFS_EINVAL;
+        if (fs->mount.root->refcount != 1u)
+            return PROSENJITFS_EBUSY;
         rc = vfs_vnode_put(fs->mount.root);
         if (rc != PROS_VFS_OK)
             return pfs_vfs_error(rc);
