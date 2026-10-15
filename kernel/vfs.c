@@ -460,16 +460,9 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
                                        !file_ops->close))
         return PROS_VFS_EINVAL;
     /*
-     * A non-root vnode owns a reference to its parent for its entire lifetime.
-     * Root vnodes may point to themselves and must not acquire a self-reference.
+     * Parent ownership is filesystem/provider-specific: providers such as
+     * ProsenjitFS retain and release it in their vnode factory/release hooks.
      */
-    if (parent && parent != vnode) {
-        if (!parent->initialized || parent->mount != mount ||
-            parent->type != PROS_VFS_NODE_DIRECTORY)
-            return PROS_VFS_EINVAL;
-        if (vfs_vnode_get(parent) != PROS_VFS_OK)
-            return PROS_VFS_EOVERFLOW;
-    }
     vnode->mount = mount;
     vnode->parent = parent;
     vnode->ops = ops;
@@ -498,14 +491,11 @@ int vfs_vnode_put(struct pros_vfs_vnode *vnode)
         return PROS_VFS_EINVAL;
     --vnode->refcount;
     if (vnode->refcount == 0u) {
-        struct pros_vfs_vnode *parent = vnode->parent;
         void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
         if (release)
             release(vnode);
         else
             vnode->initialized = 0u;
-        if (parent && parent != vnode)
-            (void)vfs_vnode_put(parent);
     }
     return PROS_VFS_OK;
 }
@@ -1136,9 +1126,40 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
     return (int)take;
 }
 
+static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
+{
+    struct pros_vfs_vnode *parent;
+    if (!vnode)
+        return;
+    parent = vnode->parent;
+    vnode->parent = 0;
+    vnode->private_data = 0;
+    vnode->initialized = 0u;
+    if (parent && parent != vnode)
+        (void)vfs_vnode_put(parent);
+}
+
+static int vfs_selftest_vnode_init_child(
+    struct pros_vfs_vnode *vnode, struct pros_vfs_mount *mount,
+    struct pros_vfs_vnode *parent, enum pros_vfs_node_type type,
+    const struct pros_vfs_vnode_ops *ops,
+    const struct pros_vfs_file_ops *file_ops, void *private_data,
+    uint64_t size)
+{
+    int rc;
+    if (!parent || vfs_vnode_get(parent) != PROS_VFS_OK)
+        return PROS_VFS_EINVAL;
+    rc = vfs_vnode_init(vnode, mount, parent, type, ops, file_ops,
+                        private_data, size);
+    if (rc != PROS_VFS_OK)
+        (void)vfs_vnode_put(parent);
+    return rc;
+}
+
 static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
-    .readdir = vfs_selftest_readdir
+    .readdir = vfs_selftest_readdir,
+    .release = vfs_selftest_vnode_release
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1183,13 +1204,13 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
-        vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
+        vfs_selftest_vnode_init_child(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &hello_data, sizeof(hello) - 1u) != PROS_VFS_OK ||
-        vfs_vnode_init(&etc_node, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+        vfs_selftest_vnode_init_child(&etc_node, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &etc_data, 0) !=
             PROS_VFS_OK ||
-        vfs_vnode_init(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
+        vfs_selftest_vnode_init_child(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
