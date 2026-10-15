@@ -459,6 +459,17 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     if (type == PROS_VFS_NODE_FILE && (!file_ops || !file_ops->read ||
                                        !file_ops->close))
         return PROS_VFS_EINVAL;
+    /*
+     * A non-root vnode owns a reference to its parent for its entire lifetime.
+     * Root vnodes may point to themselves and must not acquire a self-reference.
+     */
+    if (parent && parent != vnode) {
+        if (!parent->initialized || parent->mount != mount ||
+            parent->type != PROS_VFS_NODE_DIRECTORY)
+            return PROS_VFS_EINVAL;
+        if (vfs_vnode_get(parent) != PROS_VFS_OK)
+            return PROS_VFS_EOVERFLOW;
+    }
     vnode->mount = mount;
     vnode->parent = parent;
     vnode->ops = ops;
@@ -487,11 +498,14 @@ int vfs_vnode_put(struct pros_vfs_vnode *vnode)
         return PROS_VFS_EINVAL;
     --vnode->refcount;
     if (vnode->refcount == 0u) {
+        struct pros_vfs_vnode *parent = vnode->parent;
         void (*release)(struct pros_vfs_vnode *) = vnode->ops->release;
         if (release)
             release(vnode);
         else
             vnode->initialized = 0u;
+        if (parent && parent != vnode)
+            (void)vfs_vnode_put(parent);
     }
     return PROS_VFS_OK;
 }
