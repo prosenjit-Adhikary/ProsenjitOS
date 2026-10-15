@@ -7335,13 +7335,18 @@ int prosenjitfs_selftest(void)
          */
         if (vfs_file_open(&fs.mount, "/corrupt.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
-                PROS_VFS_OK ||
-            vfs_file_close(&file) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/corrupt.bin", &node) !=
                 PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+            return pfs_selftest_fail(__LINE__, -161);
+        if (vfs_file_write(&file, small_data, sizeof(small_data), &done) !=
+                PROS_VFS_OK || done != sizeof(small_data)) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -162);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -163);
+        if (vfs_path_lookup(&fs.mount, "/corrupt.bin", &node) !=
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -164);
         node_data = (struct pfs_vnode_data *)node->private_data;
         if (!node_data ||
             prosenjitfs_read_inode(&fs, node_data->inode_number, &inode) !=
