@@ -32,15 +32,15 @@ isr128:
     push rcx
     push rbx
     push rax
-    ; The CPL3 iret frame plus 15 saved GPRs leaves RSP 0 mod 16.
-    ; Keep the C ABI aligned while passing the original frame addresses.
-    sub rsp, 8
-    lea rdi, [rsp + 8]
-    lea rsi, [rsp + 128]
+    ; TSS RSP0 is 16-byte aligned. The CPL3 IRET frame (5 qwords) plus
+    ; 15 saved GPRs leaves RSP 0 mod 16, as required before a SysV C call.
+    ; Keep the original RAX frame pointer and CPU frame offsets explicit.
+    lea rdi, [rsp]
+    lea rsi, [rsp + 120]
     call syscall_dispatch
-    cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF01
+    cmp qword [rsp], 0xFFFFFFFFFFFFFF01
     jne .syscall_return
-    lea rdi, [rsp + 8]
+    lea rdi, [rsp]
     call thread_schedule_interrupt
     test rax, rax
     jz .syscall_return
@@ -48,7 +48,6 @@ isr128:
     jmp .syscall_restore_switched
 
 .syscall_return:
-    add rsp, 8
     pop rax
     pop rbx
     pop rcx
@@ -119,15 +118,14 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
-    ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
-    sub rsp, 8
-    lea rdi, [rsp + 24]
+    ; TSS RSP0 is 16-byte aligned. The CPU frame plus 17 saved qwords
+    ; leaves RSP 0 mod 16, so C calls can use this stack without adjustment.
+    lea rdi, [rsp + 16]
     call timer_dispatch
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 24]
+    lea rdi, [rsp + 16]
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
@@ -147,7 +145,7 @@ isr32:
     call pic_eoi_master
     ; The current IRQ frame still contains vector/error below RAX..R15.
     ; Restore the GPRs, then skip those two words before IRET.
-    add rsp, 24
+    add rsp, 16
     pop rax
     pop rbx
     pop rcx
