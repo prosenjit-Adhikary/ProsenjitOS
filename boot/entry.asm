@@ -372,19 +372,21 @@ page_directory: resb 4096
                 resb 4096
                 resb 4096
 
-align 16
+; Give the bootstrap and IST stacks a separately page-aligned NOBITS section.
+; This prevents their first/last pages from sharing protection boundaries with
+; unrelated BSS objects and makes the writable-stack mapping unambiguous.
+section .bss.stack nobits align=4096
+align 4096
 global stack_bottom
 global stack_top
 stack_bottom:
     ; Early boot runs kernel_main plus deeply nested filesystem, storage,
     ; process, and memory self-tests on this single bootstrap stack. The
-    ; previous 128 KiB allocation was insufficient for the observed failure:
-    ; ProsenjitFS stopped at block-device initialization with a zero return
-    ; address and repeated instruction-fetch page faults at RIP=0, consistent
-    ; with stack exhaustion/corruption. Reserve
-    ; 512 KiB so nested test frames and large filesystem scratch buffers have
-    ; headroom while keeping the stack inside the identity-mapped low 1 GiB.
-    resb 524288
+    ; QEMU showed the bootstrap stack pointer within a few hundred bytes
+    ; of the 512 KiB lower boundary during nested filesystem self-tests.
+    ; Reserve 1 MiB and page-align the section so stack use cannot reach an
+    ; adjacent object's protection boundary during normal boot diagnostics.
+    resb 1048576
 stack_top:
 
 align 16
