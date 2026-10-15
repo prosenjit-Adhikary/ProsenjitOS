@@ -13,6 +13,7 @@ struct pros_thread;
 #define PROSENJIT_IPC_EFULL -2
 #define PROSENJIT_IPC_EEMPTY -3
 #define PROSENJIT_IPC_EMSGSIZE -4
+#define PROSENJIT_IPC_EALREADY -5
 
 struct pros_ipc_message {
     uint32_t length;
