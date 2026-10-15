@@ -138,17 +138,13 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Build #5908 did NOT resolve the boot failure. Next run must show whether the last progress is 1001, 1002, 1003, or 101; use that to isolate the exact instruction/call boundary before changing functional behavior.
 
 
-### Follow-up after Build #6010 — VFS security self-test root cause (2026-10-15)
+### 2026-10-15 — VFS security self-test root cause after Build #6010
 
 - Build #6010 compiled the ISO and reached `security_manager_init()`, then failed with stage `0xFFFFFFFFFFFFF036` (`-4042`).
-- The stage mapping in `kernel/intent.c` is `-4000 + rc` for `vfs_security_selftest()`; `kernel/vfs.c` maps `vfs_vnode_api_selftest()` failure to `-42`. This isolates the failure to the VFS vnode API self-test, not the earlier ProsenjitFS self-test.
-- Root cause: the test opened `/hello.txt`, deactivated the mount, and only then called `vfs_file_close()`. The close API deliberately rejects a handle whose mount is already inactive, so the self-test contradicted the VFS close contract. The self-test provider uses static vnode fixtures and does not model the native provider's parent-reference ownership, so this test is not evidence for the mount-busy invariant.
-- Fix committed: the regression now closes the live file while the mount is active, deactivates the mount afterward, and verifies the closed file handle is rejected.
-- Source fix commit: `254a2edcd7bc4bc42a46bef90169d2db2be67dad`.
-- Verification: pending a new clean build and QEMU run. This source-level root cause is identified; the boot issue is not marked fixed until the runtime milestones pass. Artifact upload in Build #6010 also hit the GitHub Actions storage quota, but that is separate from the boot failure.
-
-
-- Follow-up correction to the VFS root-cause note: the exact failing operation was `vfs_file_close()` after deactivation (it rejects inactive mounts), not an observed `PROS_VFS_EBUSY` return. The revised regression order follows the API contract. Build/QEMU verification remains pending.
-
-
-- Verification ordering clarification: Build #6010 stopped inside `security_manager_init()` at the VFS self-test, before the later `prosenjitfs_selftest()` call in `kernel/kernel.c`. Therefore this run does **not** re-verify or disprove the earlier ProsenjitFS/block-device crash; that checkpoint remains pending after the VFS startup self-test is repaired.
+- The stage mapping in `kernel/intent.c` is `-4000 + rc` for `vfs_security_selftest()`; `kernel/vfs.c` maps `vfs_vnode_api_selftest()` failure to `-42`. This isolates the failure to the VFS vnode API self-test, before the later `prosenjitfs_selftest()` call.
+- Root cause: the self-test opened `/hello.txt`, then expected `vfs_mount_deactivate()` to succeed while that file still held a vnode reference. The VFS teardown contract correctly returns `PROS_VFS_EBUSY` in that state. The original test expected the wrong result.
+- Fix: the regression now asserts deactivation returns `PROS_VFS_EBUSY` while the handle is open, confirms the handle remains seekable, closes the file, retries deactivation successfully, and confirms the closed handle is rejected.
+- Latest source commit: `980bb6cb00b0ffbd3d5d2bcc38f11439e0ad63e4` (`test: verify busy mount teardown with open vnode handle`).
+- Verification: source-level root cause identified and test updated; clean build and QEMU verification are pending. The self-hosted workflow has not started (job remains queued with no runner assignment), so no runtime pass is claimed.
+- Artifact upload quota failure in Build #6010 is separate from the boot failure.
+- The earlier ProsenjitFS/block-device crash remains unverified in this run because boot stopped in `security_manager_init()` before reaching that self-test.
