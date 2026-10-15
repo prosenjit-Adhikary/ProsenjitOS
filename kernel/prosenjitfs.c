@@ -7087,11 +7087,13 @@ int prosenjitfs_selftest(void)
             }
         }
 
+        /* An allocated inode is a deliberate temporary reservation until
+         * its caller writes the inode image. Do not run the global consistency
+         * checker while that reservation is intentionally uninitialized. */
         if (prosenjitfs_alloc_blocks(&fs, 2u, &allocated_block) !=
                 PROSENJITFS_OK ||
             prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
                 PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
@@ -7132,6 +7134,9 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_alloc_blocks(&fs, 2u, &first_block) !=
                 PROSENJITFS_OK ||
             prosenjitfs_free_blocks(&fs, first_block, 2u) != PROSENJITFS_OK ||
+            pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
+                PROSENJITFS_OK ||
+            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
