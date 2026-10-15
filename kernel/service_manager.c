@@ -335,6 +335,13 @@ int service_manager_selftest(void)
     /* Missing dependencies must fail closed rather than partially starting. */
     if (service_manager_init() != PROS_SERVICE_OK)
         return -10;
+    /*
+     * Each scenario uses an isolated callback context. Earlier lifecycle tests
+     * intentionally leave a and b incremented, so clear them before asserting
+     * that a missing dependency never invokes the start callback.
+     */
+    a = 0u;
+    b = 0u;
     {
         const struct pros_service_definition missing_dep = {
             .name = "missing-dep", .start = sm_test_start, .stop = sm_test_stop,
