@@ -1465,13 +1465,16 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -1;
 
-    if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
-        return -1;
-
-    if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
-        return -1;
-
-    if (vfs_file_close(&file) != PROS_VFS_OK)
+    /*
+     * An open file owns a vnode reference, so deactivation must fail busy
+     * until the handle is closed. Then deactivation may release the mount's
+     * root reference; the closed file handle must remain unusable.
+     */
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
         return -1;
 
     return 0;
