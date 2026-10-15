@@ -1179,11 +1179,17 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
     if (rc != PROS_VFS_OK)
         return rc;
     if (vnode->type != PROS_VFS_NODE_DIRECTORY) {
-        vfs_vnode_put(vnode);
+        int put_rc = vfs_vnode_put(vnode);
+        if (put_rc != PROS_VFS_OK)
+            vfs_health_error(put_rc);
+        vfs_health_error(PROS_VFS_ENOTDIR);
         return PROS_VFS_ENOTDIR;
     }
     if (!vnode->ops || !vnode->ops->readdir) {
-        vfs_vnode_put(vnode);
+        int put_rc = vfs_vnode_put(vnode);
+        if (put_rc != PROS_VFS_OK)
+            vfs_health_error(put_rc);
+        vfs_health_error(PROS_VFS_ENOSYS);
         return PROS_VFS_ENOSYS;
     }
     dir->vnode = vnode;
