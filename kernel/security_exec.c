@@ -96,7 +96,8 @@ int pros_security_exec_selftest(void) {
 
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
-    record.security.evidence = PROS_FILE_EVIDENCE_LOCAL_TRUST;
+    record.security.evidence = PROS_FILE_EVIDENCE_FORMAT_VALID |
+                               PROS_FILE_EVIDENCE_LOCAL_TRUST;
     for (uint32_t i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
         record.sha256[i] = (uint8_t)i;
 
@@ -159,6 +160,8 @@ int pros_security_exec_selftest(void) {
         goto fail;
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
+    record.security.evidence = PROS_FILE_EVIDENCE_FORMAT_VALID |
+                               PROS_FILE_EVIDENCE_LOCAL_TRUST;
     if (pros_security_exec_admit(&process, &record, 4u, 0) !=
             PROS_SECURITY_EXEC_BLOCK ||
         process.state != PROS_PROCESS_BLOCKED ||
