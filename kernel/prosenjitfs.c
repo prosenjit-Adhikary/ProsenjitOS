@@ -7230,12 +7230,38 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -159);
         }
 
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
-            vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+        {
+            int truncate_rc;
+            const char *overflow_test_path = "/overflow-truncate.bin";
+
+            /*
+             * /hello.bin was deliberately unlinked earlier in this self-test.
+             * Use a dedicated temporary file here so this boundary check does
+             * not open a missing path or silently depend on test ordering.
+             */
+            if (vfs_file_open(&fs.mount, overflow_test_path,
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -151);
+
+            truncate_rc = vfs_file_truncate(&file, UINT64_MAX);
+            if (truncate_rc != PROS_VFS_EOVERFLOW) {
+                (void)vfs_file_close(&file);
+                (void)vfs_unlink(&fs.mount, overflow_test_path);
+                return pfs_selftest_fail(__LINE__, -152);
+            }
+
+            truncate_rc = vfs_file_truncate(&file, 0x100000000ULL);
+            if (truncate_rc != PROS_VFS_EOVERFLOW) {
+                (void)vfs_file_close(&file);
+                (void)vfs_unlink(&fs.mount, overflow_test_path);
+                return pfs_selftest_fail(__LINE__, -153);
+            }
+
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_unlink(&fs.mount, overflow_test_path) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -154);
+        }
 
         pfs_selftest_diag_stage = __LINE__;
         /*
