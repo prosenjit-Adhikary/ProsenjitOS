@@ -7034,7 +7034,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -151);
             int rmdir_rc = vfs_rmdir(&fs.mount, "/persist/config/sub");
             if (rmdir_rc != PROS_VFS_ENOTEMPTY)
-                return pfs_selftest_fail(__LINE__, -152);
+                return pfs_selftest_fail(__LINE__, rmdir_rc);
         }
 
         if (vfs_unlink(&fs.mount, "/persist/config/sub/tree.bin") !=
