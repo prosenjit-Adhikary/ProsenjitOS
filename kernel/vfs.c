@@ -681,7 +681,8 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
              * initialization contract.  Drop that transferred reference on
              * every rejected result so a provider bug cannot leak a vnode.
              */
-            if (next && next != current && next->initialized)
+            if (next && next->initialized &&
+                (next != current || next->refcount >= 2u))
                 (void)vfs_vnode_put(next);
             vfs_vnode_put(current);
             return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
