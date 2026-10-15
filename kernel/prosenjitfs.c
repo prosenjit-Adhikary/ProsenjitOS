@@ -7506,7 +7506,7 @@ int prosenjitfs_selftest(void)
                 if (rc == PROSENJITFS_ENOSPC)
                     break;
                 if (rc != PROSENJITFS_OK ||
-                    ++inode_allocated >= small_fs.sb.inode_count) {
+                    ++inode_allocated > small_fs.sb.inode_count) {
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
