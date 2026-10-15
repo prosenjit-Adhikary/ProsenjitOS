@@ -378,9 +378,10 @@ global stack_top
 stack_bottom:
     ; Early boot runs kernel_main plus deeply nested filesystem, storage,
     ; process, and memory self-tests on this single bootstrap stack. The
-    ; previous 128 KiB allocation was exhausted before ProsenjitFS finished:
-    ; the captured RSP fell below stack_bottom and the return address became
-    ; zero, causing repeated instruction-fetch page faults at RIP=0. Reserve
+    ; previous 128 KiB allocation was insufficient for the observed failure:
+    ; ProsenjitFS stopped at block-device initialization with a zero return
+    ; address and repeated instruction-fetch page faults at RIP=0, consistent
+    ; with stack exhaustion/corruption. Reserve
     ; 512 KiB so nested test frames and large filesystem scratch buffers have
     ; headroom while keeping the stack inside the identity-mapped low 1 GiB.
     resb 524288
