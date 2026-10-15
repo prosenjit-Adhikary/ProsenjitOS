@@ -149,3 +149,6 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 
 
 - Follow-up correction to the VFS root-cause note: the exact failing operation was `vfs_file_close()` after deactivation (it rejects inactive mounts), not an observed `PROS_VFS_EBUSY` return. The revised regression order follows the API contract. Build/QEMU verification remains pending.
+
+
+- Verification ordering clarification: Build #6010 stopped inside `security_manager_init()` at the VFS self-test, before the later `prosenjitfs_selftest()` call in `kernel/kernel.c`. Therefore this run does **not** re-verify or disprove the earlier ProsenjitFS/block-device crash; that checkpoint remains pending after the VFS startup self-test is repaired.
