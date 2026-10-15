@@ -246,3 +246,17 @@ Source-level stale-vnode audit completed for directory traversal and mutation ca
 - Source fix is committed to `main`; the new GitHub Actions/QEMU run must verify it.
 - Do not mark the OS complete until the QEMU ISO test and native BIOS boot test pass their required milestones. GitHub Actions artifact upload may still be independently blocked by the repository storage quota.
 
+## 2026-10-15 — ProsenjitFS seek regression corrected
+
+### Diagnosis
+- After the extent-link fix, QEMU advanced beyond the preallocation-chain failure and reached the file I/O boundary regressions.
+- The test expected `vfs_file_seek(file, 701)` to fail for a 700-byte file. That contradicts the filesystem's deliberate sparse-file behavior: seeking past EOF is allowed so a subsequent write can create a hole. The actual VFS contract rejects offsets above its 32-bit limit, not offsets merely beyond EOF.
+
+### Fix
+- Updated the regression to seek to `0x100000000ULL`, expect `PROS_VFS_EOVERFLOW`, and verify that the current position remains 700.
+- Commit: `ef55d48` (`test: align seek regression with sparse-file semantics`).
+
+### Verification status
+- The prior QEMU run confirms the preallocation extent-chain failure is no longer the first failing test; it then failed at this seek regression.
+- Awaiting the next clean ISO/QEMU run to identify any remaining failures and reach the CPL3 and native BIOS tests.
+
