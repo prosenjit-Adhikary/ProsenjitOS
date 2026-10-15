@@ -5413,12 +5413,11 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             continue;
         }
         if (rc == PROSENJITFS_ENOENT) {
-            /* After mount/recovery an allocated inode must have a valid
-             * on-disk inode image. Reservation is an in-memory transaction
-             * concern and must never survive as an apparently clean state. */
-            rc = PROSENJITFS_ECORRUPT;
-            fail_line = __LINE__;
-                        goto consistency_out;
+            /* Diagnostic: encode the allocated-but-empty inode number so
+             * the failing allocation/namespace transition can be isolated. */
+            rc = -20000 - (int)inode_number;
+            fail_line = 0u;
+            goto consistency_out;
         }
         if (rc != PROSENJITFS_OK ||
             (inode.type != PROSENJITFS_INODE_FILE &&
