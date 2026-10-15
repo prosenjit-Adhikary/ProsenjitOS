@@ -241,6 +241,16 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("ProsenjitOS: exception RIP = ");
     serial_hex64(frame[2]);
     serial_write("\n");
+    {
+        uint32_t pfs_stage = 0u;
+        int pfs_rc = 0;
+        prosenjitfs_selftest_diag_get(&pfs_stage, &pfs_rc);
+        serial_write("ProsenjitOS: ProsenjitFS diagnostic stage = ");
+        serial_hex64(pfs_stage);
+        serial_write(" rc = ");
+        serial_hex64((uint64_t)(int64_t)pfs_rc);
+        serial_write("\n");
+    }
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
     if (vector != 128 && !usercopy_fault_active()) {
