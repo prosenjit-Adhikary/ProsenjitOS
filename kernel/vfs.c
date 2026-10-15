@@ -817,9 +817,22 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
         return PROS_VFS_ENOSYS;
     }
     rc = parent->ops->mkdir(parent, name, &created);
-    if (created && created->initialized && created->refcount != 0u)
-        (void)vfs_vnode_put(created);
-    vfs_vnode_put(parent);
+    {
+        int created_put_rc = PROS_VFS_OK;
+        int parent_put_rc;
+        if (created && created->initialized && created->refcount != 0u)
+            created_put_rc = vfs_vnode_put(created);
+        parent_put_rc = vfs_vnode_put(parent);
+        /*
+         * Preserve the provider's operation error. If the mutation itself
+         * succeeded, surface a reference-release failure rather than
+         * reporting a clean success while vnode ownership is inconsistent.
+         */
+        if (rc == PROS_VFS_OK && created_put_rc != PROS_VFS_OK)
+            rc = created_put_rc;
+        if (rc == PROS_VFS_OK && parent_put_rc != PROS_VFS_OK)
+            rc = parent_put_rc;
+    }
     if (rc < 0) vfs_health_error(rc); else ++health_mkdir_count;
     return rc;
 }
