@@ -5730,6 +5730,7 @@ int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
+    pfs_selftest_diag_stage = __LINE__;
     pfs_crash_inject_stage = 0u;
     pfs_crash_injected = 0u;
     static struct pfs_test_disk disk;
@@ -5742,6 +5743,7 @@ int prosenjitfs_selftest(void)
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
+    pfs_selftest_diag_stage = __LINE__;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
     pfs_selftest_diag_stage = __LINE__;
