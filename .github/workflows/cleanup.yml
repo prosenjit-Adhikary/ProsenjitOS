@@ -4,7 +4,7 @@ name: Cleanup GitHub Actions Artifacts
 on:
   workflow_dispatch:
     inputs:
-      retention_days:
+      retention_days: 1
         description: "Keep artifacts newer than this many days"
         required: true
         default: "14"
