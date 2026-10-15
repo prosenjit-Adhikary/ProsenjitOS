@@ -5745,6 +5745,7 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -1);
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the
@@ -5836,6 +5837,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -6);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Mount lifecycle regression: an open handle must pin the vnode tree and
      * make unmount fail with EBUSY. After the handle closes, the same mount
@@ -5874,6 +5876,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
@@ -5901,6 +5904,7 @@ int prosenjitfs_selftest(void)
             if (combined[i] != (i < 3u ? first[i] : second[i - 3u]))
                 return pfs_selftest_fail(__LINE__, -13);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Two independent append handles must each re-read authoritative EOF.
          * The provider serializes the full append transaction, so the second
@@ -5937,6 +5941,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -13);
         }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * VFS negative/error-contract matrix: invalid flags, missing paths,
      * directory-as-file, overflow seek/truncate, and read-only writes must
@@ -5969,6 +5974,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -18);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /* Sparse logical-offset regression: seek beyond EOF, write one byte, and
      * verify the unwritten interval reads as zeros. */
     {
@@ -6001,6 +6007,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /* Sparse extent ordering regression: populate two separated logical
      * blocks, then fill the hole. The new extent must be inserted between
      * them rather than appended after the higher logical extent. */
@@ -6035,6 +6042,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Sparse truncate-growth regression: extending EOF must preserve the
      * already allocated prefix, expose only zeros through the new hole, and
@@ -6092,6 +6100,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Delayed-allocation regression: two consecutive full-block writes must
      * reuse physically adjacent space and coalesce into one 2-block extent.
@@ -6180,10 +6189,12 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    pfs_selftest_diag_stage = __LINE__;
     /* The preceding persistence test unmounts; remount for the next test. */
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -15);
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Sparse + delayed-allocation cross-regression: create a high logical
      * extent first, then fill a lower hole and finally write the immediately
@@ -6307,6 +6318,7 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -7);
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -8);
+    pfs_selftest_diag_stage = __LINE__;
     /* Allocation alone is a temporary reservation; release it after this
      * boundary check so later consistency scans see no allocated empty inode. */
     if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
@@ -6318,6 +6330,7 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_free_blocks(&fs, first_block, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -10);
 
+    pfs_selftest_diag_stage = __LINE__;
     /* Keep-size preallocation regression: reserve future blocks without
      * changing EOF, verify zero initialization, persistence, and subsequent
      * in-place write reuse. */
@@ -6415,6 +6428,7 @@ int prosenjitfs_selftest(void)
 
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
+    pfs_selftest_diag_stage = __LINE__;
     /* Persistence checks for append and sparse files after remount. */
     {
         struct pros_vfs_file file;
@@ -6467,6 +6481,7 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * A write-only handle must reject read attempts at the VFS layer.
          */
@@ -6521,6 +6536,7 @@ int prosenjitfs_selftest(void)
             }
         }
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Explicitly exercise seek/read/write across the 512-byte block
          * boundary. The file is 700 bytes, so offset 500 + 200 bytes
@@ -6560,6 +6576,7 @@ int prosenjitfs_selftest(void)
             }
         }
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * A seek beyond the 32-bit VFS offset limit must fail without
          * changing the current position. Seeking past EOF itself is valid
@@ -6572,6 +6589,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -12);
         }
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * A read beginning exactly at EOF is a successful zero-byte read.
          */
@@ -6596,6 +6614,7 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Partial write starting at offset 500 must cross the 512-byte
          * boundary while preserving the file size.
@@ -6631,6 +6650,7 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
 
+        pfs_selftest_diag_stage = __LINE__;
         /*
          * Verify the cross-boundary write immediately through the VFS.
          */
@@ -6815,6 +6835,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(41738u, -12);
         }
     }
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Stale-handle regression: unlink immediately invalidates an inode
      * generation, but the open VFS object remains safe to close. Reuse of
@@ -6889,6 +6910,7 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Transaction hygiene regression: rejected staging must not leak a
      * partially prepared transaction into the next filesystem operation.
@@ -6915,6 +6937,7 @@ int prosenjitfs_selftest(void)
     }
 
 
+    pfs_selftest_diag_stage = __LINE__;
     /*
      * Full persistence/namespace/allocation regression.
      *
