@@ -7348,42 +7348,53 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -164);
         node_data = (struct pfs_vnode_data *)node->private_data;
-        if (!node_data ||
-            prosenjitfs_read_inode(&fs, node_data->inode_number, &inode) !=
-                PROSENJITFS_OK)
-            {
-                vfs_vnode_put(node);
-                return pfs_selftest_fail(__LINE__, -16);
-            }
+        if (!node_data) {
+            (void)vfs_vnode_put(node);
+            return pfs_selftest_fail(__LINE__, -165);
+        }
         inode_before = node_data->inode_number;
+        if (prosenjitfs_read_inode(&fs, inode_before, &inode) !=
+                PROSENJITFS_OK) {
+            (void)vfs_vnode_put(node);
+            return pfs_selftest_fail(__LINE__, -166);
+        }
         inode.extent_head = fs.sb.total_blocks;
-        if (vfs_vnode_put(node) != PROS_VFS_OK ||
-            prosenjitfs_write_inode(&fs, inode_before, &inode) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+        if (vfs_vnode_put(node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -167);
+        if (prosenjitfs_write_inode(&fs, inode_before, &inode) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -168);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -169);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -170);
 
         done = 0u;
         if (vfs_file_open(&fs.mount, "/corrupt.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, data, sizeof(small_data), &done) !=
-                PROS_VFS_ECORRUPT ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -171);
+        if (vfs_file_read(&file, data, sizeof(small_data), &done) !=
+                PROS_VFS_ECORRUPT) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -172);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -173);
 
         if (pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+            return pfs_selftest_fail(__LINE__, -174);
 
         /*
          * Restore a clean image before the journal/crash matrix. This keeps
          * the negative corruption fixture isolated from subsequent tests.
          */
         pfs_zero(&disk, sizeof(disk));
-        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -175);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -176);
+        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -177);
     }
 
     pfs_selftest_diag_stage = __LINE__;
