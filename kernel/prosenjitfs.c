@@ -5741,8 +5741,11 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
-    if (block_device_init(&device, 512u, 512u, pfs_test_read,
-                          pfs_test_write, &disk) != PROS_BLOCK_OK)
+    pfs_selftest_diag_stage = __LINE__;
+    int block_init_rc = block_device_init(&device, 512u, 512u, pfs_test_read,
+                                          pfs_test_write, &disk);
+    pfs_selftest_diag_stage = __LINE__;
+    if (block_init_rc != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
     pfs_selftest_diag_stage = __LINE__;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
