@@ -251,7 +251,10 @@ int vfs_file_init(struct pros_vfs_file *file,
                   const struct pros_vfs_file_ops *ops,
                   void *private_data, uint32_t flags)
 {
-    if (!file || !mount || !mount->active || !ops || !ops->read ||
+    if (!file || !mount || !mount->active || !ops ||
+        (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
+        ((flags & PROS_VFS_O_READ) != 0u && !ops->read) ||
+        ((flags & PROS_VFS_O_WRITE) != 0u && !ops->write) ||
         !ops->close)
         return PROS_VFS_EINVAL;
     file->mount = mount;
@@ -1135,7 +1138,11 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         if (!created || !created->initialized || created->refcount == 0u ||
             created->mount != mount ||
             created->type != PROS_VFS_NODE_FILE || !created->file_ops ||
-            !created->file_ops->read || !created->file_ops->close) {
+            (((flags & PROS_VFS_O_READ) != 0u) &&
+             !created->file_ops->read) ||
+            (((flags & PROS_VFS_O_WRITE) != 0u) &&
+             !created->file_ops->write) ||
+            !created->file_ops->close) {
             if (created && created->initialized)
                 (void)vfs_vnode_put(created);
             return PROS_VFS_EIO;
