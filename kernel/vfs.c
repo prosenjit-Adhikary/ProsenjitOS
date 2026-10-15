@@ -526,7 +526,8 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
 
 int vfs_vnode_get(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    if (!vnode || !vnode->initialized || vnode->refcount == 0u ||
+        !vnode->ops)
         return PROS_VFS_EINVAL;
     if (vnode->refcount == 0xFFFFFFFFu)
         return PROS_VFS_EOVERFLOW;
