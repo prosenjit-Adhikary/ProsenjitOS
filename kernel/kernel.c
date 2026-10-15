@@ -261,6 +261,23 @@ void exception_dispatch(uint64_t *frame) {
     }
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    if (vector == 14u) {
+        extern char stack_bottom[];
+        extern char stack_top[];
+        uint64_t stack_flags = 0;
+        serial_write("ProsenjitOS: bootstrap stack bounds = ");
+        serial_hex64((uint64_t)(uintptr_t)stack_bottom);
+        serial_write("..");
+        serial_hex64((uint64_t)(uintptr_t)stack_top);
+        serial_write(" fault address = ");
+        serial_hex64(cr2);
+        serial_write(" page flags rc = ");
+        int stack_query_rc = paging_query_page(cr2, &stack_flags);
+        serial_hex64((uint64_t)(int64_t)stack_query_rc);
+        serial_write(" flags = ");
+        serial_hex64(stack_flags);
+        serial_write("\\n");
+    }
     if (vector != 128 && !usercopy_fault_active()) {
         /*
          * Exception context is capture-only. Do not enter the block/ATA stack
