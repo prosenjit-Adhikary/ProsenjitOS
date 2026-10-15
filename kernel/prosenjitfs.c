@@ -8052,7 +8052,8 @@ int prosenjitfs_selftest(void)
             }
 
             pfs_crash_inject_stage = 0u;
-            pfs_test_crash_reset(&fs, &disk);
+            if (pfs_test_crash_reset(&fs, &disk) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
 
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
@@ -8069,7 +8070,8 @@ int prosenjitfs_selftest(void)
             for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
                 uint8_t expected = stage >= 5u ? new_data[i] : old_data[i];
                 if (read_data[i] != expected) {
-                    pfs_test_crash_reset(&fs, &disk);
+                    if (pfs_test_crash_reset(&fs, &disk) != PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -15);
                     return pfs_selftest_fail(__LINE__, -13);
                 }
             }
@@ -8136,7 +8138,8 @@ int prosenjitfs_selftest(void)
                 write_rc != PROS_VFS_EIO ||
                 done != 0u ||
                 pfs_crash_injected == 0u) {
-                pfs_test_crash_reset(&fs, &disk);
+                if (pfs_test_crash_reset(&fs, &disk) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
                 return pfs_selftest_fail(__LINE__, -14);
             }
 
@@ -8147,7 +8150,8 @@ int prosenjitfs_selftest(void)
              * again; mounting into the still-active fs object must return
              * EBUSY and would never exercise journal recovery.
              */
-            pfs_test_crash_reset(&fs, &disk);
+            if (pfs_test_crash_reset(&fs, &disk) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
             pfs_crash_inject_stage = 0u;
             pfs_crash_injected = 0u;
 
@@ -8184,7 +8188,8 @@ int prosenjitfs_selftest(void)
 
             for (uint32_t i = 0u; i < sizeof(read_data); ++i)
                 if (read_data[i] != new_data[i]) {
-                    pfs_test_crash_reset(&fs, &disk);
+                    if (pfs_test_crash_reset(&fs, &disk) != PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -15);
                     return pfs_selftest_fail(__LINE__, -14);
                 }
 
