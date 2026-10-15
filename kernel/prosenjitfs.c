@@ -7465,12 +7465,18 @@ int prosenjitfs_selftest(void)
          * so they cannot be passed to the metadata consistency checker while
          * still allocated. Release the whole reservation set first.
          */
-        for (uint32_t i = 0u; i < allocated; ++i) {
-            if (prosenjitfs_free_blocks(&small_fs, allocated_blocks[i], 1u) !=
+        for (uint32_t i = 0u; i < allocated;) {
+            uint32_t run = 1u;
+            while (i + run < allocated &&
+                   allocated_blocks[i + run] ==
+                       allocated_blocks[i] + run)
+                ++run;
+            if (prosenjitfs_free_blocks(&small_fs, allocated_blocks[i], run) !=
                     PROSENJITFS_OK) {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -185);
             }
+            i += run;
         }
         if (pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
             prosenjitfs_unmount(&small_fs);
