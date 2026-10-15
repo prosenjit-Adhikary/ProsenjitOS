@@ -5575,7 +5575,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                     pfs_consistency_mark(owner, fs->sb.total_blocks,
                                          current) != PROSENJITFS_OK ||
                     pfs_read_extent(fs, current, &extent) != PROSENJITFS_OK) {
-                    rc = PROSENJITFS_ECORRUPT;
+                    rc = -10001;
                     goto consistency_out;
                 }
                 if (extent.logical_block < logical_end ||
