@@ -231,3 +231,18 @@ Source-level stale-vnode audit completed for directory traversal and mutation ca
 - GitHub Actions artifact upload has separately reported storage quota exhaustion on previous runs; this does not explain the ELF self-test failure.
 - Remaining kernel risks—shared IST1 syscall-frame lifetime, blocked/quarantined scheduler eligibility, no-successor handling, and IPC wait/wakeup synchronization—remain open.
 
+## 2026-10-15 — ProsenjitFS preallocation extent-chain fix
+
+### Diagnosis
+- The latest clean CI build succeeded and QEMU passed the ELF validation, address-space, process/thread, IPC wait-queue, security runtime, partition discovery, and VFS provider checks before stopping in the ProsenjitFS keep-size preallocation regression.
+- The self-test showed the inode's extent chain still ended after the original one-block extent even though preallocation reported success and incremented `allocated_bytes`.
+- Root cause in `prosenjitfs_preallocate_blocks()`: the append path loaded the tail extent block into `tail_image`, changed only the local `tail.next` field, then recomputed the checksum over the unchanged `tail_image`. The transaction therefore committed a valid checksum for an unchanged zero `next` pointer, leaving the new extent disconnected.
+
+### Fix
+- Copy the updated tail extent structure back into `tail_image` before recalculating its checksum and staging the transaction. This makes the tail link and checksum consistent in the persisted block.
+- Commit: `9beef04` (`fix: persist preallocation extent tail link`).
+
+### Verification status
+- Source fix is committed to `main`; the new GitHub Actions/QEMU run must verify it.
+- Do not mark the OS complete until the QEMU ISO test and native BIOS boot test pass their required milestones. GitHub Actions artifact upload may still be independently blocked by the repository storage quota.
+
