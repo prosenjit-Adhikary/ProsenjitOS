@@ -1045,8 +1045,12 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         struct pros_vfs_vnode *created = 0;
         rc = vnode->ops->create(vnode, name, &created);
         vfs_vnode_put(vnode);
-        if (rc != PROS_VFS_OK)
+        if (rc != PROS_VFS_OK) {
+            /* Providers must not leak a transferred vnode on error. */
+            if (created && created->initialized)
+                (void)vfs_vnode_put(created);
             return rc;
+        }
         if (!created || !created->initialized || created->refcount == 0u ||
             created->mount != mount ||
             created->type != PROS_VFS_NODE_FILE || !created->file_ops ||
