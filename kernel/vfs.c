@@ -678,6 +678,8 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
 
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
@@ -753,6 +755,8 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
@@ -800,7 +804,8 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
         return PROS_VFS_ENOSYS;
     }
     rc = parent->ops->mkdir(parent, name, &created);
-    if (created) vfs_vnode_put(created);
+    if (created && created->initialized && created->refcount != 0u)
+        (void)vfs_vnode_put(created);
     vfs_vnode_put(parent);
     if (rc < 0) vfs_health_error(rc); else ++health_mkdir_count;
     return rc;
@@ -816,6 +821,8 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
@@ -885,6 +892,8 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
     if (!mount || !mount->active || !old_path || !new_path ||
         old_path[0] != '/' || new_path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
 
     while (1) {
         if (old_length >= PROS_VFS_PATH_MAX)
