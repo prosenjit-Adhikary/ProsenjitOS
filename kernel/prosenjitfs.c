@@ -7852,6 +7852,14 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -14);
             }
 
+            /*
+             * The stage-9 write leaves a durable committed journal but the
+             * in-memory mount is still active. Simulate the power loss before
+             * attempting a fresh mount for the interrupted-recovery test.
+             */
+            pfs_crash_inject_stage = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+
             pfs_crash_inject_stage = recovery_stages[recovery_index];
             pfs_crash_injected = 0u;
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
