@@ -148,3 +148,25 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - Verification: the code is committed, but clean build/QEMU verification is pending. The self-hosted runner has not been assigned to the latest workflow job, so no runtime pass is claimed.
 - Artifact upload quota failure in Build #6010 is separate from the boot failure.
 - The earlier ProsenjitFS/block-device crash remains unverified because Build #6010 stopped during security-manager initialization before reaching that self-test.
+
+
+### 2026-10-15 — Remaining kernel review findings (not yet fixed)
+
+The following are source-level findings from the current branch. They are not claimed as runtime reproductions; the current self-hosted build is still queued.
+
+1. **Shared IST1 syscall-frame lifetime**
+   - `boot/entry.asm` initializes TSS IST1 to the single global `ist1_stack_top`; `kernel/kernel.c:216-222` routes INT 0x80 through IST1.
+   - `kernel/thread.c:218` stores the passed frame pointer directly in `thread->interrupt_frame`; `kernel/idt.asm:47-48` later switches to that pointer.
+   - A blocked user thread's saved frame therefore remains on the shared IST1 stack. A different CPL3 thread entering INT 0x80 can reuse/overwrite that same stack before the blocked thread resumes. Fix requires per-thread syscall-frame storage (including the complete CPL3 IRET tail) or per-thread kernel/IST stack management; a pointer-only save is insufficient.
+
+2. **Quarantine not enforced by scheduler eligibility**
+   - `kernel/intent.c:338-376` changes a quarantined process to `PROS_PROCESS_BLOCKED` and records `quarantined=1`.
+   - `kernel/thread.c:8-12` only excludes ZOMBIE/DEAD processes. READY threads belonging to a BLOCKED/quarantined process can still be considered runnable; scheduler handoff must check process state and quarantine metadata, and must not convert temporarily ineligible threads to DEAD.
+
+3. **No-successor path can resume a blocked caller**
+   - `kernel/thread.c:213-225` returns `current_frame` when `thread_dequeue()` finds no successor, even though the caller may already have marked itself BLOCKED for a blocking syscall. This can return the internal block sentinel to user mode and leave thread/process state inconsistent. The correct design needs a safe idle/handoff path or an explicit rollback of the block/wait registration before returning.
+
+4. **IPC wakeup publication remains SMP-sensitive**
+   - `kernel/syscall.c` publishes `blocked_syscall` after IPC waiter registration, while the scheduler stores the saved frame during a later handoff. The current interrupt-disabled single-CPU path may serialize parts of this sequence, but it is not an explicit atomic publication protocol for SMP. Keep this open until waiter registration, frame publication, and wakeup are ordered under one defined synchronization protocol.
+
+These are separate from the VFS self-test correction. Do not mark the kernel hardening audit complete until these paths have implementation changes and regression coverage. Build/boot validation is blocked by the self-hosted job queue and remains outstanding.
