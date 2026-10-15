@@ -1217,13 +1217,24 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -1;
 
+    /* A mount with an open file must remain active; unmount is refused. */
+    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY)
+        return -1;
+
+    if (vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
+        return -1;
+
+    /*
+     * Drop the test's vnode references from leaves to root. Each child holds
+     * a parent reference, so the mount cannot be deactivated until these are
+     * released as well as the open file handle.
+     */
+    vfs_vnode_put(&config_node);
+    vfs_vnode_put(&etc_node);
+    vfs_vnode_put(&hello_node);
+
     if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
-        return -1;
-
-    if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
-        return -1;
-
-    if (vfs_file_close(&file) != PROS_VFS_OK)
         return -1;
 
     return 0;
