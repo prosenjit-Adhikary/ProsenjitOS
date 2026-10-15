@@ -1138,10 +1138,11 @@ static int vfs_vnode_api_selftest(void)
     static const uint8_t config[] = "config";
     static struct pros_vfs_vnode root, hello_node, etc_node, config_node;
     static struct vfs_selftest_node root_data, hello_data, etc_data, config_data;
-    struct pros_block_device device;
-    struct pros_vfs_mount mount;
-    struct pros_vfs_file file;
-    struct pros_vfs_dir dir;
+    /* Hardened init APIs require caller-owned objects to start zeroed. */
+    struct pros_block_device device = {0};
+    struct pros_vfs_mount mount = {0};
+    struct pros_vfs_file file = {0};
+    struct pros_vfs_dir dir = {0};
     struct pros_vfs_dirent entry;
     struct pros_vfs_vnode *found = 0;
     uint8_t output[16];
