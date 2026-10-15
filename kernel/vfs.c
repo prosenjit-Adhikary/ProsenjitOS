@@ -644,8 +644,19 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
                 vfs_vnode_put(current);
                 return PROS_VFS_EINVAL;
             }
-            if (parent != current)
-                vfs_vnode_put(current);
+            if (parent != current) {
+                /*
+                 * Moving to the parent transfers traversal ownership only
+                 * after the old vnode reference is released successfully.
+                 * If release fails, drop the newly acquired parent reference
+                 * and stop instead of hiding a broken ownership transition.
+                 */
+                int put_rc = vfs_vnode_put(current);
+                if (put_rc != PROS_VFS_OK) {
+                    (void)vfs_vnode_put(parent);
+                    return put_rc;
+                }
+            }
             current = parent;
             continue;
         }
