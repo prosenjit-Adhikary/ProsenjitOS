@@ -84,12 +84,20 @@ void pros_ed25519_scalar_add(uint8_t out[32], const uint8_t a[32],
 void pros_ed25519_scalar_sub(uint8_t out[32], const uint8_t a[32],
                              const uint8_t b[32]) {
     uint8_t tmp[32], wide[64] = {0};
+    uint8_t ar[32], br[32], aw[64] = {0}, bw[64] = {0};
     uint16_t borrow = 0;
     if (!out || !a || !b) return;
 
     for (uint32_t i = 0; i < 32u; ++i) {
-        uint16_t ai = a[i];
-        uint16_t bi = (uint16_t)b[i] + borrow;
+        aw[i] = a[i];
+        bw[i] = b[i];
+    }
+    pros_ed25519_scalar_reduce(ar, aw);
+    pros_ed25519_scalar_reduce(br, bw);
+
+    for (uint32_t i = 0; i < 32u; ++i) {
+        uint16_t ai = ar[i];
+        uint16_t bi = (uint16_t)br[i] + borrow;
         tmp[i] = (uint8_t)(ai - bi);
         borrow = (ai < bi) ? 1u : 0u;
     }
@@ -193,6 +201,61 @@ int pros_ed25519_scalar_selftest(void) {
     pros_ed25519_scalar_add(reduced, one_scalar, one_scalar);
     if (reduced[0] != 2) return -5;
     for (uint32_t i = 1; i < 32u; ++i) if (reduced[i]) return -6;
+
+    {
+        static const uint8_t l_minus_one[32] = {
+            0xec,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+        };
+        uint8_t zero_scalar[32] = {0};
+        if (!pros_ed25519_scalar_is_canonical(l_minus_one) ||
+            pros_ed25519_scalar_is_canonical(scalar_l))
+            return -9;
+
+        pros_ed25519_scalar_add(reduced, l_minus_one, one_scalar);
+        for (uint32_t i = 0; i < 32u; ++i)
+            if (reduced[i]) return -10;
+
+        pros_ed25519_scalar_sub(reduced, zero_scalar, one_scalar);
+        for (uint32_t i = 0; i < 32u; ++i)
+            if (reduced[i] != l_minus_one[i]) return -11;
+
+        /* Regression: 1 - 0 = 1. */
+        pros_ed25519_scalar_sub(reduced, one_scalar, zero_scalar);
+        if (reduced[0] != 1u) return -14;
+        for (uint32_t i = 1; i < 32u; ++i)
+            if (reduced[i]) return -15;
+
+        /* Regression: a - a = 0, including output/input aliasing. */
+        pros_ed25519_scalar_sub(reduced, l_minus_one, l_minus_one);
+        for (uint32_t i = 0; i < 32u; ++i)
+            if (reduced[i]) return -16;
+
+        {
+            uint8_t alias[32];
+            for (uint32_t i = 0; i < 32u; ++i) alias[i] = l_minus_one[i];
+            pros_ed25519_scalar_sub(alias, alias, one_scalar);
+            {
+                uint8_t expected_sub[32];
+                uint16_t borrow = 0;
+                for (uint32_t i = 0; i < 32u; ++i) {
+                    uint16_t ai = l_minus_one[i];
+                    uint16_t bi = (uint16_t)one_scalar[i] + borrow;
+                    expected_sub[i] = (uint8_t)(ai - bi);
+                    borrow = (ai < bi) ? 1u : 0u;
+                }
+                for (uint32_t i = 0; i < 32u; ++i)
+                    if (alias[i] != expected_sub[i]) return -17;
+            }
+        }
+
+        pros_ed25519_scalar_mul(reduced, l_minus_one, l_minus_one);
+        if (reduced[0] != 1u) return -12;
+        for (uint32_t i = 1; i < 32u; ++i)
+            if (reduced[i]) return -13;
+    }
 
     pros_ed25519_basepoint(&b);
     pros_ed25519_point_scalar_mul(&p, &b, one_scalar);

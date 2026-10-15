@@ -211,3 +211,41 @@ The readdir directory-inode read now uses `pfs_vnode_validate_inode()`, keeping 
 
 ### Verification status
 Source-level stale-vnode audit completed for directory traversal and mutation callbacks. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
+
+
+## 2026-10-14 — ProsenjitFS sparse/delayed-allocation regression mount lifecycle
+
+### Root cause
+The delayed-allocation persistence regression unmounted `fs` after its remount/readback check. The following sparse + delayed-allocation cross-regression immediately called `vfs_file_open()` using that inactive mount, so the test failed with `PROS_VFS_EINVAL` (self-test diagnostic `-2001`). This was a test setup/lifecycle defect, not evidence that the sparse file-open path itself rejected a valid path.
+
+### Fix
+The sparse cross-regression now remounts ProsenjitFS before reading the block size or invoking VFS operations. A dedicated `-142` diagnostic reports failure of this remount. The existing open-error diagnostic remains in place so a different VFS error is visible if the test advances and fails later.
+
+### Corrected interpretation of the allocator/preallocation failure
+The earlier interpretation of `-3106` as an allocator double-free return code was incorrect. The self-test uses the same diagnostic encoding in more than one location:
+- `-3000 + double_free_rc` is the allocator double-free diagnostic.
+- `-3100 + extent_rc` is the preallocation extent lookup diagnostic.
+
+For Build #5873, `selftest_stage=0x191D` maps to the preallocation `pfs_find_extent()` assertion, so `-3106` means `extent_rc=-6` (`PROSENJITFS_ENOENT`). The double-free test had already passed. Build #5878 reproduced the same preallocation failure at a later line after the extent-head fix.
+
+### Root cause and fix
+Two related extent-chain publication bugs were found in `prosenjitfs_preallocate_blocks()`:
+1. When no prior extent exists, the newly created extent must be assigned to `inode.extent_head`. This was fixed in `f8fc2f798f003a7a46e2d4c2ab098fd8c120aa29`.
+2. When an existing tail extent is present, the code updated `tail.next` only in the local struct, then recalculated the checksum over the old `tail_image` without copying the updated struct back. The committed tail therefore remained linked to `0`, leaving the newly allocated extent unreachable. The code now copies the updated `tail` into `tail_image` before checksumming and staging it. Fix commit: `fa613ea43677cc64f349d3f88a66c8618563a6c7`.
+
+### Verification status
+Build #5878 failed at the preallocation extent lookup before the tail-link fix. Build #5879 is running against `fa613ea43677cc64f349d3f88a66c8618563a6c7`; its QEMU result is required to confirm the chain is now reachable. The prior allocator double-free test is not the current blocker. Artifact upload quota exhaustion remains a secondary diagnostics-storage issue. PR #128 remains Draft.
+
+
+## 2026-10-14 — ProsenjitFS preallocation extent-head fix
+
+### Root cause
+Build #5876 advanced past the sparse/delayed-allocation regression and the allocator double-free check, then failed in the keep-size preallocation regression. `prosenjitfs_preallocate_blocks()` could create and commit a new extent when the inode had no prior extent chain, but it did not set `inode.extent_head`. The extent was therefore allocated and accounted in `allocated_bytes`, yet unreachable to `pfs_find_extent()`, which returned `PROSENJITFS_ENOENT` (`-6`; the self-test diagnostic was `-3106`).
+
+### Fix
+When a new non-coalesced extent is created and `have_tail == 0`, the implementation now assigns `inode.extent_head = extent_lba` before the inode is checksummed and staged in the same transaction as the extent record and allocator bitmap. Existing-tail linking and coalescing paths remain unchanged.
+
+Source fix commit: `f8fc2f798f003a7a46e2d4c2ab098fd8c120aa29`.
+
+### Verification
+The previous QEMU build #5876 failed at the old extent-head bug. A fresh build/QEMU run for the new commit is required. Security architecture checks passed on the preceding commit; PR #128 remains Draft pending clean build and boot milestones.

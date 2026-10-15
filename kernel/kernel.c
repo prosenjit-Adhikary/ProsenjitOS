@@ -31,6 +31,9 @@
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
 
+/* Temporary ProsenjitFS QEMU fault-localization phase. */
+extern volatile uint64_t pfs_selftest_progress;
+
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
 #define VGA_ADDRESS 0xB8000u
@@ -235,6 +238,11 @@ void exception_dispatch(uint64_t *frame) {
     serial_write("ProsenjitOS: CPU exception vector ");
     serial_hex64(vector);
     serial_write("\n");
+    if (pfs_selftest_progress != 0u) {
+        serial_write("ProsenjitOS: ProsenjitFS self-test progress = ");
+        serial_hex64(pfs_selftest_progress);
+        serial_write("\n");
+    }
     serial_write("ProsenjitOS: exception error code = ");
     serial_hex64(frame[1]);
     serial_write("\n");
@@ -418,8 +426,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: persistent crash record self-test passed\n");
-    if (pros_elf_selftest() != PROS_ELF_OK) {
-        serial_write("ProsenjitOS: ERROR ELF validation negative self-test failed\n");
+    int elf_selftest_rc = pros_elf_selftest();
+    if (elf_selftest_rc != PROS_ELF_OK) {
+        serial_write("ProsenjitOS: ERROR ELF validation negative self-test failed rc=");
+        serial_hex64((uint64_t)(int64_t)elf_selftest_rc);
+        serial_write("\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: ELF validation negative self-test passed\n");
@@ -555,6 +566,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
         waited_exit != 13 ||
         lifecycle_object.refcount != 1 ||
+        lifecycle_object.handle_refs != 0u ||
         lifecycle_parent.address_space.root != 0) {
         serial_write("ProsenjitOS: ERROR process resource cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -788,6 +800,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: storage volume discovery self-test passed\n");
     {
+        /* 99 means control reached the call site; 100+ are inside ProsenjitFS. */
+        pfs_selftest_progress = 99u;
+        serial_write("ProsenjitOS: entering ProsenjitFS self-test\n");
         int prosenjitfs_rc = prosenjitfs_selftest();
         if (prosenjitfs_rc != PROSENJITFS_OK) {
             uint32_t mkdir_stage = 0u, tx_stage = 0u, tx_count = 0u;

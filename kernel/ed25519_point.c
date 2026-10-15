@@ -42,7 +42,7 @@ static void fe_neg(struct pros_ed25519_fe *r,
     pros_ed25519_fe_sub(r, &zero, a);
 }
 
-/* Exponentiation by (p+3)/8 = 2^252 - 2. */
+/* Exponentiation by (p-5)/8 = 2^252 - 3. */
 static void fe_pow_p_minus_5_over_8(struct pros_ed25519_fe *r,
                                      const struct pros_ed25519_fe *a) {
     static const uint8_t exponent[32] = {
@@ -298,6 +298,34 @@ int pros_ed25519_point_selftest(void) {
     pros_ed25519_point_to_bytes(encoded, &decoded);
     for (uint32_t i = 0; i < 32u; ++i)
         if (encoded[i] != base_encoding[i]) return -9;
+
+    /*
+     * Reject y = p rather than silently reducing a non-canonical encoding.
+     */
+    {
+        static const uint8_t noncanonical_y[32] = {
+            0xed,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
+            0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x7f
+        };
+        if (pros_ed25519_point_from_bytes(&decoded, noncanonical_y) == 0)
+            return -14;
+    }
+
+    /*
+     * The sign bit cannot encode negative zero when x = 0.
+     */
+    {
+        static const uint8_t negative_zero[32] = {
+            1u,0u,0u,0u,0u,0u,0u,0u,
+            0u,0u,0u,0u,0u,0u,0u,0u,
+            0u,0u,0u,0u,0u,0u,0u,0u,
+            0u,0u,0u,0u,0u,0u,0u,0x80
+        };
+        if (pros_ed25519_point_from_bytes(&decoded, negative_zero) == 0)
+            return -15;
+    }
 
     pros_ed25519_point_add(&p, &p, &p);
     if (!pros_ed25519_point_is_identity(&p)) return -10;

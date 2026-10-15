@@ -20,6 +20,8 @@ struct pros_object {
     uint16_t type;
     uint16_t reserved;
     uint32_t refcount;
+    /* Number of live capability-table entries referencing this object. */
+    uint32_t handle_refs;
 };
 
 struct pros_handle_entry {

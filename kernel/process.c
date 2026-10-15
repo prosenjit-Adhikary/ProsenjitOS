@@ -14,6 +14,22 @@ static int process_has_children(const struct pros_process *process);
 static struct pros_process *process_list;
 static uint64_t next_pid = 1;
 
+static int process_object_type_valid(uint16_t type)
+{
+    switch (type) {
+    case PROS_OBJECT_PROCESS:
+    case PROS_OBJECT_THREAD:
+    case PROS_OBJECT_ADDRESS_SPACE:
+    case PROS_OBJECT_FILE:
+    case PROS_OBJECT_DEVICE:
+    case PROS_OBJECT_SOCKET:
+    case PROS_OBJECT_IPC:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 int process_manager_init(void) {
     process_list = 0;
     current_process = 0;
@@ -30,6 +46,7 @@ struct pros_process *process_lookup(uint64_t pid) {
 
 int process_register(struct pros_process *process) {
     if (!process_is_live(process) || process->pid == 0 ||
+        process->state > PROS_PROCESS_BLOCKED ||
         process_lookup(process->pid) != 0) return -1;
     process->next = process_list;
     process_list = process;
@@ -43,8 +60,13 @@ int process_register(struct pros_process *process) {
 }
 
 int process_unregister(struct pros_process *process) {
-    if (!process || process->state != PROS_PROCESS_DEAD ||
-        process->address_space.root != 0 || process->object.refcount != 1 ||
+    if (!process || process->object.type != PROS_OBJECT_PROCESS ||
+        process->object.reserved != 0u || process->pid == 0u ||
+        process->state != PROS_PROCESS_DEAD ||
+        process->address_space.root != 0 ||
+        process->address_space.owned_pages != 0 ||
+        process->object.refcount != 1u ||
+        process->object.handle_refs != 0u ||
         thread_process_has_live(process) || thread_process_is_current(process))
         return -1;
     struct pros_process **link = &process_list;
@@ -76,13 +98,14 @@ int process_unregister(struct pros_process *process) {
 
 static int process_is_live(const struct pros_process *process) {
     return process && process->object.type == PROS_OBJECT_PROCESS &&
-           process->object.refcount != 0;
+           process->object.reserved == 0u &&
+           process->object.refcount != 0u &&
+           process->object.handle_refs <= process->object.refcount;
 }
 
 static int process_is_active(const struct pros_process *process) {
     return process_is_live(process) &&
-           process->state != PROS_PROCESS_ZOMBIE &&
-           process->state != PROS_PROCESS_DEAD;
+           process->state <= PROS_PROCESS_BLOCKED;
 }
 
 static int process_has_children(const struct pros_process *process) {
@@ -102,7 +125,7 @@ static int process_release_resources(struct pros_process *process) {
 int process_init(struct pros_process *process,
                  uint64_t pid,
                  uint32_t security_level) {
-    if (!process) return -1;
+    if (!process || pid == 0u) return -1;
     if (security_level != PROS_SECURITY_LIMITED &&
         security_level != PROS_SECURITY_SUPER) return -1;
     if (address_space_create(&process->address_space) != 0) return -1;
@@ -113,8 +136,10 @@ int process_init(struct pros_process *process,
     process->security_level = security_level;
     process->state = PROS_PROCESS_NEW;
     process->exit_code = 0;
-    process->quarantined = 0;
-    process->quarantine_previous_state = 0;
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
+    for (uint32_t i = 0u; i < sizeof(process->security_reserved); ++i)
+        process->security_reserved[i] = 0u;
     process->user_entry = 0;
     process->user_stack_top = 0;
     process->parent = 0;
@@ -189,21 +214,42 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
     if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
-    *exit_code = child->exit_code;
+    /*
+     * Validate every unregister invariant before destructive resource release.
+     * Otherwise corrupted object metadata could make unregister fail after
+     * the address space was already destroyed, leaving an unreapable zombie.
+     */
+    if (child->object.type != PROS_OBJECT_PROCESS ||
+        child->object.reserved != 0u || child->object.refcount != 1u ||
+        child->pid == 0u || child->address_space.root == 0 ||
+        process_lookup(pid) != child)
+        return -5;
+    int32_t saved_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
-        /* Keep a fully reaped process visible if final unlinking fails. */
+        /* All unregister invariants were preflighted before teardown. */
         child->state = PROS_PROCESS_ZOMBIE;
-        return -5;
+        return -6;
     }
+    *exit_code = saved_exit_code;
     return 0;
 }
 
 int process_set_state(struct pros_process *process, uint32_t state) {
-    if (!process_is_live(process) || state > PROS_PROCESS_DEAD) return -1;
-    if (process->state == PROS_PROCESS_DEAD &&
-        state != PROS_PROCESS_DEAD) return -1;
+    if (!process_is_live(process) || state > PROS_PROCESS_BLOCKED)
+        return -1;
+    /*
+     * This API is for scheduler-visible states only. Terminal lifecycle
+     * transitions are owned by process_exit()/process_wait(); otherwise a
+     * caller could fabricate a zombie without terminating its threads, or
+     * revive a process whose threads have already exited.
+     */
+    if (process->state >= PROS_PROCESS_ZOMBIE)
+        return -1;
+    /* NEW is an initialization state, not a state an active process may regain. */
+    if (state == PROS_PROCESS_NEW && process->state != PROS_PROCESS_NEW)
+        return -1;
     /* A quarantined process must remain scheduler-blocked until the security
      * quarantine is explicitly cleared. */
     if (process->quarantined && state != PROS_PROCESS_BLOCKED)
@@ -229,7 +275,8 @@ int process_set_syscall_policy(struct pros_process *process, uint64_t policy) {
         (policy & ~PROSENJIT_SYSCALL_POLICY_ALL) != 0)
         return -1;
     /* Only a Super process may tighten its own policy at this layer. */
-    if (process->security_level != PROS_SECURITY_SUPER)
+    if (process->security_level != PROS_SECURITY_SUPER ||
+        (policy & ~process->syscall_policy) != 0u)
         return -1;
     process->syscall_policy = policy;
     return 0;
@@ -272,7 +319,9 @@ int process_check_handle(const struct pros_process *process,
 int process_handle_type(const struct pros_process *process,
                         uint64_t handle,
                         uint16_t *type_out) {
-    if (!process_is_active(process) || !type_out || handle == PROSENJIT_HANDLE_INVALID)
+    if (!process_is_active(process) || !type_out ||
+        handle == PROSENJIT_HANDLE_INVALID ||
+        (handle >> 24) != 0u)
         return -1;
 
     uint32_t slot = (uint32_t)(handle & 0xFFULL);
@@ -282,7 +331,10 @@ int process_handle_type(const struct pros_process *process,
 
     const struct pros_handle_entry *entry = &process->handles.entries[slot];
     if (!entry->object || entry->generation != generation ||
-        entry->object->refcount == 0)
+        entry->generation == UINT16_MAX || entry->reserved != 0u ||
+        !process_object_type_valid(entry->object->type) ||
+        handle_check(&process->handles, handle, entry->rights,
+                     PROS_OBJECT_NONE) != 0)
         return -1;
 
     *type_out = entry->object->type;
@@ -377,17 +429,97 @@ int process_selftest(void)
 
     if (process_manager_init() != 0)
         return -1;
+    /*
+     * Capability operations must reject a corrupted global reference count,
+     * including aliases spanning this table and another process table, without
+     * mutating any handle or releasing the object.
+     */
+    {
+        struct pros_handle_table table;
+        struct pros_handle_table target_table;
+        struct pros_object object;
+        uint64_t first_handle, second_handle, target_handle;
+
+        handle_table_init(&table);
+        handle_table_init(&target_table);
+        object_init(&object, PROS_OBJECT_FILE);
+        first_handle = handle_alloc(&table, &object, PROSENJIT_CAP_RIGHTS_ALL);
+        target_handle = handle_alloc(&target_table, &object,
+                                     PROSENJIT_CAP_RIGHTS_ALL);
+        if (first_handle == PROSENJIT_HANDLE_INVALID ||
+            target_handle == PROSENJIT_HANDLE_INVALID)
+            return -23;
+        table.entries[2] = table.entries[1];
+        table.entries[2].generation = 1u;
+        second_handle = (UINT64_C(1) << 8) | UINT64_C(2);
+        object.refcount = 2u;
+        object.handle_refs = 3u;
+        if (handle_check(&table, first_handle, PROSENJIT_CAP_DUPLICATE,
+                         PROS_OBJECT_FILE) == 0 ||
+            handle_alloc(&table, &object, PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_duplicate(&table, first_handle,
+                             PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_transfer_copy(&table, &target_table, first_handle,
+                                 PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_transfer_move(&table, &target_table, first_handle,
+                                 PROSENJIT_CAP_DUPLICATE) !=
+                PROSENJIT_HANDLE_INVALID ||
+            handle_close(&table, first_handle) == 0 ||
+            table.entries[1].object != &object ||
+            table.entries[2].object != &object ||
+            object.refcount != 2u || object.handle_refs != 3u)
+            return -23;
+        object.refcount = 4u;
+        object.handle_refs = 3u;
+        if (handle_close(&table, first_handle) != 0 ||
+            handle_close(&table, second_handle) != 0 ||
+            handle_close(&target_table, target_handle) != 0 ||
+            object.refcount != 1u || object.handle_refs != 0u ||
+            object.type != PROS_OBJECT_FILE)
+            return -23;
+
+        /* An owner reference cannot be released out from under a live handle. */
+        first_handle = handle_alloc(&table, &object, PROSENJIT_CAP_READ);
+        if (first_handle == PROSENJIT_HANDLE_INVALID ||
+            object_release(&object) != 0 ||
+            object.refcount != 1u || object.handle_refs != 1u ||
+            object_release(&object) == 0 ||
+            object.refcount != 1u || object.type != PROS_OBJECT_FILE ||
+            handle_close(&table, first_handle) != 0 ||
+            object.refcount != 0u || object.handle_refs != 0u ||
+            object.type != PROS_OBJECT_NONE)
+            return -24;
+    }
+    if (process_init(&parent, 0u, PROS_SECURITY_SUPER) == 0)
+        return -19;
     if (process_create(0, &parent, 1001u, PROS_SECURITY_SUPER) != 0)
         return -2;
     if (parent.state != PROS_PROCESS_READY ||
         process_lookup(1001u) != &parent)
         return -3;
+    for (uint32_t i = 0u; i < sizeof(parent.security_reserved); ++i) {
+        if (parent.security_reserved[i] != 0u)
+            return -15;
+    }
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+    if (process_set_state(&child, PROS_PROCESS_NEW) == 0 ||
+        process_state(&child) != PROS_PROCESS_READY)
+        return -18;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
+
+    /* Self-policy updates may reduce authority but must never restore bits. */
+    uint64_t initial_syscall_policy = parent.syscall_policy;
+    if (process_set_syscall_policy(&parent, UINT64_C(1)) != 0 ||
+        process_set_syscall_policy(&parent, initial_syscall_policy) == 0 ||
+        parent.syscall_policy != UINT64_C(1))
+        return -20;
 
     /* Quarantine must prevent an ordinary state transition from escaping
      * the security-enforced BLOCKED state. */
@@ -404,6 +536,10 @@ int process_selftest(void)
     /* Parent cannot exit while it still has a live child. */
     if (process_exit(&parent, 7) == 0)
         return -7;
+    /* Generic state changes cannot bypass process_exit() to fabricate a zombie. */
+    if (process_set_state(&child, PROS_PROCESS_ZOMBIE) == 0 ||
+        process_state(&child) != PROS_PROCESS_READY)
+        return -17;
 
     /* Security quarantine metadata must be cleared when a process exits. */
     child.quarantined = 1u;
@@ -413,6 +549,15 @@ int process_selftest(void)
         child.quarantined ||
         child.quarantine_previous_state != 0u)
         return -8;
+    if (process_set_state(&child, PROS_PROCESS_READY) == 0 ||
+        process_state(&child) != PROS_PROCESS_ZOMBIE)
+        return -16;
+    child.object.reserved = 1u;
+    if (process_wait(&parent, child.pid, &exit_code) == 0 ||
+        child.address_space.root == 0 ||
+        child.state != PROS_PROCESS_ZOMBIE)
+        return -22;
+    child.object.reserved = 0u;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
@@ -433,6 +578,12 @@ int process_selftest(void)
     if (process_release_resources(&parent) != 0)
         return -13;
     parent.state = PROS_PROCESS_DEAD;
+    /* Refuse corrupt object metadata without unlinking the process from PID lookup. */
+    parent.object.reserved = 1u;
+    if (process_unregister(&parent) == 0 ||
+        process_list != &parent || parent.next != 0)
+        return -21;
+    parent.object.reserved = 0u;
     if (process_unregister(&parent) != 0)
         return -14;
     return 0;

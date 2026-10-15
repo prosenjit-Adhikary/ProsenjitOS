@@ -23,6 +23,10 @@ struct pros_file_admission_record {
     struct pros_file_security_result security;
 };
 
+/* Validate that serialized admission decisions have a coherent policy state. */
+int pros_file_admission_record_valid(
+    const struct pros_file_admission_record *record);
+
 int pros_file_admission_evaluate(
     const struct pros_file_admission_input *input,
     struct pros_file_admission_record *record);

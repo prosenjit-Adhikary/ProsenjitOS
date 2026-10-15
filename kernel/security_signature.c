@@ -17,6 +17,21 @@ static int point_is_identity_times_eight(const struct pros_ed25519_point *p) {
     return pros_ed25519_point_is_identity(&t);
 }
 
+/* Reject mixed-order points, not just points killed by multiplication by 8. */
+static int point_in_prime_order_subgroup(const struct pros_ed25519_point *p) {
+    static const uint8_t subgroup_order[32] = {
+        0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+        0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+    };
+    struct pros_ed25519_point multiple;
+    if (!p)
+        return 0;
+    pros_ed25519_point_scalar_mul(&multiple, p, subgroup_order);
+    return pros_ed25519_point_is_identity(&multiple);
+}
+
 static int ed25519_verify(const uint8_t *data, uint64_t data_length,
                           const uint8_t signature[64],
                           const uint8_t public_key[32]) {
@@ -41,7 +56,9 @@ static int ed25519_verify(const uint8_t *data, uint64_t data_length,
      * verification equation is satisfied only through the cofactor.
      */
     if (point_is_identity_times_eight(&r_point) ||
-        point_is_identity_times_eight(&a_point))
+        point_is_identity_times_eight(&a_point) ||
+        !point_in_prime_order_subgroup(&r_point) ||
+        !point_in_prime_order_subgroup(&a_point))
         return 0;
 
     /*
@@ -134,6 +151,17 @@ int pros_security_signature_selftest(void)
     if (result != PROS_SIGNATURE_RESULT_VALID)
         return -2;
 
+    /* RFC vector points must pass strict prime-order subgroup validation. */
+    {
+        struct pros_ed25519_point point;
+        if (pros_ed25519_point_from_bytes(&point, vector_key) != 0 ||
+            !point_in_prime_order_subgroup(&point))
+            return -17;
+        if (pros_ed25519_point_from_bytes(&point, vector_sig) != 0 ||
+            !point_in_prime_order_subgroup(&point))
+            return -18;
+    }
+
     {
         uint8_t bad_sig[64];
         for (uint32_t i = 0; i < 64u; ++i) bad_sig[i] = vector_sig[i];
@@ -202,6 +230,54 @@ int pros_security_signature_selftest(void)
             data, sizeof(data), signature, sizeof(signature),
             key, sizeof(key), 0) != -1)
         return -16;
+
+    {
+        static const uint8_t identity[32] = {
+            1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+        };
+        static const uint8_t subgroup_order[32] = {
+            0xed,0xd3,0xf5,0x5c,0x1a,0x63,0x12,0x58,
+            0xd6,0x9c,0xf7,0xa2,0xde,0xf9,0xde,0x14,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x10
+        };
+        uint8_t malformed[64];
+
+        /* Small-order public key must not validate even with a valid vector. */
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, vector_sig, sizeof(vector_sig),
+                identity, sizeof(identity), &result) != 0 ||
+            result != PROS_SIGNATURE_RESULT_INVALID)
+            return -19;
+
+        /* Small-order R must be rejected independently of equation checking. */
+        for (uint32_t i = 0; i < 64u; ++i)
+            malformed[i] = vector_sig[i];
+        for (uint32_t i = 0; i < 32u; ++i)
+            malformed[i] = identity[i];
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, malformed, sizeof(malformed),
+                vector_key, sizeof(vector_key), &result) != 0 ||
+            result != PROS_SIGNATURE_RESULT_INVALID)
+            return -20;
+
+        /* S = L is non-canonical; only scalars strictly below L are valid. */
+        for (uint32_t i = 0; i < 64u; ++i)
+            malformed[i] = vector_sig[i];
+        for (uint32_t i = 0; i < 32u; ++i)
+            malformed[32u + i] = subgroup_order[i];
+        if (pros_security_signature_verify(
+                PROS_SIGNATURE_ALGORITHM_ED25519,
+                0, 0, malformed, sizeof(malformed),
+                vector_key, sizeof(vector_key), &result) != 0 ||
+            result != PROS_SIGNATURE_RESULT_INVALID)
+            return -21;
+    }
 
     return 0;
 }

@@ -1,8 +1,17 @@
 name: Build and boot-test ProsenjitOS
 
 on:
+  # Run once for pushes to the protected integration branch. Feature branches
+  # are validated by pull_request so each PR update does not launch duplicate
+  # push + pull_request builds on the self-hosted runner.
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -138,15 +147,33 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
-      - name: Upload ISO and boot diagnostics
-        if: always()
+      - name: Prepare compact failure diagnostics
+        if: failure()
+        run: |
+          set -eu
+          mkdir -p build/failure-diagnostics
+          for file in build/qemu-serial.log build/native-qemu-serial.log; do
+            if [ -f "$file" ]; then
+              cp "$file" build/failure-diagnostics/
+            fi
+          done
+          for file in build/qemu-debug.log build/native-qemu-debug.log; do
+            if [ -f "$file" ]; then
+              {
+                echo "===== $file: exception/interrupt matches ====="
+                grep -E "v=0[0-9a-f]|exception|check_exception" "$file" | tail -n 120 || true
+                echo "===== $file: final 200 lines ====="
+                tail -n 200 "$file" || true
+              } > "build/failure-diagnostics/$(basename "$file").tail.txt"
+            fi
+          done
+
+      - name: Upload compact boot diagnostics
+        if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: prosenjitOS-boot-test
-          path: |
-            build/prosenjitOS.iso
-            build/prosenjit-native-bios.img
-            build/qemu-serial.log
-            build/qemu-debug.log
-            build/native-qemu-serial.log
-            build/native-qemu-debug.log
+          name: prosenjitOS-boot-failure-diagnostics
+          retention-days: 3
+          if-no-files-found: ignore
+          path: build/failure-diagnostics/

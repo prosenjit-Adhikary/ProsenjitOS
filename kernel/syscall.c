@@ -213,10 +213,16 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint32_t slot = (uint32_t)(handle & 0xFFULL);
             uint16_t generation = (uint16_t)(handle >> 8);
-            struct pros_handle_entry *entry = &process->handles.entries[slot];
             if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX ||
-                generation == 0 || !entry->object ||
-                entry->generation != generation) {
+                generation == 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            struct pros_handle_entry *entry = &process->handles.entries[slot];
+            if (!entry->object || entry->generation != generation ||
+                entry->reserved != 0u || entry->object->reserved != 0u ||
+                entry->object->type != PROS_OBJECT_IPC ||
+                entry->object->refcount == 0u) {
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
@@ -265,10 +271,16 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint32_t slot = (uint32_t)(handle & 0xFFULL);
             uint16_t generation = (uint16_t)(handle >> 8);
-            struct pros_handle_entry *entry = &process->handles.entries[slot];
             if (slot == 0 || slot >= PROSENJIT_HANDLE_MAX ||
-                generation == 0 || !entry->object ||
-                entry->generation != generation) {
+                generation == 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            struct pros_handle_entry *entry = &process->handles.entries[slot];
+            if (!entry->object || entry->generation != generation ||
+                entry->reserved != 0u || entry->object->reserved != 0u ||
+                entry->object->type != PROS_OBJECT_IPC ||
+                entry->object->refcount == 0u) {
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }

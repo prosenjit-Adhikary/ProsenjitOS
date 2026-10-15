@@ -156,6 +156,35 @@ int pros_file_admit(const struct pros_file_security_metadata *metadata,
     if (!metadata || !result)
         return -1;
 
+    /* An explicit, well-formed deny always outranks other metadata. */
+    if (metadata->local_denied == 1u) {
+        result->evidence = PROS_FILE_EVIDENCE_LOCAL_DENY;
+        result->state = PROS_FILE_MALICIOUS;
+        result->action = PROS_FILE_BLOCK;
+        return 0;
+    }
+
+    /*
+     * Metadata crosses multiple policy layers. Unknown enum values or
+     * non-boolean flag encodings must not be treated as truthy trust signals.
+     * Preserve availability by returning UNKNOWN/QUARANTINE, never ALLOW.
+     */
+    if (metadata->format_valid > 1u ||
+        metadata->signature_valid > 1u ||
+        metadata->signature_present > 1u ||
+        metadata->local_trusted > 1u ||
+        metadata->local_denied > 1u ||
+        metadata->provenance_known > 1u ||
+        (int32_t)metadata->reputation <
+            (int32_t)PROS_FILE_REPUTATION_UNAVAILABLE ||
+        (int32_t)metadata->reputation >
+            (int32_t)PROS_FILE_REPUTATION_MALICIOUS) {
+        result->evidence = PROS_FILE_EVIDENCE_NONE;
+        result->state = PROS_FILE_UNKNOWN;
+        result->action = PROS_FILE_QUARANTINE;
+        return 0;
+    }
+
     if (metadata->format_valid)
         evidence |= PROS_FILE_EVIDENCE_FORMAT_VALID;
     if (metadata->signature_valid)
@@ -313,6 +342,37 @@ int pros_file_security_selftest(void) {
         r.state != PROS_FILE_UNKNOWN ||
         r.action != PROS_FILE_QUARANTINE)
         return -1;
+
+    m = (struct pros_file_security_metadata){
+        .format_valid = 1u,
+        .local_trusted = 1u,
+        .reputation = (enum pros_file_reputation)0x7FFFFFFF
+    };
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_UNKNOWN ||
+        r.action != PROS_FILE_QUARANTINE)
+        return -10;
+
+    m.local_denied = 1u;
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_MALICIOUS ||
+        r.action != PROS_FILE_BLOCK)
+        return -13;
+
+    m.local_denied = 0u;
+    m.reputation = PROS_FILE_REPUTATION_CLEAN;
+    m.format_valid = 2u;
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_UNKNOWN ||
+        r.action != PROS_FILE_QUARANTINE)
+        return -11;
+
+    m.format_valid = 1u;
+    m.reputation = (enum pros_file_reputation)-1;
+    if (pros_file_admit(&m, &r) != 0 ||
+        r.state != PROS_FILE_UNKNOWN ||
+        r.action != PROS_FILE_QUARANTINE)
+        return -12;
 
     return 0;
 }

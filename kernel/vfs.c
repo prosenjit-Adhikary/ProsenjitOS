@@ -196,6 +196,7 @@ int vfs_mount_activate(struct pros_vfs_mount *mount)
 
 int vfs_mount_deactivate(struct pros_vfs_mount *mount)
 {
+    int rc;
     if (!mount || !mount->active)
         return PROS_VFS_EINVAL;
 
@@ -206,14 +207,25 @@ int vfs_mount_deactivate(struct pros_vfs_mount *mount)
      * has externally visible vnode state. Refuse deactivation instead of
      * freeing fs-private state underneath an open handle.
      */
-    if (mount->root && mount->root->refcount > 1u)
-        return PROS_VFS_EBUSY;
-
-    mount->active = 0;
     if (mount->root) {
-        vfs_vnode_put(mount->root);
+        if (!mount->root->initialized || mount->root->mount != mount ||
+            mount->root->refcount == 0u)
+            return PROS_VFS_EINVAL;
+        if (mount->root->refcount > 1u)
+            return PROS_VFS_EBUSY;
+
+        /*
+         * Do not discard mount ownership or clear device/private state when
+         * the root reference cannot be released. This keeps a failed teardown
+         * visible to the caller instead of silently leaking the root vnode.
+         */
+        rc = vfs_vnode_put(mount->root);
+        if (rc != PROS_VFS_OK)
+            return rc;
         mount->root = 0;
     }
+
+    mount->active = 0;
     /*
      * Inactive mounts must not retain a usable device/private-data path.
      * This makes stale low-level handles fail closed even if a caller keeps
@@ -239,7 +251,10 @@ int vfs_file_init(struct pros_vfs_file *file,
                   const struct pros_vfs_file_ops *ops,
                   void *private_data, uint32_t flags)
 {
-    if (!file || !mount || !mount->active || !ops || !ops->read ||
+    if (!file || !mount || !mount->active || !ops ||
+        (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
+        ((flags & PROS_VFS_O_READ) != 0u && !ops->read) ||
+        ((flags & PROS_VFS_O_WRITE) != 0u && !ops->write) ||
         !ops->close)
         return PROS_VFS_EINVAL;
     file->mount = mount;
@@ -257,17 +272,23 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !bytes_read ||
-        !file->vnode || file->position > 0xFFFFFFFFULL)
+        !file->ops || !bytes_read || !file->vnode ||
+        !file->vnode->initialized || file->vnode->refcount == 0u ||
+        !file->vnode->ops || file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
+    /* Keep the caller's output deterministic on permission/overflow errors. */
+    *bytes_read = 0u;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
+    if (!file->ops->read)
+        return PROS_VFS_ENOSYS;
+    if (file->position > 0xFFFFFFFFULL)
+        return PROS_VFS_EOVERFLOW;
 
     /*
      * A zero-length read is a successful no-op and does not require a data
      * buffer. Non-zero reads require a valid destination before dispatch.
      */
-    *bytes_read = 0u;
     if (length == 0u)
         return PROS_VFS_OK;
     if (!buffer)
@@ -284,8 +305,10 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) { vfs_health_error(rc); return rc; }
 
-    if ((uint32_t)rc > length)
+    if ((uint32_t)rc > length) {
+        vfs_health_error(PROS_VFS_EIO);
         return PROS_VFS_EIO;
+    }
     file->position += (uint32_t)rc;
     *bytes_read = (uint32_t)rc;
     ++health_read_count;
@@ -297,12 +320,20 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !bytes_written || !file->vnode)
+        !file->ops || !bytes_written || !file->vnode ||
+        !file->vnode->initialized || file->vnode->refcount == 0u ||
+        !file->vnode->ops || file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
+    /* Never leave a caller's stale byte count on a failed/no-op write. */
+    *bytes_written = 0u;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
+    if (!file->ops->write)
+        return PROS_VFS_ENOSYS;
     if (length != 0u && !buffer)
         return PROS_VFS_EINVAL;
+    if (length == 0u)
+        return PROS_VFS_OK;
     /*
      * O_APPEND is an operation-time filesystem contract. Do not derive the
      * write offset from a cached vnode EOF; another handle may have extended
@@ -318,8 +349,10 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         vfs_health_error(rc);
         return rc;
     }
-    if ((uint32_t)rc > length)
+    if ((uint32_t)rc > length) {
+        vfs_health_error(PROS_VFS_EIO);
         return PROS_VFS_EIO;
+    }
     if ((file->flags & PROS_VFS_O_APPEND) != 0u)
         file->position = file->vnode->size;
     else
@@ -332,7 +365,9 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->truncate || !file->vnode)
+        !file->ops || !file->ops->truncate || !file->vnode ||
+        !file->vnode->initialized || file->vnode->refcount == 0u ||
+        !file->vnode->ops || file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
@@ -348,27 +383,49 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
 int vfs_file_close(struct pros_vfs_file *file)
 {
+    struct pros_vfs_vnode *vnode;
     int rc;
-    if (!file || !file->open || !file->ops || !file->ops->close)
+
+    if (!file || !file->open || !file->mount || !file->vnode ||
+        !file->ops || !file->ops->close)
         return PROS_VFS_EINVAL;
+
+    vnode = file->vnode;
+    /*
+     * Validate ownership before provider close so obviously stale handles
+     * fail closed before provider resources are changed.
+     */
+    if (!vnode->initialized || vnode->refcount == 0u || !vnode->ops ||
+        vnode->mount != file->mount || !file->mount->active)
+        return PROS_VFS_EINVAL;
+
     rc = file->ops->close(file);
     if (rc != PROS_VFS_OK)
         return rc;
+
+    rc = vfs_vnode_put(vnode);
+
+    /*
+     * The provider close callback has succeeded, so this file handle must
+     * become invalid even if dropping its vnode reference reports an error.
+     * Otherwise a caller retrying close could invoke provider close twice.
+     */
     file->open = 0u;
-    if (file->vnode)
-        vfs_vnode_put(file->vnode);
     file->vnode = 0;
     file->mount = 0;
     file->ops = 0;
     file->private_data = 0;
     file->position = 0;
-    return PROS_VFS_OK;
+    file->flags = 0u;
+    return rc;
 }
 
 int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->vnode)
+        !file->vnode || !file->vnode->initialized ||
+        file->vnode->refcount == 0u || !file->vnode->ops ||
+        file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     if (position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
@@ -454,6 +511,16 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
     if (!vnode || !mount || !ops ||
         (type != PROS_VFS_NODE_FILE && type != PROS_VFS_NODE_DIRECTORY))
         return PROS_VFS_EINVAL;
+    /*
+     * A parent pointer is part of the vnode lifetime chain. Reject an
+     * uninitialized, cross-mount, or non-directory parent before publishing
+     * this vnode, otherwise path traversal and mount busy checks can follow
+     * invalid ownership links.
+     */
+    if (parent && (!parent->initialized || parent->refcount == 0u ||
+                   parent->mount != mount ||
+                   parent->type != PROS_VFS_NODE_DIRECTORY))
+        return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_DIRECTORY && (!ops->lookup || !ops->readdir))
         return PROS_VFS_EINVAL;
     if (type == PROS_VFS_NODE_FILE && (!file_ops || !file_ops->read ||
@@ -473,7 +540,8 @@ int vfs_vnode_init(struct pros_vfs_vnode *vnode,
 
 int vfs_vnode_get(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    if (!vnode || !vnode->initialized || vnode->refcount == 0u ||
+        !vnode->ops)
         return PROS_VFS_EINVAL;
     if (vnode->refcount == 0xFFFFFFFFu)
         return PROS_VFS_EOVERFLOW;
@@ -483,7 +551,8 @@ int vfs_vnode_get(struct pros_vfs_vnode *vnode)
 
 int vfs_vnode_put(struct pros_vfs_vnode *vnode)
 {
-    if (!vnode || !vnode->initialized || vnode->refcount == 0u)
+    if (!vnode || !vnode->initialized || vnode->refcount == 0u ||
+        !vnode->ops)
         return PROS_VFS_EINVAL;
     --vnode->refcount;
     if (vnode->refcount == 0u) {
@@ -523,10 +592,24 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     const char *cursor;
     char component[PROS_VFS_NAME_MAX + 1u];
     uint32_t components = 0;
+    uint32_t path_length = 0u;
 
-    if (!mount || !path || !result || !mount->active || !mount->root ||
+    if (!result)
+        return PROS_VFS_EINVAL;
+    *result = 0;
+    if (!mount || !path || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+    if (!mount->root->initialized || mount->root->refcount == 0u ||
+        mount->root->mount != mount ||
+        mount->root->type != PROS_VFS_NODE_DIRECTORY ||
+        !mount->root->ops || !mount->root->ops->lookup)
+        return PROS_VFS_EINVAL;
+    while (path_length <= PROS_VFS_PATH_MAX &&
+           path[path_length] != '\0')
+        ++path_length;
+    if (path_length > PROS_VFS_PATH_MAX)
+        return PROS_VFS_EOVERFLOW;
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
@@ -550,24 +633,47 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             component[2] == '\0') {
             struct pros_vfs_vnode *parent =
                 current->parent ? current->parent : current;
+            if (parent != current &&
+                (!parent->initialized || parent->refcount == 0u ||
+                 parent->mount != mount ||
+                 parent->type != PROS_VFS_NODE_DIRECTORY)) {
+                vfs_vnode_put(current);
+                return PROS_VFS_EINVAL;
+            }
             if (parent != current && vfs_vnode_get(parent) != PROS_VFS_OK) {
                 vfs_vnode_put(current);
                 return PROS_VFS_EINVAL;
             }
-            if (parent != current)
-                vfs_vnode_put(current);
+            if (parent != current) {
+                /*
+                 * Moving to the parent transfers traversal ownership only
+                 * after the old vnode reference is released successfully.
+                 * If release fails, drop the newly acquired parent reference
+                 * and stop instead of hiding a broken ownership transition.
+                 */
+                int put_rc = vfs_vnode_put(current);
+                if (put_rc != PROS_VFS_OK) {
+                    (void)vfs_vnode_put(parent);
+                    return put_rc;
+                }
+            }
             current = parent;
             continue;
         }
-        if (current->type != PROS_VFS_NODE_DIRECTORY ||
-            !current->ops->lookup) {
+        if (!current->initialized || current->refcount == 0u ||
+            current->mount != mount ||
+            current->type != PROS_VFS_NODE_DIRECTORY ||
+            !current->ops || !current->ops->lookup) {
             vfs_vnode_put(current);
             return PROS_VFS_ENOTDIR;
         }
         struct pros_vfs_vnode *next = 0;
         int lookup_rc = current->ops->lookup(current, component, &next);
         if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
-            next->mount != mount) {
+            next->refcount == 0u || next->mount != mount || !next->ops ||
+            (next == current && next->refcount < 2u) ||
+            (next->type != PROS_VFS_NODE_FILE &&
+             next->type != PROS_VFS_NODE_DIRECTORY)) {
             /*
              * A successful lookup transfers one owned vnode reference to the
              * caller.  A malformed provider result can still return a vnode
@@ -575,13 +681,24 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
              * initialization contract.  Drop that transferred reference on
              * every rejected result so a provider bug cannot leak a vnode.
              */
-            if (next && next != current && next->initialized)
+            if (next && next->initialized &&
+                (next != current || next->refcount >= 2u))
                 (void)vfs_vnode_put(next);
             vfs_vnode_put(current);
             return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
         }
-        /* lookup() transfers one owned vnode reference to the caller. */
-        vfs_vnode_put(current);
+        /*
+         * lookup() transfers one owned vnode reference to the caller.
+         * Do not silently continue if releasing the previous traversal
+         * reference fails: that would hide a broken vnode ownership chain.
+         */
+        {
+            int put_rc = vfs_vnode_put(current);
+            if (put_rc != PROS_VFS_OK) {
+                (void)vfs_vnode_put(next);
+                return put_rc;
+            }
+        }
         current = next;
     }
     *result = current;
@@ -601,6 +718,8 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
 
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
@@ -659,7 +778,13 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         name[name_length] = '\0';
         rc = parent->ops->unlink(parent, name);
     }
-    vfs_vnode_put(parent);
+    {
+        int put_rc = vfs_vnode_put(parent);
+        if (rc == PROS_VFS_OK && put_rc != PROS_VFS_OK)
+            rc = put_rc;
+    }
+    if (rc < 0) vfs_health_error(rc);
+    else ++health_unlink_count;
     return rc;
 }
 
@@ -676,6 +801,8 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
@@ -723,8 +850,22 @@ int vfs_mkdir(struct pros_vfs_mount *mount, const char *path)
         return PROS_VFS_ENOSYS;
     }
     rc = parent->ops->mkdir(parent, name, &created);
-    if (created) vfs_vnode_put(created);
-    vfs_vnode_put(parent);
+    {
+        int created_put_rc = PROS_VFS_OK;
+        int parent_put_rc;
+        if (created && created->initialized && created->refcount != 0u)
+            created_put_rc = vfs_vnode_put(created);
+        parent_put_rc = vfs_vnode_put(parent);
+        /*
+         * Preserve the provider's operation error. If the mutation itself
+         * succeeded, surface a reference-release failure rather than
+         * reporting a clean success while vnode ownership is inconsistent.
+         */
+        if (rc == PROS_VFS_OK && created_put_rc != PROS_VFS_OK)
+            rc = created_put_rc;
+        if (rc == PROS_VFS_OK && parent_put_rc != PROS_VFS_OK)
+            rc = parent_put_rc;
+    }
     if (rc < 0) vfs_health_error(rc); else ++health_mkdir_count;
     return rc;
 }
@@ -739,6 +880,8 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
 
     if (!mount || !mount->active || !path || path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
     while (1) {
         if (length >= PROS_VFS_PATH_MAX)
             return PROS_VFS_EOVERFLOW;
@@ -785,7 +928,11 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
         return PROS_VFS_ENOSYS;
     }
     rc = parent->ops->rmdir(parent, name);
-    vfs_vnode_put(parent);
+    {
+        int put_rc = vfs_vnode_put(parent);
+        if (rc == PROS_VFS_OK && put_rc != PROS_VFS_OK)
+            rc = put_rc;
+    }
     if (rc < 0) vfs_health_error(rc); else ++health_rmdir_count;
     return rc;
 }
@@ -808,6 +955,8 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
     if (!mount || !mount->active || !old_path || !new_path ||
         old_path[0] != '/' || new_path[0] != '/')
         return PROS_VFS_EINVAL;
+    if (mount->read_only)
+        return PROS_VFS_EPERM;
 
     while (1) {
         if (old_length >= PROS_VFS_PATH_MAX)
@@ -904,10 +1053,22 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
     rc = old_parent->ops->rename(old_parent, old_name,
                                  new_parent, new_name);
 out:
-    if (new_parent)
-        vfs_vnode_put(new_parent);
-    if (old_parent)
-        vfs_vnode_put(old_parent);
+    {
+        int new_put_rc = PROS_VFS_OK;
+        int old_put_rc = PROS_VFS_OK;
+        if (new_parent)
+            new_put_rc = vfs_vnode_put(new_parent);
+        if (old_parent)
+            old_put_rc = vfs_vnode_put(old_parent);
+        if (rc == PROS_VFS_OK && new_put_rc != PROS_VFS_OK)
+            rc = new_put_rc;
+        if (rc == PROS_VFS_OK && old_put_rc != PROS_VFS_OK)
+            rc = old_put_rc;
+    }
+    if (rc < 0)
+        vfs_health_error(rc);
+    else
+        ++health_rename_count;
     return rc;
 }
 
@@ -920,11 +1081,20 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                             PROS_VFS_O_DIRECTORY | PROS_VFS_O_CREATE |
                             PROS_VFS_O_APPEND)) != 0u ||
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
-        (flags & PROS_VFS_O_DIRECTORY) != 0u)
+        (flags & PROS_VFS_O_DIRECTORY) != 0u ||
+        ((flags & PROS_VFS_O_APPEND) != 0u &&
+         (flags & PROS_VFS_O_WRITE) == 0u))
         return PROS_VFS_EINVAL;
 
     rc = vfs_path_lookup(mount, path, &vnode);
     if (rc == PROS_VFS_ENOENT && (flags & PROS_VFS_O_CREATE) != 0u) {
+        /*
+         * Check the mount policy before calling the filesystem create
+         * operation. A read-only mount must not rely on every provider's
+         * create callback to reject mutation correctly.
+         */
+        if (mount->read_only)
+            return PROS_VFS_EPERM;
         char parent_path[PROS_VFS_PATH_MAX + 1u];
         char name[PROS_VFS_NAME_MAX + 1u];
         uint32_t length = 0u, last_slash = 0xFFFFFFFFu;
@@ -945,6 +1115,14 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         for (uint32_t i = 0u; i < name_length; ++i)
             name[i] = path[last_slash + 1u + i];
         name[name_length] = '\0';
+        /*
+         * Creation must not allow special path components to be handed to a
+         * provider as ordinary filenames. Lookup interprets these names as
+         * traversal, so create must reject them consistently.
+         */
+        if ((name_length == 1u && name[0] == '.') ||
+            (name_length == 2u && name[0] == '.' && name[1] == '.'))
+            return PROS_VFS_EINVAL;
         if (last_slash == 0u) {
             parent_path[0] = '/'; parent_path[1] = '\0';
         } else {
@@ -954,17 +1132,34 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         }
         rc = vfs_path_lookup(mount, parent_path, &vnode);
         if (rc != PROS_VFS_OK) return rc;
-        if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops->create) {
+        if (vnode->type != PROS_VFS_NODE_DIRECTORY || !vnode->ops ||
+            !vnode->ops->create) {
             vfs_vnode_put(vnode); return PROS_VFS_ENOSYS;
         }
         struct pros_vfs_vnode *created = 0;
         rc = vnode->ops->create(vnode, name, &created);
-        vfs_vnode_put(vnode);
-        if (rc != PROS_VFS_OK)
+        {
+            int parent_put_rc = vfs_vnode_put(vnode);
+            if (parent_put_rc != PROS_VFS_OK) {
+                if (created && created->initialized && created->refcount != 0u)
+                    (void)vfs_vnode_put(created);
+                return parent_put_rc;
+            }
+        }
+        if (rc != PROS_VFS_OK) {
+            /* Providers must not leak a transferred vnode on error. */
+            if (created && created->initialized)
+                (void)vfs_vnode_put(created);
             return rc;
-        if (!created || !created->initialized ||
+        }
+        if (!created || !created->initialized || created->refcount == 0u ||
             created->mount != mount ||
-            created->type != PROS_VFS_NODE_FILE) {
+            created->type != PROS_VFS_NODE_FILE || !created->file_ops ||
+            (((flags & PROS_VFS_O_READ) != 0u) &&
+             !created->file_ops->read) ||
+            (((flags & PROS_VFS_O_WRITE) != 0u) &&
+             !created->file_ops->write) ||
+            !created->file_ops->close) {
             if (created && created->initialized)
                 (void)vfs_vnode_put(created);
             return PROS_VFS_EIO;
@@ -978,6 +1173,16 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
     }
     if ((flags & PROS_VFS_O_WRITE) != 0u && mount->read_only) {
         vfs_vnode_put(vnode); return PROS_VFS_EPERM;
+    }
+    /*
+     * A write-open must not succeed with a provider that cannot write.
+     * Otherwise callers discover the unsupported operation only after the
+     * handle has been published and may treat a successful open as writable.
+     */
+    if ((flags & PROS_VFS_O_WRITE) != 0u &&
+        (!vnode->file_ops || !vnode->file_ops->write)) {
+        vfs_vnode_put(vnode);
+        return PROS_VFS_ENOSYS;
     }
     if (vfs_file_init(file, mount, vnode->file_ops, vnode->private_data,
                       flags) != PROS_VFS_OK) {
@@ -998,11 +1203,17 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
     if (rc != PROS_VFS_OK)
         return rc;
     if (vnode->type != PROS_VFS_NODE_DIRECTORY) {
-        vfs_vnode_put(vnode);
+        int put_rc = vfs_vnode_put(vnode);
+        if (put_rc != PROS_VFS_OK)
+            vfs_health_error(put_rc);
+        vfs_health_error(PROS_VFS_ENOTDIR);
         return PROS_VFS_ENOTDIR;
     }
-    if (!vnode->ops->readdir) {
-        vfs_vnode_put(vnode);
+    if (!vnode->ops || !vnode->ops->readdir) {
+        int put_rc = vfs_vnode_put(vnode);
+        if (put_rc != PROS_VFS_OK)
+            vfs_health_error(put_rc);
+        vfs_health_error(PROS_VFS_ENOSYS);
         return PROS_VFS_ENOSYS;
     }
     dir->vnode = vnode;
@@ -1014,19 +1225,45 @@ int vfs_dir_open(struct pros_vfs_mount *mount, const char *path,
 
 int vfs_dir_read(struct pros_vfs_dir *dir, struct pros_vfs_dirent *entry)
 {
-    if (!dir || !dir->open || !dir->vnode || !entry ||
-        !dir->vnode->ops->readdir)
+    struct pros_vfs_vnode *vnode;
+    int rc;
+
+    if (!dir || !dir->open || !dir->vnode || !entry)
         return PROS_VFS_EINVAL;
-    int rc = dir->vnode->ops->readdir(dir->vnode, &dir->cookie, entry);
-    if (rc < 0) vfs_health_error(rc); else ++health_dir_read_count;
+
+    /*
+     * Validate the complete vnode dispatch chain before dereferencing it.
+     * Directory handles normally keep the vnode alive, but a stale/corrupt
+     * handle must fail closed rather than call through a missing ops table or
+     * dispatch a non-directory vnode as a directory.
+     */
+    vnode = dir->vnode;
+    if (!vnode->initialized || vnode->refcount == 0u || !vnode->mount ||
+        !vnode->mount->active || vnode->type != PROS_VFS_NODE_DIRECTORY ||
+        !vnode->ops || !vnode->ops->readdir)
+        return PROS_VFS_EINVAL;
+
+    rc = vnode->ops->readdir(vnode, &dir->cookie, entry);
+    if (rc < 0)
+        vfs_health_error(rc);
+    else
+        ++health_dir_read_count;
     return rc;
 }
 
 int vfs_dir_close(struct pros_vfs_dir *dir)
 {
+    int rc;
     if (!dir || !dir->open || !dir->vnode)
         return PROS_VFS_EINVAL;
-    vfs_vnode_put(dir->vnode);
+    /*
+     * Do not discard the only handle to a vnode if its reference state is
+     * corrupt. Propagate the failed release and leave the directory handle
+     * intact so callers can diagnose the ownership failure.
+     */
+    rc = vfs_vnode_put(dir->vnode);
+    if (rc != PROS_VFS_OK)
+        return rc;
     dir->vnode = 0;
     dir->cookie = 0;
     dir->open = 0;
@@ -1122,9 +1359,45 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
     return (int)take;
 }
 
+static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
+{
+    struct pros_vfs_vnode *parent;
+    if (!vnode)
+        return;
+    parent = vnode->parent;
+    vnode->initialized = 0u;
+    vnode->refcount = 0u;
+    vnode->parent = 0;
+    vnode->mount = 0;
+    vnode->ops = 0;
+    vnode->file_ops = 0;
+    vnode->private_data = 0;
+    if (parent)
+        (void)vfs_vnode_put(parent);
+}
+
+static int vfs_selftest_vnode_init(struct pros_vfs_vnode *vnode,
+                                   struct pros_vfs_mount *mount,
+                                   struct pros_vfs_vnode *parent,
+                                   enum pros_vfs_node_type type,
+                                   const struct pros_vfs_vnode_ops *ops,
+                                   const struct pros_vfs_file_ops *file_ops,
+                                   void *private_data,
+                                   uint64_t size)
+{
+    if (parent && vfs_vnode_get(parent) != PROS_VFS_OK)
+        return PROS_VFS_EINVAL;
+    int rc = vfs_vnode_init(vnode, mount, parent, type, ops, file_ops,
+                            private_data, size);
+    if (rc != PROS_VFS_OK && parent)
+        (void)vfs_vnode_put(parent);
+    return rc;
+}
+
 static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
-    .readdir = vfs_selftest_readdir
+    .readdir = vfs_selftest_readdir,
+    .release = vfs_selftest_vnode_release
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1139,7 +1412,8 @@ static int vfs_vnode_api_selftest(void)
     static struct pros_vfs_vnode root, hello_node, etc_node, config_node;
     static struct vfs_selftest_node root_data, hello_data, etc_data, config_data;
     struct pros_block_device device;
-    struct pros_vfs_mount mount;
+    /* vfs_mount_init() requires a fresh, inactive zeroed mount. */
+    struct pros_vfs_mount mount = {0};
     struct pros_vfs_file file;
     struct pros_vfs_dir dir;
     struct pros_vfs_dirent entry;
@@ -1165,16 +1439,17 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -1;
-    if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+    /* The root has no parent; '..' at root remains at the root vnode. */
+    if (vfs_selftest_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
-        vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
+        vfs_selftest_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &hello_data, sizeof(hello) - 1u) != PROS_VFS_OK ||
-        vfs_vnode_init(&etc_node, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+        vfs_selftest_vnode_init(&etc_node, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &etc_data, 0) !=
             PROS_VFS_OK ||
-        vfs_vnode_init(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
+        vfs_selftest_vnode_init(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
@@ -1185,6 +1460,15 @@ static int vfs_vnode_api_selftest(void)
     if (vfs_mount_activate(&mount) != PROS_VFS_OK)
         return -1;
 
+    {
+        static char overlong_path[PROS_VFS_PATH_MAX + 2u];
+        for (uint32_t i = 0u; i <= PROS_VFS_PATH_MAX; ++i)
+            overlong_path[i] = 'a';
+        overlong_path[PROS_VFS_PATH_MAX + 1u] = '\0';
+        if (vfs_path_lookup(&mount, overlong_path, &found) !=
+            PROS_VFS_EOVERFLOW)
+            return -2;
+    }
     if (vfs_path_lookup(&mount, "/etc/../hello.txt", &found) != PROS_VFS_OK ||
         found != &hello_node)
         return -1;
@@ -1217,13 +1501,19 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -1;
 
-    if (vfs_mount_deactivate(&mount) != PROS_VFS_OK)
-        return -1;
-
-    if (vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
-        return -1;
-
-    if (vfs_file_close(&file) != PROS_VFS_OK)
+    /*
+     * Drop fixture ownership for every child while leaving the open file's
+     * vnode reference alive. The parent reference chain must keep the mount
+     * busy until that final file reference is closed.
+     */
+    if (vfs_vnode_put(&config_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&etc_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+        vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
+        vfs_file_close(&file) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_OK ||
+        vfs_file_seek(&file, 1u) != PROS_VFS_EINVAL)
         return -1;
 
     return 0;

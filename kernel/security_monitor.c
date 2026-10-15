@@ -44,6 +44,38 @@ static struct pros_security_monitor_state *alloc_state(uint64_t pid) {
     return 0;
 }
 
+/*
+ * Monitoring failures must not leave a runnable process merely because its
+ * quarantine metadata is already corrupt. First use the normal transition;
+ * if validation rejects the metadata but the process itself is live, force a
+ * conservative BLOCKED quarantine with no restore target. Clearing that
+ * quarantine will leave the process BLOCKED rather than guessing its history.
+ */
+static int contain_process(struct pros_process *process)
+{
+    if (!process)
+        return -1;
+
+    /*
+     * process_state() intentionally reports DEAD when object metadata is
+     * invalid. For containment, however, a corrupt object header must not
+     * hide a raw scheduler-visible state and leave that process runnable.
+     */
+    uint32_t state = process->state;
+    if (state != PROS_PROCESS_READY &&
+        state != PROS_PROCESS_RUNNING &&
+        state != PROS_PROCESS_BLOCKED)
+        return -1;
+
+    if (security_quarantine(process) == 0)
+        return 0;
+
+    process->state = PROS_PROCESS_BLOCKED;
+    process->quarantined = 1u;
+    process->quarantine_previous_state = 0u;
+    return 0;
+}
+
 static enum pros_security_monitor_action decide(
     enum pros_security_event_type type, uint32_t score) {
     if (type == PROS_SECURITY_EVENT_SECURITY_TAMPER ||
@@ -119,23 +151,59 @@ int pros_security_monitor_enforce(
     struct pros_security_monitor_state *state) {
     int action;
 
-    if (!process || !event ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED) ||
-        process->pid != event->pid)
+    if (!process || !event || process->pid != event->pid)
         return -1;
 
+    /*
+     * A malformed process object makes process_state() conservatively report
+     * DEAD. Do not let that validation mapping bypass containment when the raw
+     * scheduler state still says the process could be runnable. Only contain
+     * the process after matching the event PID and checking the raw state.
+     */
+    if (process->state != PROS_PROCESS_READY &&
+        process->state != PROS_PROCESS_RUNNING &&
+        process->state != PROS_PROCESS_BLOCKED)
+        return -1;
+    if (process_state(process) == PROS_PROCESS_DEAD) {
+        (void)contain_process(process);
+        return -1;
+    }
+
     action = pros_security_monitor_record(event, state);
-    if (action < 0)
+    if (action == -2 || action == -3) {
+        /*
+         * Exhausted monitor capacity or non-monotonic event time means the
+         * monitor cannot safely establish the process's behavior history.
+         * Fail closed by containing the process instead of silently leaving
+         * it runnable without reliable monitoring.
+         */
+        (void)contain_process(process);
         return action;
+    }
+    if (action < 0) {
+        /*
+         * The caller has already matched the event PID to a live scheduler
+         * state. An invalid event type/record is therefore a monitoring
+         * failure, not a reason to leave that process runnable unobserved.
+         */
+        (void)contain_process(process);
+        return action;
+    }
 
     if (action == PROS_SECURITY_MONITOR_QUARANTINE)
-        return security_quarantine(process) == 0 ? action : -2;
+        return contain_process(process) == 0 ? action : -2;
 
     if (action == PROS_SECURITY_MONITOR_BLOCK) {
-        if (process_exit(process, -0x5344) != 0)
+        if (process_exit(process, -0x5344) != 0) {
+            /*
+             * Exit can fail when teardown is temporarily unavailable (for
+             * example, an address-space switch failure). Do not leave the
+             * blocked process runnable: attempt quarantine as a containment
+             * fallback while preserving the reported block failure.
+             */
+            (void)contain_process(process);
             return -3;
+        }
         return action;
     }
 
@@ -265,6 +333,83 @@ int pros_security_monitor_selftest(void) {
     for (uint32_t i = 0u; i < PROS_SECURITY_MONITOR_MAX_PROCESSES; ++i)
         (void)pros_security_monitor_clear(0xA000u + i);
     (void)pros_security_monitor_clear(0xB000u);
+
+    /*
+     * A malformed telemetry event for the matching live PID must fail closed.
+     * Otherwise a producer bug could bypass enforcement by supplying an
+     * unsupported event type that record() rejects.
+     */
+    {
+        struct pros_process process = {0};
+        process.object.type = PROS_OBJECT_PROCESS;
+        process.object.refcount = 1u;
+        process.pid = 0xB100u;
+        process.state = PROS_PROCESS_READY;
+        event.pid = process.pid;
+        event.timestamp = 1u;
+        event.type = PROS_SECURITY_EVENT_NONE;
+        event.severity = 1u;
+        if (pros_security_monitor_enforce(&process, &event, &state) != -1 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u)
+            return -17;
+    }
+
+    /*
+     * If quarantine metadata is corrupt, monitor containment must still
+     * leave a live process BLOCKED. With no trustworthy prior state, clearing
+     * the repaired quarantine must not resume it.
+     */
+    {
+        struct pros_process process = {0};
+        process.object.type = PROS_OBJECT_PROCESS;
+        process.object.refcount = 1u;
+        process.pid = 0xC000u;
+        process.state = PROS_PROCESS_READY;
+        process.quarantined = 2u;
+        process.quarantine_previous_state = UINT8_MAX;
+        if (contain_process(&process) != 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            process.quarantine_previous_state != 0u)
+            return -13;
+        if (security_clear_quarantine(&process) != 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 0u)
+            return -14;
+
+        /* Invalid object metadata must not make a live raw state invisible. */
+        process.state = PROS_PROCESS_READY;
+        process.object.reserved = 1u;
+        process.quarantined = 0u;
+        process.quarantine_previous_state = 0u;
+        if (contain_process(&process) != 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            process.quarantine_previous_state != 0u)
+            return -15;
+        process.object.reserved = 0u;
+
+        /*
+         * Exercise the public enforcement entry point, not just its fallback:
+         * invalid object metadata must not make a raw READY process escape
+         * containment through the process_state() validation guard.
+         */
+        process.state = PROS_PROCESS_READY;
+        process.quarantined = 0u;
+        process.quarantine_previous_state = 0u;
+        process.object.reserved = 1u;
+        event.pid = process.pid;
+        event.timestamp = 1u;
+        event.type = PROS_SECURITY_EVENT_MASS_FILE_MODIFY;
+        event.severity = 1u;
+        if (pros_security_monitor_enforce(&process, &event, &state) >= 0 ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            process.quarantine_previous_state != 0u)
+            return -16;
+        process.object.reserved = 0u;
+    }
 
     return 0;
 }

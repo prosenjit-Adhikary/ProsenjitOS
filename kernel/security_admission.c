@@ -5,6 +5,99 @@
 #include "security_provider.h"
 #include "health.h"
 
+int pros_file_admission_record_valid(
+    const struct pros_file_admission_record *record)
+{
+    const uint32_t known_evidence =
+        PROS_FILE_EVIDENCE_FORMAT_VALID |
+        PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+        PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+        PROS_FILE_EVIDENCE_LOCAL_TRUST |
+        PROS_FILE_EVIDENCE_LOCAL_DENY |
+        PROS_FILE_EVIDENCE_REPUTATION_CLEAN |
+        PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS |
+        PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS |
+        PROS_FILE_EVIDENCE_PROVENANCE_KNOWN;
+    const uint32_t deny_evidence =
+        PROS_FILE_EVIDENCE_LOCAL_DENY |
+        PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+    const uint32_t suspicious_evidence =
+        PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+        PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS;
+    const uint32_t contradictory_reputation =
+        PROS_FILE_EVIDENCE_REPUTATION_CLEAN |
+        PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS |
+        PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+
+    if (!record ||
+        record->security.state < PROS_FILE_TRUSTED ||
+        record->security.state > PROS_FILE_MALICIOUS ||
+        record->security.action < PROS_FILE_ALLOW ||
+        record->security.action > PROS_FILE_BLOCK ||
+        (record->security.evidence & ~known_evidence) != 0u)
+        return 0;
+
+    /* Evidence cannot simultaneously assert mutually exclusive outcomes. */
+    if ((record->security.evidence & contradictory_reputation) != 0u) {
+        uint32_t reputation_bits =
+            record->security.evidence & contradictory_reputation;
+        if ((reputation_bits & (reputation_bits - 1u)) != 0u)
+            return 0;
+    }
+    if ((record->security.evidence &
+         (PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+          PROS_FILE_EVIDENCE_SIGNATURE_INVALID)) ==
+        (PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+         PROS_FILE_EVIDENCE_SIGNATURE_INVALID))
+        return 0;
+
+    switch (record->security.state) {
+    case PROS_FILE_TRUSTED:
+        /*
+         * Match pros_file_admit(): even an explicit local-trust decision
+         * cannot authorize a file whose format was not validated.
+         */
+        return record->security.action == PROS_FILE_ALLOW &&
+            (record->security.evidence &
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST)) ==
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST) &&
+            (record->security.evidence &
+             (deny_evidence | suspicious_evidence)) == 0u;
+    case PROS_FILE_VERIFIED:
+        return record->security.action == PROS_FILE_ALLOW &&
+            (record->security.evidence &
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID)) ==
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID) &&
+            (record->security.evidence &
+             (PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST |
+              deny_evidence |
+              PROS_FILE_EVIDENCE_REPUTATION_SUSPICIOUS)) == 0u;
+    case PROS_FILE_UNKNOWN:
+        return record->security.action == PROS_FILE_QUARANTINE &&
+            (record->security.evidence &
+             (deny_evidence | suspicious_evidence |
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST)) == 0u;
+    case PROS_FILE_SUSPICIOUS:
+        return record->security.action == PROS_FILE_QUARANTINE &&
+            (record->security.evidence & suspicious_evidence) != 0u &&
+            (record->security.evidence &
+             deny_evidence) == 0u;
+    case PROS_FILE_MALICIOUS:
+        return record->security.action == PROS_FILE_BLOCK &&
+            ((record->security.evidence & deny_evidence) != 0u ||
+             (record->security.evidence &
+              PROS_FILE_EVIDENCE_FORMAT_VALID) == 0u);
+    default:
+        return 0;
+    }
+}
+
 int pros_file_admission_evaluate(
     const struct pros_file_admission_input *input,
     struct pros_file_admission_record *record) {
@@ -72,9 +165,9 @@ int pros_file_admission_evaluate_signed(
     }
 
     /*
-     * Cryptographic failure is deliberately mapped to UNKNOWN/quarantine,
-     * not to MALICIOUS. Invalidity is evidence of failed verification, not
-     * proof of malware.
+     * Cryptographic failure alone maps to UNKNOWN/quarantine, not MALICIOUS.
+     * Independent local-deny, malformed-format, or malicious-reputation
+     * evidence can still require BLOCK.
      */
     input.data = data;
     input.length = length;
@@ -86,17 +179,21 @@ int pros_file_admission_evaluate_signed(
     if (signature_result != PROS_SIGNATURE_RESULT_VALID) {
         input.metadata.signature_valid = 0u;
         input.metadata.local_trusted = 0u;
-        input.metadata.local_denied = 0u;
-        input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
+        /*
+         * Preserve independent malicious reputation evidence on signature
+         * failure so policy can still block. Do not retain clean/suspicious
+         * reputation or provenance as a trust signal from this failed path.
+         */
+        if (input.metadata.reputation != PROS_FILE_REPUTATION_MALICIOUS)
+            input.metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
         input.metadata.provenance_known = 0u;
     }
 
     /*
-     * The generic evaluator will strip caller-provided signature metadata.
-     * That is intentional for its public contract, so signed evidence needs
-     * a private handoff. Verify again through the same trust authority and
-     * then use the lower-level policy evaluator with an explicit local trust
-     * marker only after cryptographic success.
+     * The generic metadata-only evaluator strips signature flags because
+     * arbitrary callers cannot establish cryptographic trust. On verification
+     * failure, route through that fail-closed path. On success, this function
+     * itself is the trusted handoff to the lower-level policy evaluator.
      */
     if (signature_result != PROS_SIGNATURE_RESULT_VALID)
         return pros_file_admission_evaluate(&input, record);
@@ -105,29 +202,24 @@ int pros_file_admission_evaluate_signed(
     input.metadata.signature_valid = 1u;
 
     /*
-     * The current policy engine treats cryptographic evidence as VERIFIED
-     * only when it is present. The signature result was established above
-     * by this function, so no caller-controlled boolean is being trusted.
+     * This function has just verified the signature itself, so it is the
+     * only path allowed to pass cryptographic metadata directly to the policy
+     * evaluator. Preserve VERIFIED as a distinct state instead of converting
+     * every valid signature into a local-trust decision.
      */
-    {
-        struct pros_file_security_metadata trusted = input.metadata;
-        trusted.local_trusted = 1u;
-        trusted.local_denied = 0u;
-        trusted.provenance_known = 1u;
+    pros_sha256(data, length, record->sha256);
+    if (input.metadata.reputation == PROS_FILE_REPUTATION_UNAVAILABLE)
+        input.metadata.reputation =
+            pros_security_provider_reputation(record->sha256);
 
-        /*
-         * Keep the generic evaluator fail-closed for arbitrary callers.
-         * A dedicated verified-signature path records the cryptographic
-         * decision in the result directly through the same policy routine.
-         */
-        trusted.signature_valid = 0u;
-        trusted.signature_present = 0u;
-        return pros_file_admission_evaluate(
-            &(struct pros_file_admission_input){
-                .data = data,
-                .length = length,
-                .metadata = trusted
-            }, record);
+    {
+        int rc = pros_file_admit(&input.metadata, &record->security);
+        if (rc == 0)
+            (void)pros_health_record_security(
+                0x53454341u, PROS_SECURITY_HEALTH_ADMISSION,
+                ((uint64_t)record->security.action << 32) |
+                (uint64_t)record->security.state);
+        return rc;
     }
 }
 
@@ -208,7 +300,7 @@ int pros_file_admission_selftest(void) {
                 ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
                 &signed_metadata, &record) != 0)
             return -307;
-        if (record.security.state != PROS_FILE_TRUSTED ||
+        if (record.security.state != PROS_FILE_VERIFIED ||
             record.security.action != PROS_FILE_ALLOW)
             return -308;
         {
@@ -224,7 +316,100 @@ int pros_file_admission_selftest(void) {
             if (record.security.state == PROS_FILE_VERIFIED ||
                 record.security.action == PROS_FILE_ALLOW)
                 return -310;
+
+            /*
+             * Independent malicious reputation must remain a block decision
+             * even when signature verification fails.
+             */
+            signed_metadata.reputation = PROS_FILE_REPUTATION_MALICIOUS;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0 ||
+                record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK)
+                return -319;
+            signed_metadata.reputation = PROS_FILE_REPUTATION_UNAVAILABLE;
+
+            /*
+             * Explicit local denial outranks both a valid signature and a
+             * failed signature. Neither cryptographic outcome may erase an
+             * administrator's deny decision.
+             */
+            signed_metadata.local_denied = 1u;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0 ||
+                record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK)
+                return -311;
+            if (pros_file_admission_evaluate_signed(
+                    0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                    bad_sig, sizeof(bad_sig), ed_key, sizeof(ed_key),
+                    &signed_metadata, &record) != 0 ||
+                record.security.state != PROS_FILE_MALICIOUS ||
+                record.security.action != PROS_FILE_BLOCK)
+                return -312;
         }
+    }
+
+    {
+        struct pros_file_admission_record candidate = { 0 };
+
+        candidate.security.state = PROS_FILE_VERIFIED;
+        candidate.security.action = PROS_FILE_ALLOW;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_FORMAT_VALID |
+            PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+            PROS_FILE_EVIDENCE_LOCAL_DENY;
+        if (pros_file_admission_record_valid(&candidate))
+            return -313;
+
+        candidate.security.state = PROS_FILE_TRUSTED;
+        candidate.security.action = PROS_FILE_ALLOW;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_LOCAL_TRUST |
+            PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+        if (pros_file_admission_record_valid(&candidate))
+            return -314;
+
+        /* Local trust must never bypass the format-validation requirement. */
+        candidate.security.evidence = PROS_FILE_EVIDENCE_LOCAL_TRUST;
+        if (pros_file_admission_record_valid(&candidate))
+            return -320;
+
+        /* Unknown/quarantine records cannot simultaneously claim local trust. */
+        candidate.security.state = PROS_FILE_UNKNOWN;
+        candidate.security.action = PROS_FILE_QUARANTINE;
+        candidate.security.evidence = PROS_FILE_EVIDENCE_LOCAL_TRUST;
+        if (pros_file_admission_record_valid(&candidate))
+            return -321;
+
+        candidate.security.state = PROS_FILE_SUSPICIOUS;
+        candidate.security.action = PROS_FILE_QUARANTINE;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_SIGNATURE_INVALID |
+            PROS_FILE_EVIDENCE_REPUTATION_CLEAN;
+        if (!pros_file_admission_record_valid(&candidate))
+            return -315;
+
+        candidate.security.state = PROS_FILE_MALICIOUS;
+        candidate.security.action = PROS_FILE_BLOCK;
+        candidate.security.evidence =
+            PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
+        if (!pros_file_admission_record_valid(&candidate))
+            return -316;
+
+        candidate.security.evidence |= 1u << 31;
+        if (pros_file_admission_record_valid(&candidate))
+            return -317;
+
+        candidate.security.state = PROS_FILE_MALICIOUS;
+        candidate.security.action = PROS_FILE_BLOCK;
+        candidate.security.evidence = PROS_FILE_EVIDENCE_NONE;
+        if (!pros_file_admission_record_valid(&candidate))
+            return -318;
     }
 
     return 0;

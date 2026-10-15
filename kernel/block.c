@@ -1,6 +1,9 @@
 #include "block.h"
 #include "health.h"
 
+/* Temporary cross-layer checkpoint for the ProsenjitFS boot-fault investigation. */
+extern volatile uint64_t pfs_selftest_progress;
+
 static uint64_t read_count;
 static uint64_t write_count;
 static uint64_t error_count;
@@ -14,14 +17,21 @@ int block_device_init(struct pros_block_device *device,
                       pros_block_write_fn write,
                       void *private_data)
 {
+    int pfs_debug = pfs_selftest_progress == 100u;
+    if (pfs_debug)
+        pfs_selftest_progress = 1001u;
     if (!device || sector_size == 0 || sector_count == 0 || !read)
         return PROS_BLOCK_EINVAL;
+    if (pfs_debug)
+        pfs_selftest_progress = 1002u;
     device->sector_size = sector_size;
     device->sector_count = sector_count;
     device->read = read;
     device->write = write;
     device->flush = 0;
     device->private_data = private_data;
+    if (pfs_debug)
+        pfs_selftest_progress = 1003u;
     return PROS_BLOCK_OK;
 }
 

@@ -260,14 +260,21 @@ int pros_elf_selftest(void)
     eh->entry = ELF_TEST_CODE_VA;
 
     eh->phnum = 2;
+    /* Keep the second segment page-congruent while overlapping the first:
+     * a misaligned address would correctly fail EFORMAT before overlap logic. */
+    ph[0].memsz = 0x1800ULL;
     ph[1] = ph[0];
-    ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
+    ph[1].vaddr = ELF_TEST_CODE_VA + ELF_PAGE;
     ph[1].align = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
 
     eh->phnum = 1;
+    /* filesz must not mask the zero-memsz format regression as EBOUNDS. */
+    ph[0].filesz = 0;
     ph[0].memsz = 0;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
+    ph[0].filesz = 4;
+    ph[0].memsz = 0x1000ULL;
 
     /* Rollback isolation regression: an existing mapping must survive a
      * rejected load that targets the same PT_LOAD page. */
@@ -329,6 +336,18 @@ int pros_elf_selftest(void)
         ph[0].vaddr = ELF_TEST_CODE_VA;
         ph[0].align = ELF_PAGE;
         eh->entry = ELF_TEST_CODE_VA;
+        /* Invalid process-object metadata must be rejected before mapping. */
+        process.object.reserved = 1u;
+        rc = pros_elf_load(&process, image, data_off + 2, &loaded);
+        process.object.reserved = 0u;
+        if (rc != PROS_ELF_EINVAL ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &physical,
+                                         &flags) == 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -33;
+        }
         rc = pros_elf_load_with_args(&process, image, data_off + 2,
                                      argv, 2u, envp, 1u, &loaded);
         if (rc != PROS_ELF_OK) {
@@ -423,7 +442,10 @@ static int build_initial_stack(struct pros_process *process,
         string_bytes + pointer_bytes + 15u > stack_capacity)
         return PROS_ELF_EOVERFLOW;
 
-    uint64_t sp = PROSENJIT_USER_STACK_TOP - string_bytes;
+    /* Start at the top of the stack page; the loop below subtracts each
+     * string exactly once. Pre-subtracting string_bytes here would underflow
+     * the page offset for non-empty argv/envp and write outside the stack. */
+    uint64_t sp = PROSENJIT_USER_STACK_TOP;
     for (uint32_t pass = 0; pass < 2u; ++pass) {
         const char *const *list = pass == 0u ? argv : envp;
         uint32_t count = pass == 0u ? argc : envc;
@@ -499,9 +521,10 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
     uint64_t start, end, entry;
     uint64_t mapped = 0;
 
-    if (!process || !image || !result ||
+    if (!process || !image || !result || process->pid == 0u ||
         process->state == PROS_PROCESS_DEAD ||
-        process->state == PROS_PROCESS_ZOMBIE)
+        process->state == PROS_PROCESS_ZOMBIE ||
+        process_state(process) == PROS_PROCESS_DEAD)
         return PROS_ELF_EINVAL;
     {
         int validation_rc = pros_elf_validate(image, size);

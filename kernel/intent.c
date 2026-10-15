@@ -1,12 +1,12 @@
 #include "intent.h"
 #include "process.h"
+#include "../../include/abi/syscall.h"
 #include "health.h"
 #include "timer.h"
 #include "security_file.h"
 #include "sha512.h"
 #include "ed25519_field.h"
 #include "ed25519_point.h"
-#include "ed25519_scalar.h"
 #include "ed25519_scalar.h"
 #include "security_signature.h"
 #include "security_provider.h"
@@ -23,6 +23,8 @@ static uint64_t next_intent_id = 1;
 static uint64_t ledger_sequence;
 static uint64_t ledger_count_value;
 static struct pros_reason_record ledger[PROS_REASON_LEDGER_SIZE];
+/* Startup regression fixtures must not pollute the runtime violation gate. */
+static uint8_t security_selftest_mode;
 
 static uint64_t intent_required_rights(uint32_t operation) {
     switch (operation) {
@@ -34,6 +36,172 @@ static uint64_t intent_required_rights(uint32_t operation) {
     case PROS_INTENT_DUPLICATE: return PROSENJIT_CAP_DUPLICATE;
     default: return 0;
     }
+}
+
+static int intent_object_type_valid(uint32_t type)
+{
+    switch (type) {
+    case PROS_OBJECT_PROCESS:
+    case PROS_OBJECT_THREAD:
+    case PROS_OBJECT_ADDRESS_SPACE:
+    case PROS_OBJECT_FILE:
+    case PROS_OBJECT_DEVICE:
+    case PROS_OBJECT_SOCKET:
+    case PROS_OBJECT_IPC:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/*
+ * A corrupt security invariant is itself a containment event. Do not rely on
+ * security_quarantine(), because that API correctly rejects malformed
+ * quarantine metadata. The caller supplies a kernel-owned process pointer;
+ * for scheduler-visible states, canonicalize quarantine metadata and block
+ * before returning the authorization denial.
+ */
+static void security_force_containment(struct pros_process *process)
+{
+    if (!process)
+        return;
+    if (process->state != PROS_PROCESS_READY &&
+        process->state != PROS_PROCESS_RUNNING &&
+        process->state != PROS_PROCESS_BLOCKED)
+        return;
+    process->state = PROS_PROCESS_BLOCKED;
+    process->quarantined = 1u;
+    process->quarantine_previous_state = 0u;
+}
+
+static int security_authorize_hardening_failure_selftest(void)
+{
+    struct pros_process process = {0};
+    struct pros_intent intent = {
+        .id = 1u,
+        .operation = PROS_INTENT_READ,
+        .object_type = PROS_OBJECT_FILE,
+        .handle = (1ULL << 8) | 1u,
+        .requested_rights = PROSENJIT_CAP_READ,
+        .tick = 0u
+    };
+    uint64_t reason = PROS_REASON_NONE;
+    uint64_t violations_before = pros_security_hardening_violations();
+    uint64_t saved_sequence = ledger_sequence;
+    uint64_t saved_count = ledger_count_value;
+    uint64_t saved_slot = saved_sequence % PROS_REASON_LEDGER_SIZE;
+    struct pros_reason_record saved_record = ledger[saved_slot];
+    int rc = 0;
+
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.object.refcount = 1u;
+    process.pid = 0xC101u;
+    process.security_level = PROS_SECURITY_LIMITED;
+    process.state = PROS_PROCESS_READY;
+    process.capability_policy =
+        PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
+    process.syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+    handle_table_init(&process.handles);
+    process.security_reserved[0] = 1u;
+
+    security_selftest_mode = 1u;
+    enum pros_security_decision decision =
+        security_authorize(&process, &intent, 0u, &reason);
+    security_selftest_mode = 0u;
+    if (decision != PROS_DECISION_DENY ||
+        reason != PROS_REASON_POLICY_RESTRICTED ||
+        process.state != PROS_PROCESS_BLOCKED ||
+        process.quarantined != 1u ||
+        process.quarantine_previous_state != 0u ||
+        pros_security_hardening_violations() != violations_before)
+        rc = -1;
+
+    if (rc == 0 &&
+        (security_clear_quarantine(&process) != 0 ||
+         process.state != PROS_PROCESS_BLOCKED ||
+         process.quarantined != 0u))
+        rc = -2;
+
+    /* Invalid object metadata must also trigger containment, not just denial. */
+    if (rc == 0) {
+        process.state = PROS_PROCESS_READY;
+        process.quarantined = 0u;
+        process.quarantine_previous_state = 0u;
+        process.object.reserved = 1u;
+        reason = PROS_REASON_NONE;
+        security_selftest_mode = 1u;
+        decision = security_authorize(&process, &intent, 0u, &reason);
+        security_selftest_mode = 0u;
+        if (decision != PROS_DECISION_DENY ||
+            reason != PROS_REASON_PROCESS_INVALID ||
+            process.state != PROS_PROCESS_BLOCKED ||
+            process.quarantined != 1u ||
+            pros_security_hardening_violations() != violations_before)
+            rc = -3;
+        process.object.reserved = 0u;
+        if (rc == 0 &&
+            (security_clear_quarantine(&process) != 0 ||
+             process.state != PROS_PROCESS_BLOCKED ||
+             process.quarantined != 0u))
+            rc = -4;
+    }
+
+    /* Keep the synthetic fixture out of the runtime audit history. */
+    ledger_sequence = saved_sequence;
+    ledger_count_value = saved_count;
+    ledger[saved_slot] = saved_record;
+    return rc;
+}
+
+static int security_authorize_audit_failure_selftest(void)
+{
+    struct pros_process process = {0};
+    struct pros_intent intent = {
+        .id = 1u,
+        .operation = PROS_INTENT_ADMIN,
+        .object_type = PROS_OBJECT_FILE,
+        .handle = (1ULL << 8) | 1u,
+        .requested_rights = PROSENJIT_CAP_ADMIN,
+        .tick = 0u
+    };
+    uint64_t reason = PROS_REASON_NONE;
+    uint64_t saved_sequence = ledger_sequence;
+    uint64_t saved_count = ledger_count_value;
+    int rc = 0;
+
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.object.refcount = 1u;
+    process.pid = 1u;
+    process.security_level = PROS_SECURITY_LIMITED;
+    process.state = PROS_PROCESS_READY;
+    process.capability_policy =
+        PROSENJIT_CAP_RIGHTS_ALL & ~PROSENJIT_CAP_ADMIN;
+    process.syscall_policy = PROSENJIT_SYSCALL_POLICY_ALL;
+    handle_table_init(&process.handles);
+
+    /*
+     * Force the bounded reason ledger into its exhausted state. A denied
+     * privileged request must still quarantine the process even though its
+     * audit record cannot be committed.
+     */
+    ledger_sequence = UINT64_MAX;
+    if (security_authorize(&process, &intent, 0u, &reason) !=
+            PROS_DECISION_DENY ||
+        reason != PROS_REASON_AUDIT_UNAVAILABLE ||
+        !security_is_quarantined(&process) ||
+        process.state != PROS_PROCESS_BLOCKED)
+        rc = -1;
+
+    if (security_is_quarantined(&process) &&
+        security_clear_quarantine(&process) != 0)
+        rc = -2;
+
+    ledger_sequence = saved_sequence;
+    ledger_count_value = saved_count;
+    for (uint32_t i = 0u; i < PROS_REASON_LEDGER_SIZE; ++i)
+        ledger[i].sequence = UINT64_MAX;
+
+    return rc;
 }
 
 static int ledger_record(const struct pros_process *process,
@@ -104,6 +272,13 @@ int security_manager_init(void) {
     ledger_count_value = 0;
     for (uint32_t i = 0; i < PROS_REASON_LEDGER_SIZE; ++i)
         ledger[i].sequence = UINT64_MAX;
+
+    rc = security_authorize_audit_failure_selftest();
+    if (rc != 0)
+        return -14000 + rc;
+    rc = security_authorize_hardening_failure_selftest();
+    if (rc != 0)
+        return -15000 + rc;
     return 0;
 }
 
@@ -144,7 +319,8 @@ int security_make_intent(struct pros_intent *intent,
                          uint64_t handle,
                          uint64_t requested_rights) {
     if (!intent || operation < PROS_INTENT_READ ||
-        operation > PROS_INTENT_DUPLICATE || object_type == PROS_OBJECT_NONE ||
+        operation > PROS_INTENT_DUPLICATE ||
+        !intent_object_type_valid(object_type) ||
         handle == PROSENJIT_HANDLE_INVALID || requested_rights == 0 ||
         (requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0)
         return -1;
@@ -160,51 +336,65 @@ int security_make_intent(struct pros_intent *intent,
 }
 
 int security_quarantine(struct pros_process *process) {
+    uint32_t state = process_state(process);
     if (!process ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED))
+        (state != PROS_PROCESS_READY &&
+         state != PROS_PROCESS_RUNNING &&
+         state != PROS_PROCESS_BLOCKED))
         return -1;
-    /* Repeated quarantine must be idempotent and preserve the original
-     * pre-quarantine state metadata. */
-    if (process->quarantined)
+    /*
+     * Do not treat corrupted quarantine metadata as an already-enforced
+     * quarantine. That would let inconsistent state bypass containment.
+     */
+    if (process->quarantined != 0u) {
+        if (process->quarantined != 1u ||
+            state != PROS_PROCESS_BLOCKED ||
+            (process->quarantine_previous_state != 0u &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_READY + 1u) &&
+             process->quarantine_previous_state !=
+                 (uint8_t)(PROS_PROCESS_RUNNING + 1u)))
+            return -1;
         return 0;
+    }
+    if (process->quarantine_previous_state != 0u)
+        return -1;
     /*
      * Preserve the pre-quarantine schedulable state. A process that was
      * already BLOCKED for an unrelated reason must remain BLOCKED when its
      * security quarantine is cleared.
      */
-    if (process_state(process) == PROS_PROCESS_RUNNING ||
-        process_state(process) == PROS_PROCESS_READY)
-        process->quarantine_previous_state = (uint8_t)process_state(process) + 1u;
+    if (state == PROS_PROCESS_RUNNING || state == PROS_PROCESS_READY)
+        process->quarantine_previous_state = (uint8_t)state + 1u;
     else
         process->quarantine_previous_state = 0u;
 
-    process->quarantined = 1;
-    if (process_state(process) == PROS_PROCESS_RUNNING ||
-        process_state(process) == PROS_PROCESS_READY)
+    process->quarantined = 1u;
+    if (state == PROS_PROCESS_RUNNING || state == PROS_PROCESS_READY)
         process->state = PROS_PROCESS_BLOCKED;
     return 0;
 }
 
 int security_clear_quarantine(struct pros_process *process) {
+    uint32_t state = process_state(process);
     if (!process ||
-        (process_state(process) != PROS_PROCESS_READY &&
-         process_state(process) != PROS_PROCESS_RUNNING &&
-         process_state(process) != PROS_PROCESS_BLOCKED))
-        return -1;
-    if (!process->quarantined)
+        (state != PROS_PROCESS_READY &&
+         state != PROS_PROCESS_RUNNING &&
+         state != PROS_PROCESS_BLOCKED) ||
+        process->quarantined != 1u ||
+        state != PROS_PROCESS_BLOCKED ||
+        (process->quarantine_previous_state != 0u &&
+         process->quarantine_previous_state !=
+             (uint8_t)(PROS_PROCESS_READY + 1u) &&
+         process->quarantine_previous_state !=
+             (uint8_t)(PROS_PROCESS_RUNNING + 1u)))
         return -1;
 
-    process->quarantined = 0;
-    if (process_state(process) == PROS_PROCESS_BLOCKED) {
-        uint8_t previous_state = process->quarantine_previous_state;
-        process->quarantine_previous_state = 0u;
-        if (previous_state != 0u)
-            process->state = (uint32_t)previous_state - 1u;
-    } else {
-        process->quarantine_previous_state = 0u;
-    }
+    uint8_t previous_state = process->quarantine_previous_state;
+    process->quarantined = 0u;
+    process->quarantine_previous_state = 0u;
+    if (previous_state != 0u)
+        process->state = (uint32_t)previous_state - 1u;
     return 0;
 }
 
@@ -215,6 +405,14 @@ int security_is_quarantined(const struct pros_process *process) {
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
 
+    /*
+     * process_state() deliberately treats zeroed/uninitialized objects as
+     * dead. Build a minimally valid process fixture so this test exercises
+     * quarantine transitions instead of failing its object-liveness guard.
+     */
+    process.object.type = PROS_OBJECT_PROCESS;
+    process.object.refcount = 1u;
+    process.pid = 1u;
     process.state = PROS_PROCESS_READY;
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
@@ -226,6 +424,13 @@ int security_quarantine_selftest(void) {
         process.quarantine_previous_state != (PROS_PROCESS_READY + 1u) ||
         process.state != PROS_PROCESS_BLOCKED)
         return -11;
+    /* Invalid restore metadata must never be used to restore an arbitrary state. */
+    process.quarantine_previous_state = UINT8_MAX;
+    if (security_clear_quarantine(&process) == 0 ||
+        !process.quarantined ||
+        process.state != PROS_PROCESS_BLOCKED)
+        return -12;
+    process.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
     if (security_clear_quarantine(&process) != 0 ||
         process.quarantined ||
         process.state != PROS_PROCESS_READY ||
@@ -275,17 +480,40 @@ enum pros_security_decision security_authorize(
     uint64_t *reason_out) {
     uint32_t reason = PROS_REASON_NONE;
     enum pros_security_decision decision = PROS_DECISION_DENY;
-    int quarantine_applied_here = 0;
 
-    if (!process || process_state(process) == PROS_PROCESS_DEAD ||
-        process_state(process) == PROS_PROCESS_ZOMBIE) {
+    if (!process) {
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
-    if (pros_security_hardening_ready() &&
-        pros_security_hardening_check_process(process) != 0) {
-        pros_security_hardening_note_violation(2u, process->pid);
+    if (process->state == PROS_PROCESS_DEAD ||
+        process->state == PROS_PROCESS_ZOMBIE) {
+        reason = PROS_REASON_PROCESS_INVALID;
+        goto record;
+    }
+    if (process_state(process) == PROS_PROCESS_DEAD) {
+        if (!security_selftest_mode)
+            pros_security_hardening_note_violation(3u, process->pid);
+        reason = PROS_REASON_PROCESS_INVALID;
+        security_force_containment(process);
+        goto record;
+    }
+    /*
+     * Authorization is not available until the kernel memory protections
+     * and process invariants have passed their startup gate. Treat an
+     * uninitialized hardening subsystem as a denial, never as a bypass.
+     */
+    if (!pros_security_hardening_ready()) {
+        if (!security_selftest_mode)
+            pros_security_hardening_note_violation(1u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
+        security_force_containment(process);
+        goto record;
+    }
+    if (pros_security_hardening_check_process(process) != 0) {
+        if (!security_selftest_mode)
+            pros_security_hardening_note_violation(2u, process->pid);
+        reason = PROS_REASON_POLICY_RESTRICTED;
+        security_force_containment(process);
         goto record;
     }
     if (process->quarantined) {
@@ -293,7 +521,13 @@ enum pros_security_decision security_authorize(
         decision = PROS_DECISION_QUARANTINE;
         goto record;
     }
-    if (!intent || intent->id == 0 || intent->requested_rights == 0) {
+    if (!intent || intent->id == 0 ||
+        intent->operation < PROS_INTENT_READ ||
+        intent->operation > PROS_INTENT_DUPLICATE ||
+        intent->handle == PROSENJIT_HANDLE_INVALID ||
+        intent->requested_rights == 0 ||
+        (intent->requested_rights & ~PROSENJIT_CAP_RIGHTS_ALL) != 0u ||
+        !intent_object_type_valid(intent->object_type)) {
         reason = PROS_REASON_INTENT_INVALID;
         goto record;
     }
@@ -338,17 +572,14 @@ enum pros_security_decision security_authorize(
 record:
     /*
      * A quarantine decision is an enforcement action, not merely an audit
-     * label. Apply it before committing the decision to the ledger, while
-     * remembering whether this authorization call changed the process state.
-     * Pre-existing quarantine must never be rolled back by an audit failure.
+     * label. Apply it before committing the decision to the ledger. Any
+     * resulting containment remains in force even if audit storage fails.
      */
     if (decision == PROS_DECISION_QUARANTINE &&
         !security_is_quarantined(process)) {
         if (security_quarantine(process) != 0) {
             decision = PROS_DECISION_DENY;
             reason = PROS_REASON_QUARANTINE_FAILED;
-        } else {
-            quarantine_applied_here = 1;
         }
     }
 
@@ -358,8 +589,11 @@ record:
      * audit infrastructure failure rather than misreporting it as policy.
      */
     if (ledger_record(process, intent, tid, decision, reason) != 0) {
-        if (quarantine_applied_here)
-            (void)security_clear_quarantine(process);
+        /*
+         * Do not undo a containment action when auditing fails. The request
+         * is denied and quarantine remains active; restoring execution here
+         * would turn ledger exhaustion into a containment bypass.
+         */
         if (reason_out) *reason_out = PROS_REASON_AUDIT_UNAVAILABLE;
         return PROS_DECISION_DENY;
     }

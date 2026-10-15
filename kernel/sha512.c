@@ -137,39 +137,83 @@ static void sha512_final(struct sha512_ctx *ctx,uint8_t digest[PROS_SHA512_BYTES
 
 void pros_sha512(const uint8_t *data,uint64_t length,uint8_t digest[PROS_SHA512_BYTES]) {
     struct sha512_ctx ctx;
+    if (!digest || (length != 0 && !data))
+        return;
     sha512_init(&ctx);
-    if (length && data) sha512_update(&ctx,data,length);
+    if (length) sha512_update(&ctx,data,length);
     sha512_final(&ctx,digest);
 }
 
 void pros_sha512_prefix(const uint8_t prefix[64], const uint8_t *data,
                         uint64_t length, uint8_t digest[PROS_SHA512_BYTES]) {
     struct sha512_ctx ctx;
+    if (!prefix || !digest || (length != 0 && !data))
+        return;
     sha512_init(&ctx);
     sha512_update(&ctx, prefix, 64u);
-    if (length && data) sha512_update(&ctx, data, length);
+    if (length) sha512_update(&ctx, data, length);
     sha512_final(&ctx, digest);
 }
 
-static int digest_equal(const uint8_t *a,const uint8_t *b) {
-    uint8_t diff=0;
-    for(uint32_t i=0;i<PROS_SHA512_BYTES;++i) diff|=(uint8_t)(a[i]^b[i]);
-    return diff==0;
+static int digest_matches_hex(const uint8_t digest[PROS_SHA512_BYTES],
+                              const char *hex) {
+    static const char digits[] = "0123456789abcdef";
+    for (uint32_t i = 0; i < PROS_SHA512_BYTES; ++i) {
+        if (digits[digest[i] >> 4] != hex[i * 2u] ||
+            digits[digest[i] & 0x0fu] != hex[i * 2u + 1u])
+            return 0;
+    }
+    return hex[PROS_SHA512_BYTES * 2u] == '\0';
 }
 
 int pros_sha512_selftest(void) {
-    static const uint8_t abc[]={'a','b','c'};
-    static const uint8_t expected[PROS_SHA512_BYTES]={
-        0xdd,0xaf,0x35,0xa1,0x93,0x61,0x7a,0xba,
-        0xcc,0x41,0x73,0x49,0xae,0x20,0x41,0x31,
-        0x12,0xe6,0xfa,0x4e,0x89,0xa9,0x7e,0xa2,
-        0x0a,0x9e,0xee,0xe6,0x4b,0x55,0xd3,0x9a,
-        0x21,0x92,0x99,0x2a,0x27,0x4f,0xc1,0xa8,
-        0x36,0xba,0x3c,0x23,0xa3,0xfe,0xeb,0xbd,
-        0x45,0x4d,0x44,0x23,0x64,0x3c,0xe8,0x0e,
-        0x2a,0x9a,0xc9,0x4f,0xa5,0x4c,0xa4,0x9f
+    static const uint8_t abc[] = {'a','b','c'};
+    static const char abc_expected[] =
+        "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+        "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
+    static const struct {
+        uint32_t length;
+        const char *expected;
+    } boundary_vectors[] = {
+        { 0u, "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce"
+              "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e" },
+        { 111u, "68cffa6d0d76f309c9ce0d35280939f8e25990c43b7b086ccdf709be35b07d4d"
+                "dba599541ff2b1c19d34ea49aeafb9659adb7ac3c0b078bb30a22d57fc6687ef" },
+        { 112u, "d0865c524d1dddf7c23b799c413f5adcd7caefd3f66a9b49750ec81066012c25"
+                "a8bcf94ddea6dc525691673097ca40e0101e897fc97218cfdb0704084e2bef4b" },
+        { 127u, "e0b6a20f1c0c88970a9340152cd5a1c1ecf3d3b8de5510274187943807947354"
+                "0133b812706e5dbec322c8c9523b6fc8c6d16ee626e87ad5fe3d2916afedc369" },
+        { 128u, "99b16f17aa0b969a5b8f08f367719d516e330ccd2660b6f0688ec031dbc783de"
+                "50a1cd185a2568dba75070a2403d17d4741d163578515dfd2ff756ddfe4d47b1" },
+        { 129u, "a1556e29185778aa5991e34b8884c840d589f0fbb4b8ed590e51e9ac4eb03a008"
+                "125000db2671f8fe7f485b59a77b518670078ecb41a54b4cd02a7f1d2ca4c6d" }
     };
     uint8_t digest[PROS_SHA512_BYTES];
-    pros_sha512(abc,3u,digest);
-    return digest_equal(digest,expected)?0:-1;
+    uint8_t message[129];
+
+    pros_sha512(abc, sizeof(abc), digest);
+    if (!digest_matches_hex(digest, abc_expected))
+        return -1;
+
+    /* Exercise both sides of SHA-512's 112-byte padding threshold and block
+     * transitions. Bytes are deterministic: message[i] = (i * 7 + 3) mod 256. */
+    for (uint32_t i = 0; i < sizeof(message); ++i)
+        message[i] = (uint8_t)(i * 7u + 3u);
+
+    for (uint32_t i = 0;
+         i < sizeof(boundary_vectors) / sizeof(boundary_vectors[0]); ++i) {
+        pros_sha512(message, boundary_vectors[i].length, digest);
+        if (!digest_matches_hex(digest, boundary_vectors[i].expected))
+            return -2 - (int)i;
+    }
+
+    /* A null digest must not be dereferenced. A non-empty null input is
+     * deliberately not tested as a valid hash because the API has no error
+     * return channel for malformed arguments. */
+    pros_sha512(abc, sizeof(abc), 0);
+    pros_sha512(0, 0, digest);
+    if (!digest_matches_hex(digest, boundary_vectors[0].expected))
+        return -8;
+
+    return 0;
 }
