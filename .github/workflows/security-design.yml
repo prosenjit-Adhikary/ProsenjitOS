@@ -6,7 +6,8 @@ on:
 
 jobs:
   security-design:
-    runs-on: ubuntu-latest
+    # Share the available Debian runner so checks do not depend on hosted capacity.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
