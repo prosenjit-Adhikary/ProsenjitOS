@@ -892,9 +892,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     (void)pros_health_watchdog_poll();
 
     /* Device permission broker: grants are issued only after a device is bound. */
-    if (pros_device_broker_selftest() != PROS_DRIVER_OK) {
-        serial_write("ProsenjitOS: ERROR device permission broker self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int broker_selftest_rc = pros_device_broker_selftest();
+        if (broker_selftest_rc != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR device permission broker self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)broker_selftest_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\n");
 
