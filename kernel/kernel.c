@@ -668,7 +668,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         ipc_channel_send(&ipc_wait_test, &ready_message, 1u) != PROSENJIT_IPC_OK) {
-        serial_write("ProsenjitOS: ERROR IPC message-ready setup failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC message-ready setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     /*
@@ -677,7 +677,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      */
     ipc_wait_test.waiter_count = PROSENJIT_IPC_CAPACITY;
     if (ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EALREADY) {
-        serial_write("ProsenjitOS: ERROR IPC ready-message/full-waiter regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC ready-message/full-waiter regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     ipc_wait_test.waiter_count = 0;
