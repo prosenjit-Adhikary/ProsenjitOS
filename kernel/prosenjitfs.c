@@ -7419,7 +7419,6 @@ int prosenjitfs_selftest(void)
         struct pros_block_device small_device;
         struct pros_prosenjitfs small_fs;
         uint64_t block;
-        uint64_t first_allocated = 0u;
         uint64_t first_reused = 0u;
         uint64_t allocated_blocks[PFS_MIN_BLOCKS];
         uint32_t allocated = 0u;
@@ -7455,8 +7454,6 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -17);
                 }
             allocated_blocks[allocated++] = block;
-            if (allocated == 1u)
-                first_allocated = block;
         }
         if (allocated == 0u) {
             prosenjitfs_unmount(&small_fs);
