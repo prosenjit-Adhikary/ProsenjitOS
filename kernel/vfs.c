@@ -1074,7 +1074,14 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         }
         struct pros_vfs_vnode *created = 0;
         rc = vnode->ops->create(vnode, name, &created);
-        vfs_vnode_put(vnode);
+        {
+            int parent_put_rc = vfs_vnode_put(vnode);
+            if (parent_put_rc != PROS_VFS_OK) {
+                if (created && created->initialized && created->refcount != 0u)
+                    (void)vfs_vnode_put(created);
+                return parent_put_rc;
+            }
+        }
         if (rc != PROS_VFS_OK) {
             /* Providers must not leak a transferred vnode on error. */
             if (created && created->initialized)
