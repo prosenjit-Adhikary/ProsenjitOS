@@ -667,8 +667,21 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     init_thread.interrupt_frame = &scheduler_init_frame;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
-        ipc_channel_send(&ipc_wait_test, &ready_message, 1u) != PROSENJIT_IPC_OK ||
-        ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EALREADY ||
+        ipc_channel_send(&ipc_wait_test, &ready_message, 1u) != PROSENJIT_IPC_OK) {
+        serial_write("ProsenjitOS: ERROR IPC message-ready setup failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    /*
+     * A queued message must win over a full waiter array. Otherwise the
+     * receive syscall can spuriously fail instead of retrying the message.
+     */
+    ipc_wait_test.waiter_count = PROSENJIT_IPC_CAPACITY;
+    if (ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EALREADY) {
+        serial_write("ProsenjitOS: ERROR IPC ready-message/full-waiter regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_wait_test.waiter_count = 0;
+    if (ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EALREADY ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
         init_thread.wait_channel != 0 ||
         ipc_wait_test.waiter_count != 0 ||
