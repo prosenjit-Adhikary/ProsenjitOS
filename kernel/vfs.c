@@ -410,7 +410,8 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
 {
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->vnode || !file->vnode->initialized ||
-        file->vnode->refcount == 0u || file->vnode->mount != file->mount)
+        file->vnode->refcount == 0u || !file->vnode->ops ||
+        file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
     if (position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
