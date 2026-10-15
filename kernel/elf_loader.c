@@ -270,9 +270,18 @@ int pros_elf_selftest(void)
     eh->phnum = 1;
     /* Isolate the zero-memsz case: filesz > memsz is a bounds error and
      * must be tested independently from the zero-memory format rejection. */
+    ph[0].type = PT_LOAD;
+    ph[0].flags = PF_R | PF_X;
+    ph[0].offset = data_off;
+    ph[0].vaddr = ELF_TEST_CODE_VA;
+    ph[0].align = ELF_PAGE;
+    eh->entry = ELF_TEST_CODE_VA;
     ph[0].filesz = 0;
     ph[0].memsz = 0;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -9;
+    {
+        int zero_memsz_rc = pros_elf_validate(image, data_off + 4);
+        if (zero_memsz_rc != PROS_ELF_EFORMAT) return -9;
+    }
     ph[0].filesz = 4;
     ph[0].memsz = 0x1000;
 
