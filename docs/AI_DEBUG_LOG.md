@@ -136,3 +136,13 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 - The code sets progress 100 immediately before `block_device_init()` and 101 immediately after it returns successfully. Thus the fault is narrowed to the call/return window around this initializer, but the existing evidence does not yet distinguish a fault in the initializer from stack/return-address corruption at its call boundary.
 - Added temporary checkpoints inside `block_device_init()`: 1001 at entry, 1002 after input validation, and 1003 after populating the device structure. This intentionally temporary cross-layer instrumentation is diagnostic only and should be removed after root cause is proven.
 - Build #5908 did NOT resolve the boot failure. Next run must show whether the last progress is 1001, 1002, 1003, or 101; use that to isolate the exact instruction/call boundary before changing functional behavior.
+
+
+### Follow-up after Build #6010 — VFS security self-test root cause (2026-10-15)
+
+- Build #6010 compiled the ISO and reached `security_manager_init()`, then failed with stage `0xFFFFFFFFFFFFF036` (`-4042`).
+- The stage mapping in `kernel/intent.c` is `-4000 + rc` for `vfs_security_selftest()`; `kernel/vfs.c` maps `vfs_vnode_api_selftest()` failure to `-42`. This isolates the failure to the VFS vnode API self-test, not the earlier ProsenjitFS self-test.
+- Root cause: the test opened `/hello.txt`, then expected `vfs_mount_deactivate()` to succeed while the open file still held a vnode reference. The implementation correctly returns `PROS_VFS_EBUSY` while the mount root has external references. The test expectation contradicted the ownership contract.
+- Fix committed: the regression now asserts deactivation returns `PROS_VFS_EBUSY` while the file is open, verifies the file remains seekable, closes the file, then deactivates the mount and verifies the closed handle is rejected.
+- Source commit: `c5f39e67ed75f01fd541f7b90fe268cb1734f203`.
+- Verification: pending a new clean build and QEMU run. This source-level root cause is identified; the boot issue is not marked fixed until the runtime milestones pass. Artifact upload in Build #6010 also hit the GitHub Actions storage quota, but that is separate from the boot failure.
