@@ -63,6 +63,17 @@ int pros_file_admission_evaluate_signed(
         (public_key_length != 0u && !public_key) || !metadata)
         return -1;
 
+    /*
+     * An explicit local deny is an administrator policy veto. Do not let a
+     * cryptographically valid signature clear or bypass this decision.
+     */
+    if (metadata->local_denied) {
+        input.data = data;
+        input.length = length;
+        input.metadata = *metadata;
+        return pros_file_admission_evaluate(&input, record);
+    }
+
     if (pros_security_signature_verify(
             algorithm, data, length, signature, signature_length,
             public_key, public_key_length, &signature_result) != 0) {
@@ -211,6 +222,19 @@ int pros_file_admission_selftest(void) {
         if (record.security.state != PROS_FILE_TRUSTED ||
             record.security.action != PROS_FILE_ALLOW)
             return -308;
+
+        /* Regression: a valid signature cannot override explicit local deny. */
+        signed_metadata.local_denied = 1u;
+        if (pros_file_admission_evaluate_signed(
+                0, 0u, PROS_SIGNATURE_ALGORITHM_ED25519,
+                ed_sig, sizeof(ed_sig), ed_key, sizeof(ed_key),
+                &signed_metadata, &record) != 0)
+            return -311;
+        if (record.security.action != PROS_FILE_BLOCK ||
+            record.security.state != PROS_FILE_MALICIOUS)
+            return -312;
+        signed_metadata.local_denied = 0u;
+
         {
             uint8_t bad_sig[64];
             for (uint32_t i = 0u; i < 64u; ++i)
