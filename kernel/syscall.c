@@ -275,9 +275,12 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
-            int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
-                                          message, (uint32_t)capacity, &received);
-            if (rc == PROSENJIT_IPC_EEMPTY) {
+            int rc;
+            for (;;) {
+                rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
+                                         message, (uint32_t)capacity, &received);
+                if (rc != PROSENJIT_IPC_EEMPTY)
+                    break;
                 /*
                  * Do not block if there is no runnable successor. Until the
                  * kernel has a dedicated idle thread, returning an error is
@@ -287,8 +290,13 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
-                if (ipc_channel_wait((struct pros_ipc_channel *)entry->object,
-                                      current) != PROSENJIT_IPC_OK) {
+                int wait_rc = ipc_channel_wait(
+                    (struct pros_ipc_channel *)entry->object, current);
+                if (wait_rc == PROSENJIT_IPC_EALREADY) {
+                    /* A sender won the race; retry receive under the lock. */
+                    continue;
+                }
+                if (wait_rc != PROSENJIT_IPC_OK) {
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }

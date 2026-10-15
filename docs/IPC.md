@@ -12,6 +12,7 @@ Each channel has eight message slots, and each message is limited to 64 bytes.
 - ipc_channel_receive() dequeues the oldest message.
 - PROSENJIT_IPC_EFULL reports a full queue.
 - PROSENJIT_IPC_EEMPTY reports an empty queue.
+- `ipc_channel_wait()` returns `PROSENJIT_IPC_EALREADY` if a message arrived before waiter registration; the caller must retry receive instead of suspending without a registered waiter.
 - A receive with an undersized buffer does not consume the queued message.
 
 ## Capability model
@@ -23,7 +24,7 @@ An IPC channel can already use the existing capability-handle system.
 - DUPLICATE allows attenuated capability duplication.
 - TRANSFER allows the existing copy/move capability-transfer primitives.
 
-The current kernel API is exposed to CPL3 through capability-mediated send/receive syscalls. The syscall layer validates user ranges before copying data and checks READ/WRITE authority through the security intent pipeline. Blocking receive, scheduler handoff/wakeup, concurrency locking, fault-recoverable user-copy, and per-CPU fault state are implemented. User-space channel creation/lifecycle ownership remains outside this milestone.
+The current kernel API is exposed to CPL3 through capability-mediated send/receive syscalls. The syscall layer validates user ranges before copying data and checks READ/WRITE authority through the security intent pipeline. A blocking-receive foundation and a single-core scheduler handoff path exist, but the complete wakeup/frame-publication protocol is not yet proven SMP-safe. User-space channel creation/lifecycle ownership remains outside this milestone.
 
 ## Next IPC milestones
 
@@ -45,9 +46,17 @@ there is no runnable successor.
 ## Concurrency protection
 
 Channel queue indices, message count, and receiver wait-list mutations are protected
-by a small atomic lock. The send path releases the queue lock before waking a receiver,
-so scheduler/run-queue operations are not performed while the IPC channel lock is held.
-This is a foundation for SMP-safe IPC, not a complete kernel-wide locking scheme.
+by a small atomic lock. The current send path invokes `thread_wake()` while holding the
+channel lock; `thread_wake()` does not currently acquire the channel lock, but this lock
+ordering must be revisited before SMP support is claimed. This is a foundation for
+concurrency hardening, not a complete kernel-wide locking scheme. In particular,
+`blocked_syscall` publication and the saved interrupt-frame pointer must be coordinated
+with waiter registration and wakeup. The current syscall path publishes the blocked
+syscall marker after `ipc_channel_wait()` releases the channel lock, while the scheduler
+saves the interrupt frame later in the interrupt-return path. The current single-core
+entry path masks local interrupts, but this ordering is not a valid SMP guarantee.
+Additionally, saved syscall frames must not remain backed by a shared/reusable IST stack.
+These are explicit follow-up items; do not claim SMP-safe IPC until they are addressed.
 User-buffer copying still depends on the existing address-range validation and does not
 yet provide a fault-safe copy-from/to-user primitive.
 
