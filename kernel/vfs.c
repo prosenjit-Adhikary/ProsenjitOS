@@ -1359,9 +1359,45 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
     return (int)take;
 }
 
+static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
+{
+    struct pros_vfs_vnode *parent;
+    if (!vnode)
+        return;
+    parent = vnode->parent;
+    vnode->initialized = 0u;
+    vnode->refcount = 0u;
+    vnode->parent = 0;
+    vnode->mount = 0;
+    vnode->ops = 0;
+    vnode->file_ops = 0;
+    vnode->private_data = 0;
+    if (parent)
+        (void)vfs_vnode_put(parent);
+}
+
+static int vfs_selftest_vnode_init(struct pros_vfs_vnode *vnode,
+                                   struct pros_vfs_mount *mount,
+                                   struct pros_vfs_vnode *parent,
+                                   enum pros_vfs_node_type type,
+                                   const struct pros_vfs_vnode_ops *ops,
+                                   const struct pros_vfs_file_ops *file_ops,
+                                   void *private_data,
+                                   uint64_t size)
+{
+    if (parent && vfs_vnode_get(parent) != PROS_VFS_OK)
+        return PROS_VFS_EINVAL;
+    int rc = vfs_vnode_init(vnode, mount, parent, type, ops, file_ops,
+                            private_data, size);
+    if (rc != PROS_VFS_OK && parent)
+        (void)vfs_vnode_put(parent);
+    return rc;
+}
+
 static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
     .lookup = vfs_selftest_lookup,
-    .readdir = vfs_selftest_readdir
+    .readdir = vfs_selftest_readdir,
+    .release = vfs_selftest_vnode_release
 };
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
@@ -1404,16 +1440,16 @@ static int vfs_vnode_api_selftest(void)
             PROS_VFS_OK)
         return -1;
     /* The root has no parent; '..' at root remains at the root vnode. */
-    if (vfs_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
+    if (vfs_selftest_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
-        vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
+        vfs_selftest_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &hello_data, sizeof(hello) - 1u) != PROS_VFS_OK ||
-        vfs_vnode_init(&etc_node, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+        vfs_selftest_vnode_init(&etc_node, &mount, &root, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &etc_data, 0) !=
             PROS_VFS_OK ||
-        vfs_vnode_init(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
+        vfs_selftest_vnode_init(&config_node, &mount, &etc_node, PROS_VFS_NODE_FILE,
                        &vfs_selftest_vnode_ops, &vfs_selftest_file_ops,
                        &config_data, sizeof(config) - 1u) != PROS_VFS_OK ||
         vfs_mount_set_root(&mount, &root) != PROS_VFS_OK)
@@ -1466,11 +1502,14 @@ static int vfs_vnode_api_selftest(void)
         return -1;
 
     /*
-     * An open file holds a vnode reference, so mount teardown must fail busy.
-     * Closing the handle releases that reference; teardown can then succeed,
-     * and the closed handle must remain unusable.
+     * Drop fixture ownership for every child while leaving the open file's
+     * vnode reference alive. The parent reference chain must keep the mount
+     * busy until that final file reference is closed.
      */
-    if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
+    if (vfs_vnode_put(&config_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&etc_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_OK ||
+        vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY ||
         vfs_file_seek(&file, 1u) != PROS_VFS_OK ||
         vfs_file_close(&file) != PROS_VFS_OK ||
         vfs_mount_deactivate(&mount) != PROS_VFS_OK ||
