@@ -658,8 +658,18 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             vfs_vnode_put(current);
             return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
         }
-        /* lookup() transfers one owned vnode reference to the caller. */
-        vfs_vnode_put(current);
+        /*
+         * lookup() transfers one owned vnode reference to the caller.
+         * Do not silently continue if releasing the previous traversal
+         * reference fails: that would hide a broken vnode ownership chain.
+         */
+        {
+            int put_rc = vfs_vnode_put(current);
+            if (put_rc != PROS_VFS_OK) {
+                (void)vfs_vnode_put(next);
+                return put_rc;
+            }
+        }
         current = next;
     }
     *result = current;
