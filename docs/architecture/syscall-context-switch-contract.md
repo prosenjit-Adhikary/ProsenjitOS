@@ -58,3 +58,16 @@ Do not mark this fixed until all of the following are recorded against the same 
 ## Current scope
 
 This document records the required contract; it does not claim that the implementation is fixed. PR #132's timer EOI/register and alignment changes are related but do not, by themselves, solve per-thread syscall-frame lifetime or user-return-frame shape.
+
+
+## Follow-up source audit (2026-10-15)
+
+The scheduler/quarantine audit tracked in [issue #135](https://github.com/prosenjit-Adhikary/ProsenjitOS/issues/135) confirmed additional interactions that must be fixed together, not as isolated predicate changes:
+
+- `thread_process_runnable()` currently filters only ZOMBIE/DEAD process states. A quarantined or process-BLOCKED thread can therefore still pass this predicate.
+- `security_quarantine()` changes process state but does not atomically detach READY threads from the run queue. `security_clear_quarantine()` restores process state but does not restore the appropriate runnable threads.
+- `thread_schedule_interrupt()` currently returns the incoming frame when no successor is found. That fallback is not acceptable after the current thread has blocked or been quarantined.
+- The scheduler's current dequeue loop marks a candidate DEAD when `thread_process_runnable()` is false. Therefore adding quarantine/BLOCKED checks to that predicate without changing dequeue semantics would convert temporarily unschedulable threads into DEAD threads.
+- IPC-blocked threads must remain blocked after quarantine clears; only threads that were runnable before quarantine may be re-enqueued. This requires per-thread quarantine bookkeeping or an equivalent explicit state model.
+
+**Do not apply a one-line runnable-predicate fix.** The queue removal, lifetime-vs-eligibility distinction, quarantine restoration, and no-successor handoff must be implemented and tested as one scheduler state-machine change. Until then, this remains an open source-level correctness issue; no runtime reproduction is claimed.
