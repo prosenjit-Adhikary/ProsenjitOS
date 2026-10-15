@@ -142,7 +142,10 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 
 - Build #6010 compiled the ISO and reached `security_manager_init()`, then failed with stage `0xFFFFFFFFFFFFF036` (`-4042`).
 - The stage mapping in `kernel/intent.c` is `-4000 + rc` for `vfs_security_selftest()`; `kernel/vfs.c` maps `vfs_vnode_api_selftest()` failure to `-42`. This isolates the failure to the VFS vnode API self-test, not the earlier ProsenjitFS self-test.
-- Root cause: the test opened `/hello.txt`, then expected `vfs_mount_deactivate()` to succeed while the open file still held a vnode reference. The implementation correctly returns `PROS_VFS_EBUSY` while the mount root has external references. The test expectation contradicted the ownership contract.
-- Fix committed: the regression now asserts deactivation returns `PROS_VFS_EBUSY` while the file is open, verifies the file remains seekable, closes the file, then deactivates the mount and verifies the closed handle is rejected.
-- Source commit: `c5f39e67ed75f01fd541f7b90fe268cb1734f203`.
+- Root cause: the test opened `/hello.txt`, deactivated the mount, and only then called `vfs_file_close()`. The close API deliberately rejects a handle whose mount is already inactive, so the self-test contradicted the VFS close contract. The self-test provider uses static vnode fixtures and does not model the native provider's parent-reference ownership, so this test is not evidence for the mount-busy invariant.
+- Fix committed: the regression now closes the live file while the mount is active, deactivates the mount afterward, and verifies the closed file handle is rejected.
+- Source fix commit: `254a2edcd7bc4bc42a46bef90169d2db2be67dad`.
 - Verification: pending a new clean build and QEMU run. This source-level root cause is identified; the boot issue is not marked fixed until the runtime milestones pass. Artifact upload in Build #6010 also hit the GitHub Actions storage quota, but that is separate from the boot failure.
+
+
+- Follow-up correction to the VFS root-cause note: the exact failing operation was `vfs_file_close()` after deactivation (it rejects inactive mounts), not an observed `PROS_VFS_EBUSY` return. The revised regression order follows the API contract. Build/QEMU verification remains pending.
