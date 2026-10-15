@@ -6324,7 +6324,7 @@ int prosenjitfs_selftest(void)
                                             &extent_found_lba,
                                             &extent_tail_lba);
             if (extent_rc != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -151);
+                return pfs_selftest_fail(__LINE__, -200 + extent_rc);
             if (extent.logical_block > 1u ||
                 pfs_lba_add(fs.mount.device, extent.physical_block,
                             1u - extent.logical_block, &first_block) !=
