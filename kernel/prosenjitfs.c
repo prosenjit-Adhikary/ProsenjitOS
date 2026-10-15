@@ -5585,7 +5585,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                     allocated_bytes >
                         UINT64_MAX -
                         extent.block_count * fs->sb.block_size) {
-                    rc = PROSENJITFS_ECORRUPT;
+                    rc = -10002;
                     goto consistency_out;
                 }
                 for (uint64_t n = 0u; n < extent.block_count; ++n) {
@@ -5594,7 +5594,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                         physical >= fs->sb.total_blocks ||
                         pfs_consistency_mark(owner, fs->sb.total_blocks,
                                              physical) != PROSENJITFS_OK) {
-                        rc = PROSENJITFS_ECORRUPT;
+                        rc = -10003;
                         goto consistency_out;
                     }
                 }
@@ -5605,7 +5605,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 current = extent.next;
             }
             if (allocated_bytes != inode.allocated_bytes) {
-                rc = PROSENJITFS_ECORRUPT;
+                rc = -10004;
                 goto consistency_out;
             }
         }
@@ -6961,7 +6961,7 @@ int prosenjitfs_selftest(void)
         {
             int consistency_rc = pfs_selftest_consistency(&fs);
             if (consistency_rc != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -151);
+                return pfs_selftest_fail(__LINE__, consistency_rc);
         }
         if (vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK)
