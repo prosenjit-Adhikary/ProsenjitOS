@@ -393,9 +393,12 @@ int vfs_file_close(struct pros_vfs_file *file)
         return rc;
 
     rc = vfs_vnode_put(vnode);
-    if (rc != PROS_VFS_OK)
-        return rc;
 
+    /*
+     * The provider close callback has succeeded, so this file handle must
+     * become invalid even if dropping its vnode reference reports an error.
+     * Otherwise a caller retrying close could invoke provider close twice.
+     */
     file->open = 0u;
     file->vnode = 0;
     file->mount = 0;
@@ -403,7 +406,7 @@ int vfs_file_close(struct pros_vfs_file *file)
     file->private_data = 0;
     file->position = 0;
     file->flags = 0u;
-    return PROS_VFS_OK;
+    return rc;
 }
 
 int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
