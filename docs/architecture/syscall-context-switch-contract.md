@@ -71,3 +71,13 @@ The scheduler/quarantine audit tracked in [issue #135](https://github.com/prosen
 - IPC-blocked threads must remain blocked after quarantine clears; only threads that were runnable before quarantine may be re-enqueued. This requires per-thread quarantine bookkeeping or an equivalent explicit state model.
 
 **Do not apply a one-line runnable-predicate fix.** The queue removal, lifetime-vs-eligibility distinction, quarantine restoration, and no-successor handoff must be implemented and tested as one scheduler state-machine change. Until then, this remains an open source-level correctness issue; no runtime reproduction is claimed.
+
+
+## Additional boot-path verification (2026-10-15)
+
+Re-fetched `boot/entry.asm` from `main` and confirmed two additional constraints:
+
+- TSS `RSP0` is initialized once to the global `stack_top` (`[tss64 + 4]`). The source inspected here does not show a per-thread `RSP0` update when the scheduler changes `current_thread`. Thus per-thread kernel-entry stack switching is not implemented by this boot path yet.
+- `enter_user_mode` clears IF in the initial user RFLAGS before `iretq`, with a comment explicitly deferring user-mode timer preemption until user interrupt-frame/address-space switching is implemented. This is a deliberate safety gate, not proof that CPL3 preemption works.
+
+These points narrow the safe verification target: current scheduler/timer tests must not be reported as proof of CPL3 timer preemption or per-thread syscall stack correctness. Any future implementation must add and test the TSS `RSP0` handoff and only enable user interrupts after frame ownership and restore paths are verified.
