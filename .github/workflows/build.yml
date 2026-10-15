@@ -6,16 +6,12 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Use the configured Debian self-hosted runner; the toolchain is preinstalled
+    # there, and the runner account intentionally does not need sudo.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install build and emulator dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            nasm grub-pc-bin grub-common xorriso mtools gcc binutils qemu-system-x86
 
       - name: Verify toolchain
         run: |
