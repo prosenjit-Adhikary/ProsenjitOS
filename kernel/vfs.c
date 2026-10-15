@@ -1045,6 +1045,10 @@ out:
         if (rc == PROS_VFS_OK && old_put_rc != PROS_VFS_OK)
             rc = old_put_rc;
     }
+    if (rc < 0)
+        vfs_health_error(rc);
+    else
+        ++health_rename_count;
     return rc;
 }
 
