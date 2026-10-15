@@ -7171,7 +7171,7 @@ int prosenjitfs_selftest(void)
                     PROSENJITFS_OK ||
                 pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
                     PROSENJITFS_EINVAL ||
-                pfs_lba_add(&device, 0u, UINT64_MAX, &lba) !=
+                pfs_lba_add(&device, 1u, UINT64_MAX, &lba) !=
                     PROSENJITFS_EOVERFLOW ||
                 pfs_read_block(&device, device.sector_count, block) !=
                     PROSENJITFS_EINVAL ||
