@@ -203,6 +203,7 @@ int pros_device_broker_selftest(void)
         PROS_DRIVER_ENODEV)
         return -11;
     if (pros_device_unregister(device.id) != PROS_DRIVER_OK ||
+        pros_device_revoke(device.id, 42u) != PROS_DRIVER_ENODEV ||
         pros_driver_unregister(&driver) != PROS_DRIVER_OK)
         return -12;
     return PROS_DRIVER_OK;
