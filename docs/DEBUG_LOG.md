@@ -211,3 +211,28 @@ The readdir directory-inode read now uses `pfs_vnode_validate_inode()`, keeping 
 
 ### Verification status
 Source-level stale-vnode audit completed for directory traversal and mutation callbacks. Runtime build/QEMU verification remains environment-blocked until a GitHub Actions runner is allocated; no runtime pass is claimed.
+
+
+## 2026-10-15 — Cross-subsystem source review after reported old-bug fix
+
+Review target: branch `kernel/syscall-context-switch-contract-20261015` at `527cdad65893ac74409c7571a500dff2cb515d39`, plus open PR heads #128, #131, #132, and #134 where their changes affect the same subsystems. This is a source review; it is not a clean-build or runtime verification result.
+
+### Confirmed kernel correctness risks
+- `kernel/idt.asm:isr128` enters through shared TSS IST1, while `kernel/thread.c:thread_schedule_interrupt()` retains the supplied frame pointer in `thread->interrupt_frame`. That pointer is not stable per-thread storage across subsequent syscall entries.
+- `struct pros_interrupt_frame` models only the CPL0 IRET tail (RIP/CS/RFLAGS); a CPL3 return frame additionally contains user RSP/SS. Any user-mode context switch must preserve the full frame kind and layout.
+- `thread_process_runnable()` excludes only ZOMBIE/DEAD processes; it does not exclude process BLOCKED or `quarantined`.
+- `security_quarantine()` changes process state but does not detach READY threads from the run queue; `security_clear_quarantine()` restores process state but does not requeue threads that were runnable before quarantine.
+- `thread_schedule_interrupt()` returns the incoming frame when there is no successor. That can resume a caller that has already blocked or been quarantined.
+- The dequeue loop marks a candidate DEAD when the process-runnable predicate fails. Therefore, tightening the predicate alone would incorrectly kill temporarily blocked/quarantined threads.
+- IPC receive publishes `blocked_syscall` after waiter registration unlocks the channel; the scheduler stores the saved frame later. The local interrupt-disabled path may serialize this on one CPU, but it is not an SMP-safe publication protocol.
+
+### Cross-branch integration note
+- PR #134 (`kernel/ipc-receive-wakeup-race-20261015`) adds an EALREADY/retry path for a message arriving between empty receive and waiter registration. It explicitly does not solve the shared-IST saved-frame lifetime or SMP publication problem.
+- PR #132 contains timer IRQ register-preservation/alignment changes; these do not solve syscall-frame lifetime, TSS RSP0 per-thread updates, or quarantine handoff.
+- PR #133 is documentation-only and must not be treated as an implementation fix.
+- Mainline and these feature branches are separate until merged; verify the exact branch/commit before attributing a fix to the integrated kernel.
+
+### CI and verification
+- Build/boot run #38688576028 and security-design run #38688576057 for commit `527cdad` were queued with `runner_id=0`, no runner name, and no executed steps when inspected.
+- No clean `-Wall -Wextra -Werror -O2` build, QEMU boot, native BIOS boot, or runtime context-switch/quarantine pass is claimed from this review.
+- Keep the scheduler/syscall-context work open until stable per-thread frame storage, complete CPL3 frame handling, per-thread kernel-entry stack/TSS RSP0, quarantine-aware queue transitions, no-successor handoff, and IPC publication/wakeup regressions are implemented and tested together.
