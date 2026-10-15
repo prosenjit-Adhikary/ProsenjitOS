@@ -134,12 +134,19 @@ isr32:
 
     ; A switched thread supplies a saved pros_interrupt_frame whose layout
     ; is RAX..R15, RIP, CS, RFLAGS. It has no synthetic vector/error pair.
-    mov rsp, rax
+    ; Keep the selected frame across the C EOI helper. R12 is callee-saved,
+    ; and the interrupted thread's original R12 is already in its saved frame.
+    mov r12, rax
+    call pic_eoi_master
+    mov rsp, r12
     jmp .timer_restore_switched
 
 .timer_no_switch:
+    ; A C call after restoring GPRs would corrupt caller-saved interrupted
+    ; registers. Acknowledge the IRQ while the complete register frame is saved.
+    call pic_eoi_master
     ; The current IRQ frame still contains vector/error below RAX..R15.
-    ; Restore the GPRs first, then skip those two words before IRET.
+    ; Restore the GPRs, then skip those two words before IRET.
     add rsp, 24
     pop rax
     pop rbx
@@ -156,7 +163,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 .timer_restore_switched:
@@ -175,7 +181,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 %macro ISR_NO_ERROR 1
