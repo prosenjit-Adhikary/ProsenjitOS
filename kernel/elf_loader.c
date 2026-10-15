@@ -280,7 +280,7 @@ int pros_elf_selftest(void)
     ph[0].memsz = 0;
     {
         int zero_memsz_rc = pros_elf_validate(image, data_off + 4);
-        if (zero_memsz_rc != PROS_ELF_EFORMAT) return -9;
+        if (zero_memsz_rc != PROS_ELF_EFORMAT) return -100 + zero_memsz_rc;
     }
     ph[0].filesz = 4;
     ph[0].memsz = 0x1000;
