@@ -215,6 +215,13 @@ int security_is_quarantined(const struct pros_process *process) {
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
 
+    /*
+     * process_state() intentionally treats an uninitialized process object as
+     * DEAD. Use a real initialized process so this test exercises quarantine
+     * transitions rather than failing the live-object guard.
+     */
+    if (process_init(&process, 0x5151u, PROS_SECURITY_LIMITED) != 0)
+        return -12;
     process.state = PROS_PROCESS_READY;
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
@@ -264,6 +271,9 @@ int security_quarantine_selftest(void) {
     if (security_quarantine(&process) == 0)
         return -10;
 
+    if (address_space_destroy(&process.address_space) != 0 ||
+        object_release(&process.object) != 0)
+        return -13;
     return 0;
 }
 
