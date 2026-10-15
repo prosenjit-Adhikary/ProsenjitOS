@@ -300,8 +300,10 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) { vfs_health_error(rc); return rc; }
 
-    if ((uint32_t)rc > length)
+    if ((uint32_t)rc > length) {
+        vfs_health_error(PROS_VFS_EIO);
         return PROS_VFS_EIO;
+    }
     file->position += (uint32_t)rc;
     *bytes_read = (uint32_t)rc;
     ++health_read_count;
@@ -340,8 +342,10 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         vfs_health_error(rc);
         return rc;
     }
-    if ((uint32_t)rc > length)
+    if ((uint32_t)rc > length) {
+        vfs_health_error(PROS_VFS_EIO);
         return PROS_VFS_EIO;
+    }
     if ((file->flags & PROS_VFS_O_APPEND) != 0u)
         file->position = file->vnode->size;
     else
