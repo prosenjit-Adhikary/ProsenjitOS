@@ -2561,7 +2561,10 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
                         rc = PROSENJITFS_ECORRUPT;
                         goto rmdir_scan_out;
                     }
-                    rc = PROS_VFS_ENOTEMPTY;
+                    /* This driver funnels filesystem status codes
+                     * through pfs_vfs_error() at rmdir_out. Keep the
+                     * internal status in the ProsenjitFS error domain here. */
+                    rc = PROSENJITFS_ENOTEMPTY;
                     goto rmdir_scan_out;
                 }
 rmdir_scan_out:
