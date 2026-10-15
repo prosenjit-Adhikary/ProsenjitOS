@@ -754,7 +754,13 @@ int vfs_unlink(struct pros_vfs_mount *mount, const char *path)
         name[name_length] = '\0';
         rc = parent->ops->unlink(parent, name);
     }
-    vfs_vnode_put(parent);
+    {
+        int put_rc = vfs_vnode_put(parent);
+        if (rc == PROS_VFS_OK && put_rc != PROS_VFS_OK)
+            rc = put_rc;
+    }
+    if (rc < 0) vfs_health_error(rc);
+    else ++health_unlink_count;
     return rc;
 }
 
@@ -898,7 +904,11 @@ int vfs_rmdir(struct pros_vfs_mount *mount, const char *path)
         return PROS_VFS_ENOSYS;
     }
     rc = parent->ops->rmdir(parent, name);
-    vfs_vnode_put(parent);
+    {
+        int put_rc = vfs_vnode_put(parent);
+        if (rc == PROS_VFS_OK && put_rc != PROS_VFS_OK)
+            rc = put_rc;
+    }
     if (rc < 0) vfs_health_error(rc); else ++health_rmdir_count;
     return rc;
 }
@@ -1019,10 +1029,18 @@ int vfs_rename(struct pros_vfs_mount *mount, const char *old_path,
     rc = old_parent->ops->rename(old_parent, old_name,
                                  new_parent, new_name);
 out:
-    if (new_parent)
-        vfs_vnode_put(new_parent);
-    if (old_parent)
-        vfs_vnode_put(old_parent);
+    {
+        int new_put_rc = PROS_VFS_OK;
+        int old_put_rc = PROS_VFS_OK;
+        if (new_parent)
+            new_put_rc = vfs_vnode_put(new_parent);
+        if (old_parent)
+            old_put_rc = vfs_vnode_put(old_parent);
+        if (rc == PROS_VFS_OK && new_put_rc != PROS_VFS_OK)
+            rc = new_put_rc;
+        if (rc == PROS_VFS_OK && old_put_rc != PROS_VFS_OK)
+            rc = old_put_rc;
+    }
     return rc;
 }
 
