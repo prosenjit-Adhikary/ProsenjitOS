@@ -5310,18 +5310,32 @@ static void pfs_test_power_loss(struct pfs_test_disk *disk)
     pfs_zero(disk->dirty, sizeof(disk->dirty));
 }
 
-static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
-                                 struct pfs_test_disk *disk)
+static int pfs_test_crash_reset(struct pros_prosenjitfs *fs,
+                                struct pfs_test_disk *disk)
 {
+    int rc;
+
     if (!fs || !disk)
-        return;
+        return PROSENJITFS_EINVAL;
     pfs_test_power_loss(disk);
-    (void)vfs_mount_deactivate(&fs->mount);
+
+    if (fs->mount.active) {
+        rc = vfs_mount_deactivate(&fs->mount);
+        if (rc != PROS_VFS_OK)
+            return pfs_vfs_error(rc);
+    } else if (fs->mount.root) {
+        rc = vfs_vnode_put(fs->mount.root);
+        if (rc != PROS_VFS_OK)
+            return pfs_vfs_error(rc);
+        fs->mount.root = 0;
+    }
+
     if (fs->tx.images)
         kfree(fs->tx.images);
     if (fs->scratch)
         kfree(fs->scratch);
     pfs_zero(fs, sizeof(*fs));
+    return PROSENJITFS_OK;
 }
 
 static uint32_t pfs_selftest_diag_stage;
@@ -8032,7 +8046,8 @@ int prosenjitfs_selftest(void)
                 write_rc != PROS_VFS_EIO ||
                 done != 0u ||
                 pfs_crash_injected == 0u) {
-                pfs_test_crash_reset(&fs, &disk);
+                if (pfs_test_crash_reset(&fs, &disk) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -15);
                 return pfs_selftest_fail(__LINE__, -13);
             }
 
