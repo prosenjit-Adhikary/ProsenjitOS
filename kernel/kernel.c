@@ -360,10 +360,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (percpu_init() != 0) {
-        serial_write("ProsenjitOS: ERROR per-CPU usercopy fault state initialization failed\\n");
+        serial_write("ProsenjitOS: ERROR per-CPU usercopy fault state initialization failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: per-CPU usercopy fault state online\\n");
+    serial_write("ProsenjitOS: per-CPU usercopy fault state online\n");
 
     /*
      * paging_init() uses PROSENJIT_KERNEL_TEST_VA as an internal smoke-test
@@ -458,7 +458,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                              PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
                              PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER,
                              &user_test_handle) != 0) {
-        serial_write("ProsenjitOS: ERROR initial IPC test handle grant failed\\n");
+        serial_write("ProsenjitOS: ERROR initial IPC test handle grant failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
@@ -563,41 +563,41 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR address-space page-table cleanup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: process resource cleanup regression passed\\n");
+    serial_write("ProsenjitOS: process resource cleanup regression passed\n");
 
     /* Address-space switch/reap regression. */
     struct pros_process as_switch_child;
     if (process_create(&init_process, &as_switch_child, 7, PROS_SECURITY_LIMITED) != 0) {
-        serial_write("ProsenjitOS: ERROR address-space switch child creation failed\\n");
+        serial_write("ProsenjitOS: ERROR address-space switch child creation failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&as_switch_child);
     if (process_current() != &as_switch_child) {
-        serial_write("ProsenjitOS: ERROR child address-space switch failed\\n");
+        serial_write("ProsenjitOS: ERROR child address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (process_exit(&as_switch_child, 17) != 0 || process_current() != 0) {
-        serial_write("ProsenjitOS: ERROR child exit did not clear current address space\\n");
+        serial_write("ProsenjitOS: ERROR child exit did not clear current address space\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     process_set_current(&init_process);
     if (process_current() != &init_process) {
-        serial_write("ProsenjitOS: ERROR parent address-space restore failed\\n");
+        serial_write("ProsenjitOS: ERROR parent address-space restore failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (process_wait(&init_process, as_switch_child.pid, &waited_exit) != 0 ||
         waited_exit != 17 || as_switch_child.address_space.root != 0) {
-        serial_write("ProsenjitOS: ERROR address-space switch/reap regression failed\\n");
+        serial_write("ProsenjitOS: ERROR address-space switch/reap regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: address-space switch/reap regression passed\\n");
+    serial_write("ProsenjitOS: address-space switch/reap regression passed\n");
 
     struct pros_process child_lifetime_parent;
     struct pros_process child_lifetime_child;
     if (process_create(&init_process, &child_lifetime_parent, 8, PROS_SECURITY_LIMITED) != 0 ||
         process_create(&child_lifetime_parent, &child_lifetime_child, 9, PROS_SECURITY_LIMITED) != 0 ||
         process_exit(&child_lifetime_parent, 1) == 0) {
-        serial_write("ProsenjitOS: ERROR parent-with-live-child exit was accepted\\n");
+        serial_write("ProsenjitOS: ERROR parent-with-live-child exit was accepted\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (process_exit(&child_lifetime_child, 2) != 0 ||
@@ -605,10 +605,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         waited_exit != 2 || process_exit(&child_lifetime_parent, 1) != 0 ||
         process_wait(&init_process, child_lifetime_parent.pid, &waited_exit) != 0 ||
         waited_exit != 1) {
-        serial_write("ProsenjitOS: ERROR parent/child lifetime ordering regression failed\\n");
+        serial_write("ProsenjitOS: ERROR parent/child lifetime ordering regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: parent/child lifetime ordering regression passed\\n");
+    serial_write("ProsenjitOS: parent/child lifetime ordering regression passed\n");
 
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
@@ -635,7 +635,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\\n");
+    serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
 
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
@@ -651,10 +651,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_has_runnable() != 1 ||
         process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0) {
-        serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\\n");
+        serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: process-thread teardown regression passed\\n");
+    serial_write("ProsenjitOS: process-thread teardown regression passed\n");
 
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
@@ -836,16 +836,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (pros_driver_selftest() != PROS_DRIVER_OK) {
-        serial_write("ProsenjitOS: ERROR driver model self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR driver model self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     if (service_manager_selftest() != PROS_SERVICE_OK) {
-        serial_write("ProsenjitOS: ERROR service manager self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR service manager self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: service manager dependency/lifecycle self-test passed\\n");
+    serial_write("ProsenjitOS: service manager dependency/lifecycle self-test passed\n");
 
-    serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\\n");
+    serial_write("ProsenjitOS: driver model registry/lifecycle self-test passed\n");
     (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_DRIVER,
                         0x44525648u, PROS_HEALTH_RECOVERY_DRIVER_READY, timer_ticks());
     (void)pros_health_watchdog_kick(1u);
@@ -853,22 +853,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /* Device permission broker: grants are issued only after a device is bound. */
     if (pros_device_broker_selftest() != PROS_DRIVER_OK) {
-        serial_write("ProsenjitOS: ERROR device permission broker self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR device permission broker self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: device permission broker self-test passed\\n");
+    serial_write("ProsenjitOS: device permission broker self-test passed\n");
 
     if (pros_display_selftest() != PROS_DRIVER_OK) {
-        serial_write("ProsenjitOS: ERROR display-device binding self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR display-device binding self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: display-device binding self-test passed\\n");
+    serial_write("ProsenjitOS: display-device binding self-test passed\n");
 
     if (pros_net_selftest() != PROS_NET_OK) {
-        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\\n");
+        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: network protocol/socket self-test passed\\n");
+    serial_write("ProsenjitOS: network protocol/socket self-test passed\n");
 
     /*
      * PCI enumeration foundation: probe the standard PCI configuration
@@ -889,13 +889,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         serial_write("ProsenjitOS: PCI enumeration passed; devices = ");
         serial_hex64(pci_count);
-        serial_write("\\n");
+        serial_write("\n");
         if (pci_count != 0u) {
             serial_write("ProsenjitOS: first PCI device BDF = ");
             serial_hex64(((uint64_t)pci_devices[0].bus << 16) |
                          ((uint64_t)pci_devices[0].slot << 8) |
                          pci_devices[0].function);
-            serial_write("\\n");
+            serial_write("\n");
         }
 
         /* Register the PCI inventory in the generic driver model.
@@ -910,7 +910,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 pci_devices[i].subclass, pci_devices[i].prog_if,
                 &pci_devices[i], "pci-device", &registered_id);
             if (rc == PROS_DRIVER_ENOSPC) {
-                serial_write("ProsenjitOS: PCI driver-model registry full; remaining devices stay unregistered\\n");
+                serial_write("ProsenjitOS: PCI driver-model registry full; remaining devices stay unregistered\n");
                 break;
             }
             if (rc != PROS_DRIVER_OK || registered_id == 0u) {
@@ -921,7 +921,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         serial_write("ProsenjitOS: PCI devices registered with driver model = ");
         serial_hex64(registered_count);
-        serial_write("\\n");
+        serial_write("\n");
     }
 
     /*
@@ -936,7 +936,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     if (!user_data_page ||
         user_text_end <= user_text_start) {
-        serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\\n");
+        serial_write("ProsenjitOS: ERROR CPL3 user-page allocation/layout failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -946,7 +946,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         sizeof(struct boot_elf_header) + sizeof(struct boot_elf_phdr);
     if (user_text_size > BOOT_ELF_IMAGE_CAP - boot_elf_offset ||
         boot_elf_header_size > boot_elf_offset) {
-        serial_write("ProsenjitOS: ERROR boot ELF image capacity exceeded\\n");
+        serial_write("ProsenjitOS: ERROR boot ELF image capacity exceeded\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
@@ -1018,15 +1018,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
             !(stack_flags & PROSENJIT_PAGE_NX) ||
             (((uint64_t *)(uintptr_t)stack_physical)[0] != 2u)) {
-            serial_write("ProsenjitOS: ERROR ELF runtime mapping/stack verification failed\\n");
+            serial_write("ProsenjitOS: ERROR ELF runtime mapping/stack verification failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         stack_word = ((uint64_t *)(uintptr_t)stack_physical)[0];
         serial_write("ProsenjitOS: ELF runtime mapping/stack verification passed argc=");
         serial_hex64(stack_word);
-        serial_write("\\n");
+        serial_write("\n");
     }
-    serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\\n");
+    serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\n");
 
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
         ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
@@ -1035,15 +1035,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                           PROSENJIT_USER_TEST_VA,
                                           user_data_page,
                                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
-        serial_write("ProsenjitOS: ERROR CPL3 user stack/data mapping failed\\n");
+        serial_write("ProsenjitOS: ERROR CPL3 user stack/data mapping failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    serial_write("ProsenjitOS: switching to CPL3 user address space\\n");
+    serial_write("ProsenjitOS: switching to CPL3 user address space\n");
     if (address_space_switch(&init_process.address_space) != 0) {
-        serial_write("ProsenjitOS: ERROR final user address-space switch failed\\n");
+        serial_write("ProsenjitOS: ERROR final user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\\n");
+    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
     enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
 }
