@@ -117,19 +117,19 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     if (!ipc_channel_valid(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
     ipc_lock(channel);
-    if (channel->waiter_count >= PROSENJIT_IPC_CAPACITY) {
-        ipc_unlock(channel);
-        return PROSENJIT_IPC_EINVAL;
-    }
     /*
-     * The caller observed an empty queue before taking this lock, but a
-     * sender may have published a message in between. Do not report this
-     * as a registered wait: the caller must retry receive instead of
-     * suspending without a waiter (which would lose the wakeup).
+     * Message availability takes precedence over waiter capacity: if a
+     * sender published a message after the caller's empty receive, the
+     * caller must retry receive rather than fail because unrelated waiters
+     * filled the bounded waiter array.
      */
     if (channel->count != 0) {
         ipc_unlock(channel);
         return PROSENJIT_IPC_EALREADY;
+    }
+    if (channel->waiter_count >= PROSENJIT_IPC_CAPACITY) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EINVAL;
     }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] == thread) {
