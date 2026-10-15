@@ -35,6 +35,32 @@ int pros_display_unbind(uint32_t id)
         PROS_DRIVER_OK : PROS_DRIVER_ENOTSUP;
 }
 
+static int display_info_valid(const struct pros_display_info *info)
+{
+    uint64_t required_bytes;
+
+    if (!info || !info->width || !info->height ||
+        info->width > PROS_DISPLAY_MAX_WIDTH ||
+        info->height > PROS_DISPLAY_MAX_HEIGHT ||
+        info->pitch < info->width ||
+        info->pitch > PROS_DISPLAY_MAX_WIDTH ||
+        !info->framebuffer || !info->framebuffer_size)
+        return 0;
+
+    /*
+     * The shared display ABI currently defines XRGB8888 (4 bytes/pixel).
+     * pitch is expressed in pixels. Validate the complete scanout span, not
+     * merely width*height, so a malformed backend cannot advertise a buffer
+     * too small for its row padding or full height.
+     */
+    if (info->format == 1u) {
+        required_bytes = (uint64_t)info->pitch * 4u * info->height;
+        if (required_bytes > info->framebuffer_size)
+            return 0;
+    }
+    return 1;
+}
+
 int pros_display_get_info(uint32_t id, struct pros_display_info *info)
 {
     if (!display_ready || !info || id == 0u) return PROS_DRIVER_EINVAL;
@@ -42,9 +68,7 @@ int pros_display_get_info(uint32_t id, struct pros_display_info *info)
     if (!b) return PROS_DRIVER_ENODEV;
     int rc = b->get_info(b->ctx, info);
     if (rc != PROS_DRIVER_OK) return rc;
-    if (!info->width || !info->height || info->width > PROS_DISPLAY_MAX_WIDTH ||
-        info->height > PROS_DISPLAY_MAX_HEIGHT || info->pitch < info->width ||
-        !info->framebuffer || !info->framebuffer_size) return PROS_DRIVER_EIO;
+    if (!display_info_valid(info)) return PROS_DRIVER_EIO;
     return PROS_DRIVER_OK;
 }
 
@@ -54,8 +78,12 @@ int pros_display_present(uint32_t id, const void *pixels, uint64_t size)
     const struct pros_display_backend *b = backend_of(pros_device_get(id));
     if (!b) return PROS_DRIVER_ENODEV;
     struct pros_display_info info;
-    if (b->get_info(b->ctx, &info) != PROS_DRIVER_OK ||
-        !info.framebuffer_size || size > info.framebuffer_size)
+    int info_rc = b->get_info(b->ctx, &info);
+    if (info_rc != PROS_DRIVER_OK)
+        return info_rc;
+    if (!display_info_valid(&info))
+        return PROS_DRIVER_EIO;
+    if (size > info.framebuffer_size)
         return PROS_DRIVER_EINVAL;
     return b->present(b->ctx, pixels, size);
 }
@@ -99,6 +127,31 @@ int pros_display_selftest(void)
     if(pros_display_get_info(dev.id,&i)!=0||i.width!=640u||i.height!=480u)return -6;
     if(pros_display_present(dev.id,px,sizeof(px))!=0)return -7;
     if(pros_display_present(dev.id,px,1228801ULL)!=PROS_DRIVER_EINVAL)return -8;
+
+    /*
+     * A backend must not advertise a scanout buffer smaller than its complete
+     * XRGB8888 pitch-by-height span, even if width and height look plausible.
+     */
+    {
+        struct pros_display_backend *backend =
+            (struct pros_display_backend *)dev.driver_data;
+        struct display_test_state *state =
+            backend ? (struct display_test_state *)backend->ctx : 0;
+        uint64_t saved_size;
+        if (!state) return -13;
+        saved_size = state->info.framebuffer_size;
+        state->info.framebuffer_size = 640u * 480u * 4u - 1u;
+        if (pros_display_get_info(dev.id, &i) != PROS_DRIVER_EIO) {
+            state->info.framebuffer_size = saved_size;
+            return -14;
+        }
+        if (pros_display_present(dev.id, px, sizeof(px)) != PROS_DRIVER_EIO) {
+            state->info.framebuffer_size = saved_size;
+            return -15;
+        }
+        state->info.framebuffer_size = saved_size;
+    }
+
     if(pros_driver_unbind(dev.id)!=0)return -9;
     if(pros_display_bind(dev.id)!=PROS_DRIVER_ENODEV)return -10;
     if(pros_device_unregister(dev.id)!=0)return -11;

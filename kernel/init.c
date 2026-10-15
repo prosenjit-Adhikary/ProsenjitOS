@@ -15,11 +15,21 @@ int pros_init_load(struct pros_vfs_mount *mount,
 
     if (!mount || !process || !metadata || !result)
         return PROS_INIT_EINVAL;
+
+    /* Never expose stale entry/stack addresses after a failed load attempt. */
+    *result = (struct pros_elf_load_result){0};
+    file = (struct pros_vfs_file){0};
+    admission = (struct pros_file_admission_record){0};
+
     if (!mount->active)
         return PROS_INIT_EIO;
 
-    if (vfs_file_open(mount, "/init", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
-        return PROS_INIT_ENOENT;
+    {
+        int open_rc = vfs_file_open(mount, "/init", PROS_VFS_O_READ, &file);
+        if (open_rc != PROS_VFS_OK)
+            return open_rc == PROS_VFS_ENOENT ? PROS_INIT_ENOENT
+                                               : PROS_INIT_EIO;
+    }
 
     if (!file.vnode || file.vnode->type != PROS_VFS_NODE_FILE) {
         (void)vfs_file_close(&file);
@@ -30,8 +40,8 @@ int pros_init_load(struct pros_vfs_mount *mount,
     if (length == 0 || length > PROS_INIT_IMAGE_MAX ||
         length > UINT32_MAX) {
         (void)vfs_file_close(&file);
-        return length > PROS_INIT_IMAGE_MAX ? PROS_INIT_EOVERFLOW
-                                             : PROS_INIT_EFORMAT;
+        return length > PROS_INIT_IMAGE_MAX || length > UINT32_MAX
+                   ? PROS_INIT_EOVERFLOW : PROS_INIT_EFORMAT;
     }
 
     image = (uint8_t *)kmalloc(length);
@@ -88,8 +98,16 @@ int pros_init_load(struct pros_vfs_mount *mount,
     {
         int rc = pros_elf_load(process, image, length, result);
         kfree(image);
-        if (rc != PROS_ELF_OK)
-            return rc == PROS_ELF_ENOMEM ? PROS_INIT_ENOMEM : PROS_INIT_EFORMAT;
+        if (rc != PROS_ELF_OK) {
+            *result = (struct pros_elf_load_result){0};
+            if (rc == PROS_ELF_ENOMEM)
+                return PROS_INIT_ENOMEM;
+            if (rc == PROS_ELF_EOVERFLOW || rc == PROS_ELF_EBOUNDS)
+                return PROS_INIT_EOVERFLOW;
+            if (rc == PROS_ELF_EPERM || rc == PROS_ELF_ECONFLICT)
+                return PROS_INIT_ESECURITY;
+            return PROS_INIT_EFORMAT;
+        }
     }
 
     return PROS_INIT_OK;
@@ -105,8 +123,23 @@ int pros_init_selftest(void)
 
     if (pros_init_load(0, process, &metadata, &result) != PROS_INIT_EINVAL)
         return -1;
+    if (pros_init_load(&inactive, 0, &metadata, &result) != PROS_INIT_EINVAL)
+        return -4;
+    if (pros_init_load(&inactive, process, 0, &result) != PROS_INIT_EINVAL)
+        return -5;
+    if (pros_init_load(&inactive, process, &metadata, 0) != PROS_INIT_EINVAL)
+        return -6;
     inactive.active = 0u;
+    result.entry = 0x1111u;
+    result.image_start = 0x2222u;
+    result.image_end = 0x3333u;
+    result.stack_top = 0x4444u;
+    result.mapped_pages = 0x5555u;
     if (pros_init_load(&inactive, process, &metadata, &result) != PROS_INIT_EIO)
         return -2;
+    if (result.entry != 0u || result.image_start != 0u ||
+        result.image_end != 0u || result.stack_top != 0u ||
+        result.mapped_pages != 0u)
+        return -3;
     return PROS_INIT_OK;
 }
