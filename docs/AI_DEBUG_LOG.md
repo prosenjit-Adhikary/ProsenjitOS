@@ -142,9 +142,9 @@ Do not mark this work complete until build, QEMU, and regression checks pass. Th
 
 - Build #6010 compiled the ISO and reached `security_manager_init()`, then failed with stage `0xFFFFFFFFFFFFF036` (`-4042`).
 - The stage mapping in `kernel/intent.c` is `-4000 + rc` for `vfs_security_selftest()`; `kernel/vfs.c` maps `vfs_vnode_api_selftest()` failure to `-42`. This isolates the failure to the VFS vnode API self-test, before the later `prosenjitfs_selftest()` call.
-- Root cause: the self-test opened `/hello.txt`, then expected `vfs_mount_deactivate()` to succeed while that file still held a vnode reference. The VFS teardown contract correctly returns `PROS_VFS_EBUSY` in that state. The original test expected the wrong result.
-- Fix: the regression now asserts deactivation returns `PROS_VFS_EBUSY` while the handle is open, confirms the handle remains seekable, closes the file, retries deactivation successfully, and confirms the closed handle is rejected.
-- Latest source commit: `980bb6cb00b0ffbd3d5d2bcc38f11439e0ad63e4` (`test: verify busy mount teardown with open vnode handle`).
-- Verification: source-level root cause identified and test updated; clean build and QEMU verification are pending. The self-hosted workflow has not started (job remains queued with no runner assignment), so no runtime pass is claimed.
+- Root cause: the self-test provider did not model the parent-reference ownership used by the native ProsenjitFS provider. Consequently, the test could deactivate the mount while a child file handle remained open; `vfs_file_close()` then correctly rejected the inactive mount, and the self-test failed with `-42`.
+- Fix: the self-test now acquires a parent vnode reference during fixture creation and releases it from the fixture vnode's `release` callback. It drops fixture-owned child references while keeping the open file reference, asserts deactivation returns `PROS_VFS_EBUSY`, confirms the file remains usable, closes it, then successfully deactivates the mount and rejects use of the closed handle.
+- Source commit: `8b398ec13db69dc768ac03e5317bafab7832a781` (`test: model vnode parent ownership in VFS self-test`).
+- Verification: the code is committed, but clean build/QEMU verification is pending. The self-hosted runner has not been assigned to the latest workflow job, so no runtime pass is claimed.
 - Artifact upload quota failure in Build #6010 is separate from the boot failure.
-- The earlier ProsenjitFS/block-device crash remains unverified in this run because boot stopped in `security_manager_init()` before reaching that self-test.
+- The earlier ProsenjitFS/block-device crash remains unverified because Build #6010 stopped during security-manager initialization before reaching that self-test.
