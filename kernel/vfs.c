@@ -1057,7 +1057,9 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
                             PROS_VFS_O_DIRECTORY | PROS_VFS_O_CREATE |
                             PROS_VFS_O_APPEND)) != 0u ||
         (flags & (PROS_VFS_O_READ | PROS_VFS_O_WRITE)) == 0u ||
-        (flags & PROS_VFS_O_DIRECTORY) != 0u)
+        (flags & PROS_VFS_O_DIRECTORY) != 0u ||
+        ((flags & PROS_VFS_O_APPEND) != 0u &&
+         (flags & PROS_VFS_O_WRITE) == 0u))
         return PROS_VFS_EINVAL;
 
     rc = vfs_path_lookup(mount, path, &vnode);
@@ -1143,6 +1145,16 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
     }
     if ((flags & PROS_VFS_O_WRITE) != 0u && mount->read_only) {
         vfs_vnode_put(vnode); return PROS_VFS_EPERM;
+    }
+    /*
+     * A write-open must not succeed with a provider that cannot write.
+     * Otherwise callers discover the unsupported operation only after the
+     * handle has been published and may treat a successful open as writable.
+     */
+    if ((flags & PROS_VFS_O_WRITE) != 0u &&
+        (!vnode->file_ops || !vnode->file_ops->write)) {
+        vfs_vnode_put(vnode);
+        return PROS_VFS_ENOSYS;
     }
     if (vfs_file_init(file, mount, vnode->file_ops, vnode->private_data,
                       flags) != PROS_VFS_OK) {
