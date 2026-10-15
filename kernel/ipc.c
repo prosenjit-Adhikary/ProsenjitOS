@@ -117,13 +117,17 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     if (!ipc_channel_valid(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
     ipc_lock(channel);
+    /*
+     * A queued message takes precedence over waiter capacity: callers must
+     * retry receive instead of blocking after a sender has already won.
+     */
+    if (channel->count != 0) {
+        ipc_unlock(channel);
+        return PROSENJIT_IPC_EALREADY;
+    }
     if (channel->waiter_count >= PROSENJIT_IPC_CAPACITY) {
         ipc_unlock(channel);
         return PROSENJIT_IPC_EINVAL;
-    }
-    if (channel->count != 0) {
-        ipc_unlock(channel);
-        return PROSENJIT_IPC_OK;
     }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] == thread) {
