@@ -272,7 +272,7 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !bytes_read || !file->vnode ||
+        !file->ops || !bytes_read || !file->vnode ||
         !file->vnode->initialized || file->vnode->refcount == 0u ||
         !file->vnode->ops || file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
@@ -280,6 +280,8 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
     *bytes_read = 0u;
     if ((file->flags & PROS_VFS_O_READ) == 0u)
         return PROS_VFS_EPERM;
+    if (!file->ops->read)
+        return PROS_VFS_ENOSYS;
     if (file->position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
 
@@ -318,7 +320,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
 {
     int rc;
     if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !bytes_written || !file->vnode ||
+        !file->ops || !bytes_written || !file->vnode ||
         !file->vnode->initialized || file->vnode->refcount == 0u ||
         !file->vnode->ops || file->vnode->mount != file->mount)
         return PROS_VFS_EINVAL;
@@ -326,6 +328,8 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
     *bytes_written = 0u;
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
         return PROS_VFS_EPERM;
+    if (!file->ops->write)
+        return PROS_VFS_ENOSYS;
     if (length != 0u && !buffer)
         return PROS_VFS_EINVAL;
     if (length == 0u)
