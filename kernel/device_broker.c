@@ -153,7 +153,12 @@ int pros_device_broker_selftest(void)
 
     if (!broker_ready && pros_device_broker_init() != PROS_DRIVER_OK)
         return -1;
-    if (pros_device_grant(1u, 1u, PROS_DEVICE_PERMISSION_READ) !=
+    /*
+     * Device IDs are allocated globally and earlier driver-model tests may
+     * legitimately have registered ID 1. Use the reserved maximum ID to
+     * exercise the absent-device path without depending on test order.
+     */
+    if (pros_device_grant(UINT32_MAX, 1u, PROS_DEVICE_PERMISSION_READ) !=
         PROS_DRIVER_ENODEV)
         return -2;
     if (pros_driver_register(&driver) != PROS_DRIVER_OK)
