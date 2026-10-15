@@ -260,3 +260,17 @@ Source-level stale-vnode audit completed for directory traversal and mutation ca
 - The prior QEMU run confirms the preallocation extent-chain failure is no longer the first failing test; it then failed at this seek regression.
 - Awaiting the next clean ISO/QEMU run to identify any remaining failures and reach the CPL3 and native BIOS tests.
 
+## 2026-10-15 — ProsenjitFS consistency checker and keep-size preallocation
+
+### Diagnosis
+- The clean QEMU boot passed the ELF validation, address-space, process/thread, IPC wait-queue, security runtime, partition, VFS provider, and storage-discovery milestones, then failed during the full persistence self-test.
+- The failing assertion was `pfs_selftest_consistency()`. Its file-extent validation rejected any extent whose logical end exceeded the current EOF.
+- That invariant is invalid for this filesystem: `prosenjitfs_preallocate_blocks()` intentionally reserves zeroed blocks beyond EOF without increasing `inode.size`. The extra allocated extent can remain beyond EOF until later writes consume it; `allocated_bytes` accounts for it.
+
+### Fix
+- Removed the EOF-bound check from extent ownership consistency validation while retaining overflow, logical-order, physical-range, ownership-bitmap, and `allocated_bytes` checks. File size remains a separate logical EOF boundary for reads.
+- Commit: `43b52c2` (`fix: allow keep-size preallocation beyond EOF in consistency check`).
+
+### Verification status
+- The next clean CI/QEMU run must verify this change. The full persistence test still has further namespace, truncate, remount, and allocation assertions after this checker, so completion is not yet established.
+
