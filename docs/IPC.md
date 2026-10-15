@@ -12,6 +12,7 @@ Each channel has eight message slots, and each message is limited to 64 bytes.
 - ipc_channel_receive() dequeues the oldest message.
 - PROSENJIT_IPC_EFULL reports a full queue.
 - PROSENJIT_IPC_EEMPTY reports an empty queue.
+- `ipc_channel_wait()` returns `PROSENJIT_IPC_EALREADY` if a message arrived before waiter registration; the caller must retry receive instead of suspending without a registered waiter.
 - A receive with an undersized buffer does not consume the queued message.
 
 ## Capability model
