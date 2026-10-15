@@ -6984,6 +6984,12 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -15);
 
         {
+            int inode_rc = prosenjitfs_read_inode(&fs, inode_before, &inode);
+            if (inode_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -201);
+            inode_rc = prosenjitfs_read_inode(&fs, rename_inode_before, &inode);
+            if (inode_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -202);
             int consistency_rc = pfs_selftest_consistency(&fs);
             if (consistency_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, consistency_rc);
