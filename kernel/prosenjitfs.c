@@ -6198,10 +6198,12 @@ int prosenjitfs_selftest(void)
         if (vfs_file_write(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
             done != 1u)
             return pfs_selftest_fail(__LINE__, -146);
+        if (vfs_file_seek(&file, (low_block + 1u) * bs) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -147);
         done = 0u;
         if (vfs_file_write(&file, &low_b, 1u, &done) != PROS_VFS_OK ||
             done != 1u)
-            return pfs_selftest_fail(__LINE__, -147);
+            return pfs_selftest_fail(__LINE__, -149);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -148);
 
@@ -6212,7 +6214,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
             cross_inode.size != (high_block * bs) + 1u ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             cross_inode.extent_head == 0u)
             return pfs_selftest_fail(__LINE__, -14);
 
@@ -6249,7 +6251,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
                 PROSENJITFS_OK ||
             first_extent.logical_block != low_block ||
