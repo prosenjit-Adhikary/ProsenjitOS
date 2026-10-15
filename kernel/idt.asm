@@ -118,15 +118,24 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    ; TSS RSP0 is 16-byte aligned. The CPU frame plus 17 saved qwords
-    ; leaves RSP 0 mod 16, so C calls can use this stack without adjustment.
-    lea rdi, [rsp + 16]
+    ; A timer IRQ may interrupt CPL0 at any stack alignment; RSP0 alignment
+    ; alone is not enough once execution is already in the kernel. Preserve
+    ; this interrupt-frame base in callee-saved RBX (original RBX is in frame),
+    ; align RSP down before every SysV C call, then restore the frame base.
+    mov rbx, rsp
+    and rsp, -16
+    lea rdi, [rbx + 16]
     call timer_dispatch
+    mov rsp, rbx
+    and rsp, -16
     call timer_should_preempt
+    mov rsp, rbx
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 16]
+    and rsp, -16
+    lea rdi, [rbx + 16]
     call thread_schedule_interrupt
+    mov rsp, rbx
     test rax, rax
     jz .timer_no_switch
 
@@ -135,6 +144,7 @@ isr32:
     ; Keep the selected frame across the C EOI helper. R12 is callee-saved,
     ; and the interrupted thread's original R12 is already in its saved frame.
     mov r12, rax
+    and rsp, -16
     call pic_eoi_master
     mov rsp, r12
     jmp .timer_restore_switched
@@ -142,7 +152,10 @@ isr32:
 .timer_no_switch:
     ; A C call after restoring GPRs would corrupt caller-saved interrupted
     ; registers. Acknowledge the IRQ while the complete register frame is saved.
+    mov rsp, rbx
+    and rsp, -16
     call pic_eoi_master
+    mov rsp, rbx
     ; The current IRQ frame still contains vector/error below RAX..R15.
     ; Restore the GPRs, then skip those two words before IRET.
     add rsp, 16
