@@ -1047,9 +1047,10 @@ int vfs_file_open(struct pros_vfs_mount *mount, const char *path,
         vfs_vnode_put(vnode);
         if (rc != PROS_VFS_OK)
             return rc;
-        if (!created || !created->initialized ||
+        if (!created || !created->initialized || created->refcount == 0u ||
             created->mount != mount ||
-            created->type != PROS_VFS_NODE_FILE) {
+            created->type != PROS_VFS_NODE_FILE || !created->file_ops ||
+            !created->file_ops->read || !created->file_ops->close) {
             if (created && created->initialized)
                 (void)vfs_vnode_put(created);
             return PROS_VFS_EIO;
@@ -1277,7 +1278,8 @@ static int vfs_vnode_api_selftest(void)
         vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -1;
-    if (vfs_vnode_init(&root, &mount, &root, PROS_VFS_NODE_DIRECTORY,
+    /* The root has no parent; '..' at root remains at the root vnode. */
+    if (vfs_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
                        &vfs_selftest_vnode_ops, 0, &root_data, 0) !=
             PROS_VFS_OK ||
         vfs_vnode_init(&hello_node, &mount, &root, PROS_VFS_NODE_FILE,
