@@ -81,7 +81,8 @@ int pros_file_admission_record_valid(
         return record->security.action == PROS_FILE_QUARANTINE &&
             (record->security.evidence &
              (deny_evidence | suspicious_evidence |
-              PROS_FILE_EVIDENCE_SIGNATURE_VALID)) == 0u;
+              PROS_FILE_EVIDENCE_SIGNATURE_VALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST)) == 0u;
     case PROS_FILE_SUSPICIOUS:
         return record->security.action == PROS_FILE_QUARANTINE &&
             (record->security.evidence & suspicious_evidence) != 0u &&
@@ -372,6 +373,18 @@ int pros_file_admission_selftest(void) {
             PROS_FILE_EVIDENCE_REPUTATION_MALICIOUS;
         if (pros_file_admission_record_valid(&candidate))
             return -314;
+
+        /* Local trust must never bypass the format-validation requirement. */
+        candidate.security.evidence = PROS_FILE_EVIDENCE_LOCAL_TRUST;
+        if (pros_file_admission_record_valid(&candidate))
+            return -320;
+
+        /* Unknown/quarantine records cannot simultaneously claim local trust. */
+        candidate.security.state = PROS_FILE_UNKNOWN;
+        candidate.security.action = PROS_FILE_QUARANTINE;
+        candidate.security.evidence = PROS_FILE_EVIDENCE_LOCAL_TRUST;
+        if (pros_file_admission_record_valid(&candidate))
+            return -321;
 
         candidate.security.state = PROS_FILE_SUSPICIOUS;
         candidate.security.action = PROS_FILE_QUARANTINE;
