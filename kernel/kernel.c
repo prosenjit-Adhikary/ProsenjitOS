@@ -659,11 +659,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
     struct pros_ipc_channel ipc_wait_test;
+    uint8_t ready_message = 'R';
+    uint8_t ready_received = 0;
+    uint32_t ready_length = 0;
     scheduler_init_frame.rax = PROSENJIT_SYSCALL_INTERNAL_BLOCK;
     scheduler_init_frame.rip = 0x1002;
     init_thread.interrupt_frame = &scheduler_init_frame;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
+        ipc_channel_send(&ipc_wait_test, &ready_message, 1u) != PROSENJIT_IPC_OK ||
+        ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_EALREADY ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        init_thread.wait_channel != 0 ||
+        ipc_wait_test.waiter_count != 0 ||
+        ipc_channel_receive(&ipc_wait_test, &ready_received, 1u, &ready_length) !=
+            PROSENJIT_IPC_OK ||
+        ready_received != ready_message || ready_length != 1u ||
         thread_current() != &init_thread ||
         ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
