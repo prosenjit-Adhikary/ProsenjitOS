@@ -121,9 +121,15 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
         ipc_unlock(channel);
         return PROSENJIT_IPC_EINVAL;
     }
+    /*
+     * The caller observed an empty queue before taking this lock, but a
+     * sender may have published a message in between. Do not report this
+     * as a registered wait: the caller must retry receive instead of
+     * suspending without a waiter (which would lose the wakeup).
+     */
     if (channel->count != 0) {
         ipc_unlock(channel);
-        return PROSENJIT_IPC_OK;
+        return PROSENJIT_IPC_EALREADY;
     }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] == thread) {
