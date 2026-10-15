@@ -53,8 +53,16 @@ int pros_file_admission_record_valid(
 
     switch (record->security.state) {
     case PROS_FILE_TRUSTED:
+        /*
+         * Match pros_file_admit(): even an explicit local-trust decision
+         * cannot authorize a file whose format was not validated.
+         */
         return record->security.action == PROS_FILE_ALLOW &&
-            (record->security.evidence & PROS_FILE_EVIDENCE_LOCAL_TRUST) != 0u &&
+            (record->security.evidence &
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST)) ==
+             (PROS_FILE_EVIDENCE_FORMAT_VALID |
+              PROS_FILE_EVIDENCE_LOCAL_TRUST) &&
             (record->security.evidence &
              (deny_evidence | suspicious_evidence)) == 0u;
     case PROS_FILE_VERIFIED:
