@@ -160,6 +160,27 @@ int partition_read_gpt(struct pros_block_device *device,
                                  first_usable_lba,
                                  last_usable_lba - first_usable_lba + 1u))
         return PROS_PARTITION_EINVAL;
+    /* Reject torn or modified GPT metadata before exposing any volume. */
+    if (le32(header + 16u) != partition_gpt_header_crc(header, header_size))
+        return PROS_PARTITION_EINVAL;
+    {
+        uint32_t crc = 0xFFFFFFFFu;
+        uint64_t remaining = entry_bytes;
+        uint64_t lba = entries_lba;
+        uint8_t crc_sector[512];
+        while (remaining != 0u) {
+            uint32_t chunk = remaining > sizeof(crc_sector)
+                           ? (uint32_t)sizeof(crc_sector)
+                           : (uint32_t)remaining;
+            if (block_device_read(device, lba, 1u, crc_sector) != PROS_BLOCK_OK)
+                return PROS_PARTITION_EIO;
+            crc = partition_crc32_ieee_update(crc, crc_sector, chunk);
+            remaining -= chunk;
+            ++lba;
+        }
+        if (~crc != le32(header + 88u))
+            return PROS_PARTITION_EINVAL;
+    }
     for (uint32_t i = 0; i < entry_count; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
         uint64_t lba;
@@ -325,6 +346,61 @@ int partition_device_init(struct pros_partition_device *view,
 }
 
 static uint8_t partition_test_media[8 * 512];
+
+static uint32_t partition_crc32_ieee_update(uint32_t crc,
+                                                    const uint8_t *data,
+                                                    uint32_t length)
+{
+    for (uint32_t i = 0u; i < length; ++i) {
+        crc ^= data[i];
+        for (uint32_t bit = 0u; bit < 8u; ++bit)
+            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
+    }
+    return crc;
+}
+
+static uint32_t partition_gpt_header_crc(const uint8_t *header,
+                                         uint32_t header_size)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0u; i < header_size; ++i) {
+        uint8_t value = (i >= 16u && i < 20u) ? 0u : header[i];
+        crc = partition_crc32_ieee_update(crc, &value, 1u);
+    }
+    return ~crc;
+}
+
+/* Keep the synthetic GPT fixture spec-valid after each deliberate mutation.
+ * Invalid geometry is still rejected by the parser's earlier bounds checks. */
+static void partition_test_gpt_refresh_crc(void)
+{
+    uint8_t *header = partition_test_media + 512u;
+    uint32_t header_size = le32(header + 12u);
+    uint64_t entries_lba = le64(header + 72u);
+    uint32_t entry_count = le32(header + 80u);
+    uint32_t entry_size = le32(header + 84u);
+    uint64_t bytes = (uint64_t)entry_count * entry_size;
+    uint32_t entry_crc = 0u;
+
+    if (entry_count != 0u && entry_size != 0u &&
+        entries_lba < (sizeof(partition_test_media) / 512u) &&
+        bytes <= sizeof(partition_test_media) - entries_lba * 512u) {
+        entry_crc = ~partition_crc32_ieee_update(
+            0xFFFFFFFFu,
+            partition_test_media + entries_lba * 512u, (uint32_t)bytes);
+    }
+    header[88] = (uint8_t)entry_crc;
+    header[89] = (uint8_t)(entry_crc >> 8);
+    header[90] = (uint8_t)(entry_crc >> 16);
+    header[91] = (uint8_t)(entry_crc >> 24);
+    if (header_size >= 92u && header_size <= 512u) {
+        uint32_t header_crc = partition_gpt_header_crc(header, header_size);
+        header[16] = (uint8_t)header_crc;
+        header[17] = (uint8_t)(header_crc >> 8);
+        header[18] = (uint8_t)(header_crc >> 16);
+        header[19] = (uint8_t)(header_crc >> 24);
+    }
+}
 
 static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
@@ -553,17 +629,36 @@ int partition_selftest(void)
         gpt_type != PROS_PARTITION_GPT)
         return -18;
 
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 4u ||
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
+    /* GPT header and entry-array CRC mismatches must fail closed. */
+    partition_test_media[512u + 56u] ^= 1u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -22;
+    partition_test_media[512u + 56u] ^= 1u;
+    partition_test_gpt_refresh_crc();
+
+    partition_test_media[2u * 512u + 10u] ^= 1u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -23;
+    partition_test_media[2u * 512u + 10u] ^= 1u;
+    partition_test_gpt_refresh_crc();
+
 
     /* GPT entry metadata must not start at LBA 0 or the primary header. */
     partition_test_media[512u + 72u] = 1u;
     partition_test_media[512u + 80u] = 1u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -574,6 +669,7 @@ int partition_selftest(void)
     /* Usable payload must not include the primary GPT header sector. */
     partition_test_media[512u + 40u] = 1u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -583,6 +679,7 @@ int partition_selftest(void)
     /* Reject an entry array that overlaps usable partition payload. */
     partition_test_media[512u + 72u] = 4u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -593,6 +690,7 @@ int partition_selftest(void)
     partition_test_media[512u + 72u] = 7u;
     partition_test_media[512u + 80u] = 1u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -603,6 +701,7 @@ int partition_selftest(void)
     /* GPT entry sizes must follow the 8-byte alignment requirement. */
     partition_test_media[512u + 84u] = 129u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -614,6 +713,7 @@ int partition_selftest(void)
     partition_test_media[2u * 512u + 32u] = 4u;
     partition_test_media[2u * 512u + 40u] = 5u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -629,6 +729,7 @@ int partition_selftest(void)
     partition_test_media[2u * 512u + 336u] = 4u;
     partition_test_media[2u * 512u + 344u] = 5u;
     count = 0xFFFFFFFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 1u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -641,6 +742,7 @@ int partition_selftest(void)
      */
     count = 0xFFFFFFFFu;
     partition_test_media[2u * 512u + 336u] = 1u;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
@@ -649,12 +751,14 @@ int partition_selftest(void)
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
         return -6;
 
     /* Restore a valid entry count, then reject an empty entry array. */
     partition_test_media[512u + 80u] = 0u;
+    partition_test_gpt_refresh_crc();
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
         PROS_PARTITION_EINVAL)
         return -7;
