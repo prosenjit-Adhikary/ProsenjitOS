@@ -115,6 +115,13 @@ dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc st
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
 
+# Validate the actual generated MBR and partition geometry using a read-only
+# checker. This also rejects a kernel payload that overlaps the PFS partition.
+python3 "$ROOT/scripts/verify-native-disk-layout.py" "$NATIVE_DISK" \
+    --kernel-end-lba "$NATIVE_KERNEL_END" \
+    --partition-start-lba "$NATIVE_PFS_START_LBA" \
+    --partition-sectors "$NATIVE_PFS_SECTORS"
+
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
 echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
