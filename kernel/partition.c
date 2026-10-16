@@ -130,7 +130,7 @@ int partition_read_gpt(struct pros_block_device *device,
         backup_lba <= current_lba || first_usable_lba <= current_lba ||
         first_usable_lba > last_usable_lba || backup_lba <= last_usable_lba ||
         last_usable_lba >= device->sector_count ||
-        entry_count == 0u || entry_size < 128u ||
+        entry_count == 0u || entry_size < 128u || (entry_size % 8u) != 0u ||
         entry_size > device->sector_size || entry_size > 1024u ||
         entries_lba <= current_lba || entries_lba >= device->sector_count)
         return PROS_PARTITION_EINVAL;
@@ -537,6 +537,15 @@ int partition_selftest(void)
         return -13;
     partition_test_media[512u + 72u] = 2u;
     partition_test_media[512u + 80u] = 2u;
+
+    /* GPT entry sizes must follow the 8-byte alignment requirement. */
+    partition_test_media[512u + 84u] = 129u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -16;
+    partition_test_media[512u + 84u] = 128u;
 
     /* Reject a second GPT extent that overlaps the first. */
     partition_test_media[2u * 512u] = 0x22u;
