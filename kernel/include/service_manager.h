@@ -33,6 +33,7 @@ struct pros_service_definition {
     const char *name;
     pros_service_start_fn start;
     pros_service_stop_fn stop;
+    /* Borrowed by the manager; keep alive until the service is stopped and the registry is reset. */
     void *context;
     uint32_t dependency_count;
     const char *dependencies[PROS_SERVICE_MAX_DEPS];
