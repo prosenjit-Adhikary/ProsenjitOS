@@ -9,7 +9,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Required validation | Status |
 |---|---|---|
 | GRUB/Multiboot2 | ISO build + QEMU boot marker | Required CI gate |
-| Native BIOS | Native disk-image build + QEMU boot marker | Required CI gate |
+| Native BIOS | Native disk-image build + read-only MBR/partition-layout validator (1 valid + 10 invalid synthetic fixtures) + QEMU boot marker | Required CI gate |
 | Native BIOS handoff | Boot protocol, memory-map, and kernel handoff markers | Required CI gate |
 | Native UEFI | Loader build + QEMU/firmware validation | Pending |
 
