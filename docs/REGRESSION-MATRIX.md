@@ -65,7 +65,7 @@ The build supports a separate `BUILD_DIR_NAME=build-persistence NATIVE_PFS_PERSI
 
 The test-only kernel uses the already-validated MBR geometry (one type-0xDA partition at LBA 2048, 512 sectors). The build script writes a fixture-authorization signature at LBA 2046, and the kernel requires an exact signature before allowing any test-only formatting. LBA 2047 is then reserved as the phase-control marker. Both sectors are in the unused gap outside the kernel payload and PFS partition:
 
-- If the control sector is all zero, the test requires `prosenjitfs_probe()` to report an unsupported/blank volume before formatting. It then mounts writable, creates `/ata-persistence.bin`, writes a deterministic byte sequence, closes the file, flushes, unmounts, and only then writes and flushes the phase marker.
+- If the control sector is all zero, the test requires `prosenjitfs_probe()` to return `PROSENJITFS_ENOTSUP` and scans every sector in the partition, requiring every byte to be zero before formatting. `ENOTSUP` alone is not considered proof of a blank volume. It then mounts writable, creates `/ata-persistence.bin`, writes a deterministic byte sequence, closes the file, flushes, unmounts, and only then writes and flushes the phase marker.
 - The CI job fully stops the first QEMU process and starts a second process with the same raw image.
 - If the marker exactly matches the committed marker, the second phase requires a valid ProsenjitFS probe, mounts read-only, checks the exact file length/content and EOF, closes, and unmounts. It never formats.
 - A nonzero malformed marker, a valid marker with an invalid filesystem, or an unexpected filesystem state fails closed rather than retrying format.
