@@ -1,11 +1,6 @@
 #include "block.h"
 #include "health.h"
 
-/* Temporary boot-fault tracing shared with the ProsenjitFS self-test. */
-extern volatile uint32_t pfs_selftest_diag_stage;
-volatile uint64_t pfs_block_init_return_address;
-volatile uint64_t pfs_block_init_entry_rsp;
-
 static uint64_t read_count;
 static uint64_t write_count;
 static uint64_t error_count;
@@ -19,26 +14,14 @@ int block_device_init(struct pros_block_device *device,
                       pros_block_write_fn write,
                       void *private_data)
 {
-    __asm__ volatile ("mov %%rsp, %0" : "=r"(pfs_block_init_entry_rsp));
-    pfs_block_init_return_address = (uint64_t)(uintptr_t)__builtin_return_address(0);
-    pfs_selftest_diag_stage = 0xB100u;
-    if (!device || sector_size == 0 || sector_count == 0 || !read) {
-        pfs_selftest_diag_stage = 0xB101u;
+    if (!device || sector_size == 0 || sector_count == 0 || !read)
         return PROS_BLOCK_EINVAL;
-    }
-    pfs_selftest_diag_stage = 0xB102u;
     device->sector_size = sector_size;
-    pfs_selftest_diag_stage = 0xB103u;
     device->sector_count = sector_count;
-    pfs_selftest_diag_stage = 0xB104u;
     device->read = read;
-    pfs_selftest_diag_stage = 0xB105u;
     device->write = write;
-    pfs_selftest_diag_stage = 0xB106u;
     device->flush = 0;
-    pfs_selftest_diag_stage = 0xB107u;
     device->private_data = private_data;
-    pfs_selftest_diag_stage = 0xB108u;
     return PROS_BLOCK_OK;
 }
 
