@@ -3,6 +3,17 @@
 /* Temporary cross-layer trace used only while the ProsenjitFS self-test is
  * immediately entering block_device_init(). Removed after the fault is found. */
 extern volatile uint32_t pfs_selftest_diag_stage;
+volatile uint64_t block_init_diag_return_address;
+volatile uint64_t block_init_diag_rsp;
+
+static void block_init_capture_call_state(void)
+{
+    uintptr_t rsp;
+    __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+    block_init_diag_rsp = (uint64_t)rsp;
+    block_init_diag_return_address =
+        (uint64_t)(uintptr_t)__builtin_return_address(0);
+}
 #include "health.h"
 
 static uint64_t read_count;
@@ -18,8 +29,10 @@ int block_device_init(struct pros_block_device *device,
                       pros_block_write_fn write,
                       void *private_data)
 {
-    if (pfs_selftest_diag_stage == 0xF004u)
+    if (pfs_selftest_diag_stage == 0xF004u) {
+        block_init_capture_call_state();
         pfs_selftest_diag_stage = 0xF041u; /* entered block_device_init */
+    }
     if (!device || sector_size == 0 || sector_count == 0 || !read)
         return PROS_BLOCK_EINVAL;
     if (pfs_selftest_diag_stage == 0xF041u)
@@ -32,8 +45,10 @@ int block_device_init(struct pros_block_device *device,
     device->private_data = private_data;
     if (pfs_selftest_diag_stage == 0xF042u)
         pfs_selftest_diag_stage = 0xF043u; /* fields initialized */
-    if (pfs_selftest_diag_stage == 0xF043u)
+    if (pfs_selftest_diag_stage == 0xF043u) {
+        block_init_capture_call_state();
         pfs_selftest_diag_stage = 0xF044u; /* immediately before return */
+    }
     return PROS_BLOCK_OK;
 }
 
