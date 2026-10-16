@@ -490,6 +490,9 @@ int service_manager_selftest(void)
     /* Missing dependencies must fail closed rather than partially starting. */
     if (service_manager_init() != PROS_SERVICE_OK)
         return -10;
+    /* Each scenario owns its counters; do not leak state from prior tests. */
+    a = 0u;
+    b = 0u;
     {
         const struct pros_service_definition missing_dep = {
             .name = "missing-dep", .start = sm_test_start, .stop = sm_test_stop,
