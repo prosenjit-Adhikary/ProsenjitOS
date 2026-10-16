@@ -133,7 +133,7 @@ fi
 
 NATIVE_KERNEL_END=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
 NATIVE_PFS_END=$((NATIVE_PFS_START_LBA + NATIVE_PFS_SECTORS))
-NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_END > NATIVE_PFS_END ? NATIVE_KERNEL_END : NATIVE_PFS_END))
+# Keep one guard sector after the PFS partition instead of making its final LBA\n# also be the raw image's final LBA. This gives ATA/QEMU a trailing sector and\n# makes the image geometry robust against end-of-device boundary assumptions.\nNATIVE_IMAGE_MIN_SECTORS=$((NATIVE_PFS_END + 1))\nNATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_END > NATIVE_IMAGE_MIN_SECTORS ? NATIVE_KERNEL_END : NATIVE_IMAGE_MIN_SECTORS))
 truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
 dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
