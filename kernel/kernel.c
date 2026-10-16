@@ -442,6 +442,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: address-space deep isolation self-test passed\n");
+    serial_write("ProsenjitOS: user address-space isolation foundation test passed\n");
     if (pros_log_selftest() != PROS_LOG_OK) {
         serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -834,6 +835,229 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_hex64((uint64_t)(int64_t)security_init_status);
             serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /*
+         * Verify the live capability/intent boundary rather than relying only
+         * on module self-tests. Every handle is closed or transferred before
+         * its owning process is reaped, so these probes also cover lifetime.
+         */
+        {
+            struct pros_object capability_object;
+            uint64_t capability_handle = PROSENJIT_HANDLE_INVALID;
+            uint64_t duplicate_handle = PROSENJIT_HANDLE_INVALID;
+            object_init(&capability_object, PROS_OBJECT_FILE);
+            if (process_grant_handle(&init_process, &capability_object,
+                                     PROSENJIT_CAP_READ |
+                                     PROSENJIT_CAP_DUPLICATE |
+                                     PROSENJIT_CAP_TRANSFER,
+                                     &capability_handle) != 0 ||
+                process_check_handle(&init_process, capability_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+                process_check_handle(&init_process, capability_handle,
+                                     PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+                process_check_handle(&init_process, capability_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_SOCKET) == 0) {
+                serial_write("ProsenjitOS: ERROR capability handle/rights test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: capability handle/rights test passed\n");
+
+            duplicate_handle = process_duplicate_handle(&init_process,
+                                                         capability_handle,
+                                                         PROSENJIT_CAP_READ);
+            if (duplicate_handle == PROSENJIT_HANDLE_INVALID ||
+                process_check_handle(&init_process, duplicate_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+                process_check_handle(&init_process, duplicate_handle,
+                                     PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+                process_duplicate_handle(&init_process, capability_handle,
+                                         PROSENJIT_CAP_WRITE) !=
+                    PROSENJIT_HANDLE_INVALID ||
+                process_close_handle(&init_process, duplicate_handle) != 0) {
+                serial_write("ProsenjitOS: ERROR duplicate authorization attenuation test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: duplicate authorization attenuation test passed\n");
+
+            {
+                struct pros_intent intent;
+                uint64_t reason = PROS_REASON_NONE;
+                uint64_t tid = thread_current() ? thread_current()->tid : 0u;
+                if (security_make_intent(&intent, PROS_INTENT_READ,
+                                         PROS_OBJECT_FILE, capability_handle,
+                                         PROSENJIT_CAP_READ) != 0 ||
+                    security_authorize(&init_process, &intent, tid, &reason) !=
+                        PROS_DECISION_ALLOW ||
+                    reason != PROS_REASON_ALLOWED ||
+                    security_make_intent(&intent, PROS_INTENT_EXECUTE,
+                                         PROS_OBJECT_FILE, capability_handle,
+                                         PROSENJIT_CAP_EXECUTE) != 0 ||
+                    security_authorize(&init_process, &intent, tid, &reason) !=
+                        PROS_DECISION_DENY ||
+                    reason != PROS_REASON_CAPABILITY_MISSING) {
+                    serial_write("ProsenjitOS: ERROR process capability authorization test failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+            }
+            serial_write("ProsenjitOS: process capability authorization test passed\n");
+            if (process_close_handle(&init_process, capability_handle) != 0) {
+                serial_write("ProsenjitOS: ERROR capability test handle cleanup failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+
+        /* A limited process cannot mint ADMIN authority. An ADMIN intent
+         * against a read-only object must be denied and quarantined, with the
+         * reason recorded before the quarantine can be cleared and reaped. */
+        {
+            struct pros_process security_test_process;
+            struct pros_object security_test_object;
+            struct pros_intent intent;
+            struct pros_reason_record latest;
+            uint64_t read_handle = PROSENJIT_HANDLE_INVALID;
+            uint64_t forbidden_handle = PROSENJIT_HANDLE_INVALID;
+            uint64_t reason = PROS_REASON_NONE;
+            uint64_t tid = thread_current() ? thread_current()->tid : 0u;
+            if (process_create(&init_process, &security_test_process,
+                               0xCA11u, PROS_SECURITY_LIMITED) != 0 ||
+                (security_test_process.capability_policy & PROSENJIT_CAP_ADMIN) != 0) {
+                serial_write("ProsenjitOS: ERROR limited-process capability policy test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            object_init(&security_test_object, PROS_OBJECT_FILE);
+            if (process_grant_handle(&security_test_process,
+                                     &security_test_object,
+                                     PROSENJIT_CAP_ADMIN,
+                                     &forbidden_handle) == 0 ||
+                process_grant_handle(&security_test_process,
+                                     &security_test_object,
+                                     PROSENJIT_CAP_READ, &read_handle) != 0) {
+                serial_write("ProsenjitOS: ERROR limited-process capability policy test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: limited-process capability policy test passed\n");
+            if (security_make_intent(&intent, PROS_INTENT_ADMIN,
+                                     PROS_OBJECT_FILE, read_handle,
+                                     PROSENJIT_CAP_ADMIN) != 0 ||
+                security_authorize(&security_test_process, &intent, tid,
+                                   &reason) != PROS_DECISION_QUARANTINE ||
+                reason != PROS_REASON_QUARANTINE_REQUEST ||
+                !security_is_quarantined(&security_test_process) ||
+                process_state(&security_test_process) != PROS_PROCESS_BLOCKED ||
+                security_ledger_latest(&latest) != 0 ||
+                latest.pid != security_test_process.pid ||
+                latest.intent_id != intent.id ||
+                latest.decision != PROS_DECISION_QUARANTINE ||
+                latest.reason != PROS_REASON_QUARANTINE_REQUEST ||
+                security_clear_quarantine(&security_test_process) != 0 ||
+                security_is_quarantined(&security_test_process) ||
+                process_exit(&security_test_process, 0) != 0 ||
+                process_wait(&init_process, security_test_process.pid,
+                             &(int32_t){0}) != 0) {
+                serial_write("ProsenjitOS: ERROR intent -> capability -> policy -> decision -> reason-ledger -> quarantine test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed\n");
+        }
+
+        /* Run the syscall policy self-test in a real limited-process context. */
+        {
+            struct pros_process sandbox_process;
+            int32_t sandbox_exit = 0;
+            if (process_create(&init_process, &sandbox_process, 0xCA12u,
+                               PROS_SECURITY_LIMITED) != 0) {
+                serial_write("ProsenjitOS: ERROR limited-process syscall sandbox test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            process_set_current(&sandbox_process);
+            if (process_current() != &sandbox_process ||
+                syscall_selftest(&sandbox_process) != 0) {
+                process_set_current(&init_process);
+                serial_write("ProsenjitOS: ERROR syscall sandbox enforcement test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            process_set_current(&init_process);
+            if (process_current() != &init_process ||
+                process_exit(&sandbox_process, 0) != 0 ||
+                process_wait(&init_process, sandbox_process.pid,
+                             &sandbox_exit) != 0 ||
+                sandbox_exit != 0) {
+                serial_write("ProsenjitOS: ERROR limited-process syscall sandbox test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: syscall sandbox enforcement test passed\n");
+            serial_write("ProsenjitOS: limited-process syscall sandbox test passed\n");
+        }
+
+        /* Verify copy and move semantics, including stale-source rejection. */
+        {
+            struct pros_process transfer_source;
+            struct pros_process transfer_target;
+            struct pros_object transfer_object;
+            uint64_t source_handle = PROSENJIT_HANDLE_INVALID;
+            uint64_t copied_handle = PROSENJIT_HANDLE_INVALID;
+            uint64_t moved_handle = PROSENJIT_HANDLE_INVALID;
+            int32_t source_exit = 0, target_exit = 0;
+            object_init(&transfer_object, PROS_OBJECT_FILE);
+            if (process_create(&init_process, &transfer_source, 0xCA13u,
+                               PROS_SECURITY_LIMITED) != 0 ||
+                process_create(&init_process, &transfer_target, 0xCA14u,
+                               PROS_SECURITY_LIMITED) != 0 ||
+                process_grant_handle(&transfer_source, &transfer_object,
+                                     PROSENJIT_CAP_READ |
+                                     PROSENJIT_CAP_DUPLICATE |
+                                     PROSENJIT_CAP_TRANSFER,
+                                     &source_handle) != 0) {
+                serial_write("ProsenjitOS: ERROR capability copy-transfer test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            copied_handle = process_transfer_handle_copy(&transfer_source,
+                                                         &transfer_target,
+                                                         source_handle,
+                                                         PROSENJIT_CAP_READ);
+            if (copied_handle == PROSENJIT_HANDLE_INVALID ||
+                process_check_handle(&transfer_source, source_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+                process_check_handle(&transfer_target, copied_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+                process_check_handle(&transfer_target, copied_handle,
+                                     PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+                process_close_handle(&transfer_target, copied_handle) != 0) {
+                serial_write("ProsenjitOS: ERROR capability copy-transfer test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: capability copy-transfer test passed\n");
+
+            moved_handle = process_transfer_handle_move(&transfer_source,
+                                                        &transfer_target,
+                                                        source_handle,
+                                                        PROSENJIT_CAP_READ);
+            if (moved_handle == PROSENJIT_HANDLE_INVALID ||
+                process_check_handle(&transfer_source, source_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 ||
+                process_check_handle(&transfer_target, moved_handle,
+                                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0) {
+                serial_write("ProsenjitOS: ERROR capability move-transfer test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: capability move-transfer test passed\n");
+            if (process_transfer_handle_move(&transfer_source,
+                                             &transfer_target, source_handle,
+                                             PROSENJIT_CAP_READ) !=
+                    PROSENJIT_HANDLE_INVALID ||
+                process_close_handle(&transfer_target, moved_handle) != 0 ||
+                process_exit(&transfer_source, 0) != 0 ||
+                process_exit(&transfer_target, 0) != 0 ||
+                process_wait(&init_process, transfer_source.pid,
+                             &source_exit) != 0 ||
+                process_wait(&init_process, transfer_target.pid,
+                             &target_exit) != 0 ||
+                source_exit != 0 || target_exit != 0) {
+                serial_write("ProsenjitOS: ERROR inactive capability move regression failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: inactive capability move regression passed\n");
         }
 
         /*
