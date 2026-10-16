@@ -5261,6 +5261,11 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
  * the kernel faults before the self-test can return normally. */
 static volatile uint32_t pfs_selftest_diag_stage;
 static volatile int pfs_selftest_diag_rc;
+#define PFS_SELFTEST_CHECKPOINT(stage_value) do { \
+    __asm__ volatile ("" ::: "memory"); \
+    pfs_selftest_diag_stage = (stage_value); \
+    __asm__ volatile ("" ::: "memory"); \
+} while (0)
 
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
@@ -5749,14 +5754,15 @@ int prosenjitfs_selftest(void)
     /* Avoid a compiler-generated aggregate initializer obscuring early
      * crash diagnostics; make this initialization an explicit checkpoint. */
     pfs_zero(&fs, (uint32_t)sizeof(fs));
-    pfs_selftest_diag_stage = 0xF003u; /* local filesystem state zeroed */
+    PFS_SELFTEST_CHECKPOINT(0xF003u); /* local filesystem state zeroed */
+    PFS_SELFTEST_CHECKPOINT(0xF004u); /* immediately before block-device init */
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
-    pfs_selftest_diag_stage = 0xF004u; /* test block device initialized */
+    PFS_SELFTEST_CHECKPOINT(0xF005u); /* test block device initialized */
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
-    pfs_selftest_diag_stage = 0xF005u; /* flush callback installed */
+    PFS_SELFTEST_CHECKPOINT(0xF006u); /* flush callback installed */
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the
