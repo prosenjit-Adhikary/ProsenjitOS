@@ -90,3 +90,9 @@
 - [ ] CI must validate this diagnostic build before deciding whether the return slot is already zero at entry or changes during the function. This is not yet a functional fix.
 - [ ] Keep the temporary instrumentation short-lived; once the fault is isolated, remove it and verify ISO and native BIOS boots. Desktop runtime remains incomplete.
 
+### 2026-10-16 — Confirmed caller-return capture is not reliable yet
+- [x] Inspected run [38903071895](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/38903071895), commit `b4f3848f`: DML tests and ISO build passed; QEMU boot failed; native BIOS was skipped.
+- [x] The exception report still shows `RIP=0`, diagnostic stage `0xF044`, and the previous return-address capture as zero. This run contains the earlier implementation, not the new noinline/O0 entry-versus-exit comparison.
+- [x] The refined diagnostic commits `f457fc64`, `dd07dda6`, and `fcce255f` are queued behind the active self-hosted runner job. Avoid adding further commits until those queued runs yield the entry/exit snapshots, to reduce redundant CI queueing.
+- [ ] Next decision depends on entry/exit return and frame values from the refined run. No root-cause fix is confirmed; QEMU boot remains failing and desktop runtime remains incomplete.
+
