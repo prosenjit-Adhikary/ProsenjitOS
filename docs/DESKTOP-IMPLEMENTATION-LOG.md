@@ -50,3 +50,13 @@
 4. Define and test a minimal userspace service lifecycle only after its real process and IPC contracts are identified.
 5. Run the relevant project build and QEMU smoke test; retain exact output and tested commit.
 6. Do not mark XFCE or boot-to-desktop complete until a real session with rendering, keyboard/pointer input, application launch, and logout has been demonstrated.
+
+### 2026-10-16 — CI QEMU crash triage
+- [x] Confirmed the self-hosted runner did claim and execute the workflow; toolchain verification, desktop-manager unit tests, and ISO build all completed successfully.
+- [x] Captured the actual blocking runtime failure from build run [38901707980](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/38901707980): QEMU faults while entering the ProsenjitFS self-test, with page-fault instruction-fetch error code `0x11`, `RIP=0`, and the CPL3 success milestone absent.
+- [x] Made ProsenjitFS self-test diagnostics volatile and fenced early checkpoints; moved the mock block device and filesystem state out of the large self-test stack frame.
+- [x] Re-ran CI after each diagnostic change. The latest observed checkpoint is `0xF004` (immediately before `block_device_init()`); the fault is still present, so the root cause is **not fixed yet**. The checkpoint narrows the failure to the early self-test setup/call-return path; do not infer a confirmed stack-overflow cause.
+- [x] Removed the duplicate CPL3 marker check and stopped uploading the reproducible ISO/raw image to reduce Actions storage use.
+- [ ] Resolve the early ProsenjitFS self-test null instruction-fetch fault, then rerun QEMU and native BIOS tests.
+- [ ] GitHub Actions artifact storage quota is still exhausted, so even the reduced diagnostics artifact upload is rejected; this is separate from the QEMU failure and does not itself fail the job because upload uses `continue-on-error`.
+- [ ] Desktop runtime remains incomplete: no verified userspace init/service launch path, display/input service, Xorg/Wayland runtime, or XFCE session.
