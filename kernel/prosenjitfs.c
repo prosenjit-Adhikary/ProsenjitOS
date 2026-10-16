@@ -5259,7 +5259,7 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
 /* Exception diagnostics can observe this state asynchronously while a
  * filesystem self-test is in progress. Keep each checkpoint visible even if
  * the kernel faults before the self-test can return normally. */
-static volatile uint32_t pfs_selftest_diag_stage;
+volatile uint32_t pfs_selftest_diag_stage;
 static volatile int pfs_selftest_diag_rc;
 #define PFS_SELFTEST_CHECKPOINT(stage_value) do { \
     __asm__ volatile ("" ::: "memory"); \
