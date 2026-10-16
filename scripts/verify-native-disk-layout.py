@@ -8,7 +8,6 @@ kernel payload does not overlap the partition.
 from __future__ import annotations
 
 import argparse
-import os
 import struct
 import sys
 from pathlib import Path
