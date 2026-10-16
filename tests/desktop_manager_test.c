@@ -49,16 +49,32 @@ int main(void)
     CHECK(strcmp(output.id, "xfce") == 0, 11);
     CHECK(pros_dml_get(&manager, "missing", &output) == PROS_DML_ENOENT, 12);
 
-    manifest = manifest_make("unsafe", "../bin/launch");
-    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 13);
+    {
+        const char *const bad_paths[] = {
+            "../bin/launch", "/bin/launch", "bin/../launch",
+            "bin/./launch", "bin//launch", "bin\\\\launch"
+        };
+        for (uint32_t i = 0; i < (uint32_t)(sizeof(bad_paths) /
+                                            sizeof(bad_paths[0])); ++i) {
+            manifest = manifest_make("unsafe", bad_paths[i]);
+            CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL,
+                  13);
+        }
+    }
     manifest = manifest_make("feature-mismatch", "bin/launch");
     manifest.required_features = 2u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EFEATURE, 14);
     manifest = manifest_make("future-abi", "bin/launch");
     manifest.abi_version++;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EABI, 15);
+    manifest = manifest_make("short-manifest", "bin/launch");
+    manifest.struct_size--;
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EABI, 16);
+    manifest = manifest_make("extended-manifest", "bin/launch");
+    manifest.struct_size += 16u;
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 17);
 
-    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 16);
+    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 18);
     manifest = manifest_make("plasma", "bin/start");
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "graphics");
