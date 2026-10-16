@@ -134,7 +134,7 @@ from pathlib import Path
 
 image = Path(sys.argv[1])
 magic = b"PROSENJITOS_PFS_TEST_FIXTURE_V1"
-sector = magic.ljust(512, b"\\0")
+sector = magic.ljust(512, b"\0")
 with image.open("r+b") as stream:
     stream.seek(2046 * 512)
     stream.write(sector)
