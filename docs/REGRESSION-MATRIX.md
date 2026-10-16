@@ -18,7 +18,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Validation | Status |
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
-| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT header and entry-array CRC validation, checksum-corruption rejection, nonzero reserved-header-field rejection, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on invalid arguments, malformed media, initial-device I/O failure, and protective-MBR GPT-header I/O failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
+| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT header and entry-array CRC validation against the standard IEEE CRC-32 known vector, checksum-corruption rejection, nonzero reserved-header-field rejection, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on invalid arguments, malformed media, initial-device I/O failure, and protective-MBR GPT-header I/O failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
@@ -139,3 +139,8 @@ The consistency checker is diagnostic-only and must never be used as a silent re
 ## Partition-probe invalid-argument output — 2026-10-16
 
 When the caller supplies a valid output pointer but the device pointer is null or the device sector size is unsupported, `partition_probe()` now clears the output type to `PROS_PARTITION_NONE` before returning `PROS_PARTITION_EINVAL`. The self-test covers both cases with a deliberately stale `PROS_PARTITION_GPT` output value. A null output pointer remains an invalid request and cannot be cleared. CI is required before considering the change verified.
+
+
+## GPT CRC32 known-vector regression — 2026-10-16
+
+The partition self-test checks the IEEE CRC-32 known vector `123456789` against `0xCBF43926` independently of the synthetic GPT fixture. This prevents the fixture's CRC-refresh helper and the parser from silently agreeing on a non-standard CRC implementation. The GPT header and entry-array corruption tests remain separate. CI is required before considering this addition verified.
