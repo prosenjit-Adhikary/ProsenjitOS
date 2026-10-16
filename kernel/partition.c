@@ -437,7 +437,7 @@ int partition_selftest(void)
 
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
-     * A 300-byte entry starts at offset 300, so its tail is in the next
+     * A 304-byte entry starts at offset 304, so its tail is in the next
      * sector and must be read as a two-sector span.
      */
     static uint8_t gpt_media[8u * 512u];
@@ -461,12 +461,12 @@ int partition_selftest(void)
     gpt_media[512u + 48u] = 6u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
-    gpt_media[512u + 84u] = 44u;
+    gpt_media[512u + 84u] = 48u;
     gpt_media[512u + 85u] = 1u;
-    gpt_media[2u * 512u + 300u] = 0x11u;
+    gpt_media[2u * 512u + 304u] = 0x11u;
     /* Entry array occupies LBAs 2..3; usable payload is disjoint at 4..6. */
-    gpt_media[2u * 512u + 332u] = 4u;
-    gpt_media[2u * 512u + 340u] = 5u;
+    gpt_media[2u * 512u + 336u] = 4u;
+    gpt_media[2u * 512u + 344u] = 5u;
     gpt_media[2u * 512u + 341u] = 0u;
     gpt_media[2u * 512u + 342u] = 0u;
     gpt_media[2u * 512u + 343u] = 0u;
@@ -545,7 +545,7 @@ int partition_selftest(void)
             PROS_PARTITION_EINVAL ||
         count != 0u)
         return -16;
-    partition_test_media[512u + 84u] = 128u;
+    partition_test_media[512u + 84u] = 48u;
 
     /* Reject a second GPT extent that overlaps the first. */
     partition_test_media[2u * 512u] = 0x22u;
@@ -564,8 +564,8 @@ int partition_selftest(void)
      */
     partition_test_media[2u * 512u + 32u] = 6u;
     partition_test_media[2u * 512u + 40u] = 6u;
-    partition_test_media[2u * 512u + 332u] = 4u;
-    partition_test_media[2u * 512u + 340u] = 5u;
+    partition_test_media[2u * 512u + 336u] = 4u;
+    partition_test_media[2u * 512u + 344u] = 5u;
     count = 0xFFFFFFFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 1u, &count) !=
             PROS_PARTITION_EINVAL ||
@@ -578,12 +578,12 @@ int partition_selftest(void)
      * callers that reuse the output variable.
      */
     count = 0xFFFFFFFFu;
-    partition_test_media[2u * 512u + 332u] = 1u;
+    partition_test_media[2u * 512u + 336u] = 1u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
         return -5;
-    partition_test_media[2u * 512u + 332u] = 4u;
+    partition_test_media[2u * 512u + 336u] = 4u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
