@@ -39,6 +39,11 @@ Status labels below distinguish source changes from runtime evidence.
   unterminated lookup buffer. The service-manager self-test rejects duplicate dependencies
   and mutates caller-owned service/dependency name buffers after registration to
   verify the manager's copied names remain usable.
+- `service_restart()` now snapshots the active service set and restores previously
+  running transitive dependants after the dependency-first stop cascade. A
+  regression restarts a running base service and checks that its active child
+  returns to `RUNNING` as well. This is source-level coverage only until the
+  branch's warnings-as-errors build and lifecycle self-test execute.
 - `kernel/init.c` now clears the ELF load result before attempting a load, initializes local file/admission records, distinguishes a missing `/init` from other open failures, and maps ELF bounds/overflow and permission/conflict failures to explicit init errors. This reduces stale-output and diagnostic ambiguity on failure; it does not connect the helper to normal boot. The init-loader self-test now seeds a nonzero result and checks that an inactive-mount failure clears all result fields.
 
 ### SOURCE-REVIEWED — not runtime tested
