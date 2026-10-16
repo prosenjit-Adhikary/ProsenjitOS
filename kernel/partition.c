@@ -703,6 +703,13 @@ int partition_selftest(void)
     partition_test_media[2u * 512u + 10u] ^= 1u;
     partition_test_gpt_refresh_crc();
 
+    /* Entry-array read I/O failure must not expose a stale output count. */
+    partition_test_fail_lba = 2u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EIO || count != 0u)
+        return -27;
+    partition_test_fail_lba = UINT64_MAX;
 
     /* GPT entry metadata must not start at LBA 0 or the primary header. */
     partition_test_media[512u + 72u] = 1u;
