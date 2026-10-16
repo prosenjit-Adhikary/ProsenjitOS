@@ -96,3 +96,9 @@
 - [x] The refined diagnostic commits `f457fc64`, `dd07dda6`, and `fcce255f` are queued behind the active self-hosted runner job. Avoid adding further commits until those queued runs yield the entry/exit snapshots, to reduce redundant CI queueing.
 - [ ] Next decision depends on entry/exit return and frame values from the refined run. No root-cause fix is confirmed; QEMU boot remains failing and desktop runtime remains incomplete.
 
+
+### 2026-10-16 — Isolate page-fault entry and stop recursive exception reporting
+- [x] Latest run `38903470923` confirms the QEMU log repeatedly emits the exception-vector prefix before reporting `RIP=0`; earlier diagnostic snapshots are still all zero, so they do not identify the original call/return fault.
+- [x] Assigned page fault (#PF) its own TSS IST3 stack, separate from the double-fault and syscall stacks, to avoid relying on a possibly damaged current stack for first-fault reporting.
+- [x] Added a re-entry guard to `exception_dispatch()`: if reporting triggers another exception that reaches the dispatcher, the kernel halts instead of recursively logging and corrupting the same context. The guard is cleared only on the existing recoverable-return paths.
+- [ ] CI must verify that these changes assemble, link, and produce a stable first-exception report. This is diagnostic hardening, not a confirmed root-cause fix. QEMU and native BIOS boot remain unverified/failed; desktop runtime is still incomplete.

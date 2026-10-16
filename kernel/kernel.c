@@ -57,6 +57,8 @@ static volatile uint64_t health_last_exception_rip;
 static volatile uint64_t health_previous_crash_sequence;
 static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
+/* Prevent a fault in exception reporting from recursively re-entering it. */
+static volatile uint8_t exception_dispatch_active;
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -208,7 +210,9 @@ void idt_init(void) {
      * path. If delivery itself fails, #DF will still have its dedicated IST.
      */
     idt_set_gate(13, handlers[13], 0);
-    idt_set_gate(14, handlers[14], 0);
+    /* Page faults use their own IST stack so a damaged task/bootstrap stack
+     * cannot recursively destroy the first fault report. */
+    idt_set_gate(14, handlers[14], 3);
     idt_set_gate(32, isr32, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
@@ -234,6 +238,13 @@ extern volatile uint64_t block_init_diag_entry_frame;
 extern volatile uint64_t block_init_diag_exit_frame;
 
 void exception_dispatch(uint64_t *frame) {
+    /* A nested exception means this handler or its reporting path faulted. Stop
+     * immediately rather than recursively corrupting the same exception frame. */
+    if (exception_dispatch_active) {
+        __asm__ volatile ("cli");
+        for (;;) __asm__ volatile ("hlt");
+    }
+    exception_dispatch_active = 1u;
     ++health_exception_count;
     health_last_exception_vector = frame[0];
     health_last_exception_rip = frame[2];
@@ -297,6 +308,7 @@ void exception_dispatch(uint64_t *frame) {
         uint64_t fixup_rip = usercopy_fault_rip();
         usercopy_fault_clear();
         frame[2] = fixup_rip;
+        exception_dispatch_active = 0u;
         return;
     }
     serial_write("ProsenjitOS: CR2 = ");
@@ -317,6 +329,7 @@ void exception_dispatch(uint64_t *frame) {
         /* exception_dispatch's frame is: vector,error,RIP,CS,RFLAGS,RSP,SS */
         frame[5] = (uint64_t)(uintptr_t)(frame + 7);
         frame[6] = 0x10;
+        exception_dispatch_active = 0u;
         return;
     }
     vga_write("ProsenjitOS: CPU exception - system halted", 0x4F);

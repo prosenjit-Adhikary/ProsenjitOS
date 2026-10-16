@@ -175,6 +175,8 @@ cpu_security_init:
     mov [tss64 + 36], rax
     mov rax, ist2_stack_top
     mov [tss64 + 44], rax
+    mov rax, ist3_stack_top
+    mov [tss64 + 52], rax
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
@@ -395,6 +397,13 @@ global ist2_stack_top
 ist2_stack_bottom:
     resb 8192
 ist2_stack_top:
+
+align 16
+global ist3_stack_bottom
+global ist3_stack_top
+ist3_stack_bottom:
+    resb 8192
+ist3_stack_top:
 
 align 16
 tss64:
