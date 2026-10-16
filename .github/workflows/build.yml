@@ -6,16 +6,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install build and emulator dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            nasm grub-pc-bin grub-common xorriso mtools gcc binutils qemu-system-x86
 
       - name: Verify toolchain
         run: |
@@ -47,8 +41,6 @@ jobs:
           set -e
 
           echo "QEMU exit status: $qemu_status"
-          # The OS normally remains halted after successful milestones, so timeout(124)
-          # is an expected termination. Any other QEMU/timeout failure is a real failure.
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
@@ -112,8 +104,6 @@ jobs:
           set -e
 
           echo "Native QEMU exit status: $qemu_status"
-          # A timeout after all required milestones is expected; every other
-          # non-zero QEMU result must fail the job rather than being masked.
           if (( qemu_status != 0 && qemu_status != 124 )); then
             echo "::error::Native QEMU exited with unexpected status: $qemu_status"
             exit "$qemu_status"
