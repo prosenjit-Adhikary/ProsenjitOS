@@ -434,10 +434,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * self-test registers synthetic callbacks, so reset the registry afterward
      * before any future boot-time services are registered.
      */
-    if (service_manager_selftest() != PROS_SERVICE_OK ||
-        service_manager_init() != PROS_SERVICE_OK) {
-        serial_write("ProsenjitOS: ERROR service-manager self-test/init failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int service_test_rc = service_manager_selftest();
+        if (service_test_rc != PROS_SERVICE_OK) {
+            serial_write("ProsenjitOS: ERROR service-manager self-test rc=");
+            serial_hex64((uint64_t)(int64_t)service_test_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (service_manager_init() != PROS_SERVICE_OK) {
+            serial_write("ProsenjitOS: ERROR service-manager registry reset failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: service-manager lifecycle self-test passed\n");
 
