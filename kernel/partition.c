@@ -127,7 +127,8 @@ int partition_read_gpt(struct pros_block_device *device,
     entry_size = le32(header + 84);
     if (header_size < 92u || header_size > device->sector_size ||
         current_lba != 1u || backup_lba >= device->sector_count ||
-        backup_lba == current_lba || first_usable_lba > last_usable_lba ||
+        backup_lba <= current_lba || first_usable_lba <= current_lba ||
+        first_usable_lba > last_usable_lba || backup_lba <= last_usable_lba ||
         last_usable_lba >= device->sector_count ||
         entry_count == 0u || entry_size < 128u ||
         entry_size > device->sector_size || entry_size > 1024u ||
@@ -496,6 +497,15 @@ int partition_selftest(void)
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
+
+    /* Usable payload must not include the primary GPT header sector. */
+    partition_test_media[512u + 40u] = 1u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -14;
+    partition_test_media[512u + 40u] = 4u;
 
     /* Reject an entry array that overlaps usable partition payload. */
     partition_test_media[512u + 72u] = 4u;
