@@ -40,10 +40,12 @@ Status labels below distinguish source changes from runtime evidence.
   and mutates caller-owned service/dependency name buffers after registration to
   verify the manager's copied names remain usable.
 - `service_restart()` now snapshots the active service set and restores previously
-  running transitive dependants after the dependency-first stop cascade. A
-  regression restarts a running base service and checks that its active child
-  returns to `RUNNING` as well. This is source-level coverage only until the
-  branch's warnings-as-errors build and lifecycle self-test execute.
+  running transitive dependants after the dependency-first stop cascade. The
+  lifecycle self-test covers both successful child restoration and failure
+  propagation when a previously-running child fails on its second start: the
+  base may recover, but the restart call must return failure and the child must
+  remain marked `FAILED`. This is source-level coverage only until the branch's
+  warnings-as-errors build and lifecycle self-test execute.
 - `kernel/init.c` now clears the ELF load result before attempting a load, initializes local file/admission records, distinguishes a missing `/init` from other open failures, and maps ELF bounds/overflow and permission/conflict failures to explicit init errors. This reduces stale-output and diagnostic ambiguity on failure; it does not connect the helper to normal boot. The init-loader self-test now seeds a nonzero result and checks that an inactive-mount failure clears all result fields.
 
 ### SOURCE-REVIEWED — not runtime tested
