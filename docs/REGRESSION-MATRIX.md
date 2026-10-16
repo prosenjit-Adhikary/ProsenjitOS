@@ -22,7 +22,7 @@ This matrix records the automated validation layers that should remain green whi
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
-| Persistent ProsenjitFS disk | Isolated preformatted image: mount/write/flush/unmount/remount/read-back across separate QEMU boots | Pending implementation; never autoformat unknown disks |
+| Persistent ProsenjitFS disk | Opt-in disposable raw image: format/write/flush/unmount, stop QEMU, remount/read-back in a second QEMU process | Implemented as a test-only build path; latest CI verification pending; normal startup never autoformats unknown disks |
 
 ## ProsenjitFS crash/recovery coverage
 
@@ -58,6 +58,20 @@ Required sequence:
 6. Preserve the raw image between the two QEMU runs and fail closed on any unexpected image geometry, partition layout, mount/probe error, write/flush error, or missing marker.
 
 The gate must not be marked complete until the implementation is reviewed and both QEMU phases pass on the configured Debian runner. This checks persistence across VM process restarts, not physical power-loss durability or real hardware behavior.
+
+### Opt-in native ATA persistence fixture implementation — 2026-10-16
+
+The build supports a separate `BUILD_DIR_NAME=build-persistence NATIVE_PFS_PERSISTENCE_TEST=1` artifact. The normal `build/` artifact is compiled without the test macro and retains its read-only startup behavior.
+
+The test-only kernel uses the already-validated MBR geometry (one type-0xDA partition at LBA 2048, 512 sectors). It reserves LBA 2047 in the disposable image as a control marker, outside both the kernel payload and the PFS partition:
+
+- If the control sector is all zero, the test requires `prosenjitfs_probe()` to report an unsupported/blank volume before formatting. It then mounts writable, creates `/ata-persistence.bin`, writes a deterministic byte sequence, closes the file, flushes, unmounts, and only then writes and flushes the phase marker.
+- The CI job fully stops the first QEMU process and starts a second process with the same raw image.
+- If the marker exactly matches the committed marker, the second phase requires a valid ProsenjitFS probe, mounts read-only, checks the exact file length/content and EOF, closes, and unmounts. It never formats.
+- A nonzero malformed marker, a valid marker with an invalid filesystem, or an unexpected filesystem state fails closed rather than retrying format.
+
+This is deliberately an opt-in disposable-image test harness, not production formatting behavior. The code is not considered verified until the dedicated build and both QEMU phases pass CI. Even then, the result proves persistence across separate QEMU processes, not physical power-loss durability or real hardware behavior.
+
 
 ## Native BIOS safety checks
 
