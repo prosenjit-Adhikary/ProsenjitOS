@@ -60,10 +60,23 @@ if [[ -f build/prosenjitOS.iso ]]; then
   set -e
   case "$qemu_rc" in
     0) note "QEMU exited normally" ;;
-    124) fail "QEMU timed out after 20 seconds; inspect serial/debug logs" ;;
+    124) note "QEMU reached the 20-second smoke-test limit; serial milestones decide pass/fail" ;;
     *) fail "QEMU exited with status $qemu_rc; inspect serial/debug logs" ;;
   esac
-  [[ -s build/desktop-qemu-serial.log ]] && note "QEMU serial log generated" || fail "QEMU produced no serial log"
+  if [[ -s build/desktop-qemu-serial.log ]]; then
+    note "QEMU serial log generated"
+    for marker in \
+      "ProsenjitOS: x86-64 long mode active" \
+      "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"; do
+      if grep -Fq "$marker" build/desktop-qemu-serial.log; then
+        note "QEMU milestone observed: $marker"
+      else
+        fail "missing QEMU milestone: $marker"
+      fi
+    done
+  else
+    fail "QEMU produced no serial log"
+  fi
 else
   fail "build/prosenjitOS.iso was not produced"
 fi
