@@ -18,7 +18,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Validation | Status |
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
-| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT header and entry-array CRC validation against the standard IEEE CRC-32 known vector, checksum-corruption rejection, nonzero reserved-header-field rejection, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on invalid arguments, malformed media, initial-device I/O failure, and protective-MBR GPT-header I/O failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
+| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT header and entry-array CRC validation against the standard IEEE CRC-32 known vector, checksum-corruption rejection, GPT entry-array read-I/O failure with zeroed output count, nonzero reserved-header-field rejection, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on invalid arguments, malformed media, initial-device I/O failure, and protective-MBR GPT-header I/O failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
@@ -144,3 +144,8 @@ When the caller supplies a valid output pointer but the device pointer is null o
 ## GPT CRC32 known-vector regression — 2026-10-16
 
 The partition self-test checks the IEEE CRC-32 known vector `123456789` against `0xCBF43926` independently of the synthetic GPT fixture. This prevents the fixture's CRC-refresh helper and the parser from silently agreeing on a non-standard CRC implementation. The GPT header and entry-array corruption tests remain separate. CI is required before considering this addition verified.
+
+
+## GPT entry-array read failure regression — 2026-10-16
+
+The GPT parser's checksum-validation path now has explicit I/O-failure coverage. The in-memory block callback fails only when LBA 2 (the synthetic primary entry-array sector) is read, after the GPT header itself has been read successfully. The test requires `PROS_PARTITION_EIO` and a zero output count, ensuring no stale partition count escapes on media I/O failure. It does not write to a host disk. CI must pass before considering this regression verified.
