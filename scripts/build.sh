@@ -20,8 +20,19 @@ nasm -f elf64 "$ROOT/kernel/context_switch.asm" -o "$BUILD/obj/context_switch.o"
 
 CFLAGS=(-m64 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2)
 case "${NATIVE_PFS_PERSISTENCE_TEST:-0}" in
-    0) ;;
-    1) CFLAGS+=(-DPROS_NATIVE_PFS_PERSISTENCE_TEST=1) ;;
+    0)
+        if [[ "$BUILD_DIR_NAME" == "build-persistence" ]]; then
+            echo "build-persistence is reserved for NATIVE_PFS_PERSISTENCE_TEST=1" >&2
+            exit 2
+        fi
+        ;;
+    1)
+        if [[ "$BUILD_DIR_NAME" != "build-persistence" ]]; then
+            echo "NATIVE_PFS_PERSISTENCE_TEST=1 requires BUILD_DIR_NAME=build-persistence" >&2
+            exit 2
+        fi
+        CFLAGS+=(-DPROS_NATIVE_PFS_PERSISTENCE_TEST=1)
+        ;;
     *) echo "NATIVE_PFS_PERSISTENCE_TEST must be 0 or 1" >&2; exit 2 ;;
 esac
 
