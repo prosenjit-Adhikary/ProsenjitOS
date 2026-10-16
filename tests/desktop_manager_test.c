@@ -30,8 +30,11 @@ int main(void)
     struct pros_dml_manifest output;
     int rc;
 
-    CHECK(pros_dml_init(0, 0u) == PROS_DML_EINVAL, 1);
-    CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 2);
+    memset(&manager, 0, sizeof(manager));
+    manifest = manifest_make("before-init", "bin/start");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 1);
+    CHECK(pros_dml_init(0, 0u) == PROS_DML_EINVAL, 2);
+    CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 3);
     CHECK(pros_dml_count(&manager) == 0u, 3);
     CHECK(pros_dml_selected(&manager, &output) == PROS_DML_ENOENT, 4);
 
