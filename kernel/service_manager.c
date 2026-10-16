@@ -363,6 +363,33 @@ static int sm_test_stop(void *context)
     return 0;
 }
 
+struct sm_restart_test_context {
+    uint32_t starts;
+    uint32_t stops;
+    uint32_t fail_on_start;
+};
+
+static int sm_test_restart_start(void *context)
+{
+    struct sm_restart_test_context *test =
+        (struct sm_restart_test_context *)context;
+    if (!test)
+        return -1;
+    ++test->starts;
+    return test->fail_on_start != 0u &&
+           test->starts == test->fail_on_start ? -1 : 0;
+}
+
+static int sm_test_restart_stop(void *context)
+{
+    struct sm_restart_test_context *test =
+        (struct sm_restart_test_context *)context;
+    if (!test || test->stops >= test->starts)
+        return -1;
+    ++test->stops;
+    return 0;
+}
+
 int service_manager_selftest(void)
 {
     uint32_t a = 0, b = 0;
@@ -489,6 +516,45 @@ int service_manager_selftest(void)
             service_status("failing", &state, &retries) != PROS_SERVICE_OK ||
             state != PROS_SERVICE_FAILED || retries != 3u)
             return -13;
+    }
+
+    /*
+     * A dependant restart failure must be propagated. The base service can
+     * recover, but service_restart() must not claim the whole dependency
+     * subtree recovered when a previously-running child fails to restart.
+     */
+    if (service_manager_init() != PROS_SERVICE_OK)
+        return -20;
+    {
+        struct sm_restart_test_context child_ctx = {
+            .starts = 0u, .stops = 0u, .fail_on_start = 2u
+        };
+        const struct pros_service_definition restart_base = {
+            .name = "restart-base", .start = sm_test_start,
+            .stop = sm_test_stop, .context = &a,
+            .dependency_count = 0u, .max_retries = 0u
+        };
+        const struct pros_service_definition restart_child = {
+            .name = "restart-child", .start = sm_test_restart_start,
+            .stop = sm_test_restart_stop, .context = &child_ctx,
+            .dependency_count = 1u, .dependencies = {"restart-base"},
+            .max_retries = 0u
+        };
+
+        a = 0u;
+        if (service_register(&restart_base) != PROS_SERVICE_OK ||
+            service_register(&restart_child) != PROS_SERVICE_OK ||
+            service_start("restart-child") != PROS_SERVICE_OK ||
+            child_ctx.starts != 1u || child_ctx.stops != 0u)
+            return -21;
+
+        if (service_restart("restart-base") != PROS_SERVICE_EFAILED ||
+            service_status("restart-base", &state, &retries) != PROS_SERVICE_OK ||
+            state != PROS_SERVICE_RUNNING ||
+            service_status("restart-child", &state, &retries) != PROS_SERVICE_OK ||
+            state != PROS_SERVICE_FAILED ||
+            child_ctx.starts != 2u || child_ctx.stops != 1u)
+            return -22;
     }
 
     /*
