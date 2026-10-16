@@ -83,3 +83,10 @@
 - [ ] Temporary cross-layer diagnostics must be removed after the failure mechanism is established. Do not call the QEMU issue fixed until all required ISO milestones and native BIOS milestones pass.
 - [ ] Desktop runtime remains incomplete; passing DML tests and ISO build do not establish userspace service launch, display/input delivery, or an XFCE session.
 
+### 2026-10-16 — Return-address snapshot follow-up
+- [x] Inspected build run [38903052073](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/38903052073): DML tests and ISO build passed; QEMU boot failed; native BIOS was skipped.
+- [x] The failure report showed `block_device_init()` reached stage `0xF044`, but the recorded return address was `0x0`; the stack pointer snapshot was `0xD5988`. This is suspicious but not conclusive because the optimized function's frame/return-address capture itself needed validation.
+- [x] Added a targeted follow-up: mark `block_device_init()` noinline and compile that function at `O0` for diagnostic reliability, capture entry and pre-return return addresses plus RSP/frame snapshots separately, and print both sets on exception.
+- [ ] CI must validate this diagnostic build before deciding whether the return slot is already zero at entry or changes during the function. This is not yet a functional fix.
+- [ ] Keep the temporary instrumentation short-lived; once the fault is isolated, remove it and verify ISO and native BIOS boots. Desktop runtime remains incomplete.
+
