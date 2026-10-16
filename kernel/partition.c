@@ -516,14 +516,16 @@ int partition_selftest(void)
         return -12;
     partition_test_media[512u + 72u] = 2u;
 
-    /* Reject a backup-header LBA that intersects the primary entry array. */
-    partition_test_media[512u + 32u] = 3u;
+    /* Reject a primary entry array that reaches the backup-header LBA. */
+    partition_test_media[512u + 72u] = 7u;
+    partition_test_media[512u + 80u] = 1u;
     count = 0xFFFFFFFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
         return -13;
-    partition_test_media[512u + 32u] = 7u;
+    partition_test_media[512u + 72u] = 2u;
+    partition_test_media[512u + 80u] = 2u;
 
     /* Reject a second GPT extent that overlaps the first. */
     partition_test_media[2u * 512u] = 0x22u;
