@@ -20,7 +20,8 @@ This matrix records the automated validation layers that should remain green whi
 | Block device | Read/write contract and bounds checks | Foundation |
 | Partition | MBR/GPT discovery self-test | Required CI gate |
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |\n| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
-| Real disk | ATA PIO -> MBR -> ProsenjitFS persistent QEMU test | Required CI gate |
+| ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
+| Persistent ProsenjitFS disk | Isolated preformatted image: mount/write/flush/unmount/remount/read-back | Pending dedicated fixture; never autoformat unknown disks |
 
 ## ProsenjitFS crash/recovery coverage
 
@@ -62,7 +63,7 @@ A change that affects one subsystem should preserve all unrelated regression mar
 
 The following work remains intentionally dependent on lower layers:
 
-- Native ProsenjitFS QEMU disk testing uses the kernel-visible ATA PIO controller path and is a required CI gate.
+- Native BIOS QEMU testing currently covers ATA PIO block access and LBA-boundary diagnostics. Persistent ProsenjitFS mount/remount through ATA remains pending until a dedicated preformatted disposable-image fixture is added; never autoformat unknown/blank disks.
 - Native filesystem-aware boot requires a stable boot protocol plus storage/partition discovery.
 - Future compatibility filesystem providers must not couple their parsers to kernel-core; provider I/O must use the common block/device contract.
 - UEFI boot validation requires the native UEFI loader before Secure Boot/verified-boot work can be meaningfully tested.
