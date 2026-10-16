@@ -9,6 +9,7 @@
 #define PROS_DML_ID_MAX            32u
 #define PROS_DML_ENTRY_MAX         96u
 #define PROS_DML_NO_SELECTION UINT32_MAX
+#define PROS_DML_MANAGER_MAGIC 0x444D4C31u
 
 enum pros_dml_status {
     PROS_DML_OK = 0,
@@ -57,6 +58,7 @@ struct pros_dml_manager {
     uint32_t count;
     uint32_t selected_index;
     uint32_t supported_features;
+    uint32_t magic;
 };
 
 int pros_dml_init(struct pros_dml_manager *manager,
