@@ -1061,6 +1061,56 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
 
         /*
+         * Exercise the real page-fault fixup path. The temporary process owns
+         * a valid user mapping at fault_va, while the active init address space
+         * intentionally has no mapping there. Validation therefore succeeds
+         * against the supplied address space, then the assembly copy faults
+         * under the active CR3 and must return through the registered fixup.
+         */
+        {
+            struct pros_process fault_process;
+            uint64_t fault_page = physical_page_alloc_user();
+            const uint64_t fault_va = PROSENJIT_USER_TEST_VA + 0x10000000ULL;
+            uint8_t copy_byte = 0xA5u;
+            uint8_t copied_byte = 0u;
+            uint64_t recovered_before = kernel_recovered_page_fault_count();
+            if (!fault_page ||
+                process_create(&init_process, &fault_process, 0xCA15u,
+                               PROS_SECURITY_LIMITED) != 0 ||
+                address_space_map_user_page_owned(&fault_process.address_space,
+                                                  fault_va, fault_page,
+                                                  PROSENJIT_PAGE_WRITABLE |
+                                                  PROSENJIT_PAGE_NX) != 0 ||
+                address_space_validate_user_range(&fault_process.address_space,
+                                                  fault_va, 1u, 0) != 0 ||
+                address_space_validate_user_range(&init_process.address_space,
+                                                  fault_va, 1u, 0) == 0 ||
+                copy_from_user(&fault_process.address_space, &copied_byte,
+                               fault_va, 1u) == 0 ||
+                usercopy_fault_active() != 0 ||
+                copy_to_user(&fault_process.address_space, fault_va,
+                             &copy_byte, 1u) == 0 ||
+                usercopy_fault_active() != 0 ||
+                kernel_recovered_page_fault_count() < recovered_before + 2u) {
+                serial_write("ProsenjitOS: ERROR usercopy page-fault recovery test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            if (process_exit(&fault_process, 0) != 0) {
+                serial_write("ProsenjitOS: ERROR usercopy test process exit failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            {
+                int32_t fault_exit = -1;
+                if (process_wait(&init_process, fault_process.pid,
+                                 &fault_exit) != 0 || fault_exit != 0) {
+                    serial_write("ProsenjitOS: ERROR usercopy test process reap failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+            }
+            serial_write("ProsenjitOS: usercopy page-fault recovery test passed\n");
+        }
+
+        /*
          * Runtime security verification: the manager self-tests above validate
          * individual policy components; this boundary verifies that the live
          * boot process is still admissible and that kernel hardening remains
