@@ -25,15 +25,24 @@ for c in git make gcc ld nasm qemu-system-x86_64 timeout; do need_cmd "$c"; done
 echo "[3/6] User-mode and graphics foundations"
 # A filename/comment containing "ELF" is not evidence of an ELF loader. Require
 # an implementation-shaped symbol/header reference instead.
-if ! grep -RIlE 'elf(64)?_(validate|load|exec|load_image)|ELF64|PT_LOAD|Elf64_Ehdr|Elf64_Phdr' kernel user include --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
-  fail "functional ELF-loader implementation was not detected"
+if ! grep -RIlE 'pros_elf_load_with_args|pros_elf_load[[:space:]]*\(' kernel --include='*.c' --include='*.h' >/dev/null 2>&1; then
+  fail "kernel ELF loading entry point was not detected"
 else
-  note "ELF loader implementation-shaped symbols detected"
+  note "kernel ELF loading entry point detected (not proof of userspace session startup)"
 fi
-if ! grep -RIlE 'service_manager|service_manager_init|service_start|service_spawn|PID[[:space:]-]?1|init_main' kernel user include --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
-  fail "functional init/service-manager implementation was not detected"
+# Deliberately search userspace only: a kernel-resident service manager is not
+# an acceptable substitute for the planned userspace service lifecycle.
+if ! grep -RIlE 'service_manager_init|service_spawn|init_main|userspace_service_manager' user --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
+  fail "userspace init/service-manager implementation was not detected (kernel service manager does not satisfy this gate)"
 else
-  note "init/service-manager implementation-shaped symbols detected"
+  note "userspace init/service-manager implementation-shaped symbols detected; runtime behavior still requires verification"
+fi
+# Headers and kernel drivers are contracts/primitives, not proof of a usable
+# userspace input event path or display service.
+if ! grep -RIlE 'display_service|input_service|display_server_main|input_server_main' user --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
+  fail "userspace display/input service implementation was not detected"
+else
+  note "userspace display/input service implementation-shaped symbols detected; end-to-end delivery still requires runtime verification"
 fi
 if ! grep -RIlE 'CPL3|USER_MODE|user_mode|iretq|sysret|process_create' kernel --include='*.c' --include='*.h' --include='*.asm' >/dev/null 2>&1; then
   fail "userspace process-entry foundation not detected"
