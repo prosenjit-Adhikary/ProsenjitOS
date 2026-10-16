@@ -69,3 +69,9 @@
 - [ ] Next debugging step: isolate the `block_device_init()` call path with instrumentation that does not assume the root cause. The stage is set immediately before the call, so current evidence narrows the failure to that call/return boundary but does not prove which instruction or mechanism caused it.
 - [ ] Actions artifact upload still fails because the repository's Actions storage quota is exhausted. This is a separate diagnostic-artifact issue and does not explain the QEMU exception.
 
+### 2026-10-16 — Instrument the block-device initialization boundary
+- [x] Added temporary, narrowly scoped checkpoints inside `block_device_init()` only when the ProsenjitFS self-test is at stage `0xF004`: entry (`0xF041`), argument validation (`0xF042`), field initialization (`0xF043`), and immediately before return (`0xF044`).
+- [x] Exposed the existing volatile diagnostic stage to the block layer for this temporary trace. Normal block-device calls do not change the diagnostic value.
+- [ ] CI must run against these commits before interpreting the new stage. The next QEMU serial diagnostic should distinguish failure before function entry, during field setup, or at the return boundary.
+- [ ] This is diagnostic instrumentation, not a claimed fix. Remove the cross-layer trace once the failing instruction/call boundary is established, then rerun both ISO and native BIOS tests.
+
