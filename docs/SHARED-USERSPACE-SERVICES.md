@@ -83,7 +83,7 @@ A package manager and signed/trusted package metadata are prerequisites for secu
 
 ### Gate B — service manager correctness
 - Compile with the repository's warnings-as-errors flags.
-- Exercise registration bounds, caller-owned string mutation, duplicate/missing/self/cyclic dependencies, start/stop order, retry limits, callback failures, restart of a dependency with running dependants, and registry reset.
+- Exercise registration bounds, caller-owned string mutation, duplicate/missing/self/cyclic dependencies, start/stop order, retry limits, callback failures, restart of a dependency with running dependants, propagation when a dependant fails to restart, and registry reset.
 - Test partial-start failure and cleanup semantics.
 - Add synchronization or explicitly assert single-threaded lifecycle operation until synchronization is implemented.
 
