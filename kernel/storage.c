@@ -33,11 +33,14 @@ int pros_storage_discover(struct pros_block_device *device,
     uint32_t found = 0u;
     int rc;
 
-    if (!device || !volumes || !count || capacity == 0u ||
-        capacity > PROS_STORAGE_MAX_VOLUMES)
+    if (!count)
         return PROS_STORAGE_EINVAL;
 
+    /* A caller must never observe a stale success count after bad input. */
     *count = 0u;
+    if (!device || !volumes || capacity == 0u ||
+        capacity > PROS_STORAGE_MAX_VOLUMES)
+        return PROS_STORAGE_EINVAL;
     rc = storage_partition_table(device, &table_type);
     if (rc != PROS_PARTITION_OK)
         return rc == PROS_PARTITION_EIO ? PROS_STORAGE_EIO :
@@ -113,6 +116,17 @@ int pros_storage_selftest(void)
     struct pros_storage_volume volumes[2];
     uint32_t count = 0u;
 
+    /* Invalid discovery requests clear an available output count. */
+    count = 123u;
+    if (pros_storage_discover(0, volumes, 2u, &count) !=
+            PROS_STORAGE_EINVAL || count != 0u)
+        return -3;
+
+    count = 123u;
+    if (pros_storage_discover(0, volumes, 0u, &count) !=
+            PROS_STORAGE_EINVAL || count != 0u)
+        return -4;
+
     for (uint32_t i = 0u; i < sizeof(disk.sectors); ++i)
         disk.sectors[i] = 0u;
 
@@ -130,7 +144,7 @@ int pros_storage_selftest(void)
 
     if (block_device_init(&device, 512u, STORAGE_TEST_SECTORS,
                            storage_test_read, 0, &disk) != PROS_BLOCK_OK)
-        return -1;
+        return -5;
 
     /*
      * Compatibility filesystem probes are intentionally absent from the
@@ -139,7 +153,7 @@ int pros_storage_selftest(void)
      */
     if (pros_storage_discover(&device, volumes, 2u, &count) !=
             PROS_STORAGE_OK || count != 0u)
-        return -2;
+        return -6;
 
     return PROS_STORAGE_OK;
 }
