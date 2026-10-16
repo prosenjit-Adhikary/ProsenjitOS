@@ -90,7 +90,7 @@ static int manifest_validate(const struct pros_dml_manager *manager,
 {
     if (!manager || !manifest)
         return PROS_DML_EINVAL;
-    if (manifest->struct_size != sizeof(*manifest) ||
+    if (manifest->struct_size < sizeof(*manifest) ||
         manifest->abi_version != PROS_DML_ABI_VERSION)
         return PROS_DML_EABI;
     if (!id_valid(manifest->id) ||
