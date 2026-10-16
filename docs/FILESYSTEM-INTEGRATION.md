@@ -1,10 +1,10 @@
 # ProsenjitOS filesystem integration boundary
 
-## Status — 2026-09-30
+## Status — 2026-10-16
 
-The native BIOS bootloader and ProsenjitFS provider are integrated on main. The latest filesystem work completes the VFS/provider mutation scope for ProsenjitFS: persistent allocation/reclamation, file create/delete, mkdir/rmdir, same-directory rename, cross-directory move, and directory-parent cycle protection. The native bootloader remains independent of partitions/filesystems.
+The native BIOS bootloader remains independent of partitions/filesystems, and the ProsenjitFS provider attaches through the block-device, partition, and VFS boundaries. The deterministic memory-backed ProsenjitFS self-test covers format/mount, allocation/reclamation, file and directory mutations, journal recovery, corruption rejection, and boundary regressions.
 
-Final CI verification is currently pending because recent GitHub Actions jobs fail during job startup before workflow steps are created; no successful post-change QEMU regression result is claimed.
+The current CI workflow passed ISO build/QEMU boot and native BIOS/QEMU boot on commit `e43a98a891e5354d806c383b2e0f3ece8e7e2b0d`. The native path confirms bootloader handoff, ATA PIO block-path access, partition discovery, and LBA-boundary diagnostics. It does **not** currently prove that a preformatted ProsenjitFS filesystem is mounted and remounted through the physical ATA -> MBR -> ProsenjitFS chain. That end-to-end persistent-volume gate remains pending; do not describe it as verified.
 
 ## Frozen dependency direction
 
@@ -28,25 +28,13 @@ A filesystem provider owns on-disk format parsing, metadata validation, allocati
 
 ProsenjitFS therefore attaches to the existing VFS rather than replacing it.
 
-## Real block-device progress
+## Real block-device progress and current limit
 
-The native BIOS QEMU path now exercises the real storage chain rather than only
-the synthetic filesystem tests:
+The native BIOS QEMU path currently verifies the real ATA PIO block-device path, bootloader handoff, and filesystem LBA-boundary diagnostics. A separate in-memory storage-discovery self-test verifies that an MBR partition without a valid ProsenjitFS superblock is not advertised as a supported volume.
 
-- the native image contains a deterministic MBR entry for a reserved
-  ProsenjitFS partition at LBA 2048 (512 sectors);
-- the kernel probes the IDE primary channel through the polling ATA PIO driver,
-  including IDENTIFY, LBA28/LBA48 reads/writes, and cache flush;
-- the partition layer creates a bounded block-device view of that partition;
-- the first boot formats the reserved partition when no ProsenjitFS superblock
-  exists;
-- the kernel then probes, mounts, journal-recovers, unmounts, and rediscoveries
-  the persistent ProsenjitFS volume through the normal storage layer.
+The native boot test is intentionally read-only with respect to filesystem formatting: startup must never automatically format an unknown or blank partition. The workflow no longer requires a persistent ATA -> MBR -> ProsenjitFS mount marker because that could make an unformatted test partition look like permission to format it. The current CI pass therefore must not be interpreted as proof of persistent ProsenjitFS mount/remount on the ATA partition.
 
-This is intentionally separate from the fixed-LBA native boot layout: the
-bootloader still loads stage 2 and the kernel from its reserved LBAs, while
-filesystem storage begins at LBA 2048. The native QEMU CI gate requires the
-persistent ATA -> MBR -> ProsenjitFS milestone.
+Next storage integration gate: provide an explicitly created, preformatted, disposable ProsenjitFS disk image as a separate test fixture; attach it only to the dedicated QEMU test; mount, write, flush, unmount, remount, and read back known data; and verify partition-relative LBA bounds. The fixture must be generated deterministically and never point at a user/host disk. Keep blank/unknown-disk probing non-destructive.
 
 
 ## ProsenjitFS branch integration notes
@@ -60,11 +48,10 @@ Every filesystem integration change must preserve:
 2. Native BIOS disk-image build.
 3. Native BIOS QEMU boot and native boot-handoff marker.
 4. Partition discovery self-test.
-5. ProsenjitFS native format/mount/allocation/journal/recovery regression.
-8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in, including allocation/reclamation and directory mutation regression.
-9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
-
-A native QEMU disk-device test is now a mandatory regression gate. The native image uses the kernel-visible ATA PIO path and the reserved MBR ProsenjitFS partition described above.
+5. ProsenjitFS deterministic memory-backed format/mount/allocation/journal/recovery regression.
+6. Native ATA PIO block-path and LBA-boundary diagnostics.
+7. Non-destructive partition discovery: blank or unsupported partitions must not be autoformatted.
+8. A dedicated preformatted-image ATA -> MBR -> ProsenjitFS write/flush/unmount/remount/read-back test remains a pending gate; it must use an isolated disposable image, not an unknown or host disk.
 
 ## Non-overlap rule
 
@@ -76,4 +63,4 @@ Do not reintroduce compatibility filesystem parsers into the kernel merely to ma
 
 ## Merge gate
 
-The ProsenjitFS implementation scope is now covered by deterministic memory-backed mutation tests and the native physical-LBA diagnostic gate. The implementation is not labeled CI-verified until a post-change GitHub Actions run successfully executes the workflow steps. Broader corruption/crash-point coverage and real power-loss validation remain separate reliability milestones.
+Commit `e43a98a891e5354d806c383b2e0f3ece8e7e2b0d` passed the ISO build/QEMU boot and native BIOS/QEMU boot jobs; artifact upload was skipped because upload is opt-in while storage is at quota. These results verify the listed boot milestones, not a persistent ProsenjitFS mount on the ATA partition. Keep that end-to-end fixture/test as an explicit pending gate. Physical power-loss validation remains a separate hardware reliability milestone.
