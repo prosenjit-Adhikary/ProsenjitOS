@@ -203,3 +203,83 @@ This document defines the target and work plan; it is not proof of implementatio
 
 - [User-mode architecture](../user/README.md)
 - [Project roadmap](ROADMAP.md)
+
+## 12. Stability, compatibility, and service contracts
+
+These are release requirements, not optional future polish.
+
+### 12.1 Versioned ABI and capability negotiation
+- Every kernel-userspace ABI and shared-service protocol must define a version, structure sizes, supported feature bits, error codes, ownership rules, and lifecycle semantics.
+- Prefer additive, size-tagged structures and explicit capability negotiation. Reject unknown required features and malformed sizes safely; never guess a caller's structure layout.
+- Preserve backward compatibility within a declared compatibility policy. When a breaking change is unavoidable, version it explicitly and test both supported versions during migration.
+- Validate every user pointer, length, integer conversion, handle, permission, state transition, and cross-process message at the trust boundary. Do not trust userspace validation as a substitute for kernel validation.
+
+### 12.2 Service ownership and failure domains
+- Define one authoritative owner for each resource (display device, input device, seat/session, audio device, package database, and desktop-session state). Use explicit leases/handles and deterministic hand-off rather than competing independent owners.
+- Keep policy/orchestration separate from mechanism: DML chooses and supervises sessions; dedicated services perform narrowly scoped device or system operations.
+- Services must declare dependencies, readiness checks, restart policy, resource limits, and shutdown behavior. Avoid circular dependencies; detect cycles and fail with an actionable diagnostic.
+- A crashed or wedged optional service must not panic the kernel or silently corrupt global state. Use bounded timeouts, cancellation, queue limits, and restart budgets. Do not automatically restart a service forever.
+- Separate per-user/session state from system-wide state. One user's desktop must not be able to inspect or control another user's session without explicit authorization.
+
+### 12.3 Desktop manifests and compatibility
+- Each installable desktop must provide a validated manifest containing package identity/version, entry point, required and optional services, dependency/version constraints, supported ABI/features, session environment, permissions/capabilities, resource expectations, and health-check/shutdown hooks.
+- Parse manifests with bounded input sizes, strict schema validation, safe path handling, and rejection of unknown security-critical fields.
+- Resolve dependencies deterministically; detect cycles, conflicts, missing capabilities, and incompatible versions before changing the active session.
+- Maintain a tested compatibility matrix per desktop version, window system, graphics backend, input backend, ABI version, and supported hardware/virtual-machine profile. “Installable” must not be presented as “runtime supported” without acceptance evidence.
+
+## 13. Security, updates, and recovery requirements
+
+- **Threat model:** assume desktop applications, downloaded packages, user configuration, IPC messages, and optional services can be malicious or malformed. Kernel and privileged brokers remain the final enforcement points.
+- **Least privilege:** use per-service identities and capability/handle grants scoped to the required operation and lifetime. Avoid ambient authority and unrestricted device access. Revoke grants on process exit, session end, device removal, and package retirement.
+- **Package trust:** verify package signatures against an explicit trust policy where signatures are available; verify content hashes and package identity; reject path traversal, symlink escapes, duplicate/conflicting files, and unsafe archive entries. A hash alone proves identity, not publisher authenticity.
+- **Transactional installation/update:** stage files separately, validate dependencies and permissions, preserve the last known-good manifest/configuration, then activate atomically where the filesystem supports it. On any failure, restore the previous known-good state. Never overwrite a running component in place unless its update protocol explicitly supports that operation.
+- **Rollback safety:** bind rollback metadata to package identity/version and integrity checks; prevent downgrade to a known-vulnerable version when policy forbids it. Do not delete the last known-good desktop or recovery path until the new session passes its health gate.
+- **Configuration safety:** validate configuration before activation, write changes atomically where supported, retain a bounded last-known-good configuration, and recover without destructive repair by default.
+- **Secrets:** never place credentials or long-lived tokens in desktop manifests, command-line arguments, public logs, or world-readable configuration.
+- **Auditability:** log security-relevant install, permission, session, failure, and rollback events with bounded storage, clear reason codes, and privacy-conscious redaction. Logging failure must not deadlock a privileged path.
+- **No false assurance:** signing, sandboxing, isolation, or secure update must remain marked incomplete until implemented and tested end-to-end.
+
+## 14. Performance and resource-efficiency requirements
+
+Performance must be measured against a recorded baseline on a named build and machine/VM profile; do not invent universal millisecond targets before the first baseline exists.
+
+- Keep the DML event-driven where practical. Avoid busy loops, polling without a bounded interval, and repeated full scans of installed desktops or dependencies on every session event.
+- Cache validated manifests/dependency results with explicit invalidation on install, remove, update, or configuration changes. Never let stale cache entries bypass security checks.
+- Keep kernel crossings and IPC messages coarse enough to avoid per-frame/per-input-event management overhead where a safe batching mechanism is appropriate. Input latency and frame presentation must be measured end-to-end.
+- Bound memory, message queues, log buffers, restart attempts, manifest sizes, package sizes, dependency traversal, and recovery work. Handle exhaustion predictably rather than allocating without limits.
+- Keep desktop orchestration out of latency-sensitive kernel paths. Use asynchronous work for slow package, disk, and diagnostic operations; do not block input/render paths on network access or reputation lookups.
+- Establish repeatable measurements for boot-to-login, session startup, idle CPU, resident memory per service, input-to-visible-response latency, frame pacing/dropped frames, IPC throughput/latency, package install/update time, and crash recovery time.
+- Compare against a documented baseline after changes. Investigate meaningful regressions; optimize measured bottlenecks rather than adding speculative complexity.
+- Provide graceful degradation when optional audio, network, or reputation services are unavailable. The core desktop session must not wait indefinitely for optional network services.
+
+## 15. Acceptance gates and release checklist
+
+Do not call the design “perfect” or release-ready merely because its documents are complete. The goal is a defensible, testable architecture with known limits.
+
+### Required automated and manual evidence
+- [ ] ABI compatibility tests: old/new supported clients, malformed versions/sizes, unknown feature flags, invalid handles, and invalid user buffers.
+- [ ] Service lifecycle tests: dependency ordering/cycle rejection, readiness timeout, clean shutdown, crash, hang, bounded restart, and resource cleanup.
+- [ ] Isolation tests: denied cross-user/session access, least-privilege device access, capability revocation, and malformed IPC.
+- [ ] Package tests: signature/trust failures, tampered hashes, archive/path traversal, conflicting files, missing dependencies, interrupted installation, failed activation, rollback, and forbidden downgrade.
+- [ ] Desktop manifest tests: invalid schema, oversized input, unsafe paths, dependency cycles, missing capabilities, and unsupported ABI.
+- [ ] Functional desktop tests: boot to login, render/present, keyboard and pointer input, focus/routing, launch native terminal/application, logout, switch supported sessions, and recover after a session crash.
+- [ ] Performance baseline: boot/session latency, idle CPU/RSS, input latency, frame pacing, IPC, install/update, and recovery under a documented test profile.
+- [ ] Stress/fault tests: repeated session switching, service restarts, memory/queue exhaustion, device removal, storage errors, and interrupted updates.
+- [ ] Regression evidence for existing boot, process/ELF, VFS/filesystem, driver, and security paths touched by the work.
+- [ ] QEMU and suitable hardware tests, with exact commands, commit IDs, logs, and limitations recorded.
+
+### Release decision
+A release can be described as **verified for a specific configuration** only when the required gates pass for that configuration. Maintain separate status labels for source-implemented, build-verified, QEMU-verified, hardware-verified, security-tested, and performance-baselined. Missing test infrastructure is a blocker to a verification claim, not evidence of success.
+
+## 16. Implementation order and change discipline
+
+1. Audit source and reconcile status documentation; do not assume checkboxes reflect current source behavior.
+2. Freeze and document the smallest usable ABI contracts before integrating a desktop stack.
+3. Complete process startup, init/service management, permissions, and shared display/input service prerequisites.
+4. Implement DML manifests, dependency resolution, lifecycle supervision, diagnostics, and safe failure behavior.
+5. Add package trust and transactional update/rollback before exposing general install/update operations.
+6. Integrate one compatible window-system route and one desktop (XFCE is the initial candidate) end-to-end.
+7. Establish security, stability, and performance baselines; only then add additional desktop environments.
+8. Make small, reviewable commits. For every migration, preserve unrelated functionality, run focused checks, run relevant regressions, and keep a rollback path.
+9. If the Debian/QEMU environment is unavailable, continue source/documentation work but leave runtime, hardware, and performance gates explicitly pending.
+
