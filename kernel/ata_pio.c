@@ -195,12 +195,27 @@ int pros_ata_pio_trace_find(const struct pros_ata_pio *ata, uint64_t lba,
 static int ata_prepare(struct pros_ata_pio *ata, uint64_t lba,
                        uint32_t count, uint8_t command)
 {
+    uint8_t status;
+
     if (!ata || count == 0u || count > 256u ||
         !block_device_lba_range_valid(&ata->block, lba, count))
         return PROS_ATA_EINVAL;
 
     if (!ata->lba48 && lba > 0x0FFFFFFFu)
         return PROS_ATA_ENOTSUP;
+
+    /*
+     * A PIO command can finish transferring its last sector before the
+     * device has deasserted BSY. This matters for workloads that issue many
+     * single-sector reads back-to-back (for example the persistence test's
+     * blank-volume scan). Do not overwrite the task-file registers or issue
+     * the next command until the previous command is idle and error-free.
+     */
+    if (ata_wait_not_busy(ata) != PROS_ATA_OK)
+        return PROS_ATA_ETIMEOUT;
+    status = ata_in8(ata->io_base + ATA_REG_STATUS);
+    if (status & (ATA_SR_ERR | ATA_SR_DF))
+        return PROS_ATA_EIO;
 
     if (ata->lba48) {
         ata_out8(ata->io_base + ATA_REG_HDDEVSEL,
