@@ -24,6 +24,29 @@ static int partition_ranges_overlap(uint64_t first_a, uint64_t count_a,
            first_b < first_a + count_a;
 }
 
+static uint32_t partition_crc32_ieee_update(uint32_t crc,
+                                                    const uint8_t *data,
+                                                    uint32_t length)
+{
+    for (uint32_t i = 0u; i < length; ++i) {
+        crc ^= data[i];
+        for (uint32_t bit = 0u; bit < 8u; ++bit)
+            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
+    }
+    return crc;
+}
+
+static uint32_t partition_gpt_header_crc(const uint8_t *header,
+                                         uint32_t header_size)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0u; i < header_size; ++i) {
+        uint8_t value = (i >= 16u && i < 20u) ? 0u : header[i];
+        crc = partition_crc32_ieee_update(crc, &value, 1u);
+    }
+    return ~crc;
+}
+
 int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
@@ -346,29 +369,6 @@ int partition_device_init(struct pros_partition_device *view,
 }
 
 static uint8_t partition_test_media[8 * 512];
-
-static uint32_t partition_crc32_ieee_update(uint32_t crc,
-                                                    const uint8_t *data,
-                                                    uint32_t length)
-{
-    for (uint32_t i = 0u; i < length; ++i) {
-        crc ^= data[i];
-        for (uint32_t bit = 0u; bit < 8u; ++bit)
-            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
-    }
-    return crc;
-}
-
-static uint32_t partition_gpt_header_crc(const uint8_t *header,
-                                         uint32_t header_size)
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    for (uint32_t i = 0u; i < header_size; ++i) {
-        uint8_t value = (i >= 16u && i < 20u) ? 0u : header[i];
-        crc = partition_crc32_ieee_update(crc, &value, 1u);
-    }
-    return ~crc;
-}
 
 /* Keep the synthetic GPT fixture spec-valid after each deliberate mutation.
  * Invalid geometry is still rejected by the parser's earlier bounds checks. */
