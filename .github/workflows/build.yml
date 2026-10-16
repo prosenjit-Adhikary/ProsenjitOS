@@ -23,6 +23,9 @@ jobs:
             fi
           done
 
+      - name: Test build-mode safety guards
+        run: python3 -m unittest discover -s tests -p 'test_build_mode_guard.py' -v
+
       - name: Test native disk-layout validator
         run: python3 scripts/test-native-disk-layout.py
 
