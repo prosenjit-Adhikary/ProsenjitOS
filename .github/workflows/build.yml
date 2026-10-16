@@ -130,7 +130,8 @@ jobs:
 
           require_native_log "ProsenjitOS: native bootloader handoff accepted"
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
-          require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
+          # Startup verification is read-only: a blank native PFS partition must never be autoformatted.
+          # Partition discovery and local/parent LBA bounds are covered by the native diagnostic marker below.
           require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_native_log "ProsenjitOS: x86-64 long mode active"
           require_native_log "ProsenjitOS: system health monitor initialized"
