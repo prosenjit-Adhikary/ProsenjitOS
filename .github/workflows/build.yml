@@ -141,8 +141,11 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
+      # GitHub Actions artifact storage is currently at quota. Keep build/boot
+      # verification independent from artifact storage; opt in only when needed
+      # by setting the repository Actions variable ENABLE_ARTIFACT_UPLOAD=true.
       - name: Upload ISO and boot diagnostics
-        if: always()
+        if: ${{ always() && vars.ENABLE_ARTIFACT_UPLOAD == 'true' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
