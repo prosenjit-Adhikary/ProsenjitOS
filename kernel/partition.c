@@ -89,9 +89,15 @@ int partition_read_mbr(struct pros_block_device *device,
 {
     uint8_t sector[512];
     uint32_t found = 0;
-    if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
+    /*
+     * A caller may reuse a previous successful count. Clear it whenever the
+     * output pointer is valid, even if another input argument is invalid.
+     */
+    if (count)
+        *count = 0u;
+    if (!device || !partitions || !count || capacity == 0 ||
+        device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
-    *count = 0u;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -141,9 +147,15 @@ int partition_read_gpt(struct pros_block_device *device,
     uint64_t backup_lba;
     uint64_t first_usable_lba;
     uint64_t last_usable_lba;
-    if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
+    /*
+     * Preserve the output contract on invalid arguments as well as media
+     * errors: a valid count pointer must never retain a stale partition count.
+     */
+    if (count)
+        *count = 0u;
+    if (!device || !partitions || !count || capacity == 0 ||
+        device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
-    *count = 0u;
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
