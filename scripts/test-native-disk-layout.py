@@ -11,7 +11,7 @@ from pathlib import Path
 SECTOR_SIZE = 512
 PARTITION_START = 2048
 PARTITION_SECTORS = 512
-IMAGE_SECTORS = PARTITION_START + PARTITION_SECTORS
+IMAGE_SECTORS = PARTITION_START + PARTITION_SECTORS + 1  # trailing guard sector
 ROOT = Path(__file__).resolve().parent.parent
 VALIDATOR = ROOT / "scripts" / "verify-native-disk-layout.py"
 
@@ -79,7 +79,7 @@ def main() -> int:
     expect_rejected("wrong partition start", start=2049)
     expect_rejected("wrong partition length", sectors=511)
     expect_rejected("extra populated partition", extra_entry=True)
-    expect_rejected("partition exceeds image", image_sectors=IMAGE_SECTORS - 1)
+    expect_rejected("partition exceeds image", image_sectors=PARTITION_START + PARTITION_SECTORS - 1)
     expect_rejected("kernel overlaps partition", kernel_end=PARTITION_START + 1)
     expect_rejected("wrong configured start", configured_start=2049)
     expect_rejected("wrong configured length", configured_sectors=511)
