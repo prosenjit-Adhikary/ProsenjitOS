@@ -164,3 +164,7 @@ The partition self-test checks the IEEE CRC-32 known vector `123456789` against 
 ## GPT entry-array read failure regression — 2026-10-16
 
 The GPT parser's checksum-validation path now has explicit I/O-failure coverage. The in-memory block callback fails only when LBA 2 (the synthetic primary entry-array sector) is read, after the GPT header itself has been read successfully. The test requires `PROS_PARTITION_EIO` and a zero output count, ensuring no stale partition count escapes on media I/O failure. It does not write to a host disk. CI must pass before considering this regression verified.
+
+## Native BIOS disk-layout validation — 2026-10-16
+
+The build now invokes `scripts/verify-native-disk-layout.py` against the generated raw image in read-only mode. It checks the 0x55AA MBR signature, exactly one populated partition entry, partition type 0xDA, expected start/length (LBA 2048 + 512 sectors), image bounds, and that the fixed kernel payload ends before the partition begins. This is a host-side layout guard only; it does not format the filesystem or prove ATA persistence across QEMU restarts. Persistent mount/write/flush/unmount/remount/read-back remains pending.
