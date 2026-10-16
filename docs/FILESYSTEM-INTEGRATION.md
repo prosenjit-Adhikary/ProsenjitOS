@@ -4,7 +4,7 @@
 
 The native BIOS bootloader remains independent of partitions/filesystems, and the ProsenjitFS provider attaches through the block-device, partition, and VFS boundaries. The deterministic memory-backed ProsenjitFS self-test covers format/mount, allocation/reclamation, file and directory mutations, journal recovery, corruption rejection, and boundary regressions.
 
-The current CI workflow passed ISO build/QEMU boot and native BIOS/QEMU boot on commit `e43a98a891e5354d806c383b2e0f3ece8e7e2b0d`. The native path confirms bootloader handoff, ATA PIO block-path access, partition discovery, and LBA-boundary diagnostics. It does **not** currently prove that a preformatted ProsenjitFS filesystem is mounted and remounted through the physical ATA -> MBR -> ProsenjitFS chain. That end-to-end persistent-volume gate remains pending; do not describe it as verified.
+The Build and boot-test workflow passed on commit `425eba908eb1b314e413a0782d33ce5fb2d21772` (run #6351): ISO build, ISO QEMU boot, and native BIOS QEMU boot all succeeded; artifact upload was skipped because it is opt-in while storage is at quota. The Security architecture checks workflow also passed on that commit (run #5854), validating its architecture-contract checks only. The native path confirms bootloader handoff, ATA PIO block-path access, partition discovery, and LBA-boundary diagnostics. It does **not** currently prove that a preformatted ProsenjitFS filesystem is mounted and remounted through the physical ATA -> MBR -> ProsenjitFS chain. That end-to-end persistent-volume gate remains pending; do not describe it as verified.
 
 ## Frozen dependency direction
 
@@ -63,4 +63,4 @@ Do not reintroduce compatibility filesystem parsers into the kernel merely to ma
 
 ## Merge gate
 
-Commit `e43a98a891e5354d806c383b2e0f3ece8e7e2b0d` passed the ISO build/QEMU boot and native BIOS/QEMU boot jobs; artifact upload was skipped because upload is opt-in while storage is at quota. These results verify the listed boot milestones, not a persistent ProsenjitFS mount on the ATA partition. Keep that end-to-end fixture/test as an explicit pending gate. Physical power-loss validation remains a separate hardware reliability milestone.
+Commit `425eba908eb1b314e413a0782d33ce5fb2d21772` passed Build and boot-test workflow #6351 (ISO build, ISO QEMU boot, and native BIOS QEMU boot) and Security architecture checks workflow #5854 (architecture-contract checks only); artifact upload was skipped because upload is opt-in while storage is at quota. These results verify the listed boot milestones, not a persistent ProsenjitFS mount on the ATA partition. Keep that end-to-end fixture/test as an explicit pending gate. Physical power-loss validation remains a separate hardware reliability milestone.
