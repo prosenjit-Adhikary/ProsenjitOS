@@ -22,7 +22,7 @@ This matrix records the automated validation layers that should remain green whi
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
-| Persistent ProsenjitFS disk | Isolated preformatted image: mount/write/flush/unmount/remount/read-back | Pending dedicated fixture; never autoformat unknown disks |
+| Persistent ProsenjitFS disk | Isolated preformatted image: mount/write/flush/unmount/remount/read-back across separate QEMU boots | Pending implementation; never autoformat unknown disks |
 
 ## ProsenjitFS crash/recovery coverage
 
@@ -43,6 +43,21 @@ The deterministic regression suite should continue to cover:
 6. writable mount exposure only after recovery succeeds.
 
 These tests validate filesystem logic but do not replace physical power-loss testing.
+
+## Persistent ATA/ProsenjitFS fixture requirements
+
+The persistent-disk gate must be opt-in and operate only on a dedicated disposable raw image created by the test job. It must never select a host block device, reuse the runner's boot disk, or infer that an unknown partition is safe to format.
+
+Required sequence:
+
+1. Create a fresh, fixed-size raw image in the build directory and construct the expected MBR partition entry for the reserved ProsenjitFS partition. Verify the image path, exact byte length, partition start, and partition length before attaching it to QEMU.
+2. Run a dedicated test-only format phase against that image's partition view. Formatting must be gated by an explicit test-mode build/configuration flag; it must not be reachable from ordinary native startup.
+3. In the write phase, mount writable only after `prosenjitfs_probe()` succeeds, create/write a deterministic test file, close it, call the block-device flush operation, and unmount successfully.
+4. Stop QEMU completely. Reboot with the same image attached, but switch to a read-only verification phase that must not format or mutate the volume.
+5. Probe and mount the existing filesystem, verify the exact file bytes and length, unmount, and require explicit serial success markers from both phases.
+6. Preserve the raw image between the two QEMU runs and fail closed on any unexpected image geometry, partition layout, mount/probe error, write/flush error, or missing marker.
+
+The gate must not be marked complete until the implementation is reviewed and both QEMU phases pass on the configured Debian runner. This checks persistence across VM process restarts, not physical power-loss durability or real hardware behavior.
 
 ## Native BIOS safety checks
 
