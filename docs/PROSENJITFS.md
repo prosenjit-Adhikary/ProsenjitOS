@@ -14,9 +14,9 @@ The native deterministic self-test now models a real device durability boundary 
 
 The same self-test also interrupts recovery both before and after the recovery flush and then remounts the same image, verifying that a committed replacement-image transaction can be replayed again without double-application corruption.
 
-The directory mutation regression now exercises directory allocation, nested directories, cross-directory file moves, directory moves, cycle rejection, non-empty-directory removal rejection, and empty-directory reclamation. This is an implementation/self-test milestone. The native ATA PIO -> MBR -> ProsenjitFS QEMU path is implemented and is a mandatory CI gate; the repository must not call the filesystem CI-verified until a post-change workflow run executes all build and boot steps successfully.
+The directory mutation regression exercises directory allocation, nested directories, cross-directory file moves, directory moves, cycle rejection, non-empty-directory removal rejection, and empty-directory reclamation. These are deterministic memory-backed implementation/self-test results. The current native BIOS QEMU gate verifies ATA PIO block access and LBA-boundary diagnostics, but does not currently prove a ProsenjitFS mount/remount on the ATA partition.
 
-This is still not a claim of physical power-loss validation. The native QEMU disk path exercises ATA PIO and a persistent ProsenjitFS partition, but QEMU is not a substitute for a real power-loss hardware test. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
+This is not a claim of physical power-loss validation. A dedicated preformatted disposable image must be attached to a separate QEMU test to verify persistent ATA -> partition -> ProsenjitFS write/flush/unmount/remount/read-back. Unknown or blank disks must never be autoformatted. Devices without a durable flush barrier cannot provide a power-loss durability guarantee.
 
 ## Architecture
 Storage controller / test block device -> pros_block_device -> MBR/GPT partition view -> VFS -> ProsenjitFS.
@@ -94,7 +94,7 @@ Mount validates magic/version, feature flags, block size and volume bounds, all 
 17. Add fault-injection tests for torn writes, corrupted metadata, interrupted recovery, and rollback; automatic destructive repair must remain disabled outside explicit recovery mode.
 
 ## Current verification boundary
-The repository exposes an ATA PIO block-device path to the native BIOS QEMU image and the mandatory workflow checks the resulting MBR -> ProsenjitFS persistence chain. Deterministic memory-backed tests supplement that path. Physical power-loss durability remains a hardware-validation limitation and is not claimed.
+The current workflow verifies ISO build/QEMU boot, native BIOS/QEMU boot, ATA PIO block-path access, partition discovery, LBA-boundary diagnostics, and the deterministic memory-backed ProsenjitFS regression. It does not yet verify a persistent ProsenjitFS mount/remount through the ATA partition. That requires a dedicated preformatted, disposable test image and an explicit write/flush/unmount/remount/read-back test. Physical power-loss durability remains a hardware-validation limitation and is not claimed.
 
 ## Completion rule
 ProsenjitFS is not complete until format/mount/validation, persistent allocation, directories, Unicode names, file I/O, rename/delete, journal recovery, corruption handling, VFS/security integration, QEMU disk integration, complete CI regression and accurate documentation are verified.
