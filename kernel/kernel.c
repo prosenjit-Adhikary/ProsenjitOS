@@ -226,6 +226,9 @@ uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_
 uint64_t kernel_last_exception_vector(void) { return health_last_exception_vector; }
 uint64_t kernel_last_exception_rip(void) { return health_last_exception_rip; }
 
+extern volatile uint64_t block_init_diag_return_address;
+extern volatile uint64_t block_init_diag_rsp;
+
 void exception_dispatch(uint64_t *frame) {
     ++health_exception_count;
     health_last_exception_vector = frame[0];
@@ -250,6 +253,13 @@ void exception_dispatch(uint64_t *frame) {
         serial_write(" rc = ");
         serial_hex64((uint64_t)(int64_t)pfs_rc);
         serial_write("\n");
+        if (pfs_stage >= 0xF041u && pfs_stage <= 0xF044u) {
+            serial_write("ProsenjitOS: block-init caller return address = ");
+            serial_hex64(block_init_diag_return_address);
+            serial_write("\nProsenjitOS: block-init RSP snapshot = ");
+            serial_hex64(block_init_diag_rsp);
+            serial_write("\n");
+        }
     }
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
