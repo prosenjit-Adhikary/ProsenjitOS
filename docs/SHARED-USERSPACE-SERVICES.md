@@ -33,7 +33,7 @@ This is a target graph, not proof that each edge is currently implemented. The p
 
 Every service registration must have:
 - A bounded, validated service identifier and bounded dependency list.
-- Explicit start/stop callbacks and an owned context lifetime.
+- Explicit start/stop callbacks and a documented context lifetime. The current kernel manager copies service/dependency names but borrows the callback context pointer; the caller must keep that context alive until no callback can run and the registry is reset.
 - Declared dependencies, startup order, shutdown order, and a defined failure policy.
 - A least-privilege capability set; services must not inherit unrestricted device or filesystem authority by default.
 - Structured status/error reporting and bounded retry/backoff policy.
