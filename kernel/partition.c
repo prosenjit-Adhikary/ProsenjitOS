@@ -483,8 +483,14 @@ int partition_selftest(void)
         count != 0u)
         return -10;
 
-    /* Adjacent, non-overlapping entries still fail if the output is too small. */
-    partition_test_media[2u * 512u + 40u] = 2u;
+    /*
+     * Capacity rejection must be tested with two adjacent, non-overlapping
+     * extents; otherwise an overlap error could mask a capacity regression.
+     * Entry 0 is [3, 4), and entry 1 is [2, 3).
+     */
+    partition_test_media[2u * 512u + 32u] = 3u;
+    partition_test_media[2u * 512u + 40u] = 3u;
+    partition_test_media[2u * 512u + 340u] = 2u;
     count = 0xFFFFFFFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 1u, &count) !=
             PROS_PARTITION_EINVAL ||
@@ -502,7 +508,7 @@ int partition_selftest(void)
             PROS_PARTITION_EINVAL ||
         count != 0u)
         return -5;
-    partition_test_media[2u * 512u + 332u] = 3u;
+    partition_test_media[2u * 512u + 332u] = 2u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
