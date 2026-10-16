@@ -10,7 +10,7 @@ The versioned display/input contracts live in `include/abi/display.h` and `inclu
 
 ## Current status
 
-The repository currently has kernel-side process/address-space/syscall foundations, but it does not yet contain a working ELF userspace loader, userspace init/service manager, Xorg/Wayland runtime, or XFCE runtime. Desktop Gate G therefore remains incomplete until these are actually implemented and boot-tested.
+The repository has kernel-side process/address-space/syscall foundations, a kernel ELF loader (pros_elf_load*), and a kernel /init image admission/loading path. These are low-level primitives, not a complete userspace exec/service-launch path. The current public syscall ABI does not expose process spawn/exec, and the existing service manager is kernel-resident rather than the planned userspace init/service manager. The repository does not yet provide a verified userspace display/input service, Xorg/Wayland runtime, or XFCE runtime. Desktop Gate G therefore remains incomplete until the userspace lifecycle and real desktop path are implemented and boot-tested.
 
 Documentation and ABI files are never treated as completion. Every milestone requires source recheck, warnings-as-errors build, QEMU runtime verification, regression coverage, and a recheck that no desktop stack entered `kernel/`.
 
