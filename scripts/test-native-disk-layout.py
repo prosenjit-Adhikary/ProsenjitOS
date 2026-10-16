@@ -80,6 +80,7 @@ def main() -> int:
     expect_rejected("wrong partition length", sectors=511)
     expect_rejected("extra populated partition", extra_entry=True)
     expect_rejected("partition exceeds image", image_sectors=PARTITION_START + PARTITION_SECTORS - 1)
+    expect_rejected("partition reaches final image LBA", image_sectors=PARTITION_START + PARTITION_SECTORS)
     expect_rejected("kernel overlaps partition", kernel_end=PARTITION_START + 1)
     expect_rejected("wrong configured start", configured_start=2049)
     expect_rejected("wrong configured length", configured_sectors=511)
@@ -91,7 +92,7 @@ def main() -> int:
         if result.returncode == 0:
             raise AssertionError("non-sector-aligned image unexpectedly accepted")
 
-    print("native disk layout regression tests: PASS (1 valid + 10 invalid fixtures)")
+    print("native disk layout regression tests: PASS (1 valid + 11 invalid fixtures)")
     return 0
 
 
