@@ -349,6 +349,17 @@ static int partition_test_write(struct pros_block_device *device,
     return PROS_BLOCK_OK;
 }
 
+static int partition_test_read_fail(struct pros_block_device *device,
+                                     uint64_t lba, uint32_t count,
+                                     void *buffer)
+{
+    (void)device;
+    (void)lba;
+    (void)count;
+    (void)buffer;
+    return PROS_BLOCK_EIO;
+}
+
 int partition_selftest(void)
 {
     struct pros_block_device parent;
@@ -367,6 +378,30 @@ int partition_selftest(void)
     if (block_device_init(&parent, 512, 4, partition_test_read,
                           partition_test_write, 0) != PROS_BLOCK_OK)
         return -1;
+
+    /*
+     * partition_probe() must clear stale caller output for malformed media
+     * and I/O errors, rather than leaving a previous successful type behind.
+     */
+    enum pros_partition_type probed_type = PROS_PARTITION_GPT;
+    if (partition_probe(&parent, &probed_type) != PROS_PARTITION_OK ||
+        probed_type != PROS_PARTITION_MBR)
+        return -18;
+    partition_test_media[510] = 0u;
+    probed_type = PROS_PARTITION_GPT;
+    if (partition_probe(&parent, &probed_type) != PROS_PARTITION_ENOTSUP ||
+        probed_type != PROS_PARTITION_NONE)
+        return -19;
+    partition_test_media[510] = 0x55u;
+    struct pros_block_device failed_probe_device;
+    if (block_device_init(&failed_probe_device, 512u, 4u,
+                          partition_test_read_fail, 0, 0) != PROS_BLOCK_OK)
+        return -20;
+    probed_type = PROS_PARTITION_GPT;
+    if (partition_probe(&failed_probe_device, &probed_type) != PROS_PARTITION_EIO ||
+        probed_type != PROS_PARTITION_NONE)
+        return -21;
+
     struct pros_partition partitions[4];
     uint32_t count = 0;
     if (partition_read_mbr(&parent, partitions, 4, &count) !=
