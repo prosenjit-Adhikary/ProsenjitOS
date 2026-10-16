@@ -52,7 +52,8 @@ int pros_security_exec_selftest(void) {
 
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
-    record.security.evidence = PROS_FILE_EVIDENCE_LOCAL_TRUST;
+    record.security.evidence = PROS_FILE_EVIDENCE_FORMAT_VALID |
+                               PROS_FILE_EVIDENCE_LOCAL_TRUST;
     for (uint32_t i = 0u; i < PROS_FILE_SHA256_BYTES; ++i)
         record.sha256[i] = (uint8_t)i;
 
@@ -104,10 +105,13 @@ int pros_security_exec_selftest(void) {
      */
     if (process_init(&process, 0x1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
-    if (process_set_state(&process, PROS_PROCESS_ZOMBIE) != 0)
-        goto zombie_fail;
+    /* process_set_state() intentionally rejects terminal transitions;
+     * model an already-terminal process directly for this boundary test. */
+    process.state = PROS_PROCESS_ZOMBIE;
     record.security.state = PROS_FILE_TRUSTED;
     record.security.action = PROS_FILE_ALLOW;
+    record.security.evidence = PROS_FILE_EVIDENCE_FORMAT_VALID |
+                               PROS_FILE_EVIDENCE_LOCAL_TRUST;
     if (pros_security_exec_admit(&process, &record, 4u, 0) == 
         PROS_SECURITY_EXEC_ALLOW)
         goto zombie_fail;
