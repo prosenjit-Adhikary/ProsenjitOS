@@ -75,3 +75,11 @@
 - [ ] CI must run against these commits before interpreting the new stage. The next QEMU serial diagnostic should distinguish failure before function entry, during field setup, or at the return boundary.
 - [ ] This is diagnostic instrumentation, not a claimed fix. Remove the cross-layer trace once the failing instruction/call boundary is established, then rerun both ISO and native BIOS tests.
 
+### 2026-10-16 — QEMU reaches block-init return boundary
+- [x] Inspected build run [38902318553](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/38902318553): toolchain, DML tests, and ISO build passed; QEMU boot failed and native BIOS was skipped.
+- [x] The diagnostic stage reached `0xF044`, immediately before `block_device_init()` returns. The exception still reports page-fault instruction-fetch error `0x11`, `RIP=0`, and `CR2=0`.
+- [x] Added temporary snapshots of the return address and RSP from inside `block_device_init()`, and exception output to report them when the fault occurs in this diagnostic window. Relevant commits: `d1d490df82adfac1d4601172673509bfc6ec0e6f`, `929cb202118dc290a3568220649284c9ecfc7596`, and `b4f3848f6ff1089ec993c511ce218001a2ba0a9a`.
+- [ ] The run for commit `d1d490df` also failed at QEMU; it predates the exception-output change, so it cannot reveal the saved return/RSP values. A newer run for commit `b4f3848f` is queued and must be inspected before changing the call/return path.
+- [ ] Temporary cross-layer diagnostics must be removed after the failure mechanism is established. Do not call the QEMU issue fixed until all required ISO milestones and native BIOS milestones pass.
+- [ ] Desktop runtime remains incomplete; passing DML tests and ISO build do not establish userspace service launch, display/input delivery, or an XFCE session.
+
