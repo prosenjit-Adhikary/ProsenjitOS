@@ -23,6 +23,7 @@
 - `5b83cf57d2d8bfa51b0147c235a99a2fbff61746` — record userspace/process/display/input blockers
 - `09bb7183a4d0a64a2b9837f64800139b35913be5` — make the desktop gate accept expected QEMU timeout only when required serial milestones exist, run the DML unit-test target, and label the gate as prerequisite-only
 - `cee18511ba6496e3a38be282bfd8b7e69b75094b` — report successful DML unit-test execution in the gate report
+- `cd413b6ccdb7c82cf452d6896e08adb10a12bc09` — validate desktop shell scripts and run `make desktop-unit-test` in CI before the OS build; verify `cc`, `make`, and `timeout` prerequisites
 
 ### Additional architecture audit
 - [x] Read `user/README.md`: it explicitly says a working userspace ELF loader, init/service manager, Xorg/Wayland runtime, and XFCE runtime are not present.
@@ -36,7 +37,7 @@
 ### Verification status
 - Source-level DML fix: implemented.
 - Regression tests: added, **not yet executed**.
-- Host build/test: pending. The available execution container could not resolve `github.com`, so it could not clone the repository to run the test target.
+- Host build/test: pending. CI has now been updated to run `make desktop-unit-test` and shell syntax checks before the OS build, but the new workflow commit has no reported check status yet. The available execution container could not resolve `github.com`, so it could not clone the repository to run the test target.
 - Debian/self-hosted runner, full OS build, QEMU boot, and GUI runtime: not verified in this work session.
 - The current blocking dependency is a verified userspace execution + init/service path and concrete display/input delivery, not additional desktop manifest metadata.
 - No claim is made that the desktop environment is complete.
