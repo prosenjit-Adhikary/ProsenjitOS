@@ -2,7 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="$ROOT/build"
+BUILD_DIR_NAME="${BUILD_DIR_NAME:-build}"
+if [[ ! "$BUILD_DIR_NAME" =~ ^build(-[A-Za-z0-9._-]+)?$ ]]; then
+    echo "BUILD_DIR_NAME must be 'build' or a build-* directory name" >&2
+    exit 2
+fi
+BUILD="$ROOT/$BUILD_DIR_NAME"
 ISO="$BUILD/prosenjitOS.iso"
 
 rm -rf "$BUILD"
@@ -14,6 +19,11 @@ nasm -f elf64 "$ROOT/kernel/idt.asm" -o "$BUILD/obj/idt.o"
 nasm -f elf64 "$ROOT/kernel/context_switch.asm" -o "$BUILD/obj/context_switch.o"
 
 CFLAGS=(-m64 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -I"$ROOT/kernel/include" -I"$ROOT/include" -Wall -Wextra -Werror -O2)
+case "${NATIVE_PFS_PERSISTENCE_TEST:-0}" in
+    0) ;;
+    1) CFLAGS+=(-DPROS_NATIVE_PFS_PERSISTENCE_TEST=1) ;;
+    *) echo "NATIVE_PFS_PERSISTENCE_TEST must be 0 or 1" >&2; exit 2 ;;
+esac
 
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/kernel.c" -o "$BUILD/obj/kernel.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/memory.c" -o "$BUILD/obj/memory.o"
