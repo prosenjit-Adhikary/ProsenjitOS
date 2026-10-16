@@ -18,7 +18,7 @@ Documentation and ABI files are never treated as completion. Every milestone req
 
 The first host-testable DML component is in `user/desktop/desktop_manager.c` and
 `user/desktop/desktop_manager.h`. It currently provides a bounded desktop
-registry, a fixed-size/versioned manifest contract, safe relative entry-point
+registry, a size-tagged, versioned manifest contract, safe relative entry-point
 path validation, required-feature checks, dependency preflight (including
 missing dependency and cycle detection), and default-desktop selection.
 
