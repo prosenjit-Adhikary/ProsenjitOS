@@ -1,0 +1,35 @@
+# Desktop Implementation Work Log
+
+## 2026-10-16 — DML source audit and selection-guard fix
+
+### Scope
+- Repository: `prosenjit-Adhikary/ProsenjitOS`
+- Area: userspace Desktop Management Layer (DML)
+- Source inspected: `user/desktop/desktop_manager.c`, `user/desktop/desktop_manager.h`, `tests/desktop_manager_test.c`, `scripts/test_desktop_manager.sh`, and `docs/DESKTOP-IMPLEMENTATION-PLAN.md`
+
+### Checks and findings
+- [x] Confirmed the DML is a userspace registry/preflight component, not a desktop-session launcher.
+- [x] Audited manifest ID/path validation, dependency lookup/cycle handling, feature compatibility, and bounded registry count.
+- [x] Found that `pros_dml_select()` had an invalid-manager guard without a `return PROS_DML_EINVAL`; execution could continue into preflight for an uninitialized or corrupt manager.
+- [x] Added the missing error return.
+- [x] Added regression cases for selection with an uninitialized manager and with a manager count above `PROS_DML_MAX_DESKTOPS`.
+- [x] Updated the implementation plan to record the fix and the verification status.
+
+### Changes committed
+- `195f2b70c57f770fd3958ea3b0cdb8e46710aa33` — `fix: reject invalid desktop manager before selection`
+- `d4d0c47cb235efd48bbdf3d106812cb575d2021f` — `test: cover invalid desktop manager selection state`
+- `ebc98ad441aca035c59fe4115afdf1883d057e48` — `docs: record desktop manager fix and pending verification`
+
+### Verification status
+- Source-level change: implemented.
+- Regression tests: added, **not yet executed**.
+- Host build/test: pending. The available execution container could not resolve `github.com`, so it could not clone the repository to run the test target.
+- Debian/self-hosted runner, full OS build, QEMU boot, and GUI runtime: not verified in this work session.
+- No claim is made that the desktop environment is complete.
+
+### Next steps
+1. Run `make desktop-unit-test` on the Debian system or a functioning runner.
+2. Fix any compile/test failures before proceeding.
+3. Run the relevant project build and QEMU smoke test; retain exact output and tested commit.
+4. Continue the source audit of the userspace init/service path and display/input ABI.
+5. Do not mark XFCE or boot-to-desktop complete until a real session with rendering, keyboard/pointer input, application launch, and logout has been demonstrated.
