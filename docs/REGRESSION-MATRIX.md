@@ -18,7 +18,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Validation | Status |
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
-| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT header and entry-array CRC validation, checksum-corruption rejection, nonzero reserved-header-field rejection, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on malformed media/read failure including protective-MBR GPT-header I/O failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
+| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT header and entry-array CRC validation, checksum-corruption rejection, nonzero reserved-header-field rejection, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on invalid arguments, malformed media, initial-device I/O failure, and protective-MBR GPT-header I/O failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
@@ -134,3 +134,8 @@ The consistency checker is diagnostic-only and must never be used as a silent re
 ## Partition-probe GPT header read failure — 2026-10-16
 
 `partition_probe()` now resets its output type to `PROS_PARTITION_NONE` when a protective MBR is present but reading the GPT header at LBA 1 fails. The regression selectively fails only LBA 1 after a valid MBR read; this catches the case where the probe previously returned `PROS_PARTITION_EIO` while leaving the output incorrectly set to `PROS_PARTITION_MBR`. The test uses only the in-memory partition fixture. CI must pass before this change is considered verified.
+
+
+## Partition-probe invalid-argument output — 2026-10-16
+
+When the caller supplies a valid output pointer but the device pointer is null or the device sector size is unsupported, `partition_probe()` now clears the output type to `PROS_PARTITION_NONE` before returning `PROS_PARTITION_EINVAL`. The self-test covers both cases with a deliberately stale `PROS_PARTITION_GPT` output value. A null output pointer remains an invalid request and cannot be cleared. CI is required before considering the change verified.
