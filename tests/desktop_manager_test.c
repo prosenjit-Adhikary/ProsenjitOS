@@ -97,6 +97,30 @@ int main(void)
     CHECK(pros_dml_preflight(&manager, "plasma") == PROS_DML_OK, 21);
     CHECK(pros_dml_select(&manager, "plasma") == PROS_DML_OK, 22);
 
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+        uint32_t sentinel = 0xA5A5A5A5u;
+
+        CHECK(pros_dml_resolve_order(&manager, "plasma", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_OK, 22);
+        CHECK(order_count == 2u, 22);
+        CHECK(strcmp(manager.entries[order[0]].manifest.id, "graphics") == 0,
+              22);
+        CHECK(strcmp(manager.entries[order[1]].manifest.id, "plasma") == 0,
+              22);
+        order[0] = sentinel;
+        order_count = 0u;
+        CHECK(pros_dml_resolve_order(&manager, "plasma", order, 1u,
+                                     &order_count) == PROS_DML_ENOSPC, 22);
+        CHECK(order_count == 2u && order[0] == sentinel, 22);
+        CHECK(pros_dml_resolve_order(&manager, "missing", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_ENOENT, 22);
+        CHECK(order_count == 0u, 22);
+    }
+
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 23);
     manifest = manifest_make("cycle-a", "bin/start");
     manifest.dependency_count = 1u;

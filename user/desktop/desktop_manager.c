@@ -198,6 +198,85 @@ int pros_dml_register(struct pros_dml_manager *manager,
     return PROS_DML_OK;
 }
 
+static int dml_build_order(const struct pros_dml_manager *manager,
+                           uint32_t index,
+                           uint8_t visiting[PROS_DML_MAX_DESKTOPS],
+                           uint8_t visited[PROS_DML_MAX_DESKTOPS],
+                           uint32_t order[PROS_DML_MAX_DESKTOPS],
+                           uint32_t *order_count)
+{
+    const struct pros_dml_manifest *manifest;
+
+    if (!manager_valid(manager) || index >= manager->count ||
+        index >= PROS_DML_MAX_DESKTOPS || !visiting || !visited ||
+        !order || !order_count || !manager->entries[index].registered)
+        return PROS_DML_EINVAL;
+    if (visiting[index])
+        return PROS_DML_ELOOP;
+    if (visited[index])
+        return PROS_DML_OK;
+
+    manifest = &manager->entries[index].manifest;
+    visiting[index] = 1u;
+    for (uint32_t d = 0; d < manifest->dependency_count; ++d) {
+        int dependency = dml_find(manager, manifest->dependencies[d]);
+        int rc;
+
+        if (dependency < 0) {
+            visiting[index] = 0u;
+            return PROS_DML_ENODEP;
+        }
+        rc = dml_build_order(manager, (uint32_t)dependency, visiting, visited,
+                             order, order_count);
+        if (rc != PROS_DML_OK) {
+            visiting[index] = 0u;
+            return rc;
+        }
+    }
+    visiting[index] = 0u;
+    visited[index] = 1u;
+    if (*order_count >= PROS_DML_MAX_DESKTOPS)
+        return PROS_DML_ENOSPC;
+    order[(*order_count)++] = index;
+    return PROS_DML_OK;
+}
+
+int pros_dml_resolve_order(const struct pros_dml_manager *manager,
+                           const char *desktop_id,
+                           uint32_t *out_indices,
+                           uint32_t capacity,
+                           uint32_t *out_count)
+{
+    uint8_t visiting[PROS_DML_MAX_DESKTOPS] = {0};
+    uint8_t visited[PROS_DML_MAX_DESKTOPS] = {0};
+    uint32_t order[PROS_DML_MAX_DESKTOPS] = {0};
+    uint32_t order_count = 0u;
+    int index;
+    int rc;
+
+    if (!out_count)
+        return PROS_DML_EINVAL;
+    *out_count = 0u;
+    if (!manager_valid(manager) || !id_valid(desktop_id) ||
+        (capacity != 0u && !out_indices))
+        return PROS_DML_EINVAL;
+
+    index = dml_find(manager, desktop_id);
+    if (index < 0)
+        return PROS_DML_ENOENT;
+    rc = dml_build_order(manager, (uint32_t)index, visiting, visited,
+                         order, &order_count);
+    if (rc != PROS_DML_OK)
+        return rc;
+
+    *out_count = order_count;
+    if (capacity < order_count)
+        return PROS_DML_ENOSPC;
+    for (uint32_t i = 0; i < order_count; ++i)
+        out_indices[i] = order[i];
+    return PROS_DML_OK;
+}
+
 int pros_dml_preflight(const struct pros_dml_manager *manager,
                        const char *desktop_id)
 {
