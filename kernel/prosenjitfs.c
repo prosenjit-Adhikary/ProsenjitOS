@@ -5737,8 +5737,10 @@ int prosenjitfs_selftest(void)
     pfs_crash_injected = 0u;
     pfs_selftest_diag_stage = 0xF002u; /* globals reset */
     static struct pfs_test_disk disk;
-    struct pros_block_device device;
-    struct pros_prosenjitfs fs;
+    /* Keep the filesystem test's persistent mock device and mount state out
+     * of the large self-test stack frame; the test is single-owner. */
+    static struct pros_block_device device;
+    static struct pros_prosenjitfs fs;
     struct pros_prosenjitfs_inode inode;
     uint64_t first_block;
     uint64_t inode_number;
