@@ -220,6 +220,15 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [ ] Package manager
 
 ## Phase 8 — GUI
+
+**Architecture and release gates:** follow [Desktop Implementation Plan](DESKTOP-IMPLEMENTATION-PLAN.md). The DML and all desktop environments remain userspace components; stable versioned ABI, capability negotiation, service ownership/isolation, validated desktop manifests, transactional package updates/rollback, and measured performance/security gates are prerequisites—not claims of current implementation.
+
+- [ ] Versioned kernel-userspace and shared-service contracts with compatibility tests
+- [ ] Shared-service ownership, per-user session isolation, bounded failure/restart policies
+- [ ] Validated desktop manifests and deterministic dependency/capability resolution
+- [ ] Trusted package install/update with integrity checks and safe rollback
+- [ ] Desktop lifecycle, crash recovery, and malformed-input/security tests
+- [ ] Repeatable boot/session, idle CPU/RSS, input latency, frame pacing, IPC, and recovery baselines
 - [ ] Graphics abstraction
 - [ ] Framebuffer
 - [ ] Input subsystem
