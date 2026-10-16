@@ -351,6 +351,14 @@ int partition_selftest(void)
     if (block_device_read(&view.device, 2, 1, buffer) != PROS_BLOCK_EINVAL)
         return -4;
 
+    /* Failed MBR parsing must clear a caller's stale output count. */
+    count = 0xFFFFFFFFu;
+    partition_test_media[510] = 0u;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_ENOTSUP ||
+        count != 0u)
+        return -8;
+
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
      * A 300-byte entry starts at offset 300, so its tail is in the next
