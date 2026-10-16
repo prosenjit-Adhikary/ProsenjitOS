@@ -1357,7 +1357,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     if (block_device_read(&native_pfs.device, sector_index,
                                           1u, partition_sector) !=
                         PROS_BLOCK_OK) {
-                        serial_write("ProsenjitOS: ERROR persistence-test blank-volume scan failed\n");
+                        serial_write("ProsenjitOS: ERROR persistence-test blank-volume scan failed at local LBA ");
+                        serial_hex64(sector_index);
+                        serial_write("; ATA block error count = ");
+                        serial_hex64(block_error_count());
+                        serial_write("\n");
                         for (;;) __asm__ volatile ("cli; hlt");
                     }
                     for (uint32_t byte_index = 0u;
