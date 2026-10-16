@@ -18,7 +18,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Validation | Status |
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
-| Partition | MBR/GPT discovery, LBA bounds, zeroed error output count, and overlapping-extent rejection | Required CI gate |
+| Partition | MBR/GPT discovery, LBA bounds, zeroed error output count, overlap rejection, and no silent capacity truncation | Required CI gate |
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
