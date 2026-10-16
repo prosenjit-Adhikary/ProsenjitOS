@@ -127,6 +127,12 @@ int pros_storage_selftest(void)
             PROS_STORAGE_EINVAL || count != 0u)
         return -4;
 
+    count = 123u;
+    if (pros_storage_discover(0, volumes,
+                              PROS_STORAGE_MAX_VOLUMES + 1u, &count) !=
+            PROS_STORAGE_EINVAL || count != 0u)
+        return -5;
+
     for (uint32_t i = 0u; i < sizeof(disk.sectors); ++i)
         disk.sectors[i] = 0u;
 
@@ -144,7 +150,7 @@ int pros_storage_selftest(void)
 
     if (block_device_init(&device, 512u, STORAGE_TEST_SECTORS,
                            storage_test_read, 0, &disk) != PROS_BLOCK_OK)
-        return -5;
+        return -6;
 
     /*
      * Compatibility filesystem probes are intentionally absent from the
@@ -153,7 +159,7 @@ int pros_storage_selftest(void)
      */
     if (pros_storage_discover(&device, volumes, 2u, &count) !=
             PROS_STORAGE_OK || count != 0u)
-        return -6;
+        return -7;
 
     return PROS_STORAGE_OK;
 }
