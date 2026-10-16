@@ -278,7 +278,7 @@ void exception_dispatch(uint64_t *frame) {
         serial_hex64((uint64_t)(int64_t)stack_query_rc);
         serial_write(" flags = ");
         serial_hex64(stack_flags);
-        serial_write("\\n");
+        serial_write("\n");
     }
     if (vector != 128 && !usercopy_fault_active()) {
         /*
@@ -563,7 +563,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
-    serial_write("ProsenjitOS: IPC channel/capability foundation test passed\\n");
+    serial_write("ProsenjitOS: IPC channel/capability foundation test passed\n");
 
     process_set_current(&init_process);
     if (syscall_selftest(&init_process) != 0) {
