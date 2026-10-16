@@ -30,6 +30,7 @@ int partition_probe(struct pros_block_device *device,
     uint8_t sector[512];
     if (!device || !table_type || device->sector_size != sizeof(sector))
         return PROS_PARTITION_EINVAL;
+    *table_type = PROS_PARTITION_NONE;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -41,10 +42,14 @@ int partition_probe(struct pros_block_device *device,
             uint8_t header[512];
             if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
                 return PROS_PARTITION_EIO;
-            if (header[0] == 'E' && header[1] == 'F' && header[2] == 'I' &&
-                header[3] == ' ' && header[4] == 'P' && header[5] == 'A' &&
-                header[6] == 'R' && header[7] == 'T')
-                *table_type = PROS_PARTITION_GPT;
+            if (header[0] != 'E' || header[1] != 'F' ||
+                header[2] != 'I' || header[3] != ' ' ||
+                header[4] != 'P' || header[5] != 'A' ||
+                header[6] != 'R' || header[7] != 'T') {
+                *table_type = PROS_PARTITION_NONE;
+                return PROS_PARTITION_ENOTSUP;
+            }
+            *table_type = PROS_PARTITION_GPT;
             break;
         }
     }
@@ -498,6 +503,21 @@ int partition_selftest(void)
     if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
         gpt_type != PROS_PARTITION_GPT)
         return -3;
+
+    /*
+     * A protective MBR without a valid GPT signature must not fall back to
+     * exposing its 0xEE entry as an ordinary MBR volume.
+     */
+    partition_test_media[512u] = 0u;
+    gpt_type = PROS_PARTITION_GPT;
+    if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_ENOTSUP ||
+        gpt_type != PROS_PARTITION_NONE)
+        return -17;
+    partition_test_media[512u] = 'E';
+    if (partition_probe(&gpt_parent, &gpt_type) != PROS_PARTITION_OK ||
+        gpt_type != PROS_PARTITION_GPT)
+        return -18;
+
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 4u ||
