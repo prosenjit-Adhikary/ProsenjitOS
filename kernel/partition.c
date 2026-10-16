@@ -145,6 +145,9 @@ int partition_read_gpt(struct pros_block_device *device,
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
         header[4] != 'P' || header[5] != 'A' || header[6] != 'R' || header[7] != 'T')
         return PROS_PARTITION_ENOTSUP;
+    /* GPT 1.x reserves this field; non-zero values are malformed metadata. */
+    if (le32(header + 20u) != 0u)
+        return PROS_PARTITION_EINVAL;
     header_size = le32(header + 12);
     current_lba = le64(header + 24);
     backup_lba = le64(header + 32);
@@ -636,6 +639,16 @@ int partition_selftest(void)
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
+    /* Reserved GPT header bytes must remain zero, even with a valid CRC. */
+    partition_test_media[512u + 20u] = 1u;
+    partition_test_gpt_refresh_crc();
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -24;
+    partition_test_media[512u + 20u] = 0u;
+    partition_test_gpt_refresh_crc();
+
     /* GPT header and entry-array CRC mismatches must fail closed. */
     partition_test_media[512u + 56u] ^= 1u;
     count = 0xFFFFFFFFu;
