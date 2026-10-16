@@ -38,6 +38,16 @@ int main(void)
     CHECK(pros_dml_count(&manager) == 0u, 3);
     CHECK(pros_dml_selected(&manager, &output) == PROS_DML_ENOENT, 4);
 
+    {
+        struct pros_dml_manager invalid;
+
+        memset(&invalid, 0, sizeof(invalid));
+        CHECK(pros_dml_select(&invalid, "xfce") == PROS_DML_EINVAL, 5);
+        CHECK(pros_dml_init(&invalid, 0u) == PROS_DML_OK, 5);
+        invalid.count = PROS_DML_MAX_DESKTOPS + 1u;
+        CHECK(pros_dml_select(&invalid, "xfce") == PROS_DML_EINVAL, 5);
+    }
+
     manifest = manifest_make("xfce", "bin/startxfce4");
     manifest.required_features = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 5);
