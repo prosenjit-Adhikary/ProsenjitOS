@@ -61,7 +61,7 @@ The gate must not be marked complete until the implementation is reviewed and bo
 
 ### Opt-in native ATA persistence fixture implementation — 2026-10-16
 
-The build supports a separate `BUILD_DIR_NAME=build-persistence NATIVE_PFS_PERSISTENCE_TEST=1` artifact. The normal `build/` artifact is compiled without the test macro and retains its read-only startup behavior.
+The build supports a separate `BUILD_DIR_NAME=build-persistence NATIVE_PFS_PERSISTENCE_TEST=1` artifact. The raw image includes one trailing guard sector after the PFS partition, so the partition’s final LBA is not also the image’s final LBA. The normal `build/` artifact is compiled without the test macro and retains its read-only startup behavior.
 
 The test-only kernel uses the already-validated MBR geometry (one type-0xDA partition at LBA 2048, 512 sectors). The build script writes a fixture-authorization signature at LBA 2046, and the kernel requires an exact signature before allowing any test-only formatting. LBA 2047 is then reserved as the phase-control marker. Both sectors are in the unused gap outside the kernel payload and PFS partition:
 
@@ -181,4 +181,4 @@ The GPT parser's checksum-validation path now has explicit I/O-failure coverage.
 
 ## Native BIOS disk-layout validation — 2026-10-16
 
-The build now invokes `scripts/verify-native-disk-layout.py` against the generated raw image in read-only mode. It checks the 0x55AA MBR signature, exactly one populated partition entry, partition type 0xDA, expected start/length (LBA 2048 + 512 sectors), image bounds, and that the fixed kernel payload ends before the partition begins. This is a host-side layout guard only; it does not format the filesystem or prove ATA persistence across QEMU restarts. Persistent mount/write/flush/unmount/remount/read-back remains pending.
+The build now invokes `scripts/verify-native-disk-layout.py` against the generated raw image in read-only mode. The image reserves one extra sector after the PFS partition as a trailing guard; the validator regression fixture mirrors this geometry. It checks the 0x55AA MBR signature, exactly one populated partition entry, partition type 0xDA, expected start/length (LBA 2048 + 512 sectors), image bounds, and that the fixed kernel payload ends before the partition begins. This is a host-side layout guard only; it does not format the filesystem or prove ATA persistence across QEMU restarts. Persistent mount/write/flush/unmount/remount/read-back remains pending.
