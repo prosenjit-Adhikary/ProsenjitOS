@@ -18,7 +18,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Validation | Status |
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
-| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
+| Storage/partition | Invalid discovery requests clear a valid output count; MBR/GPT LBA bounds, non-overlapping partition extents, GPT entry-array separation from headers/usable payload, protective-MBR rejection when the GPT header is invalid, partition-probe output reset on malformed media/read failure, 8-byte entry-size alignment, cross-sector GPT entry reads, zeroed error counts, and no silent capacity truncation | Required CI gate |
 | External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
 | ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
