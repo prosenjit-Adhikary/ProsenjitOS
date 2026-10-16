@@ -1275,6 +1275,134 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             serial_write("ProsenjitOS: ERROR native MBR/ProsenjitFS LBA boundary test failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
+#ifdef PROS_NATIVE_PFS_PERSISTENCE_TEST
+        /*
+         * This code exists only in the explicitly requested disposable-image
+         * test build. Sector 2047 is a test-control sector in the otherwise
+         * unused gap immediately before the fixed PFS partition. It lets the
+         * second QEMU process distinguish a completed write phase from a
+         * blank or damaged filesystem; a missing/corrupt marker never triggers
+         * another format.
+         */
+        {
+            static const uint8_t payload[] =
+                "ProsenjitOS ATA persistence regression v1";
+            static const uint8_t marker_magic[8] = {
+                'P', 'F', 'S', 'A', 'T', 'A', '1', '!'
+            };
+            struct pros_prosenjitfs test_fs;
+            struct pros_vfs_file test_file;
+            uint8_t marker_sector[512];
+            uint8_t expected_marker[512] = {0};
+            uint8_t readback[sizeof(payload)];
+            uint8_t extra_byte = 0u;
+            uint32_t transferred = 0u;
+            uint32_t extra_transferred = 0u;
+            uint8_t marker_is_zero = 1u;
+            uint8_t marker_is_expected = 1u;
+            int probe_rc;
+
+            for (uint32_t i = 0u; i < sizeof(marker_magic); ++i)
+                expected_marker[i] = marker_magic[i];
+            expected_marker[8] = 1u;
+
+            if (block_device_read(&native_ata.block, 2047u, 1u,
+                                  marker_sector) != PROS_BLOCK_OK) {
+                serial_write("ProsenjitOS: ERROR persistence-test control-sector read failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            for (uint32_t i = 0u; i < sizeof(marker_sector); ++i) {
+                if (marker_sector[i] != 0u)
+                    marker_is_zero = 0u;
+                if (marker_sector[i] != expected_marker[i])
+                    marker_is_expected = 0u;
+            }
+
+            probe_rc = prosenjitfs_probe(&native_pfs.device);
+            if (marker_is_zero) {
+                /* First phase is allowed to format only this test build's
+                 * verified, freshly-created blank fixture. */
+                if (probe_rc != PROSENJITFS_ENOTSUP) {
+                    serial_write("ProsenjitOS: ERROR blank persistence fixture had unexpected filesystem state\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                if (prosenjitfs_format(&native_pfs.device) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&test_fs, &native_pfs.device, 0u) !=
+                        PROSENJITFS_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test format/mount failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                if (vfs_file_open(&test_fs.mount, "/ata-persistence.bin",
+                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                                  &test_file) != PROS_VFS_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test file create failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                if (vfs_file_write(&test_file, payload, sizeof(payload),
+                                   &transferred) != PROS_VFS_OK ||
+                    transferred != sizeof(payload)) {
+                    (void)vfs_file_close(&test_file);
+                    serial_write("ProsenjitOS: ERROR persistence-test file write failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                if (vfs_file_close(&test_file) != PROS_VFS_OK ||
+                    block_device_flush(&native_pfs.device) != PROS_BLOCK_OK ||
+                    prosenjitfs_unmount(&test_fs) != PROSENJITFS_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test flush/unmount failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                /* Commit the phase marker only after filesystem unmount and
+                 * flush succeed. A partial/corrupt marker fails closed later. */
+                if (block_device_write(&native_ata.block, 2047u, 1u,
+                                       expected_marker) != PROS_BLOCK_OK ||
+                    block_device_flush(&native_ata.block) != PROS_BLOCK_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test phase marker write failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                serial_write("ProsenjitOS: persistent ATA/ProsenjitFS write phase passed\n");
+            } else if (marker_is_expected) {
+                /* A committed marker requires an existing valid filesystem.
+                 * This branch is read-only and must never format on failure. */
+                if (probe_rc != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&test_fs, &native_pfs.device, 1u) !=
+                        PROSENJITFS_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test remount failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                if (vfs_file_open(&test_fs.mount, "/ata-persistence.bin",
+                                  PROS_VFS_O_READ, &test_file) != PROS_VFS_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test file open failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                if (vfs_file_read(&test_file, readback, sizeof(readback),
+                                  &transferred) != PROS_VFS_OK ||
+                    transferred != sizeof(payload)) {
+                    (void)vfs_file_close(&test_file);
+                    serial_write("ProsenjitOS: ERROR persistence-test file read failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                for (uint32_t i = 0u; i < sizeof(payload); ++i) {
+                    if (readback[i] != payload[i]) {
+                        (void)vfs_file_close(&test_file);
+                        serial_write("ProsenjitOS: ERROR persistence-test content mismatch\n");
+                        for (;;) __asm__ volatile ("cli; hlt");
+                    }
+                }
+                if (vfs_file_read(&test_file, &extra_byte, 1u,
+                                  &extra_transferred) != PROS_VFS_OK ||
+                    extra_transferred != 0u ||
+                    vfs_file_close(&test_file) != PROS_VFS_OK ||
+                    prosenjitfs_unmount(&test_fs) != PROSENJITFS_OK) {
+                    serial_write("ProsenjitOS: ERROR persistence-test EOF/close/unmount failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                serial_write("ProsenjitOS: persistent ATA/ProsenjitFS remount/read-back verification passed\n");
+            } else {
+                serial_write("ProsenjitOS: ERROR persistence-test phase marker is corrupt\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+#endif
         serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
     }
 
