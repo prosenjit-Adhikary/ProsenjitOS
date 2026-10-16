@@ -221,6 +221,8 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 
 ## Phase 8 — GUI
 
+- [~] Initial userspace DML registry/preflight source (versioned fixed-size manifests, relative-path validation, required-feature checks, bounded registry, dependency/cycle checks, default selection); host unit tests added but not yet run.
+
 **Architecture and release gates:** follow [Desktop Implementation Plan](DESKTOP-IMPLEMENTATION-PLAN.md). The DML and all desktop environments remain userspace components; stable versioned ABI, capability negotiation, service ownership/isolation, validated desktop manifests, transactional package updates/rollback, and measured performance/security gates are prerequisites—not claims of current implementation.
 
 - [ ] Versioned kernel-userspace and shared-service contracts with compatibility tests
