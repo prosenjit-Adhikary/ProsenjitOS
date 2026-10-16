@@ -1298,6 +1298,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             uint8_t expected_authorization[512] = {0};
             uint8_t marker_sector[512];
             uint8_t expected_marker[512] = {0};
+            uint8_t partition_sector[512];
+            uint8_t partition_is_blank = 1u;
             uint8_t readback[sizeof(payload)];
             uint8_t extra_byte = 0u;
             uint32_t transferred = 0u;
@@ -1344,8 +1346,30 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
             probe_rc = prosenjitfs_probe(&native_pfs.device);
             if (marker_is_zero) {
-                /* First phase is allowed to format only this test build's
-                 * verified, freshly-created blank fixture. */
+                /*
+                 * ENOTSUP alone is not proof of a blank volume: an unrelated
+                 * filesystem may also be unsupported. Verify every sector of
+                 * the authorized disposable partition is zero before format.
+                 */
+                for (uint32_t sector_index = 0u;
+                     sector_index < native_partitions[0].sector_count;
+                     ++sector_index) {
+                    if (block_device_read(&native_pfs.device, sector_index,
+                                          1u, partition_sector) !=
+                        PROS_BLOCK_OK) {
+                        serial_write("ProsenjitOS: ERROR persistence-test blank-volume scan failed\n");
+                        for (;;) __asm__ volatile ("cli; hlt");
+                    }
+                    for (uint32_t byte_index = 0u;
+                         byte_index < sizeof(partition_sector); ++byte_index) {
+                        if (partition_sector[byte_index] != 0u)
+                            partition_is_blank = 0u;
+                    }
+                    if (!partition_is_blank) {
+                        serial_write("ProsenjitOS: ERROR persistence-test partition is not blank\n");
+                        for (;;) __asm__ volatile ("cli; hlt");
+                    }
+                }
                 if (probe_rc != PROSENJITFS_ENOTSUP) {
                     serial_write("ProsenjitOS: ERROR blank persistence fixture had unexpected filesystem state\n");
                     for (;;) __asm__ volatile ("cli; hlt");
