@@ -60,3 +60,12 @@
 - [ ] Resolve the early ProsenjitFS self-test null instruction-fetch fault, then rerun QEMU and native BIOS tests.
 - [ ] GitHub Actions artifact storage quota is still exhausted, so even the reduced diagnostics artifact upload is rejected; this is separate from the QEMU failure and does not itself fail the job because upload uses `continue-on-error`.
 - [ ] Desktop runtime remains incomplete: no verified userspace init/service launch path, display/input service, Xorg/Wayland runtime, or XFCE session.
+
+### 2026-10-16 — Follow-up QEMU result (run 38901862775)
+- [x] Polled the completed build job [38901862775](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/38901862775) on commit `1210267e73b0c48e8dc9c9692761844bac265b3b`.
+- [x] Confirmed desktop script syntax checks, DML unit tests, and ISO build passed on the self-hosted runner.
+- [x] Confirmed the boot test still fails before the required IPC/CPL3 milestones. The serial exception report again records diagnostic stage `0xF004`, `RIP=0`, page-fault error code `0x11`, and `CR2=0`.
+- [x] Confirmed native BIOS testing was skipped because the ISO QEMU step failed. This run does not establish a successful kernel boot or a working desktop.
+- [ ] Next debugging step: isolate the `block_device_init()` call path with instrumentation that does not assume the root cause. The stage is set immediately before the call, so current evidence narrows the failure to that call/return boundary but does not prove which instruction or mechanism caused it.
+- [ ] Actions artifact upload still fails because the repository's Actions storage quota is exhausted. This is a separate diagnostic-artifact issue and does not explain the QEMU exception.
+
