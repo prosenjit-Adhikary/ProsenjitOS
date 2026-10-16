@@ -1254,6 +1254,55 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: network protocol/socket self-test passed\n");
 
     /*
+     * The native BIOS image reserves a known, bounded ProsenjitFS partition.
+     * Exercise its real ATA PIO read path and partition translation read-only:
+     * never format or write an arbitrary boot disk during startup.
+     */
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        struct pros_ata_pio native_ata;
+        struct pros_partition native_partitions[4];
+        struct pros_partition_device native_pfs;
+        uint32_t native_partition_count = 0u;
+        uint64_t parent_lba = 0u;
+        uint32_t trace_count = 0u;
+
+        if (pros_ata_pio_selftest() != PROS_ATA_OK ||
+            pros_ata_pio_probe(&native_ata) != PROS_ATA_OK) {
+            serial_write("ProsenjitOS: ERROR native ATA PIO read-path test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+
+        if (partition_read_mbr(&native_ata.block, native_partitions, 4u,
+                               &native_partition_count) != PROS_PARTITION_OK ||
+            native_partition_count != 1u ||
+            native_partitions[0].first_lba != 2048u ||
+            native_partitions[0].sector_count != 512u ||
+            native_partitions[0].mbr_type != 0xDAu ||
+            partition_device_init(&native_pfs, &native_ata.block,
+                                  &native_partitions[0]) != PROS_PARTITION_OK ||
+            !block_device_lba_range_valid(&native_pfs.device, 0u, 1u) ||
+            !block_device_lba_range_valid(&native_pfs.device,
+                                          native_pfs.device.sector_count - 1u,
+                                          1u) ||
+            block_device_lba_range_valid(&native_pfs.device,
+                                         native_pfs.device.sector_count, 1u) ||
+            block_device_lba_range_valid(&native_pfs.device,
+                                         native_pfs.device.sector_count - 1u,
+                                         2u) ||
+            block_device_read(&native_pfs.device, 0u, 1u,
+                              boot_user_elf) != PROS_BLOCK_OK ||
+            partition_trace_find(&native_pfs, 0u, 0u, &parent_lba,
+                                 &trace_count) != PROS_PARTITION_OK ||
+            parent_lba != native_partitions[0].first_lba ||
+            trace_count == 0u) {
+            serial_write("ProsenjitOS: ERROR native MBR/ProsenjitFS LBA boundary test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
+    }
+
+    /*
      * PCI enumeration foundation: probe the standard PCI configuration
      * mechanism before entering CPL3. The scanner is deliberately read-only;
      * later driver work can build on this inventory without claiming device
