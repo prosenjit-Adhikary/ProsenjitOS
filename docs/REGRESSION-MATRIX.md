@@ -9,7 +9,7 @@ This matrix records the automated validation layers that should remain green whi
 | Area | Required validation | Status |
 |---|---|---|
 | GRUB/Multiboot2 | ISO build + QEMU boot marker | Required CI gate |
-| Native BIOS | Native disk-image build + read-only MBR/partition-layout validator (1 valid + 10 invalid synthetic fixtures) + QEMU boot marker | Required CI gate |
+| Native BIOS | Native disk-image build + read-only MBR/partition-layout validator (1 valid + 11 invalid synthetic fixtures) + QEMU boot marker | Required CI gate |
 | Native BIOS handoff | Boot protocol, memory-map, and kernel handoff markers | Required CI gate |
 | Native UEFI | Loader build + QEMU/firmware validation | Pending |
 
@@ -181,4 +181,4 @@ The GPT parser's checksum-validation path now has explicit I/O-failure coverage.
 
 ## Native BIOS disk-layout validation — 2026-10-16
 
-The build now invokes `scripts/verify-native-disk-layout.py` against the generated raw image in read-only mode. The image reserves one extra sector after the PFS partition as a trailing guard; the validator regression fixture mirrors this geometry. It checks the 0x55AA MBR signature, exactly one populated partition entry, partition type 0xDA, expected start/length (LBA 2048 + 512 sectors), image bounds, and that the fixed kernel payload ends before the partition begins. This is a host-side layout guard only; it does not format the filesystem or prove ATA persistence across QEMU restarts. Persistent mount/write/flush/unmount/remount/read-back remains pending.
+The build now invokes `scripts/verify-native-disk-layout.py` against the generated raw image in read-only mode. The image reserves one extra sector after the PFS partition as a trailing guard; the validator now rejects images where the partition reaches the image's final LBA, and its regression fixtures cover that rejection. It checks the 0x55AA MBR signature, exactly one populated partition entry, partition type 0xDA, expected start/length (LBA 2048 + 512 sectors), image bounds, and that the fixed kernel payload ends before the partition begins. This is a host-side layout guard only; it does not format the filesystem or prove ATA persistence across QEMU restarts. Persistent mount/write/flush/unmount/remount/read-back remains pending.
