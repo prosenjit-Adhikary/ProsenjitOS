@@ -16,6 +16,14 @@ static uint64_t le64(const uint8_t *p)
     return (uint64_t)le32(p) | ((uint64_t)le32(p + 4) << 32);
 }
 
+/* Partition ranges are half-open [first, first + count), already device-bounded. */
+static int partition_ranges_overlap(uint64_t first_a, uint64_t count_a,
+                                   uint64_t first_b, uint64_t count_b)
+{
+    return first_a < first_b + count_b &&
+           first_b < first_a + count_a;
+}
+
 int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
@@ -65,6 +73,12 @@ int partition_read_mbr(struct pros_block_device *device,
         if (first >= device->sector_count ||
             (uint64_t)sectors > device->sector_count - first)
             return PROS_PARTITION_EINVAL;
+        for (uint32_t previous = 0u; previous < found; ++previous) {
+            if (partition_ranges_overlap(first, sectors,
+                                         partitions[previous].first_lba,
+                                         partitions[previous].sector_count))
+                return PROS_PARTITION_EINVAL;
+        }
         partitions[found].first_lba = first;
         partitions[found].sector_count = sectors;
         partitions[found].mbr_type = entry[4];
@@ -147,8 +161,15 @@ int partition_read_gpt(struct pros_block_device *device,
         if (last_lba < first_lba || first_lba < first_usable_lba ||
             last_lba > last_usable_lba || last_lba >= device->sector_count)
             return PROS_PARTITION_EINVAL;
+        uint64_t partition_sectors = last_lba - first_lba + 1u;
+        for (uint32_t previous = 0u; previous < found; ++previous) {
+            if (partition_ranges_overlap(first_lba, partition_sectors,
+                                         partitions[previous].first_lba,
+                                         partitions[previous].sector_count))
+                return PROS_PARTITION_EINVAL;
+        }
         partitions[found].first_lba = first_lba;
-        partitions[found].sector_count = last_lba - first_lba + 1u;
+        partitions[found].sector_count = partition_sectors;
         partitions[found].mbr_type = 0;
         partitions[found].table_type = PROS_PARTITION_GPT;
         for (uint32_t b = 0; b < 16; ++b)
@@ -359,6 +380,20 @@ int partition_selftest(void)
         count != 0u)
         return -8;
 
+    /* Overlapping MBR extents must not be exposed as independent volumes. */
+    partition_test_media[510] = 0x55u;
+    partition_test_media[511] = 0xAAu;
+    partition_test_media[446u + 16u + 4u] = 0x83u;
+    partition_test_media[446u + 16u + 8u] = 2u;
+    partition_test_media[446u + 16u + 12u] = 1u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -9;
+    for (uint32_t i = 446u + 16u; i < 446u + 32u; ++i)
+        partition_test_media[i] = 0u;
+
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
      * A 300-byte entry starts at offset 300, so its tail is in the next
@@ -421,6 +456,17 @@ int partition_selftest(void)
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
+
+    /* Reject a second GPT extent that overlaps the first. */
+    partition_test_media[2u * 512u] = 0x22u;
+    partition_test_media[2u * 512u + 32u] = 2u;
+    partition_test_media[2u * 512u + 40u] = 3u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -10;
+    partition_test_media[2u * 512u] = 0u;
 
     /*
      * Failed reads must never leave a stale successful partition count for
