@@ -221,6 +221,7 @@ int pros_dml_select(struct pros_dml_manager *manager,
     int index;
 
     if (!manager_valid(manager) || !id_valid(desktop_id))
+        return PROS_DML_EINVAL;
     rc = pros_dml_preflight(manager, desktop_id);
     if (rc != PROS_DML_OK)
         return rc;
