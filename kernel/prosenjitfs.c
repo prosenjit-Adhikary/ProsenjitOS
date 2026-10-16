@@ -286,11 +286,6 @@ static int pfs_region_valid(const struct pros_prosenjitfs_superblock *sb,
     return 1;
 }
 
-static uint64_t pfs_data_start(const struct pros_prosenjitfs_superblock *sb)
-{
-    return sb ? sb->data_start : UINT64_MAX;
-}
-
 static int pfs_read_block(struct pros_block_device *device, uint64_t block,
                           void *buffer)
 {
