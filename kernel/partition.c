@@ -63,8 +63,10 @@ int partition_probe(struct pros_block_device *device,
         const uint8_t *entry = sector + 446 + i * 16;
         if (entry[4] == 0xEE) {
             uint8_t header[512];
-            if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
+            if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK) {
+                *table_type = PROS_PARTITION_NONE;
                 return PROS_PARTITION_EIO;
+            }
             if (header[0] != 'E' || header[1] != 'F' ||
                 header[2] != 'I' || header[3] != ' ' ||
                 header[4] != 'P' || header[5] != 'A' ||
@@ -372,6 +374,7 @@ int partition_device_init(struct pros_partition_device *view,
 }
 
 static uint8_t partition_test_media[8 * 512];
+static uint64_t partition_test_fail_lba = UINT64_MAX;
 
 /* Keep the synthetic GPT fixture spec-valid after each deliberate mutation.
  * Invalid geometry is still rejected by the parser's earlier bounds checks. */
@@ -411,6 +414,9 @@ static int partition_test_read(struct pros_block_device *device,
     (void)device;
     if (!buffer || lba > 8u || count > 8u - lba)
         return PROS_BLOCK_EINVAL;
+    if (partition_test_fail_lba >= lba &&
+        partition_test_fail_lba - lba < count)
+        return PROS_BLOCK_EIO;
     for (uint32_t i = 0; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
     return PROS_BLOCK_OK;
@@ -480,6 +486,16 @@ int partition_selftest(void)
     if (partition_probe(&failed_probe_device, &probed_type) != PROS_PARTITION_EIO ||
         probed_type != PROS_PARTITION_NONE)
         return -21;
+
+    /* A protective MBR whose GPT-header read fails must also clear the type. */
+    partition_test_media[446u + 4u] = 0xEEu;
+    partition_test_fail_lba = 1u;
+    probed_type = PROS_PARTITION_GPT;
+    if (partition_probe(&parent, &probed_type) != PROS_PARTITION_EIO ||
+        probed_type != PROS_PARTITION_NONE)
+        return -22;
+    partition_test_fail_lba = UINT64_MAX;
+    partition_test_media[446u + 4u] = 0x0Bu;
 
     struct pros_partition partitions[4];
     uint32_t count = 0;
