@@ -20,16 +20,25 @@
 - `d4d0c47cb235efd48bbdf3d106812cb575d2021f` — `test: cover invalid desktop manager selection state`
 - `ebc98ad441aca035c59fe4115afdf1883d057e48` — `docs: record desktop manager fix and pending verification`
 
+### Additional architecture audit
+- [x] Read `user/README.md`: it explicitly says a working userspace ELF loader, init/service manager, Xorg/Wayland runtime, and XFCE runtime are not present.
+- [x] Read `include/abi/display.h` and `include/abi/input.h`: these currently define version constants and event/info structures, but the headers alone do not provide a usable userspace service or prove an end-to-end event path.
+- [x] Read `kernel/display.c`: it implements a kernel-side driver/backend binding and present path with a self-test; this is not by itself a userspace display server or a GUI session.
+- [x] Confirmed that guessed `user/init.c`, `user/service_manager.c`, and `kernel/input.c` paths are absent from the default branch. This is a path check, not proof that no related code exists anywhere else.
+- [ ] Find the actual syscall/process startup and keyboard/input implementation paths before designing any service integration.
+
 ### Verification status
-- Source-level change: implemented.
+- Source-level DML fix: implemented.
 - Regression tests: added, **not yet executed**.
 - Host build/test: pending. The available execution container could not resolve `github.com`, so it could not clone the repository to run the test target.
 - Debian/self-hosted runner, full OS build, QEMU boot, and GUI runtime: not verified in this work session.
+- The current blocking dependency is a verified userspace execution + init/service path and concrete display/input delivery, not additional desktop manifest metadata.
 - No claim is made that the desktop environment is complete.
 
 ### Next steps
 1. Run `make desktop-unit-test` on the Debian system or a functioning runner.
 2. Fix any compile/test failures before proceeding.
-3. Run the relevant project build and QEMU smoke test; retain exact output and tested commit.
-4. Continue the source audit of the userspace init/service path and display/input ABI.
-5. Do not mark XFCE or boot-to-desktop complete until a real session with rendering, keyboard/pointer input, application launch, and logout has been demonstrated.
+3. Trace the real process creation/ELF entry path and locate the actual keyboard/input driver and syscall interfaces from the current source tree.
+4. Define and test a minimal userspace service lifecycle only after its real process and IPC contracts are identified.
+5. Run the relevant project build and QEMU smoke test; retain exact output and tested commit.
+6. Do not mark XFCE or boot-to-desktop complete until a real session with rendering, keyboard/pointer input, application launch, and logout has been demonstrated.
