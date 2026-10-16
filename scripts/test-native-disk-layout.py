@@ -91,7 +91,7 @@ def main() -> int:
         if result.returncode == 0:
             raise AssertionError("non-sector-aligned image unexpectedly accepted")
 
-    print("native disk layout regression tests: PASS (10 rejection/acceptance checks)")
+    print("native disk layout regression tests: PASS (1 valid + 10 invalid fixtures)")
     return 0
 
 
