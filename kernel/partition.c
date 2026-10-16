@@ -70,7 +70,8 @@ int partition_read_mbr(struct pros_block_device *device,
         uint32_t sectors = le32(entry + 12);
         if (entry[4] == 0 || sectors == 0)
             continue;
-        if (first >= device->sector_count ||
+        /* LBA 0 contains the MBR itself and cannot be partition payload. */
+        if (first == 0u || first >= device->sector_count ||
             (uint64_t)sectors > device->sector_count - first)
             return PROS_PARTITION_EINVAL;
         if (found >= capacity)
@@ -409,6 +410,15 @@ int partition_selftest(void)
         return -11;
     for (uint32_t i = 446u + 16u; i < 446u + 32u; ++i)
         partition_test_media[i] = 0u;
+
+    /* An MBR partition may not claim LBA 0, which contains the partition table. */
+    partition_test_media[446u + 8u] = 0u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(&parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -12;
+    partition_test_media[446u + 8u] = 1u;
 
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
