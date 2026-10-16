@@ -309,6 +309,9 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [ ] UEFI
 - [ ] Developer SDK
 - [ ] Software repository
-- [ ] Full desktop environment
+- [ ] Shared Userspace Services userspace supervisor (process spawn/wait, IPC/capabilities, bounded lifecycle recovery)
+- [ ] Real root-filesystem -> security-admitted /init -> userspace process handoff
+- [ ] Display/input userspace ABI and session lifecycle integration
+- [ ] Full desktop environment (existing Xorg/X11 or Wayland plus a supported desktop; no custom X server)
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
