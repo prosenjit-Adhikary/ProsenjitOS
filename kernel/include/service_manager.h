@@ -49,11 +49,18 @@ struct pros_service {
     /*
      * The manager owns identifier storage. Registration must not retain
      * pointers into a caller's stack or mutable configuration buffer.
+     * Callback functions and context are still caller-owned and must remain
+     * valid for as long as this service is registered.
      */
     char name_storage[PROS_SERVICE_NAME_MAX];
     char dependency_storage[PROS_SERVICE_MAX_DEPS][PROS_SERVICE_NAME_MAX];
 };
 
+/*
+ * Current kernel service-manager API is single-owner: callers must serialize
+ * operations and must not re-enter the manager from a callback. Add explicit
+ * synchronization before using it concurrently or from SMP runtime paths.
+ */
 int service_manager_init(void);
 int service_register(const struct pros_service_definition *definition);
 int service_start(const char *name);
