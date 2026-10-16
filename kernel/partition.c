@@ -466,14 +466,21 @@ int partition_selftest(void)
     gpt_media[2u * 512u + 304u] = 0x11u;
     /* Entry array occupies LBAs 2..3; usable payload is disjoint at 4..6. */
     gpt_media[2u * 512u + 336u] = 4u;
-    gpt_media[2u * 512u + 344u] = 5u;
+    gpt_media[2u * 512u + 337u] = 0u;
+    gpt_media[2u * 512u + 338u] = 0u;
+    gpt_media[2u * 512u + 339u] = 0u;
+    gpt_media[2u * 512u + 340u] = 0u;
     gpt_media[2u * 512u + 341u] = 0u;
     gpt_media[2u * 512u + 342u] = 0u;
     gpt_media[2u * 512u + 343u] = 0u;
-    gpt_media[2u * 512u + 344u] = 0u;
+    gpt_media[2u * 512u + 344u] = 5u;
     gpt_media[2u * 512u + 345u] = 0u;
     gpt_media[2u * 512u + 346u] = 0u;
     gpt_media[2u * 512u + 347u] = 0u;
+    gpt_media[2u * 512u + 348u] = 0u;
+    gpt_media[2u * 512u + 349u] = 0u;
+    gpt_media[2u * 512u + 350u] = 0u;
+    gpt_media[2u * 512u + 351u] = 0u;
 
     struct pros_block_device gpt_parent;
     if (block_device_init(&gpt_parent, 512u, 8u, partition_test_read, 0, 0) !=
