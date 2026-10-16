@@ -532,6 +532,28 @@ int partition_selftest(void)
 
     struct pros_partition partitions[4];
     uint32_t count = 0;
+
+    /*
+     * A valid output-count pointer must be cleared even when another argument
+     * is invalid; otherwise callers can mistake stale data for parsed volumes.
+     */
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(0, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -28;
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(&parent, 0, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -29;
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(&parent, partitions, 0u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -30;
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(&wrong_sector_device, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -31;
+
     if (partition_read_mbr(&parent, partitions, 4, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 1u ||
@@ -682,6 +704,25 @@ int partition_selftest(void)
         return -18;
 
     partition_test_gpt_refresh_crc();
+
+    /* Invalid arguments must not leave a stale successful GPT count. */
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(0, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -32;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, 0, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -33;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 0u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -34;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&wrong_sector_device, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL || count != 0u)
+        return -35;
+
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
         count != 1u || partitions[0].first_lba != 4u ||
