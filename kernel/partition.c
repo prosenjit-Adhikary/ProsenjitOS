@@ -449,7 +449,14 @@ static int partition_test_read_fail(struct pros_block_device *device,
 
 int partition_selftest(void)
 {
+    static const uint8_t crc32_known_vector[] = {
+        '1', '2', '3', '4', '5', '6', '7', '8', '9'
+    };
     struct pros_block_device parent;
+    /* Independent IEEE CRC-32 known vector: fixture CRCs use this same helper. */
+    if (~partition_crc32_ieee_update(0xFFFFFFFFu, crc32_known_vector,
+                                     sizeof(crc32_known_vector)) != 0xCBF43926u)
+        return -26;
     struct pros_partition_device view;
     struct pros_partition part;
     uint8_t buffer[512];
