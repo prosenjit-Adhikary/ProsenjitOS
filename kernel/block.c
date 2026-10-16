@@ -3,8 +3,12 @@
 /* Temporary cross-layer trace used only while the ProsenjitFS self-test is
  * immediately entering block_device_init(). Removed after the fault is found. */
 extern volatile uint32_t pfs_selftest_diag_stage;
-volatile uint64_t block_init_diag_return_address;
-volatile uint64_t block_init_diag_rsp;
+volatile uint64_t block_init_diag_entry_return;
+volatile uint64_t block_init_diag_exit_return;
+volatile uint64_t block_init_diag_entry_rsp;
+volatile uint64_t block_init_diag_exit_rsp;
+volatile uint64_t block_init_diag_entry_frame;
+volatile uint64_t block_init_diag_exit_frame;
 
 #include "health.h"
 
@@ -14,6 +18,7 @@ static uint64_t error_count;
 static uint64_t flush_count;
 static uint64_t flush_error_count;
 
+__attribute__((noinline, optimize("O0")))
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
                       uint64_t sector_count,
@@ -23,9 +28,11 @@ int block_device_init(struct pros_block_device *device,
 {
     if (pfs_selftest_diag_stage == 0xF004u) {
         uintptr_t rsp;
+        uintptr_t frame = (uintptr_t)__builtin_frame_address(0);
         __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-        block_init_diag_rsp = (uint64_t)rsp;
-        block_init_diag_return_address =
+        block_init_diag_entry_rsp = (uint64_t)rsp;
+        block_init_diag_entry_frame = (uint64_t)frame;
+        block_init_diag_entry_return =
             (uint64_t)(uintptr_t)__builtin_return_address(0);
         pfs_selftest_diag_stage = 0xF041u; /* entered block_device_init */
     }
@@ -43,9 +50,11 @@ int block_device_init(struct pros_block_device *device,
         pfs_selftest_diag_stage = 0xF043u; /* fields initialized */
     if (pfs_selftest_diag_stage == 0xF043u) {
         uintptr_t rsp;
+        uintptr_t frame = (uintptr_t)__builtin_frame_address(0);
         __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-        block_init_diag_rsp = (uint64_t)rsp;
-        block_init_diag_return_address =
+        block_init_diag_exit_rsp = (uint64_t)rsp;
+        block_init_diag_exit_frame = (uint64_t)frame;
+        block_init_diag_exit_return =
             (uint64_t)(uintptr_t)__builtin_return_address(0);
         pfs_selftest_diag_stage = 0xF044u; /* immediately before return */
     }
