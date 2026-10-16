@@ -7,13 +7,23 @@ static int service_name_valid(const char *name)
 {
     if (!name || name[0] == '\0')
         return 0;
-    for (uint32_t i = 0; i < 128u; ++i) {
+    for (uint32_t i = 0; i < PROS_SERVICE_NAME_MAX; ++i) {
         if (name[i] == '\0')
             return 1;
         if (name[i] == '/' || name[i] == ' ')
             return 0;
     }
     return 0;
+}
+
+static void service_name_copy(char destination[PROS_SERVICE_NAME_MAX],
+                              const char *source)
+{
+    for (uint32_t i = 0; i < PROS_SERVICE_NAME_MAX; ++i) {
+        destination[i] = source[i];
+        if (source[i] == '\0')
+            return;
+    }
 }
 
 static int service_name_equal(const char *a, const char *b)
@@ -31,7 +41,7 @@ static int service_name_equal(const char *a, const char *b)
 
 static int service_find(const char *name)
 {
-    if (!name)
+    if (!service_name_valid(name))
         return -1;
     for (uint32_t i = 0; i < service_count; ++i)
         if (services[i].registered &&
@@ -153,6 +163,8 @@ int service_manager_init(void)
 
 int service_register(const struct pros_service_definition *definition)
 {
+    struct pros_service *service;
+
     if (!definition || !service_name_valid(definition->name) ||
         !definition->start || !definition->stop ||
         definition->dependency_count > PROS_SERVICE_MAX_DEPS)
@@ -164,14 +176,38 @@ int service_register(const struct pros_service_definition *definition)
         if (!service_name_valid(dependency) ||
             service_name_equal(dependency, definition->name))
             return PROS_SERVICE_EINVAL;
+        for (uint32_t previous = 0; previous < d; ++previous) {
+            if (service_name_equal(dependency,
+                                   definition->dependencies[previous]))
+                return PROS_SERVICE_EINVAL;
+        }
     }
     if (service_count >= PROS_SERVICE_MAX)
         return PROS_SERVICE_ENOSPC;
 
-    services[service_count].definition = *definition;
-    services[service_count].state = PROS_SERVICE_DEFINED;
-    services[service_count].restart_count = 0;
-    services[service_count].registered = 1u;
+    service = &services[service_count];
+    *service = (struct pros_service){0};
+    service->definition = *definition;
+
+    /*
+     * Copy all identifiers into manager-owned storage. The callbacks and
+     * context remain caller-owned and must outlive the registered service.
+     */
+    service_name_copy(service->name_storage, definition->name);
+    service->definition.name = service->name_storage;
+    for (uint32_t d = 0; d < PROS_SERVICE_MAX_DEPS; ++d) {
+        service->definition.dependencies[d] = 0;
+        if (d < definition->dependency_count) {
+            service_name_copy(service->dependency_storage[d],
+                              definition->dependencies[d]);
+            service->definition.dependencies[d] =
+                service->dependency_storage[d];
+        }
+    }
+
+    service->state = PROS_SERVICE_DEFINED;
+    service->restart_count = 0;
+    service->registered = 1u;
     ++service_count;
     return PROS_SERVICE_OK;
 }
@@ -197,7 +233,7 @@ int service_stop(const char *name)
 int service_restart(const char *name)
 {
     int rc = service_stop(name);
-    if (rc != PROS_SERVICE_OK && rc != PROS_SERVICE_EINVAL)
+    if (rc != PROS_SERVICE_OK)
         return rc;
     return service_start(name);
 }
@@ -278,8 +314,14 @@ int service_manager_selftest(void)
             .name = "bad/name", .start = sm_test_start, .stop = sm_test_stop,
             .context = &a, .dependency_count = 0, .max_retries = 0
         };
+        const struct pros_service_definition duplicate_deps = {
+            .name = "duplicate-deps", .start = sm_test_start,
+            .stop = sm_test_stop, .context = &a, .dependency_count = 2,
+            .dependencies = {"base", "base"}, .max_retries = 0
+        };
         if (service_register(&bad_self) != PROS_SERVICE_EINVAL ||
-            service_register(&bad_name) != PROS_SERVICE_EINVAL)
+            service_register(&bad_name) != PROS_SERVICE_EINVAL ||
+            service_register(&duplicate_deps) != PROS_SERVICE_EINVAL)
             return -14;
     }
 
@@ -330,6 +372,37 @@ int service_manager_selftest(void)
             service_register(&loop_b) != PROS_SERVICE_OK ||
             service_start("loop-a") != PROS_SERVICE_ELOOP)
             return -9;
+    }
+
+    /*
+     * Registration must own service/dependency identifiers, even when the
+     * caller supplied mutable stack buffers that change after registration.
+     */
+    if (service_manager_init() != PROS_SERVICE_OK)
+        return -15;
+    {
+        char temporary_name[PROS_SERVICE_NAME_MAX] = "temporary";
+        char dependency_name[PROS_SERVICE_NAME_MAX] = "base";
+        const struct pros_service_definition base = {
+            .name = "base", .start = sm_test_start, .stop = sm_test_stop,
+            .context = &a, .dependency_count = 0, .max_retries = 0
+        };
+        struct pros_service_definition temporary = {
+            .name = temporary_name, .start = sm_test_start,
+            .stop = sm_test_stop, .context = &b, .dependency_count = 1,
+            .dependencies = {dependency_name}, .max_retries = 0
+        };
+        a = 0;
+        b = 0;
+        if (service_register(&base) != PROS_SERVICE_OK ||
+            service_register(&temporary) != PROS_SERVICE_OK)
+            return -16;
+        temporary_name[0] = 'X';
+        dependency_name[0] = 'X';
+        if (service_start("temporary") != PROS_SERVICE_OK ||
+            a != 1u || b != 1u ||
+            service_stop("base") != PROS_SERVICE_OK || a != 0u || b != 0u)
+            return -17;
     }
 
     /* Missing dependencies must fail closed rather than partially starting. */
