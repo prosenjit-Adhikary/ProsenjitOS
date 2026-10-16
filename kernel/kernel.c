@@ -559,7 +559,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         if (ipc_probe_rc != 0) {
             serial_write("ProsenjitOS: ERROR IPC channel/capability foundation test failed rc=");
             serial_hex64((uint64_t)(int64_t)ipc_probe_rc);
-            serial_write("\\n");
+            serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
