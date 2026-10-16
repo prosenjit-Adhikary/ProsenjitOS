@@ -19,6 +19,10 @@
 - `195f2b70c57f770fd3958ea3b0cdb8e46710aa33` — `fix: reject invalid desktop manager before selection`
 - `d4d0c47cb235efd48bbdf3d106812cb575d2021f` — `test: cover invalid desktop manager selection state`
 - `ebc98ad441aca035c59fe4115afdf1883d057e48` — `docs: record desktop manager fix and pending verification`
+- `309e8b51a6843ebf971623eca50b609f7e948720` — add this desktop work log
+- `5b83cf57d2d8bfa51b0147c235a99a2fbff61746` — record userspace/process/display/input blockers
+- `09bb7183a4d0a64a2b9837f64800139b35913be5` — make the desktop gate accept expected QEMU timeout only when required serial milestones exist, run the DML unit-test target, and label the gate as prerequisite-only
+- `cee18511ba6496e3a38be282bfd8b7e69b75094b` — report successful DML unit-test execution in the gate report
 
 ### Additional architecture audit
 - [x] Read `user/README.md`: it explicitly says a working userspace ELF loader, init/service manager, Xorg/Wayland runtime, and XFCE runtime are not present.
