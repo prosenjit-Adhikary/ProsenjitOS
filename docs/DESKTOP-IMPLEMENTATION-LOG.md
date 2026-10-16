@@ -24,8 +24,10 @@
 - [x] Read `user/README.md`: it explicitly says a working userspace ELF loader, init/service manager, Xorg/Wayland runtime, and XFCE runtime are not present.
 - [x] Read `include/abi/display.h` and `include/abi/input.h`: these currently define version constants and event/info structures, but the headers alone do not provide a usable userspace service or prove an end-to-end event path.
 - [x] Read `kernel/display.c`: it implements a kernel-side driver/backend binding and present path with a self-test; this is not by itself a userspace display server or a GUI session.
+- [x] Read `include/abi/syscall.h` and the dispatcher in `kernel/syscall.c`: the current public syscall set covers version, test completion, handle operations, and IPC; it has no process spawn/exec, display, or input syscall in the inspected code.
+- [x] Read `kernel/include/driver_class.h`: an input-driver read callback contract exists, but that contract alone does not demonstrate a concrete keyboard/pointer driver or userspace event delivery.
 - [x] Confirmed that guessed `user/init.c`, `user/service_manager.c`, and `kernel/input.c` paths are absent from the default branch. This is a path check, not proof that no related code exists anywhere else.
-- [ ] Find the actual syscall/process startup and keyboard/input implementation paths before designing any service integration.
+- [ ] Find and verify the actual syscall/process startup and concrete keyboard/input implementation paths before designing any service integration.
 
 ### Verification status
 - Source-level DML fix: implemented.
