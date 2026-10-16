@@ -16,12 +16,15 @@ jobs:
       - name: Verify toolchain
         run: |
           set -eu
-          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64; do
+          for tool in python3 nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
               exit 1
             fi
           done
+
+      - name: Test native disk-layout validator
+        run: python3 scripts/test-native-disk-layout.py
 
       - name: Build ISO
         run: |
