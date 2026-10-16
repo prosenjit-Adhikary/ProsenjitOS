@@ -1262,6 +1262,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         struct pros_ata_pio native_ata;
         struct pros_partition native_partitions[4];
         struct pros_partition_device native_pfs;
+        uint8_t native_sector[512];
         uint32_t native_partition_count = 0u;
         uint64_t parent_lba = 0u;
         uint32_t trace_count = 0u;
@@ -1291,7 +1292,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                          native_pfs.device.sector_count - 1u,
                                          2u) ||
             block_device_read(&native_pfs.device, 0u, 1u,
-                              boot_user_elf) != PROS_BLOCK_OK ||
+                              native_sector) != PROS_BLOCK_OK ||
             partition_trace_find(&native_pfs, 0u, 0u, &parent_lba,
                                  &trace_count) != PROS_PARTITION_OK ||
             parent_lba != native_partitions[0].first_lba ||
