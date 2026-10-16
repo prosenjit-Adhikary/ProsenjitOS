@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run
+.PHONY: all iso clean run desktop-unit-test
 
 all: iso
 
@@ -19,3 +19,7 @@ clean:
 
 run: iso
 	qemu-system-x86_64 -cdrom $(BUILD_DIR)/prosenjitOS.iso
+
+# Host-side unit tests for the userspace DML registry; does not boot the OS.
+desktop-unit-test:
+	bash scripts/test_desktop_manager.sh
