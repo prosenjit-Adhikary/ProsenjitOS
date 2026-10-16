@@ -51,6 +51,7 @@ int partition_read_mbr(struct pros_block_device *device,
     uint32_t found = 0;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
+    *count = 0u;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -412,10 +413,15 @@ int partition_selftest(void)
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
-    /* Reject a partition extent outside the GPT usable-LBA range. */
+    /*
+     * Failed reads must never leave a stale successful partition count for
+     * callers that reuse the output variable.
+     */
+    count = 0xFFFFFFFFu;
     partition_test_media[2u * 512u + 332u] = 1u;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
-        PROS_PARTITION_EINVAL)
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
         return -5;
     partition_test_media[2u * 512u + 332u] = 3u;
 
