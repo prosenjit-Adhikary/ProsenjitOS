@@ -1,5 +1,11 @@
 #include "desktop_manager.h"
 
+static int manager_valid(const struct pros_dml_manager *manager)
+{
+    return manager && manager->magic == PROS_DML_MANAGER_MAGIC &&
+           manager->count <= PROS_DML_MAX_DESKTOPS;
+}
+
 static int id_valid(const char *id)
 {
     uint32_t length = 0;
@@ -109,7 +115,7 @@ static int manifest_validate(const struct pros_dml_manager *manager,
 
 static int dml_find(const struct pros_dml_manager *manager, const char *id)
 {
-    if (!manager || manager->count > PROS_DML_MAX_DESKTOPS || !id_valid(id))
+    if (!manager_valid(manager) || !id_valid(id))
         return -1;
     for (uint32_t i = 0; i < manager->count; ++i) {
         if (manager->entries[i].registered &&
@@ -126,8 +132,9 @@ static int dml_check_dependencies(const struct pros_dml_manager *manager,
 {
     const struct pros_dml_manifest *manifest;
 
-    if (!manager || index >= manager->count ||
-        index >= PROS_DML_MAX_DESKTOPS || !visiting || !visited)
+    if (!manager_valid(manager) || index >= manager->count ||
+        index >= PROS_DML_MAX_DESKTOPS || !visiting || !visited ||
+        !manager->entries[index].registered)
         return PROS_DML_EINVAL;
     if (visiting[index])
         return PROS_DML_ELOOP;
@@ -166,6 +173,7 @@ int pros_dml_init(struct pros_dml_manager *manager,
     manager->count = 0u;
     manager->selected_index = PROS_DML_NO_SELECTION;
     manager->supported_features = supported_features;
+    manager->magic = PROS_DML_MANAGER_MAGIC;
     return PROS_DML_OK;
 }
 
@@ -174,7 +182,7 @@ int pros_dml_register(struct pros_dml_manager *manager,
 {
     int rc;
 
-    if (!manager || manager->count > PROS_DML_MAX_DESKTOPS)
+    if (!manager_valid(manager))
         return PROS_DML_EINVAL;
     rc = manifest_validate(manager, manifest);
     if (rc != PROS_DML_OK)
@@ -197,8 +205,7 @@ int pros_dml_preflight(const struct pros_dml_manager *manager,
     uint8_t visited[PROS_DML_MAX_DESKTOPS] = {0};
     int index;
 
-    if (!manager || manager->count > PROS_DML_MAX_DESKTOPS ||
-        !id_valid(desktop_id))
+    if (!manager_valid(manager) || !id_valid(desktop_id))
         return PROS_DML_EINVAL;
     index = dml_find(manager, desktop_id);
     if (index < 0)
@@ -213,8 +220,7 @@ int pros_dml_select(struct pros_dml_manager *manager,
     int rc;
     int index;
 
-    if (!manager || !id_valid(desktop_id))
-        return PROS_DML_EINVAL;
+    if (!manager_valid(manager) || !id_valid(desktop_id))
     rc = pros_dml_preflight(manager, desktop_id);
     if (rc != PROS_DML_OK)
         return rc;
@@ -231,7 +237,7 @@ int pros_dml_get(const struct pros_dml_manager *manager,
 {
     int index;
 
-    if (!manager || !out_manifest || !id_valid(desktop_id))
+    if (!manager_valid(manager) || !out_manifest || !id_valid(desktop_id))
         return PROS_DML_EINVAL;
     index = dml_find(manager, desktop_id);
     if (index < 0)
@@ -243,8 +249,7 @@ int pros_dml_get(const struct pros_dml_manager *manager,
 int pros_dml_selected(const struct pros_dml_manager *manager,
                       struct pros_dml_manifest *out_manifest)
 {
-    if (!manager || !out_manifest ||
-        manager->count > PROS_DML_MAX_DESKTOPS)
+    if (!manager_valid(manager) || !out_manifest)
         return PROS_DML_EINVAL;
     if (manager->selected_index == PROS_DML_NO_SELECTION)
         return PROS_DML_ENOENT;
@@ -257,7 +262,7 @@ int pros_dml_selected(const struct pros_dml_manager *manager,
 
 uint32_t pros_dml_count(const struct pros_dml_manager *manager)
 {
-    if (!manager || manager->count > PROS_DML_MAX_DESKTOPS)
+    if (!manager_valid(manager))
         return 0u;
     return manager->count;
 }
