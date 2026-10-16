@@ -140,6 +140,20 @@ int partition_read_gpt(struct pros_block_device *device,
     if (entry_sectors == 0u ||
         entry_sectors > device->sector_count - entries_lba)
         return PROS_PARTITION_EINVAL;
+
+    /*
+     * The primary GPT entry array is reserved metadata. It must not overlap
+     * either GPT header or any LBA advertised as usable partition payload.
+     * Otherwise a crafted table could expose metadata sectors as a volume.
+     */
+    if (partition_ranges_overlap(entries_lba, entry_sectors,
+                                 current_lba, 1u) ||
+        partition_ranges_overlap(entries_lba, entry_sectors,
+                                 backup_lba, 1u) ||
+        partition_ranges_overlap(entries_lba, entry_sectors,
+                                 first_usable_lba,
+                                 last_usable_lba - first_usable_lba + 1u))
+        return PROS_PARTITION_EINVAL;
     for (uint32_t i = 0; i < entry_count; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
         uint64_t lba;
@@ -304,13 +318,13 @@ int partition_device_init(struct pros_partition_device *view,
     return PROS_PARTITION_OK;
 }
 
-static uint8_t partition_test_media[4 * 512];
+static uint8_t partition_test_media[8 * 512];
 
 static int partition_test_read(struct pros_block_device *device,
                                uint64_t lba, uint32_t count, void *buffer)
 {
     (void)device;
-    if (!buffer || lba > 4u || count > 4u - lba)
+    if (!buffer || lba > 8u || count > 8u - lba)
         return PROS_BLOCK_EINVAL;
     for (uint32_t i = 0; i < count * 512u; ++i)
         ((uint8_t *)buffer)[i] = partition_test_media[lba * 512u + i];
@@ -425,7 +439,7 @@ int partition_selftest(void)
      * A 300-byte entry starts at offset 300, so its tail is in the next
      * sector and must be read as a two-sector span.
      */
-    static uint8_t gpt_media[4u * 512u];
+    static uint8_t gpt_media[8u * 512u];
     for (uint32_t i = 0u; i < sizeof(gpt_media); ++i)
         gpt_media[i] = 0u;
     gpt_media[512u + 0u] = 'E';
@@ -441,17 +455,17 @@ int partition_selftest(void)
     gpt_media[511u] = 0xAAu;
     gpt_media[512u + 12u] = 92u;
     gpt_media[512u + 24u] = 1u;
-    gpt_media[512u + 32u] = 3u;
-    gpt_media[512u + 40u] = 2u;
-    gpt_media[512u + 48u] = 3u;
+    gpt_media[512u + 32u] = 7u;
+    gpt_media[512u + 40u] = 4u;
+    gpt_media[512u + 48u] = 6u;
     gpt_media[512u + 72u] = 2u;
     gpt_media[512u + 80u] = 2u;
     gpt_media[512u + 84u] = 44u;
     gpt_media[512u + 85u] = 1u;
     gpt_media[2u * 512u + 300u] = 0x11u;
-    /* With a 4-sector device, usable LBAs 2..3 form the valid span. */
-    gpt_media[2u * 512u + 332u] = 2u;
-    gpt_media[2u * 512u + 340u] = 3u;
+    /* Entry array occupies LBAs 2..3; usable payload is disjoint at 4..6. */
+    gpt_media[2u * 512u + 332u] = 4u;
+    gpt_media[2u * 512u + 340u] = 5u;
     gpt_media[2u * 512u + 341u] = 0u;
     gpt_media[2u * 512u + 342u] = 0u;
     gpt_media[2u * 512u + 343u] = 0u;
@@ -461,7 +475,7 @@ int partition_selftest(void)
     gpt_media[2u * 512u + 347u] = 0u;
 
     struct pros_block_device gpt_parent;
-    if (block_device_init(&gpt_parent, 512u, 4u, partition_test_read, 0, 0) !=
+    if (block_device_init(&gpt_parent, 512u, 8u, partition_test_read, 0, 0) !=
         PROS_BLOCK_OK)
         return -2;
     /*
@@ -478,15 +492,33 @@ int partition_selftest(void)
         return -3;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_OK ||
-        count != 1u || partitions[0].first_lba != 2u ||
+        count != 1u || partitions[0].first_lba != 4u ||
         partitions[0].sector_count != 2u ||
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
+    /* Reject an entry array that overlaps usable partition payload. */
+    partition_test_media[512u + 72u] = 4u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -12;
+    partition_test_media[512u + 72u] = 2u;
+
+    /* Reject a backup-header LBA that intersects the primary entry array. */
+    partition_test_media[512u + 32u] = 3u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -13;
+    partition_test_media[512u + 32u] = 7u;
+
     /* Reject a second GPT extent that overlaps the first. */
     partition_test_media[2u * 512u] = 0x22u;
-    partition_test_media[2u * 512u + 32u] = 2u;
-    partition_test_media[2u * 512u + 40u] = 3u;
+    partition_test_media[2u * 512u + 32u] = 4u;
+    partition_test_media[2u * 512u + 40u] = 5u;
     count = 0xFFFFFFFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
@@ -496,11 +528,12 @@ int partition_selftest(void)
     /*
      * Capacity rejection must be tested with two adjacent, non-overlapping
      * extents; otherwise an overlap error could mask a capacity regression.
-     * Entry 0 is [3, 4), and entry 1 is [2, 3).
+     * Entry 0 is [6, 7), and entry 1 is [4, 6).
      */
-    partition_test_media[2u * 512u + 32u] = 3u;
-    partition_test_media[2u * 512u + 40u] = 3u;
-    partition_test_media[2u * 512u + 340u] = 2u;
+    partition_test_media[2u * 512u + 32u] = 6u;
+    partition_test_media[2u * 512u + 40u] = 6u;
+    partition_test_media[2u * 512u + 332u] = 4u;
+    partition_test_media[2u * 512u + 340u] = 5u;
     count = 0xFFFFFFFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 1u, &count) !=
             PROS_PARTITION_EINVAL ||
@@ -518,7 +551,7 @@ int partition_selftest(void)
             PROS_PARTITION_EINVAL ||
         count != 0u)
         return -5;
-    partition_test_media[2u * 512u + 332u] = 2u;
+    partition_test_media[2u * 512u + 332u] = 4u;
 
     /* Reject a partition-entry array that extends beyond the device. */
     partition_test_media[512u + 80u] = 0xFFu;
