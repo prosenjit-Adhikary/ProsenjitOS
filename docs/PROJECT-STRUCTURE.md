@@ -100,8 +100,7 @@ Hardware
   -> filesystem-specific implementation
   -> security admission boundary
 
-Current real path:
-ATA PIO -> MBR -> ProsenjitFS -> mount/unmount -> rediscovery.
+Implemented foundation: ATA PIO -> MBR partition discovery -> ProsenjitFS provider/VFS integration. The native QEMU path validates ATA block access and LBA diagnostics, but the dedicated persistent ATA -> partition -> ProsenjitFS write/flush/unmount/remount/read-back gate is still pending. Use only an isolated, explicitly preformatted disposable image; never autoformat unknown disks.
 
 Required future providers:
 AHCI, NVMe, USB mass storage.
