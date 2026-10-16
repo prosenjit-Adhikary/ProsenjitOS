@@ -512,6 +512,59 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR initial IPC test handle grant failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /*
+     * Exercise the IPC channel data path and the handle's least-authority
+     * contract before entering CPL3. The user-mode syscall test reuses this
+     * channel, so leave it empty after verifying a complete round trip.
+     */
+    {
+        static const uint8_t ipc_probe[] = { 'I', 'P', 'C', '-', 'O', 'K' };
+        uint8_t ipc_probe_out[sizeof(ipc_probe)];
+        uint32_t ipc_probe_length = 0u;
+        int ipc_probe_rc = -1;
+
+        if (process_check_handle(&init_process, user_test_handle,
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_IPC) != 0 ||
+            process_check_handle(&init_process, user_test_handle,
+                                 PROSENJIT_CAP_WRITE, PROS_OBJECT_IPC) != 0 ||
+            process_check_handle(&init_process, user_test_handle,
+                                 PROSENJIT_CAP_EXECUTE, PROS_OBJECT_IPC) == 0) {
+            ipc_probe_rc = -2;
+        } else if (ipc_channel_capacity(&user_test_channel) !=
+                       PROSENJIT_IPC_CAPACITY ||
+                   ipc_channel_count(&user_test_channel) != 0u) {
+            ipc_probe_rc = -3;
+        } else if (ipc_channel_send(&user_test_channel, ipc_probe,
+                                    sizeof(ipc_probe)) != PROSENJIT_IPC_OK ||
+                   ipc_channel_count(&user_test_channel) != 1u) {
+            ipc_probe_rc = -4;
+        } else if (ipc_channel_receive(&user_test_channel, ipc_probe_out,
+                                       sizeof(ipc_probe_out),
+                                       &ipc_probe_length) != PROSENJIT_IPC_OK ||
+                   ipc_probe_length != sizeof(ipc_probe)) {
+            ipc_probe_rc = -5;
+        } else {
+            ipc_probe_rc = 0;
+            for (uint32_t i = 0u; i < sizeof(ipc_probe); ++i) {
+                if (ipc_probe_out[i] != ipc_probe[i]) {
+                    ipc_probe_rc = -6;
+                    break;
+                }
+            }
+            if (ipc_probe_rc == 0 &&
+                ipc_channel_count(&user_test_channel) != 0u)
+                ipc_probe_rc = -7;
+        }
+
+        if (ipc_probe_rc != 0) {
+            serial_write("ProsenjitOS: ERROR IPC channel/capability foundation test failed rc=");
+            serial_hex64((uint64_t)(int64_t)ipc_probe_rc);
+            serial_write("\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: IPC channel/capability foundation test passed\\n");
+
     process_set_current(&init_process);
     if (syscall_selftest(&init_process) != 0) {
         serial_write("ProsenjitOS: ERROR syscall dispatcher runtime self-test failed\n");
