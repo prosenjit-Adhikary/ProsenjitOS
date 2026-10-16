@@ -93,7 +93,7 @@ A change that affects one subsystem should preserve all unrelated regression mar
 
 The following work remains intentionally dependent on lower layers:
 
-- Native BIOS QEMU testing currently covers ATA PIO block access and LBA-boundary diagnostics. Persistent ProsenjitFS mount/remount through ATA remains pending until a dedicated preformatted disposable-image fixture is added; never autoformat unknown/blank disks.
+- Native BIOS QEMU testing covers ATA PIO block access and LBA-boundary diagnostics. A dedicated disposable-image fixture now exercises persistent ProsenjitFS mount/write/flush/unmount/remount/read-back through ATA in two QEMU processes; this gate remains pending until the latest build/persistence CI passes. Never autoformat unknown/blank disks.
 - Native filesystem-aware boot requires a stable boot protocol plus storage/partition discovery.
 - Future compatibility filesystem providers must not couple their parsers to kernel-core; provider I/O must use the common block/device contract.
 - UEFI boot validation requires the native UEFI loader before Secure Boot/verified-boot work can be meaningfully tested.
