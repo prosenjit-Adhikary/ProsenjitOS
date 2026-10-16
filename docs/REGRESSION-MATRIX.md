@@ -63,7 +63,7 @@ The gate must not be marked complete until the implementation is reviewed and bo
 
 The build supports a separate `BUILD_DIR_NAME=build-persistence NATIVE_PFS_PERSISTENCE_TEST=1` artifact. The normal `build/` artifact is compiled without the test macro and retains its read-only startup behavior.
 
-The test-only kernel uses the already-validated MBR geometry (one type-0xDA partition at LBA 2048, 512 sectors). It reserves LBA 2047 in the disposable image as a control marker, outside both the kernel payload and the PFS partition:
+The test-only kernel uses the already-validated MBR geometry (one type-0xDA partition at LBA 2048, 512 sectors). The build script writes a fixture-authorization signature at LBA 2046, and the kernel requires an exact signature before allowing any test-only formatting. LBA 2047 is then reserved as the phase-control marker. Both sectors are in the unused gap outside the kernel payload and PFS partition:
 
 - If the control sector is all zero, the test requires `prosenjitfs_probe()` to report an unsupported/blank volume before formatting. It then mounts writable, creates `/ata-persistence.bin`, writes a deterministic byte sequence, closes the file, flushes, unmounts, and only then writes and flushes the phase marker.
 - The CI job fully stops the first QEMU process and starts a second process with the same raw image.
