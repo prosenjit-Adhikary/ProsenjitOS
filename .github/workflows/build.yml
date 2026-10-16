@@ -144,6 +144,52 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
+      # The persistence-test kernel is a separate opt-in build and image.
+      # It may format only its freshly generated disposable image; normal boot
+      # and the normal native BIOS artifact remain read-only for unknown filesystems.
+      - name: Build disposable ATA persistence-test image
+        run: |
+          BUILD_DIR_NAME=build-persistence NATIVE_PFS_PERSISTENCE_TEST=1 ./scripts/build.sh
+
+      - name: Verify ProsenjitFS persistence across separate QEMU processes
+        run: |
+          run_persistence_phase() {
+            local phase="$1"
+            local expected="$2"
+            local serial="build-persistence/$phase-serial.log"
+            local debug="build-persistence/$phase-debug.log"
+            set +e
+            timeout 20s qemu-system-x86_64 \
+              -drive format=raw,file=build-persistence/prosenjit-native-bios.img,if=ide \
+              -display none \
+              -serial "file:$serial" \
+              -no-reboot \
+              -no-shutdown \
+              -d int \
+              -D "$debug"
+            qemu_status=$?
+            set -e
+
+            echo "Persistence $phase QEMU exit status: $qemu_status"
+            if (( qemu_status != 0 && qemu_status != 124 )); then
+              echo "::error::Persistence $phase QEMU exited with unexpected status: $qemu_status"
+              return "$qemu_status"
+            fi
+            cat "$serial"
+            if ! grep -Fq "$expected" "$serial"; then
+              echo "::error::Missing persistence phase marker: $expected"
+              tail -n 200 "$debug" || true
+              return 1
+            fi
+          }
+
+          run_persistence_phase write \
+            "ProsenjitOS: persistent ATA/ProsenjitFS write phase passed"
+          # QEMU is fully stopped between calls. The same raw image is reused;
+          # the second phase must verify the committed marker and file read-only.
+          run_persistence_phase verify \
+            "ProsenjitOS: persistent ATA/ProsenjitFS remount/read-back verification passed"
+
       # GitHub Actions artifact storage is currently at quota. Keep build/boot
       # verification independent from artifact storage; opt in only when needed
       # by setting the repository Actions variable ENABLE_ARTIFACT_UPLOAD=true.
@@ -161,3 +207,7 @@ jobs:
             build/qemu-debug.log
             build/native-qemu-serial.log
             build/native-qemu-debug.log
+            build-persistence/write-serial.log
+            build-persistence/write-debug.log
+            build-persistence/verify-serial.log
+            build-persistence/verify-debug.log
