@@ -70,6 +70,8 @@ def main() -> int:
         return fail(f"partition geometry is start={start_lba}, sectors={sectors}")
     if start_lba + sectors > size // SECTOR_SIZE:
         return fail("partition extends beyond the image")
+    if start_lba + sectors == size // SECTOR_SIZE:
+        return fail("image must reserve at least one trailing guard sector after the partition")
 
     print("native disk layout: OK")
     print(f"image_sectors={size // SECTOR_SIZE}")
