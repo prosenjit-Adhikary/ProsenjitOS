@@ -398,6 +398,18 @@ int partition_selftest(void)
     for (uint32_t i = 446u + 16u; i < 446u + 32u; ++i)
         partition_test_media[i] = 0u;
 
+    /* A too-small output array must not silently hide a valid MBR partition. */
+    partition_test_media[446u + 16u + 4u] = 0x83u;
+    partition_test_media[446u + 16u + 8u] = 3u;
+    partition_test_media[446u + 16u + 12u] = 1u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_mbr(&parent, partitions, 1u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -11;
+    for (uint32_t i = 446u + 16u; i < 446u + 32u; ++i)
+        partition_test_media[i] = 0u;
+
     /*
      * GPT regression: exercise an entry that crosses a sector boundary.
      * A 300-byte entry starts at offset 300, so its tail is in the next
@@ -470,6 +482,14 @@ int partition_selftest(void)
             PROS_PARTITION_EINVAL ||
         count != 0u)
         return -10;
+
+    /* Adjacent, non-overlapping entries still fail if the output is too small. */
+    partition_test_media[2u * 512u + 40u] = 2u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 1u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -11;
     partition_test_media[2u * 512u] = 0u;
 
     /*
