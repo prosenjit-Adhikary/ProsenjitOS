@@ -16,12 +16,19 @@ jobs:
       - name: Verify toolchain
         run: |
           set -eu
-          for tool in nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64; do
+          for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
               exit 1
             fi
           done
+
+      - name: Validate desktop scripts and run DML unit tests
+        run: |
+          set -euo pipefail
+          bash -n scripts/desktop_complete.sh
+          bash -n scripts/test_desktop_manager.sh
+          make desktop-unit-test
 
       - name: Build ISO
         run: |
