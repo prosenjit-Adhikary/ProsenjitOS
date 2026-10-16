@@ -125,6 +125,22 @@ dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc st
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
 
+# A test-only authorization sector is written only into the separately named
+# disposable persistence-test image. The test kernel refuses to format without it.
+if [[ "${NATIVE_PFS_PERSISTENCE_TEST:-0}" == "1" ]]; then
+    python3 - "$NATIVE_DISK" <<'PY'
+import sys
+from pathlib import Path
+
+image = Path(sys.argv[1])
+magic = b"PROSENJITOS_PFS_TEST_FIXTURE_V1"
+sector = magic.ljust(512, b"\\0")
+with image.open("r+b") as stream:
+    stream.seek(2046 * 512)
+    stream.write(sector)
+PY
+fi
+
 # Validate the actual generated MBR and partition geometry using a read-only
 # checker. This also rejects a kernel payload that overlaps the PFS partition.
 python3 "$ROOT/scripts/verify-native-disk-layout.py" "$NATIVE_DISK" \
