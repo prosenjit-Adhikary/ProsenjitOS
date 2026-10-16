@@ -139,3 +139,18 @@ Documentation is not implementation. A component is complete only when its
 code is integrated and its required checks have evidence. Preserve unrelated
 kernel/filesystem/network/driver work, do not weaken warnings-as-errors, do not
 depend on paid GitHub-hosted runners, and do not merge this work automatically.
+
+
+## Shared Userspace Services contract
+
+The normative architecture and staged acceptance criteria now live in
+docs/SHARED-USERSPACE-SERVICES.md. Keep the two documents synchronized:
+this plan records the desktop handoff and current gaps; the contract defines
+service, privilege, lifecycle, session, display/input, and verification rules.
+
+The kernel service manager must not be treated as the userspace supervisor.
+Before attempting a desktop session, connect real root-mount discovery and
+security-admitted /init to a process launch path, then implement a userspace
+supervisor with IPC/capabilities and bounded lifecycle recovery. The selected
+desktop must remain outside kernel-core. Do not claim runtime completion while
+Debian/QEMU verification is unavailable.
