@@ -64,7 +64,7 @@ int partition_read_mbr(struct pros_block_device *device,
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
         return PROS_PARTITION_ENOTSUP;
-    for (uint32_t i = 0; i < 4 && found < capacity; ++i) {
+    for (uint32_t i = 0; i < 4; ++i) {
         const uint8_t *entry = sector + 446 + i * 16;
         uint32_t first = le32(entry + 8);
         uint32_t sectors = le32(entry + 12);
@@ -72,6 +72,8 @@ int partition_read_mbr(struct pros_block_device *device,
             continue;
         if (first >= device->sector_count ||
             (uint64_t)sectors > device->sector_count - first)
+            return PROS_PARTITION_EINVAL;
+        if (found >= capacity)
             return PROS_PARTITION_EINVAL;
         for (uint32_t previous = 0u; previous < found; ++previous) {
             if (partition_ranges_overlap(first, sectors,
@@ -137,7 +139,7 @@ int partition_read_gpt(struct pros_block_device *device,
     if (entry_sectors == 0u ||
         entry_sectors > device->sector_count - entries_lba)
         return PROS_PARTITION_EINVAL;
-    for (uint32_t i = 0; i < entry_count && found < capacity; ++i) {
+    for (uint32_t i = 0; i < entry_count; ++i) {
         uint64_t byte_offset = (uint64_t)i * entry_size;
         uint64_t lba;
         uint32_t offset = (uint32_t)(byte_offset % device->sector_size);
@@ -162,6 +164,8 @@ int partition_read_gpt(struct pros_block_device *device,
             last_lba > last_usable_lba || last_lba >= device->sector_count)
             return PROS_PARTITION_EINVAL;
         uint64_t partition_sectors = last_lba - first_lba + 1u;
+        if (found >= capacity)
+            return PROS_PARTITION_EINVAL;
         for (uint32_t previous = 0u; previous < found; ++previous) {
             if (partition_ranges_overlap(first_lba, partition_sectors,
                                          partitions[previous].first_lba,
