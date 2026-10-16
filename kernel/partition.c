@@ -132,7 +132,7 @@ int partition_read_gpt(struct pros_block_device *device,
         last_usable_lba >= device->sector_count ||
         entry_count == 0u || entry_size < 128u ||
         entry_size > device->sector_size || entry_size > 1024u ||
-        entries_lba >= device->sector_count)
+        entries_lba <= current_lba || entries_lba >= device->sector_count)
         return PROS_PARTITION_EINVAL;
     uint64_t entry_bytes = (uint64_t)entry_count * entry_size;
     uint64_t entry_sectors = entry_bytes / device->sector_size;
@@ -498,13 +498,24 @@ int partition_selftest(void)
         partitions[0].type_guid[0] != 0x11u)
         return -4;
 
+    /* GPT entry metadata must not start at LBA 0 or the primary header. */
+    partition_test_media[512u + 72u] = 1u;
+    partition_test_media[512u + 80u] = 1u;
+    count = 0xFFFFFFFFu;
+    if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
+            PROS_PARTITION_EINVAL ||
+        count != 0u)
+        return -14;
+    partition_test_media[512u + 72u] = 2u;
+    partition_test_media[512u + 80u] = 2u;
+
     /* Usable payload must not include the primary GPT header sector. */
     partition_test_media[512u + 40u] = 1u;
     count = 0xFFFFFFFFu;
     if (partition_read_gpt(&gpt_parent, partitions, 4u, &count) !=
             PROS_PARTITION_EINVAL ||
         count != 0u)
-        return -14;
+        return -15;
     partition_test_media[512u + 40u] = 4u;
 
     /* Reject an entry array that overlaps usable partition payload. */
