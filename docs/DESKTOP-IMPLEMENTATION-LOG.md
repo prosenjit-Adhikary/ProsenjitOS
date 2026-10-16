@@ -39,6 +39,7 @@
 - Regression tests: added, **not yet executed**.
 - Host build/test: pending. CI has now been updated to run `make desktop-unit-test` and shell syntax checks before the OS build, but the new workflow commit has no reported check status yet. The available execution container could not resolve `github.com`, so it could not clone the repository to run the test target.
 - Debian/self-hosted runner, full OS build, QEMU boot, and GUI runtime: not verified in this work session.
+- Latest CI inspection (2026-10-16): workflow run `38897998734` for commit `c52e3a78c081bc82be739ba2692f940bb51a3ec2` remains `queued`; its job has `runner_id: 0`, no runner name, and labels `[self-hosted, linux, x64]`. The companion security-design workflow is also queued. This indicates no matching online self-hosted runner has claimed the jobs; the queue is not evidence of a source/build failure. The runner service/registration must be restored on Debian before CI can verify the code.
 - The current blocking dependency is a verified userspace execution + init/service path and concrete display/input delivery, not additional desktop manifest metadata.
 - No claim is made that the desktop environment is complete.
 
