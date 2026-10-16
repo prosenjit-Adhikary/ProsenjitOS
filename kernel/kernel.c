@@ -1290,7 +1290,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             static const uint8_t marker_magic[8] = {
                 'P', 'F', 'S', 'A', 'T', 'A', '1', '!'
             };
-            struct pros_prosenjitfs test_fs;
+            struct pros_prosenjitfs test_fs = {0};
             struct pros_vfs_file test_file;
             uint8_t marker_sector[512];
             uint8_t expected_marker[512] = {0};
