@@ -51,9 +51,11 @@ int partition_probe(struct pros_block_device *device,
                     enum pros_partition_type *table_type)
 {
     uint8_t sector[512];
-    if (!device || !table_type || device->sector_size != sizeof(sector))
+    if (!table_type)
         return PROS_PARTITION_EINVAL;
     *table_type = PROS_PARTITION_NONE;
+    if (!device || device->sector_size != sizeof(sector))
+        return PROS_PARTITION_EINVAL;
     if (block_device_read(device, 0, 1, sector) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (le16(sector + 510) != 0xAA55)
@@ -465,10 +467,22 @@ int partition_selftest(void)
         return -1;
 
     /*
-     * partition_probe() must clear stale caller output for malformed media
-     * and I/O errors, rather than leaving a previous successful type behind.
+     * partition_probe() must clear stale caller output for malformed media,
+     * invalid device arguments and I/O errors, rather than leaving a previous
+     * successful type behind.
      */
     enum pros_partition_type probed_type = PROS_PARTITION_GPT;
+    if (partition_probe(0, &probed_type) != PROS_PARTITION_EINVAL ||
+        probed_type != PROS_PARTITION_NONE)
+        return -23;
+    struct pros_block_device wrong_sector_device;
+    if (block_device_init(&wrong_sector_device, 256u, 4u,
+                          partition_test_read, 0, 0) != PROS_BLOCK_OK)
+        return -24;
+    probed_type = PROS_PARTITION_GPT;
+    if (partition_probe(&wrong_sector_device, &probed_type) !=
+            PROS_PARTITION_EINVAL || probed_type != PROS_PARTITION_NONE)
+        return -25;
     if (partition_probe(&parent, &probed_type) != PROS_PARTITION_OK ||
         probed_type != PROS_PARTITION_MBR)
         return -18;
