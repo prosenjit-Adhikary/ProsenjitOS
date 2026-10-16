@@ -197,7 +197,7 @@ The chain may be developed in parallel only where dependencies permit; downstrea
 
 ## 10. Current status
 
-This document defines the target and work plan; it is not proof of implementation. Based on the current documented repository status, process/address-space and ELF64-loader foundations and a kernel display abstraction exist, while the complete userspace init/service path, end-to-end input route, real window-system runtime, XFCE session, and boot-to-desktop verification must still be checked against source and runtime evidence. Treat any conflicting status documentation as a reason to audit, not as grounds to assume completion.
+This document defines the target and work plan; it is not proof of a complete desktop implementation. The initial host-testable DML registry/preflight source now exists under `user/desktop/`, with a dedicated unit-test source and `make desktop-unit-test` target. It currently validates manifests and dependency graphs and selects a default entry; it does not install packages, spawn processes, launch a window system, or run a desktop session. Its unit tests have not been run in the current offline-Debian work session. The complete userspace init/service path, end-to-end input route, real window-system runtime, XFCE session, and boot-to-desktop verification still require source and runtime evidence. Treat conflicting status documentation as a reason to audit, not as grounds to assume completion.
 
 ## 11. Related documentation
 
