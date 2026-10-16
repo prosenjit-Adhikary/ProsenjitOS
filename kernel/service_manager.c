@@ -242,12 +242,68 @@ int service_stop(const char *name)
     return service_stop_index((uint32_t)index, visiting);
 }
 
+/*
+ * Return whether a registered service depends (directly or transitively) on
+ * target. The graph is bounded by PROS_SERVICE_MAX; visiting prevents malformed
+ * dependency cycles from recursing indefinitely.
+ */
+static int service_depends_on_index(uint32_t index, uint32_t target,
+                                    uint8_t *visiting)
+{
+    if (index >= service_count || !visiting || index == target)
+        return 0;
+    if (visiting[index])
+        return 0;
+
+    visiting[index] = 1u;
+    for (uint32_t d = 0; d < services[index].definition.dependency_count; ++d) {
+        int dep = service_find(services[index].definition.dependencies[d]);
+        if (dep >= 0 &&
+            ((uint32_t)dep == target ||
+             service_depends_on_index((uint32_t)dep, target, visiting))) {
+            visiting[index] = 0u;
+            return 1;
+        }
+    }
+    visiting[index] = 0u;
+    return 0;
+}
+
 int service_restart(const char *name)
 {
-    int rc = service_stop(name);
-    if (rc != PROS_SERVICE_OK && rc != PROS_SERVICE_EINVAL)
+    uint8_t was_running[PROS_SERVICE_MAX] = {0};
+    int index = service_find(name);
+    int rc;
+
+    if (index < 0)
+        return PROS_SERVICE_ENOENT;
+
+    /*
+     * Stopping a dependency stops its active dependants first. Remember which
+     * services were active so a restart restores the previously running
+     * dependency subtree instead of leaving callers silently stopped.
+     */
+    for (uint32_t i = 0; i < service_count; ++i)
+        was_running[i] = services[i].state == PROS_SERVICE_RUNNING ? 1u : 0u;
+
+    rc = service_stop(name);
+    if (rc != PROS_SERVICE_OK)
         return rc;
-    return service_start(name);
+
+    rc = service_start(name);
+    if (rc != PROS_SERVICE_OK)
+        return rc;
+
+    for (uint32_t i = 0; i < service_count; ++i) {
+        uint8_t visiting[PROS_SERVICE_MAX] = {0};
+        if (!was_running[i] || i == (uint32_t)index ||
+            !service_depends_on_index(i, (uint32_t)index, visiting))
+            continue;
+        rc = service_start(services[i].definition.name);
+        if (rc != PROS_SERVICE_OK)
+            return rc;
+    }
+    return PROS_SERVICE_OK;
 }
 
 int service_start_all(void)
@@ -373,6 +429,17 @@ int service_manager_selftest(void)
         service_status("child", &state, &retries) != PROS_SERVICE_OK ||
         state != PROS_SERVICE_RUNNING || a != 1u || b != 1u)
         return -7;
+
+    /*
+     * Restarting a running dependency must also restore its previously running
+     * dependants after the dependency-first shutdown cascade.
+     */
+    if (service_restart("base") != PROS_SERVICE_OK ||
+        service_status("base", &state, &retries) != PROS_SERVICE_OK ||
+        state != PROS_SERVICE_RUNNING ||
+        service_status("child", &state, &retries) != PROS_SERVICE_OK ||
+        state != PROS_SERVICE_RUNNING || a != 1u || b != 1u)
+        return -19;
 
     if (service_manager_init() != PROS_SERVICE_OK)
         return -8;
