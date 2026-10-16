@@ -188,7 +188,7 @@ The detailed architecture, constraints, security boundaries, phases, and verific
   - [x] Native ProsenjitFS filesystem type contract
   - [x] Path, vnode/inode, file and directory APIs
   - [x] Filesystem probe and partition integration
-  - [x] Native ATA -> MBR -> ProsenjitFS persistent mount regression
+  - [ ] Native ATA -> MBR -> ProsenjitFS persistent mount/remount/read-back regression (pending isolated preformatted disposable-image fixture; never autoformat unknown disks)
 - [ ] External compatibility filesystem providers
   - [ ] Provider ABI/registration boundary
   - [ ] NTFS provider (external to kernel)
