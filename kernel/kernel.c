@@ -1290,8 +1290,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             static const uint8_t marker_magic[8] = {
                 'P', 'F', 'S', 'A', 'T', 'A', '1', '!'
             };
+            static const uint8_t authorization_magic[] =
+                "PROSENJITOS_PFS_TEST_FIXTURE_V1";
             struct pros_prosenjitfs test_fs = {0};
             struct pros_vfs_file test_file;
+            uint8_t authorization_sector[512];
+            uint8_t expected_authorization[512] = {0};
             uint8_t marker_sector[512];
             uint8_t expected_marker[512] = {0};
             uint8_t readback[sizeof(payload)];
@@ -1305,6 +1309,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (uint32_t i = 0u; i < sizeof(marker_magic); ++i)
                 expected_marker[i] = marker_magic[i];
             expected_marker[8] = 1u;
+            for (uint32_t i = 0u; i + 1u < sizeof(authorization_magic); ++i)
+                expected_authorization[i] = authorization_magic[i];
+
+            /*
+             * Require a build-script-created fixture authorization sector at
+             * LBA 2046 before permitting the test-only formatter. This makes
+             * accidental use of the test kernel on an ordinary disk fail
+             * closed even if its PFS partition happens to be blank.
+             */
+            if (block_device_read(&native_ata.block, 2046u, 1u,
+                                  authorization_sector) != PROS_BLOCK_OK) {
+                serial_write("ProsenjitOS: ERROR persistence-test authorization read failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            for (uint32_t i = 0u; i < sizeof(authorization_sector); ++i) {
+                if (authorization_sector[i] != expected_authorization[i]) {
+                    serial_write("ProsenjitOS: ERROR persistence-test fixture authorization missing\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+            }
 
             if (block_device_read(&native_ata.block, 2047u, 1u,
                                   marker_sector) != PROS_BLOCK_OK) {
