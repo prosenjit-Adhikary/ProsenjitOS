@@ -46,7 +46,10 @@ else
   note "display/input boundary detected"
 fi
 
-echo "[4/6] Local build"
+echo "[4/6] DML unit test and local build"
+if ! make desktop-unit-test >/tmp/prosenjitos_desktop_unit_test.log 2>&1; then
+  fail "desktop DML unit test failed; see /tmp/prosenjitos_desktop_unit_test.log"
+fi
 if ! make clean >/tmp/prosenjitos_make_clean.log 2>&1; then fail "make clean failed; see /tmp/prosenjitos_make_clean.log"; fi
 if ! make iso >/tmp/prosenjitos_make_iso.log 2>&1; then fail "make iso failed; see /tmp/prosenjitos_make_iso.log"; fi
 
@@ -59,18 +62,32 @@ if [[ -f build/prosenjitOS.iso ]]; then
   qemu_rc=$?
   set -e
   case "$qemu_rc" in
-    0) note "QEMU exited normally" ;;
-    124) fail "QEMU timed out after 20 seconds; inspect serial/debug logs" ;;
+    0|124) note "QEMU smoke window ended with status $qemu_rc (timeout is expected for a running kernel)" ;;
     *) fail "QEMU exited with status $qemu_rc; inspect serial/debug logs" ;;
   esac
-  [[ -s build/desktop-qemu-serial.log ]] && note "QEMU serial log generated" || fail "QEMU produced no serial log"
+  if [[ -s build/desktop-qemu-serial.log ]]; then
+    note "QEMU serial log generated"
+    for marker in \
+      "ProsenjitOS: x86-64 long mode active" \
+      "ProsenjitOS: CPL3 user-mode and IPC syscall test passed" \
+      "ProsenjitOS: process lifecycle/parent/exit-wait test passed" \
+      "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"; do
+      if grep -Fq "$marker" build/desktop-qemu-serial.log; then
+        note "QEMU milestone verified: $marker"
+      else
+        fail "QEMU serial log missing required milestone: $marker"
+      fi
+    done
+  else
+    fail "QEMU produced no serial log"
+  fi
 else
   fail "build/prosenjitOS.iso was not produced"
 fi
 
 echo "[6/6] Report"
 {
-  echo "# ProsenjitOS Desktop Integration Gate"
+  echo "# ProsenjitOS Desktop Prerequisite Integration Gate"
   echo
   echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   echo
@@ -78,6 +95,7 @@ echo "[6/6] Report"
   echo "- Desktop environment is userspace."
   echo "- Existing Xorg/X11 or Wayland and XFCE are integration targets."
   echo "- No desktop stack is added to kernel-core."
+  echo "- This gate verifies prerequisites only; it does not prove a running GUI, input route, or XFCE session."
   echo "- GitHub-hosted Actions are not required."
   echo
   echo "## Notes"
@@ -92,10 +110,10 @@ echo "[6/6] Report"
 } > "$REPORT"
 
 if ((failure_count > 0)); then
-  echo "DESKTOP GATE: NOT COMPLETE"
+  echo "DESKTOP PREREQUISITE GATE: NOT PASS"
   for f in "${failures[@]}"; do echo " - $f"; done
   echo "Report: $REPORT"
   exit 1
 fi
-echo "DESKTOP GATE: PASS"
+echo "DESKTOP PREREQUISITE GATE: PASS (GUI runtime remains unverified)"
 echo "Report: $REPORT"
