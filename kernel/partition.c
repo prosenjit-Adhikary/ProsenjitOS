@@ -94,6 +94,7 @@ int partition_read_gpt(struct pros_block_device *device,
     uint64_t last_usable_lba;
     if (!device || !partitions || !count || capacity == 0 || device->sector_size != 512u)
         return PROS_PARTITION_EINVAL;
+    *count = 0u;
     if (block_device_read(device, 1, 1, header) != PROS_BLOCK_OK)
         return PROS_PARTITION_EIO;
     if (header[0] != 'E' || header[1] != 'F' || header[2] != 'I' || header[3] != ' ' ||
