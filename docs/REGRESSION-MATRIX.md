@@ -19,7 +19,8 @@ This matrix records the automated validation layers that should remain green whi
 |---|---|---|
 | Block device | Read/write contract and bounds checks | Foundation |
 | Partition | MBR/GPT discovery self-test | Required CI gate |
-| External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |\n| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
+| External filesystem providers | Provider ABI/registration compatibility when introduced | Future CI gate |
+| ProsenjitFS | Format/mount/allocation/journal/recovery memory-backed regression | Required CI gate |
 | ATA PIO path | Native BIOS QEMU block-path and LBA-boundary diagnostics | Required CI gate |
 | Persistent ProsenjitFS disk | Isolated preformatted image: mount/write/flush/unmount/remount/read-back | Pending dedicated fixture; never autoformat unknown disks |
 
