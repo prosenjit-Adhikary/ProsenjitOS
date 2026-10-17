@@ -14,7 +14,10 @@ platform-backend interface:
 - stop a session in reverse dependency order;
 - preserve handles/state when stop fails so cleanup can be retried;
 - allow a cleanly rolled-back failed launch to be retried; and
-- report a desktop as active only while its root state is RUNNING.
+- report a desktop as active only while its root state is RUNNING; and
+- reject runtime initialization if the manager already contains non-stopped sessions, because a fresh runtime has no trustworthy handles for existing processes.
+
+The runtime validates the public active-index list before acting: every index must refer to a registered entry and duplicates are rejected. The manager and runtime are still single-owner structures; these checks are defensive validation, not a substitute for synchronization or memory protection.
 
 All calls must be serialized by one control-plane owner. The callbacks are
 synchronous and must not re-enter the runtime API.
