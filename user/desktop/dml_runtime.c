@@ -203,6 +203,17 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
                                       PROS_DML_SESSION_FAILED);
             goto rollback;
         }
+        /*
+         * Zero is reserved as the invalid handle. Treat a backend that reports
+         * success without publishing a usable handle as a contract violation;
+         * never record an un-stoppable process as an active session.
+         */
+        if (process_handle == PROS_DML_INVALID_PROCESS_HANDLE) {
+            (void)pros_dml_transition(runtime->manager, entry->manifest.id,
+                                      PROS_DML_SESSION_FAILED);
+            rc = PROS_DML_EBACKEND;
+            goto rollback;
+        }
 
         runtime->process_handles[index] = process_handle;
         runtime->active_order[runtime->active_count++] = index;
