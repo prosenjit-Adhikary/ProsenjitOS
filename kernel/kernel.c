@@ -402,21 +402,38 @@ static int native_partition_is_blank(struct pros_block_device *device)
 {
     uint8_t *buffer;
     uint64_t lba = 0u;
-    if (!device || device->sector_size == 0u || device->sector_count == 0u)
+    if (!device || device->sector_size == 0u || device->sector_count == 0u) {
+        serial_write("ProsenjitOS: native blank scan invalid device\n");
         return -1;
+    }
     buffer = (uint8_t *)kmalloc(device->sector_size * 8u);
-    if (!buffer)
+    if (!buffer) {
+        serial_write("ProsenjitOS: native blank scan allocation failed\n");
         return -1;
+    }
     while (lba < device->sector_count) {
         uint64_t remaining = device->sector_count - lba;
         uint32_t count = remaining > 8u ? 8u : (uint32_t)remaining;
         uint32_t bytes = count * device->sector_size;
-        if (block_device_read(device, lba, count, buffer) != PROS_BLOCK_OK) {
+        int read_rc = block_device_read(device, lba, count, buffer);
+        if (read_rc != PROS_BLOCK_OK) {
+            serial_write("ProsenjitOS: native blank scan read failed lba=");
+            serial_hex64(lba);
+            serial_write(" rc=");
+            serial_hex64((uint64_t)(int64_t)read_rc);
+            serial_write("\n");
             kfree(buffer);
             return -1;
         }
         for (uint32_t i = 0u; i < bytes; ++i) {
             if (buffer[i] != 0u) {
+                serial_write("ProsenjitOS: native partition not blank sector=");
+                serial_hex64(lba + i / device->sector_size);
+                serial_write(" byte=");
+                serial_hex64(i % device->sector_size);
+                serial_write(" value=");
+                serial_hex64(buffer[i]);
+                serial_write("\n");
                 kfree(buffer);
                 return 0;
             }

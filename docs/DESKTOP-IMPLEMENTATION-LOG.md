@@ -458,3 +458,12 @@
 - [x] Exposed the existing PFS probe/format/mount/unmount functions through the kernel PFS header and corrected the build-script comment to match the real native storage flow.
 - [ ] Verify build, ISO/QEMU, first native BIOS boot, second native BIOS persistence boot, security architecture checks, and OfficeWindows DML unit tests on this commit.
 - **Status:** native storage integration implemented; runtime verification pending. Desktop environment is not yet complete.
+
+
+### 2026-10-17 — Diagnose native PFS blank-partition rejection
+
+- [x] The current Office Debian run passes ISO/QEMU and all earlier boot milestones, but native BIOS boot stops in `native_bios_storage_selftest()` with `rc=-6` after the ATA real-disk block self-test.
+- [x] Mapped `-6` to the exact guard: the PFS partition is rejected because the full-sector blank scan did not return `1`. The existing log did not distinguish a nonzero byte from an ATA read/allocation failure.
+- [x] Added bounded serial diagnostics for allocation failure, read failure (including partition-relative LBA and return code), and the first nonzero sector/byte/value. The scanner remains read-only; it does not auto-format a nonblank or unreadable partition.
+- [ ] Re-run native BIOS QEMU, use the emitted diagnostic to fix the underlying storage/image issue, then verify first-boot marker creation and second-boot persistence. Recheck ISO/QEMU and OfficeWindows DML tests after the fix.
+- **Status:** root-cause instrumentation committed; native storage and desktop completion remain unverified.
