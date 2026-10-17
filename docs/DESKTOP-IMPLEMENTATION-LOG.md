@@ -236,3 +236,15 @@
 - [ ] Re-run ISO QEMU and native BIOS gates on `office`. Accept no success unless required IPC/CPL3 milestones are present; investigate any next failure from fresh logs.
 - [ ] Re-run DML tests on `OfficeWindows` and security architecture checks for the new head.
 - **Status:** concrete oversized stack object identified and moved off stack; validation is pending. Desktop remains incomplete until boot milestones and real display/input/session tests pass.
+
+
+### 2026-10-17 13:40 UTC — Stack fix verified; next ProsenjitFS assertion isolated
+
+- [x] Retried the failed Debian `office` job after its earlier `actions/checkout` download/network error.
+- [x] The retry built the ISO successfully and confirmed `prosenjitfs_selftest` static stack usage dropped from 528,240 bytes to **7,408 bytes** after moving the 512 KiB test-only disk object to static storage.
+- [x] The prior null-RIP/oversized-frame symptom did not recur in this run. Kernel reached storage-volume discovery, then reported ProsenjitFS self-test failure `rc=-15`, source line/stage 7272 (hex `0x1C68`). The missing IPC/CPL3 markers are downstream of this filesystem self-test abort; they are not yet independent IPC failures.
+- [x] Added a focused diagnostic change in commit `fe59c25e8a1ce0883b0b37f9d400fc5b95d309d5`: split the combined negative/boundary assertion into individual checks so the next serial failure line identifies the exact violated contract; also replaced the test's cast of a `uint64_t` local as a `uint32_t *` with a correctly typed `uint32_t invalid_offset`.
+- [ ] Verify which individual boundary assertion fails on the next `office` QEMU run. Do not change filesystem production logic until the exact assertion and function contract are established.
+- [ ] After ProsenjitFS self-test passes, verify IPC/CPL3 and all later boot milestones, then native BIOS and real desktop display/input/session gates.
+- [x] `OfficeWindows` DML tests passed on the current tested head; security architecture checks passed.
+- **Status:** oversized stack regression is fixed and its compiler measurement confirms it. ProsenjitFS self-test still fails on a separate `-15` boundary-test assertion; desktop remains incomplete.
