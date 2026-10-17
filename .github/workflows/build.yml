@@ -153,20 +153,6 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
-      - name: Upload ISO and boot diagnostics
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 1
-          name: prosenjitOS-boot-test
-          # Keep only small diagnostics in Actions storage; ISO and raw BIOS
-          # images are reproducible build outputs and quickly exhaust artifact quota.
-          path: |
-            build/qemu-serial.log
-            build/qemu-debug.log
-            build/native-qemu-serial.log
-            build/native-qemu-debug.log
  || true
 
       - name: Boot-test ISO in QEMU
