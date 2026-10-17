@@ -7422,9 +7422,11 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -182);
         if (prosenjitfs_format(&small_device) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -183);
-        if (prosenjitfs_mount(&small_fs, &small_device, 0u) !=
-                PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -184);
+        {
+            int mount_rc = prosenjitfs_mount(&small_fs, &small_device, 0u);
+            if (mount_rc != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, mount_rc);
+        }
 
         for (;;) {
             int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
