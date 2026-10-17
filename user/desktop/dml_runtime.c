@@ -227,6 +227,18 @@ int pros_dml_runtime_active(const struct pros_dml_runtime *runtime,
     if (runtime->active_root >= runtime->manager->count ||
         !runtime->manager->entries[runtime->active_root].registered)
         return PROS_DML_ESTATE;
+    {
+        enum pros_dml_session_state state;
+        int rc = pros_dml_get_state(
+            runtime->manager,
+            runtime->manager->entries[runtime->active_root].manifest.id,
+            &state);
+        if (rc != PROS_DML_OK)
+            return rc;
+        /* A retained root may only be awaiting cleanup after a failure. */
+        if (state != PROS_DML_SESSION_RUNNING)
+            return PROS_DML_ESTATE;
+    }
     *desktop_id = runtime->manager->entries[runtime->active_root].manifest.id;
     return PROS_DML_OK;
 }
