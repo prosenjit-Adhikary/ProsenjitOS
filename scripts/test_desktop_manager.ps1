@@ -8,11 +8,12 @@ $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("prosenjitos-dml-" + [guid]:
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
 function Import-VisualStudioEnvironment {
+    $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
     # Self-hosted Windows runners may have Visual Studio installed without the
     # Developer Command Prompt. Discover vcvars64.bat and import its environment.
     $vswhereCandidates = @()
-    if (\${env:ProgramFiles(x86)}) {
-        $vswhereCandidates += (Join-Path \${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe')
+    if ($programFilesX86) {
+        $vswhereCandidates += (Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe')
     }
     if ($env:ProgramFiles) {
         $vswhereCandidates += (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe')
@@ -32,8 +33,8 @@ function Import-VisualStudioEnvironment {
 
     foreach ($year in @('2022', '2019')) {
         foreach ($edition in @('BuildTools', 'Community', 'Professional', 'Enterprise')) {
-            if (\${env:ProgramFiles(x86)}) {
-                $base = Join-Path \${env:ProgramFiles(x86)} "Microsoft Visual Studio\$year\$edition"
+            if ($programFilesX86) {
+                $base = Join-Path $programFilesX86 "Microsoft Visual Studio\$year\$edition"
                 $vcvarsCandidates += (Join-Path $base 'VC\Auxiliary\Build\vcvars64.bat')
             }
         }
