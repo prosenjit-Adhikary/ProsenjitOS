@@ -157,6 +157,32 @@ int main(void)
     CHECK(strcmp(mock.stops[3], "graphics") == 0, 9);
     CHECK(strcmp(mock.stops[4], "base") == 0, 9);
 
+    /* A rollback-stop failure must retain the live prerequisite for retry. */
+    mock.fail_start_id = "graphics";
+    mock.fail_start_once = 1;
+    mock.fail_stop_id = "base";
+    mock.fail_stop_once = 1;
+    CHECK(pros_dml_runtime_start(&runtime, "session") == PROS_DML_EROLLBACK, 10);
+    CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ESTATE, 10);
+    CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_FAILED, 10);
+    CHECK(pros_dml_get_state(&manager, "graphics", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_FAILED, 10);
+
+    /* Cleanup retries the retained handle; a subsequent full launch is safe. */
+    CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 11);
+    CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ENOENT, 11);
+    mock.fail_start_id = 0;
+    mock.fail_stop_id = 0;
+    CHECK(pros_dml_runtime_start(&runtime, "session") == PROS_DML_OK, 12);
+    CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 12);
+    CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_STOPPED, 12);
+    CHECK(pros_dml_get_state(&manager, "graphics", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_STOPPED, 12);
+    CHECK(pros_dml_get_state(&manager, "session", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_STOPPED, 12);
+
     (void)puts("desktop runtime tests passed");
     return 0;
 }
