@@ -368,7 +368,8 @@ static int dml_transition_allowed(enum pros_dml_session_state current,
         return next == PROS_DML_SESSION_STOPPED ||
                next == PROS_DML_SESSION_FAILED;
     case PROS_DML_SESSION_FAILED:
-        return next == PROS_DML_SESSION_STOPPED;
+        return next == PROS_DML_SESSION_STOPPING ||
+               next == PROS_DML_SESSION_STOPPED;
     default:
         return 0;
     }
