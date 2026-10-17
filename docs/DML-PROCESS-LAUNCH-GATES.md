@@ -83,3 +83,11 @@ uses that real path, focused regression tests pass, and the required build and
 boot verification passes on the designated runner. Real desktop completion
 additionally requires a supported display/window-system stack and verified
 keyboard/pointer event delivery.
+
+
+## 2026-10-17 verification update
+
+- DML manager and runtime unit tests passed on the explicitly verified `OfficeWindows` runner in workflow run [39033799224](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799224). This includes the latest malformed-registry regressions present in the tested workflow checkout.
+- Security architecture checks passed in run [39033799262](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799262).
+- The Debian `office` runner passed toolchain verification and ISO build, but ISO QEMU boot failed: #PF vector 14, instruction-fetch error `0x11`, `RIP=0`, `CR2=0`, diagnostic stage `0xF041`. The required IPC milestone was absent, so the native BIOS boot test was skipped. This is a separate kernel/ProsenjitFS boot blocker; no root cause is claimed here.
+- Source audit reconfirmed that process creation, ELF loading, and the current explicit boot-time CPL3 test do not yet form a general production spawn/exec/wait/reap service. The DML callbacks remain a mockable backend contract, not a real launcher.
