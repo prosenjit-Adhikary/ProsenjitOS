@@ -91,3 +91,21 @@ keyboard/pointer event delivery.
 - Security architecture checks passed in run [39033799262](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799262).
 - The Debian `office` runner passed toolchain verification and ISO build, but ISO QEMU boot failed: #PF vector 14, instruction-fetch error `0x11`, `RIP=0`, `CR2=0`, diagnostic stage `0xF041`. The required IPC milestone was absent, so the native BIOS boot test was skipped. This is a separate kernel/ProsenjitFS boot blocker; no root cause is claimed here.
 - Source audit reconfirmed that process creation, ELF loading, and the current explicit boot-time CPL3 test do not yet form a general production spawn/exec/wait/reap service. The DML callbacks remain a mockable backend contract, not a real launcher.
+
+
+## 2026-10-17 fresh boot trace (run 39036048406)
+
+The ISO builds on `office`, but QEMU still fails before the required IPC-channel
+and CPL3 milestones. The serial trace reaches storage-volume discovery and then
+reports #PF vector `0xE`, error `0x11`, `RIP=0`, `CR2=0`, diagnostic stage
+`0xF041`. The workflow correctly fails the required-marker checks even though
+QEMU itself is stopped by the expected 20-second timeout.
+
+The caller trace records target `0x112420`, RSP/frame/return
+`0xD5990/0x1568F0/0x102B95`, and nonzero block-device/callback arguments.
+However, the callee snapshots are all zero even though the linked disassembly
+places their stores before the callee writes stage `0xF041`. This contradiction
+means the current trace is not yet sufficient to identify the faulting
+instruction or prove a bad return address. Next step: isolate and reconcile
+checkpoint/snapshot behavior with a minimal call/return probe or debugger trace
+before changing production code. No root cause is claimed.
