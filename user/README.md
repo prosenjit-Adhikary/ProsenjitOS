@@ -20,7 +20,8 @@ The first host-testable DML component is in `user/desktop/desktop_manager.c` and
 `user/desktop/desktop_manager.h`. It currently provides a bounded desktop
 registry, a size-tagged, versioned manifest contract, safe relative entry-point
 path validation, required-feature checks, dependency preflight (including
-missing dependency and cycle detection), and default-desktop selection.
+missing dependency and cycle detection), deterministic dependency-first
+resolution with shared dependencies emitted once, and default-desktop selection.
 
 This is deliberately **not yet a session launcher**: it does not install or
 execute packages, spawn processes, connect to a display server, route input, or

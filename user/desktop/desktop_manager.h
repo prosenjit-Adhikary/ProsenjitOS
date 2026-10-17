@@ -66,7 +66,7 @@ int pros_dml_init(struct pros_dml_manager *manager,
 int pros_dml_register(struct pros_dml_manager *manager,
                       const struct pros_dml_manifest *manifest);
 /*
- * Resolve the selected desktop's transitive dependencies in deterministic
+ * Resolve a desktop's transitive dependencies in deterministic
  * dependency-first order. Output indices refer to the manager's registry.
  * On PROS_DML_ENOSPC, out_count reports the required capacity and the output
  * array is left untouched. Calls must be serialized by the control-plane owner.

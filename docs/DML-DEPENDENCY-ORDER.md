@@ -25,7 +25,8 @@ under the DML's single-owner/serialized-call contract.
 
 ## Verification
 
-The host test source covers dependency-first order, capacity failure without
-partial output, and missing-root handling. Run `make desktop-unit-test` in
+The host test source covers dependency-first order, shared dependency
+ordering, cycle rejection, capacity failure without partial output, and
+missing-root handling. Run `make desktop-unit-test` in
 the repository's Debian environment. No test result should be claimed until
 that command has actually completed.
