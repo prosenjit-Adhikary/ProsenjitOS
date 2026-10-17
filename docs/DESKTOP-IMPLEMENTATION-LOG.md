@@ -294,3 +294,12 @@
 - [x] Updated the concurrency key to include `${{ github.event_name }}`, so push and PR event runs no longer cancel each other merely because they refer to the same branch.
 - [ ] Verify the new PR-triggered `OfficeWindows` DML run reaches a final result and the Debian `office` build/QEMU run completes without being cancelled by the parallel event.
 - **Status:** concurrency fix committed as `ba785afb8782083658ce568d369730817a9eff49`. Earlier DML job results remain cancelled and must not be counted as pass/fail test results.
+
+
+### 2026-10-17 — Fix bounded-truncate regression fixture
+
+- [x] Inspected the latest QEMU failure: ProsenjitFS self-test returned `rc=-15` at source line 7329, where the bounded-truncate test expected `PROS_VFS_EOVERFLOW`.
+- [x] Root cause in the test fixture: it wrote at `n * block_size`, which allocates adjacent logical blocks and can coalesce into one extent, contradicting the test comment that eight independent extents exceed the v1 transaction bound.
+- [x] Changed fixture writes to `n * 2 * block_size`, leaving one logical block hole between each written block. Added a precondition that the inode contains exactly eight one-block extents at logical blocks 0, 2, 4, ..., 14 before testing bounded truncate.
+- [ ] Run the updated ISO/QEMU test. If the new extent-layout assertion or truncate expectation fails, use its distinct `-17` diagnostic and the exact source line to continue root-cause analysis.
+- **Status:** source/test fix committed as `8863302b4c2fbf12373d61b01a3ab32f2d2d87f0`; runtime verification pending. This is a regression-test fixture correction, not yet a verified filesystem fix or desktop completion.
