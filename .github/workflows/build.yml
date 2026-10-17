@@ -23,12 +23,8 @@ jobs:
             fi
           done
 
-      - name: Validate desktop scripts and run DML unit tests
-        run: |
-          set -euo pipefail
-          bash -n scripts/desktop_complete.sh
-          bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+      # Desktop/DML tests are intentionally owned by the OfficeWindows runner
+      # workflow. This office runner is reserved for kernel and ProsenjitFS work.
 
       - name: Build ISO
         run: |
