@@ -89,6 +89,12 @@ int main(void)
                                   PROS_DML_SESSION_RUNNING) == PROS_DML_ESTATE,
               12);
         CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_FAILED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
                                   (enum pros_dml_session_state)99) ==
               PROS_DML_EINVAL, 12);
         CHECK(pros_dml_transition(&manager, "xfce",
