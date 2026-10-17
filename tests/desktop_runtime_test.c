@@ -136,6 +136,14 @@ int main(void)
         CHECK(pros_dml_runtime_stop(&corrupt_runtime) == PROS_DML_EINVAL, 7);
     }
     {
+        struct pros_dml_runtime corrupt_runtime = runtime;
+        uint32_t stops_before = mock.stop_count;
+        corrupt_runtime.process_handles[corrupt_runtime.active_order[0]] =
+            PROS_DML_INVALID_PROCESS_HANDLE;
+        CHECK(pros_dml_runtime_stop(&corrupt_runtime) == PROS_DML_EINVAL, 7);
+        CHECK(mock.stop_count == stops_before, 7);
+    }
+    {
         struct pros_dml_runtime second_runtime;
         CHECK(pros_dml_runtime_init(&second_runtime, &manager, &ops, &mock) ==
               PROS_DML_ESTATE, 7);

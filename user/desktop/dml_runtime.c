@@ -15,7 +15,8 @@ static int runtime_valid(const struct pros_dml_runtime *runtime)
         uint32_t index = runtime->active_order[i];
 
         if (index >= runtime->manager->count ||
-            !runtime->manager->entries[index].registered)
+            !runtime->manager->entries[index].registered ||
+            runtime->process_handles[index] == PROS_DML_INVALID_PROCESS_HANDLE)
             return 0;
         for (uint32_t j = 0; j < i; ++j) {
             if (runtime->active_order[j] == index)
