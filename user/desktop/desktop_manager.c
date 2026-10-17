@@ -12,9 +12,12 @@ static int manager_valid(const struct pros_dml_manager *manager)
      * hidden entries or holes that can be overwritten by a later registration.
      */
     for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
-        if ((i < manager->count) !=
-            (manager->entries[i].registered != 0u))
+        if (i < manager->count) {
+            if (manager->entries[i].registered != 1u)
+                return 0;
+        } else if (manager->entries[i].registered != 0u) {
             return 0;
+        }
     }
     return 1;
 }
