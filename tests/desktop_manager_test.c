@@ -133,6 +133,15 @@ int main(void)
                    "%s", "cycle-a");
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 25);
     CHECK(pros_dml_preflight(&manager, "cycle-a") == PROS_DML_ELOOP, 26);
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 99u;
+
+        CHECK(pros_dml_resolve_order(&manager, "cycle-a", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_ELOOP, 26);
+        CHECK(order_count == 0u, 26);
+    }
 
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 27);
     manifest = manifest_make("duplicate-dep", "bin/start");
