@@ -1,11 +1,31 @@
 #include "dml_runtime.h"
 
+/*
+ * The manager is public storage. Validate the registry's contiguous-prefix
+ * invariant here too: runtime init/stop must not accept a manager with holes
+ * or hidden registrations merely because no manifest lookup is needed yet.
+ */
+static int runtime_manager_valid(const struct pros_dml_manager *manager)
+{
+    if (!manager || manager->magic != PROS_DML_MANAGER_MAGIC ||
+        manager->count > PROS_DML_MAX_DESKTOPS)
+        return 0;
+
+    for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
+        if (i < manager->count) {
+            if (manager->entries[i].registered != 1u)
+                return 0;
+        } else if (manager->entries[i].registered != 0u) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int runtime_valid(const struct pros_dml_runtime *runtime)
 {
     if (!runtime || runtime->magic != PROS_DML_RUNTIME_MAGIC ||
-        !runtime->manager ||
-        runtime->manager->magic != PROS_DML_MANAGER_MAGIC ||
-        runtime->manager->count > PROS_DML_MAX_DESKTOPS ||
+        !runtime_manager_valid(runtime->manager) ||
         !runtime->ops.start || !runtime->ops.stop ||
         runtime->active_count > PROS_DML_MAX_DESKTOPS)
         return 0;
@@ -109,9 +129,7 @@ int pros_dml_runtime_init(struct pros_dml_runtime *runtime,
                           const struct pros_dml_runtime_ops *ops,
                           void *context)
 {
-    if (!runtime || !manager ||
-        manager->magic != PROS_DML_MANAGER_MAGIC ||
-        manager->count > PROS_DML_MAX_DESKTOPS ||
+    if (!runtime || !runtime_manager_valid(manager) ||
         !ops || !ops->start || !ops->stop)
         return PROS_DML_EINVAL;
 
