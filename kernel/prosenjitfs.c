@@ -7235,7 +7235,13 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+        /*
+         * /hello.bin was intentionally unlinked by the lifecycle regression
+         * above. Use a dedicated temporary file here so this overflow test
+         * does not depend on a deleted fixture being present.
+         */
+        if (vfs_file_open(&fs.mount, "/truncate-overflow.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -158);
         if (vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW)
@@ -7244,6 +7250,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -160);
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -161);
+        if (vfs_unlink(&fs.mount, "/truncate-overflow.bin") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -162);
 
         pfs_selftest_diag_stage = __LINE__;
         /*
