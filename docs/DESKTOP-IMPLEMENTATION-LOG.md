@@ -265,3 +265,12 @@
 - Root-cause candidate found in the failing truncate-bound test: it closed `file` and then read `file_data->inode_number`, even though `file_data` is vnode-private state whose lifetime is not guaranteed after close. The inode number had already been copied into the stable local `inode_number` variable.
 - Fix committed: `afdff35fe7dc43b444c4baf94d02ab90a8d7340e` — use the saved inode number after close and split the combined checks into individual failures for precise diagnostics.
 - Verification status at log update: source change committed; fresh CI/QEMU and OfficeWindows DML results are pending. Do not mark desktop or boot as complete until the next run proves the IPC milestone and all required runtime/display/input checks.
+
+### 2026-10-17 — Audited the real CPL3 launch path before DML integration
+
+- [x] Traced `boot/entry.asm`'s `enter_user_mode` IRETQ frame (user SS `0x23`, CS `0x1B`, entry and stack) and the `kernel/idt.asm` syscall/exit-trampoline route.
+- [x] Compared the boot-time CPL3 test with `thread_start_trampoline`, `thread_init`, ELF loader output, and internal process lifecycle APIs. Confirmed the boot test is not yet a general scheduled-child launcher; ELF loading does not enqueue a runnable user thread; the kernel thread trampoline is not a substitute for an IRETQ ring-3 frame.
+- [x] Recorded the exact source audit and implementation decision in `docs/DML-PROCESS-LAUNCH-GATES.md`, commit `92dbfbd67b5f89e9a5be294791c8f18d73a0038c`.
+- [x] Kept syscall ABI and production behavior unchanged; no guessed spawn syscall or mock-backed boot path was added.
+- [ ] Implement and test a kernel-internal launch transaction with admission, ELF loading, initial user frame, runnable thread handoff, rollback, and wait/reap ownership. Then review a versioned user ABI and integrate the DML backend only after kernel tests pass.
+- **Status:** source audit and documentation committed; this is not a launch implementation or desktop completion. Current CI remains blocked on the ProsenjitFS QEMU self-test regression, and the OfficeWindows DML job result is still pending in the latest available run.
