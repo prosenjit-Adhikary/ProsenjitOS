@@ -7275,7 +7275,7 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+        if (vfs_file_open(&fs.mount, "/sizes.bin", PROS_VFS_O_WRITE, &file) !=
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
         if (vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW)
