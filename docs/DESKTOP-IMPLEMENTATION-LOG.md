@@ -476,3 +476,12 @@
 - [x] Updated both ATA read and write loops to advance the LBA only when more sectors remain. Bounds validation and per-sector I/O error checks are unchanged; exact-end transfers now can complete without manufacturing an invalid next-LBA request.
 - [ ] Verify ISO/QEMU and native BIOS QEMU; confirm blank scan passes, first boot writes the persistence marker, and second boot recovers it. Re-run OfficeWindows DML tests and security checks.
 - **Status:** ATA exact-end transfer bug fixed in source; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Fix second native BIOS QEMU command continuation
+
+- [x] After the ATA exact-end transfer fix, the first native BIOS boot passed the ATA/MBR/PFS persistent mount test and wrote the persistence marker.
+- [x] The workflow then failed before its second boot: shell logs showed `Second native QEMU exit status: 127`. Inspection of `.github/workflows/build.yml` found doubled trailing backslashes on every continuation line of the second QEMU command, so Bash ended the command early and tried to execute `-drive` as a separate command.
+- [x] Changed those seven continuations to single backslashes. The first native boot and all its checks are unchanged; the second boot will now invoke QEMU with the same image and can verify marker recovery.
+- [ ] Re-run build, ISO/QEMU, first and second native BIOS boots, OfficeWindows DML tests, and security checks on this revision.
+- **Status:** CI invocation defect fixed; persistent second-boot recovery and desktop completion still require verification.

@@ -167,13 +167,13 @@ jobs:
           # Reboot the same native disk image. The second boot must recover the
           # marker written by the first boot instead of reformatting the volume.
           set +e
-          timeout 20s qemu-system-x86_64 \\
-            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \\
-            -display none \\
-            -serial file:build/native-qemu-serial-second.log \\
-            -no-reboot \\
-            -no-shutdown \\
-            -d int \\
+          timeout 20s qemu-system-x86_64 \
+            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
+            -display none \
+            -serial file:build/native-qemu-serial-second.log \
+            -no-reboot \
+            -no-shutdown \
+            -d int \
             -D build/native-qemu-debug-second.log
           second_qemu_status=$?
           set -e
