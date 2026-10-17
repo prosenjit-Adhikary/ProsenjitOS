@@ -321,3 +321,12 @@
 - [x] Added an explicit successful `prosenjitfs_unmount(&fs)` check before resetting the mock disk and formatting/remounting the clean image.
 - [ ] Re-run QEMU and verify the corruption test, clean remount, allocation-exhaustion and journal/crash matrix all advance. Continue fixing the next exact failing assertion rather than weakening the self-test gate.
 - **Status:** source fix and log committed together; runtime verification pending.
+
+
+### 2026-10-17 — Initialize tiny-image filesystem state before mount
+
+- [x] The next QEMU run passed the corruption-image restore and advanced to the tiny-image allocation-exhaustion test, then failed at source line 7444 with `rc=-17`.
+- [x] Root cause: `small_fs` was an uninitialized local object. `prosenjitfs_mount()` checks `fs->mount.active` before it clears/initializes the supplied filesystem structure, so uninitialized stack bytes could reject the mount as busy.
+- [x] Explicitly zero-initialized `small_fs` before the tiny-device format/mount sequence. The 512 KiB disk remains static to avoid placing it on the kernel self-test stack.
+- [ ] Re-run QEMU to verify minimum-size format/mount and allocation exhaustion, then continue through the recovery/reuse and journal/crash matrix.
+- **Status:** test initialization fix and this log entry committed together; runtime verification pending.
