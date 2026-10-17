@@ -103,6 +103,8 @@ int main(void)
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 3);
     manifest = make_manifest("base", 0);
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 4);
+    manifest = make_manifest("unused", 0);
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 4);
     CHECK(pros_dml_runtime_init(&runtime, &manager, &ops, &mock) ==
           PROS_DML_OK, 5);
 
@@ -130,6 +132,12 @@ int main(void)
     CHECK(strcmp(mock.starts[4], "session") == 0, 7);
     CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_OK &&
           strcmp(active, "session") == 0, 7);
+    {
+        struct pros_dml_runtime corrupt_runtime = runtime;
+        corrupt_runtime.active_root = 3u; /* Registered, but not in this session. */
+        CHECK(pros_dml_runtime_active(&corrupt_runtime, &active) ==
+              PROS_DML_ESTATE, 7);
+    }
     {
         struct pros_dml_runtime corrupt_runtime = runtime;
         corrupt_runtime.active_order[0] = PROS_DML_MAX_DESKTOPS;
@@ -204,6 +212,12 @@ int main(void)
           state == PROS_DML_SESSION_FAILED, 13);
     CHECK(pros_dml_runtime_start(&runtime, "session") == PROS_DML_OK, 14);
     CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 14);
+    {
+        struct pros_dml_runtime corrupt_runtime = runtime;
+        corrupt_runtime.active_root = 0u; /* No active handles remain. */
+        CHECK(pros_dml_runtime_active(&corrupt_runtime, &active) ==
+              PROS_DML_ENOENT, 14);
+    }
     CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
           state == PROS_DML_SESSION_STOPPED, 14);
 
