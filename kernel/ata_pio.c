@@ -1,4 +1,5 @@
 #include "ata_pio.h"
+#include "partition.h"
 
 #define ATA_PRIMARY_BASE 0x1F0u
 #define ATA_PRIMARY_CTRL 0x3F6u
@@ -369,6 +370,12 @@ int pros_ata_pio_probe(struct pros_ata_pio *ata)
 int pros_ata_pio_selftest(void)
 {
     struct pros_ata_pio ata;
+    struct pros_partition partitions[4];
+    struct pros_partition_device partition_view;
+    enum pros_partition_type table_type = PROS_PARTITION_NONE;
+    uint32_t partition_count = 0u;
+    uint64_t parent_lba = 0u;
+    uint32_t trace_count = 0u;
     uint8_t sector[512];
 
     int rc = pros_ata_pio_probe(&ata);
@@ -378,10 +385,42 @@ int pros_ata_pio_selftest(void)
     if (block_device_read(&ata.block, 0u, 1u, sector) != PROS_BLOCK_OK)
         return PROS_ATA_EIO;
 
-    /* A real disk read must provide the conventional MBR signature or a
-     * non-partitioned volume may be present. Do not guess a filesystem. */
-    if ((sector[510] != 0x55u || sector[511] != 0xAAu) &&
-        !(sector[0] == 0u && sector[1] == 0u))
+    /* The native test disk has a conventional MBR. Never format or write
+     * anything here: this is a read-only integration and bounds diagnostic. */
+    if (sector[510] != 0x55u || sector[511] != 0xAAu)
+        return PROS_ATA_EIO;
+
+    if (partition_probe(&ata.block, &table_type) != PROS_PARTITION_OK ||
+        table_type != PROS_PARTITION_MBR)
+        return PROS_ATA_EIO;
+
+    if (partition_read_mbr(&ata.block, partitions, 4u, &partition_count) !=
+            PROS_PARTITION_OK ||
+        partition_count != 1u ||
+        partitions[0].first_lba != 2048u ||
+        partitions[0].sector_count != 512u ||
+        partitions[0].mbr_type != 0xDAu)
+        return PROS_ATA_EIO;
+
+    if (partition_device_init(&partition_view, &ata.block, &partitions[0]) !=
+        PROS_PARTITION_OK)
+        return PROS_ATA_EIO;
+
+    partition_trace_reset(&partition_view);
+    if (block_device_read(&partition_view.device, 0u, 1u, sector) !=
+            PROS_BLOCK_OK ||
+        partition_trace_find(&partition_view, 0u, 0u, &parent_lba,
+                             &trace_count) != PROS_PARTITION_OK ||
+        parent_lba != 2048u || trace_count != 1u)
+        return PROS_ATA_EIO;
+
+    /* The first LBA beyond the partition must be rejected before any parent
+     * disk I/O; this catches off-by-one translation at the real-device edge. */
+    if (block_device_read(&partition_view.device, 512u, 1u, sector) !=
+        PROS_BLOCK_EINVAL)
+        return PROS_ATA_EIO;
+    if (partition_trace_find(&partition_view, 512u, 0u, &parent_lba,
+                             &trace_count) == PROS_PARTITION_OK)
         return PROS_ATA_EIO;
 
     return PROS_ATA_OK;
