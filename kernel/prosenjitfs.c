@@ -7484,33 +7484,38 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, consistency_rc);
             }
         }
-        if (prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
-                PROSENJITFS_OK) {
-            prosenjitfs_unmount(&small_fs);
-            return pfs_selftest_fail(__LINE__, -177);
-        }
-
         {
-            uint32_t inode_allocated = 1u;
+            uint64_t inode_numbers[PFS_MIN_BLOCKS];
+            uint32_t inode_allocated = 0u;
             for (;;) {
                 int rc = prosenjitfs_alloc_inode(&small_fs, &inode_tmp);
                 if (rc == PROSENJITFS_ENOSPC)
                     break;
                 if (rc != PROSENJITFS_OK ||
-                    ++inode_allocated > small_fs.sb.inode_count) {
-                    prosenjitfs_unmount(&small_fs);
+                    inode_allocated >= PFS_MIN_BLOCKS) {
+                    (void)prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -178);
                 }
+                inode_numbers[inode_allocated++] = inode_tmp;
             }
             /*
-             * alloc_inode() reserves inode-bitmap slots; it does not create
-             * initialized inode records. The full namespace consistency
-             * checker is intentionally not run while those reservations are
-             * held, because allocated-but-empty inode records are invalid.
+             * alloc_inode() reserves bitmap slots but does not create
+             * initialized inode records. Verify exhaustion, then release
+             * every temporary reservation before remount/consistency checks.
+             * Otherwise the remount correctly rejects the intentionally
+             * allocated-but-empty inode records as corrupt namespace state.
              */
             if (inode_allocated < small_fs.sb.inode_count - 1u) {
-                prosenjitfs_unmount(&small_fs);
+                (void)prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -179);
+            }
+            for (uint32_t i = 0u; i < inode_allocated; ++i) {
+                int free_rc = pfs_inode_bitmap_update(&small_fs,
+                                                       inode_numbers[i], 0u);
+                if (free_rc != PROSENJITFS_OK) {
+                    (void)prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, free_rc);
+                }
             }
         }
 
