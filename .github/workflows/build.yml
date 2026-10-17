@@ -43,7 +43,10 @@ jobs:
           echo "===== ProsenjitFS self-test call-site context ====="
           objdump -d -Mintel --disassemble=prosenjitfs_selftest build/prosenjit.elf | grep -B 18 -A 24 'block_device_init' || true
           echo "===== Relevant symbol addresses ====="
-          nm -n build/prosenjit.elf | grep -E ' (block_device_init|prosenjitfs_selftest|pfs_selftest_diag_stage|block_init_diag_entry_return|stack_top)        run: |
+          nm -n build/prosenjit.elf | grep -E " (block_device_init|prosenjitfs_selftest|pfs_selftest_diag_stage|block_init_diag_entry_return|stack_top)$" || true
+
+      - name: Boot-test ISO in QEMU
+        run: |
           set +e
           timeout 20s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
