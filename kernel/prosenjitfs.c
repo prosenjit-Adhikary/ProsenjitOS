@@ -7838,6 +7838,13 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -14);
             }
 
+            /*
+             * Stage 9 leaves a durable commit and returns EIO before journal
+             * retirement. Drop the still-mounted in-memory object and reset
+             * the volatile device cache before attempting recovery; calling
+             * mount on the active instance does not model a power loss.
+             */
+            pfs_test_crash_reset(&fs, &disk);
             pfs_crash_inject_stage = recovery_stages[recovery_index];
             pfs_crash_injected = 0u;
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
