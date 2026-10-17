@@ -7415,7 +7415,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_format(&small_device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&small_fs, &small_device, 0u) !=
                 PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -17);
+            return pfs_selftest_fail(__LINE__, -173);
 
         for (;;) {
             int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
@@ -7424,19 +7424,19 @@ int prosenjitfs_selftest(void)
             if (rc != PROSENJITFS_OK)
                 {
                     prosenjitfs_unmount(&small_fs);
-                    return pfs_selftest_fail(__LINE__, -17);
+                    return pfs_selftest_fail(__LINE__, -174);
                 }
             if (++allocated > PFS_MIN_BLOCKS)
                 {
                     prosenjitfs_unmount(&small_fs);
-                    return pfs_selftest_fail(__LINE__, -17);
+                    return pfs_selftest_fail(__LINE__, -175);
                 }
         }
         if (allocated == 0u ||
             pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK)
             {
                 prosenjitfs_unmount(&small_fs);
-                return pfs_selftest_fail(__LINE__, -17);
+                return pfs_selftest_fail(__LINE__, -176);
             }
 
         if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
@@ -7448,7 +7448,7 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_OK)
             {
                 prosenjitfs_unmount(&small_fs);
-                return pfs_selftest_fail(__LINE__, -17);
+                return pfs_selftest_fail(__LINE__, -177);
             }
 
         {
@@ -7460,18 +7460,18 @@ int prosenjitfs_selftest(void)
                 if (rc != PROSENJITFS_OK ||
                     ++inode_allocated > small_fs.sb.inode_count) {
                     prosenjitfs_unmount(&small_fs);
-                    return pfs_selftest_fail(__LINE__, -17);
+                    return pfs_selftest_fail(__LINE__, -178);
                 }
             }
             if (inode_allocated < small_fs.sb.inode_count - 1u ||
                 pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
                 prosenjitfs_unmount(&small_fs);
-                return pfs_selftest_fail(__LINE__, -17);
+                return pfs_selftest_fail(__LINE__, -179);
             }
         }
 
         if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -17);
+            return pfs_selftest_fail(__LINE__, -180);
 
         pfs_selftest_diag_stage = __LINE__;
         /*
