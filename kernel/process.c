@@ -369,7 +369,7 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
-int process_selftest(void)
+static int process_selftest_isolated(void)
 {
     struct pros_process parent;
     struct pros_process child;
@@ -436,4 +436,31 @@ int process_selftest(void)
     if (process_unregister(&parent) != 0)
         return -14;
     return 0;
+}
+
+
+/*
+ * The process self-test intentionally resets the manager to exercise PID,
+ * parent/child, wait, and teardown invariants. Preserve the live boot process
+ * registry/current context around that isolated fixture so later CPL3
+ * syscalls still resolve the real init process.
+ */
+int process_selftest(void)
+{
+    struct pros_process *saved_list = process_list;
+    struct pros_process *saved_current = current_process;
+    uint64_t saved_next_pid = next_pid;
+    int rc = process_selftest_isolated();
+
+    process_list = saved_list;
+    next_pid = saved_next_pid;
+    current_process = 0;
+    if (saved_current) {
+        if (address_space_switch(&saved_current->address_space) != 0)
+            return rc != 0 ? rc : -15;
+        current_process = saved_current;
+    } else if (paging_switch_kernel() != 0) {
+        return rc != 0 ? rc : -16;
+    }
+    return rc;
 }

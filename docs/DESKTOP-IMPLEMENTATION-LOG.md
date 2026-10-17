@@ -438,3 +438,12 @@
 - [x] Reordered validation so socket/state are checked first; port 0 now allocates an ephemeral port, while nonzero ports still go through conflict validation. The self-test keeps the port-0 bind path and verifies subsequent invalid-ACK and payload-bound behavior.
 - [ ] Re-run ISO/QEMU; verify the complete network self-test, PCI/CPL3 milestones, native BIOS boot, and Windows DML tests.
 - **Status:** real socket API defect fixed; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Preserve the live process manager around its self-test
+
+- [x] After network sockets and PCI enumeration passed, the ISO/QEMU run entered CPL3 but never emitted the user-mode syscall success milestone. Serial diagnostics showed handle-duplication denials with `process=0`, indicating that `process_current()` had been cleared before the user-mode test.
+- [x] Root cause: `process_selftest()` called `process_manager_init()`, which reset the global process list, current process, and PID counter. The self-test then returned success without restoring the live `init_process` registry/context, invalidating later syscall dispatch.
+- [x] Split the test body into an isolated fixture and wrapped it with save/restore of the manager globals and address-space context. The original self-test assertions remain intact; on return, the previously active process and PID allocator are restored.
+- [ ] Re-run ISO/QEMU to verify the CPL3 syscall completion milestone and downstream scheduler/IPC tests; then run native BIOS QEMU and the Windows DML tests.
+- **Status:** process-manager test-isolation defect fixed; runtime verification pending and desktop remains incomplete.
