@@ -375,3 +375,12 @@
 - [x] Updated the boot failure message to print the exact signed broker self-test result in hexadecimal. This is diagnostic instrumentation only; it does not relax the broker gate or claim the broker is fixed.
 - [ ] Re-run the latest commit, map the reported code to the precise broker assertion, fix the underlying defect, then rerun ISO/QEMU, native BIOS QEMU, and OfficeWindows DML tests.
 - **Status:** diagnostic commit pending runtime evidence; desktop implementation is not complete.
+
+
+### 2026-10-17 — Align stale device-grant revocation assertion with API result
+
+- [x] Source-traced the broker self-test's combined assertion after the QEMU run stopped at `device permission broker self-test failed`. `pros_device_revoke()` returns PROS_DRIVER_ENODEV when no active grant matches; after the first revoke, the second revoke therefore returns ENODEV, not EPERM.
+- [x] Corrected the test to expect ENODEV for revoking an already-revoked grant. The adjacent permission check still requires EPERM, so the test continues to prove that the revoked grant no longer authorizes access. The broker's runtime behavior and enforcement were not weakened.
+- [x] Retained the kernel's numeric broker error diagnostic so any later broker assertion failure reports its exact test code.
+- [ ] Re-run ISO/QEMU, confirm broker and display/input device tests pass, then run native BIOS QEMU and OfficeWindows DML unit tests on this commit.
+- **Status:** source-derived assertion fix committed; runtime verification pending and desktop remains incomplete.

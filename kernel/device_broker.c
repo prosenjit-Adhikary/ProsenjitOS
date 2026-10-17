@@ -175,7 +175,7 @@ int pros_device_broker_selftest(void)
     if (pros_device_revoke(device.id, 42u) != PROS_DRIVER_OK ||
         pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_READ) !=
         PROS_DRIVER_EPERM ||
-        pros_device_revoke(device.id, 42u) != PROS_DRIVER_EPERM ||
+        pros_device_revoke(device.id, 42u) != PROS_DRIVER_ENODEV ||
         pros_device_check(device.id, 42u,
                           PROS_DEVICE_PERMISSION_READ |
                           PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_EINVAL ||
