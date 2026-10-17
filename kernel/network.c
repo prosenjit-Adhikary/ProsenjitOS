@@ -718,7 +718,7 @@ int pros_net_selftest(void)
             pros_net_route_add(0xC0A80000u, 0xFFFF0000u, 0xC0A80101u, 10u) != PROS_NET_OK ||
             pros_net_route_lookup(0xC0A80102u, &gateway, &mask) != PROS_NET_OK ||
             mask != 0xFFFF0000u)
-            return -9;
+            return -14;
     }
 
     if (pros_net_socket_init() != PROS_NET_OK ||
@@ -728,7 +728,7 @@ int pros_net_selftest(void)
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
         pros_net_socket_send(sid, payload, sizeof(payload)) != (int)sizeof(payload) ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
-        return -9;
+        return -15;
 
     {
         const uint8_t rxdata[2] = {0x11, 0x22};
