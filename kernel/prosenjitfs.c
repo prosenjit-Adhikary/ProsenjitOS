@@ -7305,7 +7305,8 @@ int prosenjitfs_selftest(void)
                     PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             for (uint32_t n = 0u; n < 8u; ++n) {
-                if (vfs_file_seek(&file, (uint64_t)n * fs.sb.block_size) !=
+                /* Leave one logical block unallocated between extents. */
+                if (vfs_file_seek(&file, (uint64_t)n * 2u * fs.sb.block_size) !=
                         PROS_VFS_OK ||
                     vfs_file_write(&file, &marker_byte, 1u, &done) !=
                         PROS_VFS_OK ||
@@ -7324,6 +7325,21 @@ int prosenjitfs_selftest(void)
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
+            {
+                uint64_t extent_block = before_inode.extent_head;
+                for (uint32_t n = 0u; n < 8u; ++n) {
+                    struct pros_prosenjitfs_extent extent;
+                    if (extent_block == 0u ||
+                        pfs_read_extent(&fs, extent_block, &extent) !=
+                            PROSENJITFS_OK ||
+                        extent.logical_block != (uint64_t)n * 2u ||
+                        extent.block_count != 1u)
+                        return pfs_selftest_fail(__LINE__, -17);
+                    extent_block = extent.next;
+                }
+                if (extent_block != 0u)
+                    return pfs_selftest_fail(__LINE__, -17);
+            }
             if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW) {
                 (void)vfs_file_close(&file);
                 return pfs_selftest_fail(__LINE__, -15);
