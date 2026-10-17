@@ -152,3 +152,10 @@
 - [x] Reviewed the latest failing QEMU trace: argument registers still contain the expected `block_device_init` inputs, but all callee-side snapshots are zero despite stage `0xF041`. Added caller-side snapshots (call target, stack/frame, caller return, device/callback/private pointers and geometry) to distinguish a bad call/stack transition from a fault inside the callee on the next `office` run.
 - [ ] Re-run the build/boot workflow and inspect the caller-side diagnostics. The fault is not yet fixed; do not claim the OS boot or ProsenjitFS runtime self-test passes until the QEMU milestones pass.
 - **Status:** DML unit tests pass on OfficeWindows. Kernel/ProsenjitFS QEMU fault remains open; Debian/QEMU runtime verification is only through the designated `office` self-hosted runner, not the user's offline Debian system.
+
+### 2026-10-17 — DML registry-layout integrity hardening
+
+- [x] Hardened `manager_valid()` to enforce the registry's contiguous-prefix invariant: every slot below `count` must be registered, and every slot at/above `count` must be unregistered.
+- [x] Added regression cases for a hidden registration outside `count` and a count that claims an unregistered slot. These cases verify malformed public storage is rejected before selection or a later registration can overwrite it.
+- [ ] The new regression tests require a fresh run on `OfficeWindows`; no test pass is claimed for this commit until its DML job completes.
+- **Status:** source-level hardening and regression coverage committed. Real process-spawn backend, package installation/verification, display/input delivery, desktop compositor/window-system, and boot-to-GUI remain separate unfinished integration gates.
