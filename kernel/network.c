@@ -667,8 +667,11 @@ int pros_net_selftest(void)
     ip[0] = 0x45; put_be16(ip + 2u, 20u); ip[8] = 64u; ip[9] = PROS_NET_IP_TCP;
     put_be32(ip + 12u, 0xC0A80101u); put_be32(ip + 16u, 0xC0A80102u);
     put_be16(ip + 10u, 0u); put_be16(ip + 10u, pros_net_checksum(ip, 20u));
-    icmp[2] = (uint8_t)(pros_net_checksum(icmp, sizeof(icmp)) >> 8);
-    icmp[3] = (uint8_t)pros_net_checksum(icmp, sizeof(icmp));
+    {
+        uint16_t icmp_checksum = pros_net_checksum(icmp, sizeof(icmp));
+        icmp[2] = (uint8_t)(icmp_checksum >> 8);
+        icmp[3] = (uint8_t)icmp_checksum;
+    }
     {
         struct pros_net_icmp ihc;
         if (pros_net_parse_icmp(icmp, sizeof(icmp), &ihc) != PROS_NET_OK ||
