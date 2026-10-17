@@ -116,6 +116,7 @@ jobs:
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
           require_log "ProsenjitOS: address-space deep isolation self-test passed"
           require_log "ProsenjitOS: per-CPU usercopy fault state online"
+          require_log "ProsenjitOS: CPL3 scheduler-frame construction self-test passed"
 
       - name: Boot-test native BIOS image in QEMU
         run: |
@@ -163,6 +164,7 @@ jobs:
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
+          require_native_log "ProsenjitOS: CPL3 scheduler-frame construction self-test passed"
 
           # Reboot the same native disk image. The second boot must recover the
           # marker written by the first boot instead of reformatting the volume.

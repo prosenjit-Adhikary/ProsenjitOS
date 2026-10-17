@@ -44,6 +44,7 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
+static uint8_t user_frame_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 
@@ -1003,7 +1004,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame) {
+        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) {
         serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -1019,7 +1022,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         init_thread.interrupt_frame != &scheduler_init_frame ||
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
         scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame != &scheduler_worker_frame) {
+        worker_thread.interrupt_frame != &scheduler_worker_frame ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -1340,6 +1345,39 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\n");
     }
     serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\n");
+
+    /*
+     * Exercise construction of a first-run CPL3 scheduler frame without
+     * enqueueing it. This verifies entry/stack permissions, selectors, RFLAGS,
+     * and the per-thread kernel-stack contract before process spawning exists.
+     */
+    {
+        struct pros_thread user_frame_test_thread;
+        struct pros_user_interrupt_frame *user_frame;
+        uint64_t kernel_stack_bottom =
+            (uint64_t)(uintptr_t)user_frame_thread_stack;
+        uint64_t kernel_stack_top = kernel_stack_bottom +
+                                    sizeof(user_frame_thread_stack);
+        if (thread_init_user(&user_frame_test_thread, &init_process, 3u,
+                             elf_result.entry, elf_result.stack_top,
+                             kernel_stack_bottom, kernel_stack_top) != 0) {
+            serial_write("ProsenjitOS: ERROR CPL3 scheduler-frame construction failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        user_frame = (struct pros_user_interrupt_frame *)(uintptr_t)
+                     user_frame_test_thread.interrupt_frame;
+        if (!user_frame_test_thread.user_mode ||
+            user_frame_test_thread.kernel_stack_top != kernel_stack_top ||
+            user_frame->registers.rip != elf_result.entry ||
+            user_frame->registers.cs != 0x1Bu ||
+            user_frame->registers.rflags != 0x202u ||
+            user_frame->user_rsp != elf_result.stack_top ||
+            user_frame->user_ss != 0x23u) {
+            serial_write("ProsenjitOS: ERROR CPL3 scheduler-frame fields invalid\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: CPL3 scheduler-frame construction self-test passed\n");
+    }
 
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
         ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;

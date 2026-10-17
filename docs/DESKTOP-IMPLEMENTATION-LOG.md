@@ -497,3 +497,14 @@
 - [x] Root causes corrected in this sequence: ATA loops falsely failed transfers ending at the final LBA, and the second native QEMU command used doubled shell continuations. No checks were skipped or weakened.
 - [ ] Continue Desktop Implementation Plan phases: implement and test safe preemptive CPL3 process execution/spawn-wait-reap, userspace init/service management, production display/input drivers/services, then verify a compatible window system and XFCE end-to-end. These are genuine remaining features, not CI failures.
 - **Status:** OS/storage regression gates and host DML tests are green on the verified commit. Desktop GUI completion is still outstanding.
+
+
+### 2026-10-17 — Add validated first-run CPL3 scheduler frames
+
+- [x] Added a distinct CPL3 interrupt-frame shape with the required user RSP and SS words after RIP/CS/RFLAGS, while preserving the existing kernel interrupt-frame layout and the assembly-critical `pros_cpu_context.rsp` offset.
+- [x] Added `thread_init_user()` to validate an executable user entry mapping, a writable/NX user stack mapping, aligned bounded kernel stack storage, and then construct an IRET frame with user selectors `CS=0x1B`, `SS=0x23`, and `RFLAGS=0x202`. It does not enqueue or execute the thread by itself.
+- [x] Added TSS.RSP0 setter/getter assembly helpers and made interrupt-driven scheduling install the selected thread's kernel stack before returning its saved frame. The existing non-preemptive CPL3 self-test explicitly restores the bootstrap stack.
+- [x] Guarded the kernel `RET` scheduler path against selecting a CPL3 thread; CPL3 frames must go through the interrupt/IRET path.
+- [x] Added boot assertions for scheduler TSS-stack selection and a CPL3 frame-construction self-test; added both milestones to ISO and native BIOS QEMU gates.
+- [ ] Build and boot-test this commit on `office`, run security architecture checks, and run DML manager/runtime tests on `OfficeWindows`. A successful frame-construction test is only a prerequisite: real spawn/exec/wait/reap, safe user-mode preemption, and GUI services remain unimplemented.
+- **Status:** initial user-mode scheduler-frame primitive implemented; runtime verification pending and desktop remains incomplete.

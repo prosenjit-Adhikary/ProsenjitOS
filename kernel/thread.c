@@ -1,5 +1,6 @@
 #include "thread.h"
 #include "ipc.h"
+#include "paging.h"
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -31,7 +32,8 @@ int thread_manager_init(void) {
 
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry, uint64_t stack_top) {
-    if (!thread || !process || tid == 0 || entry == 0 || stack_top == 0)
+    if (!thread || !process || tid == 0 || entry == 0 || stack_top == 0 ||
+        (stack_top & 0xFULL) != 0u)
         return -1;
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
@@ -54,6 +56,10 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->context.r12 = 0;
     thread->context.rbx = 0;
     thread->context.rbp = 0;
+    thread->kernel_stack_top = stack_top;
+    thread->user_mode = 0u;
+    for (uint32_t i = 0u; i < sizeof(thread->reserved_flags); ++i)
+        thread->reserved_flags[i] = 0u;
     uint64_t *stack = (uint64_t *)(uintptr_t)stack_top;
     /*
      * thread_context_switch restores in this order:
@@ -74,6 +80,56 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->prev = 0;
     thread->registry_next = thread_registry;
     thread_registry = thread;
+    return 0;
+}
+
+int thread_init_user(struct pros_thread *thread, struct pros_process *process,
+                     uint64_t tid, uint64_t user_entry, uint64_t user_stack_top,
+                     uint64_t kernel_stack_bottom, uint64_t kernel_stack_top)
+{
+    uint64_t entry_physical = 0u, entry_flags = 0u;
+    uint64_t stack_physical = 0u, stack_flags = 0u;
+    struct pros_user_interrupt_frame *frame;
+
+    if (!thread || !process || tid == 0u || user_entry == 0u ||
+        user_stack_top == 0u || (user_stack_top & 0xFULL) != 0u ||
+        !kernel_stack_bottom || kernel_stack_top <= kernel_stack_bottom ||
+        (kernel_stack_bottom & 0xFULL) != 0u ||
+        (kernel_stack_top & 0xFULL) != 0u ||
+        kernel_stack_top - kernel_stack_bottom < 4096u ||
+        kernel_stack_top - kernel_stack_bottom <
+            sizeof(struct pros_user_interrupt_frame) + 7u * sizeof(uint64_t) ||
+        !process->address_space.root ||
+        address_space_translate_user(&process->address_space, user_entry,
+                                     &entry_physical, &entry_flags) != 0 ||
+        !(entry_flags & PROSENJIT_PAGE_USER) ||
+        (entry_flags & PROSENJIT_PAGE_NX) != 0u ||
+        address_space_validate_user_range(&process->address_space,
+                                          user_stack_top - 1u, 1u, 1) != 0 ||
+        address_space_translate_user(&process->address_space,
+                                     user_stack_top - 1u,
+                                     &stack_physical, &stack_flags) != 0 ||
+        !(stack_flags & PROSENJIT_PAGE_USER) ||
+        !(stack_flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(stack_flags & PROSENJIT_PAGE_NX))
+        return -1;
+
+    if (thread_init(thread, process, tid, user_entry, kernel_stack_top) != 0)
+        return -1;
+
+    /* Place the CPL3 IRET frame below the unused kernel-context bootstrap frame. */
+    frame = (struct pros_user_interrupt_frame *)(uintptr_t)
+        (thread->context.rsp - sizeof(struct pros_user_interrupt_frame));
+    for (uint32_t i = 0u; i < 15u; ++i)
+        ((uint64_t *)&frame->registers)[i] = 0u;
+    frame->registers.rip = user_entry;
+    frame->registers.cs = 0x1Bu;
+    frame->registers.rflags = 0x202u;
+    frame->user_rsp = user_stack_top;
+    frame->user_ss = 0x23u;
+    thread->interrupt_frame = &frame->registers;
+    thread->kernel_stack_top = kernel_stack_top;
+    thread->user_mode = 1u;
     return 0;
 }
 
@@ -177,15 +233,32 @@ struct pros_thread *thread_current(void) {
 }
 
 int thread_schedule(void) {
-    struct pros_thread *next;
+    struct pros_thread *next = 0;
     struct pros_thread *prev = current_thread;
+    uint32_t queued = 0u;
+    uint32_t attempts = 0u;
 
-    do {
-        next = thread_dequeue();
-        if (!next) return -1;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+    for (struct pros_thread *it = runq_head; it; it = it->next)
+        ++queued;
+    while (attempts < queued) {
+        struct pros_thread *candidate = thread_dequeue();
+        if (!candidate)
+            break;
+        ++attempts;
+        if (!thread_process_runnable(candidate)) {
+            candidate->state = PROS_THREAD_DEAD;
+            continue;
+        }
+        /* A CPL3 frame must be restored through IRET, never a kernel RET. */
+        if (candidate->user_mode) {
+            (void)thread_enqueue(candidate);
+            continue;
+        }
+        next = candidate;
+        break;
+    }
+    if (!next)
+        return -1;
 
     /*
      * Queue the previous runnable thread before changing address spaces.
@@ -245,6 +318,11 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         return current_frame;
     }
 
+    if (cpu_set_kernel_stack(next->kernel_stack_top) != 0) {
+        process_set_current(prev->process);
+        (void)thread_enqueue(next);
+        return current_frame;
+    }
     current_thread = next;
     current_thread->state = PROS_THREAD_RUNNING;
 
