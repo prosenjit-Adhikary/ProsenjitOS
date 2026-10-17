@@ -339,3 +339,12 @@
 - [x] Replaced the inappropriate global consistency check with a direct allocation-bitmap range check for the last successfully allocated block. Added an explicit `last_allocated_block` variable and used it for free/reuse verification.
 - [ ] Re-run QEMU and verify ENOSPC, free/reuse, inode allocation, and the remaining journal/crash recovery matrix.
 - **Status:** regression-test invariant fix and log committed together; runtime verification pending.
+
+
+### 2026-10-17 — Keep inode-exhaustion test scoped to allocator contract
+
+- [x] The office Debian runner built the ISO successfully. QEMU advanced to source line 7505 and failed with `rc=-17` in the tiny-image inode-exhaustion test.
+- [x] Root cause: the test intentionally calls `prosenjitfs_alloc_inode()` repeatedly to exhaust bitmap slots, without initializing valid inode records or linking them into the namespace. It then ran the global consistency checker, which is correctly expected to reject those deliberately unowned slots.
+- [x] Removed only the contradictory global-consistency assertion. The test still requires allocation to terminate with `PROSENJITFS_ENOSPC` and verifies that the allocator reached the expected exhaustion count; the surrounding mount/unmount and other consistency gates remain intact.
+- [ ] Re-run ISO/QEMU and native BIOS QEMU. Continue from the next exact failure; do not mark the desktop implementation complete until the full required gates pass.
+- **Status:** regression-test scope fix and this log entry committed together; runtime verification pending.

@@ -7499,8 +7499,13 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -17);
                 }
             }
-            if (inode_allocated < small_fs.sb.inode_count - 1u ||
-                pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
+            /*
+             * This loop deliberately allocates inode bitmap slots without
+             * constructing inode records or linking them into the namespace.
+             * Global consistency must reject those intentionally unowned
+             * slots; ENOSPC and the allocation count are the contract tested.
+             */
+            if (inode_allocated < small_fs.sb.inode_count - 1u) {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
             }
