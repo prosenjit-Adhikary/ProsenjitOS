@@ -86,6 +86,15 @@ int main(void)
                                   PROS_DML_SESSION_FAILED) == PROS_DML_OK,
               12);
         CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_RUNNING) == PROS_DML_ESTATE,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  (enum pros_dml_session_state)99) ==
+              PROS_DML_EINVAL, 12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  (enum pros_dml_session_state)-1) ==
+              PROS_DML_EINVAL, 12);
+        CHECK(pros_dml_transition(&manager, "xfce",
                                   PROS_DML_SESSION_STOPPED) == PROS_DML_OK,
               12);
         CHECK(pros_dml_get_state(&manager, "not-installed", &state) ==
