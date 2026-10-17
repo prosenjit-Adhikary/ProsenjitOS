@@ -91,10 +91,10 @@ grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
 
 echo "Built: $ISO"
 
-# Native BIOS boot artifact. This path deliberately does not depend on GRUB,
-# MBR partition parsing, or a filesystem: the stage-1/2 loader reads the
-# kernel from a fixed LBA layout. Partition/filesystem discovery remains a
-# later storage concern.
+# Native BIOS boot artifact. Stage-1 retains a conventional MBR partition
+# entry for the PFS volume while stage-1/2 load the kernel from fixed LBAs.
+# The kernel probes ATA PIO, discovers this partition, and only formats it on
+# first boot when the entire partition is verified blank.
 NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
 NATIVE_STAGE2_SECTORS=32
 NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))

@@ -164,6 +164,37 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
 
+          # Reboot the same native disk image. The second boot must recover the
+          # marker written by the first boot instead of reformatting the volume.
+          set +e
+          timeout 20s qemu-system-x86_64 \\
+            -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \\
+            -display none \\
+            -serial file:build/native-qemu-serial-second.log \\
+            -no-reboot \\
+            -no-shutdown \\
+            -d int \\
+            -D build/native-qemu-debug-second.log
+          second_qemu_status=$?
+          set -e
+          echo "Second native QEMU exit status: $second_qemu_status"
+          if (( second_qemu_status != 0 && second_qemu_status != 124 )); then
+            echo "::error::Second native QEMU exited with unexpected status: $second_qemu_status"
+            exit "$second_qemu_status"
+          fi
+          cat build/native-qemu-serial-second.log
+          require_second_native_log() {
+            local marker="$1"
+            if ! grep -Fq "$marker" build/native-qemu-serial-second.log; then
+              echo "::error::Missing second-boot persistence milestone: $marker"
+              return 1
+            fi
+          }
+          require_second_native_log "ProsenjitOS: native persistence marker recovered from prior boot"
+          require_second_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
+          require_second_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
+          require_second_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+
       # Diagnostics are already printed into the job log above. Do not upload
       # artifacts: this repository's Actions artifact storage quota is exhausted,
       # and the ISO/native image are reproducible from source.

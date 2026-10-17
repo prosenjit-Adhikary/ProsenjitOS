@@ -392,6 +392,184 @@ void user_mode_test_complete(void) {
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+
+static const char native_persistence_path[] = "/native-persistence.bin";
+static const uint8_t native_persistence_signature[] = {
+    'P', 'R', 'O', 'S', '-', 'N', 'A', 'T', '-', 'P', 'E', 'R', 'S', 'I', 'S', 'T', 1u
+};
+
+static int native_partition_is_blank(struct pros_block_device *device)
+{
+    uint8_t *buffer;
+    uint64_t lba = 0u;
+    if (!device || device->sector_size == 0u || device->sector_count == 0u)
+        return -1;
+    buffer = (uint8_t *)kmalloc(device->sector_size * 8u);
+    if (!buffer)
+        return -1;
+    while (lba < device->sector_count) {
+        uint64_t remaining = device->sector_count - lba;
+        uint32_t count = remaining > 8u ? 8u : (uint32_t)remaining;
+        uint32_t bytes = count * device->sector_size;
+        if (block_device_read(device, lba, count, buffer) != PROS_BLOCK_OK) {
+            kfree(buffer);
+            return -1;
+        }
+        for (uint32_t i = 0u; i < bytes; ++i) {
+            if (buffer[i] != 0u) {
+                kfree(buffer);
+                return 0;
+            }
+        }
+        lba += count;
+    }
+    kfree(buffer);
+    return 1;
+}
+
+static int native_persistence_marker_read(struct pros_prosenjitfs *fs)
+{
+    struct pros_vfs_file file = {0};
+    uint8_t actual[sizeof(native_persistence_signature)];
+    uint32_t done = 0u;
+    int rc = vfs_file_open(&fs->mount, native_persistence_path,
+                           PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!file.vnode || file.vnode->size != sizeof(native_persistence_signature)) {
+        (void)vfs_file_close(&file);
+        return PROS_VFS_ECORRUPT;
+    }
+    rc = vfs_file_read(&file, actual, sizeof(actual), &done);
+    {
+        int close_rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK || close_rc != PROS_VFS_OK ||
+            done != sizeof(actual))
+            return PROS_VFS_EIO;
+    }
+    for (uint32_t i = 0u; i < sizeof(actual); ++i) {
+        if (actual[i] != native_persistence_signature[i])
+            return PROS_VFS_ECORRUPT;
+    }
+    return PROS_VFS_OK;
+}
+
+static int native_persistence_marker_create(struct pros_prosenjitfs *fs)
+{
+    struct pros_vfs_file file = {0};
+    uint32_t done = 0u;
+    int rc = vfs_file_open(&fs->mount, native_persistence_path,
+                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                           PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_write(&file, native_persistence_signature,
+                        sizeof(native_persistence_signature), &done);
+    {
+        int close_rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK || close_rc != PROS_VFS_OK ||
+            done != sizeof(native_persistence_signature))
+            return PROS_VFS_EIO;
+    }
+    return PROS_VFS_OK;
+}
+
+/*
+ * Native BIOS storage is an actual IDE/ATA block path, not a RAM-disk test.
+ * A blank PFS partition is formatted only after every sector has been
+ * confirmed zero; a nonblank unsupported/corrupt partition is never
+ * auto-formatted. The marker is written once, then checked after unmount and
+ * remount so durable writes and partition-local bounds are exercised.
+ */
+static int native_bios_storage_selftest(void)
+{
+    static struct pros_ata_pio ata;
+    static struct pros_prosenjitfs fs;
+    struct pros_partition partitions[4];
+    struct pros_partition *pfs_partition = 0;
+    struct pros_partition_device view = {0};
+    uint8_t mbr[512];
+    uint32_t partition_count = 0u;
+    int rc;
+    int marker_preexisting = 0;
+
+    if (pros_ata_pio_selftest() != PROS_ATA_OK)
+        return -1;
+    serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+
+    if (pros_ata_pio_probe(&ata) != PROS_ATA_OK ||
+        ata.block.sector_size != 512u ||
+        block_device_read(&ata.block, 0u, 1u, mbr) != PROS_BLOCK_OK ||
+        mbr[510] != 0x55u || mbr[511] != 0xAAu)
+        return -2;
+
+    if (partition_read_mbr(&ata.block, partitions, 4u, &partition_count) !=
+            PROS_PARTITION_OK)
+        return -3;
+    for (uint32_t i = 0u; i < partition_count; ++i) {
+        if (partitions[i].mbr_type == 0xDAu) {
+            pfs_partition = &partitions[i];
+            break;
+        }
+    }
+    if (!pfs_partition)
+        return -4;
+    if (partition_device_init(&view, &ata.block, pfs_partition) !=
+            PROS_PARTITION_OK)
+        return -5;
+
+    rc = prosenjitfs_probe(&view.device);
+    if (rc == PROSENJITFS_ENOTSUP) {
+        int blank = native_partition_is_blank(&view.device);
+        if (blank != 1)
+            return -6;
+        if (prosenjitfs_format(&view.device) != PROSENJITFS_OK ||
+            prosenjitfs_probe(&view.device) != PROSENJITFS_OK)
+            return -7;
+    } else if (rc != PROSENJITFS_OK) {
+        return -8;
+    }
+
+    if (prosenjitfs_mount(&fs, &view.device, 0u) != PROSENJITFS_OK)
+        return -9;
+    rc = native_persistence_marker_read(&fs);
+    if (rc == PROS_VFS_ENOENT) {
+        if (native_persistence_marker_create(&fs) != PROS_VFS_OK) {
+            (void)prosenjitfs_unmount(&fs);
+            return -10;
+        }
+    } else if (rc == PROS_VFS_OK) {
+        marker_preexisting = 1;
+    } else {
+        (void)prosenjitfs_unmount(&fs);
+        return -11;
+    }
+
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &view.device, 0u) != PROSENJITFS_OK)
+        return -12;
+    if (native_persistence_marker_read(&fs) != PROS_VFS_OK) {
+        (void)prosenjitfs_unmount(&fs);
+        return -13;
+    }
+
+    if (block_device_read(&view.device, view.device.sector_count, 1u, mbr) !=
+            PROS_BLOCK_EINVAL ||
+        block_device_write(&view.device, view.device.sector_count, 1u, mbr) !=
+            PROS_BLOCK_EINVAL) {
+        (void)prosenjitfs_unmount(&fs);
+        return -14;
+    }
+    serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
+
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -15;
+    if (marker_preexisting)
+        serial_write("ProsenjitOS: native persistence marker recovered from prior boot\n");
+    serial_write("ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed\n");
+    return 0;
+}
+
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
@@ -540,6 +718,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     (void)pros_health_watchdog_kick(1u);
+
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        int native_storage_rc = native_bios_storage_selftest();
+        if (native_storage_rc != 0) {
+            serial_write("ProsenjitOS: ERROR native BIOS storage self-test rc=");
+            serial_hex64((uint64_t)(int64_t)native_storage_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
 
     struct pros_process init_process;
     if (process_manager_init() != 0 ||

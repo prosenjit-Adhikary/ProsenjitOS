@@ -447,3 +447,14 @@
 - [x] Split the test body into an isolated fixture and wrapped it with save/restore of the manager globals and address-space context. The original self-test assertions remain intact; on return, the previously active process and PID allocator are restored.
 - [ ] Re-run ISO/QEMU to verify the CPL3 syscall completion milestone and downstream scheduler/IPC tests; then run native BIOS QEMU and the Windows DML tests.
 - **Status:** process-manager test-isolation defect fixed; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Implement and verify native BIOS ATA/MBR/ProsenjitFS persistence path
+
+- [x] The ISO/QEMU run now passes all existing milestones through CPL3. The native BIOS job exposed a missing implementation, not a log-only issue: `kernel.c` never probed ATA PIO or mounted the MBR-declared PFS partition, while `build.sh` left that partition blank.
+- [x] Added a native-boot-only ATA PIO path: probe/read the real IDE block device, parse its MBR, locate the 0xDA ProsenjitFS partition, and validate partition-local out-of-range reads/writes are rejected.
+- [x] The kernel now formats a partition only when `prosenjitfs_probe()` rejects it and a full sector scan proves every partition sector is zero. A nonblank unsupported/corrupt partition is never auto-formatted.
+- [x] Added a persistent marker write/read test with unmount/remount verification. The native workflow now boots the same disk image twice and requires the second boot to report recovery of the marker written on the first boot.
+- [x] Exposed the existing PFS probe/format/mount/unmount functions through the kernel PFS header and corrected the build-script comment to match the real native storage flow.
+- [ ] Verify build, ISO/QEMU, first native BIOS boot, second native BIOS persistence boot, security architecture checks, and OfficeWindows DML unit tests on this commit.
+- **Status:** native storage integration implemented; runtime verification pending. Desktop environment is not yet complete.
