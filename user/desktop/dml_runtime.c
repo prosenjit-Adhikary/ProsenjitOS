@@ -2,12 +2,27 @@
 
 static int runtime_valid(const struct pros_dml_runtime *runtime)
 {
-    return runtime && runtime->magic == PROS_DML_RUNTIME_MAGIC &&
-           runtime->manager &&
-           runtime->manager->magic == PROS_DML_MANAGER_MAGIC &&
-           runtime->manager->count <= PROS_DML_MAX_DESKTOPS &&
-           runtime->ops.start && runtime->ops.stop &&
-           runtime->active_count <= PROS_DML_MAX_DESKTOPS;
+    if (!runtime || runtime->magic != PROS_DML_RUNTIME_MAGIC ||
+        !runtime->manager ||
+        runtime->manager->magic != PROS_DML_MANAGER_MAGIC ||
+        runtime->manager->count > PROS_DML_MAX_DESKTOPS ||
+        !runtime->ops.start || !runtime->ops.stop ||
+        runtime->active_count > PROS_DML_MAX_DESKTOPS)
+        return 0;
+
+    /* The runtime structure is public storage; validate its active index list. */
+    for (uint32_t i = 0; i < runtime->active_count; ++i) {
+        uint32_t index = runtime->active_order[i];
+
+        if (index >= runtime->manager->count ||
+            !runtime->manager->entries[index].registered)
+            return 0;
+        for (uint32_t j = 0; j < i; ++j) {
+            if (runtime->active_order[j] == index)
+                return 0;
+        }
+    }
+    return 1;
 }
 
 static int backend_status(int status)
