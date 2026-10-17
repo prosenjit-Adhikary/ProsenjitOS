@@ -215,3 +215,13 @@
 - [ ] Root cause of the `0xF041` fault remains unproven. The caller trace has a nonzero target and arguments, but callee snapshots are zero despite stores appearing before the checkpoint in linked disassembly. Next, reconcile the trace using a minimal call/return probe or debugger evidence before modifying the production path.
 - [ ] Production process spawn/exec/wait/reap, userspace init/service startup, display/input delivery, and real desktop-session verification remain incomplete.
 - **Status:** DML unit tests and security checks pass; ISO compiles; QEMU boot and desktop completion remain blocked.
+
+
+### 2026-10-17 13:29 UTC — Add a stack-frame measurement probe (commit 95565d5)
+
+- [x] Re-read the latest `office` QEMU diagnostics and the exact linked `block_device_init` disassembly.
+- [x] The caller snapshot reports RSP `0xD5990` and frame address `0x1568F0` (a gap of about 562 KiB), while the fault has `RIP=0` and the callee's saved return-address snapshot is reported as zero. This is a strong clue to investigate stack/frame integrity, but it is not yet proof of stack overflow or a root cause; the caller/callee global-snapshot mismatch also needs explanation.
+- [x] Added a diagnostic-only `-fstack-usage` report for `kernel/prosenjitfs.c` and linked disassembly of `prosenjitfs_selftest` entry/call site to `scripts/build.sh`. This does not change runtime logic; it should reveal the compiler-reported static frame size and the actual call-site stack adjustment in the next build log.
+- [ ] Run the new diagnostics on the designated `office` runner and compare the reported frame size with the observed caller RSP/frame values.
+- [ ] Only after the new trace identifies a concrete cause, make a minimal kernel/ProsenjitFS fix and rerun all required ISO and native BIOS milestones.
+- **Status:** instrumentation commit `95565d5d44d23a4fcc4c59411a0c3758f9e741d4` is pushed; its build workflow is queued. DML tests and security checks passed on the immediately preceding tested commit; this new diagnostic commit still requires its own CI result.
