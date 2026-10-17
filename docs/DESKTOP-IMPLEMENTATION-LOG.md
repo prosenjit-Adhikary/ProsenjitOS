@@ -348,3 +348,12 @@
 - [x] Removed only the contradictory global-consistency assertion. The test still requires allocation to terminate with `PROSENJITFS_ENOSPC` and verifies that the allocator reached the expected exhaustion count; the surrounding mount/unmount and other consistency gates remain intact.
 - [ ] Re-run ISO/QEMU and native BIOS QEMU. Continue from the next exact failure; do not mark the desktop implementation complete until the full required gates pass.
 - **Status:** regression-test scope fix and this log entry committed together; runtime verification pending.
+
+
+### 2026-10-17 — Reset allocator-exhaustion image before global consistency check
+
+- [x] The latest office Debian QEMU run passed block and inode allocation exhaustion but stopped at source line 7543 with rc=-17 in the following mount-boundary/consistency check.
+- [x] Root cause: the preceding exhaustion test intentionally leaves raw data blocks and inode bitmap slots allocated without inode/extent ownership. Reusing that same image for pfs_selftest_consistency() makes the checker correctly reject the deliberately inconsistent exhaustion fixture.
+- [x] Added a checked reformat of the tiny test device after its filesystem is unmounted and before the independent short-partition rejection and clean consistency checks. This preserves the strict global consistency assertion while isolating the test fixtures.
+- [ ] Re-run ISO/QEMU and verify the remaining journal recovery and crash/power-loss matrix, then run the native BIOS QEMU gate. The OfficeWindows DML manager/runtime tests passed on commit 31e7beee53bfce2d1b073ddc50d4023039079439.
+- **Status:** test-fixture isolation fix committed; runtime verification pending. Desktop environment is not yet complete.

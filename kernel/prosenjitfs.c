@@ -7514,6 +7514,15 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
+        /*
+         * The allocator-exhaustion checks above intentionally leave raw
+         * blocks and inode bitmap slots allocated without owners. Restore a
+         * clean image before running the independent mount-boundary and
+         * global-consistency checks below.
+         */
+        if (prosenjitfs_format(&small_device) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
         pfs_selftest_diag_stage = __LINE__;
         /*
          * A partition view that is one sector shorter than the durable
