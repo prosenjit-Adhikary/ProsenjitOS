@@ -82,35 +82,59 @@ try {
             $compiler = Get-Command 'cl.exe' -ErrorAction Stop | Select-Object -First 1
         }
     }
+    $isZig = $false
     if (-not $compiler) {
-        $details = @(
-            'No supported C compiler was found on OfficeWindows.',
-            'Checked PATH for MSVC/Clang/GCC/cc and searched Visual Studio 2019/2022 C++ Build Tools.',
-            'Install Visual Studio Build Tools with the “Desktop development with C++” workload on this runner, then rerun.'
-        ) -join [Environment]::NewLine
-        throw $details
+        # Last-resort, user-mode toolchain: fetch the official Zig compiler into
+        # this job's temporary directory and verify its pinned SHA-256 before use.
+        # This avoids a paid hosted runner and does not require admin installation.
+        $zigVersion = '0.17.0'
+        $zigArchiveName = "zig-x86_64-windows-$zigVersion.zip"
+        $zigUrl = "https://ziglang.org/download/$zigVersion/$zigArchiveName"
+        $zigExpectedSha256 = 'b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428'
+        $zigArchive = Join-Path $tmp $zigArchiveName
+        $zigExtract = Join-Path $tmp 'zig-extracted'
+        Write-Host "No installed compiler found; downloading pinned Zig $zigVersion from the official Zig site."
+        Invoke-WebRequest -Uri $zigUrl -OutFile $zigArchive -UseBasicParsing
+        $zigActualSha256 = (Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($zigActualSha256 -ne $zigExpectedSha256) {
+            throw "Zig archive SHA-256 mismatch. Expected $zigExpectedSha256, got $zigActualSha256."
+        }
+        Expand-Archive -LiteralPath $zigArchive -DestinationPath $zigExtract -Force
+        $zigExe = Get-ChildItem -LiteralPath $zigExtract -Filter 'zig.exe' -File -Recurse | Select-Object -First 1
+        if (-not $zigExe) { throw 'Verified Zig archive did not contain zig.exe.' }
+        $compiler = $zigExe
+        $isZig = $true
     }
 
-    Write-Host ("Using C compiler: " + $compiler.Source)
-    $isMsvc = [System.IO.Path]::GetFileName($compiler.Source) -ieq 'cl.exe'
+    Write-Host ("Using C compiler: " + $compiler.FullName)
+    $isMsvc = [System.IO.Path]::GetFileName($compiler.FullName) -ieq 'cl.exe'
     $managerExe = Join-Path $tmp 'desktop_manager_test.exe'
     $runtimeExe = Join-Path $tmp 'desktop_runtime_test.exe'
 
     if ($isMsvc) {
-        & $compiler.Source '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $managerExe)
+        & $compiler.FullName '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $managerExe)
         if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed for desktop_manager_test.' }
         & $managerExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
-        & $compiler.Source '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $runtimeExe)
+        & $compiler.FullName '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $runtimeExe)
         if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed for desktop_runtime_test.' }
         & $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
+    } elseif ($isZig) {
+        & $compiler.FullName 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
+        if ($LASTEXITCODE -ne 0) { throw 'Zig C compilation failed for desktop_manager_test.' }
+        & $managerExe
+        if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
+        & $compiler.FullName 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
+        if ($LASTEXITCODE -ne 0) { throw 'Zig C compilation failed for desktop_runtime_test.' }
+        & $runtimeExe
+        if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
     } else {
-        & $compiler.Source '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
+        & $compiler.FullName '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
         if ($LASTEXITCODE -ne 0) { throw 'Compilation failed for desktop_manager_test.' }
         & $managerExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
-        & $compiler.Source '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
+        & $compiler.FullName '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw 'Compilation failed for desktop_runtime_test.' }
         & $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
