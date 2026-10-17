@@ -393,3 +393,12 @@
 - [x] Added the valid ACK for the expected sequence number after the invalid-ACK assertion and before the oversized send. The test now proves the bad ACK is rejected without advancing state, then transitions to ESTABLISHED and tests the payload bound under the documented state precondition.
 - [ ] Re-run ISO/QEMU and continue through PCI and CPL3 milestones; verify native BIOS and OfficeWindows DML gates separately.
 - **Status:** network regression fixture corrected; runtime verification pending and desktop environment remains incomplete.
+
+
+### 2026-10-17 — Check the full accepted network payload length
+
+- [x] The latest QEMU run passed the filesystem, broker, and display self-tests but still stopped at the network protocol/socket self-test after the first socket send assertion.
+- [x] Source review found the test sent a two-byte payload (`sizeof(payload) == 2`) while expecting `pros_net_socket_send()` to return `1`. The API returns the number of bytes accepted, so the assertion was incorrect.
+- [x] Changed the expected result to `(int)sizeof(payload)`. The separate final oversized-payload test now also establishes the socket before checking EBOUNDS, preserving state and bounds coverage.
+- [ ] Re-run ISO/QEMU and continue through PCI/CPL3 and later milestones; verify native BIOS and OfficeWindows DML gates separately.
+- **Status:** network test assertions aligned with API semantics; runtime verification pending and desktop remains incomplete.
