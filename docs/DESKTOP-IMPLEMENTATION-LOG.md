@@ -312,3 +312,12 @@
 - [x] Changed the read path to preserve filesystem error mapping through `pfs_vfs_error(rc)`; a successful lookup with an impossible zero extent-block location now returns `PROS_VFS_ECORRUPT` instead of generic I/O failure. Partial reads continue to return the bytes already read.
 - [ ] Re-run ISO/QEMU and confirm the corruption regression passes, then continue through the remaining persistence/journal matrix and native BIOS gate.
 - **Status:** source fix committed with this log entry; runtime verification pending. No desktop-completion claim.
+
+
+### 2026-10-17 — Unmount corrupted test image before restoring it
+
+- [x] The latest QEMU run passed the bounded-truncate fixture and the malformed-extent read assertion, then failed at source line 7415 with `rc=-16` while restoring the clean ProsenjitFS image.
+- [x] Traced the restore sequence: after validating that the corrupted filesystem is rejected, the self-test zeroed and reformatted the backing disk while the same `fs` object was still mounted, then attempted to mount it again. `prosenjitfs_mount()` must not be called over an active mount.
+- [x] Added an explicit successful `prosenjitfs_unmount(&fs)` check before resetting the mock disk and formatting/remounting the clean image.
+- [ ] Re-run QEMU and verify the corruption test, clean remount, allocation-exhaustion and journal/crash matrix all advance. Continue fixing the next exact failing assertion rather than weakening the self-test gate.
+- **Status:** source fix and log committed together; runtime verification pending.
