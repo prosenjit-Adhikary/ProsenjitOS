@@ -374,6 +374,11 @@ int pros_dml_get_state(const struct pros_dml_manager *manager,
     index = dml_find(manager, desktop_id);
     if (index < 0)
         return PROS_DML_ENOENT;
+    /* Public manager storage may be corrupted; never report an invalid state
+     * as a successful observation to lifecycle callers. */
+    if (manager->entries[index].session_state >
+        (uint32_t)PROS_DML_SESSION_FAILED)
+        return PROS_DML_ESTATE;
     *out_state = (enum pros_dml_session_state)
         manager->entries[index].session_state;
     return PROS_DML_OK;
