@@ -303,3 +303,12 @@
 - [x] Changed fixture writes to `n * 2 * block_size`, leaving one logical block hole between each written block. Added a precondition that the inode contains exactly eight one-block extents at logical blocks 0, 2, 4, ..., 14 before testing bounded truncate.
 - [ ] Run the updated ISO/QEMU test. If the new extent-layout assertion or truncate expectation fails, use its distinct `-17` diagnostic and the exact source line to continue root-cause analysis.
 - **Status:** source/test fix committed as `8863302b4c2fbf12373d61b01a3ab32f2d2d87f0`; runtime verification pending. This is a regression-test fixture correction, not yet a verified filesystem fix or desktop completion.
+
+
+### 2026-10-17 — Preserve corruption errors on malformed file extents
+
+- [x] The updated bounded-truncate fixture advanced past its previous `-15` failure. The next QEMU result stopped at source line 7400 with `rc=-16` in the semantic-corruption test for `/corrupt.bin`.
+- [x] Traced the failure to `pfs_file_read()`: when `pfs_find_extent()` returned a specific error (including `PROSENJITFS_ECORRUPT` for the deliberately invalid extent head), the read path collapsed it to generic `PROS_VFS_EIO`. The regression correctly expects `PROS_VFS_ECORRUPT`.
+- [x] Changed the read path to preserve filesystem error mapping through `pfs_vfs_error(rc)`; a successful lookup with an impossible zero extent-block location now returns `PROS_VFS_ECORRUPT` instead of generic I/O failure. Partial reads continue to return the bytes already read.
+- [ ] Re-run ISO/QEMU and confirm the corruption regression passes, then continue through the remaining persistence/journal matrix and native BIOS gate.
+- **Status:** source fix committed with this log entry; runtime verification pending. No desktop-completion claim.
