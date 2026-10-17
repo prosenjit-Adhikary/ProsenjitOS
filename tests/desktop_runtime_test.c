@@ -20,6 +20,7 @@ struct mock_backend {
     const char *fail_stop_id;
     int fail_start_once;
     int fail_stop_once;
+    int return_zero_handle_once;
 };
 
 static int mock_start(const struct pros_dml_manifest *manifest,
@@ -38,6 +39,10 @@ static int mock_start(const struct pros_dml_manifest *manifest,
         strcmp(mock->fail_start_id, manifest->id) == 0) {
         mock->fail_start_once = 0;
         return -77;
+    }
+    if (mock->return_zero_handle_once) {
+        mock->return_zero_handle_once = 0;
+        return 0;
     }
     *handle = ++mock->next_handle;
     return 0;
@@ -182,6 +187,17 @@ int main(void)
           state == PROS_DML_SESSION_STOPPED, 12);
     CHECK(pros_dml_get_state(&manager, "session", &state) == PROS_DML_OK &&
           state == PROS_DML_SESSION_STOPPED, 12);
+
+    /* A backend must not report success without publishing a valid handle. */
+    mock.return_zero_handle_once = 1;
+    CHECK(pros_dml_runtime_start(&runtime, "session") == PROS_DML_EBACKEND, 13);
+    CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ENOENT, 13);
+    CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_FAILED, 13);
+    CHECK(pros_dml_runtime_start(&runtime, "session") == PROS_DML_OK, 14);
+    CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 14);
+    CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
+          state == PROS_DML_SESSION_STOPPED, 14);
 
     (void)puts("desktop runtime tests passed");
     return 0;
