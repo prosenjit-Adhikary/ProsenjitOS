@@ -12,6 +12,8 @@ try {
     if ($bash) {
         & $bash.Source -n (Join-Path $root 'scripts/test_desktop_manager.sh')
         if ($LASTEXITCODE -ne 0) { throw 'Bash syntax validation failed for scripts/test_desktop_manager.sh.' }
+        & $bash.Source -n (Join-Path $root 'scripts/desktop_complete.sh')
+        if ($LASTEXITCODE -ne 0) { throw 'Bash syntax validation failed for scripts/desktop_complete.sh.' }
     } else {
         Write-Host 'bash is not installed; using the native Windows compiler path.'
     }
@@ -31,11 +33,11 @@ try {
     $runtimeExe = Join-Path $tmp 'desktop_runtime_test.exe'
 
     if ($isMsvc) {
-        & $compiler.Source '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') ("/Fe:" + $managerExe)
+        & $compiler.Source '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $managerExe)
         if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed for desktop_manager_test.' }
         & $managerExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
-        & $compiler.Source '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') ("/Fe:" + $runtimeExe)
+        & $compiler.Source '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $runtimeExe)
         if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed for desktop_runtime_test.' }
         & $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
