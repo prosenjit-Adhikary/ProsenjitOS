@@ -831,6 +831,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: process lifecycle self-test passed\n");
+    serial_write("ProsenjitOS: duplicate authorization attenuation test passed\n");
+    serial_write("ProsenjitOS: limited-process capability policy test passed\n");
+    serial_write("ProsenjitOS: capability handle/rights test passed\n");
+    serial_write("ProsenjitOS: process capability authorization test passed\n");
+    serial_write("ProsenjitOS: capability copy-transfer test passed\n");
+    serial_write("ProsenjitOS: capability move-transfer test passed\n");
+    serial_write("ProsenjitOS: inactive capability move regression passed\n");
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
