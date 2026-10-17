@@ -61,6 +61,9 @@ int main(void)
     manifest.required_features = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 5);
     CHECK(pros_dml_count(&manager) == 1u, 6);
+    manager.entries[0].registered = 2u;
+    CHECK(pros_dml_select(&manager, "xfce") == PROS_DML_EINVAL, 6);
+    manager.entries[0].registered = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EEXIST, 7);
     CHECK(pros_dml_preflight(&manager, "xfce") == PROS_DML_OK, 8);
     CHECK(pros_dml_select(&manager, "xfce") == PROS_DML_OK, 9);
