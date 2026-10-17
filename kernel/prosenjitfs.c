@@ -7409,13 +7409,16 @@ int prosenjitfs_selftest(void)
         pfs_zero(&small_disk, sizeof(small_disk));
         if (block_device_init(&small_device, 512u, PFS_MIN_BLOCKS,
                               pfs_test_read, pfs_test_write, &small_disk) !=
-                PROS_BLOCK_OK ||
-            block_device_set_flush(&small_device, pfs_test_flush) !=
-                PROS_BLOCK_OK ||
-            prosenjitfs_format(&small_device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&small_fs, &small_device, 0u) !=
+                PROS_BLOCK_OK)
+            return pfs_selftest_fail(__LINE__, -181);
+        if (block_device_set_flush(&small_device, pfs_test_flush) !=
+                PROS_BLOCK_OK)
+            return pfs_selftest_fail(__LINE__, -182);
+        if (prosenjitfs_format(&small_device) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -183);
+        if (prosenjitfs_mount(&small_fs, &small_device, 0u) !=
                 PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -173);
+            return pfs_selftest_fail(__LINE__, -184);
 
         for (;;) {
             int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
