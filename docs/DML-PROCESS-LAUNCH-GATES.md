@@ -109,3 +109,14 @@ means the current trace is not yet sufficient to identify the faulting
 instruction or prove a bad return address. Next step: isolate and reconcile
 checkpoint/snapshot behavior with a minimal call/return probe or debugger trace
 before changing production code. No root cause is claimed.
+
+
+## 2026-10-17 latest verification update — run 39036283325
+
+- [x] DML manager and runtime unit tests passed on the explicitly checked `OfficeWindows` runner. The job log contains the three success lines for manager tests, runtime tests, and the overall DML test script.
+- [x] Security architecture contract checks passed in run `39036283329`.
+- [x] ISO build passed on the designated `office` Debian runner.
+- [ ] QEMU ISO boot still fails before IPC-channel/capability and CPL3 milestones. Current diagnostic remains #PF vector `0xE`, error `0x11`, `RIP=0`, `CR2=0`, stage `0xF041`. Native BIOS boot is skipped.
+- [ ] Do not treat the 20-second QEMU timeout as success by itself: the required serial markers must all be present. Here they are not.
+- [ ] Do not implement a production DML launcher until the spawn/exec ABI, process/thread ownership, ELF mapping and CPL3 entry, syscall policy, and wait/reap semantics are designed against the existing kernel interfaces and covered by tests.
+- **Status:** DML host tests and security checks pass. OS build passes. Kernel boot and end-to-end desktop remain blocked.
