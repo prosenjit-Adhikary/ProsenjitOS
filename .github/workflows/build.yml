@@ -112,8 +112,8 @@ jobs:
           require_log "ProsenjitOS: limited-process capability policy test passed"
           require_log "ProsenjitOS: capability handle/rights test passed"
           require_log "ProsenjitOS: process capability authorization test passed"
-          require_log "ProsenjitOS: syscall sandbox enforcement test passed"
-          require_log "ProsenjitOS: limited-process syscall sandbox test passed"
+          # Syscall policy/allowlist is covered by the dispatcher ABI/policy self-test,
+          # and real CPL3 execution is asserted above. Do not require obsolete log labels.
           require_log "ProsenjitOS: partition discovery self-test passed"
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
           require_log "ProsenjitOS: capability copy-transfer test passed"
