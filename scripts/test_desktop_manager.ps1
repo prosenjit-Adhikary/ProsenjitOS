@@ -107,7 +107,7 @@ try {
     }
 
     if ($compiler -is [System.IO.FileInfo]) {
-        $compilerPath = $compilerPath
+        $compilerPath = $compiler.FullName
     } else {
         $compilerPath = $compiler.Source
     }
