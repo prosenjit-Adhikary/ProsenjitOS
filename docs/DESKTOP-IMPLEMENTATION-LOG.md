@@ -366,3 +366,12 @@
 - [x] Added pfs_test_crash_reset(&fs, &disk) between the durable stage-9 interruption and the recovery mount. This discards volatile cache state and tears down in-memory mount state while preserving the durable journal, matching the intended power-loss scenario.
 - [ ] Re-run ISO/QEMU to verify recovery interruption at stages 10 and 11, then verify the native BIOS QEMU gate and the full DML Windows job.
 - **Status:** crash-test lifecycle fix committed; runtime verification pending, desktop environment remains incomplete.
+
+
+### 2026-10-17 — Expose device-broker self-test failure stage
+
+- [x] The latest QEMU run passed the complete ProsenjitFS journal/recovery self-test and then stopped in the device permission broker self-test before CPL3 startup.
+- [x] The broker self-test already returns distinct negative codes for its assertions (-1 through -12), but kernel boot logging discarded that code, preventing evidence-based diagnosis.
+- [x] Updated the boot failure message to print the exact signed broker self-test result in hexadecimal. This is diagnostic instrumentation only; it does not relax the broker gate or claim the broker is fixed.
+- [ ] Re-run the latest commit, map the reported code to the precise broker assertion, fix the underlying defect, then rerun ISO/QEMU, native BIOS QEMU, and OfficeWindows DML tests.
+- **Status:** diagnostic commit pending runtime evidence; desktop implementation is not complete.
