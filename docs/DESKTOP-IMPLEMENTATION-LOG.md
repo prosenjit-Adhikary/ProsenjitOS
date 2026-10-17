@@ -485,3 +485,15 @@
 - [x] Changed those seven continuations to single backslashes. The first native boot and all its checks are unchanged; the second boot will now invoke QEMU with the same image and can verify marker recovery.
 - [ ] Re-run build, ISO/QEMU, first and second native BIOS boots, OfficeWindows DML tests, and security checks on this revision.
 - **Status:** CI invocation defect fixed; persistent second-boot recovery and desktop completion still require verification.
+
+
+### 2026-10-17 — Verification of native persistence and DML gates
+
+- [x] Tested exact source commit `73d5680b1b629d712fef4bc4b220be9a996de3b5` on the designated `office` Debian self-hosted runner: warnings-as-errors build and ISO/QEMU boot gate passed.
+- [x] Native BIOS first boot passed ATA PIO, MBR partition discovery, ProsenjitFS format/mount, filesystem-local LBA boundary checks, marker write, unmount/remount, and marker readback.
+- [x] Native BIOS second boot reused the same disk image and emitted `ProsenjitOS: native persistence marker recovered from prior boot`; the persistent-mount and LBA-boundary milestones also passed. Both QEMU invocations ended with expected timeout status 124 after the required milestones.
+- [x] The designated `OfficeWindows` runner passed `desktop_manager_test` and `desktop_runtime_test` (DML job `117459252207`).
+- [x] Security architecture checks passed (run `39054385898`).
+- [x] Root causes corrected in this sequence: ATA loops falsely failed transfers ending at the final LBA, and the second native QEMU command used doubled shell continuations. No checks were skipped or weakened.
+- [ ] Continue Desktop Implementation Plan phases: implement and test safe preemptive CPL3 process execution/spawn-wait-reap, userspace init/service management, production display/input drivers/services, then verify a compatible window system and XFCE end-to-end. These are genuine remaining features, not CI failures.
+- **Status:** OS/storage regression gates and host DML tests are green on the verified commit. Desktop GUI completion is still outstanding.
