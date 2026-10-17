@@ -7324,13 +7324,21 @@ int prosenjitfs_selftest(void)
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
-            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
-                vfs_file_close(&file) != PROS_VFS_OK ||
-                prosenjitfs_read_inode(&fs, file_data->inode_number,
-                                       &before_inode) != PROSENJITFS_OK ||
-                before_inode.size != before_size ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
-                vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
+            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW) {
+                (void)vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -15);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            /* Do not dereference file_data after close releases the vnode. */
+            if (prosenjitfs_read_inode(&fs, inode_number,
+                                       &before_inode) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            if (before_inode.size != before_size)
+                return pfs_selftest_fail(__LINE__, -15);
+            if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+            if (vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
