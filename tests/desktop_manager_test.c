@@ -58,6 +58,39 @@ int main(void)
     CHECK(pros_dml_selected(&manager, &output) == PROS_DML_OK, 10);
     CHECK(strcmp(output.id, "xfce") == 0, 11);
     CHECK(pros_dml_get(&manager, "missing", &output) == PROS_DML_ENOENT, 12);
+    {
+        enum pros_dml_session_state state = PROS_DML_SESSION_FAILED;
+
+        CHECK(pros_dml_get_state(&manager, "xfce", &state) == PROS_DML_OK,
+              12);
+        CHECK(state == PROS_DML_SESSION_STOPPED, 12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_RUNNING) == PROS_DML_ESTATE,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STARTING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_RUNNING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STARTING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_FAILED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_get_state(&manager, "not-installed", &state) ==
+              PROS_DML_ENOENT, 12);
+    }
 
     {
         const char *const bad_paths[] = {
