@@ -148,6 +148,14 @@ int main(void)
     CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_OK &&
           strcmp(active, "session") == 0, 7);
     {
+        struct pros_dml_manager saved_manager = manager;
+
+        /* A manager mutated after runtime init must not be acted upon. */
+        manager.count--;
+        CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_EINVAL, 7);
+        manager = saved_manager;
+    }
+    {
         struct pros_dml_runtime corrupt_runtime = runtime;
         corrupt_runtime.active_root = 3u; /* Registered, but not in this session. */
         CHECK(pros_dml_runtime_active(&corrupt_runtime, &active) ==
