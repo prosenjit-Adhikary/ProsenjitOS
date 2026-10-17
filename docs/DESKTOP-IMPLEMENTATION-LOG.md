@@ -411,3 +411,12 @@
 - [x] Changed the first receive attempt to advertise one byte of capacity, then retained the following two-byte receive to verify the queued payload can be read intact after the bounds rejection.
 - [ ] Re-run ISO/QEMU; continue to PCI and CPL3 milestones, then complete native BIOS and Windows DML gates.
 - **Status:** receive-buffer fixture corrected; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Build the ICMP test checksum from one snapshot
+
+- [x] The latest QEMU run passed ProsenjitFS, device-broker, and display self-tests but still stopped in the network self-test after the send/receive test-fixture corrections.
+- [x] Source audit found the ICMP fixture called pros_net_checksum() twice while filling the two checksum bytes. The second call included the already-written high checksum byte, so it computed a different checksum and created an invalid ICMP packet.
+- [x] Compute the checksum once while the field is zero, then write both bytes from that same value. This corrects the fixture and keeps the ICMP parser's checksum validation strict.
+- [ ] Re-run ISO/QEMU to verify the full network self-test and continue to PCI/CPL3; then verify native BIOS and OfficeWindows DML gates.
+- **Status:** ICMP regression fixture corrected; runtime verification pending and desktop remains incomplete.
