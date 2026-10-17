@@ -7443,12 +7443,17 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -175);
                 }
         }
-        if (allocated == 0u ||
-            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK)
-            {
+        if (allocated == 0u) {
+            prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -176);
+        }
+        {
+            int consistency_rc = pfs_selftest_consistency(&small_fs);
+            if (consistency_rc != PROSENJITFS_OK) {
                 prosenjitfs_unmount(&small_fs);
-                return pfs_selftest_fail(__LINE__, -176);
+                return pfs_selftest_fail(__LINE__, consistency_rc);
             }
+        }
 
         if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
                 PROSENJITFS_OK ||
