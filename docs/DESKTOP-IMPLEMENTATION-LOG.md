@@ -248,3 +248,13 @@
 - [ ] After ProsenjitFS self-test passes, verify IPC/CPL3 and all later boot milestones, then native BIOS and real desktop display/input/session gates.
 - [x] `OfficeWindows` DML tests passed on the current tested head; security architecture checks passed.
 - **Status:** oversized stack regression is fixed and its compiler measurement confirms it. ProsenjitFS self-test still fails on a separate `-15` boundary-test assertion; desktop remains incomplete.
+
+
+### 2026-10-17 14:00 UTC — Fix stale pathname in oversized-truncate regression
+
+- [x] Inspected the latest QEMU job for commit `2786587b394b1dab90f728f7eaa997885b799e1c`. Toolchain verification and ISO build passed; DML tests and security architecture checks passed; ISO QEMU failed in ProsenjitFS self-test at line 7280.
+- [x] Traced line 7280 to the attempt to open `/hello.bin` for write. The same self-test intentionally unlinks `/hello.bin` at line 6931 and verifies the deleted path stays absent; reopening it without `O_CREATE` is an invalid test setup, not evidence of a VFS production bug.
+- [x] Changed the oversized-truncate regression to use `/sizes.bin`, a file created and verified by the immediately preceding boundary-size persistence matrix. This preserves the intent of testing `UINT64_MAX` and 4 GiB truncation overflow without relying on a deleted pathname. Commit: `824af6da1cfd4810ce21c8814040f6493a5ac902`.
+- [ ] Verify the new head on the designated Debian `office` runner. Check the next exact ProsenjitFS self-test failure, if any, before changing production behavior; then confirm IPC/CPL3 markers and the native BIOS boot gate.
+- [ ] Production process spawn/exec/wait/reap, a real DML process-launch adapter, display/input delivery, and an end-to-end desktop session remain unfinished.
+- **Status:** a test-fixture ordering/path bug was corrected; CI verification of this correction is pending. Desktop is not complete.
