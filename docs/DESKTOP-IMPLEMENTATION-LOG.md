@@ -121,3 +121,14 @@
 - [x] Documented the corrupted-metadata guard in the dependency-order API contract.
 - [ ] Compile and execute the updated unit tests on the exact head commit; GitHub workflow lookup returned no runs for the current head, and no shell/SSH execution channel is attached to this chat.
 - **Status:** implementation and regression test are committed; compile/test/QEMU verification remains pending.
+
+### 2026-10-17 — Backend-driven DML session orchestration
+
+- [x] Added `user/desktop/dml_runtime.h` and `.c`: a serialized, single-active-root orchestrator that consumes dependency-first order, calls a narrow platform start/stop backend, tracks process handles, rolls back partial startup, stops in reverse order, and retains failed shutdowns for retry.
+- [x] Added runtime error codes and a FAILED -> STOPPING recovery transition for retrying a failed shutdown.
+- [x] Added `tests/desktop_runtime_test.c` with a mock backend covering dependency start order, failed middle-start rollback, retry after clean rollback, reverse-order shutdown, failed-stop retention, and stop retry.
+- [x] Updated `make desktop-unit-test`'s script to compile and run both registry and runtime suites; updated DML plan, user-mode README, and `docs/DML-RUNTIME.md` to state the exact adapter boundary.
+- [ ] Execute `make desktop-unit-test` on the exact branch head. No runner was used or occupied; this chat has no shell/SSH execution channel, so no compile/test result is available yet.
+- [ ] A production backend still needs a real process spawn/exec and wait/reap API, plus package-root resolution and security policy. The current public syscall ABI does not expose spawn/exec; do not wire the mock backend into boot or claim that a desktop session can run.
+- [ ] Display/input service integration, compatible window-system runtime, XFCE session, full OS build, QEMU, and boot-to-desktop verification remain incomplete.
+- **Status:** userspace orchestration logic and mock regression suite added as source; compilation, execution, real backend integration, and GUI runtime are unverified.
