@@ -221,7 +221,7 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 
 ## Phase 8 — GUI
 
-- [~] Initial userspace DML registry/preflight source (versioned size-tagged manifests, relative-path validation, required-feature checks, bounded registry, dependency/cycle checks, default selection); host unit tests added but not yet run.
+- [~] Userspace DML registry/preflight plus backend-driven session orchestration source (versioned manifests, safe relative paths, feature/dependency validation, deterministic dependency-first start, reverse-order stop, lifecycle state, rollback and retry tests); latest host tests are added but not yet run. Production process backend, userspace init/service path, display/input integration, window-system/XFCE session, and boot-to-desktop verification remain incomplete.
 
 **Architecture and release gates:** follow [Desktop Implementation Plan](DESKTOP-IMPLEMENTATION-PLAN.md). The DML and all desktop environments remain userspace components; stable versioned ABI, capability negotiation, service ownership/isolation, validated desktop manifests, transactional package updates/rollback, and measured performance/security gates are prerequisites—not claims of current implementation.
 
