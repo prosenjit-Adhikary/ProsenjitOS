@@ -97,6 +97,21 @@ int main(void)
     enum pros_dml_session_state state;
 
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 1);
+    {
+        struct pros_dml_manager malformed_manager = manager;
+        struct pros_dml_runtime malformed_runtime;
+
+        /* A claimed registry slot must actually be registered. */
+        malformed_manager.count = 1u;
+        CHECK(pros_dml_runtime_init(&malformed_runtime, &malformed_manager,
+                                    &ops, &mock) == PROS_DML_EINVAL, 1);
+
+        /* No registration may exist beyond the published count. */
+        malformed_manager = manager;
+        malformed_manager.entries[PROS_DML_MAX_DESKTOPS - 1u].registered = 1u;
+        CHECK(pros_dml_runtime_init(&malformed_runtime, &malformed_manager,
+                                    &ops, &mock) == PROS_DML_EINVAL, 1);
+    }
     manifest = make_manifest("session", "graphics");
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 2);
     manifest = make_manifest("graphics", "base");
