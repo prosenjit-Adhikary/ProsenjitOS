@@ -141,3 +141,13 @@
 - [x] Reconciled the desktop implementation plan, runtime contract, and roadmap with the current source scope.
 - [ ] Run `make desktop-unit-test` against the current branch head when the user releases the runner; no runner was used by this source-only batch.
 - **Status:** new source and test cases committed; no claim of compile/test success. A real process backend, init/service launch path, display/input delivery, window-system/XFCE runtime, and QEMU boot-to-desktop proof remain pending.
+
+### 2026-10-17 — OfficeWindows runner repair and ProsenjitFS boot-fault diagnostics
+
+- [x] Replaced the missing-Bash dependency for DML validation with a native PowerShell harness.
+- [x] Confirmed the harness found no installed compiler/VS C++ toolchain, downloaded the official Zig 0.17.0 Windows x64 archive, verified its pinned SHA-256, and compiled and ran both DML test executables successfully on the designated `OfficeWindows` runner.
+- [x] Confirmed the `office` Debian build job passes toolchain checks and ISO build, but QEMU still faults before the IPC/CPL3 milestones: page-fault vector `0xE`, error `0x11`, `RIP=0`, `CR2=0`. Native BIOS QEMU is correctly skipped after ISO boot failure.
+- [x] Identified that the temporary block-device initialization trace could publish stage `0xF041` before the non-volatile diagnostic values became visible to the exception handler. Changed diagnostic fields to volatile and added a compiler memory barrier before publishing the stage.
+- [x] Added the block-device init arguments (device, callbacks, private data, sector size/count) to the fault report so the next designated `office` QEMU run can narrow the fault without guessing.
+- [ ] Re-run the build/boot workflow and inspect the new diagnostics. The fault is not yet fixed; do not claim the OS boot or ProsenjitFS runtime self-test passes until the QEMU milestones pass.
+- **Status:** DML unit tests pass on OfficeWindows. Kernel/ProsenjitFS QEMU fault remains open; Debian/QEMU runtime verification is only through the designated `office` self-hosted runner, not the user's offline Debian system.
