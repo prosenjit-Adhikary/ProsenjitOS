@@ -193,3 +193,14 @@
 - [ ] Root cause of the current `0xF041` / null instruction-fetch fault is not proven or fixed. Keep the fix in the designated `office` ProsenjitFS/build workflow; do not mask the failure or treat the QEMU timeout as success without all required milestones.
 - [ ] Define and implement a reviewed process ownership + user-mode entry + wait/reap contract before wiring a production DML backend. Do not invent a syscall number or route desktop policy into kernel-core.
 - [ ] Display/window-system integration, keyboard/pointer event delivery, real desktop session, and boot-to-desktop remain incomplete.
+
+
+### 2026-10-17 13:21 UTC — Fresh QEMU fault evidence (run 39036048406)
+
+- [x] Confirmed the workflow checked out PR merge commit `86d2dd267bf4e94d0f035f7675cdba5ec40a0020`; the designated `office` runner passed toolchain verification and built the ISO.
+- [x] Read the complete QEMU serial/interrupt diagnostics. Boot reaches process lifecycle, IPC wait-queue, security-runtime, partition discovery, VFS provider registry, storage-volume discovery, and process-lifecycle milestones, then faults before the ProsenjitFS self-test can progress and before the required IPC-channel/CPL3 markers.
+- [x] Exact fault remains #PF vector `0xE`, error `0x11`, saved `RIP=0`, `CR2=0`, diagnostic stage `0xF041`. QEMU exits via the workflow's 20-second timeout, but required milestone checks correctly fail; timeout is not accepted as a pass.
+- [x] New caller-side trace reports call target `0x112420`, caller RSP/frame/return `0xD5990/0x1568F0/0x102B95`, device/read/write/private `0x21C480/0x115EC0/0x115FA0/0x19C440`, and geometry `512/512`. Callee-side snapshots remain all zero despite linked disassembly placing their stores before its `0xF041` checkpoint. This is internally inconsistent diagnostic evidence; it does **not** yet establish a root cause.
+- [ ] Next kernel/ProsenjitFS step is to reconcile the emitted linked disassembly, runtime checkpoint and snapshot visibility, using a minimal isolated call/return probe or debugger trace before changing the production call path. Do not make speculative stack/ABI changes or remove the required boot gates.
+- [ ] Native BIOS boot remains skipped after ISO QEMU failure. Desktop production process launch and GUI integration remain incomplete.
+- **Status:** latest ISO build passed; QEMU boot still failed. Security architecture checks passed in run `39036048410`; DML tests on `OfficeWindows` were still in progress when polled.
