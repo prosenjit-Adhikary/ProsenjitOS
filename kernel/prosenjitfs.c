@@ -7456,6 +7456,12 @@ int prosenjitfs_selftest(void)
          * exhaustion/reuse first, release every raw reservation, and only
          * then run the whole-filesystem consistency check.
          */
+        /*
+         * alloc_blocks() clears its output parameter before every scan, so
+         * the final ENOSPC call leaves block == 0. Use the recorded last
+         * successful allocation rather than the failed call's output.
+         */
+        block = allocated_blocks[allocated - 1u];
         if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
                 PROSENJITFS_OK ||
             prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
