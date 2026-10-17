@@ -30,6 +30,14 @@ jobs:
     # The office Debian runner is reserved for OS build and ProsenjitFS/QEMU work.
     runs-on: [self-hosted, linux, x64]
     steps:
+      - name: Verify designated office Debian runner
+        shell: bash
+        run: |
+          if [[ "${RUNNER_NAME:-}" != "office" ]]; then
+            echo "::error::OS/ProsenjitFS verification must run on office; actual runner is '${RUNNER_NAME:-unknown}'."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
