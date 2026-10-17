@@ -21,7 +21,9 @@ enum pros_dml_status {
     PROS_DML_ENODEP = -6,
     PROS_DML_ELOOP = -7,
     PROS_DML_EFEATURE = -8,
-    PROS_DML_ESTATE = -9
+    PROS_DML_ESTATE = -9,
+    PROS_DML_EBACKEND = -10,
+    PROS_DML_EROLLBACK = -11
 };
 
 enum pros_dml_session_state {
