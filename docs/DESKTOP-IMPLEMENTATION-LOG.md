@@ -357,3 +357,12 @@
 - [x] Added a checked reformat of the tiny test device after its filesystem is unmounted and before the independent short-partition rejection and clean consistency checks. This preserves the strict global consistency assertion while isolating the test fixtures.
 - [ ] Re-run ISO/QEMU and verify the remaining journal recovery and crash/power-loss matrix, then run the native BIOS QEMU gate. The OfficeWindows DML manager/runtime tests passed on commit 31e7beee53bfce2d1b073ddc50d4023039079439.
 - **Status:** test-fixture isolation fix committed; runtime verification pending. Desktop environment is not yet complete.
+
+
+### 2026-10-17 — Simulate power loss before interrupted journal recovery
+
+- [x] The latest ISO/QEMU run passed the tiny-image boundary checks and the nine transaction-boundary crash cases, then failed at source line 7849 with rc=-14 in the interrupted-recovery/idempotence regression.
+- [x] Root cause: the test injected stage 9 after a durable journal commit, verified the expected write error, then called prosenjitfs_mount() again on the still-active filesystem object. That violates the mount lifecycle and prevents recovery-stage 10/11 injection from being exercised.
+- [x] Added pfs_test_crash_reset(&fs, &disk) between the durable stage-9 interruption and the recovery mount. This discards volatile cache state and tears down in-memory mount state while preserving the durable journal, matching the intended power-loss scenario.
+- [ ] Re-run ISO/QEMU to verify recovery interruption at stages 10 and 11, then verify the native BIOS QEMU gate and the full DML Windows job.
+- **Status:** crash-test lifecycle fix committed; runtime verification pending, desktop environment remains incomplete.
