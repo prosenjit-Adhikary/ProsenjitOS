@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Report runner environment (no secrets)
+      - name: Verify runner execution and report prerequisites
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -29,15 +29,30 @@ jobs:
           Write-Output "PowerShell: $($PSVersionTable.PSVersion)"
           Write-Output "Computer name: $env:COMPUTERNAME"
           Write-Output "Architecture: $env:PROCESSOR_ARCHITECTURE"
-          foreach ($tool in @('git', 'python', 'python3', 'py', 'cl', 'gcc', 'clang', 'cmake', 'ninja', 'make')) {
+
+          # A smoke test checks that the self-hosted runner can execute jobs.
+          # Missing build tools are reported as prerequisites, not misreported
+          # as a runner connectivity failure.
+          $missing = @()
+          foreach ($tool in @('git', 'python', 'gcc', 'cmake', 'ninja', 'make', 'nasm', 'qemu-system-i386')) {
             $found = Get-Command $tool -ErrorAction SilentlyContinue
             if ($found) {
               Write-Output "TOOL_PRESENT $tool : $($found.Source)"
             } else {
               Write-Output "TOOL_ABSENT $tool"
+              $missing += $tool
             }
           }
-          if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-            throw 'Git is required for this runner smoke test.'
+
+          if ($missing.Count -gt 0) {
+            Write-Output "RUNNER_PREREQUISITES_MISSING: $($missing -join ', ')"
+          } else {
+            Write-Output "RUNNER_PREREQUISITES_COMPLETE"
+          }
+
+          # Exercise basic local process execution without changing the machine.
+          $probe = & $env:WINDIR\System32\cmd.exe /c "echo OFFICEWINDOWS_RUNNER_PROCESS_OK"
+          if ($LASTEXITCODE -ne 0 -or $probe -notmatch 'OFFICEWINDOWS_RUNNER_PROCESS_OK') {
+            throw 'Basic process-execution probe failed.'
           }
           Write-Output "OFFICEWINDOWS_RUNNER_SMOKE_PASS"
