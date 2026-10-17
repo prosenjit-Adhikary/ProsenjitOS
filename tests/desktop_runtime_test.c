@@ -126,6 +126,11 @@ int main(void)
     CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_OK &&
           strcmp(active, "session") == 0, 7);
     {
+        struct pros_dml_runtime corrupt_runtime = runtime;
+        corrupt_runtime.active_order[0] = PROS_DML_MAX_DESKTOPS;
+        CHECK(pros_dml_runtime_stop(&corrupt_runtime) == PROS_DML_EINVAL, 7);
+    }
+    {
         struct pros_dml_runtime second_runtime;
         CHECK(pros_dml_runtime_init(&second_runtime, &manager, &ops, &mock) ==
               PROS_DML_ESTATE, 7);
