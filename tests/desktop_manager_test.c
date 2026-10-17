@@ -235,6 +235,33 @@ int main(void)
         CHECK(order_count == 0u, 26);
     }
 
+    /* Corruption in a transitive dependency must also stop traversal safely. */
+    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 26);
+    manifest = manifest_make("session", "bin/session");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "graphics");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manifest = manifest_make("graphics", "bin/graphics");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manifest = manifest_make("base", "bin/base");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manager.entries[1].manifest.dependency_count =
+        PROS_DML_MAX_DEPENDENCIES + 1u;
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+
+        CHECK(pros_dml_preflight(&manager, "session") == PROS_DML_EINVAL, 26);
+        CHECK(pros_dml_resolve_order(&manager, "session", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_EINVAL, 26);
+        CHECK(order_count == 0u, 26);
+    }
+
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 27);
     manifest = manifest_make("duplicate-dep", "bin/start");
     manifest.dependency_count = 2u;
