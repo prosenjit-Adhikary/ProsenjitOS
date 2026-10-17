@@ -136,3 +136,15 @@ The retried `office` run [39037088786, attempt 2](https://github.com/prosenjit-A
 Commit `fe59c25e8a1ce0883b0b37f9d400fc5b95d309d5` separates the negative/boundary assertions and uses a correctly typed `uint32_t` output for `pfs_inode_block_location`, so the next QEMU log should pinpoint the failing contract. Await the exact result before modifying production filesystem behavior. DML tests on `OfficeWindows` and security architecture checks passed on the prior head; both must be revalidated for final head.
 
 **Status:** stack regression fix verified by compiler output; ProsenjitFS boundary assertion unresolved; no desktop completion claim until filesystem, IPC/CPL3, boot and real desktop integration gates pass.
+
+## 2026-10-17 deeper launch-path audit
+
+Inspected the actual assembly and kernel sources on this branch before considering a production DML adapter:
+
+- `boot/entry.asm:104-123` implements `enter_user_mode(entry, stack_top, initial_handle)` by constructing an IRETQ frame with user SS `0x23`, user CS `0x1B`, the supplied user stack and entry, and then executing `iretq`. The same assembly file contains the boot-time IPC/syscall test payload. This is a boot/test entry path, not yet a general process/thread launch API.
+- `kernel/idt.asm:18-96` saves syscall registers, invokes `syscall_dispatch`, and handles the special exit trampoline path. `kernel/kernel.c` calls `enter_user_mode` from the boot self-test. These references establish an existing CPL3 route to study/reuse, but do not prove that a scheduled child process can safely enter through it.
+- `kernel/context_switch.asm` exports `thread_start_trampoline`; `kernel/thread.c::thread_init` constructs a kernel-context thread stack around that trampoline. It must not be passed an ELF user entry as though it were a ring-3 IRET frame.
+- `kernel/elf_loader.c` populates `process->user_entry` and `process->user_stack_top`, creates user mappings, and rejects load segments that are simultaneously writable and executable. It does not itself enqueue a thread or transfer CPU control to that entry.
+- `kernel/include/process.h` exposes internal `process_create`, `process_exit`, and `process_wait` operations. `include/abi/syscall.h` still publishes no spawn/exec or wait syscall; these internal C interfaces are not a user ABI.
+
+**Implementation decision:** do not add a syscall number or a DML backend in this patch. The missing work is a reusable and audited child-process launch transaction that binds admission -> ELF load -> initial user IRET frame -> runnable thread -> exit/wait/reap, with rollback and ownership guarantees. First implement that transaction behind kernel-internal tests, then separately review/version any user-facing syscall contract. Keep the existing boot-time CPL3 test intact as a regression gate.
