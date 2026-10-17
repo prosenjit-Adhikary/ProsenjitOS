@@ -9,6 +9,12 @@ volatile uint64_t block_init_diag_entry_rsp;
 volatile uint64_t block_init_diag_exit_rsp;
 volatile uint64_t block_init_diag_entry_frame;
 volatile uint64_t block_init_diag_exit_frame;
+volatile uint64_t block_init_diag_device;
+volatile uint64_t block_init_diag_read;
+volatile uint64_t block_init_diag_write;
+volatile uint64_t block_init_diag_private_data;
+volatile uint64_t block_init_diag_sector_size;
+volatile uint64_t block_init_diag_sector_count;
 
 #include "health.h"
 
@@ -34,6 +40,15 @@ int block_device_init(struct pros_block_device *device,
         block_init_diag_entry_frame = (uint64_t)frame;
         block_init_diag_entry_return =
             (uint64_t)(uintptr_t)__builtin_return_address(0);
+        block_init_diag_device = (uint64_t)(uintptr_t)device;
+        block_init_diag_read = (uint64_t)(uintptr_t)read;
+        block_init_diag_write = (uint64_t)(uintptr_t)write;
+        block_init_diag_private_data = (uint64_t)(uintptr_t)private_data;
+        block_init_diag_sector_size = (uint64_t)sector_size;
+        block_init_diag_sector_count = sector_count;
+        /* Publish diagnostic fields before the volatile stage checkpoint so
+         * the exception handler cannot observe a new stage with stale fields. */
+        __asm__ volatile ("" ::: "memory");
         pfs_selftest_diag_stage = 0xF041u; /* entered block_device_init */
     }
     if (!device || sector_size == 0 || sector_count == 0 || !read)
