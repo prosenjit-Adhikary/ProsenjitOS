@@ -18,6 +18,9 @@ jobs:
             throw "DML tests must run on OfficeWindows; actual runner is '$env:RUNNER_NAME'."
           }
 
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Validate desktop scripts and run DML unit tests
         shell: bash
         run: |
