@@ -38,6 +38,15 @@ int main(void)
     CHECK(pros_dml_count(&manager) == 0u, 3);
     CHECK(pros_dml_selected(&manager, &output) == PROS_DML_ENOENT, 4);
 
+    /* Reject holes and hidden registrations in the public registry storage. */
+    manager.entries[1].registered = 1u;
+    CHECK(pros_dml_count(&manager) == 0u, 4);
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 4);
+    manager.entries[1].registered = 0u;
+    manager.count = 1u;
+    CHECK(pros_dml_select(&manager, "before-init") == PROS_DML_EINVAL, 4);
+    manager.count = 0u;
+
     {
         struct pros_dml_manager invalid;
 
