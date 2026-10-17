@@ -125,6 +125,11 @@ int main(void)
     CHECK(strcmp(mock.starts[4], "session") == 0, 7);
     CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_OK &&
           strcmp(active, "session") == 0, 7);
+    {
+        struct pros_dml_runtime second_runtime;
+        CHECK(pros_dml_runtime_init(&second_runtime, &manager, &ops, &mock) ==
+              PROS_DML_ESTATE, 7);
+    }
 
     /* Failed shutdown keeps the remaining session tracked for a safe retry. */
     mock.fail_stop_id = "session";
