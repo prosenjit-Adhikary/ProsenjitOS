@@ -5260,6 +5260,20 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
  * filesystem self-test is in progress. Keep each checkpoint visible even if
  * the kernel faults before the self-test can return normally. */
 volatile uint32_t pfs_selftest_diag_stage;
+/* Caller-side snapshot: distinguish a bad call target/stack from corruption
+ * inside block_device_init when the exception handler cannot trust the callee
+ * trace. These fields are temporary and only populated at the first self-test
+ * block-device initialization. */
+volatile uint64_t pfs_block_call_target;
+volatile uint64_t pfs_block_call_rsp;
+volatile uint64_t pfs_block_call_frame;
+volatile uint64_t pfs_block_call_return;
+volatile uint64_t pfs_block_call_device;
+volatile uint64_t pfs_block_call_read;
+volatile uint64_t pfs_block_call_write;
+volatile uint64_t pfs_block_call_private;
+volatile uint64_t pfs_block_call_sector_size;
+volatile uint64_t pfs_block_call_sector_count;
 static volatile int pfs_selftest_diag_rc;
 #define PFS_SELFTEST_CHECKPOINT(stage_value) do { \
     __asm__ volatile ("" ::: "memory"); \
@@ -5756,6 +5770,21 @@ int prosenjitfs_selftest(void)
     pfs_zero(&fs, (uint32_t)sizeof(fs));
     PFS_SELFTEST_CHECKPOINT(0xF003u); /* local filesystem state zeroed */
     PFS_SELFTEST_CHECKPOINT(0xF004u); /* immediately before block-device init */
+    if (pfs_selftest_diag_stage == 0xF004u) {
+        uintptr_t rsp;
+        __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+        pfs_block_call_target = (uint64_t)(uintptr_t)block_device_init;
+        pfs_block_call_rsp = (uint64_t)rsp;
+        pfs_block_call_frame = (uint64_t)(uintptr_t)__builtin_frame_address(0);
+        pfs_block_call_return = (uint64_t)(uintptr_t)__builtin_return_address(0);
+        pfs_block_call_device = (uint64_t)(uintptr_t)&device;
+        pfs_block_call_read = (uint64_t)(uintptr_t)pfs_test_read;
+        pfs_block_call_write = (uint64_t)(uintptr_t)pfs_test_write;
+        pfs_block_call_private = (uint64_t)(uintptr_t)&disk;
+        pfs_block_call_sector_size = 512u;
+        pfs_block_call_sector_count = 512u;
+        __asm__ volatile ("" ::: "memory");
+    }
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
