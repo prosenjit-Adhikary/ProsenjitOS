@@ -24,13 +24,19 @@ missing dependency and cycle detection), deterministic dependency-first
 resolution with shared dependencies emitted once, default-desktop selection,
 and validated session-state bookkeeping.
 
-The lifecycle API permits only explicit STOPPED/STARTING/RUNNING/STOPPING/FAILED
-transitions. It is bookkeeping only: it does not observe, launch, or supervise
-a real process. This is deliberately **not yet a session launcher**: it does not install or
-execute packages, spawn processes, connect to a display server, route input, or
-claim XFCE/KDE/GNOME support. Those operations must be connected to real
-userspace process, package, permission, display, and input services before the
-DML can launch a desktop.
+A backend-driven session orchestrator now lives in `user/desktop/dml_runtime.c`.
+It starts the resolved dependency closure in dependency-first order, tracks
+opaque process handles, rolls back a partial startup, stops in reverse order,
+and retains failed shutdowns for retry. Its backend callbacks are a contract,
+not a kernel process implementation. The public syscall ABI still has no
+process spawn/exec operation and there is no production backend wired to a real
+userspace process API. See [DML runtime contract](../docs/DML-RUNTIME.md).
+
+The DML therefore remains **not yet a working OS desktop launcher**: it does
+not install packages, create real processes on its own, connect to a display
+server, route input, or claim XFCE/KDE/GNOME support. Those operations must be
+connected to real userspace process, package, permission, display, and input
+services before a desktop can be launched.
 
 When a suitable development environment is available, run the isolated host
 unit tests with:
