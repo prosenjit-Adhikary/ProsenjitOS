@@ -5,9 +5,29 @@ on:
   pull_request:
 
 jobs:
+  dml-tests:
+    # DML/desktop validation belongs on the dedicated OfficeWindows runner.
+    # Labels select eligible runners; the explicit name check below prevents
+    # accepting a different Windows runner as valid verification.
+    runs-on: [self-hosted, windows, x64]
+    steps:
+      - name: Verify designated OfficeWindows runner
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_NAME -ne 'OfficeWindows') {
+            throw "DML tests must run on OfficeWindows; actual runner is '$env:RUNNER_NAME'."
+          }
+
+      - name: Validate desktop scripts and run DML unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/desktop_complete.sh
+          bash -n scripts/test_desktop_manager.sh
+          make desktop-unit-test
+
   build:
-    # Use the configured Debian self-hosted runner; the toolchain is preinstalled
-    # there, and the runner account intentionally does not need sudo.
+    # The office Debian runner is reserved for OS build and ProsenjitFS/QEMU work.
     runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
@@ -22,13 +42,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Validate desktop scripts and run DML unit tests
-        run: |
-          set -euo pipefail
-          bash -n scripts/desktop_complete.sh
-          bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
 
       - name: Build ISO
         run: |
