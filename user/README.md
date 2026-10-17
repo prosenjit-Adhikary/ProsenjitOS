@@ -21,9 +21,12 @@ The first host-testable DML component is in `user/desktop/desktop_manager.c` and
 registry, a size-tagged, versioned manifest contract, safe relative entry-point
 path validation, required-feature checks, dependency preflight (including
 missing dependency and cycle detection), deterministic dependency-first
-resolution with shared dependencies emitted once, and default-desktop selection.
+resolution with shared dependencies emitted once, default-desktop selection,
+and validated session-state bookkeeping.
 
-This is deliberately **not yet a session launcher**: it does not install or
+The lifecycle API permits only explicit STOPPED/STARTING/RUNNING/STOPPING/FAILED
+transitions. It is bookkeeping only: it does not observe, launch, or supervise
+a real process. This is deliberately **not yet a session launcher**: it does not install or
 execute packages, spawn processes, connect to a display server, route input, or
 claim XFCE/KDE/GNOME support. Those operations must be connected to real
 userspace process, package, permission, display, and input services before the

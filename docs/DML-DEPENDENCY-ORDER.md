@@ -30,3 +30,7 @@ ordering, cycle rejection, capacity failure without partial output, and
 missing-root handling. Run `make desktop-unit-test` in
 the repository's Debian environment. No test result should be claimed until
 that command has actually completed.
+
+## Session-state bookkeeping
+
+The DML exposes a bounded per-desktop lifecycle state machine: STOPPED -> STARTING -> RUNNING -> STOPPING -> STOPPED, with failure edges to FAILED and an explicit reset from FAILED to STOPPED. Illegal transitions return `PROS_DML_ESTATE`. This is control-plane bookkeeping only: it does not spawn or supervise processes, prove that a session is running, or replace a real init/service manager. All calls must be serialized by the owner.
