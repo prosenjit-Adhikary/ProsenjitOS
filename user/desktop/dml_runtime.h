@@ -4,6 +4,7 @@
 #include "desktop_manager.h"
 
 #define PROS_DML_RUNTIME_MAGIC 0x44524D31u
+#define PROS_DML_INVALID_PROCESS_HANDLE 0u
 
 /*
  * Platform adapter for real process operations. start() must return zero only
