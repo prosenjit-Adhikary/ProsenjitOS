@@ -132,3 +132,12 @@
 - [ ] A production backend still needs a real process spawn/exec and wait/reap API, plus package-root resolution and security policy. The current public syscall ABI does not expose spawn/exec; do not wire the mock backend into boot or claim that a desktop session can run.
 - [ ] Display/input service integration, compatible window-system runtime, XFCE session, full OS build, QEMU, and boot-to-desktop verification remain incomplete.
 - **Status:** userspace orchestration logic and mock regression suite added as source; compilation, execution, real backend integration, and GUI runtime are unverified.
+
+### 2026-10-17 — DML runtime ownership and state-integrity hardening
+
+- [x] `pros_dml_runtime_init()` now refuses to attach a fresh runtime to a manager containing non-STOPPED registered sessions; without the previous runtime's process handles, attaching could orphan live processes or reset meaningful failure state.
+- [x] Runtime validation now rejects active-order entries outside the registry, unregistered entries, and duplicate indices before any start/stop operation.
+- [x] Added regression assertions for runtime reinitialization during an active session and corrupted active-index state.
+- [x] Reconciled the desktop implementation plan, runtime contract, and roadmap with the current source scope.
+- [ ] Run `make desktop-unit-test` against the current branch head when the user releases the runner; no runner was used by this source-only batch.
+- **Status:** new source and test cases committed; no claim of compile/test success. A real process backend, init/service launch path, display/input delivery, window-system/XFCE runtime, and QEMU boot-to-desktop proof remain pending.
