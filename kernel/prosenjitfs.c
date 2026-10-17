@@ -7272,8 +7272,15 @@ int prosenjitfs_selftest(void)
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -152);
+            /*
+             * Leave one logical block between writes so the allocator cannot
+             * coalesce these into one contiguous extent. The regression needs
+             * more than four independently affected extents to exceed the
+             * v1 truncate transaction bound deterministically.
+             */
             for (uint32_t n = 0u; n < 8u; ++n) {
-                if (vfs_file_seek(&file, (uint64_t)n * fs.sb.block_size) !=
+                if (vfs_file_seek(&file,
+                                  (uint64_t)n * 2u * fs.sb.block_size) !=
                         PROS_VFS_OK ||
                     vfs_file_write(&file, &marker_byte, 1u, &done) !=
                         PROS_VFS_OK ||
