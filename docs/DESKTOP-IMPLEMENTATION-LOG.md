@@ -420,3 +420,12 @@
 - [x] Compute the checksum once while the field is zero, then write both bytes from that same value. This corrects the fixture and keeps the ICMP parser's checksum validation strict.
 - [ ] Re-run ISO/QEMU to verify the full network self-test and continue to PCI/CPL3; then verify native BIOS and OfficeWindows DML gates.
 - **Status:** ICMP regression fixture corrected; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Expose network self-test failure code
+
+- [x] The latest QEMU run passed the filesystem, broker, and display-device tests but continued to stop in the network protocol/socket self-test after the ICMP and socket-fixture corrections.
+- [x] The network self-test returns distinct negative codes for each assertion, but kernel boot logging only printed a generic failure, hiding which assertion remains incorrect.
+- [x] Added the signed network self-test result to the serial error line. This is diagnostic-only and does not skip or weaken network checks.
+- [ ] Re-run QEMU, map the exact return code to its assertion, fix the root cause, and continue through PCI/CPL3 and the native BIOS gate.
+- **Status:** diagnostic instrumentation committed; runtime verification pending, desktop remains incomplete.
