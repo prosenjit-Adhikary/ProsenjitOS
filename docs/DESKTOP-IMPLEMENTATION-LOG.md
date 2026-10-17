@@ -467,3 +467,12 @@
 - [x] Added bounded serial diagnostics for allocation failure, read failure (including partition-relative LBA and return code), and the first nonzero sector/byte/value. The scanner remains read-only; it does not auto-format a nonblank or unreadable partition.
 - [ ] Re-run native BIOS QEMU, use the emitted diagnostic to fix the underlying storage/image issue, then verify first-boot marker creation and second-boot persistence. Recheck ISO/QEMU and OfficeWindows DML tests after the fix.
 - **Status:** root-cause instrumentation committed; native storage and desktop completion remain unverified.
+
+
+### 2026-10-17 — Fix ATA transfers that end at the final device LBA
+
+- [x] The latest run's blank-scan diagnostic narrowed the native BIOS failure to the final batch: partition-relative LBA `0x1F8` (504), count 8, returned `PROS_BLOCK_EIO` while scanning the 512-sector partition.
+- [x] Traced the error through `ata_read()` to `block_device_lba_add()`. After successfully transferring the last chunk, the ATA read/write loops unconditionally advanced to the one-past-end LBA. The helper correctly rejects an out-of-range result, so a valid transfer ending exactly at `sector_count` was incorrectly reported as I/O failure.
+- [x] Updated both ATA read and write loops to advance the LBA only when more sectors remain. Bounds validation and per-sector I/O error checks are unchanged; exact-end transfers now can complete without manufacturing an invalid next-LBA request.
+- [ ] Verify ISO/QEMU and native BIOS QEMU; confirm blank scan passes, first boot writes the persistence marker, and second boot recovers it. Re-run OfficeWindows DML tests and security checks.
+- **Status:** ATA exact-end transfer bug fixed in source; runtime verification pending and desktop remains incomplete.
