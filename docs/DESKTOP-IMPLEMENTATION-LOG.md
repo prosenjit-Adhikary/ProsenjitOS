@@ -182,3 +182,14 @@
 - [x] Tightened registry validation to require `registered == 1` inside the published prefix and `registered == 0` outside it; nonzero-but-invalid flag values are no longer treated as valid registrations.
 - [x] Added a regression that corrupts a registered slot to value `2` and confirms selection rejects the manager before restoring the valid flag.
 - [ ] Re-run the complete DML suite on `OfficeWindows`; this commit has no test result until the designated job runs and logs are inspected.
+
+
+### 2026-10-17 13:00 UTC — Designated-runner verification and boot triage
+
+- [x] Retrieved workflow run [39033799224](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799224) job logs. The DML job explicitly identified runner `OfficeWindows`; both `desktop manager tests passed` and `desktop runtime tests passed`. The new malformed-registry regression suite therefore passed in this run.
+- [x] Confirmed toolchain verification and ISO build passed on the designated Debian runner `office`. Security architecture run [39033799262](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799262) also passed.
+- [x] Captured the current ISO QEMU failure from the same build run: page fault vector 14, instruction-fetch error code `0x11`, `RIP=0`, `CR2=0`, and ProsenjitFS diagnostic stage `0xF041`. The required IPC milestone is absent and the native BIOS test was skipped.
+- [x] Source audit confirms the public ABI still has no process spawn/exec or wait syscall. `process_create()` creates/registers a READY process but does not load an ELF or start its user instruction stream; the existing `enter_user_mode()` path is an explicit kernel boot self-test, not a general process launcher. `thread_init()` builds a kernel-context trampoline and is not a safe substitute for CPL3 ELF entry.
+- [ ] Root cause of the current `0xF041` / null instruction-fetch fault is not proven or fixed. Keep the fix in the designated `office` ProsenjitFS/build workflow; do not mask the failure or treat the QEMU timeout as success without all required milestones.
+- [ ] Define and implement a reviewed process ownership + user-mode entry + wait/reap contract before wiring a production DML backend. Do not invent a syscall number or route desktop policy into kernel-core.
+- [ ] Display/window-system integration, keyboard/pointer event delivery, real desktop session, and boot-to-desktop remain incomplete.
