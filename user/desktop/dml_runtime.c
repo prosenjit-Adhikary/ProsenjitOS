@@ -266,10 +266,17 @@ int pros_dml_runtime_active(const struct pros_dml_runtime *runtime,
 {
     if (!runtime_valid(runtime) || !desktop_id)
         return PROS_DML_EINVAL;
-    if (runtime->active_root == PROS_DML_NO_SELECTION)
+    /*
+     * A root ID alone is not proof of a live session: the runtime structure is
+     * public storage and may be corrupted. A selected root must be represented
+     * in the tracked active dependency order before it can be reported active.
+     */
+    if (runtime->active_count == 0u ||
+        runtime->active_root == PROS_DML_NO_SELECTION)
         return PROS_DML_ENOENT;
     if (runtime->active_root >= runtime->manager->count ||
-        !runtime->manager->entries[runtime->active_root].registered)
+        !runtime->manager->entries[runtime->active_root].registered ||
+        !order_contains(runtime, runtime->active_root))
         return PROS_DML_ESTATE;
     {
         enum pros_dml_session_state state;
