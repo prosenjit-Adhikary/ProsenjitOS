@@ -159,3 +159,12 @@
 - [x] Added regression cases for a hidden registration outside `count` and a count that claims an unregistered slot. These cases verify malformed public storage is rejected before selection or a later registration can overwrite it.
 - [ ] The new regression tests require a fresh run on `OfficeWindows`; no test pass is claimed for this commit until its DML job completes.
 - **Status:** source-level hardening and regression coverage committed. Real process-spawn backend, package installation/verification, display/input delivery, desktop compositor/window-system, and boot-to-GUI remain separate unfinished integration gates.
+
+
+### 2026-10-17 — DML runtime rejects malformed registry layout
+
+- [x] Found a gap between the registry and runtime validation contracts: `pros_dml_manager` is public storage, and `pros_dml_runtime_init()` previously checked only its magic/count before skipping unregistered slots. A corrupted manager with a hole in the published prefix (or a hidden registration outside the prefix when count was zero) could be accepted as a runtime binding.
+- [x] Added runtime-local contiguous-prefix validation and reused it in runtime validation and initialization. This keeps the runtime boundary defensive even before a manifest lookup occurs.
+- [x] Added regression cases for a count claiming an unregistered slot and for a hidden registration beyond count.
+- [ ] Run `make desktop-unit-test` on the exact updated head using `OfficeWindows`. No compilation or test result is claimed until that job actually executes and its logs are inspected.
+- **Status:** source and regression test committed; designated runner verification pending. The production spawn/exec/wait/reap backend and graphical session remain incomplete.
