@@ -221,6 +221,19 @@ int main(void)
         CHECK(strcmp(manager.entries[order[2]].manifest.id, "session") == 0,
               26);
     }
+    /* Public manager storage can be corrupted; reject unsafe dependency counts. */
+    manager.entries[0].manifest.dependency_count =
+        PROS_DML_MAX_DEPENDENCIES + 1u;
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+
+        CHECK(pros_dml_preflight(&manager, "session") == PROS_DML_EINVAL, 26);
+        CHECK(pros_dml_resolve_order(&manager, "session", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_EINVAL, 26);
+        CHECK(order_count == 0u, 26);
+    }
 
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 27);
     manifest = manifest_make("duplicate-dep", "bin/start");
