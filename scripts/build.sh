@@ -47,7 +47,7 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pic.c" -o "$BUILD/obj/pic.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/block.c" -o "$BUILD/obj/block.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/vfs.c" -o "$BUILD/obj/vfs.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/vfs_provider.c" -o "$BUILD/obj/vfs_provider.o"
-gcc "${CFLAGS[@]}" -c "$ROOT/kernel/prosenjitfs.c" -o "$BUILD/obj/prosenjitfs.o"
+gcc "${CFLAGS[@]}" -fstack-usage -c "$ROOT/kernel/prosenjitfs.c" -o "$BUILD/obj/prosenjitfs.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/partition.c" -o "$BUILD/obj/partition.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/storage.c" -o "$BUILD/obj/storage.o"
 gcc "${CFLAGS[@]}" -c "$ROOT/kernel/pci.c" -o "$BUILD/obj/pci.o"
@@ -72,6 +72,13 @@ ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"
 if command -v objdump >/dev/null 2>&1; then
     echo "===== block_device_init linked disassembly ====="
     objdump -d --disassemble=block_device_init "$BUILD/prosenjit.elf"
+    echo "===== prosenjitfs_selftest entry and call-site diagnostics ====="
+    objdump -d --disassemble=prosenjitfs_selftest "$BUILD/prosenjit.elf" | sed -n '1,100p'
+    objdump -d --disassemble=prosenjitfs_selftest "$BUILD/prosenjit.elf" | grep -B 12 -A 8 'block_device_init' || true
+fi
+if [[ -f "$BUILD/obj/prosenjitfs.su" ]]; then
+    echo "===== ProsenjitFS compiler-reported stack usage ====="
+    grep -E 'prosenjitfs_selftest|pfs_selftest_consistency|pfs_test_' "$BUILD/obj/prosenjitfs.su" || true
 fi
 if command -v nm >/dev/null 2>&1; then
     echo "===== block_device_init symbol address ====="
