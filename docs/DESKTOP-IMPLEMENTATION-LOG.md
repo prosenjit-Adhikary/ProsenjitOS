@@ -402,3 +402,12 @@
 - [x] Changed the expected result to `(int)sizeof(payload)`. The separate final oversized-payload test now also establishes the socket before checking EBOUNDS, preserving state and bounds coverage.
 - [ ] Re-run ISO/QEMU and continue through PCI/CPL3 and later milestones; verify native BIOS and OfficeWindows DML gates separately.
 - **Status:** network test assertions aligned with API semantics; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Use a genuinely undersized receive buffer in network self-test
+
+- [x] After correcting the two-byte send return expectation, the next QEMU run still stopped in the network self-test.
+- [x] Source review found the receive-bounds assertion supplied a two-byte buffer for a two-byte queued payload while expecting PROS_NET_EBOUNDS. The receive API correctly accepts that capacity; the fixture was not undersized.
+- [x] Changed the first receive attempt to advertise one byte of capacity, then retained the following two-byte receive to verify the queued payload can be read intact after the bounds rejection.
+- [ ] Re-run ISO/QEMU; continue to PCI and CPL3 milestones, then complete native BIOS and Windows DML gates.
+- **Status:** receive-buffer fixture corrected; runtime verification pending and desktop remains incomplete.
