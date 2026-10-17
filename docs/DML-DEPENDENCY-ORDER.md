@@ -17,6 +17,10 @@ under the DML's single-owner/serialized-call contract.
   resolution and capacity validation. An insufficient buffer returns
   `PROS_DML_ENOSPC`, reports the required count, and leaves the caller's
   output array untouched.
+- The manager structure is public storage, so dependency traversal rechecks
+  each stored dependency count against `PROS_DML_MAX_DEPENDENCIES` before
+  indexing it. A corrupted count returns `PROS_DML_EINVAL` rather than reading
+  beyond the fixed dependency array.
 - This is a planning/preflight API, not a service or process launcher. It does
   not start services, execute manifests, install packages, or imply that a
   desktop runtime is available.
