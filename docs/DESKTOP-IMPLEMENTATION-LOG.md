@@ -175,3 +175,10 @@
 - [x] Extended the malformed-registry regression to mutate the manager after a session is active and verify that runtime shutdown refuses to operate on a manager whose published count no longer matches its registered prefix.
 - [x] The test restores the original manager state after the rejection so the mock session can still be stopped normally; it does not fake successful cleanup.
 - [ ] Re-run the DML suite on `OfficeWindows` for the updated head. No test result is claimed from source inspection alone.
+
+
+### 2026-10-17 — Canonical DML registration flags
+
+- [x] Tightened registry validation to require `registered == 1` inside the published prefix and `registered == 0` outside it; nonzero-but-invalid flag values are no longer treated as valid registrations.
+- [x] Added a regression that corrupts a registered slot to value `2` and confirms selection rejects the manager before restoring the valid flag.
+- [ ] Re-run the complete DML suite on `OfficeWindows`; this commit has no test result until the designated job runs and logs are inspected.
