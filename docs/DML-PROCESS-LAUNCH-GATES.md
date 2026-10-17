@@ -120,3 +120,10 @@ before changing production code. No root cause is claimed.
 - [ ] Do not treat the 20-second QEMU timeout as success by itself: the required serial markers must all be present. Here they are not.
 - [ ] Do not implement a production DML launcher until the spawn/exec ABI, process/thread ownership, ELF mapping and CPL3 entry, syscall policy, and wait/reap semantics are designed against the existing kernel interfaces and covered by tests.
 - **Status:** DML host tests and security checks pass. OS build passes. Kernel boot and end-to-end desktop remain blocked.
+
+
+## 2026-10-17 — ProsenjitFS self-test stack regression
+
+The `office` build for run [39036768898](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39036768898) reported `prosenjitfs_selftest` static stack usage of 528,240 bytes. Source inspection identified a nested local `struct pfs_test_disk small_disk` in the tiny-image exhaustion test; its durable and volatile 512-sector arrays alone occupy 524,288 bytes. Commit `5c70267a4066a6b4832902e9d4e6d3f113333e34` moves this test-only disk object to static storage and retains the existing explicit zeroing before use. This is a targeted diagnosis/fix, not yet a verified boot fix.
+
+**Required validation:** the next `office` build must report reduced `.su` stack usage; ISO QEMU must reach all required IPC/CPL3 milestones; native BIOS must run if the workflow permits it; `OfficeWindows` DML tests and security checks must pass. Until then, do not mark the desktop complete or promote PR #137 from Draft.
