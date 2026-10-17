@@ -132,7 +132,7 @@ int main(void)
     CHECK(pros_dml_runtime_stop(&runtime) == -77, 8);
     CHECK(pros_dml_get_state(&manager, "session", &state) == PROS_DML_OK &&
           state == PROS_DML_SESSION_FAILED, 8);
-    CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_OK, 8);
+    CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ESTATE, 8);
     CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 9);
     CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ENOENT, 9);
     CHECK(pros_dml_get_state(&manager, "session", &state) == PROS_DML_OK &&
