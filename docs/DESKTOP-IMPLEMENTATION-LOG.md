@@ -102,3 +102,14 @@
 - [x] Assigned page fault (#PF) its own TSS IST3 stack, separate from the double-fault and syscall stacks, to avoid relying on a possibly damaged current stack for first-fault reporting.
 - [x] Added a re-entry guard to `exception_dispatch()`: if reporting triggers another exception that reaches the dispatcher, the kernel halts instead of recursively logging and corrupting the same context. The guard is cleared only on the existing recoverable-return paths.
 - [ ] CI must verify that these changes assemble, link, and produce a stable first-exception report. This is diagnostic hardening, not a confirmed root-cause fix. QEMU and native BIOS boot remain unverified/failed; desktop runtime is still incomplete.
+
+### 2026-10-17 — DML lifecycle hardening follow-up
+
+- [x] Made registration explicitly initialize each new entry's reserved bytes and lifecycle state to PROS_DML_SESSION_STOPPED, rather than relying only on manager-wide initialization.
+- [x] Hardened transition range validation with explicit signed comparisons before any state lookup/update.
+- [x] Added regression assertions rejecting FAILED -> RUNNING and enum values above and below the defined state range.
+- [x] Updated the implementation plan to describe the current DML scope and latest verification boundary.
+- [ ] Run make desktop-unit-test against the exact latest commit on the user's Debian system or an available self-hosted runner.
+- [ ] Run the project build and QEMU prerequisite gate only after the DML unit test passes; preserve the existing kernel/ProsenjitFS QEMU failure as a separate blocker unless fresh evidence shows it is resolved.
+- [ ] Latest edits were written through GitHub's repository API. This session has no attached shell/SSH execution channel, and the local clone attempt was blocked by DNS, so these newest changes have not been compiled or run here.
+- **Status:** source changes committed; runtime and latest-host-test verification pending. Do not mark the desktop environment complete.
