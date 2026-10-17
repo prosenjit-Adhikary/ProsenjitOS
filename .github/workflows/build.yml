@@ -21,13 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate desktop scripts and run DML unit tests
-        shell: bash
+      - name: Run DML unit tests on Windows
+        shell: pwsh
         run: |
-          set -euo pipefail
-          bash -n scripts/desktop_complete.sh
-          bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+          ./scripts/test_desktop_manager.ps1
 
   build:
     # The office Debian runner is reserved for OS build and ProsenjitFS/QEMU work.
