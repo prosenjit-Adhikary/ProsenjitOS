@@ -26,9 +26,11 @@ synchronous and must not re-enter the runtime API.
 
 The `start` callback must validate package-root/entry-point resolution, create
 a real isolated process using a supported OS process API, apply the intended
-identity/permissions/capabilities, and return an opaque non-owning process
-handle. It must return zero only when the process was created successfully;
-on failure it must not leave a live process behind.
+identity/permissions/capabilities, and return a non-zero opaque process handle (zero is reserved as invalid).
+It must return zero only when the process was created successfully and the
+handle was published; on failure it must not leave a live process behind. The
+orchestrator rejects a success result with a zero handle as a backend contract
+violation and does not mark the component active.
 
 The `stop` callback must request orderly shutdown, wait/reap using the real
 process API, and return zero only when the process is no longer running. If
