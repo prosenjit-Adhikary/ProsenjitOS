@@ -429,3 +429,12 @@
 - [x] Added the signed network self-test result to the serial error line. This is diagnostic-only and does not skip or weaken network checks.
 - [ ] Re-run QEMU, map the exact return code to its assertion, fix the root cause, and continue through PCI/CPL3 and the native BIOS gate.
 - **Status:** diagnostic instrumentation committed; runtime verification pending, desktop remains incomplete.
+
+
+### 2026-10-17 — Fix ephemeral port binding in network socket API
+
+- [x] The network self-test diagnostic reported rc=-13, which maps to the final invalid-ACK/oversized-send regression block. Inspection localized the first failing expression to `pros_net_socket_bind(sid, 0u, 0u)`.
+- [x] Root cause was in the implementation: `pros_net_socket_bind()` called `port_conflict()` before checking whether port 0 requested an ephemeral port, while `port_conflict()` intentionally treats port 0 as invalid. This made the function's existing ephemeral-allocation branch unreachable.
+- [x] Reordered validation so socket/state are checked first; port 0 now allocates an ephemeral port, while nonzero ports still go through conflict validation. The self-test keeps the port-0 bind path and verifies subsequent invalid-ACK and payload-bound behavior.
+- [ ] Re-run ISO/QEMU; verify the complete network self-test, PCI/CPL3 milestones, native BIOS boot, and Windows DML tests.
+- **Status:** real socket API defect fixed; runtime verification pending and desktop remains incomplete.
