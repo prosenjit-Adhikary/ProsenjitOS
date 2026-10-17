@@ -340,6 +340,67 @@ int pros_dml_selected(const struct pros_dml_manager *manager,
     return PROS_DML_OK;
 }
 
+static int dml_transition_allowed(enum pros_dml_session_state current,
+                                    enum pros_dml_session_state next)
+{
+    switch (current) {
+    case PROS_DML_SESSION_STOPPED:
+        return next == PROS_DML_SESSION_STARTING;
+    case PROS_DML_SESSION_STARTING:
+        return next == PROS_DML_SESSION_RUNNING ||
+               next == PROS_DML_SESSION_FAILED ||
+               next == PROS_DML_SESSION_STOPPED;
+    case PROS_DML_SESSION_RUNNING:
+        return next == PROS_DML_SESSION_STOPPING ||
+               next == PROS_DML_SESSION_FAILED;
+    case PROS_DML_SESSION_STOPPING:
+        return next == PROS_DML_SESSION_STOPPED ||
+               next == PROS_DML_SESSION_FAILED;
+    case PROS_DML_SESSION_FAILED:
+        return next == PROS_DML_SESSION_STOPPED;
+    default:
+        return 0;
+    }
+}
+
+int pros_dml_get_state(const struct pros_dml_manager *manager,
+                       const char *desktop_id,
+                       enum pros_dml_session_state *out_state)
+{
+    int index;
+
+    if (!manager_valid(manager) || !id_valid(desktop_id) || !out_state)
+        return PROS_DML_EINVAL;
+    index = dml_find(manager, desktop_id);
+    if (index < 0)
+        return PROS_DML_ENOENT;
+    *out_state = (enum pros_dml_session_state)
+        manager->entries[index].session_state;
+    return PROS_DML_OK;
+}
+
+int pros_dml_transition(struct pros_dml_manager *manager,
+                        const char *desktop_id,
+                        enum pros_dml_session_state next_state)
+{
+    int index;
+    enum pros_dml_session_state current;
+
+    if (!manager_valid(manager) || !id_valid(desktop_id) ||
+        next_state < PROS_DML_SESSION_STOPPED ||
+        next_state > PROS_DML_SESSION_FAILED)
+        return PROS_DML_EINVAL;
+    index = dml_find(manager, desktop_id);
+    if (index < 0)
+        return PROS_DML_ENOENT;
+    current = (enum pros_dml_session_state)
+        manager->entries[index].session_state;
+    if (!dml_transition_allowed(current, next_state))
+        return PROS_DML_ESTATE;
+    manager->entries[index].session_state = (uint32_t)next_state;
+    return PROS_DML_OK;
+}
+
 uint32_t pros_dml_count(const struct pros_dml_manager *manager)
 {
     if (!manager_valid(manager))
