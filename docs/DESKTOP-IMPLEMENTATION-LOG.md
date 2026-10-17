@@ -168,3 +168,10 @@
 - [x] Added regression cases for a count claiming an unregistered slot and for a hidden registration beyond count.
 - [ ] Run `make desktop-unit-test` on the exact updated head using `OfficeWindows`. No compilation or test result is claimed until that job actually executes and its logs are inspected.
 - **Status:** source and regression test committed; designated runner verification pending. The production spawn/exec/wait/reap backend and graphical session remain incomplete.
+
+
+### 2026-10-17 — Runtime-operation regression for mutated registry
+
+- [x] Extended the malformed-registry regression to mutate the manager after a session is active and verify that runtime shutdown refuses to operate on a manager whose published count no longer matches its registered prefix.
+- [x] The test restores the original manager state after the rejection so the mock session can still be stopped normally; it does not fake successful cleanup.
+- [ ] Re-run the DML suite on `OfficeWindows` for the updated head. No test result is claimed from source inspection alone.
