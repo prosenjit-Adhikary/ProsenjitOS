@@ -424,32 +424,19 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
 
     /*
-     * Native BIOS boot gets a read-only check of the real primary ATA disk.
-     * Keep the device and partition table off the early kernel stack.
+     * The native BIOS image uses a fixed-LBA stage-1/stage-2 loader, not an
+     * MBR partition table. Verify the real ATA block read path without
+     * misrepresenting the current fixed-LBA layout as MBR-backed.
      */
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
-        static struct pros_ata_pio native_ata_device;
-        struct pros_partition native_partitions[4];
-        enum pros_partition_type native_table_type = PROS_PARTITION_NONE;
-        uint32_t native_partition_count = 0u;
-        int ata_rc = pros_ata_pio_probe(&native_ata_device);
+        int ata_rc = pros_ata_pio_selftest();
         if (ata_rc != PROS_ATA_OK) {
-            serial_write("ProsenjitOS: ERROR native ATA PIO probe/read path failed rc=");
+            serial_write("ProsenjitOS: ERROR native ATA PIO read self-test failed rc=");
             serial_hex64((uint64_t)(int64_t)ata_rc);
             serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
-        if (partition_probe(&native_ata_device.block, &native_table_type) !=
-                PROS_PARTITION_OK ||
-            native_table_type != PROS_PARTITION_MBR ||
-            partition_read_mbr(&native_ata_device.block, native_partitions,
-                               4u, &native_partition_count) != PROS_PARTITION_OK ||
-            native_partition_count == 0u) {
-            serial_write("ProsenjitOS: ERROR native ATA/MBR partition discovery failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        serial_write("ProsenjitOS: ATA PIO -> MBR partition discovery test passed\n");
     }
 
     if (heap_init() != 0) {
