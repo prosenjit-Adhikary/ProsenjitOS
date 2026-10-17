@@ -7428,6 +7428,7 @@ int prosenjitfs_selftest(void)
         struct pros_block_device small_device;
         struct pros_prosenjitfs small_fs;
         uint64_t block;
+        uint64_t last_allocated_block = 0u;
         uint64_t first_reused = 0u;
         uint32_t allocated = 0u;
         uint64_t inode_tmp;
@@ -7454,24 +7455,31 @@ int prosenjitfs_selftest(void)
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
+            last_allocated_block = block;
             if (++allocated > PFS_MIN_BLOCKS)
                 {
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
         }
-        if (allocated == 0u ||
-            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK)
+        /*
+         * These are raw allocator-owned blocks, not inode extents; the global
+         * consistency checker correctly rejects such unowned allocations.
+         * Verify the final block's allocation bit directly instead.
+         */
+        if (allocated == 0u || last_allocated_block == 0u ||
+            pfs_allocator_range_state(&small_fs, last_allocated_block, 1u, 1u) !=
+                PROSENJITFS_OK)
             {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
             }
 
-        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+        if (prosenjitfs_free_blocks(&small_fs, last_allocated_block, 1u) !=
                 PROSENJITFS_OK ||
             prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
                 PROSENJITFS_OK ||
-            first_reused != block ||
+            first_reused != last_allocated_block ||
             prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
                 PROSENJITFS_OK)
             {

@@ -330,3 +330,12 @@
 - [x] Explicitly zero-initialized `small_fs` before the tiny-device format/mount sequence. The 512 KiB disk remains static to avoid placing it on the kernel self-test stack.
 - [ ] Re-run QEMU to verify minimum-size format/mount and allocation exhaustion, then continue through the recovery/reuse and journal/crash matrix.
 - **Status:** test initialization fix and this log entry committed together; runtime verification pending.
+
+
+### 2026-10-17 — Correct allocation-exhaustion self-test invariant
+
+- [x] The latest QEMU run advanced past the tiny-image setup and failed at source line 7467 (`rc=-17`) after exhausting the raw block allocator.
+- [x] The test was incorrectly calling `pfs_selftest_consistency()` after allocating data blocks directly without attaching them to inode extent chains. The consistency checker intentionally rejects allocated blocks that have no filesystem owner, so this assertion contradicted the test's setup.
+- [x] Replaced the inappropriate global consistency check with a direct allocation-bitmap range check for the last successfully allocated block. Added an explicit `last_allocated_block` variable and used it for free/reuse verification.
+- [ ] Re-run QEMU and verify ENOSPC, free/reuse, inode allocation, and the remaining journal/crash recovery matrix.
+- **Status:** regression-test invariant fix and log committed together; runtime verification pending.
