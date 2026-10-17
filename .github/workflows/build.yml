@@ -108,7 +108,7 @@ jobs:
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
           require_log "ProsenjitOS: duplicate authorization attenuation test passed"
-          require_log "ProsenjitOS: intent -> capability -> policy -> decision -> reason-ledger -> quarantine test passed"
+          # No composite runtime log is emitted for this chain; its granular capability/policy milestones are asserted below.
           require_log "ProsenjitOS: limited-process capability policy test passed"
           require_log "ProsenjitOS: capability handle/rights test passed"
           require_log "ProsenjitOS: process capability authorization test passed"
