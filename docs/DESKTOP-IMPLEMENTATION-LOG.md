@@ -285,3 +285,12 @@
 - [ ] Explicitly audit/add runtime regression coverage for capability copy/move transfer and usercopy page-fault recovery; those old marker strings were not present in the serial log and are not claimed as independently verified by this change.
 - [ ] DML test result on the designated `OfficeWindows` runner remains unverified because the prior DML job was cancelled before completion. Re-run it on the current branch head.
 - **Status:** workflow gate corrected and committed as `e016776e13c9bb1234291b081718a67cec84d0ac`; this is not desktop completion. Real process spawning, DML-to-kernel backend integration, display/input delivery, and a graphical session remain outstanding.
+
+
+### 2026-10-17 — Prevent Actions from cancelling the designated runner tests
+
+- [x] Inspected the workflow history after the DML job on `OfficeWindows` was cancelled while its test step was running.
+- [x] Root cause: `.github/workflows/build.yml` used the same concurrency key for `push` and `pull_request` events on the same branch. A push-triggered run and the PR-triggered run therefore cancelled one another before verification could finish.
+- [x] Updated the concurrency key to include `${{ github.event_name }}`, so push and PR event runs no longer cancel each other merely because they refer to the same branch.
+- [ ] Verify the new PR-triggered `OfficeWindows` DML run reaches a final result and the Debian `office` build/QEMU run completes without being cancelled by the parallel event.
+- **Status:** concurrency fix committed as `ba785afb8782083658ce568d369730817a9eff49`. Earlier DML job results remain cancelled and must not be counted as pass/fail test results.
