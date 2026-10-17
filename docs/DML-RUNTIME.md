@@ -43,7 +43,8 @@ this repository has not yet supplied a production backend implementing these
 callbacks. Therefore the runtime module is an implemented orchestration layer
 with a testable adapter contract, **not yet a working OS desktop launcher**.
 Do not wire a mock backend into the boot path or describe mock tests as a real
-desktop session.
+desktop session. See [DML process-launch implementation gates](DML-PROCESS-LAUNCH-GATES.md)
+for the source-audit findings and the required kernel/userspace integration sequence.
 
 ## Host tests
 
