@@ -2,8 +2,21 @@
 
 static int manager_valid(const struct pros_dml_manager *manager)
 {
-    return manager && manager->magic == PROS_DML_MANAGER_MAGIC &&
-           manager->count <= PROS_DML_MAX_DESKTOPS;
+    if (!manager || manager->magic != PROS_DML_MANAGER_MAGIC ||
+        manager->count > PROS_DML_MAX_DESKTOPS)
+        return 0;
+
+    /*
+     * Registry slots are a contiguous prefix: registration writes exactly at
+     * count, then increments count. Public storage corruption must not create
+     * hidden entries or holes that can be overwritten by a later registration.
+     */
+    for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
+        if ((i < manager->count) !=
+            (manager->entries[i].registered != 0u))
+            return 0;
+    }
+    return 1;
 }
 
 static int id_valid(const char *id)
