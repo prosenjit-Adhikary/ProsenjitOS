@@ -386,6 +386,84 @@ int process_selftest(void)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
         return -5;
+
+    /*
+     * Exercise the capability boundary while both test processes are active:
+     * duplication and transfer may reduce authority, never amplify it.
+     */
+    {
+        struct pros_object cap_object;
+        uint64_t source_handle = PROSENJIT_HANDLE_INVALID;
+        uint64_t duplicate_handle = PROSENJIT_HANDLE_INVALID;
+        uint64_t copy_handle = PROSENJIT_HANDLE_INVALID;
+        uint64_t move_source = PROSENJIT_HANDLE_INVALID;
+        uint64_t move_handle = PROSENJIT_HANDLE_INVALID;
+        const uint64_t source_rights = PROSENJIT_CAP_READ |
+            PROSENJIT_CAP_WRITE | PROSENJIT_CAP_DUPLICATE |
+            PROSENJIT_CAP_TRANSFER;
+
+        object_init(&cap_object, PROS_OBJECT_FILE);
+        if (process_grant_handle(&parent, &cap_object, source_rights,
+                                 &source_handle) != 0)
+            return -15;
+        duplicate_handle = process_duplicate_handle(
+            &parent, source_handle, PROSENJIT_CAP_READ);
+        if (duplicate_handle == PROSENJIT_HANDLE_INVALID ||
+            process_check_handle(&parent, duplicate_handle,
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            process_check_handle(&parent, duplicate_handle,
+                                 PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0 ||
+            process_duplicate_handle(&parent, source_handle,
+                PROSENJIT_CAP_READ | PROSENJIT_CAP_ADMIN) !=
+                PROSENJIT_HANDLE_INVALID)
+            return -16;
+
+        if (process_grant_handle(&child, &cap_object, PROSENJIT_CAP_ADMIN,
+                                 &copy_handle) == 0)
+            return -17;
+        copy_handle = process_transfer_handle_copy(
+            &parent, &child, source_handle, PROSENJIT_CAP_READ);
+        if (copy_handle == PROSENJIT_HANDLE_INVALID ||
+            process_check_handle(&parent, source_handle,
+                                 PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) != 0 ||
+            process_check_handle(&child, copy_handle,
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+            process_check_handle(&child, copy_handle,
+                                 PROSENJIT_CAP_WRITE, PROS_OBJECT_FILE) == 0)
+            return -18;
+
+        if (process_grant_handle(&parent, &cap_object,
+                PROSENJIT_CAP_READ | PROSENJIT_CAP_TRANSFER,
+                &move_source) != 0)
+            return -19;
+        move_handle = process_transfer_handle_move(
+            &parent, &child, move_source, PROSENJIT_CAP_READ);
+        if (move_handle == PROSENJIT_HANDLE_INVALID ||
+            process_check_handle(&parent, move_source,
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_FILE) == 0 ||
+            process_check_handle(&child, move_handle,
+                                 PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0)
+            return -20;
+
+        {
+            uint32_t refcount_before = cap_object.refcount;
+            if (process_transfer_handle_move(
+                    &parent, &child, move_source, PROSENJIT_CAP_READ) !=
+                    PROSENJIT_HANDLE_INVALID ||
+                cap_object.refcount != refcount_before)
+                return -21;
+        }
+
+        if (process_close_handle(&parent, source_handle) != 0 ||
+            process_close_handle(&parent, duplicate_handle) != 0 ||
+            process_close_handle(&parent, move_source) == 0 ||
+            process_close_handle(&child, copy_handle) != 0 ||
+            process_close_handle(&child, move_handle) != 0 ||
+            cap_object.refcount != 1u)
+            return -22;
+        if (object_release(&cap_object) != 0)
+            return -23;
+    }
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
 
