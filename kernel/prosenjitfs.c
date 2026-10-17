@@ -7372,11 +7372,22 @@ int prosenjitfs_selftest(void)
          * Restore a clean image before the journal/crash matrix. This keeps
          * the negative corruption fixture isolated from subsequent tests.
          */
+        /*
+         * The corruption probe leaves the filesystem mounted with a
+         * deliberately invalid inode extent. Tear down that mount before
+         * reformatting the backing device; mounting an already-active fs
+         * object is expected to fail with EBUSY and would mask the test.
+         */
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -169);
+
         pfs_zero(&disk, sizeof(disk));
-        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -16);
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -170);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -171);
+        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -172);
     }
 
     pfs_selftest_diag_stage = __LINE__;
