@@ -68,65 +68,6 @@ gcc "${CFLAGS[@]}" -c "$ROOT/kernel/ata_pio.c" -o "$BUILD/obj/ata_pio.o"
 
 ld -m elf_x86_64 -T "$ROOT/kernel/linker.ld" -nostdlib -o "$BUILD/prosenjit.elf"   "$BUILD/obj/multiboot2_header.o" "$BUILD/obj/entry.o" "$BUILD/obj/idt.o"   "$BUILD/obj/context_switch.o" "$BUILD/obj/kernel.o" "$BUILD/obj/memory.o"   "$BUILD/obj/paging.o" "$BUILD/obj/heap.o" "$BUILD/obj/address_space.o" "$BUILD/obj/elf_loader.o"   "$BUILD/obj/syscall.o" "$BUILD/obj/object.o" "$BUILD/obj/usercopy.o"   "$BUILD/obj/usercopy_asm.o" "$BUILD/obj/ipc.o" "$BUILD/obj/process.o" "$BUILD/obj/init.o" "$BUILD/obj/service_manager.o"   "$BUILD/obj/thread.o" "$BUILD/obj/timer.o" "$BUILD/obj/intent.o"   "$BUILD/obj/security_file.o" "$BUILD/obj/sha512.o" "$BUILD/obj/ed25519_field.o" "$BUILD/obj/ed25519_point.o" "$BUILD/obj/ed25519_scalar.o" "$BUILD/obj/security_provider.o" "$BUILD/obj/security_signature.o" "$BUILD/obj/security_admission.o"   "$BUILD/obj/security_quarantine.o" "$BUILD/obj/security_exec.o" "$BUILD/obj/security_monitor.o" "$BUILD/obj/security_hardening.o" "$BUILD/obj/pic.o"   "$BUILD/obj/block.o" "$BUILD/obj/vfs.o" "$BUILD/obj/vfs_provider.o" "$BUILD/obj/prosenjitfs.o" "$BUILD/obj/partition.o" "$BUILD/obj/storage.o" "$BUILD/obj/pci.o" "$BUILD/obj/driver.o" "$BUILD/obj/health.o" "$BUILD/obj/crash_record.o" "$BUILD/obj/log.o" "$BUILD/obj/log_persist.o" "$BUILD/obj/driver_class.o" "$BUILD/obj/network.o" "$BUILD/obj/driver_bundle.o" "$BUILD/obj/device_broker.o" "$BUILD/obj/display.o" "$BUILD/obj/driver_compat.o" "$BUILD/obj/nt_compat.o" "$BUILD/obj/pe_inspect.o" "$BUILD/obj/ata_pio.o"
 
-# Emit a focused disassembly for the ProsenjitFS block-init crash investigation.
-# This keeps the CI log sufficient to compare the linked call target and function
-# prologue with the caller-side snapshots without retaining build artifacts.
-if command -v objdump >/dev/null 2>&1; then
-    echo "===== block_device_init linked disassembly ====="
-    objdump -d --disassemble=block_device_init "$BUILD/prosenjit.elf"
-    echo "===== block_device_init symbol address ====="
-    nm -n "$BUILD/prosenjit.elf" | grep -E ' [Tt] block_device_initcp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
-cp "$ROOT/boot/grub.cfg" "$BUILD/isodir/boot/grub/grub.cfg"
-grub-mkrescue -o "$ISO" "$BUILD/isodir" >/dev/null
-
-echo "Built: $ISO"
-
-# Native BIOS boot artifact. This path deliberately does not depend on GRUB,
-# MBR partition parsing, or a filesystem: the stage-1/2 loader reads the
-# kernel from a fixed LBA layout. Partition/filesystem discovery remains a
-# later storage concern.
-NATIVE_DISK="$BUILD/prosenjit-native-bios.img"
-NATIVE_STAGE2_SECTORS=32
-NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
-NATIVE_PFS_START_LBA=2048
-NATIVE_PFS_SECTORS=512
-objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
-KERNEL_BYTES="$(stat -c%s "$BUILD/prosenjit.bin")"
-NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
-if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
-    echo "Native bootloader kernel size is outside the supported 768 KiB staging window" >&2
-    exit 1
-fi
-
-nasm -f bin -dSTAGE2_SECTORS="$NATIVE_STAGE2_SECTORS" \
-    -dPFS_START_LBA="$NATIVE_PFS_START_LBA" -dPFS_SECTORS="$NATIVE_PFS_SECTORS" \
-    "$ROOT/boot/native_stage1.asm" -o "$BUILD/native_stage1.bin"
-nasm -f bin -dKERNEL_LBA="$NATIVE_KERNEL_LBA" -dKERNEL_SECTORS="$NATIVE_KERNEL_SECTORS" \
-    "$ROOT/boot/native_stage2.asm" -o "$BUILD/native_stage2.bin"
-
-if (( $(stat -c%s "$BUILD/native_stage1.bin") != 512 )); then
-    echo "Native stage-1 is not exactly one boot sector" >&2
-    exit 1
-fi
-if (( $(stat -c%s "$BUILD/native_stage2.bin") > NATIVE_STAGE2_SECTORS * 512 )); then
-    echo "Native stage-2 exceeds its reserved boot area" >&2
-    exit 1
-fi
-
-NATIVE_KERNEL_END=$((NATIVE_KERNEL_LBA + NATIVE_KERNEL_SECTORS))
-NATIVE_PFS_END=$((NATIVE_PFS_START_LBA + NATIVE_PFS_SECTORS))
-NATIVE_TOTAL_SECTORS=$((NATIVE_KERNEL_END > NATIVE_PFS_END ? NATIVE_KERNEL_END : NATIVE_PFS_END))
-truncate -s $((NATIVE_TOTAL_SECTORS * 512)) "$NATIVE_DISK"
-dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc status=none
-dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
-dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
-
-echo "Built native BIOS disk: $NATIVE_DISK"
-echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
-echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
- || true
-fi
-
 grub-file --is-x86-multiboot2 "$BUILD/prosenjit.elf"
 cp "$BUILD/prosenjit.elf" "$BUILD/isodir/boot/prosenjit.elf"
 cp "$ROOT/boot/grub.cfg" "$BUILD/isodir/boot/grub/grub.cfg"
