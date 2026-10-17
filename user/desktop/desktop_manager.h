@@ -20,7 +20,16 @@ enum pros_dml_status {
     PROS_DML_EABI = -5,
     PROS_DML_ENODEP = -6,
     PROS_DML_ELOOP = -7,
-    PROS_DML_EFEATURE = -8
+    PROS_DML_EFEATURE = -8,
+    PROS_DML_ESTATE = -9
+};
+
+enum pros_dml_session_state {
+    PROS_DML_SESSION_STOPPED = 0,
+    PROS_DML_SESSION_STARTING = 1,
+    PROS_DML_SESSION_RUNNING = 2,
+    PROS_DML_SESSION_STOPPING = 3,
+    PROS_DML_SESSION_FAILED = 4
 };
 
 /*
@@ -46,6 +55,7 @@ struct pros_dml_entry {
     struct pros_dml_manifest manifest;
     uint8_t registered;
     uint8_t reserved[3];
+    uint32_t session_state;
 };
 
 /*
@@ -85,6 +95,13 @@ int pros_dml_get(const struct pros_dml_manager *manager,
                  struct pros_dml_manifest *out_manifest);
 int pros_dml_selected(const struct pros_dml_manager *manager,
                       struct pros_dml_manifest *out_manifest);
+/* State bookkeeping only; these APIs do not launch or supervise processes. */
+int pros_dml_get_state(const struct pros_dml_manager *manager,
+                       const char *desktop_id,
+                       enum pros_dml_session_state *out_state);
+int pros_dml_transition(struct pros_dml_manager *manager,
+                        const char *desktop_id,
+                        enum pros_dml_session_state next_state);
 uint32_t pros_dml_count(const struct pros_dml_manager *manager);
 
 #endif
