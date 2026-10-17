@@ -1,8 +1,5 @@
 #include "dml_runtime.h"
 
-#define PROS_DML_EBACKEND  (-10)
-#define PROS_DML_EROLLBACK (-11)
-
 static int runtime_valid(const struct pros_dml_runtime *runtime)
 {
     return runtime && runtime->magic == PROS_DML_RUNTIME_MAGIC &&
@@ -148,6 +145,14 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
         rc = pros_dml_get_state(runtime->manager, entry->manifest.id, &state);
         if (rc != PROS_DML_OK)
             goto rollback;
+        if (state == PROS_DML_SESSION_FAILED) {
+            /* A failed launch has no tracked live process after clean rollback. */
+            rc = pros_dml_transition(runtime->manager, entry->manifest.id,
+                                     PROS_DML_SESSION_STOPPED);
+            if (rc != PROS_DML_OK)
+                goto rollback;
+            state = PROS_DML_SESSION_STOPPED;
+        }
         if (state != PROS_DML_SESSION_STOPPED) {
             rc = PROS_DML_ESTATE;
             goto rollback;
