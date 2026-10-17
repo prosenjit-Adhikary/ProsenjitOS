@@ -113,3 +113,11 @@
 - [ ] Run the project build and QEMU prerequisite gate only after the DML unit test passes; preserve the existing kernel/ProsenjitFS QEMU failure as a separate blocker unless fresh evidence shows it is resolved.
 - [ ] Latest edits were written through GitHub's repository API. This session has no attached shell/SSH execution channel, and the local clone attempt was blocked by DNS, so these newest changes have not been compiled or run here.
 - **Status:** source changes committed; runtime and latest-host-test verification pending. Do not mark the desktop environment complete.
+
+### 2026-10-17 — Guard dependency traversal against corrupted metadata
+
+- [x] Added bounds checks in both dependency preflight and dependency-order traversal before iterating a stored manifest's dependency array.
+- [x] Added regression coverage that corrupts a registered manifest's dependency_count beyond the fixed array capacity and expects PROS_DML_EINVAL from both APIs.
+- [x] Documented the corrupted-metadata guard in the dependency-order API contract.
+- [ ] Compile and execute the updated unit tests on the exact head commit; GitHub workflow lookup returned no runs for the current head, and no shell/SSH execution channel is attached to this chat.
+- **Status:** implementation and regression test are committed; compile/test/QEMU verification remains pending.
