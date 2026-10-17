@@ -194,6 +194,11 @@ int pros_dml_register(struct pros_dml_manager *manager,
 
     manager->entries[manager->count].manifest = *manifest;
     manager->entries[manager->count].registered = 1u;
+    manager->entries[manager->count].reserved[0] = 0u;
+    manager->entries[manager->count].reserved[1] = 0u;
+    manager->entries[manager->count].reserved[2] = 0u;
+    manager->entries[manager->count].session_state =
+        (uint32_t)PROS_DML_SESSION_STOPPED;
     ++manager->count;
     return PROS_DML_OK;
 }
@@ -392,8 +397,8 @@ int pros_dml_transition(struct pros_dml_manager *manager,
     enum pros_dml_session_state current;
 
     if (!manager_valid(manager) || !id_valid(desktop_id) ||
-        next_state < PROS_DML_SESSION_STOPPED ||
-        next_state > PROS_DML_SESSION_FAILED)
+        (int32_t)next_state < (int32_t)PROS_DML_SESSION_STOPPED ||
+        (int32_t)next_state > (int32_t)PROS_DML_SESSION_FAILED)
         return PROS_DML_EINVAL;
     index = dml_find(manager, desktop_id);
     if (index < 0)
