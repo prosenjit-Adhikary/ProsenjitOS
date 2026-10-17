@@ -106,35 +106,40 @@ try {
         $isZig = $true
     }
 
-    Write-Host ("Using C compiler: " + $compiler.FullName)
-    $isMsvc = [System.IO.Path]::GetFileName($compiler.FullName) -ieq 'cl.exe'
+    if ($compiler -is [System.IO.FileInfo]) {
+        $compilerPath = $compilerPath
+    } else {
+        $compilerPath = $compiler.Source
+    }
+    Write-Host ("Using C compiler: " + $compilerPath)
+    $isMsvc = [System.IO.Path]::GetFileName($compilerPath) -ieq 'cl.exe'
     $managerExe = Join-Path $tmp 'desktop_manager_test.exe'
     $runtimeExe = Join-Path $tmp 'desktop_runtime_test.exe'
 
     if ($isMsvc) {
-        & $compiler.FullName '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $managerExe)
+        & $compilerPath '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $managerExe)
         if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed for desktop_manager_test.' }
         & $managerExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
-        & $compiler.FullName '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $runtimeExe)
+        & $compilerPath '/nologo' '/std:c11' '/W4' '/WX' '/O2' ("/I" + $desktop) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') ("/Fo:" + $tmp + "\") ("/Fe:" + $runtimeExe)
         if ($LASTEXITCODE -ne 0) { throw 'MSVC compilation failed for desktop_runtime_test.' }
         & $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
     } elseif ($isZig) {
-        & $compiler.FullName 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
+        & $compilerPath 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
         if ($LASTEXITCODE -ne 0) { throw 'Zig C compilation failed for desktop_manager_test.' }
         & $managerExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
-        & $compiler.FullName 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
+        & $compilerPath 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw 'Zig C compilation failed for desktop_runtime_test.' }
         & $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
     } else {
-        & $compiler.FullName '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
+        & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $tests 'desktop_manager_test.c') '-o' $managerExe
         if ($LASTEXITCODE -ne 0) { throw 'Compilation failed for desktop_manager_test.' }
         & $managerExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_manager_test failed with exit code $LASTEXITCODE." }
-        & $compiler.FullName '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
+        & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' (('-I' + $desktop)) (Join-Path $desktop 'desktop_manager.c') (Join-Path $desktop 'dml_runtime.c') (Join-Path $tests 'desktop_runtime_test.c') '-o' $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw 'Compilation failed for desktop_runtime_test.' }
         & $runtimeExe
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
