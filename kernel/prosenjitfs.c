@@ -7260,26 +7260,26 @@ int prosenjitfs_selftest(void)
             if (vfs_file_open(&fs.mount, "/truncate-bound.bin",
                               PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                     PROS_VFS_OK)
-                return pfs_selftest_fail(__LINE__, -15);
+                return pfs_selftest_fail(__LINE__, -152);
             for (uint32_t n = 0u; n < 8u; ++n) {
                 if (vfs_file_seek(&file, (uint64_t)n * fs.sb.block_size) !=
                         PROS_VFS_OK ||
                     vfs_file_write(&file, &marker_byte, 1u, &done) !=
                         PROS_VFS_OK ||
                     done != 1u)
-                    return pfs_selftest_fail(__LINE__, -15);
+                    return pfs_selftest_fail(__LINE__, -153);
             }
             if (vfs_file_close(&file) != PROS_VFS_OK ||
                 vfs_file_open(&fs.mount, "/truncate-bound.bin",
                               PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
-                return pfs_selftest_fail(__LINE__, -15);
+                return pfs_selftest_fail(__LINE__, -154);
             file_data = (struct pfs_vnode_data *)file.vnode->private_data;
             if (!file_data)
-                return pfs_selftest_fail(__LINE__, -15);
+                return pfs_selftest_fail(__LINE__, -155);
             inode_number = file_data->inode_number;
             if (prosenjitfs_read_inode(&fs, inode_number,
                                        &before_inode) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -15);
+                return pfs_selftest_fail(__LINE__, -156);
             before_size = before_inode.size;
             if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
@@ -7288,7 +7288,7 @@ int prosenjitfs_selftest(void)
                 before_inode.size != before_size ||
                 pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
                 vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
-                return pfs_selftest_fail(__LINE__, -15);
+                return pfs_selftest_fail(__LINE__, -157);
         }
 
         pfs_selftest_diag_stage = __LINE__;
