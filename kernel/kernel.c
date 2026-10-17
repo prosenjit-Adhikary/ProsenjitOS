@@ -236,6 +236,12 @@ extern volatile uint64_t block_init_diag_entry_rsp;
 extern volatile uint64_t block_init_diag_exit_rsp;
 extern volatile uint64_t block_init_diag_entry_frame;
 extern volatile uint64_t block_init_diag_exit_frame;
+extern volatile uint64_t block_init_diag_device;
+extern volatile uint64_t block_init_diag_read;
+extern volatile uint64_t block_init_diag_write;
+extern volatile uint64_t block_init_diag_private_data;
+extern volatile uint64_t block_init_diag_sector_size;
+extern volatile uint64_t block_init_diag_sector_count;
 
 void exception_dispatch(uint64_t *frame) {
     /* A nested exception means this handler or its reporting path faulted. Stop
@@ -281,6 +287,18 @@ void exception_dispatch(uint64_t *frame) {
             serial_hex64(block_init_diag_exit_rsp);
             serial_write("/");
             serial_hex64(block_init_diag_exit_frame);
+            serial_write("\nProsenjitOS: block-init arguments device/read/write/private = ");
+            serial_hex64(block_init_diag_device);
+            serial_write("/");
+            serial_hex64(block_init_diag_read);
+            serial_write("/");
+            serial_hex64(block_init_diag_write);
+            serial_write("/");
+            serial_hex64(block_init_diag_private_data);
+            serial_write("\nProsenjitOS: block-init sector size/count = ");
+            serial_hex64(block_init_diag_sector_size);
+            serial_write("/");
+            serial_hex64(block_init_diag_sector_count);
             serial_write("\n");
         }
     }
