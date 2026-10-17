@@ -1090,6 +1090,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    /* Self-tests may deliberately clear the current-process context while
+     * exercising exit/reap paths. Re-establish the init process explicitly
+     * before its first CPL3 syscall so capability checks have an owner. */
+    if (process_current() != &init_process)
+        process_set_current(&init_process);
+    if (process_current() != &init_process) {
+        serial_write("ProsenjitOS: ERROR init process context restore failed before CPL3\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     serial_write("ProsenjitOS: switching to CPL3 user address space\n");
     if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\n");
