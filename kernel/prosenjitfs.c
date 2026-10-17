@@ -7407,6 +7407,12 @@ int prosenjitfs_selftest(void)
         uint64_t inode_tmp;
 
         pfs_zero(&small_disk, sizeof(small_disk));
+        /*
+         * prosenjitfs_mount() checks fs->mount.active before clearing the
+         * filesystem object. Initialize this stack instance first so the
+         * active-state check never reads indeterminate memory.
+         */
+        pfs_zero(&small_fs, sizeof(small_fs));
         if (block_device_init(&small_device, 512u, PFS_MIN_BLOCKS,
                               pfs_test_read, pfs_test_write, &small_disk) !=
                 PROS_BLOCK_OK)
