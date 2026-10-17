@@ -17,7 +17,7 @@ platform-backend interface:
 - report a desktop as active only while its root state is RUNNING; and
 - reject runtime initialization if the manager already contains non-stopped sessions, because a fresh runtime has no trustworthy handles for existing processes.
 
-The runtime validates the public active-index list before acting: every index must refer to a registered entry, have a nonzero process handle, and not duplicate another active index. Reporting a root as active also requires that the root appears in the tracked active order; a stale root or an empty active set cannot be reported as a running desktop. The manager and runtime are still single-owner structures; these checks are defensive validation, not a substitute for synchronization or memory protection.
+The runtime validates the manager's public registry layout before acting: slots below `count` must be registered and slots at/above `count` must be unregistered. It also validates the public active-index list: every active index must refer to a registered entry, have a nonzero process handle, and not duplicate another active index. Reporting a root as active also requires that the root appears in the tracked active order; a stale root or an empty active set cannot be reported as a running desktop. The manager and runtime are still single-owner structures; these checks are defensive validation, not a substitute for synchronization or memory protection.
 
 All calls must be serialized by one control-plane owner. The callbacks are
 synchronous and must not re-enter the runtime API.
