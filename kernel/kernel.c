@@ -288,13 +288,13 @@ void exception_dispatch(uint64_t *frame) {
             (pfs_stage >= 0xF041u && pfs_stage <= 0xF044u)) {
             serial_write("ProsenjitOS: block-call target = ");
             serial_hex64(pfs_block_call_target);
-            serial_write("\\nProsenjitOS: block-call RSP/frame/return = ");
+            serial_write("\nProsenjitOS: block-call RSP/frame/return = ");
             serial_hex64(pfs_block_call_rsp);
             serial_write("/");
             serial_hex64(pfs_block_call_frame);
             serial_write("/");
             serial_hex64(pfs_block_call_return);
-            serial_write("\\nProsenjitOS: block-call device/read/write/private = ");
+            serial_write("\nProsenjitOS: block-call device/read/write/private = ");
             serial_hex64(pfs_block_call_device);
             serial_write("/");
             serial_hex64(pfs_block_call_read);
@@ -302,11 +302,11 @@ void exception_dispatch(uint64_t *frame) {
             serial_hex64(pfs_block_call_write);
             serial_write("/");
             serial_hex64(pfs_block_call_private);
-            serial_write("\\nProsenjitOS: block-call sector size/count = ");
+            serial_write("\nProsenjitOS: block-call sector size/count = ");
             serial_hex64(pfs_block_call_sector_size);
             serial_write("/");
             serial_hex64(pfs_block_call_sector_count);
-            serial_write("\\n");
+            serial_write("\n");
             serial_write("ProsenjitOS: block-init entry return = ");
             serial_hex64(block_init_diag_entry_return);
             serial_write("\nProsenjitOS: block-init exit return = ");
