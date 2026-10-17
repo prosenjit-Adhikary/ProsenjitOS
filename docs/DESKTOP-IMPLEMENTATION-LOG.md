@@ -225,3 +225,14 @@
 - [ ] Run the new diagnostics on the designated `office` runner and compare the reported frame size with the observed caller RSP/frame values.
 - [ ] Only after the new trace identifies a concrete cause, make a minimal kernel/ProsenjitFS fix and rerun all required ISO and native BIOS milestones.
 - **Status:** instrumentation commit `95565d5d44d23a4fcc4c59411a0c3758f9e741d4` is pushed; its build workflow is queued. DML tests and security checks passed on the immediately preceding tested commit; this new diagnostic commit still requires its own CI result.
+
+
+### 2026-10-17 13:33 UTC — Root cause isolated: oversized ProsenjitFS test stack object
+
+- [x] Inspected the compiler-generated stack-usage output from build run [39036768898](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39036768898): `prosenjitfs_selftest` uses 528,240 bytes of static stack.
+- [x] Located the dominant object in the source: the nested tiny-image exhaustion test declared a local `struct pfs_test_disk small_disk`. Its two 512 × 512-byte media arrays alone consume 524,288 bytes, before other locals and compiler-generated frame space. This explains the measured oversized frame and is consistent with (but does not alone prove every detail of) the QEMU null-return/fault evidence.
+- [x] Applied a narrow fix in commit `5c70267a4066a6b4832902e9d4e6d3f113333e34`: made only `small_disk` static storage, with an explanatory comment. The test already zeroes the complete disk before use; device and filesystem state remain local. No production filesystem semantics or desktop code were changed.
+- [ ] Verify the new compiler-reported stack usage is substantially reduced on `office`; inspect the exact value rather than assuming the fix worked.
+- [ ] Re-run ISO QEMU and native BIOS gates on `office`. Accept no success unless required IPC/CPL3 milestones are present; investigate any next failure from fresh logs.
+- [ ] Re-run DML tests on `OfficeWindows` and security architecture checks for the new head.
+- **Status:** concrete oversized stack object identified and moved off stack; validation is pending. Desktop remains incomplete until boot milestones and real display/input/session tests pass.
