@@ -127,3 +127,12 @@ before changing production code. No root cause is claimed.
 The `office` build for run [39036768898](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39036768898) reported `prosenjitfs_selftest` static stack usage of 528,240 bytes. Source inspection identified a nested local `struct pfs_test_disk small_disk` in the tiny-image exhaustion test; its durable and volatile 512-sector arrays alone occupy 524,288 bytes. Commit `5c70267a4066a6b4832902e9d4e6d3f113333e34` moves this test-only disk object to static storage and retains the existing explicit zeroing before use. This is a targeted diagnosis/fix, not yet a verified boot fix.
 
 **Required validation:** the next `office` build must report reduced `.su` stack usage; ISO QEMU must reach all required IPC/CPL3 milestones; native BIOS must run if the workflow permits it; `OfficeWindows` DML tests and security checks must pass. Until then, do not mark the desktop complete or promote PR #137 from Draft.
+
+
+## 2026-10-17 — Stack reduction verified; ProsenjitFS boundary test now blocks boot
+
+The retried `office` run [39037088786, attempt 2](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39037088786) built the ISO and measured `prosenjitfs_selftest` stack usage at **7,408 bytes**, down from 528,240 bytes. The prior null-RIP/oversized-frame symptom did not recur. Boot now stops at the ProsenjitFS self-test with `rc=-15`, stage/source line 7272 (`0x1C68`), before the IPC-channel/CPL3 milestones; those missing markers are downstream of the filesystem abort.
+
+Commit `fe59c25e8a1ce0883b0b37f9d400fc5b95d309d5` separates the negative/boundary assertions and uses a correctly typed `uint32_t` output for `pfs_inode_block_location`, so the next QEMU log should pinpoint the failing contract. Await the exact result before modifying production filesystem behavior. DML tests on `OfficeWindows` and security architecture checks passed on the prior head; both must be revalidated for final head.
+
+**Status:** stack regression fix verified by compiler output; ProsenjitFS boundary assertion unresolved; no desktop completion claim until filesystem, IPC/CPL3, boot and real desktop integration gates pass.
