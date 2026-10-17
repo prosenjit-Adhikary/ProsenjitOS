@@ -258,3 +258,10 @@
 - [ ] Verify the new head on the designated Debian `office` runner. Check the next exact ProsenjitFS self-test failure, if any, before changing production behavior; then confirm IPC/CPL3 markers and the native BIOS boot gate.
 - [ ] Production process spawn/exec/wait/reap, a real DML process-launch adapter, display/input delivery, and an end-to-end desktop session remain unfinished.
 - **Status:** a test-fixture ordering/path bug was corrected; CI verification of this correction is pending. Desktop is not complete.
+
+## 2026-10-17 — ProsenjitFS truncate-bound regression follow-up
+
+- Re-ran the pull-request CI after the oversized-truncate pathname correction. The ISO build passed on the designated Debian `office` runner, but the QEMU boot gate failed before the IPC milestone: ProsenjitFS self-test returned `rc=-15` at stage `0x1CA6` (source line 7334 at the tested revision). The security architecture contract job passed.
+- Root-cause candidate found in the failing truncate-bound test: it closed `file` and then read `file_data->inode_number`, even though `file_data` is vnode-private state whose lifetime is not guaranteed after close. The inode number had already been copied into the stable local `inode_number` variable.
+- Fix committed: `afdff35fe7dc43b444c4baf94d02ab90a8d7340e` — use the saved inode number after close and split the combined checks into individual failures for precise diagnostics.
+- Verification status at log update: source change committed; fresh CI/QEMU and OfficeWindows DML results are pending. Do not mark desktop or boot as complete until the next run proves the IPC milestone and all required runtime/display/input checks.
