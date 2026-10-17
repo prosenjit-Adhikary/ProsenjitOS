@@ -274,3 +274,14 @@
 - [x] Kept syscall ABI and production behavior unchanged; no guessed spawn syscall or mock-backed boot path was added.
 - [ ] Implement and test a kernel-internal launch transaction with admission, ELF loading, initial user frame, runnable thread handoff, rollback, and wait/reap ownership. Then review a versioned user ABI and integrate the DML backend only after kernel tests pass.
 - **Status:** source audit and documentation committed; this is not a launch implementation or desktop completion. Current CI remains blocked on the ProsenjitFS QEMU self-test regression, and the OfficeWindows DML job result is still pending in the latest available run.
+
+
+### 2026-10-17 — Corrected stale QEMU log-gate expectations
+
+- [x] Inspected the failed Office/debian QEMU workflow log for commit `572dadd43f1c8d7372d6dd618573ba4fee4ff138`. The ISO built successfully; QEMU reached and printed `CPL3 user-mode and IPC syscall test passed`, `IPC wait-queue block/wakeup test passed`, the ProsenjitFS persistence milestone, and the scheduler milestones before the workflow failed on a missing marker string.
+- [x] Traced the missing marker against the current source: `kernel/kernel.c` does not emit the old standalone `IPC channel/capability foundation`, per-test security, capability-transfer, or usercopy-recovery marker strings. The security manager runs component self-tests before emitting its aggregate runtime verification marker; the real address-space self-test emits `address-space deep isolation self-test passed`.
+- [x] Updated `.github/workflows/build.yml` on this branch to require the current emitted IPC/CPL3 and wait-queue markers, the security-manager aggregate verification marker, and the actual address-space and usercopy initialization markers instead of obsolete strings. This corrects a CI log-contract mismatch; it does not implement missing runtime capabilities.
+- [ ] Re-run the updated workflow and inspect every remaining missing milestone or QEMU exception. Confirm the native BIOS boot gate separately.
+- [ ] Explicitly audit/add runtime regression coverage for capability copy/move transfer and usercopy page-fault recovery; those old marker strings were not present in the serial log and are not claimed as independently verified by this change.
+- [ ] DML test result on the designated `OfficeWindows` runner remains unverified because the prior DML job was cancelled before completion. Re-run it on the current branch head.
+- **Status:** workflow gate corrected and committed as `e016776e13c9bb1234291b081718a67cec84d0ac`; this is not desktop completion. Real process spawning, DML-to-kernel backend integration, display/input delivery, and a graphical session remain outstanding.
