@@ -554,10 +554,12 @@ int pros_net_socket_receive_segment(uint32_t socket_id, uint32_t seq,
 int pros_net_socket_send(uint32_t socket_id, const uint8_t *data, uint32_t length)
 {
     struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || s->state != PROS_NET_TCP_ESTABLISHED)
-        return PROS_NET_ESTATE;
+    if (!s) return PROS_NET_ESTATE;
+    /* Validate arguments and bounds before checking connection state so callers
+     * receive deterministic input errors without advancing transport state. */
     if (!data && length) return PROS_NET_EINVAL;
     if (length > PROS_NET_PAYLOAD_MAX) return PROS_NET_EBOUNDS;
+    if (s->state != PROS_NET_TCP_ESTABLISHED) return PROS_NET_ESTATE;
     /* Transport state is advanced only after the payload has been accepted. */
     if (length) s->snd_nxt += length;
     return (int)length;
