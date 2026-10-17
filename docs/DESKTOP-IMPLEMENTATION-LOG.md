@@ -384,3 +384,12 @@
 - [x] Retained the kernel's numeric broker error diagnostic so any later broker assertion failure reports its exact test code.
 - [ ] Re-run ISO/QEMU, confirm broker and display/input device tests pass, then run native BIOS QEMU and OfficeWindows DML unit tests on this commit.
 - **Status:** source-derived assertion fix committed; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Exercise oversized network payload on an established socket
+
+- [x] The latest ISO/QEMU run passed the ProsenjitFS, device permission broker, and display-device binding self-tests, then stopped at the network protocol/socket self-test.
+- [x] Source review found the final network assertion tested an oversized send immediately after deliberately rejecting an invalid ACK. The socket correctly remained in SYN_SENT, and send validates socket state before payload length, so ESTATE was returned before the intended EBOUNDS check.
+- [x] Added the valid ACK for the expected sequence number after the invalid-ACK assertion and before the oversized send. The test now proves the bad ACK is rejected without advancing state, then transitions to ESTABLISHED and tests the payload bound under the documented state precondition.
+- [ ] Re-run ISO/QEMU and continue through PCI and CPL3 milestones; verify native BIOS and OfficeWindows DML gates separately.
+- **Status:** network regression fixture corrected; runtime verification pending and desktop environment remains incomplete.
