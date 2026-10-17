@@ -204,3 +204,14 @@
 - [ ] Next kernel/ProsenjitFS step is to reconcile the emitted linked disassembly, runtime checkpoint and snapshot visibility, using a minimal isolated call/return probe or debugger trace before changing the production call path. Do not make speculative stack/ABI changes or remove the required boot gates.
 - [ ] Native BIOS boot remains skipped after ISO QEMU failure. Desktop production process launch and GUI integration remain incomplete.
 - **Status:** latest ISO build passed; QEMU boot still failed. Security architecture checks passed in run `39036048410`; DML tests on `OfficeWindows` were still in progress when polled.
+
+
+### 2026-10-17 13:27 UTC — Latest CI poll (run 39036283325)
+
+- [x] Confirmed the DML job ran on the designated `OfficeWindows` runner and passed. Its log explicitly reports `desktop manager tests passed`, `desktop runtime tests passed`, and `DML manager and runtime unit tests passed`.
+- [x] Confirmed the security architecture job passed in run `39036283329`.
+- [x] Confirmed the `office` runner passed toolchain verification and ISO build again.
+- [x] Confirmed the ISO QEMU boot gate still fails. Serial output reaches the storage-volume discovery and process-lifecycle markers, then reports page-fault vector `0xE`, instruction-fetch error `0x11`, `RIP=0`, `CR2=0`, stage `0xF041`; the required IPC channel/capability marker is absent, and native BIOS boot is skipped.
+- [ ] Root cause of the `0xF041` fault remains unproven. The caller trace has a nonzero target and arguments, but callee snapshots are zero despite stores appearing before the checkpoint in linked disassembly. Next, reconcile the trace using a minimal call/return probe or debugger evidence before modifying the production path.
+- [ ] Production process spawn/exec/wait/reap, userspace init/service startup, display/input delivery, and real desktop-session verification remain incomplete.
+- **Status:** DML unit tests and security checks pass; ISO compiles; QEMU boot and desktop completion remain blocked.
