@@ -90,6 +90,12 @@ int main(void)
               12);
         CHECK(pros_dml_get_state(&manager, "not-installed", &state) ==
               PROS_DML_ENOENT, 12);
+
+        /* Corrupt public storage must not be surfaced as a valid enum value. */
+        manager.entries[0].session_state = UINT32_MAX;
+        CHECK(pros_dml_get_state(&manager, "xfce", &state) == PROS_DML_ESTATE,
+              12);
+        manager.entries[0].session_state = PROS_DML_SESSION_STOPPED;
     }
 
     {
