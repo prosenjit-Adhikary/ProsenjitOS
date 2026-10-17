@@ -20,6 +20,6 @@ clean:
 run: iso
 	qemu-system-x86_64 -cdrom $(BUILD_DIR)/prosenjitOS.iso
 
-# Host-side unit tests for the userspace DML registry; does not boot the OS.
+# Host-side unit tests for the DML registry and runtime adapter; does not boot the OS.
 desktop-unit-test:
 	bash scripts/test_desktop_manager.sh
