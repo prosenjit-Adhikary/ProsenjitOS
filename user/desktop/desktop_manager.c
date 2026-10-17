@@ -142,6 +142,9 @@ static int dml_check_dependencies(const struct pros_dml_manager *manager,
         return PROS_DML_OK;
 
     manifest = &manager->entries[index].manifest;
+    /* The manager is public storage; reject corrupted counts before indexing. */
+    if (manifest->dependency_count > PROS_DML_MAX_DEPENDENCIES)
+        return PROS_DML_EINVAL;
     visiting[index] = 1u;
     for (uint32_t d = 0; d < manifest->dependency_count; ++d) {
         int dependency = dml_find(manager, manifest->dependencies[d]);
@@ -222,6 +225,9 @@ static int dml_build_order(const struct pros_dml_manager *manager,
         return PROS_DML_OK;
 
     manifest = &manager->entries[index].manifest;
+    /* The manager is public storage; reject corrupted counts before indexing. */
+    if (manifest->dependency_count > PROS_DML_MAX_DEPENDENCIES)
+        return PROS_DML_EINVAL;
     visiting[index] = 1u;
     for (uint32_t d = 0; d < manifest->dependency_count; ++d) {
         int dependency = dml_find(manager, manifest->dependencies[d]);
