@@ -58,6 +58,7 @@ jobs:
             echo "ELF unavailable; disassembly skipped."
           fi
 
+      # Re-run against current kernel diagnostics; network self-test now reports its exact return code.
       - name: Boot-test ISO in QEMU
         run: |
           set +e
