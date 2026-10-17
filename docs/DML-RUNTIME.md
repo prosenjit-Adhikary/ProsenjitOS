@@ -17,7 +17,7 @@ platform-backend interface:
 - report a desktop as active only while its root state is RUNNING; and
 - reject runtime initialization if the manager already contains non-stopped sessions, because a fresh runtime has no trustworthy handles for existing processes.
 
-The runtime validates the public active-index list before acting: every index must refer to a registered entry and duplicates are rejected. The manager and runtime are still single-owner structures; these checks are defensive validation, not a substitute for synchronization or memory protection.
+The runtime validates the public active-index list before acting: every index must refer to a registered entry, have a nonzero process handle, and not duplicate another active index. Reporting a root as active also requires that the root appears in the tracked active order; a stale root or an empty active set cannot be reported as a running desktop. The manager and runtime are still single-owner structures; these checks are defensive validation, not a substitute for synchronization or memory protection.
 
 All calls must be serialized by one control-plane owner. The callbacks are
 synchronous and must not re-enter the runtime API.
@@ -51,7 +51,8 @@ for the source-audit findings and the required kernel/userspace integration sequ
 `make desktop-unit-test` compiles and runs both the registry tests and
 `tests/desktop_runtime_test.c`. The runtime test uses a deterministic mock
 backend to cover dependency-first startup, failed-start rollback, retry after
-rollback, reverse-order shutdown, and retry after a stop failure. These tests
+rollback, reverse-order shutdown, retry after a stop failure, invalid process
+handles, and stale/corrupted active-root bookkeeping. These tests
 must be executed on the current source revision before their result can be
 claimed. They do not prove kernel process creation, display rendering, input
 delivery, window-system compatibility, or XFCE operation.
