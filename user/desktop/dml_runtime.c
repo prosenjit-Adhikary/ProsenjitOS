@@ -99,6 +99,23 @@ int pros_dml_runtime_init(struct pros_dml_runtime *runtime,
         !ops || !ops->start || !ops->stop)
         return PROS_DML_EINVAL;
 
+    /*
+     * A fresh runtime has no trustworthy process handles. Refuse to attach to
+     * a manager with live or failed sessions rather than orphaning processes
+     * or incorrectly resetting lifecycle state.
+     */
+    for (uint32_t i = 0; i < manager->count; ++i) {
+        enum pros_dml_session_state state;
+
+        if (!manager->entries[i].registered)
+            continue;
+        if (pros_dml_get_state(manager, manager->entries[i].manifest.id,
+                               &state) != PROS_DML_OK)
+            return PROS_DML_ESTATE;
+        if (state != PROS_DML_SESSION_STOPPED)
+            return PROS_DML_ESTATE;
+    }
+
     runtime->magic = 0u;
     runtime->manager = manager;
     runtime->ops = *ops;
