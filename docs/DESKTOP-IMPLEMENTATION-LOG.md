@@ -517,3 +517,10 @@
 - [x] Added regression coverage for rendering, overlap/z-order, focus, pointer routing, close/stale handles, invalid geometry/title, and invalid backing surfaces; wired it into POSIX and Windows DML test scripts.
 - [ ] Verify compositor tests on OfficeWindows and rerun Debian warnings-as-errors build/ISO/native BIOS regressions on this commit.
 - **Limitations:** this is not a hardware display driver, framebuffer mapping, real input path, window-server process, package/runtime backend, or bootable graphical desktop. Desktop completion remains unverified.
+
+## 2026-10-18 — Harden compositor state validation
+
+- [x] Follow-up source audit found that the public compositor structure needed validation of its z-order indices before pointer hit-testing; corrupted indices could otherwise be used as array subscripts.
+- [x] Extended the shared validity gate to verify active-window count, unique nonzero IDs, geometry/title bounds, unique in-range z-order slots, cleared unused order slots, and focus membership before every public operation.
+- [ ] Verify the compositor regression suite and all existing desktop/OS CI gates on the updated commit.
+- **Status:** defensive validation implemented; CI verification pending.

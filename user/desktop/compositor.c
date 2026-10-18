@@ -15,7 +15,30 @@ static int surface_valid(const struct pros_ui_surface *s) {
  return (size_t)s->pitch_pixels*(size_t)s->height<=s->capacity_pixels;
 }
 static int valid(const struct pros_ui_compositor *u) {
- return u&&u->magic==PROS_UI_MAGIC&&surface_valid(&u->surface)&&u->window_count<=PROS_UI_MAX_WINDOWS;
+ uint8_t seen[PROS_UI_MAX_WINDOWS]={0};
+ uint32_t used=0;
+ if(!u||u->magic!=PROS_UI_MAGIC||!surface_valid(&u->surface)||
+    u->window_count>PROS_UI_MAX_WINDOWS) return 0;
+ for(uint32_t i=0;i<PROS_UI_MAX_WINDOWS;i++) {
+  const struct pros_ui_window *w=&u->windows[i];
+  if(!w->used) continue;
+  used++;
+  if(!w->id||w->width<48u||w->height<40u||
+     w->width>u->surface.width||w->height>u->surface.height||
+     !title_valid(w->title)) return 0;
+  for(uint32_t j=0;j<i;j++)
+   if(u->windows[j].used&&u->windows[j].id==w->id) return 0;
+ }
+ if(used!=u->window_count) return 0;
+ for(uint32_t i=0;i<u->window_count;i++) {
+  uint32_t slot=u->z_order[i];
+  if(slot>=PROS_UI_MAX_WINDOWS||!u->windows[slot].used||seen[slot]) return 0;
+  seen[slot]=1u;
+ }
+ for(uint32_t i=u->window_count;i<PROS_UI_MAX_WINDOWS;i++)
+  if(u->z_order[i]!=0u) return 0;
+ if(u->focused_id&&find(u,u->focused_id)<0) return 0;
+ return 1;
 }
 static int title_valid(const char *s) {
  if(!s||!s[0])return 0;
