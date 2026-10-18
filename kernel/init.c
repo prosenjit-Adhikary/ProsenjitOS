@@ -2,10 +2,11 @@
 #include "heap.h"
 #include "security_exec.h"
 
-int pros_init_load(struct pros_vfs_mount *mount,
-                   struct pros_process *process,
-                   const struct pros_file_security_metadata *metadata,
-                   struct pros_elf_load_result *result)
+int pros_init_load_path(struct pros_vfs_mount *mount,
+                        const char *path,
+                        struct pros_process *process,
+                        const struct pros_file_security_metadata *metadata,
+                        struct pros_elf_load_result *result)
 {
     struct pros_vfs_file file;
     struct pros_file_admission_record admission;
@@ -13,12 +14,12 @@ int pros_init_load(struct pros_vfs_mount *mount,
     uint64_t length;
     uint32_t total = 0;
 
-    if (!mount || !process || !metadata || !result)
+    if (!mount || !path || !path[0] || !process || !metadata || !result)
         return PROS_INIT_EINVAL;
     if (!mount->active)
         return PROS_INIT_EIO;
 
-    if (vfs_file_open(mount, "/init", PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+    if (vfs_file_open(mount, path, PROS_VFS_O_READ, &file) != PROS_VFS_OK)
         return PROS_INIT_ENOENT;
 
     if (!file.vnode || file.vnode->type != PROS_VFS_NODE_FILE) {
@@ -95,6 +96,14 @@ int pros_init_load(struct pros_vfs_mount *mount,
     return PROS_INIT_OK;
 }
 
+int pros_init_load(struct pros_vfs_mount *mount,
+                   struct pros_process *process,
+                   const struct pros_file_security_metadata *metadata,
+                   struct pros_elf_load_result *result)
+{
+    return pros_init_load_path(mount, "/init", process, metadata, result);
+}
+
 static int init_reap_failed_child(struct pros_process *parent,
                                   struct pros_process *process)
 {
@@ -115,6 +124,7 @@ static int init_reap_failed_child(struct pros_process *parent,
 }
 
 int pros_init_launch(struct pros_vfs_mount *mount,
+                     const char *path,
                      struct pros_process *parent,
                      struct pros_process *process,
                      struct pros_thread *thread,
@@ -128,8 +138,9 @@ int pros_init_launch(struct pros_vfs_mount *mount,
     struct pros_elf_load_result loaded = {0};
     int rc;
 
-    if (!mount || !parent || !process || parent == process ||
-        !thread || !metadata || pid == 0u || tid == 0u ||
+    if (!mount || !path || !path[0] || !parent || !process ||
+        parent == process || !thread || !metadata ||
+        pid == 0u || tid == 0u ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
         !kernel_stack_bottom || kernel_stack_top <= kernel_stack_bottom ||
@@ -146,7 +157,7 @@ int pros_init_launch(struct pros_vfs_mount *mount,
     if (process_create(parent, process, pid, security_level) != 0)
         return PROS_INIT_ESTART;
 
-    rc = pros_init_load(mount, process, metadata, &loaded);
+    rc = pros_init_load_path(mount, path, process, metadata, &loaded);
     if (rc != PROS_INIT_OK) {
         if (init_reap_failed_child(parent, process) != 0)
             return PROS_INIT_EIO;
