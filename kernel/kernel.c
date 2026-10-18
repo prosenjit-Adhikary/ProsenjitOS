@@ -1439,6 +1439,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    /*
+     * The earlier scheduler fixtures are kernel self-tests, not live runtime
+     * tasks. Retire their run queue before entering the standalone CPL3 smoke
+     * test so a future timer-preemption change cannot accidentally dispatch
+     * the test worker's infinite loop as if it were a production task.
+     */
+    if (thread_manager_init() != 0) {
+        serial_write("ProsenjitOS: ERROR scheduler test-fixture retirement failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: scheduler test fixtures retired before CPL3 smoke test\n");
+
     serial_write("ProsenjitOS: switching to CPL3 user address space\n");
     if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\n");

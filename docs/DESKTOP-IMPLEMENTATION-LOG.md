@@ -691,3 +691,16 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 
 ### Desktop status
 The scheduler still has no dedicated idle thread. Its fail-closed halt path is a temporary safety fallback and can stop the machine when the current process becomes ineligible and no safe successor exists. Production display/input services, a process spawn/exec backend, window system integration, and boot-to-desktop runtime acceptance remain incomplete.
+
+
+## 2026-10-18 — Retire scheduler test fixtures before standalone CPL3 smoke test
+
+### Finding and fix
+- [x] Audited the full boot path after scheduler self-tests and found the kernel later enters CPL3 directly with `enter_user_mode()`, rather than launching the process through the scheduler.
+- [x] The scheduler self-test's kernel worker is an intentional infinite-loop fixture. If timer-driven preemption is enabled in a future change without cleaning up the fixture queue, it could be selected as though it were a real task.
+- [x] Reset the scheduler manager immediately before the standalone CPL3 smoke test. This drops the self-test run queue/registry and clears its current-thread pointer; it does not claim to create a production user thread or enable preemption.
+- [ ] Build/QEMU validation of this cleanup is pending.
+- [ ] Production process spawning, a scheduler-managed init/user thread, a dedicated idle task, and timer-preemptive CPL3 execution remain unimplemented.
+
+### Verification notes
+The prior commit `3304937e0c98c1c7b6a3932ee3c4d6345d12fa35` passed build/QEMU, DML tests, and security-design CI. The new cleanup requires its own CI run.
