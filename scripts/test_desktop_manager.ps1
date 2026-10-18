@@ -94,7 +94,7 @@ try {
         $zigArchive = Join-Path $tmp $zigArchiveName
         $zigExtract = Join-Path $tmp 'zig-extracted'
         Write-Host "No installed compiler found; downloading pinned Zig $zigVersion from the official Zig site."
-        Invoke-WebRequest -Uri $zigUrl -OutFile $zigArchive -UseBasicParsing
+        Invoke-WebRequest -Uri $zigUrl -OutFile $zigArchive -UseBasicParsing -TimeoutSec 180
         $zigActualSha256 = (Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($zigActualSha256 -ne $zigExpectedSha256) {
             throw "Zig archive SHA-256 mismatch. Expected $zigExpectedSha256, got $zigActualSha256."
