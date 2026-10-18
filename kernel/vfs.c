@@ -1259,6 +1259,16 @@ static int vfs_vnode_api_selftest(void)
         PROS_VFS_OK)
         return -108;
 
+    /*
+     * Drop the test fixture's ownership references before testing unmount.
+     * The open file must be the only remaining descendant reference; otherwise
+     * the mount would stay busy even after the file is closed.
+     */
+    if (vfs_vnode_put(&config_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&etc_node) != PROS_VFS_OK ||
+        vfs_vnode_put(&hello_node) != PROS_VFS_OK)
+        return -112;
+
     /* An open file pins its vnode and parent chain; unmount must fail closed. */
     if (vfs_mount_deactivate(&mount) != PROS_VFS_EBUSY)
         return -109;
