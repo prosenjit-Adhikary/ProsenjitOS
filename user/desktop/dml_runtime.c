@@ -1,6 +1,15 @@
 #include "dml_runtime.h"
 
 /*
+ * Backend callbacks are synchronous and must not re-enter the runtime. Keep
+ * this guard outside the public runtime object so runtime_init() can reject a
+ * callback trying to reset the same or another runtime without first reading
+ * possibly uninitialized caller-provided storage. The DML control plane is
+ * single-owner/serialized, so this guard is intentionally not a lock.
+ */
+static uint32_t runtime_callback_active;
+
+/*
  * The manager is public storage. Validate the registry's contiguous-prefix
  * invariant here too: runtime init/stop must not accept a manager with holes
  * or hidden registrations merely because no manifest lookup is needed yet.
@@ -101,9 +110,11 @@ static int runtime_stop_index(struct pros_dml_runtime *runtime,
     if (rc != PROS_DML_OK)
         return rc;
 
+    runtime_callback_active = 1u;
     rc = backend_status(runtime->ops.stop(&entry->manifest,
                             runtime->process_handles[index],
                             runtime->context));
+    runtime_callback_active = 0u;
     if (rc != PROS_DML_OK) {
         (void)pros_dml_transition(runtime->manager, entry->manifest.id,
                                   PROS_DML_SESSION_FAILED);
@@ -129,6 +140,8 @@ int pros_dml_runtime_init(struct pros_dml_runtime *runtime,
                           const struct pros_dml_runtime_ops *ops,
                           void *context)
 {
+    if (runtime_callback_active)
+        return PROS_DML_ESTATE;
     if (!runtime || !runtime_manager_valid(manager) ||
         !ops || !ops->start || !ops->stop)
         return PROS_DML_EINVAL;
@@ -174,6 +187,8 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
     uint32_t started_count = 0u;
     int rc;
 
+    if (runtime_callback_active)
+        return PROS_DML_ESTATE;
     if (!runtime_valid(runtime) || !desktop_id)
         return PROS_DML_EINVAL;
     if (runtime->active_count != 0u)
@@ -214,9 +229,11 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
         if (rc != PROS_DML_OK)
             goto rollback;
 
+        runtime_callback_active = 1u;
         rc = backend_status(runtime->ops.start(&entry->manifest,
                                                 &process_handle,
                                                 runtime->context));
+        runtime_callback_active = 0u;
         if (rc != PROS_DML_OK) {
             (void)pros_dml_transition(runtime->manager, entry->manifest.id,
                                       PROS_DML_SESSION_FAILED);
@@ -267,6 +284,8 @@ rollback:
 
 int pros_dml_runtime_stop(struct pros_dml_runtime *runtime)
 {
+    if (runtime_callback_active)
+        return PROS_DML_ESTATE;
     if (!runtime_valid(runtime))
         return PROS_DML_EINVAL;
     while (runtime->active_count != 0u) {
@@ -282,6 +301,8 @@ int pros_dml_runtime_stop(struct pros_dml_runtime *runtime)
 int pros_dml_runtime_active(const struct pros_dml_runtime *runtime,
                             const char **desktop_id)
 {
+    if (runtime_callback_active)
+        return PROS_DML_ESTATE;
     if (!runtime_valid(runtime) || !desktop_id)
         return PROS_DML_EINVAL;
     /*
