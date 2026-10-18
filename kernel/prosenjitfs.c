@@ -6659,20 +6659,51 @@ int prosenjitfs_selftest(void)
         uint64_t low_block = 2u;
         uint64_t high_lba = 0u;
 
-        if (bs != 512u ||
-            vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+        /*
+         * Keep each step separately diagnosable: a shared line number for
+         * this multi-operation regression hid which write/seek was failing
+         * in hosted QEMU logs.
+         */
+        if (bs != 512u)
+            return pfs_selftest_fail(__LINE__, -31);
+        if (vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK ||
-            vfs_file_write(&file, &high, 1u, &done) != PROS_VFS_OK ||
-            done != 1u ||
-            vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK ||
-            vfs_file_write(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
-            done != 1u ||
-            vfs_file_write(&file, &low_b, 1u, &done) != PROS_VFS_OK ||
-            done != 1u ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -14);
+            PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -32);
+        if (vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -33);
+        }
+        if (vfs_file_write(&file, &high, 1u, &done) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -34);
+        }
+        if (done != 1u) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -35);
+        }
+        if (vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -36);
+        }
+        if (vfs_file_write(&file, &low_a, 1u, &done) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -37);
+        }
+        if (done != 1u) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -38);
+        }
+        if (vfs_file_write(&file, &low_b, 1u, &done) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -39);
+        }
+        if (done != 1u) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -40);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -41);
 
         if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
                 PROSENJITFS_OK ||
