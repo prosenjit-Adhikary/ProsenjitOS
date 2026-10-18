@@ -288,14 +288,22 @@ int pros_elf_selftest(void)
         image[data_off + 0] = 0x90;
         image[data_off + 1] = 0xC3;
         rc = pros_elf_load(&process, image, data_off + 2, &loaded);
-        if (rc != PROS_ELF_ECONFLICT ||
-            address_space_translate_user(&process.address_space,
-                                         ELF_TEST_CODE_VA, &translated,
-                                         &flags) != 0 ||
-            translated != existing) {
+        if (rc != PROS_ELF_ECONFLICT) {
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
-            return -12;
+            return -15;
+        }
+        if (address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA, &translated,
+                                         &flags) != 0) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -16;
+        }
+        if (translated != existing) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -17;
         }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
