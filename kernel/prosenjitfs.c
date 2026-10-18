@@ -6273,12 +6273,24 @@ int prosenjitfs_selftest(void)
         if (vfs_file_open(&fs.mount, "/open-unlink.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
-        if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_EBUSY ||
-            vfs_file_seek(&file, 0u) != PROS_VFS_OK ||
-            vfs_file_read(&file, &readback, 1u, &done) != PROS_VFS_OK ||
-            done != 1u || readback != value ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -20);
+        {
+            int unlink_rc = vfs_unlink(&fs.mount, "/open-unlink.bin");
+            if (unlink_rc != PROS_VFS_EBUSY)
+                return pfs_selftest_fail(__LINE__, -2001);
+        }
+        if (vfs_file_seek(&file, 0u) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -2002);
+        {
+            int read_rc = vfs_file_read(&file, &readback, 1u, &done);
+            if (read_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -2003);
+        }
+        if (done != 1u)
+            return pfs_selftest_fail(__LINE__, -2004);
+        if (readback != value)
+            return pfs_selftest_fail(__LINE__, -2005);
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -2006);
         if (vfs_unlink(&fs.mount, "/open-unlink.bin") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -20);
         {
