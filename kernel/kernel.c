@@ -336,6 +336,9 @@ static int native_prosenjitfs_persistence_selftest(void)
     int rc;
     struct pros_vfs_file file;
     uint8_t mounted = 0u;
+    uint64_t write_lba = 0u, read_lba = 0u;
+    uint8_t tx_byte = 0u, post_commit_byte = 0u, direct_byte = 0u;
+    uint8_t vfs_byte = 0u, read_block_byte = 0u;
     static const char path[] = "/native-ata-persist.bin";
 
     rc = pros_ata_pio_probe(&native_pfs_ata);
@@ -378,6 +381,10 @@ static int native_prosenjitfs_persistence_selftest(void)
     mounted = 1u;
     for (uint32_t i = 0u; i < sizeof(native_pfs_write_buffer); ++i)
         native_pfs_write_buffer[i] = (uint8_t)((i * 37u) ^ 0xD6u);
+    /* The diagnostic watches byte 188 to correlate transaction, physical LBA,
+     * and the later VFS read. Make that marker deterministic on real ATA. */
+    native_pfs_write_buffer[188u] = 0xD6u;
+    prosenjitfs_write_diag_reset();
 
     rc = vfs_file_open(&native_pfs_fs.mount, path, PROS_VFS_O_WRITE, &file);
     if (rc == PROS_VFS_ENOENT)
@@ -394,6 +401,7 @@ static int native_prosenjitfs_persistence_selftest(void)
 
     if (vfs_file_open(&native_pfs_fs.mount, path, PROS_VFS_O_READ, &file) !=
         PROS_VFS_OK) { rc = -14; goto fail; }
+    prosenjitfs_write_diag_begin_read();
     done = 0u;
     if (vfs_file_read(&file, native_pfs_read_buffer,
                       sizeof(native_pfs_read_buffer), &done) != PROS_VFS_OK ||
@@ -401,6 +409,15 @@ static int native_prosenjitfs_persistence_selftest(void)
         (void)vfs_file_close(&file); rc = -15; goto fail;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK) { rc = -16; goto fail; }
+    if (prosenjitfs_write_diag_get(&write_lba, &tx_byte, &post_commit_byte,
+                                   &direct_byte, &vfs_byte) != PROSENJITFS_OK ||
+        prosenjitfs_write_diag_get_read_lba(&read_lba) != PROSENJITFS_OK ||
+        prosenjitfs_write_diag_get_read_byte(&read_block_byte) != PROSENJITFS_OK ||
+        write_lba != read_lba || tx_byte != 0xD6u ||
+        post_commit_byte != tx_byte || direct_byte != tx_byte ||
+        read_block_byte != tx_byte || vfs_byte != tx_byte) {
+        rc = -25; goto fail;
+    }
     for (uint32_t i = 0u; i < sizeof(native_pfs_read_buffer); ++i)
         if (native_pfs_read_buffer[i] != native_pfs_write_buffer[i]) {
             rc = -17; goto fail;
