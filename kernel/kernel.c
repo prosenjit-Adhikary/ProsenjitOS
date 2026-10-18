@@ -418,6 +418,7 @@ static int native_prosenjitfs_persistence_selftest(void)
         read_block_byte != tx_byte || vfs_byte != tx_byte) {
         rc = -25; goto fail;
     }
+    serial_write("ProsenjitOS: native filesystem LBA/payload agreement diagnostic passed\n");
     for (uint32_t i = 0u; i < sizeof(native_pfs_read_buffer); ++i)
         if (native_pfs_read_buffer[i] != native_pfs_write_buffer[i]) {
             rc = -17; goto fail;
