@@ -6751,7 +6751,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
             cross_inode.size != (high_block * bs) + 1u ||
-            cross_inode.allocated_bytes != bs * 2u ||
+            cross_inode.allocated_bytes != bs * 3u ||
             cross_inode.extent_head == 0u)
             return pfs_selftest_fail(__LINE__, -14);
 
