@@ -1231,7 +1231,8 @@ static int vfs_vnode_api_selftest(void)
         vfs_file_seek(&file, 0x100000000ULL) != PROS_VFS_OK ||
         vfs_file_read(&file, output, 1u, &done) != PROS_VFS_OK ||
         done != 0u ||
-        vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_OK ||
+        vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+        vfs_file_seek(&file, UINT64_MAX - 1u) != PROS_VFS_OK ||
         vfs_file_read(&file, output, 2u, &done) != PROS_VFS_EOVERFLOW ||
         vfs_file_close(&file) != PROS_VFS_OK)
         return -1;
