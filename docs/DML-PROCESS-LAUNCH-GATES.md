@@ -214,3 +214,14 @@ identified these precise boundaries:
 hazard, but did not modify kernel scheduling code because the ISO/native boot
 and interrupt-frame regression gates must remain green. The production
 launcher and graphical desktop remain incomplete; no completion claim is made.
+
+
+## 2026-10-18 — first-run CPL3 interrupt-flag consistency fix
+
+A concrete mismatch was found between the established boot-time CPL3 entry and the first-run scheduler-frame constructor: `enter_user_mode()` deliberately clears IF because user-mode timer preemption is not yet considered scheduler-safe, while `thread_init_user()` was constructing a first-run frame with RFLAGS `0x202` (IF=1).
+
+- [x] Updated `thread_init_user()` to set RFLAGS to `0x2` (reserved bit 1 set, IF clear), matching the existing boot-time safety policy.
+- [x] Updated the kernel self-test to assert the first-run CPL3 frame has IF clear.
+- [ ] Re-run warnings-as-errors build, DML tests, ISO/native BIOS QEMU, and security checks on the new head before treating the fix as verified.
+
+This is a narrow safety-consistency fix, **not** a production process-launch implementation. With IF clear, a first-run user thread cannot be timer-preempted; do not enable IF until the scheduler/interrupt-frame path and a supported userspace interrupt policy are verified end-to-end.
