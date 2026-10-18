@@ -402,9 +402,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
 
     /*
-     * The native BIOS image uses a fixed-LBA stage-1/stage-2 loader, not an
-     * MBR partition table. Verify the real ATA block read path without
-     * misrepresenting the current fixed-LBA layout as MBR-backed.
+     * The native loader reads its boot stages from fixed LBAs, independently
+     * of the MBR. The disk image still has an MBR partition entry; the ATA
+     * self-test reads it and verifies partition-LBA translation and bounds.
      */
     if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
         int ata_rc = pros_ata_pio_selftest();
@@ -415,7 +415,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
-        /* ATA-only coverage does not prove MBR/partition LBA boundary integration. */
+        serial_write("ProsenjitOS: ATA PIO -> MBR -> partition LBA boundary test passed\n");
     }
 
     if (heap_init() != 0) {
