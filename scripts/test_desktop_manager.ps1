@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+# Avoid expensive console progress rendering during large downloads on self-hosted Windows runners.
+$ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -127,12 +129,14 @@ try {
         # the download; never relax the pinned digest check below.
         $downloadSucceeded = $false
         for ($attempt = 1; $attempt -le 4; $attempt++) {
+            Write-Host "Zig download attempt $attempt/4 (timeout 180 seconds)."
             Remove-Item -LiteralPath $zigArchive -Force -ErrorAction SilentlyContinue
             try {
                 Invoke-WebRequest -Uri $zigUrl -OutFile $zigArchive -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
                 if (-not (Test-Path -LiteralPath $zigArchive -PathType Leaf)) {
                     throw 'Zig download returned without creating the archive.'
                 }
+                Write-Host "Zig archive download completed; verifying SHA-256."
                 $downloadSucceeded = $true
                 break
             } catch {

@@ -704,3 +704,16 @@ The scheduler still has no dedicated idle thread. Its fail-closed halt path is a
 
 ### Verification notes
 The prior commit `3304937e0c98c1c7b6a3932ee3c4d6345d12fa35` passed build/QEMU, DML tests, and security-design CI. The new cleanup requires its own CI run.
+
+
+## 2026-10-18 — Bound and diagnose the Windows DML test step
+
+### Finding and fix
+- [x] The current commit's Debian ISO/QEMU and native BIOS/persistence checks passed, and security-design passed.
+- [x] The Windows DML job remained in progress without a GitHub job update for more than 30 minutes; its live logs were unavailable while the step remained active. This is not counted as a test pass or a confirmed source failure.
+- [x] Suppressed PowerShell's interactive progress rendering during the pinned Zig fallback download and added explicit download-attempt/completion markers to make the slow path observable.
+- [x] Added a 12-minute step timeout to the Windows DML test step so a stalled test step fails with a bounded diagnostic instead of consuming the entire job window.
+- [ ] Verify this CI-only change on the exact new commit; Windows DML tests must complete and report their unit-test markers.
+
+### Desktop status
+This change improves CI diagnosability only. It does not implement the production process spawn/exec backend, scheduler-managed userspace init, idle thread, real display/input service path, window-system integration, or boot-to-desktop acceptance. Desktop remains incomplete.
