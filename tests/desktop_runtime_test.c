@@ -11,8 +11,8 @@
 } while (0)
 
 struct mock_backend {
-    char starts[16][PROS_DML_ID_MAX];
-    char stops[16][PROS_DML_ID_MAX];
+    char starts[32][PROS_DML_ID_MAX];
+    char stops[32][PROS_DML_ID_MAX];
     uint32_t start_count;
     uint32_t stop_count;
     uint64_t next_handle;
@@ -33,7 +33,7 @@ static int mock_start(const struct pros_dml_manifest *manifest,
     struct mock_backend *mock = opaque;
 
     if (!manifest || !handle || !mock ||
-        mock->start_count >= 16u)
+        mock->start_count >= 32u)
         return -77;
     (void)snprintf(mock->starts[mock->start_count],
                    sizeof(mock->starts[mock->start_count]), "%s",
@@ -63,7 +63,7 @@ static int mock_stop(const struct pros_dml_manifest *manifest,
     struct mock_backend *mock = opaque;
 
     (void)handle;
-    if (!manifest || !mock || mock->stop_count >= 16u)
+    if (!manifest || !mock || mock->stop_count >= 32u)
         return -77;
     (void)snprintf(mock->stops[mock->stop_count],
                    sizeof(mock->stops[mock->stop_count]), "%s",
