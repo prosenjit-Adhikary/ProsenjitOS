@@ -59,6 +59,35 @@ function Import-VisualStudioEnvironment {
     return [bool](Get-Command 'cl.exe' -ErrorAction SilentlyContinue)
 }
 
+
+function Invoke-CProgram {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string[]]$Sources
+    )
+
+    $output = Join-Path $tmp ($Name + '.exe')
+    if ($isMsvc) {
+        $arguments = @('/nologo', '/std:c11', '/W4', '/WX', '/O2', ("/I" + $desktop)) +
+            $Sources + @("/Fo:" + $tmp + "\\", ("/Fe:" + $output))
+    } elseif ($isZig) {
+        $arguments = @('cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
+            ("-I" + $desktop)) + $Sources + @('-o', $output)
+    } else {
+        $arguments = @('-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-O2',
+            ("-I" + $desktop)) + $Sources + @('-o', $output)
+    }
+
+    & $compilerPath @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Compilation failed for $Name (exit code $LASTEXITCODE)."
+    }
+    & $output
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed with exit code $LASTEXITCODE."
+    }
+}
+
 try {
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if ($bash) {
