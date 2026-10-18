@@ -672,3 +672,10 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Ordinary and interrupt schedulers now scan a bounded snapshot of the run queue, discard only ZOMBIE/DEAD-process threads (and invalid CPL3 frames), and requeue blocked/quarantined candidates rather than executing or destroying them.
 - [x] Interrupt scheduling preserves a current thread as BLOCKED when its process is blocked/quarantined; it does not accidentally mark the thread DEAD.
 - [ ] Await CI on this exact commit; add focused regression coverage for blocked/quarantined queue retention before considering scheduler lifecycle verified.
+
+
+### 2026-10-18 — Fail closed when a blocked process has no safe successor
+
+- [x] Follow-up audit identified a remaining edge case: an interrupt scheduler with no eligible successor could return the current interrupt frame even when that process had become blocked or quarantined.
+- [x] Until a dedicated idle thread is implemented, the scheduler now halts with interrupts disabled if the current process is ineligible and no safe successor can be installed. This intentionally favors isolation over continued operation; a real idle thread is still required for graceful idle behavior.
+- [ ] Await CI on the exact commit and add regression coverage for no-successor/quarantine paths.

@@ -19,6 +19,13 @@ static int thread_process_runnable(const struct pros_thread *thread) {
     return state == PROS_PROCESS_READY || state == PROS_PROCESS_RUNNING;
 }
 
+/* There is no dedicated idle thread yet. If the current process is no longer
+ * eligible and no safe successor can be installed, fail closed rather than
+ * returning to potentially quarantined CPL3 code. */
+static void thread_scheduler_fail_closed(void) {
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+
 
 void thread_bootstrap(struct pros_thread *thread) {
     if (!thread || !thread->entry) for (;;) __asm__ volatile ("cli; hlt");
@@ -341,8 +348,11 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         }
         break;
     }
-    if (!next)
+    if (!next) {
+        if (!thread_process_runnable(prev))
+            thread_scheduler_fail_closed();
         return current_frame;
+    }
 
     /*
      * Queue the interrupted thread before changing address spaces. If the
@@ -367,12 +377,16 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     process_set_current(next->process);
     if (process_current() != next->process) {
         (void)thread_enqueue(next);
+        if (!thread_process_runnable(prev))
+            thread_scheduler_fail_closed();
         return current_frame;
     }
 
     if (cpu_set_kernel_stack(next->kernel_stack_top) != 0) {
         process_set_current(prev->process);
         (void)thread_enqueue(next);
+        if (!thread_process_runnable(prev))
+            thread_scheduler_fail_closed();
         return current_frame;
     }
     current_thread = next;
