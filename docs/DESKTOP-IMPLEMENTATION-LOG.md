@@ -679,3 +679,15 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Follow-up audit identified a remaining edge case: an interrupt scheduler with no eligible successor could return the current interrupt frame even when that process had become blocked or quarantined.
 - [x] Until a dedicated idle thread is implemented, the scheduler now halts with interrupts disabled if the current process is ineligible and no safe successor can be installed. This intentionally favors isolation over continued operation; a real idle thread is still required for graceful idle behavior.
 - [ ] Await CI on the exact commit and add regression coverage for no-successor/quarantine paths.
+
+
+## 2026-10-18 — Scheduler quarantine regression coverage
+
+### Checks and findings
+- [x] Re-checked CI for exact source commit `a0399c060ad583ef6ec5e697ec4c1cadf9560491`: build/QEMU, DML tests, and security-design all passed.
+- [x] Added a boot-time scheduler regression that quarantines the shared test process while a worker is queued, verifies scheduling fails without marking the queued thread DEAD, clears quarantine, and verifies the worker can run again.
+- [ ] Build/QEMU validation of this regression on the new commit is pending.
+- [ ] This test covers queue preservation/recovery only; it does not prove an idle-thread implementation or a complete desktop session.
+
+### Desktop status
+The scheduler still has no dedicated idle thread. Its fail-closed halt path is a temporary safety fallback and can stop the machine when the current process becomes ineligible and no safe successor exists. Production display/input services, a process spawn/exec backend, window system integration, and boot-to-desktop runtime acceptance remain incomplete.

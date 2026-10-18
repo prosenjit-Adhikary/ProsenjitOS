@@ -939,6 +939,37 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /*
+     * Quarantine regression: queued threads belonging to a quarantined
+     * process must remain recoverable, but must not be reported runnable.
+     */
+    {
+        uint32_t init_state_before = thread_state(&init_thread);
+        uint32_t worker_state_before = thread_state(&worker_thread);
+        init_process.quarantined = 1u;
+        if (thread_schedule() == 0 ||
+            thread_has_runnable() != 0 ||
+            thread_state(&worker_thread) == PROS_THREAD_DEAD ||
+            thread_state(&init_thread) != init_state_before) {
+            serial_write("ProsenjitOS: ERROR quarantined scheduler preservation regression failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        init_process.quarantined = 0u;
+        if (!thread_has_runnable() ||
+            thread_schedule() != 0 ||
+            thread_current() != &worker_thread ||
+            thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+            thread_state(&init_thread) == PROS_THREAD_DEAD ||
+            worker_state_before == PROS_THREAD_DEAD) {
+            serial_write("ProsenjitOS: ERROR quarantined scheduler recovery regression failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (thread_schedule() != 0 || thread_current() != &init_thread) {
+            serial_write("ProsenjitOS: ERROR scheduler recovery restore failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: scheduler quarantine preservation/recovery regression passed\n");
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
 
     /* Process exit must terminate its threads and remove them from the run queue. */
