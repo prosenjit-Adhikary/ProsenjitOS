@@ -39,7 +39,9 @@ static int pfs_inode_block_location(const struct pros_prosenjitfs *, uint64_t,
 
 static void pfs_zero(void *buffer, uint32_t size)
 {
-    uint8_t *p = (uint8_t *)buffer;
+    /* Volatile stores prevent freestanding builds from having this zeroing
+     * loop rewritten as a libc memset call by compiler loop recognition. */
+    volatile uint8_t *p = (volatile uint8_t *)buffer;
     for (uint32_t i = 0; i < size; ++i)
         p[i] = 0;
 }
