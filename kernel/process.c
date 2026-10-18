@@ -93,6 +93,15 @@ static int process_has_children(const struct pros_process *process) {
     return 0;
 }
 
+/* Reap preflight: all conditions that could make final unregister fail must
+ * be checked before irreversible handle/address-space teardown starts. */
+static int process_is_registered(const struct pros_process *process) {
+    if (!process) return 0;
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it == process) return 1;
+    return 0;
+}
+
 static int process_release_resources(struct pros_process *process) {
     if (!process) return -1;
     if (handle_table_close_all(&process->handles) != 0) return -1;
@@ -188,15 +197,30 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
-    *exit_code = child->exit_code;
+
+    /*
+     * Do not begin destructive cleanup unless the process is quiescent and
+     * final unregister is guaranteed by the current single-owner process
+     * manager invariants. In particular, an extra object reference must not
+     * leave a zombie with its address space already destroyed.
+     */
+    if (thread_process_has_live(child) || thread_process_is_current(child) ||
+        child->object.refcount != 1u || process_has_children(child) ||
+        !process_is_registered(child))
+        return -3;
+
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
-        /* Keep a fully reaped process visible if final unlinking fails. */
-        child->state = PROS_PROCESS_ZOMBIE;
+        /*
+         * Resource release has already committed. Never lie by changing this
+         * resource-less process back to ZOMBIE; return an error and leave the
+         * DEAD state as the truthful terminal state for diagnostics.
+         */
         return -5;
     }
+    /* Publish the status only after the child has been fully unregistered. */
+    *exit_code = child->exit_code;
     return 0;
 }
 
@@ -413,10 +437,22 @@ static int process_selftest_isolated(void)
         child.quarantined ||
         child.quarantine_previous_state != 0u)
         return -8;
+
+    /* A retained process object must block reap before any resource teardown,
+     * and a failed wait must not publish a misleading exit status. */
+    exit_code = -999;
+    if (object_retain(&child.object) != 0 ||
+        process_wait(&parent, child.pid, &exit_code) != -3 ||
+        exit_code != -999 ||
+        process_state(&child) != PROS_PROCESS_ZOMBIE ||
+        child.address_space.root == 0u)
+        return -9;
+    if (object_release(&child.object) != 0)
+        return -10;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
         process_lookup(child.pid) != 0)
-        return -9;
+        return -11;
 
     parent.quarantined = 1u;
     parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
