@@ -21,6 +21,10 @@ struct mock_backend {
     int fail_start_once;
     int fail_stop_once;
     int return_zero_handle_once;
+    struct pros_dml_runtime *reentry_runtime;
+    int reenter_start_once;
+    int reenter_stop_once;
+    int reentry_result;
 };
 
 static int mock_start(const struct pros_dml_manifest *manifest,
@@ -35,6 +39,11 @@ static int mock_start(const struct pros_dml_manifest *manifest,
                    sizeof(mock->starts[mock->start_count]), "%s",
                    manifest->id);
     ++mock->start_count;
+    if (mock->reenter_start_once && mock->reentry_runtime) {
+        mock->reenter_start_once = 0;
+        mock->reentry_result =
+            pros_dml_runtime_stop(mock->reentry_runtime);
+    }
     if (mock->fail_start_once && mock->fail_start_id &&
         strcmp(mock->fail_start_id, manifest->id) == 0) {
         mock->fail_start_once = 0;
@@ -60,6 +69,11 @@ static int mock_stop(const struct pros_dml_manifest *manifest,
                    sizeof(mock->stops[mock->stop_count]), "%s",
                    manifest->id);
     ++mock->stop_count;
+    if (mock->reenter_stop_once && mock->reentry_runtime) {
+        mock->reenter_stop_once = 0;
+        mock->reentry_result =
+            pros_dml_runtime_start(mock->reentry_runtime, "session");
+    }
     if (mock->fail_stop_once && mock->fail_stop_id &&
         strcmp(mock->fail_stop_id, manifest->id) == 0) {
         mock->fail_stop_once = 0;
@@ -243,6 +257,20 @@ int main(void)
     }
     CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
           state == PROS_DML_SESSION_STOPPED, 14);
+
+    /*
+     * The backend contract is synchronous and non-reentrant. Verify a backend
+     * that accidentally calls back into the orchestrator cannot corrupt the
+     * active order or reset the runtime while a callback is in flight.
+     */
+    mock.reentry_runtime = &runtime;
+    mock.reenter_start_once = 1;
+    CHECK(pros_dml_runtime_start(&runtime, "session") == PROS_DML_OK, 15);
+    CHECK(mock.reentry_result == PROS_DML_ESTATE, 15);
+    mock.reenter_stop_once = 1;
+    CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 15);
+    CHECK(mock.reentry_result == PROS_DML_ESTATE, 15);
+    CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ENOENT, 15);
 
     (void)puts("desktop runtime tests passed");
     return 0;
