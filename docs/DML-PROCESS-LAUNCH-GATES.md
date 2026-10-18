@@ -148,3 +148,17 @@ Inspected the actual assembly and kernel sources on this branch before consideri
 - `kernel/include/process.h` exposes internal `process_create`, `process_exit`, and `process_wait` operations. `include/abi/syscall.h` still publishes no spawn/exec or wait syscall; these internal C interfaces are not a user ABI.
 
 **Implementation decision:** do not add a syscall number or a DML backend in this patch. The missing work is a reusable and audited child-process launch transaction that binds admission -> ELF load -> initial user IRET frame -> runnable thread -> exit/wait/reap, with rollback and ownership guarantees. First implement that transaction behind kernel-internal tests, then separately review/version any user-facing syscall contract. Keep the existing boot-time CPL3 test intact as a regression gate.
+
+
+## 2026-10-18 verification refresh — current head `bdcd233c85fdb46a0d5cec4359b236258857584e`
+
+This section supersedes the older boot-failure status above for the tested head.
+
+- [x] DML manager/runtime unit tests passed on `OfficeWindows` / machine `IT` in [run 39055656118](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39055656118). The log confirms `desktop manager tests passed`, `desktop runtime tests passed`, and `DML manager and runtime unit tests passed`.
+- [x] ISO QEMU boot milestones passed on `office` / machine `debian` in [run 39055656118](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39055656118).
+- [x] Native BIOS QEMU boot milestones passed, including the native filesystem LBA boundary diagnostic and the second native boot persistence check, in the same build run.
+- [x] Security architecture checks passed in [run 39055656164](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39055656164).
+- [ ] Production user-mode spawn/exec + wait/reap path remains unimplemented. Existing DML start/stop callbacks are still only an orchestration contract; no production kernel-backed adapter is wired in.
+- [ ] Real display/window-system integration, keyboard/pointer delivery, a running desktop session, and boot-to-desktop verification remain incomplete.
+
+The QEMU boot blockers recorded in earlier dated sections are historical and did not recur on this tested head. Do not infer desktop-launch completion from the passing kernel boot tests or DML unit tests. Keep this PR Draft until the production launch path and real desktop integration gates pass.
