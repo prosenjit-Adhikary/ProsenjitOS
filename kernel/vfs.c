@@ -1192,8 +1192,13 @@ static int vfs_vnode_api_selftest(void)
     };
 
     if (block_device_init(&device, 512, 1, vfs_selftest_read, 0, 0) !=
-            PROS_BLOCK_OK ||
-        vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
+            PROS_BLOCK_OK)
+        return -101;
+    /* vfs_mount_init() rejects reinitializing a live mount, so seed the two
+     * fields it checks before using this stack-allocated test fixture. */
+    mount.active = 0u;
+    mount.root = 0;
+    if (vfs_mount_init(&mount, PROS_FS_PROSENJIT, &device, 0, 1) !=
             PROS_VFS_OK)
         return -101;
     if (vfs_vnode_init(&root, &mount, 0, PROS_VFS_NODE_DIRECTORY,
