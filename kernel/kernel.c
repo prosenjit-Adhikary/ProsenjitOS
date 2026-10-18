@@ -994,6 +994,23 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
 
+    /* A malformed CPL3 candidate must be discarded, never started through
+     * the CPL0 RET trampoline synthesized for kernel threads. */
+    struct pros_thread invalid_user_frame_thread;
+    if (thread_init(&invalid_user_frame_thread, &init_process, 3u,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(user_frame_thread_stack +
+                                          sizeof(user_frame_thread_stack))) != 0) {
+        serial_write("ProsenjitOS: ERROR invalid user-frame regression setup failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    invalid_user_frame_thread.user_mode = 1u;
+    if (thread_set_state(&invalid_user_frame_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&invalid_user_frame_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR invalid user-frame regression enqueue failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
@@ -1023,6 +1040,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
         scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
         worker_thread.interrupt_frame != &scheduler_worker_frame ||
+        invalid_user_frame_thread.state != PROS_THREAD_DEAD ||
         cpu_get_kernel_stack() !=
             (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
