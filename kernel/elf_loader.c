@@ -345,7 +345,8 @@ int pros_elf_selftest(void)
                                               &flags) != 0) check_rc = -22;
         else if (!(flags & PROSENJIT_PAGE_USER)) check_rc = -23;
         else if (flags & PROSENJIT_PAGE_WRITABLE) check_rc = -24;
-        else if (!(flags & PROSENJIT_PAGE_NX)) check_rc = -25;
+        /* PT_LOAD is executable (PF_X), so its mapped page must not be NX. */
+        else if (flags & PROSENJIT_PAGE_NX) check_rc = -25;
         else if (((uint8_t *)(uintptr_t)physical)[0] != 0x90 ||
                  ((uint8_t *)(uintptr_t)physical)[1] != 0xC3 ||
                  ((uint8_t *)(uintptr_t)physical)[2] != 0) check_rc = -26;
