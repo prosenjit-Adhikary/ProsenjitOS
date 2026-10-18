@@ -6048,7 +6048,8 @@ int prosenjitfs_selftest(void)
     pfs_crash_injected = 0u;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
-    struct pros_prosenjitfs fs = { 0 };
+    struct pros_prosenjitfs fs;
+    pfs_zero(&fs, sizeof(fs));
     struct pros_prosenjitfs_inode inode;
     uint64_t first_block;
     uint64_t inode_number;
