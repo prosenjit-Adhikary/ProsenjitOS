@@ -6724,6 +6724,15 @@ int prosenjitfs_selftest(void)
             (void)vfs_file_close(&file);
             return pfs_selftest_fail(__LINE__, -38);
         }
+        /*
+         * A one-byte write advances the file offset by one byte, not one
+         * filesystem block. Seek explicitly to the next logical block so
+         * this regression really exercises cross-block extent coalescing.
+         */
+        if (vfs_file_seek(&file, (low_block + 1u) * bs) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1301);
+        }
         if (vfs_file_write(&file, &low_b, 1u, &done) != PROS_VFS_OK) {
             (void)vfs_file_close(&file);
             return pfs_selftest_fail(__LINE__, -39);
