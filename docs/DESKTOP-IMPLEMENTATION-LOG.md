@@ -615,3 +615,11 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Moved the PIC EOI call to the ABI-aligned temporary stack immediately after `timer_dispatch()`, while the complete register frame remains saved. Removed both post-pop EOI calls so register restoration is the final operation before `iretq`.
 - [ ] Verify assembly/build, ISO and native BIOS QEMU tests, Windows DML tests, and security workflow on this exact revision.
 - **Status:** source-level interrupt-state correction; CI/runtime verification pending. User-mode interrupts remain disabled pending a dedicated lifecycle test.
+
+
+### 2026-10-18 — Keep push and PR security runs independent
+
+- [x] CI review found the security workflow concurrency group used workflow + branch only, so push and pull_request events on the same branch cancelled each other. The build workflow already includes the event name; security did not.
+- [x] Added `github.event_name` to the security concurrency key, allowing push and PR validations to run independently while still cancelling superseded runs within the same event/branch.
+- [ ] Verify push and pull_request security jobs both complete on the next exact-head run.
+- **Status:** CI scheduling fix committed; verification pending.
