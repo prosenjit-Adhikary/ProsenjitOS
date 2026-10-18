@@ -6671,9 +6671,14 @@ int prosenjitfs_selftest(void)
          * the root/path walk or the filesystem create callback rejected the
          * operation. The earlier generic open result did not distinguish them.
          */
-        if (!fs.mount.root || !fs.mount.root->initialized ||
-            fs.mount.root->refcount == 0u || !fs.mount.root->private_data)
+        if (!fs.mount.root)
             return pfs_selftest_fail(__LINE__, -1101);
+        if (!fs.mount.root->initialized)
+            return pfs_selftest_fail(__LINE__, -1102);
+        if (fs.mount.root->refcount == 0u)
+            return pfs_selftest_fail(__LINE__, -1103);
+        if (!fs.mount.root->private_data)
+            return pfs_selftest_fail(__LINE__, -1104);
         {
             struct pros_vfs_vnode *probe = 0;
             int lookup_rc = vfs_path_lookup(&fs.mount,
