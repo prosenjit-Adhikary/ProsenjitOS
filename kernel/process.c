@@ -209,6 +209,12 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
         !process_is_registered(child))
         return -3;
 
+    /*
+     * Dead thread records must no longer point into caller-owned storage when
+     * wait succeeds. Do this only after the non-destructive process preflight;
+     * the operation itself validates all matching records before unlinking.
+     */
+    if (thread_process_unregister_dead(child) != 0) return -3;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
