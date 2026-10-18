@@ -42,7 +42,7 @@ they must outlive the child thread and must not be stack-local temporaries.
 Reap is guarded by a non-destructive preflight: the child must be a registered
 direct child in `ZOMBIE` state, no thread may remain live/current, the process
 must have no live descendants, and the process object must have only its
-registry-owned reference. A failed preflight must not tear down handles or the
+sole base reference. A failed preflight must not tear down handles or the
 address space and must not publish an exit status. Once teardown commits, the
 implementation must never relabel a resource-less process as `ZOMBIE` if
 final unlinking reports an invariant violation.
