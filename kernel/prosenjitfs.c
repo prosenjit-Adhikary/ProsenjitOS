@@ -4199,7 +4199,9 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
         if (pfs_diag.enabled && !pfs_diag.found &&
             fs->sb.block_size > 188u &&
             fs->tx.targets[i] >= fs->sb.data_start &&
-            tx_image[188u] == 0xD6u) {
+            tx_image[187u] == (uint8_t)((187u * 37u) ^ 0xD6u) &&
+            tx_image[188u] == 0xD6u &&
+            tx_image[189u] == (uint8_t)((189u * 37u) ^ 0xD6u)) {
             pfs_diag.found = 1u;
             pfs_diag.tx_byte = tx_image[188u];
             pfs_diag.physical_lba = fs->tx.targets[i];
