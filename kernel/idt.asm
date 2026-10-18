@@ -131,6 +131,11 @@ isr32:
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
+    ; The scheduler returns current_frame unchanged when no runnable successor
+    ; exists. That frame still has the IRQ vector/error words after R15, so it
+    ; must use .timer_no_switch rather than the switched-frame IRET layout.
+    cmp rax, [rsp + 24]
+    je .timer_no_switch
 
     ; A switched thread supplies a saved pros_interrupt_frame whose layout
     ; is RAX..R15, RIP, CS, RFLAGS. It has no synthetic vector/error pair.

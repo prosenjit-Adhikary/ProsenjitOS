@@ -574,3 +574,11 @@
 ### Next required implementation gate
 Implement a reviewed interrupt-return scheduling/exit lifecycle with deterministic cleanup and regression tests before connecting a production DML process backend. Preserve the current safe non-preemptive user-mode behavior until that gate passes.
 
+## 2026-10-18 — Timer IRQ same-frame return correction
+
+- [x] Audited `kernel/idt.asm` against `thread_schedule_interrupt()`'s documented contract.
+- [x] Found that the timer ISR treated any non-null scheduler result as a switched thread, even when the scheduler returned the original `current_frame` because no successor was runnable. The original IRQ frame includes vector/error words after the saved GPRs; the switched-frame restore skips those words and would feed the wrong values to `iretq`.
+- [x] Updated the timer ISR to compare the returned frame pointer with the original frame pointer and branch to the normal IRQ restore path when they are identical.
+- [ ] CI must validate NASM assembly, ISO/native BIOS builds, QEMU boot, and security checks for this change.
+- [ ] This is a targeted interrupt-return fix, not proof of CPL3 preemption or a complete desktop runtime. Those still require a real end-to-end scheduler/process-lifecycle test.
+
