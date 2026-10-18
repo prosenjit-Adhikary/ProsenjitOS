@@ -229,7 +229,7 @@ This is a narrow safety-consistency fix, **not** a production process-launch imp
 ## 2026-10-18 — Transactional launch and wait/reap hardening
 
 - [x] `pros_init_launch()` keeps a newly registered child in `NEW` during executable admission, ELF mapping, and CPL3-frame setup; it publishes `READY` only after the frame is validated and immediately before run-queue insertion.
-- [x] `process_wait()` now preflights quiescence, direct-child registry membership, descendant absence, and the registry-owned object reference before destructive resource cleanup. A failed preflight leaves the zombie's address space intact and does not publish an exit status.
+- [x] `process_wait()` now preflights quiescence, direct-child registry membership, descendant absence, and the sole base object reference before destructive resource cleanup. A failed preflight leaves the zombie's address space intact and does not publish an exit status.
 - [x] Reap detaches dead thread records from the global thread registry before caller-owned thread/stack storage may be released. A kernel process self-test exercises retained-reference rejection and confirms the dead thread record is detached on successful reap.
 - [x] Updated `docs/PROCESS-LIFECYCLE.md` to record launch publication and reap preflight invariants.
 - [ ] Verify these exact changes on the designated self-hosted runners: build/ISO/native BIOS QEMU, OfficeWindows DML tests, and security architecture checks. The current workflow runs are queued/pending; no pass is claimed for this patch yet.
