@@ -403,6 +403,8 @@ static int process_selftest_isolated(void)
 {
     struct pros_process parent;
     struct pros_process child;
+    struct pros_thread child_thread;
+    uint64_t child_thread_stack[16] __attribute__((aligned(16)));
     int32_t exit_code = 0;
 
     if (process_manager_init() != 0)
@@ -415,6 +417,9 @@ static int process_selftest_isolated(void)
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
+        return -5;
+    if (thread_init(&child_thread, &child, 0xFFFF0002ULL, 1u,
+                    (uint64_t)(uintptr_t)(child_thread_stack + 16)) != 0)
         return -5;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
@@ -457,7 +462,10 @@ static int process_selftest_isolated(void)
         return -10;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
-        process_lookup(child.pid) != 0)
+        process_lookup(child.pid) != 0 ||
+        child_thread.process != 0 ||
+        child_thread.state != PROS_THREAD_DEAD ||
+        child_thread.registry_next != 0)
         return -11;
 
     parent.quarantined = 1u;
