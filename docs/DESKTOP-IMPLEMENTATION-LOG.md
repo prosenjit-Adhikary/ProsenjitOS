@@ -528,3 +528,16 @@
 - [x] Added forward declarations for the shared title/ID validators used by the compositor's common state gate, keeping the implementation valid under strict C11 compilation.
 
 - [x] Corrected the invalid-title regression input to an empty title; path-like punctuation is valid display text and must not be confused with package-path validation.
+
+
+### 2026-10-18 — Current-head verification and remaining desktop blockers
+
+- [x] Re-checked the Desktop PR #137 head and its latest verification record. Workflow run [39109546967](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39109546967) completed successfully: designated Debian `office` runner passed toolchain verification, ISO build, ISO QEMU boot checks, native BIOS QEMU boot checks, and the Windows `OfficeWindows` DML test job passed.
+- [x] Security architecture workflow [39109546969](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39109546969) completed successfully.
+- [x] Re-audited the source contracts on `desktop/dml-dependency-order-20261017`: `kernel/init.c` loads and security-admits `/init` into a process address space, but does not start a thread or provide spawn/wait. `thread_init_user()` constructs a CPL3 interrupt frame, but a general executable spawn transaction and safe userspace service lifecycle are not yet exposed by the public syscall ABI.
+- [x] Confirmed `user/desktop/compositor.c` is a software renderer over a caller-supplied pixel surface with window/z-order/pointer-hit-test primitives and host tests. It is not yet bound to the kernel display-present path, a concrete keyboard/pointer driver, or a running userspace session.
+- [ ] Implement and test a complete process-launch transaction: secure executable resolution/admission, ELF load, user stack and kernel stack/thread ownership, runnable scheduling, rollback on every partial failure, and parent wait/reap. Preserve the existing IF-clear CPL3 policy until interrupt-frame restoration and user-mode preemption are verified.
+- [ ] Add a real DML backend over that launch/stop/wait contract; do not connect the mock backend to boot.
+- [ ] Implement the userspace display/input event services and bind compositor presentation to the supported display ABI/backend.
+- [ ] Boot to a real session and verify rendering, keyboard and pointer delivery, application launch, logout, restart, and failure recovery.
+- **Status:** prerequisite CI is green; Desktop Environment is **not complete**. These blockers are source/runtime work, not documentation-only acceptance gates. PR #137 must remain Draft until end-to-end evidence exists.
