@@ -119,23 +119,26 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
-    ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
-    sub rsp, 8
-    lea rdi, [rsp + 24]
+    ; The saved RAX..R15 frame starts 16 bytes above the synthetic vector
+    ; and error words. Preserve its address in RBX (the interrupted RBX is
+    ; already saved in the frame), then align the temporary C call stack
+    ; dynamically. An interrupt may arrive at either CPL0 or CPL3 with
+    ; different stack alignment; a fixed SUB would violate the SysV ABI.
+    lea rbx, [rsp + 16]
+    and rsp, -16
+    mov rdi, rbx
     call timer_dispatch
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 24]
+    mov rdi, rbx
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
     ; The scheduler returns current_frame unchanged when no runnable successor
-    ; exists. That frame still has the IRQ vector/error words after R15, so it
-    ; must use .timer_no_switch rather than the switched-frame IRET layout.
-    lea rdx, [rsp + 24]
-    cmp rax, rdx
+    ; exists. Compare frame pointers (not frame contents) before choosing the
+    ; restore path: the original IRQ frame includes vector/error words.
+    cmp rax, rbx
     je .timer_no_switch
 
     ; A switched thread supplies a saved pros_interrupt_frame whose layout
@@ -144,9 +147,9 @@ isr32:
     jmp .timer_restore_switched
 
 .timer_no_switch:
-    ; The current IRQ frame still contains vector/error below RAX..R15.
-    ; Restore the GPRs first, then skip those two words before IRET.
-    add rsp, 24
+    ; Restore from the saved register-frame pointer, skipping the synthetic
+    ; vector/error pair below it regardless of temporary call-stack alignment.
+    mov rsp, rbx
     pop rax
     pop rbx
     pop rcx

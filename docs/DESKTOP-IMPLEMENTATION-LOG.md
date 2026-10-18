@@ -590,3 +590,11 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Corrected the guard to compute the original frame address with `lea rdx, [rsp + 24]` and compare pointer-to-pointer. RDX is caller-saved and the interrupted value is restored from the saved frame.
 - [ ] Run NASM/build, ISO and native BIOS QEMU gates, plus security workflow on this exact revision before treating the timer-return change as verified.
 - **Status:** comparison corrected by source review; CI/runtime verification pending. Desktop Environment remains incomplete.
+
+
+### 2026-10-18 — Timer ISR C-ABI stack alignment hardening
+
+- [x] Re-reviewed the timer interrupt path after the same-frame fix and found that a fixed `sub rsp, 8` assumed one stack alignment, although IRQs can arrive from CPL0 or CPL3 and interrupt-frame depth differs.
+- [x] Changed the timer ISR to preserve the saved-register-frame pointer in RBX (the interrupted RBX is already saved), align the temporary C-call stack with `and rsp, -16`, and restore the original frame pointer before the no-switch register pops. The saved-frame pointer is now used consistently for scheduler argument and same-frame comparison.
+- [ ] Verify strict assembly/build, ISO QEMU boot, native BIOS QEMU boot, Windows DML tests, and security checks on this exact revision.
+- **Status:** source-level ABI correction; exact-commit CI pending. This does not enable CPL3 interrupts or establish full desktop completion.
