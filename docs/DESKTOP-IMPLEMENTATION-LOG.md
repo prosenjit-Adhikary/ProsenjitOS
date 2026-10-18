@@ -607,3 +607,11 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Added four bounded download attempts with exponential backoff and removal of partial archives between attempts. The existing pinned SHA-256 check remains mandatory; no unverified archive can be used.
 - [ ] Verify this retry change on the Windows runner and rerun the full Debian build/boot and security gates.
 - **Status:** CI resilience change committed; validation pending. This addresses a flaky toolchain fetch, not the remaining production desktop integration blockers.
+
+
+### 2026-10-18 — Preserve interrupted registers across PIC EOI
+
+- [x] Further review of the timer ISR found both restore paths called the C `pic_eoi_master()` after popping saved GPRs. Since a C call may clobber caller-saved registers, that ordering could corrupt the interrupted context before `iretq`.
+- [x] Moved the PIC EOI call to the ABI-aligned temporary stack immediately after `timer_dispatch()`, while the complete register frame remains saved. Removed both post-pop EOI calls so register restoration is the final operation before `iretq`.
+- [ ] Verify assembly/build, ISO and native BIOS QEMU tests, Windows DML tests, and security workflow on this exact revision.
+- **Status:** source-level interrupt-state correction; CI/runtime verification pending. User-mode interrupts remain disabled pending a dedicated lifecycle test.

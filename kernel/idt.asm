@@ -128,6 +128,10 @@ isr32:
     and rsp, -16
     mov rdi, rbx
     call timer_dispatch
+    ; A C call after popping the saved GPRs can clobber caller-saved registers.
+    ; Acknowledge IRQ0 now, while the temporary stack is ABI-aligned and all
+    ; interrupted registers remain safely stored in the frame.
+    call pic_eoi_master
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
@@ -165,7 +169,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 .timer_restore_switched:
@@ -184,7 +187,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 %macro ISR_NO_ERROR 1
