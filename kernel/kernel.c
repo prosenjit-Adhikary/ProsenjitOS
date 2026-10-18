@@ -408,7 +408,7 @@ static int native_prosenjitfs_persistence_selftest(void)
     if (prosenjitfs_write_diag_get(&write_lba, &tx_byte, &post_commit_byte,
                                    &direct_byte, &vfs_byte) != PROSENJITFS_OK ||
         tx_byte != 0xD6u || post_commit_byte != tx_byte ||
-        direct_byte != tx_byte || vfs_byte != tx_byte) {
+        direct_byte != tx_byte) {
         rc = -25; goto fail;
     }
     {
@@ -438,9 +438,13 @@ static int native_prosenjitfs_persistence_selftest(void)
         (void)vfs_file_close(&file); rc = -15; goto fail;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK) { rc = -16; goto fail; }
-    if (prosenjitfs_write_diag_get_read_lba(&read_lba) != PROSENJITFS_OK ||
+    if (prosenjitfs_write_diag_get(&write_lba, &tx_byte, &post_commit_byte,
+                                   &direct_byte, &vfs_byte) != PROSENJITFS_OK ||
+        prosenjitfs_write_diag_get_read_lba(&read_lba) != PROSENJITFS_OK ||
         prosenjitfs_write_diag_get_read_byte(&read_block_byte) != PROSENJITFS_OK ||
-        write_lba != read_lba || read_block_byte != tx_byte) {
+        write_lba != read_lba || tx_byte != 0xD6u ||
+        post_commit_byte != tx_byte || direct_byte != tx_byte ||
+        vfs_byte != tx_byte || read_block_byte != tx_byte) {
         rc = -25; goto fail;
     }
     {
