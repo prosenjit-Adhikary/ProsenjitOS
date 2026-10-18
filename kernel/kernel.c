@@ -415,7 +415,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
-        serial_write("ProsenjitOS: ATA PIO -> MBR -> partition LBA boundary test passed\n");
+        /* ATA-only coverage does not prove MBR/partition LBA boundary integration. */
     }
 
     if (heap_init() != 0) {
