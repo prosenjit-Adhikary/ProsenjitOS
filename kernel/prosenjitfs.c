@@ -2573,7 +2573,7 @@ static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *n
     uint64_t current = 0u, previous = 0u, target_lba = 0u, inode_lba, steps = 0u;
     uint64_t inode_number;
     struct pros_prosenjitfs_dir_entry child_entry;
-    uint32_t inode_offset, name_length, bucket;
+    uint32_t inode_offset, name_length, entry_name_length, bucket;
     int rc = PROSENJITFS_EIO;
 
     if (!parent || !name || !parent->private_data ||
@@ -2623,9 +2623,9 @@ static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *n
             entry.name_length == 0u || entry.name_length > PROSENJITFS_MAX_NAME ||
             entry.name[entry.name_length] != 0u ||
             entry.inode >= data->fs->sb.inode_count ||
-            pfs_utf8_name_valid((const char *)entry.name, &name_length) !=
+            pfs_utf8_name_valid((const char *)entry.name, &entry_name_length) !=
                 PROSENJITFS_OK ||
-            name_length != entry.name_length ||
+            entry_name_length != entry.name_length ||
             entry.name_hash != pfs_name_hash(entry.name, entry.name_length) ||
             pfs_crc_with_zero32(entry_block, sizeof(entry),
                 (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum)) !=
