@@ -2684,7 +2684,7 @@ static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *n
     }
     if (data->fs->open_file_refs[inode_number] != 0u ||
         data->fs->open_dir_refs[inode_number] != 0u) {
-        rc = PROS_VFS_EBUSY;
+        rc = PROSENJITFS_EBUSY;
         goto rmdir_out;
     }
 
