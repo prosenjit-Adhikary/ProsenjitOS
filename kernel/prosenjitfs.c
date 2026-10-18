@@ -6221,13 +6221,23 @@ int prosenjitfs_selftest(void)
 
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -19);
-        if (vfs_file_open(&fs.mount, "/crash-replay.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_read(&file, crash_read, sizeof(crash_read), &done) !=
-                PROS_VFS_OK ||
-            done != sizeof(crash_read)) {
-            vfs_file_close(&file);
-            return pfs_selftest_fail(__LINE__, -19);
+        {
+            int open_rc = vfs_file_open(&fs.mount, "/crash-replay.bin",
+                                        PROS_VFS_O_READ, &file);
+            if (open_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -1901);
+        }
+        {
+            int read_rc = vfs_file_read(&file, crash_read,
+                                        sizeof(crash_read), &done);
+            if (read_rc != PROS_VFS_OK) {
+                (void)vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -1902);
+            }
+            if (done != sizeof(crash_read)) {
+                (void)vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -1903);
+            }
         }
         for (uint32_t i = 0u; i < sizeof(crash_read); ++i) {
             if (crash_read[i] != crash_data[i]) {
