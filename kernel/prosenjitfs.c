@@ -6638,6 +6638,10 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    /* The previous regression intentionally leaves the filesystem unmounted. */
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -32);
+
     /*
      * Sparse + delayed-allocation cross-regression: create a high logical
      * extent first, then fill a lower hole and finally write the immediately
