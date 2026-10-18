@@ -251,11 +251,20 @@ int thread_schedule(void) {
         ++queued;
     while (attempts < queued) {
         struct pros_thread *candidate = thread_dequeue();
+        uint32_t state;
         if (!candidate)
             break;
         ++attempts;
-        if (!thread_process_runnable(candidate)) {
+        state = candidate->process ? process_state(candidate->process)
+                                   : PROS_PROCESS_DEAD;
+        if (state == PROS_PROCESS_ZOMBIE || state == PROS_PROCESS_DEAD) {
             candidate->state = PROS_THREAD_DEAD;
+            continue;
+        }
+        /* A blocked/quarantined process must be skipped, not destroyed. */
+        if (!thread_process_runnable(candidate) ||
+            (candidate->user_mode && !candidate->interrupt_frame)) {
+            (void)thread_enqueue(candidate);
             continue;
         }
         /* A CPL3 frame must be restored through IRET, never a kernel RET. */
@@ -298,16 +307,42 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (!prev || !current_frame) return current_frame;
 
     prev->interrupt_frame = current_frame;
-    struct pros_thread *next;
-    do {
+    struct pros_thread *next = 0;
+    uint32_t queued = 0u;
+    uint32_t attempts = 0u;
+
+    for (struct pros_thread *it = runq_head; it; it = it->next)
+        ++queued;
+    while (attempts < queued) {
+        uint32_t state;
         next = thread_dequeue();
-        if (!next) return current_frame;
-        if (!thread_process_runnable(next) ||
-            /* Never synthesize a CPL0 trampoline frame for a CPL3 thread.
-             * A user thread is runnable only with its validated IRET frame. */
-            (next->user_mode && !next->interrupt_frame))
+        if (!next)
+            break;
+        ++attempts;
+        state = next->process ? process_state(next->process)
+                              : PROS_PROCESS_DEAD;
+        if (state == PROS_PROCESS_ZOMBIE || state == PROS_PROCESS_DEAD) {
             next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+            next = 0;
+            continue;
+        }
+        /* Preserve blocked/quarantined threads in the queue, but never run
+         * them. The bounded scan avoids spinning if every queued thread is
+         * blocked. A CPL3 thread without its validated IRET frame is invalid. */
+        if (!thread_process_runnable(next)) {
+            (void)thread_enqueue(next);
+            next = 0;
+            continue;
+        }
+        if (next->user_mode && !next->interrupt_frame) {
+            next->state = PROS_THREAD_DEAD;
+            next = 0;
+            continue;
+        }
+        break;
+    }
+    if (!next)
+        return current_frame;
 
     /*
      * Queue the interrupted thread before changing address spaces. If the
@@ -316,8 +351,13 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * already safely queued and the candidate is requeued.
      */
     if (prev->state != PROS_THREAD_BLOCKED) {
-        if (!thread_process_runnable(prev)) {
+        uint32_t prev_process_state = process_state(prev->process);
+        if (prev_process_state == PROS_PROCESS_ZOMBIE ||
+            prev_process_state == PROS_PROCESS_DEAD) {
             prev->state = PROS_THREAD_DEAD;
+        } else if (!thread_process_runnable(prev)) {
+            /* The process is blocked/quarantined; preserve its thread state. */
+            prev->state = PROS_THREAD_BLOCKED;
         } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
             return current_frame;

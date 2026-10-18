@@ -664,3 +664,11 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [ ] Await current-head build, QEMU boot, DML, and security workflows before treating this change as verified.
 - [ ] Follow-up still required: add a focused scheduler regression test proving BLOCKED/quarantined processes cannot be selected, then validate user-process preemption/exit/reaping end-to-end.
 - [ ] This is a scheduler/security hardening fix, not evidence that the graphical Desktop Environment is complete.
+
+
+### 2026-10-18 — Preserve blocked threads while enforcing scheduler eligibility
+
+- [x] Follow-up review found that tightening the runnable predicate alone would incorrectly mark BLOCKED/quarantined threads DEAD. Corrected both schedulers to distinguish terminal processes from temporarily non-runnable processes.
+- [x] Ordinary and interrupt schedulers now scan a bounded snapshot of the run queue, discard only ZOMBIE/DEAD-process threads (and invalid CPL3 frames), and requeue blocked/quarantined candidates rather than executing or destroying them.
+- [x] Interrupt scheduling preserves a current thread as BLOCKED when its process is blocked/quarantined; it does not accidentally mark the thread DEAD.
+- [ ] Await CI on this exact commit; add focused regression coverage for blocked/quarantined queue retention before considering scheduler lifecycle verified.
