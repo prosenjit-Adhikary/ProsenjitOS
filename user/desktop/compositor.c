@@ -14,6 +14,8 @@ static int surface_valid(const struct pros_ui_surface *s) {
     (size_t)s->pitch_pixels>SIZE_MAX/(size_t)s->height) return 0;
  return (size_t)s->pitch_pixels*(size_t)s->height<=s->capacity_pixels;
 }
+static int title_valid(const char *s);
+static int find(const struct pros_ui_compositor *u,uint32_t id);
 static int valid(const struct pros_ui_compositor *u) {
  uint8_t seen[PROS_UI_MAX_WINDOWS]={0};
  uint32_t used=0;

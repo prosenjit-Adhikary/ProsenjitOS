@@ -524,3 +524,5 @@
 - [x] Extended the shared validity gate to verify active-window count, unique nonzero IDs, geometry/title bounds, unique in-range z-order slots, cleared unused order slots, and focus membership before every public operation.
 - [ ] Verify the compositor regression suite and all existing desktop/OS CI gates on the updated commit.
 - **Status:** defensive validation implemented; CI verification pending.
+
+- [x] Added forward declarations for the shared title/ID validators used by the compositor's common state gate, keeping the implementation valid under strict C11 compilation.
