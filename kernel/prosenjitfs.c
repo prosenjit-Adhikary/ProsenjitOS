@@ -6666,7 +6666,7 @@ int prosenjitfs_selftest(void)
          */
         if (bs != 512u)
             return pfs_selftest_fail(__LINE__, -31);
-        if (vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+        if (vfs_file_open(&fs.mount, "/s-delalloc-cross.bin",
                           PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
             PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -32);
@@ -6707,7 +6707,7 @@ int prosenjitfs_selftest(void)
 
         if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &inode) !=
                 PROSENJITFS_OK ||
-            pfs_find_dir_entry(&fs, &inode, "sparse-delalloc-cross.bin",
+            pfs_find_dir_entry(&fs, &inode, "s-delalloc-cross.bin",
                                &entry) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
                 PROSENJITFS_OK ||
@@ -6731,7 +6731,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
         high_lba = second_extent.physical_block;
 
-        if (vfs_file_open(&fs.mount, "/sparse-delalloc-cross.bin",
+        if (vfs_file_open(&fs.mount, "/s-delalloc-cross.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK ||
             vfs_file_read(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
