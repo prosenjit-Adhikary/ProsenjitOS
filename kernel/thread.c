@@ -124,7 +124,9 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
         ((uint64_t *)&frame->registers)[i] = 0u;
     frame->registers.rip = user_entry;
     frame->registers.cs = 0x1Bu;
-    frame->registers.rflags = 0x202u;
+    /* Keep IF clear until timer-driven CPL3 preemption is explicitly enabled
+     * and verified end-to-end. This matches enter_user_mode()'s boot path. */
+    frame->registers.rflags = 0x2u;
     frame->user_rsp = user_stack_top;
     frame->user_ss = 0x23u;
     thread->interrupt_frame = &frame->registers;
