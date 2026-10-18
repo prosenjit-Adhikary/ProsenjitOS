@@ -157,6 +157,19 @@ int pros_init_launch(struct pros_vfs_mount *mount,
     if (process_create(parent, process, pid, security_level) != 0)
         return PROS_INIT_ESTART;
 
+    /*
+     * Keep the child registered but non-runnable while the image is admitted,
+     * mapped, and its first CPL3 frame is constructed. The process manager's
+     * scheduler eligibility predicate rejects NEW, so an interrupt during
+     * this transaction cannot expose a partially initialized child to user
+     * execution.
+     */
+    if (process_set_state(process, PROS_PROCESS_NEW) != 0) {
+        if (init_reap_failed_child(parent, process) != 0)
+            return PROS_INIT_EIO;
+        return PROS_INIT_ESTART;
+    }
+
     rc = pros_init_load_path(mount, path, process, metadata, &loaded);
     if (rc != PROS_INIT_OK) {
         if (init_reap_failed_child(parent, process) != 0)
@@ -167,6 +180,13 @@ int pros_init_launch(struct pros_vfs_mount *mount,
     if (thread_init_user(thread, process, tid, loaded.entry,
                          loaded.stack_top, kernel_stack_bottom,
                          kernel_stack_top) != 0) {
+        if (init_reap_failed_child(parent, process) != 0)
+            return PROS_INIT_EIO;
+        return PROS_INIT_ESTART;
+    }
+
+    /* Publish READY only after the complete user frame exists. */
+    if (process_set_state(process, PROS_PROCESS_READY) != 0) {
         if (init_reap_failed_child(parent, process) != 0)
             return PROS_INIT_EIO;
         return PROS_INIT_ESTART;
