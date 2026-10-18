@@ -335,29 +335,31 @@ int pros_elf_selftest(void)
             (void)object_release(&process.object);
             return -11;
         }
-        if (loaded.entry != ELF_TEST_CODE_VA ||
-            loaded.mapped_pages < 2u ||
-            process.user_entry != ELF_TEST_CODE_VA ||
-            process.user_stack_top != loaded.stack_top ||
-            address_space_translate_user(&process.address_space,
-                                         ELF_TEST_CODE_VA, &physical,
-                                         &flags) != 0 ||
-            !(flags & PROSENJIT_PAGE_USER) ||
-            (flags & PROSENJIT_PAGE_WRITABLE) ||
-            !(flags & PROSENJIT_PAGE_NX) ||
-            ((uint8_t *)(uintptr_t)physical)[0] != 0x90 ||
-            ((uint8_t *)(uintptr_t)physical)[1] != 0xC3 ||
-            ((uint8_t *)(uintptr_t)physical)[2] != 0 ||
-            address_space_translate_user(&process.address_space,
-                                         PROSENJIT_USER_STACK_VA,
-                                         &physical, &flags) != 0 ||
-            !(flags & PROSENJIT_PAGE_WRITABLE) ||
-            !(flags & PROSENJIT_PAGE_NX) ||
-            process.user_stack_top < PROSENJIT_USER_STACK_VA ||
-            process.user_stack_top > PROSENJIT_USER_STACK_TOP) {
+        int check_rc = 0;
+        if (loaded.entry != ELF_TEST_CODE_VA) check_rc = -18;
+        else if (loaded.mapped_pages < 2u) check_rc = -19;
+        else if (process.user_entry != ELF_TEST_CODE_VA) check_rc = -20;
+        else if (process.user_stack_top != loaded.stack_top) check_rc = -21;
+        else if (address_space_translate_user(&process.address_space,
+                                              ELF_TEST_CODE_VA, &physical,
+                                              &flags) != 0) check_rc = -22;
+        else if (!(flags & PROSENJIT_PAGE_USER)) check_rc = -23;
+        else if (flags & PROSENJIT_PAGE_WRITABLE) check_rc = -24;
+        else if (!(flags & PROSENJIT_PAGE_NX)) check_rc = -25;
+        else if (((uint8_t *)(uintptr_t)physical)[0] != 0x90 ||
+                 ((uint8_t *)(uintptr_t)physical)[1] != 0xC3 ||
+                 ((uint8_t *)(uintptr_t)physical)[2] != 0) check_rc = -26;
+        else if (address_space_translate_user(&process.address_space,
+                                              PROSENJIT_USER_STACK_VA,
+                                              &physical, &flags) != 0) check_rc = -27;
+        else if (!(flags & PROSENJIT_PAGE_WRITABLE) ||
+                 !(flags & PROSENJIT_PAGE_NX)) check_rc = -28;
+        else if (process.user_stack_top < PROSENJIT_USER_STACK_VA ||
+                 process.user_stack_top > PROSENJIT_USER_STACK_TOP) check_rc = -29;
+        if (check_rc != 0) {
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
-            return -12;
+            return check_rc;
         }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
