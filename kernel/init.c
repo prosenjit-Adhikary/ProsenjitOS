@@ -191,6 +191,9 @@ int pros_init_selftest(void)
 
     if (pros_init_load(0, process, &metadata, &result) != PROS_INIT_EINVAL)
         return -1;
+    if (pros_init_load_path(&inactive, "", process, &metadata, &result) !=
+        PROS_INIT_EINVAL)
+        return -3;
     inactive.active = 0u;
     if (pros_init_load(&inactive, process, &metadata, &result) != PROS_INIT_EIO)
         return -2;
