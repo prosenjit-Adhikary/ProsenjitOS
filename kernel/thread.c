@@ -7,9 +7,16 @@ static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
 static int thread_process_runnable(const struct pros_thread *thread) {
-    return thread && thread->process &&
-           process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
-           process_state(thread->process) != PROS_PROCESS_DEAD;
+    uint32_t state;
+
+    if (!thread || !thread->process || thread->process->quarantined)
+        return 0;
+
+    state = process_state(thread->process);
+    /* Only admitted READY/RUNNING processes may execute. In particular,
+     * BLOCKED/quarantined processes must never become runnable just because
+     * they still have a thread in the scheduler queue. */
+    return state == PROS_PROCESS_READY || state == PROS_PROCESS_RUNNING;
 }
 
 

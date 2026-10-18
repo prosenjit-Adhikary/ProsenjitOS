@@ -654,3 +654,13 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 #### Result
 - [x] Current-head build, QEMU smoke tests, Windows DML unit tests, and security checks are green.
 - [ ] Desktop Environment completion gate remains **NOT COMPLETE** because process startup, production display/input integration, and graphical end-to-end behavior are not yet implemented and demonstrated.
+
+
+### 2026-10-18 — Scheduler must reject blocked and quarantined processes
+
+- [x] Re-audited the scheduler at commit `add373d471dc84d605de59697a43658c69f6137e` after the prior green build/boot and security runs.
+- [x] Found `thread_process_runnable()` rejected only ZOMBIE/DEAD states, allowing BLOCKED processes (including processes held in security quarantine) to pass the scheduler's runnable predicate.
+- [x] Tightened the predicate to reject null threads/processes and quarantined processes, and to allow only READY/RUNNING process states.
+- [ ] Await current-head build, QEMU boot, DML, and security workflows before treating this change as verified.
+- [ ] Follow-up still required: add a focused scheduler regression test proving BLOCKED/quarantined processes cannot be selected, then validate user-process preemption/exit/reaping end-to-end.
+- [ ] This is a scheduler/security hardening fix, not evidence that the graphical Desktop Environment is complete.
