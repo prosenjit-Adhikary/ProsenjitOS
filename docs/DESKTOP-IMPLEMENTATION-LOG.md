@@ -508,3 +508,12 @@
 - [x] Added boot assertions for scheduler TSS-stack selection and a CPL3 frame-construction self-test; added both milestones to ISO and native BIOS QEMU gates.
 - [ ] Build and boot-test this commit on `office`, run security architecture checks, and run DML manager/runtime tests on `OfficeWindows`. A successful frame-construction test is only a prerequisite: real spawn/exec/wait/reap, safe user-mode preemption, and GUI services remain unimplemented.
 - **Status:** initial user-mode scheduler-frame primitive implemented; runtime verification pending and desktop remains incomplete.
+
+## 2026-10-18 — Add bounded userspace compositor/window primitives
+
+- [x] Added a userspace-only, caller-owned 32-bit pixel-surface renderer with desktop background/panel and clipped window surfaces.
+- [x] Added a bounded eight-window registry, opaque IDs, z-order raising, focus, close, and topmost pointer hit-testing.
+- [x] Validate surface dimensions, pitch/capacity arithmetic, title bounds/printable characters, window geometry, and stale IDs.
+- [x] Added regression coverage for rendering, overlap/z-order, focus, pointer routing, close/stale handles, invalid geometry/title, and invalid backing surfaces; wired it into POSIX and Windows DML test scripts.
+- [ ] Verify compositor tests on OfficeWindows and rerun Debian warnings-as-errors build/ISO/native BIOS regressions on this commit.
+- **Limitations:** this is not a hardware display driver, framebuffer mapping, real input path, window-server process, package/runtime backend, or bootable graphical desktop. Desktop completion remains unverified.

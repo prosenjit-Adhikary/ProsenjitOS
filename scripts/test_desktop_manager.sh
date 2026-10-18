@@ -24,3 +24,11 @@ trap 'rm -rf "$TMP_DIR"' EXIT
   -o "$TMP_DIR/desktop_runtime_test"
 
 "$TMP_DIR/desktop_runtime_test"
+
+"$CC_BIN" \
+  -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+  -I"$ROOT/user/desktop" \
+  "$ROOT/user/desktop/compositor.c" \
+  "$ROOT/tests/desktop_compositor_test.c" \
+  -o "$TMP_DIR/desktop_compositor_test"
+"$TMP_DIR/desktop_compositor_test"

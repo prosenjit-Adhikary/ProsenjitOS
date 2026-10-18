@@ -32,6 +32,12 @@ not a kernel process implementation. The public syscall ABI still has no
 process spawn/exec operation and there is no production backend wired to a real
 userspace process API. See [DML runtime contract](../docs/DML-RUNTIME.md).
 
+A first host-testable userspace compositor/window core is present in
+compositor.c and compositor.h. It renders into a caller-owned 32-bit pixel
+surface and supports bounded windows, z-order, focus, close, and pointer
+hit-testing. It is not connected to a kernel framebuffer mapping, real input
+drivers, a process launcher, or a graphical session.
+
 The DML therefore remains **not yet a working OS desktop launcher**: it does
 not install packages, create real processes on its own, connect to a display
 server, route input, or claim XFCE/KDE/GNOME support. Those operations must be

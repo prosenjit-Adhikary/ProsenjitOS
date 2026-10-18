@@ -145,7 +145,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "desktop_runtime_test failed with exit code $LASTEXITCODE." }
     }
 
-    Write-Host 'DML manager and runtime unit tests passed.'
+    Invoke-CProgram 'desktop_compositor_test' @((Join-Path $desktop 'compositor.c'),(Join-Path $tests 'desktop_compositor_test.c'))
+    Write-Host 'DML manager/runtime and compositor unit tests passed.'
 }
 finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
