@@ -1652,6 +1652,14 @@ static int pfs_file_truncate_unlocked(struct pros_vfs_file *file, uint64_t size)
     if (!data || !data->fs)
         return PROS_VFS_EIO;
 
+    /*
+     * The current on-disk file-size contract is bounded to 32 bits.
+     * Reject unrepresentable sizes before any sparse-growth or metadata
+     * mutation, including UINT64_MAX, so the VFS overflow contract is stable.
+     */
+    if (size > UINT32_MAX)
+        return PROS_VFS_EOVERFLOW;
+
     {
         int rc = pfs_vnode_validate_inode(data, &inode);
         if (rc != PROSENJITFS_OK)
