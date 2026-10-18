@@ -5,6 +5,10 @@
 #include "vfs.h"
 #include "../../include/prosenjitfs.h"
 
+/* Maximum inode slots supported by the current ProsenjitFS provider. Keep
+ * the in-memory open-handle reference arrays bounded to this same limit. */
+#define PROSENJITFS_MAX_INODES 1024u
+
 struct pros_prosenjitfs_tx {
     uint32_t count;
     uint64_t targets[PROSENJITFS_MAX_TX_BLOCKS];
