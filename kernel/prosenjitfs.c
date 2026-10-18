@@ -6777,18 +6777,49 @@ int prosenjitfs_selftest(void)
         high_lba = second_extent.physical_block;
 
         if (vfs_file_open(&fs.mount, "/s-delalloc-cross.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
-            vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK ||
-            vfs_file_read(&file, &low_a, 1u, &done) != PROS_VFS_OK ||
-            done != 1u || low_a != 0x5Au ||
-            vfs_file_seek(&file, (low_block + 1u) * bs) != PROS_VFS_OK ||
-            vfs_file_read(&file, &low_b, 1u, &done) != PROS_VFS_OK ||
-            done != 1u || low_b != 0xA5u ||
-            vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK ||
-            vfs_file_read(&file, &high, 1u, &done) != PROS_VFS_OK ||
-            done != 1u || high != 0xE7u ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -14);
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1501);
+        if (vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1502);
+        }
+        done = 0u;
+        if (vfs_file_read(&file, &low_a, 1u, &done) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1503);
+        }
+        if (done != 1u || low_a != 0x5Au) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1504);
+        }
+        if (vfs_file_seek(&file, (low_block + 1u) * bs) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1505);
+        }
+        done = 0u;
+        if (vfs_file_read(&file, &low_b, 1u, &done) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1506);
+        }
+        if (done != 1u || low_b != 0xA5u) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1507);
+        }
+        if (vfs_file_seek(&file, high_block * bs) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1508);
+        }
+        done = 0u;
+        if (vfs_file_read(&file, &high, 1u, &done) != PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1509);
+        }
+        if (done != 1u || high != 0xE7u) {
+            (void)vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -1510);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1511);
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
