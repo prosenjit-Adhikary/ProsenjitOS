@@ -623,3 +623,34 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Added `github.event_name` to the security concurrency key, allowing push and PR validations to run independently while still cancelling superseded runs within the same event/branch.
 - [ ] Verify push and pull_request security jobs both complete on the next exact-head run.
 - **Status:** CI scheduling fix committed; verification pending.
+
+
+### 2026-10-18 — Desktop integration audit and current-head CI verification
+
+#### Exact commit and CI
+- [x] Audited branch `desktop/dml-dependency-order-20261017` at commit `52dbd6f30e1e3d451325d060270ac33cca49cb16`.
+- [x] Build/boot workflow [39139371221](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39139371221) completed successfully on this exact commit. The `build` job passed toolchain verification, ISO build, ISO QEMU boot test, and native BIOS image QEMU test.
+- [x] The same workflow's `dml-tests` job passed on the designated `OfficeWindows` runner.
+- [x] Security architecture workflow [39139371214](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39139371214) completed successfully on this exact commit.
+- [x] Confirmed the corresponding push-triggered build and security workflows also succeeded. This verifies these automated checks only; it does not prove a graphical desktop session.
+
+#### Source-level findings (rechecked on the feature branch)
+- [x] `include/abi/display.h` and `include/abi/input.h` define versioned data contracts, not a complete userspace service/event path.
+- [x] `kernel/display.c` currently demonstrates backend validation and a synthetic self-test backend. The inspected code does not establish a production framebuffer device connected to the compositor or a userspace display service.
+- [x] `kernel/include/driver_class.h` defines an input-driver read callback contract, but this is not evidence of a concrete keyboard/pointer driver feeding events to userspace.
+- [x] `kernel/syscall.c` and `user/README.md` confirm that the public syscall ABI still has no process spawn/exec operation and the DML runtime callbacks are not wired to a real process-launch backend.
+- [x] `user/desktop/compositor.c` remains a host-testable software compositor/window core; no end-to-end framebuffer presentation and keyboard/pointer route was verified.
+- [x] Reviewed `thread_schedule_interrupt()` and the timer ISR. User threads are intentionally created with IF clear, and ordinary scheduling skips user-mode threads because they require an IRET frame. Do not enable user interrupts or call the user lifecycle complete until preemption, address-space switching, process exit, and reaping are tested together.
+- [x] Kept the current feature branch and draft PR #137 open; did not merge an incomplete desktop integration.
+
+#### Remaining blockers — not complete
+- [ ] Implement and test a safe user-process launch/exec contract that can be called from userspace, with bounded argument copying, security admission, and cleanup on every failure path.
+- [ ] Verify timer-driven CPL3 scheduling and return/exit lifecycle with more than one user process; keep interrupts disabled for user threads until the test proves this safe.
+- [ ] Implement concrete keyboard and pointer device/event delivery to userspace with permission and focus/routing checks.
+- [ ] Connect a real display backend/framebuffer presentation path to the userspace display/compositor boundary.
+- [ ] Add a boot-to-graphical-session test proving rendering, input, app launch, logout/restart, and recovery on the target OS. XFCE/Xorg/Wayland support remains unverified.
+- [ ] Continue to record exact commit and CI evidence for each step; do not treat filename/symbol checks or a successful text-mode boot as a GUI completion gate.
+
+#### Result
+- [x] Current-head build, QEMU smoke tests, Windows DML unit tests, and security checks are green.
+- [ ] Desktop Environment completion gate remains **NOT COMPLETE** because process startup, production display/input integration, and graphical end-to-end behavior are not yet implemented and demonstrated.
