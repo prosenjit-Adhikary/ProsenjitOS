@@ -30,7 +30,7 @@ int pros_init_load(struct pros_vfs_mount *mount,
                    const struct pros_file_security_metadata *metadata,
                    struct pros_elf_load_result *result);
 /*
- * Load and queue a child process from the mounted /init executable.
+ * Load and queue a child process from the executable at the supplied path.
  * The caller owns the process/thread objects and the supplied kernel stack.
  * A successful return means the validated CPL3 thread is queued, not that it
  * has already run. On failure, the child is reaped when rollback succeeds.

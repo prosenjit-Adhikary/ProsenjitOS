@@ -552,3 +552,25 @@
 - [ ] The scheduler currently skips user threads in ordinary `thread_schedule()`; the interrupt-frame scheduling path, IF policy, child exit return, and parent wait/reap must be verified together before this helper can be treated as a production spawn/exec path.
 - [ ] No public spawn/exec/wait syscall, DML production backend, graphical display presentation path, keyboard/pointer event path, or boot-to-desktop test has been completed by this change.
 - **Status:** source primitive committed; compilation and runtime verification pending. Desktop Environment remains incomplete.
+
+## 2026-10-18 — Current-head CI and user-thread scheduling audit
+
+### Verified on branch head `895ca9122ba5fcb6cfea2cccfc2ac6b9c32ae1bf`
+- [x] GitHub Actions PR build/boot run `39135123119`: Debian self-hosted runner verification, toolchain verification, ISO build, ISO QEMU boot test, and native BIOS QEMU boot test all succeeded.
+- [x] The same run's OfficeWindows `dml-tests` job succeeded.
+- [x] Security workflow run `39135122988` succeeded.
+- [x] Reviewed `kernel/thread.c` scheduler and `kernel/include/thread.h` user-thread frame contract on this branch head.
+
+### Blocking finding — not fixed by these green workflows
+- [x] Confirmed `thread_schedule()` deliberately requeues and skips every `user_mode` thread because the ordinary context switch uses a kernel RET path.
+- [x] Confirmed `thread_schedule_interrupt()` can select a user thread only when a saved interrupt frame exists; `thread_init_user()` deliberately builds a CPL3 IRET frame with interrupts disabled pending verified preemption.
+- [ ] No end-to-end test yet proves timer-driven CPL3 preemption, user-thread exit, process teardown/reap, and safe return to another process together. Do not enable user interrupts or claim general spawn/exec readiness without that test.
+- [ ] No real graphical desktop-session test is represented by the current build/boot or hosted DML tests. Display presentation, keyboard/pointer event delivery, application launch, logout/restart, and failure recovery remain pending.
+
+### Header clarification
+- [x] Clarified that `pros_init_launch()` accepts a caller-selected executable path rather than only `/init`; its successful return means the CPL3 thread is queued, not that it has executed.
+- [ ] This launch helper is still an initial kernel primitive, not a production userspace spawn/exec/wait ABI or a complete desktop launcher.
+
+### Next required implementation gate
+Implement a reviewed interrupt-return scheduling/exit lifecycle with deterministic cleanup and regression tests before connecting a production DML process backend. Preserve the current safe non-preemptive user-mode behavior until that gate passes.
+
