@@ -526,3 +526,5 @@
 - **Status:** defensive validation implemented; CI verification pending.
 
 - [x] Added forward declarations for the shared title/ID validators used by the compositor's common state gate, keeping the implementation valid under strict C11 compilation.
+
+- [x] Corrected the invalid-title regression input to an empty title; path-like punctuation is valid display text and must not be confused with package-path validation.

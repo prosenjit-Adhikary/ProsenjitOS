@@ -14,7 +14,7 @@ int main(void){
  CHECK(px[12u*160u+20u]==0xFF167D9Au,"focus style");
  CHECK(pros_ui_window_close(&u,b)==0,"close");CHECK(pros_ui_window_close(&u,b)==PROS_UI_ENOENT,"stale id");
  CHECK(pros_ui_render(&u)==0,"render after close");
- CHECK(pros_ui_window_create(&u,"../bad",0,0,80,60,&hit)==PROS_UI_EINVAL,"bad title");
+ CHECK(pros_ui_window_create(&u,"",0,0,80,60,&hit)==PROS_UI_EINVAL,"bad title");
  CHECK(pros_ui_window_create(&u,"small",0,0,20,20,&hit)==PROS_UI_EINVAL,"bad geometry");
  s.pitch_pixels=159;CHECK(pros_ui_init(&u,&s)==PROS_UI_EINVAL,"short pitch");
  s.pitch_pixels=160;s.capacity_pixels=1;CHECK(pros_ui_init(&u,&s)==PROS_UI_EINVAL,"short backing");
