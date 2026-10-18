@@ -541,3 +541,14 @@
 - [ ] Implement the userspace display/input event services and bind compositor presentation to the supported display ABI/backend.
 - [ ] Boot to a real session and verify rendering, keyboard and pointer delivery, application launch, logout, restart, and failure recovery.
 - **Status:** prerequisite CI is green; Desktop Environment is **not complete**. These blockers are source/runtime work, not documentation-only acceptance gates. PR #137 must remain Draft until end-to-end evidence exists.
+
+### 2026-10-18 — Initial kernel-side init launch transaction (verification pending)
+
+- [x] Added `pros_init_launch()` as a kernel-internal primitive that creates a child process, applies the existing security-gated `/init` ELF loader, validates a CPL3 thread frame, and queues the thread only after all setup stages succeed.
+- [x] Added failure rollback that attempts to terminate and reap a child after loader, user-thread initialization, or run-queue insertion fails.
+- [x] Kept the caller responsible for process/thread storage and kernel-stack memory; the API does not allocate unbounded resources or invent a public syscall number.
+- [ ] Compile the exact branch head with `-Wall -Wextra -Werror` and run ISO/native BIOS QEMU tests.
+- [ ] Add a real process-launch selftest that exercises success and each rollback edge using an admitted executable fixture.
+- [ ] The scheduler currently skips user threads in ordinary `thread_schedule()`; the interrupt-frame scheduling path, IF policy, child exit return, and parent wait/reap must be verified together before this helper can be treated as a production spawn/exec path.
+- [ ] No public spawn/exec/wait syscall, DML production backend, graphical display presentation path, keyboard/pointer event path, or boot-to-desktop test has been completed by this change.
+- **Status:** source primitive committed; compilation and runtime verification pending. Desktop Environment remains incomplete.
