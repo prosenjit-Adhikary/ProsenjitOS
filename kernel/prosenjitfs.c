@@ -6666,6 +6666,24 @@ int prosenjitfs_selftest(void)
          */
         if (bs != 512u)
             return pfs_selftest_fail(__LINE__, -31);
+        /*
+         * Split namespace lookup from O_CREATE so a failure tells us whether
+         * the root/path walk or the filesystem create callback rejected the
+         * operation. The earlier generic open result did not distinguish them.
+         */
+        if (!fs.mount.root || !fs.mount.root->initialized ||
+            fs.mount.root->refcount == 0u || !fs.mount.root->private_data)
+            return pfs_selftest_fail(__LINE__, -1101);
+        {
+            struct pros_vfs_vnode *probe = 0;
+            int lookup_rc = vfs_path_lookup(&fs.mount,
+                                            "/s-delalloc-cross.bin", &probe);
+            if (lookup_rc == PROS_VFS_OK) {
+                vfs_vnode_put(probe);
+            } else if (lookup_rc != PROS_VFS_ENOENT) {
+                return pfs_selftest_fail(__LINE__, -1200 + lookup_rc);
+            }
+        }
         {
             int open_rc = vfs_file_open(&fs.mount, "/s-delalloc-cross.bin",
                                        PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
