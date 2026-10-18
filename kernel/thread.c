@@ -295,7 +295,10 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     do {
         next = thread_dequeue();
         if (!next) return current_frame;
-        if (!thread_process_runnable(next))
+        if (!thread_process_runnable(next) ||
+            /* Never synthesize a CPL0 trampoline frame for a CPL3 thread.
+             * A user thread is runnable only with its validated IRET frame. */
+            (next->user_mode && !next->interrupt_frame))
             next->state = PROS_THREAD_DEAD;
     } while (next->state == PROS_THREAD_DEAD);
 
