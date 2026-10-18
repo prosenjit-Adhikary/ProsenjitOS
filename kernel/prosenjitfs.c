@@ -6747,18 +6747,24 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
 
         if (pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
-                PROSENJITFS_OK ||
-            first_extent.logical_block != low_block ||
-            first_extent.block_count != 2u ||
-            first_extent.next == 0u)
-            return pfs_selftest_fail(__LINE__, -14);
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1401);
+        if (first_extent.logical_block != low_block)
+            return pfs_selftest_fail(__LINE__, -1402);
+        if (first_extent.block_count != 2u)
+            return pfs_selftest_fail(__LINE__, -1403);
+        if (first_extent.next == 0u)
+            return pfs_selftest_fail(__LINE__, -1404);
 
         if (pfs_read_extent(&fs, first_extent.next, &second_extent) !=
-                PROSENJITFS_OK ||
-            second_extent.logical_block != high_block ||
-            second_extent.block_count != 1u ||
-            second_extent.next != 0u)
-            return pfs_selftest_fail(__LINE__, -14);
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1405);
+        if (second_extent.logical_block != high_block)
+            return pfs_selftest_fail(__LINE__, -1406);
+        if (second_extent.block_count != 1u)
+            return pfs_selftest_fail(__LINE__, -1407);
+        if (second_extent.next != 0u)
+            return pfs_selftest_fail(__LINE__, -1408);
         high_lba = second_extent.physical_block;
 
         if (vfs_file_open(&fs.mount, "/s-delalloc-cross.bin",
