@@ -1370,7 +1370,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             user_frame_test_thread.kernel_stack_top != kernel_stack_top ||
             user_frame->registers.rip != elf_result.entry ||
             user_frame->registers.cs != 0x1Bu ||
-            user_frame->registers.rflags != 0x202u ||
+            user_frame->registers.rflags != 0x2u ||
             user_frame->user_rsp != elf_result.stack_top ||
             user_frame->user_ss != 0x23u) {
             serial_write("ProsenjitOS: ERROR CPL3 scheduler-frame fields invalid\n");
