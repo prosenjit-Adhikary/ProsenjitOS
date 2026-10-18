@@ -1145,8 +1145,9 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         }
         for (uint32_t i = 0u; i < want; ++i)
             ((uint8_t *)buffer)[done + i] = block[in_block + i];
-        if (pfs_diag.read_found && pfs_diag.read_physical_lba == physical)
-            pfs_diag.vfs_byte = ((const uint8_t *)buffer)[done + (188u - in_block < want ? 188u - in_block : 0u)];
+        if (pfs_diag.read_found && pfs_diag.read_physical_lba == physical &&
+            188u >= in_block && 188u - in_block < want)
+            pfs_diag.vfs_byte = ((const uint8_t *)buffer)[done + (188u - in_block)];
         done += want;
     }
     return (int)done;
