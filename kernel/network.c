@@ -724,14 +724,20 @@ int pros_net_selftest(void)
             return -14;
     }
 
-    if (pros_net_socket_init() != PROS_NET_OK ||
-        pros_net_socket_create(&sid) != PROS_NET_OK ||
-        pros_net_socket_bind(sid, 0xC0A80101u, 4000u) != PROS_NET_OK ||
-        pros_net_socket_connect(sid, 0xC0A80102u, 80u, 100u) != PROS_NET_OK ||
-        pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
-        pros_net_socket_send(sid, payload, sizeof(payload)) != (int)sizeof(payload) ||
-        pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
-        return -15;
+    if (pros_net_socket_init() != PROS_NET_OK)
+        return -151;
+    if (pros_net_socket_create(&sid) != PROS_NET_OK)
+        return -152;
+    if (pros_net_socket_bind(sid, 0xC0A80101u, 4000u) != PROS_NET_OK)
+        return -153;
+    if (pros_net_socket_connect(sid, 0xC0A80102u, 80u, 100u) != PROS_NET_OK)
+        return -154;
+    if (pros_net_socket_ack(sid, 101u) != PROS_NET_OK)
+        return -155;
+    if (pros_net_socket_send(sid, payload, sizeof(payload)) != (int)sizeof(payload))
+        return -156;
+    if (pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
+        return -157;
 
     {
         const uint8_t rxdata[2] = {0x11, 0x22};
