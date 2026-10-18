@@ -20,6 +20,11 @@
 
 #define PROS_INIT_IMAGE_MAX (16ULL * 1024ULL * 1024ULL)
 
+int pros_init_load_path(struct pros_vfs_mount *mount,
+                        const char *path,
+                        struct pros_process *process,
+                        const struct pros_file_security_metadata *metadata,
+                        struct pros_elf_load_result *result);
 int pros_init_load(struct pros_vfs_mount *mount,
                    struct pros_process *process,
                    const struct pros_file_security_metadata *metadata,
@@ -31,6 +36,7 @@ int pros_init_load(struct pros_vfs_mount *mount,
  * has already run. On failure, the child is reaped when rollback succeeds.
  */
 int pros_init_launch(struct pros_vfs_mount *mount,
+                     const char *path,
                      struct pros_process *parent,
                      struct pros_process *process,
                      struct pros_thread *thread,
