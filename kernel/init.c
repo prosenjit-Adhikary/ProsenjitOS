@@ -95,6 +95,81 @@ int pros_init_load(struct pros_vfs_mount *mount,
     return PROS_INIT_OK;
 }
 
+static int init_reap_failed_child(struct pros_process *parent,
+                                     struct pros_process *process)
+{
+    int32_t ignored_exit_code = 0;
+
+    if (!parent || !process || process->parent != parent)
+        return -1;
+
+    if (process_state(process) != PROS_PROCESS_ZOMBIE &&
+        process_state(process) != PROS_PROCESS_DEAD) {
+        if (process_exit(process, -1) != 0)
+            return -1;
+    }
+
+    if (process_state(process) == PROS_PROCESS_DEAD)
+        return 0;
+    return process_wait(parent, process->pid, &ignored_exit_code);
+}
+
+int pros_init_launch(struct pros_vfs_mount *mount,
+                     struct pros_process *parent,
+                     struct pros_process *process,
+                     struct pros_thread *thread,
+                     uint64_t pid,
+                     uint64_t tid,
+                     uint32_t security_level,
+                     const struct pros_file_security_metadata *metadata,
+                     uint64_t kernel_stack_bottom,
+                     uint64_t kernel_stack_top)
+{
+    struct pros_elf_load_result loaded = {0};
+    int rc;
+
+    if (!mount || !parent || !process || !thread || !metadata ||
+        pid == 0u || tid == 0u ||
+        (security_level != PROS_SECURITY_LIMITED &&
+         security_level != PROS_SECURITY_SUPER) ||
+        !kernel_stack_bottom || kernel_stack_top <= kernel_stack_bottom ||
+        (kernel_stack_bottom & 0xFULL) != 0u ||
+        (kernel_stack_top & 0xFULL) != 0u ||
+        kernel_stack_top - kernel_stack_bottom < 4096u)
+        return PROS_INIT_EINVAL;
+
+    /*
+     * Keep launch transactional: the child is not runnable until admission,
+     * ELF mapping, the validated CPL3 IRET frame, and queue insertion all
+     * succeed. Every post-create failure attempts a full process reap.
+     */
+    if (process_create(parent, process, pid, security_level) != 0)
+        return PROS_INIT_ESTART;
+
+    rc = pros_init_load(mount, process, metadata, &loaded);
+    if (rc != PROS_INIT_OK) {
+        if (init_reap_failed_child(parent, process) != 0)
+            return PROS_INIT_EIO;
+        return rc;
+    }
+
+    if (thread_init_user(thread, process, tid, loaded.entry,
+                         loaded.stack_top, kernel_stack_bottom,
+                         kernel_stack_top) != 0) {
+        if (init_reap_failed_child(parent, process) != 0)
+            return PROS_INIT_EIO;
+        return PROS_INIT_ESTART;
+    }
+
+    if (thread_enqueue(thread) != 0) {
+        if (init_reap_failed_child(parent, process) != 0)
+            return PROS_INIT_EIO;
+        return PROS_INIT_ESTART;
+    }
+
+    return PROS_INIT_OK;
+}
+
 int pros_init_selftest(void)
 {
     struct pros_vfs_mount inactive = {0};
