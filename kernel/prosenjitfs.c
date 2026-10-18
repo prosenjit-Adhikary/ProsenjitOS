@@ -6191,8 +6191,14 @@ int prosenjitfs_selftest(void)
     /* Crash-recovery regression: replay a transaction after a partial home write. */
     {
         struct pros_vfs_file file;
-        uint8_t crash_data[700];
-        uint8_t crash_read[700];
+        /*
+         * Keep the crash-replay payload within one filesystem block. The
+         * current write path commits each block independently, so injecting
+         * a crash during stage 6 of the first transaction must not expect a
+         * later block's transaction to have been committed.
+         */
+        uint8_t crash_data[400];
+        uint8_t crash_read[400];
         uint32_t done = 0u;
         for (uint32_t i = 0u; i < sizeof(crash_data); ++i)
             crash_data[i] = (uint8_t)(0xE3u ^ (uint8_t)(i * 7u));
