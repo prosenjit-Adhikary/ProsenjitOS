@@ -225,3 +225,12 @@ A concrete mismatch was found between the established boot-time CPL3 entry and t
 - [ ] Re-run warnings-as-errors build, DML tests, ISO/native BIOS QEMU, and security checks on the new head before treating the fix as verified.
 
 This is a narrow safety-consistency fix, **not** a production process-launch implementation. With IF clear, a first-run user thread cannot be timer-preempted; do not enable IF until the scheduler/interrupt-frame path and a supported userspace interrupt policy are verified end-to-end.
+
+## 2026-10-18 — Transactional launch and wait/reap hardening
+
+- [x] `pros_init_launch()` keeps a newly registered child in `NEW` during executable admission, ELF mapping, and CPL3-frame setup; it publishes `READY` only after the frame is validated and immediately before run-queue insertion.
+- [x] `process_wait()` now preflights quiescence, direct-child registry membership, descendant absence, and the registry-owned object reference before destructive resource cleanup. A failed preflight leaves the zombie's address space intact and does not publish an exit status.
+- [x] Reap detaches dead thread records from the global thread registry before caller-owned thread/stack storage may be released. A kernel process self-test exercises retained-reference rejection and confirms the dead thread record is detached on successful reap.
+- [x] Updated `docs/PROCESS-LIFECYCLE.md` to record launch publication and reap preflight invariants.
+- [ ] Verify these exact changes on the designated self-hosted runners: build/ISO/native BIOS QEMU, OfficeWindows DML tests, and security architecture checks. The current workflow runs are queued/pending; no pass is claimed for this patch yet.
+- [ ] Still missing: a real allocation/ownership policy for process/thread/kernel-stack storage, an end-to-end safe user-mode interrupt-frame scheduler path, a public spawn/exec/wait ABI with user-pointer and security-policy enforcement, and a production DML backend. Do not merge or promote PR #137 from Draft based on this source-only checkpoint.
