@@ -96,7 +96,7 @@ int pros_init_load(struct pros_vfs_mount *mount,
 }
 
 static int init_reap_failed_child(struct pros_process *parent,
-                                     struct pros_process *process)
+                                  struct pros_process *process)
 {
     int32_t ignored_exit_code = 0;
 
@@ -128,8 +128,8 @@ int pros_init_launch(struct pros_vfs_mount *mount,
     struct pros_elf_load_result loaded = {0};
     int rc;
 
-    if (!mount || !parent || !process || !thread || !metadata ||
-        pid == 0u || tid == 0u ||
+    if (!mount || !parent || !process || parent == process ||
+        !thread || !metadata || pid == 0u || tid == 0u ||
         (security_level != PROS_SECURITY_LIMITED &&
          security_level != PROS_SECURITY_SUPER) ||
         !kernel_stack_bottom || kernel_stack_top <= kernel_stack_bottom ||
