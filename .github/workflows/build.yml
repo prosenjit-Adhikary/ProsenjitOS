@@ -27,8 +27,12 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
-          bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+          if [[ -f scripts/test_desktop_manager.sh ]] && make -n desktop-unit-test >/dev/null 2>&1; then
+            bash -n scripts/test_desktop_manager.sh
+            make desktop-unit-test
+          else
+            echo "::notice::Desktop manager unit tests are not present on this older PR branch; the kernel build and boot tests remain mandatory."
+          fi
 
       - name: Build ISO
         run: |
