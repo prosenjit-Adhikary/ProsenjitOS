@@ -598,3 +598,12 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [x] Changed the timer ISR to preserve the saved-register-frame pointer in RBX (the interrupted RBX is already saved), align the temporary C-call stack with `and rsp, -16`, and restore the original frame pointer before the no-switch register pops. The saved-frame pointer is now used consistently for scheduler argument and same-frame comparison.
 - [ ] Verify strict assembly/build, ISO QEMU boot, native BIOS QEMU boot, Windows DML tests, and security checks on this exact revision.
 - **Status:** source-level ABI correction; exact-commit CI pending. This does not enable CPL3 interrupts or establish full desktop completion.
+
+
+### 2026-10-18 — OfficeWindows DML runner download reliability
+
+- [x] Investigated PR build/boot run `39138763374`: Debian toolchain, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed; the OfficeWindows DML job failed before compilation because the Zig HTTPS download connection was forcibly closed.
+- [x] Confirmed the same pinned Zig download subsequently succeeded on the push run and the manager, runtime, and compositor tests passed. This indicates a transient download failure, not a C test failure.
+- [x] Added four bounded download attempts with exponential backoff and removal of partial archives between attempts. The existing pinned SHA-256 check remains mandatory; no unverified archive can be used.
+- [ ] Verify this retry change on the Windows runner and rerun the full Debian build/boot and security gates.
+- **Status:** CI resilience change committed; validation pending. This addresses a flaky toolchain fetch, not the remaining production desktop integration blockers.

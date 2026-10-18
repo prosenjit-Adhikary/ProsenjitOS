@@ -123,7 +123,28 @@ try {
         $zigArchive = Join-Path $tmp $zigArchiveName
         $zigExtract = Join-Path $tmp 'zig-extracted'
         Write-Host "No installed compiler found; downloading pinned Zig $zigVersion from the official Zig site."
-        Invoke-WebRequest -Uri $zigUrl -OutFile $zigArchive -UseBasicParsing -TimeoutSec 180
+        # Self-hosted Windows networks can reset long HTTPS transfers. Retry only
+        # the download; never relax the pinned digest check below.
+        $downloadSucceeded = $false
+        for ($attempt = 1; $attempt -le 4; $attempt++) {
+            Remove-Item -LiteralPath $zigArchive -Force -ErrorAction SilentlyContinue
+            try {
+                Invoke-WebRequest -Uri $zigUrl -OutFile $zigArchive -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
+                if (-not (Test-Path -LiteralPath $zigArchive -PathType Leaf)) {
+                    throw 'Zig download returned without creating the archive.'
+                }
+                $downloadSucceeded = $true
+                break
+            } catch {
+                if ($attempt -eq 4) {
+                    throw "Unable to download pinned Zig after $attempt attempts: $($_.Exception.Message)"
+                }
+                $delaySeconds = [Math]::Min(30, 5 * [Math]::Pow(2, $attempt - 1))
+                Write-Warning "Zig download attempt $attempt failed: $($_.Exception.Message). Retrying in $delaySeconds seconds."
+                Start-Sleep -Seconds $delaySeconds
+            }
+        }
+        if (-not $downloadSucceeded) { throw 'Pinned Zig download did not complete.' }
         $zigActualSha256 = (Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($zigActualSha256 -ne $zigExpectedSha256) {
             throw "Zig archive SHA-256 mismatch. Expected $zigExpectedSha256, got $zigActualSha256."
