@@ -26,7 +26,26 @@ The current process manager does not permit a DEAD process to transition back to
 
 ## Resource lifetime
 
-Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
+Process address spaces are switched with the process context. A process cannot be
+reaped while one of its threads is still current, and process exit first
+terminates all non-dead threads and removes them from runnable queues. The
+kernel CR3 is restored when the current process exits.
+
+`pros_init_launch()` is a launch transaction, not proof of a general
+spawn/exec syscall. It registers the child as `NEW` while execution admission,
+ELF mapping, and CPL3-frame construction run. Only after the user frame is
+validated does it publish `READY` and enqueue the thread. Every
+post-registration failure attempts exit and reap rollback. The caller still
+owns the process object, thread object, and kernel stack supplied to this API;
+they must outlive the child thread and must not be stack-local temporaries.
+
+Reap is guarded by a non-destructive preflight: the child must be a registered
+direct child in `ZOMBIE` state, no thread may remain live/current, the process
+must have no live descendants, and the process object must have only its
+registry-owned reference. A failed preflight must not tear down handles or the
+address space and must not publish an exit status. Once teardown commits, the
+implementation must never relabel a resource-less process as `ZOMBIE` if
+final unlinking reports an invariant violation.
 
 Process destruction is deliberately two-stage:
 
