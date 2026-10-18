@@ -215,6 +215,12 @@ int security_is_quarantined(const struct pros_process *process) {
 int security_quarantine_selftest(void) {
     struct pros_process process = {0};
 
+    /*
+     * process_state() treats zero-refcount objects as dead. Give this local
+     * fixture a valid process object before exercising quarantine transitions;
+     * a bare zero-initialized struct cannot model a live process.
+     */
+    object_init(&process.object, PROS_OBJECT_PROCESS);
     process.state = PROS_PROCESS_READY;
     if (security_quarantine(&process) != 0 ||
         !process.quarantined ||
