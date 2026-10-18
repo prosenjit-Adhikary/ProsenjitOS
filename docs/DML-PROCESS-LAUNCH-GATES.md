@@ -162,3 +162,55 @@ This section supersedes the older boot-failure status above for the tested head.
 - [ ] Real display/window-system integration, keyboard/pointer delivery, a running desktop session, and boot-to-desktop verification remain incomplete.
 
 The QEMU boot blockers recorded in earlier dated sections are historical and did not recur on this tested head. Do not infer desktop-launch completion from the passing kernel boot tests or DML unit tests. Keep this PR Draft until the production launch path and real desktop integration gates pass.
+
+
+## 2026-10-18 follow-up source audit — user-thread entry is not a launch transaction
+
+Fresh source review of `kernel/thread.c`, `kernel/process.c`,
+`kernel/elf_loader.c`, `kernel/syscall.c`, and `boot/entry.asm`
+identified these precise boundaries:
+
+- `thread_init_user()` exists and validates that the ELF entry maps to a
+  user-accessible executable page and the initial stack maps to a user,
+  writable, NX page. It constructs a ring-3 IRET frame with selectors
+  `CS=0x1B` and `SS=0x23`. This is a useful primitive, not proof of a
+  complete process launch.
+- The ordinary `thread_schedule()` path explicitly skips candidates with
+  `user_mode != 0`, re-enqueues them, and continues searching. Therefore a
+  launch implementation must not assume this scheduler function can start a
+  user thread.
+- `thread_schedule_interrupt()` has a separate interrupt-frame return path,
+  updates the TSS kernel stack, and can return a thread's saved interrupt
+  frame. Its interaction with the actual interrupt entry/return assembly,
+  CR3 switching, first-run state, preemption, and user-thread lifetime must be
+  proven together before choosing it as the production launch route.
+- `process_create()` registers a READY process, while `process_wait()`
+  accepts a direct child only after it becomes ZOMBIE and then releases
+  resources. These internal operations do not yet provide a complete atomic
+  create/load/thread-init/enqueue transaction.
+- The syscall dispatcher still exposes no public spawn/exec or wait operation.
+  Adding syscall IDs alone would not fix the scheduler or lifecycle gap.
+
+### Required next implementation slice
+
+1. Trace the actual interrupt stubs and frame layout used by the current
+   scheduler, then write a focused kernel-side test for a newly created user
+   thread's first entry and return/exit path.
+2. Design a single-owner launch transaction with explicit ownership for the
+   process object, ELF image buffer, address space, user stack, thread object,
+   and kernel stack. Every allocation or registration failure must unwind in
+   reverse order without leaving a registered process or runnable orphan.
+3. Make first-run user scheduling explicit and safe. Do not route CPL3 frames
+   through the kernel context-switch RET trampoline, and do not enable timer
+   preemption until interrupt-frame save/restore and per-thread kernel-stack
+   switching are verified.
+4. Reuse the existing executable-admission checks and ELF loader. Then test
+   success, malformed/denied ELF, unmapped entry/stack, allocation failure at
+   each stage, child exit, direct-parent wait/reap, and double wait.
+5. Only after those tests pass, design the versioned syscall surface and
+   implement a production DML backend. Keep the desktop stack in userspace.
+
+**Current decision:** this source audit found a concrete scheduler integration
+hazard, but did not modify kernel scheduling code because the ISO/native boot
+and interrupt-frame regression gates must remain green. The production
+launcher and graphical desktop remain incomplete; no completion claim is made.
