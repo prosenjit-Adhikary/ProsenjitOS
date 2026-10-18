@@ -391,6 +391,13 @@ static int native_prosenjitfs_persistence_selftest(void)
         rc = vfs_file_open(&native_pfs_fs.mount, path,
                            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
     if (rc != PROS_VFS_OK) goto fail;
+    /*
+     * Reset lower-layer traces after open/create metadata work. Capture the
+     * file-data transaction's extent LBA and prove that partition translation
+     * and ATA PIO used the same absolute disk sector.
+     */
+    partition_trace_reset(&native_pfs_partition);
+    pros_ata_pio_trace_reset(&native_pfs_ata);
     done = 0u;
     if (vfs_file_write(&file, native_pfs_write_buffer,
                        sizeof(native_pfs_write_buffer), &done) != PROS_VFS_OK ||
@@ -398,10 +405,32 @@ static int native_prosenjitfs_persistence_selftest(void)
         (void)vfs_file_close(&file); rc = -12; goto fail;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK) { rc = -13; goto fail; }
+    if (prosenjitfs_write_diag_get(&write_lba, &tx_byte, &post_commit_byte,
+                                   &direct_byte, &vfs_byte) != PROSENJITFS_OK ||
+        tx_byte != 0xD6u || post_commit_byte != tx_byte ||
+        direct_byte != tx_byte || vfs_byte != tx_byte) {
+        rc = -25; goto fail;
+    }
+    {
+        uint64_t partition_lba = 0u, ata_lba = 0u;
+        uint32_t partition_count = 0u, ata_count = 0u;
+        if (partition_trace_find(&native_pfs_partition, write_lba, 1u,
+                                 &partition_lba, &partition_count) !=
+                PROS_PARTITION_OK ||
+            partition_lba != native_pfs_partition.first_lba + write_lba ||
+            partition_count == 0u ||
+            pros_ata_pio_trace_find(&native_pfs_ata, partition_lba, 1u,
+                                    &ata_lba, &ata_count) != PROS_ATA_OK ||
+            ata_lba != partition_lba || ata_count == 0u) {
+            rc = -26; goto fail;
+        }
+    }
 
     if (vfs_file_open(&native_pfs_fs.mount, path, PROS_VFS_O_READ, &file) !=
         PROS_VFS_OK) { rc = -14; goto fail; }
     prosenjitfs_write_diag_begin_read();
+    partition_trace_reset(&native_pfs_partition);
+    pros_ata_pio_trace_reset(&native_pfs_ata);
     done = 0u;
     if (vfs_file_read(&file, native_pfs_read_buffer,
                       sizeof(native_pfs_read_buffer), &done) != PROS_VFS_OK ||
@@ -409,17 +438,29 @@ static int native_prosenjitfs_persistence_selftest(void)
         (void)vfs_file_close(&file); rc = -15; goto fail;
     }
     if (vfs_file_close(&file) != PROS_VFS_OK) { rc = -16; goto fail; }
-    if (prosenjitfs_write_diag_get(&write_lba, &tx_byte, &post_commit_byte,
-                                   &direct_byte, &vfs_byte) != PROSENJITFS_OK ||
-        prosenjitfs_write_diag_get_read_lba(&read_lba) != PROSENJITFS_OK ||
+    if (prosenjitfs_write_diag_get_read_lba(&read_lba) != PROSENJITFS_OK ||
         prosenjitfs_write_diag_get_read_byte(&read_block_byte) != PROSENJITFS_OK ||
-        write_lba != read_lba || tx_byte != 0xD6u ||
-        post_commit_byte != tx_byte || direct_byte != tx_byte ||
-        read_block_byte != tx_byte || vfs_byte != tx_byte) {
+        write_lba != read_lba || read_block_byte != tx_byte) {
         rc = -25; goto fail;
     }
-    serial_write("ProsenjitOS: native filesystem LBA/payload agreement diagnostic passed\n");
-    for (uint32_t i = 0u; i < sizeof(native_pfs_read_buffer); ++i)
+    {
+        uint64_t partition_lba = 0u, ata_lba = 0u;
+        uint32_t partition_count = 0u, ata_count = 0u;
+        if (partition_trace_find(&native_pfs_partition, read_lba, 0u,
+                                 &partition_lba, &partition_count) !=
+                PROS_PARTITION_OK ||
+            partition_lba != native_pfs_partition.first_lba + read_lba ||
+            partition_count == 0u ||
+            pros_ata_pio_trace_find(&native_pfs_ata, partition_lba, 0u,
+                                    &ata_lba, &ata_count) != PROS_ATA_OK ||
+            ata_lba != partition_lba || ata_count == 0u) {
+            rc = -27; goto fail;
+        }
+    }
+    if (vfs_byte != tx_byte || native_pfs_read_buffer[188u] != tx_byte) {
+        rc = -28; goto fail;
+    }
+    serial_write("ProsenjitOS: native filesystem LBA/payload agreement diagnostic passed\\n");    for (uint32_t i = 0u; i < sizeof(native_pfs_read_buffer); ++i)
         if (native_pfs_read_buffer[i] != native_pfs_write_buffer[i]) {
             rc = -17; goto fail;
         }
