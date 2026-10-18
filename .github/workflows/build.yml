@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   dml-tests:
+    timeout-minutes: 30
     # DML/desktop validation belongs on the dedicated OfficeWindows runner.
     # Labels select eligible runners; the explicit name check below prevents
     # accepting a different Windows runner as valid verification.
