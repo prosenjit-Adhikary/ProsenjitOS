@@ -582,3 +582,11 @@ Implement a reviewed interrupt-return scheduling/exit lifecycle with determinist
 - [ ] CI must validate NASM assembly, ISO/native BIOS builds, QEMU boot, and security checks for this change.
 - [ ] This is a targeted interrupt-return fix, not proof of CPL3 preemption or a complete desktop runtime. Those still require a real end-to-end scheduler/process-lifecycle test.
 
+
+
+### 2026-10-18 — Correct timer-frame pointer comparison
+
+- [x] Review caught that the initial same-frame guard compared RAX with the qword stored at the frame address, rather than with the frame address itself.
+- [x] Corrected the guard to compute the original frame address with `lea rdx, [rsp + 24]` and compare pointer-to-pointer. RDX is caller-saved and the interrupted value is restored from the saved frame.
+- [ ] Run NASM/build, ISO and native BIOS QEMU gates, plus security workflow on this exact revision before treating the timer-return change as verified.
+- **Status:** comparison corrected by source review; CI/runtime verification pending. Desktop Environment remains incomplete.
