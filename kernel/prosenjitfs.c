@@ -7647,8 +7647,11 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -1511);
         if (vfs_rmdir(&fs.mount, "/persist/config") != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -1512);
-        if (vfs_rmdir(&fs.mount, "/persist") != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -1513);
+        {
+            int persist_rmdir_rc = vfs_rmdir(&fs.mount, "/persist");
+            if (persist_rmdir_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -1600 + persist_rmdir_rc);
+        }
 
 
         /*
