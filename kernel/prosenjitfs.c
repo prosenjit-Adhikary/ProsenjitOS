@@ -7602,7 +7602,24 @@ int prosenjitfs_selftest(void)
                 vfs_vnode_put(stale_dir);
                 return pfs_selftest_fail(__LINE__, -1304);
             }
-        vfs_vnode_put(replacement_dir);
+        /* Prove this is an inode-slot reuse, not merely an unlinked inode.
+         * The generation must change before the retained old vnode is opened. */
+        {
+            struct pfs_vnode_data *replacement_data =
+                (struct pfs_vnode_data *)replacement_dir->private_data;
+            if (replacement_data->inode_number != stale_dir_data->inode_number ||
+                replacement_data->generation == stale_dir_data->generation) {
+                vfs_vnode_put(replacement_dir);
+                vfs_vnode_put(stale_dir);
+                (void)vfs_rmdir(&fs.mount, "/stale-dir");
+                return pfs_selftest_fail(__LINE__, -1307);
+            }
+        }
+        if (vfs_vnode_put(replacement_dir) != PROS_VFS_OK) {
+            vfs_vnode_put(stale_dir);
+            (void)vfs_rmdir(&fs.mount, "/stale-dir");
+            return pfs_selftest_fail(__LINE__, -1308);
+        }
 
         rc = pfs_vnode_dir_open(stale_dir);
         if (rc != PROS_VFS_ESTALE ||
