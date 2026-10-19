@@ -8134,7 +8134,13 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(__LINE__, -1701);
         }
-        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+        /*
+         * ENOSPC resets the allocator output parameter to zero. Use the
+         * last successfully recorded allocation, not `block` from the
+         * terminal failed allocation attempt.
+         */
+        if (prosenjitfs_free_blocks(&small_fs,
+                                    allocated_blocks[allocated - 1u], 1u) !=
             PROSENJITFS_OK) {
             prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(__LINE__, -1702);
@@ -8144,7 +8150,7 @@ int prosenjitfs_selftest(void)
             prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(__LINE__, -1703);
         }
-        if (first_reused != block) {
+        if (first_reused != allocated_blocks[allocated - 1u]) {
             prosenjitfs_unmount(&small_fs);
             return pfs_selftest_fail(__LINE__, -1704);
         }
