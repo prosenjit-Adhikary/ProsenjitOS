@@ -31,7 +31,15 @@ int pros_paint_rectangle(struct pros_paint_canvas *c,int32_t x0,int32_t y0,int32
 }
 int pros_paint_ellipse(struct pros_paint_canvas *c,int32_t x0,int32_t y0,int32_t x1,int32_t y1,uint32_t color,uint32_t t,int filled){
  int32_t l,r,top,bottom;double cx,cy,rx,ry;int rc;if(!valid(c)||!t||t>128u)return PROS_PAINT_EINVAL;rc=snapshot(c);if(rc)return rc;l=x0<x1?x0:x1;r=x0>x1?x0:x1;top=y0<y1?y0:y1;bottom=y0>y1?y0:y1;cx=((double)l+r)/2.0;cy=((double)top+bottom)/2.0;rx=((double)r-l+1.0)/2.0;ry=((double)bottom-top+1.0)/2.0;
- if(rx<0.5||ry<0.5)return PROS_PAINT_OK;for(int32_t y=top;y<=bottom;++y)for(int32_t x=l;x<=r;++x){double nx=(x-cx)/rx,ny=(y-cy)/ry,d=nx*nx+ny*ny;if((filled&&d<=1.0)||(!filled&&d<=1.0&&d>=1.0-(double)t*(2.0/rx+2.0/ry)))(void)pros_paint_set_pixel(c,x,y,color);}return PROS_PAINT_OK;
+ if(rx<0.5||ry<0.5) return PROS_PAINT_OK;
+ for(int32_t y=top;y<=bottom;++y) {
+  for(int32_t x=l;x<=r;++x) {
+   double nx=(x-cx)/rx,ny=(y-cy)/ry,d=nx*nx+ny*ny;
+   if((filled&&d<=1.0)||(!filled&&d<=1.0&&d>=1.0-(double)t*(2.0/rx+2.0/ry)))
+    (void)pros_paint_set_pixel(c,x,y,color);
+  }
+ }
+ return PROS_PAINT_OK;
 }
 int pros_paint_flood_fill(struct pros_paint_canvas *c,int32_t x,int32_t y,uint32_t color){
  size_t n,head=0,tail=0,*q;uint32_t target;int rc;if(!valid(c)||x<0||y<0||(uint32_t)x>=c->width||(uint32_t)y>=c->height)return PROS_PAINT_EINVAL;target=c->pixels[(size_t)y*c->width+(uint32_t)x];if(target==color)return PROS_PAINT_OK;rc=snapshot(c);if(rc)return rc;n=pixel_count(c);q=(size_t*)malloc(n*sizeof(*q));if(!q){free(c->history[--c->history_count]);c->history[c->history_count]=NULL;--c->history_cursor;return PROS_PAINT_ENOMEM;}
