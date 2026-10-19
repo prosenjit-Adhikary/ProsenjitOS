@@ -7105,11 +7105,14 @@ int prosenjitfs_selftest(void)
         }
 
         /*
-         * Seek beyond EOF must fail without changing the current position.
+         * POSIX-style seek permits positions beyond EOF. The unrepresentable
+         * UINT64_MAX sentinel must fail without changing the current position.
          */
         if (file.position != 700u ||
-            vfs_file_seek(&file, 701u) != PROS_VFS_EOVERFLOW ||
-            file.position != 700u) {
+            vfs_file_seek(&file, 701u) != PROS_VFS_OK ||
+            file.position != 701u ||
+            vfs_file_seek(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
+            file.position != 701u) {
             vfs_file_close(&file);
             return pfs_selftest_fail(__LINE__, -12);
         }
