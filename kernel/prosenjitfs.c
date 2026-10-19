@@ -5149,6 +5149,13 @@ static int pfs_free_blocks_unlocked(struct pros_prosenjitfs *fs,
      * makes double-free detection atomic at the allocator API boundary.
      */
     rc = pfs_allocator_range_state(fs, first_block, count, 1u);
+    /*
+     * ENOSPC is the range-state helper's "not fully allocated" result when
+     * allocation is requested. For free, that state is a double-free /
+     * invalid-free request and must surface as EINVAL to callers.
+     */
+    if (rc == PROSENJITFS_ENOSPC)
+        return PROSENJITFS_EINVAL;
     if (rc != PROSENJITFS_OK)
         return rc;
     return pfs_allocator_update(fs, first_block, count, 0u);
