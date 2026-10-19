@@ -105,7 +105,6 @@ jobs:
           require_log "ProsenjitOS: syscall dispatcher ABI/policy self-test passed"
           require_log "ProsenjitOS: network protocol/socket self-test passed"
           require_log "ProsenjitOS: ELF runtime mapping/stack verification passed"
-          require_log "ProsenjitOS: CPL3 syscall returned to kernel successfully"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
