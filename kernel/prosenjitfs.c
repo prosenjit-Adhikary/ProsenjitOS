@@ -6104,7 +6104,12 @@ int prosenjitfs_selftest(void)
     pfs_crash_injected = 0u;
     static struct pfs_test_disk disk;
     struct pros_block_device device;
-    struct pros_prosenjitfs fs;
+    /*
+     * The provider owns large inode-reference arrays. Keep test instances
+     * out of the limited boot/kernel stack; this self-test is single-threaded
+     * and resets both instances before use.
+     */
+    static struct pros_prosenjitfs fs;
     pfs_zero(&fs, sizeof(fs));
     pfs_selftest_diag_stage = 0xC101u;
     struct pros_prosenjitfs_inode inode;
@@ -8052,13 +8057,14 @@ int prosenjitfs_selftest(void)
     {
         struct pfs_test_disk small_disk;
         struct pros_block_device small_device;
-        struct pros_prosenjitfs small_fs;
+        static struct pros_prosenjitfs small_fs;
         uint64_t block;
         uint64_t first_reused = 0u;
         uint32_t allocated = 0u;
         uint64_t inode_tmp;
 
         pfs_zero(&small_disk, sizeof(small_disk));
+        pfs_zero(&small_fs, sizeof(small_fs));
         if (block_device_init(&small_device, 512u, PFS_MIN_BLOCKS,
                               pfs_test_read, pfs_test_write, &small_disk) !=
                 PROS_BLOCK_OK ||
