@@ -420,7 +420,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     process_set_current(next->process);
     if (process_current() != next->process) {
         (void)thread_enqueue(next);
-        if (!thread_process_runnable(prev))
+        /*
+         * The interrupted frame can be resumed only if its thread remained
+         * RUNNING. A runnable process does not make a BLOCKED thread runnable.
+         */
+        if (prev->state != PROS_THREAD_RUNNING ||
+            !thread_process_runnable(prev))
             thread_scheduler_fail_closed();
         return current_frame;
     }
@@ -428,7 +433,8 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (cpu_set_kernel_stack(next->kernel_stack_top) != 0) {
         process_set_current(prev->process);
         (void)thread_enqueue(next);
-        if (!thread_process_runnable(prev))
+        if (prev->state != PROS_THREAD_RUNNING ||
+            !thread_process_runnable(prev))
             thread_scheduler_fail_closed();
         return current_frame;
     }
