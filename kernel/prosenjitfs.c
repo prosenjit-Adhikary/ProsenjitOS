@@ -6120,7 +6120,7 @@ int prosenjitfs_selftest(void)
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
-    pfs_selftest_diag_stage = 0xC103u;
+    pfs_selftest_diag_stage = 0xC110u;
     pfs_selftest_diag_stage = 0xC104u;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
@@ -6147,10 +6147,13 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -2);
     }
     pfs_zero(&disk, sizeof(disk));
+    pfs_selftest_diag_stage = 0xC111u;
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
+    pfs_selftest_diag_stage = 0xC112u;
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
+    pfs_selftest_diag_stage = 0xC113u;
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
@@ -6159,19 +6162,29 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -5);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
         return pfs_selftest_fail(__LINE__, -5);
-    pfs_selftest_diag_stage = 0xC102u;
+    pfs_selftest_diag_stage = 0xC120u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
         struct pros_vfs_dirent entry;
+        pfs_selftest_diag_stage = 0xC121u;
         if (vfs_path_lookup(&fs.mount, "/", &root) != PROS_VFS_OK ||
-            root != fs.mount.root ||
-            vfs_vnode_put(root) != PROS_VFS_OK ||
-            vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK ||
-            vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
-            entry.name[0] != '.' ||
-            vfs_dir_close(&dir) != PROS_VFS_OK)
+            root != fs.mount.root)
+            return pfs_selftest_fail(__LINE__, -5);
+        pfs_selftest_diag_stage = 0xC122u;
+        if (vfs_vnode_put(root) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -5);
+        pfs_selftest_diag_stage = 0xC123u;
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -5);
+        pfs_selftest_diag_stage = 0xC124u;
+        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK || entry.name[0] != '.') {
+            (void)vfs_dir_close(&dir);
+            return pfs_selftest_fail(__LINE__, -5);
+        }
+        pfs_selftest_diag_stage = 0xC125u;
+        if (vfs_dir_close(&dir) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -5);
     }
     pfs_selftest_diag_stage = 0xC103u;
