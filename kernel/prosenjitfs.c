@@ -8532,11 +8532,16 @@ int prosenjitfs_selftest(void)
             pfs_crash_inject_stage = recovery_stages[recovery_index];
             pfs_crash_injected = 0u;
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-            if (mount_rc != PROSENJITFS_EIO ||
-                pfs_crash_injected == 0u) {
+            if (mount_rc != PROSENJITFS_EIO) {
                 pfs_crash_inject_stage = 0u;
                 pfs_zero(&fs, sizeof(fs));
-                return pfs_selftest_fail(__LINE__, -14);
+                /* Preserve the real mount result in the QEMU diagnostic. */
+                return pfs_selftest_fail(__LINE__, mount_rc);
+            }
+            if (pfs_crash_injected == 0u) {
+                pfs_crash_inject_stage = 0u;
+                pfs_zero(&fs, sizeof(fs));
+                return pfs_selftest_fail(__LINE__, -1412);
             }
 
             /*
