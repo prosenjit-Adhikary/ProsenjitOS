@@ -1489,6 +1489,103 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             }
         }
         serial_write("ProsenjitOS: CPL3 interrupt scheduler handoff self-test passed\n");
+
+        /*
+         * Exercise the real process-exit scheduler transition without
+         * executing a test ELF: select a mapped CPL3 child frame, terminate
+         * that child through the same scheduler entry used by SYS_EXIT, then
+         * verify the parent resumes and can reap all child resources.
+         */
+        {
+            struct pros_process exit_child = {0};
+            struct pros_thread exit_parent_thread;
+            struct pros_thread exit_child_thread;
+            uint64_t entry_physical = 0u, entry_flags = 0u;
+            uint64_t stack_page = physical_page_alloc_user();
+            uint64_t stack_va = (elf_result.stack_top - 1u) & ~0xFFFULL;
+            uint64_t kernel_stack_bottom =
+                (uint64_t)(uintptr_t)user_frame_thread_stack;
+            uint64_t kernel_stack_top = kernel_stack_bottom +
+                                        sizeof(user_frame_thread_stack);
+            int32_t exit_status = 0;
+            struct pros_interrupt_frame *child_frame;
+            struct pros_interrupt_frame *parent_frame;
+
+            if (!stack_page ||
+                process_create(&init_process, &exit_child, 0x7100u,
+                               PROS_SECURITY_LIMITED) != 0 ||
+                process_set_state(&exit_child, PROS_PROCESS_NEW) != 0 ||
+                address_space_translate_user(&init_process.address_space,
+                                             elf_result.entry,
+                                             &entry_physical, &entry_flags) != 0 ||
+                !(entry_flags & PROSENJIT_PAGE_USER) ||
+                (entry_flags & PROSENJIT_PAGE_NX) != 0u ||
+                address_space_map_user_page(&exit_child.address_space,
+                                            elf_result.entry & ~0xFFFULL,
+                                            entry_physical & ~0xFFFULL, 0u) != 0 ||
+                address_space_map_user_page_owned(&exit_child.address_space,
+                                                  stack_va, stack_page,
+                                                  PROSENJIT_PAGE_WRITABLE |
+                                                  PROSENJIT_PAGE_NX) != 0) {
+                if (stack_page) physical_page_free(stack_page);
+                serial_write("ProsenjitOS: ERROR exit scheduler child mappings failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            if (thread_manager_init() != 0 ||
+                thread_init(&exit_parent_thread, &init_process, 0x7100u,
+                            (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                            (uint64_t)(uintptr_t)(init_thread_stack +
+                                                  sizeof(init_thread_stack))) != 0 ||
+                thread_init_user(&exit_child_thread, &exit_child, 0x7101u,
+                                 elf_result.entry, elf_result.stack_top,
+                                 kernel_stack_bottom, kernel_stack_top) != 0 ||
+                process_set_state(&exit_child, PROS_PROCESS_READY) != 0 ||
+                thread_enqueue(&exit_parent_thread) != 0 ||
+                thread_enqueue(&exit_child_thread) != 0 ||
+                thread_schedule() != 0 ||
+                thread_current() != &exit_parent_thread) {
+                serial_write("ProsenjitOS: ERROR exit scheduler fixture setup failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            scheduler_init_frame.rax = 0u;
+            scheduler_init_frame.rbx = 0u;
+            scheduler_init_frame.rcx = 0u;
+            scheduler_init_frame.rdx = 0u;
+            scheduler_init_frame.rsi = 0u;
+            scheduler_init_frame.rdi = 0u;
+            scheduler_init_frame.rbp = 0u;
+            scheduler_init_frame.r8 = scheduler_init_frame.r9 = 0u;
+            scheduler_init_frame.r10 = scheduler_init_frame.r11 = 0u;
+            scheduler_init_frame.r12 = scheduler_init_frame.r13 = 0u;
+            scheduler_init_frame.r14 = scheduler_init_frame.r15 = 0u;
+            scheduler_init_frame.rip = (uint64_t)(uintptr_t)scheduler_test_init_entry;
+            scheduler_init_frame.cs = 0x08u;
+            scheduler_init_frame.rflags = 0x202u;
+
+            child_frame = thread_schedule_interrupt(&scheduler_init_frame);
+            if (child_frame != exit_child_thread.interrupt_frame ||
+                thread_current() != &exit_child_thread ||
+                process_current() != &exit_child) {
+                serial_write("ProsenjitOS: ERROR exit scheduler failed to select child\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            parent_frame = thread_exit_schedule_interrupt(child_frame, 23);
+            if (parent_frame != &scheduler_init_frame ||
+                thread_current() != &exit_parent_thread ||
+                process_current() != &init_process ||
+                process_state(&exit_child) != PROS_PROCESS_ZOMBIE ||
+                process_wait(&init_process, 0x7100u, &exit_status) != 0 ||
+                exit_status != 23 ||
+                process_lookup(0x7100u) != 0 ||
+                exit_child.address_space.root != 0u) {
+                serial_write("ProsenjitOS: ERROR user process exit/wait/reap integration failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: user process exit/scheduler/wait-reap integration test passed\n");
+        }
     }
 
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
