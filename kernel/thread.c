@@ -383,7 +383,16 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         break;
     }
     if (!next) {
-        if (!thread_process_runnable(prev))
+        /*
+         * Returning the same interrupt frame is safe only while the current
+         * thread itself remains runnable. A process can be READY/RUNNING
+         * while its only thread has blocked; checking only process eligibility
+         * would then return to a blocked syscall/thread with no successor.
+         * Until an idle thread exists, fail closed for every non-running
+         * current thread rather than resuming an invalid execution context.
+         */
+        if (prev->state != PROS_THREAD_RUNNING ||
+            !thread_process_runnable(prev))
             thread_scheduler_fail_closed();
         return current_frame;
     }
