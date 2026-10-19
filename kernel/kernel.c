@@ -404,6 +404,7 @@ void user_mode_test_complete(void) {
  * child has reached ZOMBIE.
  */
 static void exit_lifecycle_parent_entry(void) {
+    __asm__ volatile ("sti" ::: "memory");
     for (;;) {
         struct pros_process *child = exit_lifecycle_child;
         uint32_t state = child ? process_state(child) : PROS_PROCESS_DEAD;
@@ -424,7 +425,7 @@ static void exit_lifecycle_parent_entry(void) {
                 for (;;) __asm__ volatile ("cli; hlt");
             }
             serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
-            serial_write("ProsenjitOS: user process exit/scheduler/wait-reap integration test passed\n");
+            serial_write("ProsenjitOS: user process exit scheduler unit test passed\n");
             vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
             for (;;) __asm__ volatile ("cli; hlt");
         }
