@@ -1572,7 +1572,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 for (;;) __asm__ volatile ("cli; hlt");
             }
 
-            parent_frame = thread_exit_schedule_interrupt(child_frame, 23);
+            child_frame->rdi = 23u;
+            child_frame->rax = PROSENJIT_SYS_EXIT;
+            syscall_dispatch((volatile uint64_t *)child_frame,
+                             (volatile uint64_t *)&child_frame->rip);
+            if (child_frame->rax != PROSENJIT_SYSCALL_INTERNAL_TERMINATE) {
+                serial_write("ProsenjitOS: ERROR SYS_EXIT dispatcher integration failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            parent_frame = thread_exit_schedule_interrupt(
+                child_frame, (int32_t)child_frame->rdi);
             if (parent_frame != &scheduler_init_frame ||
                 thread_current() != &exit_parent_thread ||
                 process_current() != &init_process ||
