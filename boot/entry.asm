@@ -3,6 +3,7 @@ BITS 32
 section .text
 global _start
 global enter_user_mode
+global enter_user_mode_preemptible
 global user_mode_exit_trampoline
 global cpu_load_tss
 global cpu_set_kernel_stack
@@ -123,6 +124,25 @@ enter_user_mode:
     ; User-mode timer preemption is not yet scheduler-safe. Keep IF clear
     ; until user interrupt-frame/address-space switching is implemented.
     and qword [rsp], ~0x200
+    push qword 0x1B
+    push rax
+    mov rdi, r8
+    iretq
+
+enter_user_mode_preemptible:
+    ; Scheduler has already selected this user thread and installed its
+    ; private kernel stack in TSS.RSP0. Preserve that stack and allow IRQs.
+    ; RDI=entry, RSI=user stack top, RDX=initial capability handle.
+    mov ax, gdt64.user_data + 3
+    mov ds, ax
+    mov es, ax
+    mov rax, rdi
+    mov r8, rdx
+    mov rdx, rsi
+    push qword 0x23
+    push rdx
+    pushfq
+    or qword [rsp], 0x200
     push qword 0x1B
     push rax
     mov rdi, r8
@@ -362,10 +382,16 @@ user_test_entry:
     cmp rax, rbx
     jne .user_halt
 
-    ; Ask the kernel to finish the CPL3 test. The kernel validates the
-    ; caller privilege and user mapping before returning to its trampoline.
-    mov rax, 2
+    ; Leave enough user execution time for a real timer IRQ to preempt
+    ; this CPL3 thread, then exit through the public syscall ABI.
+    mov ecx, 50000000
+.exit_delay:
+    dec ecx
+    jnz .exit_delay
+    mov edi, 23
+    mov eax, 9                  ; PROSENJIT_SYS_EXIT
     int 0x80
+    ud2                         ; a successful exit never returns here
 .user_halt:
     jmp .user_halt
 
