@@ -11,7 +11,9 @@ ProsenjitOS Paint is an original, native-first raster drawing application projec
 - Host regression tests compiled with strict C11 warnings-as-errors.
 
 ## Build and test
-Run make paint-unit-test. This target is separate from make iso and does not add GUI libraries to the kernel build.
+- The required Paint regression CI job is `paint-tests` on the specifically verified `OfficeWindows` self-hosted runner. It uses `scripts/test_paint_core.ps1` and a strict C11 compiler configuration.
+- `make paint-unit-test` remains an optional host-side convenience target. It is separate from `make iso` and does not add GUI libraries to the kernel build.
+- The OS ISO/QEMU build remains on the Linux `office` runner; Paint-specific compilation and regression execution must not be moved to that runner.
 
 ## Required integration stages
 1. Add a user-mode app entry point after the real userspace spawn/exec ABI is implemented.
