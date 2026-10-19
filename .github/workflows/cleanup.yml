@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       retention_days:
-        description: "Keep artifacts newer than this many days"
+        description: "Keep artifacts newer than this many days (1 day recommended for quota control)"
         required: true
-        default: "14"
+        default: "1"
         type: string
 
   schedule:
-    - cron: "30 2 * * 0"
+    - cron: "30 2 * * *"
 
 permissions:
   actions: write
