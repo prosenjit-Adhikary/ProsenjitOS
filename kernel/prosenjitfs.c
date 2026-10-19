@@ -7886,7 +7886,8 @@ int prosenjitfs_selftest(void)
             before_size = before_inode.size;
             if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW ||
                 vfs_file_close(&file) != PROS_VFS_OK ||
-                prosenjitfs_read_inode(&fs, file_data->inode_number,
+                /* Closing the file releases its vnode; use the saved inode. */
+                prosenjitfs_read_inode(&fs, inode_number,
                                        &before_inode) != PROSENJITFS_OK ||
                 before_inode.size != before_size ||
                 pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
