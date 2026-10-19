@@ -823,3 +823,13 @@ Do not add guessed syscall IDs or enable user-mode timer interrupts just to forc
 - [ ] These CI results verify the existing tests only. They do not establish a production scheduler-managed user desktop: public spawn/exec, verified process/thread/stack ownership, safe preemptive CPL3 scheduling and exit/reap, production DML backend, display/input event delivery, window-system/session startup, and boot-to-graphical-desktop acceptance remain incomplete.
 
 **Status:** CI timeout adjustment verified successfully on the exact commit. Keep PR #137 Draft; do not merge on the strength of prerequisite CI alone.
+
+
+## 2026-10-19 — Exact-head verification of documentation commit
+
+- [x] Commit `f60cf62cf3ad890d8a72bcf896bbd6af59451de6` passed the complete Build and boot-test workflow [39302668174](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39302668174): the designated Debian runner passed toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot; the designated `OfficeWindows` runner passed `dml-tests`.
+- [x] Exact-head security architecture workflow [39302668307](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39302668307) passed.
+- [x] PR #137 head is `f60cf62cf3ad890d8a72bcf896bbd6af59451de6`; all three required workflow jobs are green on this exact head.
+- [ ] This is prerequisite CI verification, not proof of a production desktop. The first-run CPL3 scheduling/exit/reap path still lacks an end-to-end acceptance test; the public spawn/exec API, owned process/thread/stack allocation policy, preemptive user-mode interrupt policy, production DML backend, and real display/input/session integration remain open.
+
+**Gate:** keep PR #137 in Draft and do not merge until the launch/lifecycle and real desktop integration gates are implemented and verified.
