@@ -119,6 +119,7 @@ jobs:
           require_log "ProsenjitOS: address-space deep isolation self-test passed"
           require_log "ProsenjitOS: per-CPU usercopy fault state online"
           require_log "ProsenjitOS: CPL3 scheduler-frame construction self-test passed"
+          require_log "ProsenjitOS: user process exit/scheduler/wait-reap integration test passed"
 
       - name: Boot-test native BIOS image in QEMU
         run: |
