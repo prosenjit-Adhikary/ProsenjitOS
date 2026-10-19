@@ -312,7 +312,8 @@ static const uint8_t native_persistence_signature[] = {
     'P', 'R', 'O', 'S', '-', 'N', 'A', 'T', '-', 'P', 'E', 'R', 'S', 'I', 'S', 'T', 1u
 };
 
-static int native_partition_is_blank(struct pros_block_device *device)
+static int native_partition_is_blank(struct pros_block_device *device,
+                                       struct pros_ata_pio *ata)
 {
     uint8_t *buffer;
     uint64_t lba = 0u;
@@ -336,6 +337,15 @@ static int native_partition_is_blank(struct pros_block_device *device)
             serial_write(" rc=");
             serial_hex64((uint64_t)(int64_t)read_rc);
             serial_write("\n");
+            if (ata) {
+                serial_write("ProsenjitOS: ATA read diagnostic lba=");
+                serial_hex64(ata->last_error_lba);
+                serial_write(" status=");
+                serial_hex64(ata->last_status);
+                serial_write(" error=");
+                serial_hex64(ata->last_error);
+                serial_write("\n");
+            }
             kfree(buffer);
             return -1;
         }
@@ -451,7 +461,7 @@ static int native_bios_storage_selftest(void)
 
     rc = prosenjitfs_probe(&view.device);
     if (rc == PROSENJITFS_ENOTSUP) {
-        int blank = native_partition_is_blank(&view.device);
+        int blank = native_partition_is_blank(&view.device, &ata);
         if (blank != 1)
             return -6;
         if (prosenjitfs_format(&view.device) != PROSENJITFS_OK ||
