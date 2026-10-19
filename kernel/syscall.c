@@ -166,6 +166,26 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             return;
         }
 
+        case PROSENJIT_SYS_EXIT: {
+            /*
+             * Exit is completed by the interrupt-return scheduler, not by
+             * returning to user mode and not by switching to the bootstrap
+             * stack. The saved RDI register carries the signed exit status.
+             */
+            struct pros_process *process = process_current();
+            if ((cpu_frame[1] & 3ULL) != 3ULL) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            if (!process || !thread_current() ||
+                !thread_current()->user_mode) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            registers[0] = PROSENJIT_SYSCALL_INTERNAL_TERMINATE;
+            return;
+        }
+
         case PROSENJIT_SYS_WAIT_REAP: {
             struct pros_process *parent = process_current();
             uint64_t child_pid = registers[5];
