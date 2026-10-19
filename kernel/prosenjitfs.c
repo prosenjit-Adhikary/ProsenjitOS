@@ -5664,6 +5664,7 @@ static void pfs_test_crash_reset(struct pros_prosenjitfs *fs,
 
 static uint32_t pfs_selftest_diag_stage;
 static int pfs_selftest_diag_rc;
+static uint32_t pfs_consistency_diag_stage;
 
 static int pfs_selftest_fail(uint32_t stage, int rc)
 {
@@ -5703,6 +5704,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     uint32_t name_length = 0u;
     int rc = PROSENJITFS_EIO;
 
+    pfs_consistency_diag_stage = 0xC001u;
     if (!fs || !fs->mount.device || !fs->mount.active ||
         fs->sb.block_size == 0u || fs->sb.block_size > sizeof(bitmap) ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
@@ -5794,6 +5796,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
      * bitmap is intentionally built from metadata references and then
      * compared with the on-disk allocation bitmap below.
      */
+    pfs_consistency_diag_stage = 0xC002u;
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
         uint64_t bi = inode_number / bits_per_block;
@@ -5844,6 +5847,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
 
         if (inode.type == PROSENJITFS_INODE_DIR) {
+            pfs_consistency_diag_stage = 0xC003u;
             struct pros_prosenjitfs_dir_index index;
             if (inode.extent_head != 0u ||
                 inode.dir_index < fs->sb.data_start ||
@@ -5919,6 +5923,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 }
             }
         } else if (inode.type == PROSENJITFS_INODE_FILE) {
+            pfs_consistency_diag_stage = 0xC004u;
             uint64_t current = inode.extent_head;
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
@@ -5974,6 +5979,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
     }
 
+    pfs_consistency_diag_stage = 0xC005u;
     /* Bits beyond inode_count are permanently invalid and must never
      * survive as allocated state. This catches bitmap tail corruption that
      * cannot be observed by inode lookup alone. */
@@ -5995,10 +6001,12 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
     }
 
+    pfs_consistency_diag_stage = 0xC006u;
     if (dir_refs[fs->sb.root_inode] != 0u) {
         rc = PROSENJITFS_ECORRUPT;
         goto consistency_out;
     }
+    pfs_consistency_diag_stage = 0xC007u;
     for (uint64_t inode_number = 1u;
          inode_number < fs->sb.inode_count; ++inode_number) {
         uint64_t bi = inode_number / bits_per_block;
@@ -6027,6 +6035,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
      * must be marked used; every referenced data/extent/directory-entry block
      * must be marked used; and every allocated data bit must have an owner.
      */
+    pfs_consistency_diag_stage = 0xC008u;
     for (uint64_t bi = 0u; bi < fs->sb.block_bitmap_blocks; ++bi) {
         uint64_t lba;
         uint64_t first_bit = bi * bits_per_block;
@@ -7554,7 +7563,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -15);
 
         if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -1501);
+            return pfs_selftest_fail(pfs_consistency_diag_stage, -1501);
         if (vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -1502);
