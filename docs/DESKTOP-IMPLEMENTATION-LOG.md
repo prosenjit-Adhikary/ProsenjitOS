@@ -771,3 +771,11 @@ This is a DML state-integrity hardening change, not a production process backend
 - [ ] Exact-head Debian build, ISO/native BIOS QEMU boot, DML unit tests, and security-design checks are pending for commit `36ef2a7b4d78b9dcfac7c7863a4bb130ddb75e9a`.
 - [ ] This is a safety guard, not a substitute for a dedicated idle thread. When a blocked thread has no successor the kernel can still halt; implement and verify an idle-thread/wakeup lifecycle before calling blocking process scheduling production-ready.
 - [ ] Desktop still lacks a production spawn/exec backend, real display/input path, window-system integration, and boot-to-graphical-session acceptance test.
+
+
+## 2026-10-19 — Keep blocked-frame fail-closed behavior on switch errors
+
+- [x] Follow-up source audit found two error paths in `thread_schedule_interrupt()` (failed process-current switch and failed TSS kernel-stack update) that checked process eligibility but not the interrupted thread state before returning its saved interrupt frame.
+- [x] Updated both error paths to fail closed unless the interrupted thread is still `PROS_THREAD_RUNNING` and its process is eligible. This closes the same blocked-thread-resume class across no-successor and switch-failure paths.
+- [ ] CI remains queued for prior scheduler guard commit `36ef2a7b4d78b9dcfac7c7863a4bb130ddb75e9a` at the time of this audit; new exact-head CI for `3a50ddc8fd0881a817072f26107ad519791e18c3` is pending.
+- [ ] These are fail-closed safety guards only. A dedicated idle thread, interrupt-safe wakeup/preemption, complete userspace spawn/exec lifecycle, production DML backend, real display/input delivery, and graphical-session acceptance remain open.
