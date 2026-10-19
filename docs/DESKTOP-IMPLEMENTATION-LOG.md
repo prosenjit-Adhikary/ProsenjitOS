@@ -749,3 +749,16 @@ This is a DML state-integrity hardening change, not a production process backend
 - [x] Fixed both rollback failure paths to publish the root only if its process handle is still present in the tracked active order. A failed prerequisite rollback remains tracked for cleanup, but is not falsely reported as the active desktop root.
 - [ ] Re-run Windows DML unit tests and confirm the regression fix; latest-head Debian ISO/native BIOS QEMU and security-design CI must also pass.
 
+
+
+## 2026-10-19 — Exact-head DML rollback regression verified
+
+- [x] Verified branch head `5a0f97940f9f65997519c5bd2afcd1f5522a435b` through PR workflow run [39276338837](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276338837): the designated Debian `office` runner passed toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- [x] The designated Windows `OfficeWindows` runner completed the DML unit-test step successfully on that same PR run; the rollback-active status regression is no longer failing in this run.
+- [x] Push-triggered build/DML run [39276329369](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276329369) also passed both build and DML jobs.
+- [x] Push security-design run [39276329318](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276329318) and PR security-design run [39276338834](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276338834) both passed.
+- [x] Re-audited the current scheduler/process/syscall boundary: `thread_schedule_interrupt()` has an interrupt-frame switch path and per-thread kernel-stack update, but `thread_init_user()` deliberately constructs a user frame with IF clear; ordinary `thread_schedule()` still skips user-mode threads. The boot path still enters CPL3 directly rather than launching a scheduler-managed init process.
+- [ ] Next blocking implementation gate remains a safe scheduler-managed user-process lifecycle (preemption, address-space/TSS/kernel-stack transitions, exit and reap) with dedicated idle behavior and exact-head QEMU regression evidence. Do not enable CPL3 interrupts until that integrated test passes.
+- [ ] Public spawn/exec ABI, production DML process backend, concrete display/framebuffer presentation, keyboard/pointer event delivery, window-system/session startup, and boot-to-graphical-desktop acceptance remain unimplemented/unverified.
+
+**Status:** current automated build/boot, DML unit, and security checks are green; Desktop Environment remains **NOT COMPLETE**. These checks do not demonstrate a graphical session.
