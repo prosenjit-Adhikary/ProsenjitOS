@@ -332,6 +332,13 @@ int service_manager_selftest(void)
             return -9;
     }
 
+    /*
+     * The following cases are independent scenarios. The restart case above
+     * intentionally leaves both test counters at one, so reset their state
+     * before asserting that a missing dependency never invokes a start hook.
+     */
+    a = 0u;
+    b = 0u;
     /* Missing dependencies must fail closed rather than partially starting. */
     if (service_manager_init() != PROS_SERVICE_OK)
         return -10;
