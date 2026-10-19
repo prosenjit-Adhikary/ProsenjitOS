@@ -5806,6 +5806,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         uint64_t lba;
         int allocated;
 
+        pfs_consistency_diag_stage = 0xB100u + (uint32_t)inode_number;
         if (bi >= fs->sb.inode_bitmap_blocks ||
             pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
                         bi, &lba) != PROSENJITFS_OK ||
@@ -5815,6 +5816,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
         }
 
         allocated = pfs_bitmap_bit(bitmap, within);
+        pfs_consistency_diag_stage = 0xB200u + (uint32_t)inode_number;
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (!allocated) {
             if (rc != PROSENJITFS_ENOENT) {
@@ -5823,6 +5825,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             }
             continue;
         }
+        pfs_consistency_diag_stage = 0xB300u + (uint32_t)inode_number;
         if (rc == PROSENJITFS_ENOENT) {
             /* After mount/recovery an allocated inode must have a valid
              * on-disk inode image. Reservation is an in-memory transaction
@@ -5830,6 +5833,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             rc = PROSENJITFS_ECORRUPT;
             goto consistency_out;
         }
+        pfs_consistency_diag_stage = 0xB400u + (uint32_t)inode_number;
         if (rc != PROSENJITFS_OK ||
             (inode.type != PROSENJITFS_INODE_FILE &&
              inode.type != PROSENJITFS_INODE_DIR &&
@@ -5839,6 +5843,7 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             goto consistency_out;
         }
 
+        pfs_consistency_diag_stage = 0xB500u + (uint32_t)inode_number;
         if (inode_number != fs->sb.root_inode) {
             struct pros_prosenjitfs_inode parent_inode;
             rc = prosenjitfs_read_inode(fs, inode.parent_inode, &parent_inode);
