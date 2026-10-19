@@ -75,14 +75,18 @@ static int ata_wait_drq(const struct pros_ata_pio *ata)
 {
     for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
-        if (status & ATA_SR_ERR)
-            return PROS_ATA_EIO;
-        if (status & ATA_SR_DF)
+        /*
+         * While BSY is set, the other status bits are not reliable and must
+         * not be interpreted as an error or as a data request. In particular,
+         * checking ERR/DF before BSY can turn a transient busy status into a
+         * false I/O failure during multi-sector reads.
+         */
+        if (status & ATA_SR_BSY)
+            continue;
+        if (status & (ATA_SR_ERR | ATA_SR_DF))
             return PROS_ATA_EIO;
         if (status & ATA_SR_DRQ)
             return PROS_ATA_OK;
-        if (status & ATA_SR_BSY)
-            continue;
         if ((status & ATA_SR_RDY) == 0u)
             continue;
     }
