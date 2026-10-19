@@ -5975,13 +5975,25 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 logical_end = end_logical;
                 current = extent.next;
             }
-            /* Encode the inode number so CI identifies the bad file. */
-            pfs_consistency_diag_stage =
-                0xD000u + (uint32_t)inode_number;
+            /*
+             * Encode inode number, extent-chain block count, and the inode's
+             * recorded allocation count into the CI stage. This distinguishes
+             * a stale inode counter from a missing/extra extent without
+             * weakening the consistency invariant.
+             */
             if (allocated_bytes != inode.allocated_bytes) {
+                uint64_t extent_blocks = allocated_bytes / fs->sb.block_size;
+                uint64_t inode_blocks =
+                    inode.allocated_bytes / fs->sb.block_size;
+                pfs_consistency_diag_stage =
+                    0xD0000000u |
+                    (((uint32_t)inode_number & 0xFFu) << 16) |
+                    (((uint32_t)extent_blocks & 0xFFu) << 8) |
+                    ((uint32_t)inode_blocks & 0xFFu);
                 rc = PROSENJITFS_ECORRUPT;
                 goto consistency_out;
             }
+            pfs_consistency_diag_stage = 0xC044u;
         }
     }
 
