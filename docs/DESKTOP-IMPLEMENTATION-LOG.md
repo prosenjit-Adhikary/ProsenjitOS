@@ -779,3 +779,22 @@ This is a DML state-integrity hardening change, not a production process backend
 - [x] Updated both error paths to fail closed unless the interrupted thread is still `PROS_THREAD_RUNNING` and its process is eligible. This closes the same blocked-thread-resume class across no-successor and switch-failure paths.
 - [ ] CI remains queued for prior scheduler guard commit `36ef2a7b4d78b9dcfac7c7863a4bb130ddb75e9a` at the time of this audit; new exact-head CI for `3a50ddc8fd0881a817072f26107ad519791e18c3` is pending.
 - [ ] These are fail-closed safety guards only. A dedicated idle thread, interrupt-safe wakeup/preemption, complete userspace spawn/exec lifecycle, production DML backend, real display/input delivery, and graphical-session acceptance remain open.
+
+
+## 2026-10-19 — OfficeWindows follow-up: launch-path source audit
+
+### Exact-head workflow verification
+- [x] Build/DML workflow run [39278879126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39278879126) completed successfully. Job logs explicitly identify the DML runner as `OfficeWindows` / machine `IT` and the OS build runner as `office` / machine `debian`.
+- [x] `dml-tests`, ISO build, ISO QEMU boot, native BIOS QEMU boot, and the security architecture workflow [39278879242](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39278879242) all report success for tested commit `cb229658d9eda6d8b74f05e06eab3787237585b0`.
+- [x] Confirmed the Windows test job does not require Bash and validates `RUNNER_NAME == OfficeWindows` before running the PowerShell test harness.
+
+### Fresh source audit (read-only; no kernel behavior changed)
+- [x] `kernel/init.c` already contains `pros_init_launch()`: it registers a child, moves it to `NEW`, performs executable admission and ELF loading, constructs a validated CPL3 frame, publishes `READY`, then enqueues the thread. Post-registration failures attempt exit/reap rollback.
+- [x] `include/abi/syscall.h` already publishes `PROSENJIT_SYS_WAIT_REAP = 8`; `kernel/syscall.c` enforces ring-3 entry, validates the output pointer, restricts reaping to a direct child, and returns `EAGAIN` while the child is still running. This is a non-blocking wait/reap primitive, not a complete spawn/exec API.
+- [x] `thread_init_user()` validates executable/user-stack mapping permissions and builds a CPL3 IRET frame. The interrupt scheduler has a dedicated saved-frame return path and TSS kernel-stack update, but the initial user frame currently keeps IF clear. This deliberately prevents timer preemption; a running user process therefore cannot be considered a production multitasking session yet.
+- [x] `thread_schedule()` still skips user-mode threads rather than starting them through a kernel RET trampoline. Do not route CPL3 frames through that ordinary context-switch path.
+- [ ] Remaining launch blockers: no public, policy-checked spawn/exec syscall or service-manager caller; no verified production allocation/ownership policy for process/thread/kernel-stack storage; no end-to-end test proving a queued CPL3 thread actually starts, exits, and is safely reaped under the interrupt scheduler; no production DML start/stop backend.
+- [ ] GUI blockers remain: concrete display/input drivers and userspace event delivery, window-system/compositor integration, package installation, session startup, and boot-to-desktop acceptance.
+
+### Decision
+Do not add guessed syscall IDs or enable user-mode timer interrupts just to force progress. Next code milestone is a focused kernel test of first-run CPL3 scheduling and exit/reap with IF policy preserved, followed by a reviewed spawn/exec ownership contract and only then a production DML backend. PR #137 remains Draft; the passing workflow is prerequisite verification, not GUI completion.
