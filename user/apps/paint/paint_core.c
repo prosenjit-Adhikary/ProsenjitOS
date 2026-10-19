@@ -43,18 +43,38 @@ int pros_paint_ellipse(struct pros_paint_canvas *c,int32_t x0,int32_t y0,int32_t
  return PROS_PAINT_OK;
 }
 int pros_paint_flood_fill(struct pros_paint_canvas *c,int32_t x,int32_t y,uint32_t color){
- size_t n,head=0,tail=0,*q;uint32_t target;int rc;
- if(!valid(c)||x<0||y<0||(uint32_t)x>=c->width||(uint32_t)y>=c->height)return PROS_PAINT_EINVAL;
- target=c->pixels[(size_t)y*c->width+(uint32_t)x];if(target==color)return PROS_PAINT_OK;
- n=pixel_count(c);if(n>SIZE_MAX/sizeof(*q))return PROS_PAINT_ENOMEM;
- q=(size_t*)malloc(n*sizeof(*q));if(!q)return PROS_PAINT_ENOMEM;
- rc=snapshot(c);if(rc){free(q);return rc;}
- q[tail++]=(size_t)y*c->width+(uint32_t)x;c->pixels[q[0]]=color;
- while(head<tail){size_t p=q[head++],xx=p%c->width,yy=p/c->width,nb[4];uint32_t count=0;
-  if(xx)nb[count++]=p-1;if(xx+1<c->width)nb[count++]=p+1;if(yy)nb[count++]=p-c->width;if(yy+1<c->height)nb[count++]=p+c->width;
-  for(uint32_t i=0;i<count;++i){size_t z=nb[i];if(c->pixels[z]==target){c->pixels[z]=color;q[tail++]=z;}}
+ size_t n,head=0,tail=0,*q;
+ uint32_t target;
+ int rc;
+ if(!valid(c)||x<0||y<0||(uint32_t)x>=c->width||(uint32_t)y>=c->height)
+  return PROS_PAINT_EINVAL;
+ target=c->pixels[(size_t)y*c->width+(uint32_t)x];
+ if(target==color)return PROS_PAINT_OK;
+ n=pixel_count(c);
+ if(n>SIZE_MAX/sizeof(*q))return PROS_PAINT_ENOMEM;
+ q=(size_t*)malloc(n*sizeof(*q));
+ if(!q)return PROS_PAINT_ENOMEM;
+ rc=snapshot(c);
+ if(rc){free(q);return rc;}
+ q[tail++]=(size_t)y*c->width+(uint32_t)x;
+ c->pixels[q[0]]=color;
+ while(head<tail){
+  size_t p=q[head++],xx=p%c->width,yy=p/c->width,nb[4];
+  uint32_t count=0;
+  if(xx)nb[count++]=p-1;
+  if(xx+1<c->width)nb[count++]=p+1;
+  if(yy)nb[count++]=p-c->width;
+  if(yy+1<c->height)nb[count++]=p+c->width;
+  for(uint32_t i=0;i<count;++i){
+   size_t z=nb[i];
+   if(c->pixels[z]==target){
+    c->pixels[z]=color;
+    q[tail++]=z;
+   }
+  }
  }
- free(q);return PROS_PAINT_OK;
+ free(q);
+ return PROS_PAINT_OK;
 }
 int pros_paint_undo(struct pros_paint_canvas *c){
  size_t bytes;uint32_t *current;uint32_t idx;if(!valid(c))return PROS_PAINT_EINVAL;if(!c->history_cursor)return PROS_PAINT_ENOHISTORY;
