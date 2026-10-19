@@ -1446,7 +1446,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             user_frame_test_thread.kernel_stack_top != kernel_stack_top ||
             user_frame->registers.rip != elf_result.entry ||
             user_frame->registers.cs != 0x1Bu ||
-            user_frame->registers.rflags != 0x2u ||
+            user_frame->registers.rflags != 0x202u ||
             user_frame->user_rsp != elf_result.stack_top ||
             user_frame->user_ss != 0x23u) {
             serial_write("ProsenjitOS: ERROR CPL3 scheduler-frame fields invalid\n");
@@ -1457,8 +1457,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         /*
          * Exercise the interrupt scheduler's CPL3 first-run selection path.
          * This checks the selected IRET frame and TSS kernel-stack handoff;
-         * it deliberately does not enable IF or claim timer preemption is
-         * verified. Reset old scheduler fixtures before building this pair.
+         * The user frame now carries IF=1 so the real CPL3 path can receive
+         * timer IRQs; this fixture still tests selection, not elapsed-time
+         * preemption. Reset old scheduler fixtures before building this pair.
          */
         if (thread_manager_init() != 0 ||
             thread_init(&scheduler_kernel_test_thread, &init_process, 4u,
