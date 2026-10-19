@@ -71,7 +71,7 @@ static int ata_wait_not_busy(const struct pros_ata_pio *ata)
     return PROS_ATA_ETIMEOUT;
 }
 
-static int ata_wait_drq(const struct pros_ata_pio *ata)
+static int ata_wait_drq(struct pros_ata_pio *ata)
 {
     for (uint32_t i = 0u; i < ATA_TIMEOUT; ++i) {
         uint8_t status = ata_in8(ata->io_base + ATA_REG_STATUS);
