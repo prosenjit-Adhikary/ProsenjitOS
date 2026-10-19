@@ -6115,6 +6115,8 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -1);
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
+    pfs_selftest_diag_stage = 0xC101u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
      * and the checked addition must reject both arithmetic overflow and the
@@ -6148,6 +6150,8 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -5);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
         return pfs_selftest_fail(__LINE__, -5);
+    pfs_selftest_diag_stage = 0xC102u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     {
         struct pros_vfs_vnode *root = 0;
         struct pros_vfs_dir dir;
@@ -6161,6 +6165,8 @@ int prosenjitfs_selftest(void)
             vfs_dir_close(&dir) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -5);
     }
+    pfs_selftest_diag_stage = 0xC103u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     {
         struct pros_vfs_file file;
         uint8_t write_data[700];
@@ -6206,6 +6212,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -6);
     }
 
+    pfs_selftest_diag_stage = 0xC104u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Mount lifecycle regression: an open handle must pin the vnode tree and
      * make unmount fail with EBUSY. After the handle closes, the same mount
@@ -6244,6 +6252,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    pfs_selftest_diag_stage = 0xC105u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Crash-recovery regression: replay a transaction after a partial home write. */
     {
         struct pros_vfs_file file;
@@ -6312,6 +6322,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -19);
     }
 
+    pfs_selftest_diag_stage = 0xC106u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Open-file lifetime regression: namespace removal must not reclaim
      * an inode that still has an active VFS file handle. */
     {
@@ -6359,6 +6371,8 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    pfs_selftest_diag_stage = 0xC107u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Open-directory lifetime regression: rmdir must not reclaim an inode
      * while a VFS directory handle still owns the vnode reference. */
     {
@@ -6376,6 +6390,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -21);
     }
 
+    pfs_selftest_diag_stage = 0xC108u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Append semantics must use the current EOF even after an explicit seek. */
     {
         struct pros_vfs_file file;
@@ -6439,6 +6455,8 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -13);
         }
 
+    pfs_selftest_diag_stage = 0xC109u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * VFS negative/error-contract matrix: invalid flags, missing paths,
      * directory-as-file, overflow seek/truncate, and read-only writes must
@@ -6471,6 +6489,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -18);
     }
 
+    pfs_selftest_diag_stage = 0xC10Au;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Sparse logical-offset regression: seek beyond EOF, write one byte, and
      * verify the unwritten interval reads as zeros. */
     {
@@ -6503,6 +6523,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    pfs_selftest_diag_stage = 0xC10Bu;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Sparse extent ordering regression: populate two separated logical
      * blocks, then fill the hole. The new extent must be inserted between
      * them rather than appended after the higher logical extent. */
