@@ -1667,11 +1667,93 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: scheduler test fixtures retired before CPL3 smoke test\n");
 
-    serial_write("ProsenjitOS: switching to CPL3 user address space\n");
+    serial_write("ProsenjitOS: preparing scheduler-managed CPL3 lifecycle test\n");
     if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
-    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
+
+    {
+        struct pros_process exit_test_child = {0};
+        struct pros_thread exit_test_parent_thread;
+        struct pros_thread exit_test_child_thread;
+        struct pros_elf_load_result child_elf_result = {0};
+        const char *child_argv[] = { "/init", "scheduler-exit-test" };
+        const char *child_envp[] = { "PROS_EXIT_TEST=1" };
+        uint64_t child_user_data_page = physical_page_alloc_user();
+        uint64_t parent_stack_top =
+            (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack));
+        uint64_t child_kernel_stack_bottom =
+            (uint64_t)(uintptr_t)user_frame_thread_stack;
+        uint64_t child_kernel_stack_top = child_kernel_stack_bottom +
+                                          sizeof(user_frame_thread_stack);
+        uint64_t child_test_handle;
+
+        if (process_create(&init_process, &exit_test_child, 0x7200u,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_set_state(&exit_test_child, PROS_PROCESS_NEW) != 0 ||
+            pros_elf_load_with_args(&exit_test_child, boot_user_elf,
+                                    boot_elf_offset + user_text_size,
+                                    child_argv, 2u, child_envp, 1u,
+                                    &child_elf_result) != PROS_ELF_OK ||
+            !child_user_data_page) {
+            if (child_user_data_page) physical_page_free(child_user_data_page);
+            serial_write("ProsenjitOS: ERROR scheduler-managed child ELF load failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        for (uint64_t n = 0u; n < PROSENJIT_PAGE_SIZE; ++n)
+            ((uint8_t *)(uintptr_t)child_user_data_page)[n] = 0u;
+        if (address_space_map_user_page_owned(&exit_test_child.address_space,
+                                              PROSENJIT_USER_TEST_VA,
+                                              child_user_data_page,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) != 0) {
+            physical_page_free(child_user_data_page);
+            serial_write("ProsenjitOS: ERROR child user test-data mapping failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        child_test_handle = process_transfer_handle_copy(
+            &init_process, &exit_test_child, user_test_handle,
+            PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+            PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER);
+        if (child_test_handle == PROSENJIT_HANDLE_INVALID ||
+            thread_manager_init() != 0 ||
+            thread_init(&exit_test_parent_thread, &init_process, 0x7200u,
+                        (uint64_t)(uintptr_t)exit_lifecycle_parent_entry,
+                        parent_stack_top) != 0 ||
+            thread_init_user(&exit_test_child_thread, &exit_test_child,
+                             0x7201u, child_elf_result.entry,
+                             child_elf_result.stack_top,
+                             child_kernel_stack_bottom,
+                             child_kernel_stack_top) != 0 ||
+            process_set_state(&exit_test_child, PROS_PROCESS_READY) != 0 ||
+            thread_enqueue(&exit_test_parent_thread) != 0 ||
+            thread_enqueue(&exit_test_child_thread) != 0) {
+            serial_write("ProsenjitOS: ERROR scheduler-managed process/thread setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        exit_lifecycle_parent = &init_process;
+        exit_lifecycle_child = &exit_test_child;
+        exit_lifecycle_parent_thread = &exit_test_parent_thread;
+        exit_lifecycle_child_pid = exit_test_child.pid;
+        exit_lifecycle_preemption_count = 0u;
+
+        serial_write("ProsenjitOS: starting real CPL3 timer-preemption and SYS_EXIT test\n");
+        /*
+         * This first switch enters the parent kernel thread. It enables IRQs,
+         * then the interrupt scheduler selects the queued CPL3 child. The
+         * child's user test performs IPC, waits through timer preemption, and
+         * exits through INT 0x80; the parent resumes and wait/reaps it.
+         */
+        if (thread_schedule() != 0) {
+            serial_write("ProsenjitOS: ERROR scheduler-managed lifecycle start failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
+    serial_write("ProsenjitOS: ERROR scheduler returned from terminal lifecycle test\n");
+    for (;;) __asm__ volatile ("cli; hlt");
 }
