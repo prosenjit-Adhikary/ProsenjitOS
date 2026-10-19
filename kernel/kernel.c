@@ -805,10 +805,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 ((ata_mbr_sector[510] != 0x55u ||
                   ata_mbr_sector[511] != 0xAAu) &&
                  !(ata_mbr_sector[0] == 0u && ata_mbr_sector[1] == 0u))) {
-                serial_write("ProsenjitOS: ERROR ATA PIO block-device read self-test failed\\n");
+                serial_write("ProsenjitOS: ERROR ATA PIO block-device read self-test failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
-            serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\\n");
+            serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
             struct pros_partition partitions[PROS_STORAGE_MAX_VOLUMES];
             struct pros_partition_device pfs_device;
             struct pros_prosenjitfs native_fs;
