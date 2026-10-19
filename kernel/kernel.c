@@ -1736,6 +1736,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
 
+        exit_test_child_thread.interrupt_frame->rdi = child_test_handle;
+
         exit_lifecycle_parent = &init_process;
         exit_lifecycle_child = &exit_test_child;
         exit_lifecycle_parent_thread = &exit_test_parent_thread;
