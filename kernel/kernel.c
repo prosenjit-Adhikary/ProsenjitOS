@@ -307,6 +307,200 @@ void user_mode_test_complete(void) {
     for (;;) __asm__ volatile ("cli; hlt");
 }
 
+static const char native_persistence_path[] = "/native-persistence.bin";
+static const uint8_t native_persistence_signature[] = {
+    'P', 'R', 'O', 'S', '-', 'N', 'A', 'T', '-', 'P', 'E', 'R', 'S', 'I', 'S', 'T', 1u
+};
+
+static int native_partition_is_blank(struct pros_block_device *device)
+{
+    uint8_t *buffer;
+    uint64_t lba = 0u;
+    if (!device || device->sector_size == 0u || device->sector_count == 0u) {
+        serial_write("ProsenjitOS: native blank scan invalid device\n");
+        return -1;
+    }
+    buffer = (uint8_t *)kmalloc(device->sector_size * 8u);
+    if (!buffer) {
+        serial_write("ProsenjitOS: native blank scan allocation failed\n");
+        return -1;
+    }
+    while (lba < device->sector_count) {
+        uint64_t remaining = device->sector_count - lba;
+        uint32_t count = remaining > 8u ? 8u : (uint32_t)remaining;
+        uint32_t bytes = count * device->sector_size;
+        int read_rc = block_device_read(device, lba, count, buffer);
+        if (read_rc != PROS_BLOCK_OK) {
+            serial_write("ProsenjitOS: native blank scan read failed lba=");
+            serial_hex64(lba);
+            serial_write(" rc=");
+            serial_hex64((uint64_t)(int64_t)read_rc);
+            serial_write("\n");
+            kfree(buffer);
+            return -1;
+        }
+        for (uint32_t i = 0u; i < bytes; ++i) {
+            if (buffer[i] != 0u) {
+                serial_write("ProsenjitOS: native partition not blank sector=");
+                serial_hex64(lba + i / device->sector_size);
+                serial_write(" byte=");
+                serial_hex64(i % device->sector_size);
+                serial_write(" value=");
+                serial_hex64(buffer[i]);
+                serial_write("\n");
+                kfree(buffer);
+                return 0;
+            }
+        }
+        lba += count;
+    }
+    kfree(buffer);
+    return 1;
+}
+
+static int native_persistence_marker_read(struct pros_prosenjitfs *fs)
+{
+    struct pros_vfs_file file = {0};
+    uint8_t actual[sizeof(native_persistence_signature)];
+    uint32_t done = 0u;
+    int rc = vfs_file_open(&fs->mount, native_persistence_path,
+                           PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!file.vnode || file.vnode->size != sizeof(native_persistence_signature)) {
+        (void)vfs_file_close(&file);
+        return PROS_VFS_ECORRUPT;
+    }
+    rc = vfs_file_read(&file, actual, sizeof(actual), &done);
+    {
+        int close_rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK || close_rc != PROS_VFS_OK ||
+            done != sizeof(actual))
+            return PROS_VFS_EIO;
+    }
+    for (uint32_t i = 0u; i < sizeof(actual); ++i) {
+        if (actual[i] != native_persistence_signature[i])
+            return PROS_VFS_ECORRUPT;
+    }
+    return PROS_VFS_OK;
+}
+
+static int native_persistence_marker_create(struct pros_prosenjitfs *fs)
+{
+    struct pros_vfs_file file = {0};
+    uint32_t done = 0u;
+    int rc = vfs_file_open(&fs->mount, native_persistence_path,
+                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                           PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_write(&file, native_persistence_signature,
+                        sizeof(native_persistence_signature), &done);
+    {
+        int close_rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK || close_rc != PROS_VFS_OK ||
+            done != sizeof(native_persistence_signature))
+            return PROS_VFS_EIO;
+    }
+    return PROS_VFS_OK;
+}
+
+/*
+ * Native BIOS storage is an actual IDE/ATA block path, not a RAM-disk test.
+ * A blank PFS partition is formatted only after every sector has been
+ * confirmed zero; a nonblank unsupported/corrupt partition is never
+ * auto-formatted. The marker is written once, then checked after unmount and
+ * remount so durable writes and partition-local bounds are exercised.
+ */
+static int native_bios_storage_selftest(void)
+{
+    static struct pros_ata_pio ata;
+    static struct pros_prosenjitfs fs;
+    struct pros_partition partitions[4];
+    struct pros_partition *pfs_partition = 0;
+    struct pros_partition_device view = {0};
+    uint8_t mbr[512];
+    uint32_t partition_count = 0u;
+    int rc;
+    int marker_preexisting = 0;
+
+    if (pros_ata_pio_selftest() != PROS_ATA_OK)
+        return -1;
+    serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+
+    if (pros_ata_pio_probe(&ata) != PROS_ATA_OK ||
+        ata.block.sector_size != 512u ||
+        block_device_read(&ata.block, 0u, 1u, mbr) != PROS_BLOCK_OK ||
+        mbr[510] != 0x55u || mbr[511] != 0xAAu)
+        return -2;
+
+    if (partition_read_mbr(&ata.block, partitions, 4u, &partition_count) !=
+            PROS_PARTITION_OK)
+        return -3;
+    for (uint32_t i = 0u; i < partition_count; ++i) {
+        if (partitions[i].mbr_type == 0xDAu) {
+            pfs_partition = &partitions[i];
+            break;
+        }
+    }
+    if (!pfs_partition)
+        return -4;
+    if (partition_device_init(&view, &ata.block, pfs_partition) !=
+            PROS_PARTITION_OK)
+        return -5;
+
+    rc = prosenjitfs_probe(&view.device);
+    if (rc == PROSENJITFS_ENOTSUP) {
+        int blank = native_partition_is_blank(&view.device);
+        if (blank != 1)
+            return -6;
+        if (prosenjitfs_format(&view.device) != PROSENJITFS_OK ||
+            prosenjitfs_probe(&view.device) != PROSENJITFS_OK)
+            return -7;
+    } else if (rc != PROSENJITFS_OK) {
+        return -8;
+    }
+
+    if (prosenjitfs_mount(&fs, &view.device, 0u) != PROSENJITFS_OK)
+        return -9;
+    rc = native_persistence_marker_read(&fs);
+    if (rc == PROS_VFS_ENOENT) {
+        if (native_persistence_marker_create(&fs) != PROS_VFS_OK) {
+            (void)prosenjitfs_unmount(&fs);
+            return -10;
+        }
+    } else if (rc == PROS_VFS_OK) {
+        marker_preexisting = 1;
+    } else {
+        (void)prosenjitfs_unmount(&fs);
+        return -11;
+    }
+
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &view.device, 0u) != PROSENJITFS_OK)
+        return -12;
+    if (native_persistence_marker_read(&fs) != PROS_VFS_OK) {
+        (void)prosenjitfs_unmount(&fs);
+        return -13;
+    }
+
+    if (block_device_read(&view.device, view.device.sector_count, 1u, mbr) !=
+            PROS_BLOCK_EINVAL ||
+        block_device_write(&view.device, view.device.sector_count, 1u, mbr) !=
+            PROS_BLOCK_EINVAL) {
+        (void)prosenjitfs_unmount(&fs);
+        return -14;
+    }
+    serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
+
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -15;
+    if (marker_preexisting)
+        serial_write("ProsenjitOS: native persistence marker recovered from prior boot\n");
+    serial_write("ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed\n");
+    return 0;
+}
+
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     serial_init();
     serial_write("ProsenjitOS: early kernel entry\n");
@@ -791,237 +985,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         serial_write("ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)\n");
     }
-    /* Real QEMU IDE storage path. The generic ISO boot may have no hard
-     * disk, so absence is not a failure. When the native BIOS disk is present,
-     * exercise the complete chain: ATA PIO -> MBR partition -> ProsenjitFS
-     * format/probe -> journal-aware mount/unmount -> storage rediscovery. */
-    {
-        struct pros_ata_pio native_ata;
-        int ata_rc = pros_ata_pio_probe(&native_ata);
-        if (ata_rc == PROS_ATA_OK) {
-            uint8_t ata_mbr_sector[512];
-            if (block_device_read(&native_ata.block, 0u, 1u, ata_mbr_sector) !=
-                    PROS_BLOCK_OK ||
-                ((ata_mbr_sector[510] != 0x55u ||
-                  ata_mbr_sector[511] != 0xAAu) &&
-                 !(ata_mbr_sector[0] == 0u && ata_mbr_sector[1] == 0u))) {
-                serial_write("ProsenjitOS: ERROR ATA PIO block-device read self-test failed\n");
-                for (;;) __asm__ volatile ("cli; hlt");
-            }
-            serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
-            struct pros_partition partitions[PROS_STORAGE_MAX_VOLUMES];
-            struct pros_partition_device pfs_device;
-            struct pros_prosenjitfs native_fs;
-            struct pros_storage_volume volumes[PROS_STORAGE_MAX_VOLUMES];
-            enum pros_partition_type table_type;
-            uint32_t partition_count = 0u;
-            uint32_t volume_count = 0u;
-            int pfs_rc;
-
-            if (partition_probe(&native_ata.block, &table_type) != PROS_PARTITION_OK ||
-                table_type != PROS_PARTITION_MBR ||
-                partition_read_mbr(&native_ata.block, partitions,
-                                   PROS_STORAGE_MAX_VOLUMES,
-                                   &partition_count) != PROS_PARTITION_OK ||
-                partition_count == 0u ||
-                partition_device_init(&pfs_device, &native_ata.block,
-                                       &partitions[0]) != PROS_PARTITION_OK) {
-                serial_write("ProsenjitOS: ERROR native ATA partition handoff failed\n");
-                for (;;) __asm__ volatile ("cli; hlt");
-            }
-
-            {
-                const uint64_t crash_first_lba = PROS_CRASH_RECORD_DEFAULT_LBA;
-                uint8_t crash_slot_safe = 1u;
-                for (uint32_t p = 0u; p < partition_count; ++p) {
-                    uint64_t part_start = partitions[p].first_lba;
-                    uint64_t part_end = part_start + partitions[p].sector_count;
-                    if (part_end < part_start)
-                        crash_slot_safe = 0u;
-                    for (uint32_t s = 0u; s < PROS_CRASH_RECORD_SLOT_COUNT; ++s) {
-                        uint64_t slot = crash_first_lba + s;
-                        if (slot >= part_start && slot < part_end)
-                            crash_slot_safe = 0u;
-                    }
-                }
-                int crash_attach_rc = crash_slot_safe
-                    ? pros_crash_record_attach(&native_ata.block, crash_first_lba)
-                    : PROS_CRASH_RECORD_EINVAL;
-                if (crash_attach_rc == PROS_CRASH_RECORD_OK) {
-                    struct pros_crash_record previous;
-                    int crash_rc = pros_crash_record_consume(&previous);
-                    if (crash_rc == PROS_CRASH_RECORD_OK) {
-                        health_previous_crash_sequence = previous.sequence;
-                        health_previous_crash_rip = previous.rip;
-                        health_previous_crash_pending = 1u;
-                        (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_RECOVERED,
-                                                          previous.sequence);
-                        (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_VECTOR,
-                                                          previous.vector);
-                        (void)pros_log_emit(PROS_HEALTH_WARN, PROS_HEALTH_RECOVERY,
-                                            PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_RECOVERED, previous.rip);
-                        serial_write("ProsenjitOS: previous persistent crash record recovered\n");
-                    } else if (crash_rc != PROS_CRASH_RECORD_ENOENT) {
-                        (void)pros_health_record_recovery(
-                            PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_INVALID,
-                            (uint64_t)(uint32_t)(-crash_rc));
-                        serial_write("ProsenjitOS: persistent crash record unavailable or invalid; continuing\n");
-                    }
-                } else if (crash_attach_rc == PROS_CRASH_RECORD_ECORRUPT) {
-                    (void)pros_health_record_recovery(
-                        PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_INVALID, crash_first_lba);
-                    serial_write("ProsenjitOS: persistent crash record is corrupt; ignoring it\n");
-                } else {
-                    (void)pros_health_record_recovery(PROS_CRASH_HEALTH_SOURCE, PROS_CRASH_HEALTH_UNAVAILABLE,
-                                                      crash_first_lba);
-                }
-            }
-            pfs_rc = prosenjitfs_probe(&pfs_device.device);
-            if (pfs_rc == PROSENJITFS_ENOTSUP) {
-                if (prosenjitfs_format(&pfs_device.device) != PROSENJITFS_OK)
-                    pfs_rc = PROSENJITFS_EIO;
-                else
-                    pfs_rc = prosenjitfs_probe(&pfs_device.device);
-            }
-            if (pfs_rc != PROSENJITFS_OK ||
-                prosenjitfs_mount(&native_fs, &pfs_device.device, 0u) != PROSENJITFS_OK) {
-                serial_write("ProsenjitOS: ERROR native ProsenjitFS persistent storage test failed\n");
-                for (;;) __asm__ volatile ("cli; hlt");
-            }
-
-            /*
-             * Attach the optional persistent diagnostic sink only after a
-             * writable native filesystem is mounted. The sink is never a
-             * prerequisite for boot/storage correctness.
-             */
-            if (pros_log_attach_persistent(&native_fs.mount,
-                                           "/.__prosenjitos.log") != PROS_LOG_OK) {
-                serial_write("ProsenjitOS: persistent health log unavailable; continuing without disk sink\n");
-            } else {
-                (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
-                                    0x4C4F4742u, 1u, timer_ticks());
-                if (health_previous_crash_pending) {
-                    (void)pros_log_emit(PROS_HEALTH_WARN, PROS_HEALTH_RECOVERY,
-                                        PROS_CRASH_HEALTH_SOURCE,
-                                        PROS_CRASH_HEALTH_RECOVERED,
-                                        health_previous_crash_rip);
-                    health_previous_crash_pending = 0u;
-                }
-                (void)pros_log_emit(PROS_HEALTH_INFO, PROS_HEALTH_RECOVERY,
-                                    0x52454356u, PROS_HEALTH_RECOVERY_STORAGE_READY, timer_ticks());
-                (void)pros_health_watchdog_kick(1u);
-                serial_write("ProsenjitOS: persistent health log attached\n");
-            }
-
-            {
-                struct pros_vfs_file trace_file;
-                uint8_t trace_write[512], trace_read[512];
-                uint32_t trace_done = 0u, trace_count = 0u;
-                uint64_t physical_lba = 0u, read_physical_lba = 0u;
-                uint64_t parent_write_lba = 0u, parent_read_lba = 0u;
-                uint64_t ata_write_lba = 0u, ata_read_lba = 0u;
-                uint8_t tx_byte = 0u, post_commit_byte = 0u;
-                uint8_t direct_byte = 0u, vfs_byte = 0u;
-
-                for (uint32_t i = 0u; i < sizeof(trace_write); ++i)
-                    trace_write[i] = (uint8_t)((i * 13u) ^ 0x5Au);
-                trace_write[188u] = 0xD6u;
-
-                /* O_CREATE opens an existing file without truncating it. Remove the
-                 * previous diagnostic file first so every boot exercises the intended
-                 * new-file/new-data-block allocation path rather than reusing old extents. */
-                {
-                    int unlink_rc = vfs_unlink(&native_fs.mount, "/.__pfs_lba_trace");
-                    if (unlink_rc != PROS_VFS_OK && unlink_rc != PROS_VFS_ENOENT) {
-                        serial_write("ProsenjitOS: ERROR native LBA trace cleanup failed\\n");
-                        for (;;) __asm__ volatile ("cli; hlt");
-                    }
-                }
-
-                prosenjitfs_write_diag_reset();
-                partition_trace_reset(&pfs_device);
-                pros_ata_pio_trace_reset(&native_ata);
-
-                if (vfs_file_open(&native_fs.mount, "/.__pfs_lba_trace",
-                                  PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
-                                  &trace_file) != PROS_VFS_OK ||
-                    vfs_file_write(&trace_file, trace_write,
-                                   sizeof(trace_write), &trace_done) != PROS_VFS_OK ||
-                    trace_done != sizeof(trace_write) ||
-                    vfs_file_close(&trace_file) != PROS_VFS_OK ||
-                    prosenjitfs_write_diag_get(&physical_lba, &tx_byte,
-                                               &post_commit_byte, &direct_byte,
-                                               &vfs_byte) != PROSENJITFS_OK ||
-                    tx_byte != 0xD6u || post_commit_byte != 0xD6u ||
-                    partition_trace_find(&pfs_device, physical_lba, 1u,
-                                         &parent_write_lba, &trace_count) != PROS_PARTITION_OK ||
-                    pros_ata_pio_trace_find(&native_ata, parent_write_lba, 1u,
-                                            &ata_write_lba, &trace_count) != PROS_ATA_OK ||
-                    ata_write_lba != parent_write_lba) {
-                    serial_write("ProsenjitOS: ERROR native write LBA boundary trace failed\n");
-                    for (;;) __asm__ volatile ("cli; hlt");
-                }
-
-                serial_write("ProsenjitOS: PFS write LBA = ");
-                serial_hex64(physical_lba);
-                serial_write(", partition parent LBA = ");
-                serial_hex64(parent_write_lba);
-                serial_write(", ATA write LBA = ");
-                serial_hex64(ata_write_lba);
-                serial_write("\n");
-
-                partition_trace_reset(&pfs_device);
-                pros_ata_pio_trace_reset(&native_ata);
-                prosenjitfs_write_diag_begin_read();
-                trace_done = 0u;
-                if (vfs_file_open(&native_fs.mount, "/.__pfs_lba_trace",
-                                  PROS_VFS_O_READ, &trace_file) != PROS_VFS_OK ||
-                    vfs_file_read(&trace_file, trace_read, sizeof(trace_read),
-                                  &trace_done) != PROS_VFS_OK ||
-                    trace_done != sizeof(trace_read) ||
-                    vfs_file_close(&trace_file) != PROS_VFS_OK ||
-                    prosenjitfs_write_diag_get_read_lba(&read_physical_lba) != PROSENJITFS_OK ||
-                    read_physical_lba != physical_lba ||
-                    partition_trace_find(&pfs_device, read_physical_lba, 0u,
-                                         &parent_read_lba, &trace_count) != PROS_PARTITION_OK ||
-                    pros_ata_pio_trace_find(&native_ata, parent_read_lba, 0u,
-                                            &ata_read_lba, &trace_count) != PROS_ATA_OK ||
-                    ata_read_lba != parent_read_lba) {
-                    serial_write("ProsenjitOS: ERROR native read LBA boundary trace failed\n");
-                    for (;;) __asm__ volatile ("cli; hlt");
-                }
-                for (uint32_t i = 0u; i < sizeof(trace_read); ++i)
-                    if (trace_read[i] != trace_write[i]) {
-                        serial_write("ProsenjitOS: ERROR native LBA trace readback data mismatch\n");
-                        for (;;) __asm__ volatile ("cli; hlt");
-                    }
-
-                serial_write("ProsenjitOS: PFS read LBA = ");
-                serial_hex64(read_physical_lba);
-                serial_write(", partition parent LBA = ");
-                serial_hex64(parent_read_lba);
-                serial_write(", ATA read LBA = ");
-                serial_hex64(ata_read_lba);
-                serial_write("\n");
-                serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
-            }
-
-            (void)pros_log_detach_persistent();
-            if (prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK ||
-                pros_storage_discover(&native_ata.block, volumes,
-                                       PROS_STORAGE_MAX_VOLUMES,
-                                       &volume_count) != PROS_STORAGE_OK ||
-                volume_count == 0u ||
-                volumes[0].filesystem != PROS_FS_PROSENJIT) {
-                serial_write("ProsenjitOS: ERROR native ProsenjitFS persistent storage test failed\n");
-                for (;;) __asm__ volatile ("cli; hlt");
-            }
-
-            serial_write("ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed\n");
-        } else if (ata_rc == PROS_ATA_ENODEV || ata_rc == PROS_ATA_ENOTSUP) {
-            serial_write("ProsenjitOS: ATA PIO disk not present/unsupported; continuing with synthetic storage tests\n");
-        } else {
-            serial_write("ProsenjitOS: ERROR ATA PIO block path self-test failed\n");
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        int native_storage_rc = native_bios_storage_selftest();
+        if (native_storage_rc != 0) {
+            serial_write("ProsenjitOS: ERROR native BIOS storage self-test rc=");
+            serial_hex64((uint64_t)(int64_t)native_storage_rc);
+            serial_write("\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
     }
