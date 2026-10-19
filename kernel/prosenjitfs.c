@@ -6828,7 +6828,8 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
             PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -1603);
-        if (cross_inode.allocated_bytes != bs * 2u)
+        /* Blocks 2, 3, and 4 are allocated: block 3 was written separately. */
+        if (cross_inode.allocated_bytes != bs * 3u)
             return pfs_selftest_fail(__LINE__, -1604);
         if (pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
             PROSENJITFS_OK)
