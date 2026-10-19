@@ -8130,16 +8130,24 @@ int prosenjitfs_selftest(void)
          * filesystem consistency checker must not run until the test releases
          * them. Verify exhaustion and deterministic reuse first.
          */
-        if (allocated == 0u ||
-            prosenjitfs_free_blocks(&small_fs, block, 1u) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
-                PROSENJITFS_OK ||
-            first_reused != block)
-            {
-                prosenjitfs_unmount(&small_fs);
-                return pfs_selftest_fail(__LINE__, -17);
-            }
+        if (allocated == 0u) {
+            prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -1701);
+        }
+        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+            PROSENJITFS_OK) {
+            prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -1702);
+        }
+        if (prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
+            PROSENJITFS_OK) {
+            prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -1703);
+        }
+        if (first_reused != block) {
+            prosenjitfs_unmount(&small_fs);
+            return pfs_selftest_fail(__LINE__, -1704);
+        }
 
         /* Restore all raw allocations so later consistency checks are valid. */
         for (uint32_t i = 0u; i < allocated; ++i) {
