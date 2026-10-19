@@ -10,6 +10,7 @@ extern syscall_dispatch
 extern timer_dispatch
 extern timer_should_preempt
 extern thread_schedule_interrupt
+extern thread_exit_schedule_interrupt
 extern pic_eoi_master
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
@@ -38,10 +39,23 @@ isr128:
     lea rdi, [rsp + 8]
     lea rsi, [rsp + 128]
     call syscall_dispatch
+    cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF02
+    je .syscall_terminate
     cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF01
     jne .syscall_return
     lea rdi, [rsp + 8]
     call thread_schedule_interrupt
+    test rax, rax
+    jz .syscall_return
+    mov rsp, rax
+    jmp .syscall_restore_switched
+
+.syscall_terminate:
+    ; RDI = saved register-frame pointer, RSI = signed exit status from user RDI.
+    ; The C scheduler terminates the process and returns a different IRET frame.
+    lea rdi, [rsp + 8]
+    mov esi, dword [rsp + 48]
+    call thread_exit_schedule_interrupt
     test rax, rax
     jz .syscall_return
     mov rsp, rax
