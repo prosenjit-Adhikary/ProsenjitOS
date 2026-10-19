@@ -25,6 +25,10 @@ struct pros_ata_pio {
     uint16_t ctrl_base;
     uint8_t drive;
     uint8_t lba48;
+    /* Last failed ATA command diagnostics, consumed by native boot tests. */
+    uint8_t last_status;
+    uint8_t last_error;
+    uint64_t last_error_lba;
     struct pros_ata_trace_event trace[PROS_ATA_TRACE_DEPTH];
     uint32_t trace_count;
     uint32_t trace_head;
