@@ -8068,7 +8068,8 @@ int prosenjitfs_selftest(void)
      * journal on a minimum-size filesystem, then verifies recovery/reuse.
      */
     {
-        struct pfs_test_disk small_disk;
+        /* Keep the 512 KiB test image off the limited kernel stack. */
+        static struct pfs_test_disk small_disk;
         struct pros_block_device small_device;
         static struct pros_prosenjitfs small_fs;
         uint64_t block;
