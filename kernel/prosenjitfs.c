@@ -7739,15 +7739,20 @@ int prosenjitfs_selftest(void)
             uint64_t lba;
             if (pfs_lba_add(&device, fs.sb.inode_bitmap_start,
                             allocated_inode / bits_per_block, &lba) !=
-                    PROSENJITFS_OK ||
-                pfs_read_block(&device, lba, bitmap) != PROSENJITFS_OK ||
-                !pfs_bitmap_bit(bitmap, allocated_inode % bits_per_block) ||
-                prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
-                    PROSENJITFS_ENOENT ||
-                pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
-                    PROSENJITFS_OK ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -15);
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -1506);
+            if (pfs_read_block(&device, lba, bitmap) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -1507);
+            if (!pfs_bitmap_bit(bitmap, allocated_inode % bits_per_block))
+                return pfs_selftest_fail(__LINE__, -1508);
+            if (prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
+                    PROSENJITFS_ENOENT)
+                return pfs_selftest_fail(__LINE__, -1509);
+            if (pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -1513);
+            if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(pfs_consistency_diag_stage, -1514);
         }
 
         {
