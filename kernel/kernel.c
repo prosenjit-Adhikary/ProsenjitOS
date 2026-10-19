@@ -1483,7 +1483,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 cpu_get_kernel_stack() != kernel_stack_top ||
                 selected->rip != elf_result.entry ||
                 selected->cs != 0x1Bu ||
-                selected->rflags != 0x2u) {
+                selected->rflags != 0x202u) {
                 serial_write("ProsenjitOS: ERROR CPL3 interrupt scheduler handoff failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
