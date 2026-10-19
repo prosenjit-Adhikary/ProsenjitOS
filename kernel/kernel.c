@@ -1580,7 +1580,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 process_wait(&init_process, 0x7100u, &exit_status) != 0 ||
                 exit_status != 23 ||
                 process_lookup(0x7100u) != 0 ||
-                exit_child.address_space.root != 0u) {
+                exit_child.address_space.root != 0) {
                 serial_write("ProsenjitOS: ERROR user process exit/wait/reap integration failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
