@@ -6918,6 +6918,10 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -7);
     if (prosenjitfs_read_inode(&fs, inode_number, &inode) != PROSENJITFS_ENOENT)
         return pfs_selftest_fail(__LINE__, -8);
+    /* Allocation-only API reserves a bitmap bit; release this test reservation
+     * before later consistency checks require every allocated inode to exist. */
+    if (pfs_inode_bitmap_update(&fs, inode_number, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -8);
     if (prosenjitfs_free_blocks(&fs, fs.sb.total_blocks, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -9);
     if (prosenjitfs_free_blocks(&fs, first_block, 4u) != PROSENJITFS_OK)
@@ -7705,10 +7709,31 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_OK ||
             prosenjitfs_alloc_inode(&fs, &allocated_inode) !=
                 PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
+
+        /*
+         * The low-level allocator reserves a bitmap bit without creating an
+         * inode image. Verify that reservation survives remount, then release
+         * it before running the stricter whole-filesystem consistency check.
+         */
+        {
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint8_t bitmap[4096];
+            uint64_t lba;
+            if (pfs_lba_add(&device, fs.sb.inode_bitmap_start,
+                            allocated_inode / bits_per_block, &lba) !=
+                    PROSENJITFS_OK ||
+                pfs_read_block(&device, lba, bitmap) != PROSENJITFS_OK ||
+                !pfs_bitmap_bit(bitmap, allocated_inode % bits_per_block) ||
+                prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
+                    PROSENJITFS_ENOENT ||
+                pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
+                    PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -15);
+        }
 
         {
             uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
@@ -8020,8 +8045,24 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -17);
                 }
             }
-            if (inode_allocated < small_fs.sb.inode_count - 1u ||
-                pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
+            if (inode_allocated < small_fs.sb.inode_count - 1u) {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+            /*
+             * The exhaustion loop intentionally reserves every free inode
+             * without writing inode records. Release those reservations before
+             * checking durable filesystem consistency.
+             */
+            for (uint64_t reserved = 1u;
+                 reserved < small_fs.sb.inode_count; ++reserved) {
+                if (pfs_inode_bitmap_update(&small_fs, reserved, 0u) !=
+                    PROSENJITFS_OK) {
+                    prosenjitfs_unmount(&small_fs);
+                    return pfs_selftest_fail(__LINE__, -17);
+                }
+            }
+            if (pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK) {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
             }
