@@ -1185,8 +1185,12 @@ static int pfs_file_read_unlocked(struct pros_vfs_file *file, uint64_t offset,
             done += want;
             continue;
         }
-        if (rc != PROSENJITFS_OK || extent_lba == 0u)
-            return done ? (int)done : PROS_VFS_EIO;
+        if (rc != PROSENJITFS_OK || extent_lba == 0u) {
+            if (done)
+                return (int)done;
+            return rc != PROSENJITFS_OK ? pfs_vfs_error(rc) :
+                                           PROS_VFS_ECORRUPT;
+        }
 
         {
             uint64_t delta = logical_block - extent.logical_block;
