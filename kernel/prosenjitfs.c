@@ -7800,6 +7800,8 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
 
+        pfs_selftest_diag_stage = 0xD001u;
+        pfs_selftest_diag_rc = PROSENJITFS_OK;
         /*
          * Negative/boundary arithmetic is exercised independently so a
          * regression identifies the exact contract that failed.
@@ -7846,6 +7848,8 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
+        pfs_selftest_diag_stage = 0xD002u;
+        pfs_selftest_diag_rc = PROSENJITFS_OK;
         /*
          * Bounded-truncate regression: eight independent extents exceed the
          * v1 transaction budget. The operation must fail before changing EOF
@@ -7895,6 +7899,8 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
+        pfs_selftest_diag_stage = 0xD003u;
+        pfs_selftest_diag_rc = PROSENJITFS_OK;
         /*
          * Semantic corruption: preserve the inode checksum while replacing
          * its extent head with an impossible filesystem block. Mount can
@@ -7949,6 +7955,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
+    pfs_selftest_diag_stage = 0xD004u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Rename corner-case matrix: same-name no-op, destination collision,
      * same-directory rename, cross-directory directory move, and cycle
@@ -8009,6 +8017,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -20);
     }
 
+    pfs_selftest_diag_stage = 0xD005u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Tiny-image allocation exhaustion.  This uses the real allocator and
      * journal on a minimum-size filesystem, then verifies recovery/reuse.
@@ -8105,6 +8115,8 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
+        pfs_selftest_diag_stage = 0xD006u;
+        pfs_selftest_diag_rc = PROSENJITFS_OK;
         /*
          * A partition view that is one sector shorter than the durable
          * filesystem must be rejected before any filesystem I/O can cross
@@ -8133,6 +8145,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    pfs_selftest_diag_stage = 0xD007u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Journal recovery regression:
      *  1. A fully committed redo record must replay on the next mount.
@@ -8259,6 +8273,8 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
 
+    pfs_selftest_diag_stage = 0xD008u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Crash/power-loss transaction matrix.
      *
@@ -8356,6 +8372,8 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    pfs_selftest_diag_stage = 0xD009u;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Interrupted-recovery/idempotence regression.
      *
@@ -8508,6 +8526,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
+    pfs_selftest_diag_stage = 0xD00Au;
+    pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * Both superblocks must agree even when both copies have individually
      * valid checksums. Make only the primary validly different, verify the
