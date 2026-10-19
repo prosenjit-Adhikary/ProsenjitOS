@@ -413,6 +413,16 @@ int syscall_selftest(struct pros_process *process) {
     if (regs[0] != PROSENJIT_ABI_VERSION)
         return -2;
 
+    /* The wait/reap syscall must reject ring-0 callers before touching
+     * any process or user-memory state. */
+    regs[0] = PROSENJIT_SYS_WAIT_REAP;
+    frame[1] = 0;
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+        return -5;
+
+    frame[1] = 0;
+
     if (process) {
         process->syscall_policy = 0;
         regs[0] = PROSENJIT_SYS_GET_VERSION;
