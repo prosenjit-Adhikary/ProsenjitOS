@@ -60,6 +60,12 @@ Each process owns an independent handle table, capability policy, and syscall po
 
 Syscall-policy changes are restricted to the super-security control path, and policies are validated against the supported syscall mask before installation.
 
+## User wait/reap syscall
+
+The public ABI assigns `PROSENJIT_SYS_WAIT_REAP` syscall number 8. The caller supplies a direct-child PID and a writable user pointer for the 32-bit exit status. The dispatcher rejects ring-0 invocation, validates the complete output range before attempting the reap, and only reports success after `process_wait()` has completed the ownership checks and unregister operation.
+
+This first implementation is deliberately non-blocking: a child that has not exited returns `EAGAIN`, so userspace must retry. It does not yet suspend the parent or register a child-exit wait queue. Errors during final status copy are reported, but because reaping is already committed at that point, userspace must not assume such an error means the child remains waitable. This syscall is not a claim that process creation/exec or the complete user-mode scheduler path is production-ready.
+
 ## Isolation boundary
 
 The process object owns an address-space object and a handle table. Resource release therefore forms an explicit isolation boundary: address-space teardown and handle closure occur before the process can be unregistered.
