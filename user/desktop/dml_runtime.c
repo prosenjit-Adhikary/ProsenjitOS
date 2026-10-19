@@ -291,7 +291,8 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
             /* The process exists, so keep it tracked for a later stop attempt. */
             (void)pros_dml_transition(runtime->manager, entry->manifest.id,
                                       PROS_DML_SESSION_FAILED);
-            runtime->active_root = root_index;
+            runtime->active_root = order_contains(runtime, root_index)
+                                      ? root_index : PROS_DML_NO_SELECTION;
             return PROS_DML_EROLLBACK;
         }
     }
@@ -304,7 +305,8 @@ rollback:
         uint32_t index = started_this_call[--started_count];
         int stop_rc = runtime_stop_index(runtime, index);
         if (stop_rc != PROS_DML_OK) {
-            runtime->active_root = root_index;
+            runtime->active_root = order_contains(runtime, root_index)
+                                       ? root_index : PROS_DML_NO_SELECTION;
             return PROS_DML_EROLLBACK;
         }
     }
