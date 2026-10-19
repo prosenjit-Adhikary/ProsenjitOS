@@ -168,6 +168,7 @@ jobs:
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
           require_native_log "ProsenjitOS: CPL3 scheduler-frame construction self-test passed"
+          require_native_log "ProsenjitOS: user process exit/scheduler/wait-reap integration test passed"
 
           # Reboot the same native disk image. The second boot must recover the
           # marker written by the first boot instead of reformatting the volume.
@@ -199,6 +200,7 @@ jobs:
           require_second_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_second_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_second_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_second_native_log "ProsenjitOS: user process exit/scheduler/wait-reap integration test passed"
 
       # Diagnostics are already printed into the job log above. Do not upload
       # artifacts: this repository's Actions artifact storage quota is exhausted,
