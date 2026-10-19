@@ -770,13 +770,18 @@ int pros_net_selftest(void)
     }
 
     /* Invalid ACKs and oversized payloads must not advance transport state. */
-    if (pros_net_socket_create(&sid) != PROS_NET_OK ||
-        pros_net_socket_bind(sid, 0u, 0u) != PROS_NET_OK ||
-        pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK ||
-        pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE ||
-        pros_net_socket_ack(sid, 11u) != PROS_NET_OK ||
-        pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
-        return -13;
+    if (pros_net_socket_create(&sid) != PROS_NET_OK)
+        return -1301;
+    if (pros_net_socket_bind(sid, 0u, 0u) != PROS_NET_OK)
+        return -1302;
+    if (pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK)
+        return -1303;
+    if (pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE)
+        return -1304;
+    if (pros_net_socket_ack(sid, 11u) != PROS_NET_OK)
+        return -1305;
+    if (pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
+        return -1306;
 
     return PROS_NET_OK;
 }
