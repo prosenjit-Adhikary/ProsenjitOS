@@ -1,5 +1,12 @@
 # Desktop Implementation Work Log
 
+## 2026-10-19 — Follow-up CI result for documentation commit
+
+- [x] Security architecture workflow for `782bfb4b28bdc4795b35e489937ce9bb2c6f951f` passed: [run 39289254753](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39289254753).
+- [x] Debian ISO/native BIOS QEMU build and boot checks passed: build job in [run 39289254470](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39289254470).
+- [ ] Windows DML job did **not** complete: [run 39289254470](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39289254470), job `118185298018`, timed out after 12 minutes while downloading the pinned Zig 0.17.0 toolchain; log showed an HTTPS transfer EOF. This is a runner/toolchain-download failure, not evidence that the DML tests passed on this commit.
+- [ ] Retry the Windows DML verification when the OfficeWindows runner can retrieve the pinned compiler; do not claim this head fully green until that job passes.
+
 ## 2026-10-19 — Exact-head verification refresh
 
 - [x] Build and boot workflow [39285136037](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39285136037) completed successfully for PR head `de283b9a08934da31a6d7e171902e80738322cc3`.
