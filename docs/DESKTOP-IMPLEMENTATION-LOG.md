@@ -813,3 +813,13 @@ This is a DML state-integrity hardening change, not a production process backend
 
 ### Decision
 Do not add guessed syscall IDs or enable user-mode timer interrupts just to force progress. Next code milestone is a focused kernel test of first-run CPL3 scheduling and exit/reap with IF policy preserved, followed by a reviewed spawn/exec ownership contract and only then a production DML backend. PR #137 remains Draft; the passing workflow is prerequisite verification, not GUI completion.
+
+## 2026-10-19 — Exact-head verification after Windows DML timeout adjustment
+
+- [x] Updated `.github/workflows/build.yml` Windows DML test-step timeout from 12 to 25 minutes; compiler digest verification and the designated `OfficeWindows` runner requirement remain intact.
+- [x] Exact commit `8a4e726721740ece89d2efedc65d077a3849acff`: build/DML workflow [39301429707](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39301429707) passed both `dml-tests` and `build`. Windows logs show the pinned Zig archive downloaded, compiler selected, and manager, runtime, and compositor/window-primitives tests passed.
+- [x] Exact commit security architecture workflow [39301429617](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39301429617) passed.
+- [x] Debian boot logs include the expected CPL3 user-mode/IPC syscall milestone, CPL3 scheduler-frame construction, native BIOS persistent-marker recovery, and the required ISO/native boot gates.
+- [ ] These CI results verify the existing tests only. They do not establish a production scheduler-managed user desktop: public spawn/exec, verified process/thread/stack ownership, safe preemptive CPL3 scheduling and exit/reap, production DML backend, display/input event delivery, window-system/session startup, and boot-to-graphical-desktop acceptance remain incomplete.
+
+**Status:** CI timeout adjustment verified successfully on the exact commit. Keep PR #137 Draft; do not merge on the strength of prerequisite CI alone.
