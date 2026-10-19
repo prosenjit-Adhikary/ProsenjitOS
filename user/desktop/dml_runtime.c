@@ -342,9 +342,11 @@ int pros_dml_runtime_active(const struct pros_dml_runtime *runtime,
      * public storage and may be corrupted. A selected root must be represented
      * in the tracked active dependency order before it can be reported active.
      */
-    if (runtime->active_count == 0u ||
-        runtime->active_root == PROS_DML_NO_SELECTION)
+    if (runtime->active_count == 0u)
         return PROS_DML_ENOENT;
+    /* Retained processes with no live root are failed/incomplete, not idle. */
+    if (runtime->active_root == PROS_DML_NO_SELECTION)
+        return PROS_DML_ESTATE;
     if (runtime->active_root >= runtime->manager->count ||
         !runtime->manager->entries[runtime->active_root].registered ||
         !order_contains(runtime, runtime->active_root))
