@@ -2132,13 +2132,31 @@ static int pfs_file_open_ref(struct pros_vfs_file *file)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs *fs;
+    struct pros_prosenjitfs_inode inode;
+    int rc;
     if (!file || !file->vnode || !file->vnode->private_data)
         return PROS_VFS_EINVAL;
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     fs = data->fs;
     if (!fs || data->inode_number >= PROSENJITFS_MAX_INODES)
         return PROS_VFS_EINVAL;
+
+    /*
+     * Serialize inode-generation validation with unlink/reclamation. The
+     * unlocked inode reader is intentional here: pfs_vnode_validate_inode()
+     * does not acquire the filesystem lock, so this check and the reference
+     * increment form one atomic lifecycle operation relative to unlink.
+     */
     pfs_io_lock(fs);
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK) {
+        pfs_io_unlock(fs);
+        return pfs_vfs_error(rc);
+    }
+    if (inode.type != PROSENJITFS_INODE_FILE) {
+        pfs_io_unlock(fs);
+        return PROS_VFS_ESTALE;
+    }
     if (fs->open_file_refs[data->inode_number] == UINT32_MAX) {
         pfs_io_unlock(fs);
         return PROS_VFS_EOVERFLOW;
