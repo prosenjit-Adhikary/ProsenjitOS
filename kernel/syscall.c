@@ -441,6 +441,13 @@ int syscall_selftest(struct pros_process *process) {
     if (regs[0] != PROSENJIT_SYSCALL_EPERM)
         return -5;
 
+    /* A kernel-mode caller must never terminate a process via the user ABI. */
+    regs[0] = PROSENJIT_SYS_EXIT;
+    frame[1] = 0;
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+        return -6;
+
     frame[1] = 0;
 
     if (process) {
