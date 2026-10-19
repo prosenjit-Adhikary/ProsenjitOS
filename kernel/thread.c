@@ -1,6 +1,7 @@
 #include "thread.h"
 #include "ipc.h"
 #include "paging.h"
+#include "../include/abi/syscall.h"
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -138,9 +139,8 @@ int thread_init_user(struct pros_thread *thread, struct pros_process *process,
         ((uint64_t *)&frame->registers)[i] = 0u;
     frame->registers.rip = user_entry;
     frame->registers.cs = 0x1Bu;
-    /* Keep IF clear until timer-driven CPL3 preemption is explicitly enabled
-     * and verified end-to-end. This matches enter_user_mode()'s boot path. */
-    frame->registers.rflags = 0x2u;
+    /* Scheduler-launched CPL3 threads use the validated IRQ-frame path. */
+    frame->registers.rflags = 0x202u;
     frame->user_rsp = user_stack_top;
     frame->user_ss = 0x23u;
     thread->interrupt_frame = &frame->registers;
@@ -445,6 +445,91 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
         return next->interrupt_frame;
 
     /* First interrupt-driven run: synthesize a CPL0 iret frame. */
+    struct pros_interrupt_frame *frame =
+        (struct pros_interrupt_frame *)(uintptr_t)(next->context.rsp -
+                                                   sizeof(*frame));
+    frame->rax = frame->rbx = frame->rcx = frame->rdx = 0;
+    frame->rsi = frame->rdi = frame->rbp = 0;
+    frame->r8 = frame->r9 = frame->r10 = frame->r11 = 0;
+    frame->r12 = (uint64_t)(uintptr_t)next;
+    frame->r13 = frame->r14 = frame->r15 = 0;
+    frame->rip = (uint64_t)(uintptr_t)thread_start_trampoline;
+    frame->cs = 0x08;
+    frame->rflags = 0x202;
+    next->interrupt_frame = frame;
+    return frame;
+}
+
+/*
+ * Complete SYS_EXIT while still on the interrupt-created kernel stack.
+ * The old user frame is never resumed after a successful process_exit().
+ * There is no idle thread yet, so lack of a runnable successor is fatal.
+ */
+struct pros_interrupt_frame *thread_exit_schedule_interrupt(
+    struct pros_interrupt_frame *current_frame, int32_t exit_code) {
+    struct pros_thread *prev = current_thread;
+    struct pros_process *exiting_process;
+    struct pros_thread *next = 0;
+    uint32_t queued = 0u;
+    uint32_t attempts = 0u;
+
+    if (!prev || !current_frame || !prev->user_mode || !prev->process) {
+        if (current_frame)
+            current_frame->rax = PROSENJIT_SYSCALL_EPERM;
+        return current_frame;
+    }
+
+    prev->interrupt_frame = current_frame;
+    exiting_process = prev->process;
+    if (process_exit(exiting_process, exit_code) != 0) {
+        current_frame->rax = PROSENJIT_SYSCALL_EPERM;
+        return current_frame;
+    }
+
+    for (struct pros_thread *it = runq_head; it; it = it->next)
+        ++queued;
+    while (attempts < queued) {
+        uint32_t state;
+        next = thread_dequeue();
+        if (!next)
+            break;
+        ++attempts;
+        state = next->process ? process_state(next->process)
+                              : PROS_PROCESS_DEAD;
+        if (state == PROS_PROCESS_ZOMBIE || state == PROS_PROCESS_DEAD) {
+            next->state = PROS_THREAD_DEAD;
+            next = 0;
+            continue;
+        }
+        if (!thread_process_runnable(next)) {
+            (void)thread_enqueue(next);
+            next = 0;
+            continue;
+        }
+        if (next->user_mode && !next->interrupt_frame) {
+            next->state = PROS_THREAD_DEAD;
+            next = 0;
+            continue;
+        }
+        break;
+    }
+
+    /* No idle thread exists yet; never return to the terminated CPL3 frame. */
+    if (!next)
+        thread_scheduler_fail_closed();
+
+    process_set_current(next->process);
+    if (process_current() != next->process)
+        thread_scheduler_fail_closed();
+    if (cpu_set_kernel_stack(next->kernel_stack_top) != 0)
+        thread_scheduler_fail_closed();
+
+    current_thread = next;
+    current_thread->state = PROS_THREAD_RUNNING;
+    if (next->interrupt_frame)
+        return next->interrupt_frame;
+
+    /* First interrupt-driven run of a kernel thread: synthesize its IRET frame. */
     struct pros_interrupt_frame *frame =
         (struct pros_interrupt_frame *)(uintptr_t)(next->context.rsp -
                                                    sizeof(*frame));
