@@ -762,3 +762,12 @@ This is a DML state-integrity hardening change, not a production process backend
 - [ ] Public spawn/exec ABI, production DML process backend, concrete display/framebuffer presentation, keyboard/pointer event delivery, window-system/session startup, and boot-to-graphical-desktop acceptance remain unimplemented/unverified.
 
 **Status:** current automated build/boot, DML unit, and security checks are green; Desktop Environment remains **NOT COMPLETE**. These checks do not demonstrate a graphical session.
+
+
+## 2026-10-19 — Do not resume a blocked current thread without a successor
+
+- [x] Source audit found that `thread_schedule_interrupt()` returned the interrupted frame unchanged whenever no successor was found, after checking only whether the process was runnable. A process can remain READY/RUNNING while its only thread is BLOCKED, so process eligibility alone is insufficient to justify resuming the saved thread frame.
+- [x] Changed the no-successor path to return the current frame only if the current thread state is still `PROS_THREAD_RUNNING` and its process remains eligible. Otherwise it uses the existing fail-closed halt path.
+- [ ] Exact-head Debian build, ISO/native BIOS QEMU boot, DML unit tests, and security-design checks are pending for commit `36ef2a7b4d78b9dcfac7c7863a4bb130ddb75e9a`.
+- [ ] This is a safety guard, not a substitute for a dedicated idle thread. When a blocked thread has no successor the kernel can still halt; implement and verify an idle-thread/wakeup lifecycle before calling blocking process scheduling production-ready.
+- [ ] Desktop still lacks a production spawn/exec backend, real display/input path, window-system integration, and boot-to-graphical-session acceptance test.
