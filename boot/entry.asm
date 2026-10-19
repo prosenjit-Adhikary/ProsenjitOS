@@ -3,7 +3,6 @@ BITS 32
 section .text
 global _start
 global enter_user_mode
-global enter_user_mode_preemptible
 global user_mode_exit_trampoline
 global cpu_load_tss
 global cpu_set_kernel_stack
@@ -124,25 +123,6 @@ enter_user_mode:
     ; User-mode timer preemption is not yet scheduler-safe. Keep IF clear
     ; until user interrupt-frame/address-space switching is implemented.
     and qword [rsp], ~0x200
-    push qword 0x1B
-    push rax
-    mov rdi, r8
-    iretq
-
-enter_user_mode_preemptible:
-    ; Scheduler has already selected this user thread and installed its
-    ; private kernel stack in TSS.RSP0. Preserve that stack and allow IRQs.
-    ; RDI=entry, RSI=user stack top, RDX=initial capability handle.
-    mov ax, gdt64.user_data + 3
-    mov ds, ax
-    mov es, ax
-    mov rax, rdi
-    mov r8, rdx
-    mov rdx, rsi
-    push qword 0x23
-    push rdx
-    pushfq
-    or qword [rsp], 0x200
     push qword 0x1B
     push rax
     mov rdi, r8
