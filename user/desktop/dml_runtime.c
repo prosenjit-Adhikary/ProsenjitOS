@@ -33,24 +33,49 @@ static int runtime_manager_valid(const struct pros_dml_manager *manager)
 
 static int runtime_valid(const struct pros_dml_runtime *runtime)
 {
+    uint8_t active[PROS_DML_MAX_DESKTOPS] = {0};
+
     if (!runtime || runtime->magic != PROS_DML_RUNTIME_MAGIC ||
         !runtime_manager_valid(runtime->manager) ||
         !runtime->ops.start || !runtime->ops.stop ||
         runtime->active_count > PROS_DML_MAX_DESKTOPS)
         return 0;
 
-    /* The runtime structure is public storage; validate its active index list. */
+    /*
+     * Public runtime storage is mutable. Validate both directions of the
+     * handle/order relationship so an untracked live handle cannot be silently
+     * forgotten, and stale order entries cannot be mistaken for active tasks.
+     */
     for (uint32_t i = 0; i < runtime->active_count; ++i) {
         uint32_t index = runtime->active_order[i];
 
         if (index >= runtime->manager->count ||
             !runtime->manager->entries[index].registered ||
-            runtime->process_handles[index] == PROS_DML_INVALID_PROCESS_HANDLE)
+            runtime->process_handles[index] == PROS_DML_INVALID_PROCESS_HANDLE ||
+            active[index])
             return 0;
-        for (uint32_t j = 0; j < i; ++j) {
-            if (runtime->active_order[j] == index)
+        active[index] = 1u;
+    }
+    for (uint32_t i = runtime->active_count; i < PROS_DML_MAX_DESKTOPS; ++i) {
+        if (runtime->active_order[i] != 0u)
+            return 0;
+    }
+    for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
+        if (active[i]) {
+            if (runtime->process_handles[i] == PROS_DML_INVALID_PROCESS_HANDLE)
                 return 0;
+        } else if (runtime->process_handles[i] != PROS_DML_INVALID_PROCESS_HANDLE) {
+            return 0;
         }
+    }
+
+    if (runtime->active_count == 0u) {
+        if (runtime->active_root != PROS_DML_NO_SELECTION)
+            return 0;
+    } else if (runtime->active_root != PROS_DML_NO_SELECTION &&
+               (runtime->active_root >= runtime->manager->count ||
+                !active[runtime->active_root])) {
+        return 0;
     }
     return 1;
 }
@@ -79,6 +104,9 @@ static int order_remove(struct pros_dml_runtime *runtime, uint32_t index)
             for (uint32_t j = i + 1u; j < runtime->active_count; ++j)
                 runtime->active_order[j - 1u] = runtime->active_order[j];
             --runtime->active_count;
+            runtime->active_order[runtime->active_count] = 0u;
+            if (runtime->active_root == index)
+                runtime->active_root = PROS_DML_NO_SELECTION;
             return 1;
         }
     }
@@ -254,6 +282,8 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
         runtime->process_handles[index] = process_handle;
         runtime->active_order[runtime->active_count++] = index;
         started_this_call[started_count++] = index;
+        if (index == root_index)
+            runtime->active_root = root_index;
 
         rc = pros_dml_transition(runtime->manager, entry->manifest.id,
                                  PROS_DML_SESSION_RUNNING);
