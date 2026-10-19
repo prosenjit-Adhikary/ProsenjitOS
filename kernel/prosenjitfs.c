@@ -1372,11 +1372,22 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint64_t offs
                 uint64_t candidate =
                     previous_extent.physical_block +
                     previous_extent.block_count;
-                int free_rc = pfs_data_block_is_free(data->fs, candidate);
-                if (free_rc < 0)
-                    return pfs_file_write_error(done, free_rc);
-                if (free_rc == 1)
-                    coalesce = 1u;
+
+                /*
+                 * Reaching the end of the data region is not an allocator
+                 * failure: the next physical block may be outside the volume
+                 * while other free blocks remain elsewhere. Only probe the
+                 * candidate when it is a valid data block; otherwise fall
+                 * back to normal free-block allocation below.
+                 */
+                if (candidate >= data->fs->sb.data_start &&
+                    candidate < data->fs->sb.total_blocks) {
+                    int free_rc = pfs_data_block_is_free(data->fs, candidate);
+                    if (free_rc < 0)
+                        return pfs_file_write_error(done, free_rc);
+                    if (free_rc == 1)
+                        coalesce = 1u;
+                }
             }
 
             pfs_zero(data_image, data->fs->sb.block_size);
