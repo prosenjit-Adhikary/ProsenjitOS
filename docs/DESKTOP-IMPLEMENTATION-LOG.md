@@ -1,5 +1,13 @@
 # Desktop Implementation Work Log
 
+## 2026-10-19 — Exact-head verification refresh
+
+- [x] Build and boot workflow [39285136037](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39285136037) completed successfully for PR head `de283b9a08934da31a6d7e171902e80738322cc3`.
+- [x] Designated runner checks passed: DML ran on `OfficeWindows` and reported `desktop manager tests passed`, `desktop runtime tests passed`, and `DML manager/runtime and compositor unit tests passed.`; OS build ran on Debian runner `office`.
+- [x] Security architecture workflow [39285135832](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39285135832) completed successfully and logged `Security architecture contract validated.`.
+- [x] The rollback-active regression assertion at `tests/desktop_runtime_test.c:232` is included in the passing DML test run; the earlier pending verification item is now closed.
+- [ ] Production desktop remains incomplete: these checks do not prove scheduler-managed CPL3 process launch/preemption/reap or a boot-to-graphical-session path.
+
 ## 2026-10-19 — DML rollback-active status regression
 
 ### Checks and findings
@@ -8,7 +16,7 @@
 - [x] Security-design check passed.
 - [x] Windows `OfficeWindows` DML job failed reproducibly at `tests/desktop_runtime_test.c:232`: after rollback could not stop a retained prerequisite, `pros_dml_runtime_active()` returned `PROS_DML_ENOENT` although a failed process handle remained tracked and cleanup was still required.
 - [x] Fixed `user/desktop/dml_runtime.c`: no tracked processes now returns `PROS_DML_ENOENT`; a non-empty retained process list without an active root returns `PROS_DML_ESTATE`, distinguishing failed/incomplete session state from an idle runtime.
-- [ ] Re-run Windows DML tests and all checks against the fix commit before marking the regression resolved.
+- [x] Re-ran exact PR head `de283b9a08934da31a6d7e171902e80738322cc3`: Windows `OfficeWindows` DML tests, Debian `office` ISO/QEMU build-and-boot checks, and security-design workflow all completed successfully (workflow runs `39285136037` and `39285135832`).
 - [ ] Desktop remains incomplete: no production process-launch backend, verified userspace init/service lifecycle, or end-to-end graphical display/input session.
 
 ## 2026-10-16 — DML source audit and selection-guard fix
