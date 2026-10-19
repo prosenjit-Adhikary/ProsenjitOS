@@ -7885,7 +7885,13 @@ int prosenjitfs_selftest(void)
                     PROSENJITFS_ECORRUPT)
                 return pfs_selftest_fail(__LINE__, -1509);
         }
-        if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
+        /*
+         * The earlier unlink regression deliberately removes /hello.bin.
+         * Use a dedicated file here so this overflow test does not depend on
+         * namespace state left by preceding regressions.
+         */
+        if (vfs_file_open(&fs.mount, "/truncate-overflow.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
                 PROS_VFS_OK ||
             vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
             vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
