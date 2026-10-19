@@ -7569,6 +7569,56 @@ int prosenjitfs_selftest(void)
         if (vfs_vnode_put(stale_vnode) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
     }
+    /*
+     * Stale-directory-open regression mirrors the file lifecycle test:
+     * retaining a vnode must not let a directory inode be reclaimed and then
+     * increment the reference counter after its inode number is reused.
+     */
+    {
+        struct pros_vfs_vnode *stale_dir = 0;
+        struct pros_vfs_vnode *replacement_dir = 0;
+        struct pfs_vnode_data *stale_dir_data;
+        int rc;
+
+        if (vfs_mkdir(&fs.mount, "/stale-dir") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/stale-dir", &stale_dir) !=
+                PROS_VFS_OK ||
+            !stale_dir || !stale_dir->private_data)
+            {
+                if (stale_dir)
+                    vfs_vnode_put(stale_dir);
+                return pfs_selftest_fail(__LINE__, -1303);
+            }
+        stale_dir_data = (struct pfs_vnode_data *)stale_dir->private_data;
+
+        if (vfs_rmdir(&fs.mount, "/stale-dir") != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, "/stale-dir") != PROS_VFS_OK ||
+            vfs_path_lookup(&fs.mount, "/stale-dir", &replacement_dir) !=
+                PROS_VFS_OK ||
+            !replacement_dir || !replacement_dir->private_data)
+            {
+                if (replacement_dir)
+                    vfs_vnode_put(replacement_dir);
+                vfs_vnode_put(stale_dir);
+                return pfs_selftest_fail(__LINE__, -1304);
+            }
+        vfs_vnode_put(replacement_dir);
+
+        rc = pfs_vnode_dir_open(stale_dir);
+        if (rc != PROS_VFS_ESTALE ||
+            fs.open_dir_refs[stale_dir_data->inode_number] != 0u)
+            {
+                if (rc == PROS_VFS_OK)
+                    (void)pfs_vnode_dir_close(stale_dir);
+                vfs_vnode_put(stale_dir);
+                (void)vfs_rmdir(&fs.mount, "/stale-dir");
+                return pfs_selftest_fail(__LINE__, -1305);
+            }
+
+        if (vfs_vnode_put(stale_dir) != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, "/stale-dir") != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1306);
+    }
     if (vfs_unlink(&fs.mount, "/hello.bin") != PROS_VFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
     {
