@@ -435,8 +435,13 @@ static void exit_lifecycle_parent_entry(void) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
 
-        /* Count only parent execution while the child is still alive. */
-        ++exit_lifecycle_preemption_count;
+        /*
+         * A parent iteration before the first timer tick is not proof of
+         * preemption. Count only after the PIT has delivered real IRQs; the
+         * child remains in its delay loop long enough to be preempted back.
+         */
+        if (timer_irq_count() >= 10u)
+            ++exit_lifecycle_preemption_count;
         __asm__ volatile ("pause");
     }
 }
