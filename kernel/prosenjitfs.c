@@ -7499,6 +7499,7 @@ int prosenjitfs_selftest(void)
     {
         struct pros_vfs_file file;
         struct pros_vfs_file replacement;
+        struct pros_vfs_file stale_open;
         struct pros_vfs_vnode *stale_vnode = 0;
         struct pfs_vnode_data *stale_data;
         struct pros_prosenjitfs_inode stale_inode;
@@ -7548,6 +7549,21 @@ int prosenjitfs_selftest(void)
             {
                 vfs_vnode_put(stale_vnode);
                 return pfs_selftest_fail(__LINE__, -13);
+            }
+
+        /*
+         * Exercise the open callback directly with the retained stale vnode:
+         * it must reject the old generation without incrementing the newly
+         * reused inode slot's reference count.
+         */
+        pfs_zero(&stale_open, sizeof(stale_open));
+        stale_open.vnode = stale_vnode;
+        rc = pfs_file_open_ref(&stale_open);
+        if (rc != PROS_VFS_ESTALE ||
+            fs.open_file_refs[stale_data->inode_number] != 0u)
+            {
+                vfs_vnode_put(stale_vnode);
+                return pfs_selftest_fail(__LINE__, -1302);
             }
 
         if (vfs_vnode_put(stale_vnode) != PROS_VFS_OK)
