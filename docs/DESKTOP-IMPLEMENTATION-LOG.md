@@ -717,3 +717,16 @@ The prior commit `3304937e0c98c1c7b6a3932ee3c4d6345d12fa35` passed build/QEMU, D
 
 ### Desktop status
 This change improves CI diagnosability only. It does not implement the production process spawn/exec backend, scheduler-managed userspace init, idle thread, real display/input service path, window-system integration, or boot-to-desktop acceptance. Desktop remains incomplete.
+
+
+## 2026-10-19 — Validate DML process-handle and active-session invariants
+
+### Finding and fix
+- [x] Reviewed the current DML runtime and found that validation checked every listed active handle, but did not check the reverse relationship: a nonzero process handle could exist outside the active order and be silently left untracked.
+- [x] Strengthened runtime validation to require a one-to-one mapping between active-order entries and nonzero process handles, reject stale active-order tail entries, and validate root metadata whenever a root is published.
+- [x] Clear vacated active-order slots and clear the active root when its process is stopped. The root is published only once its own process handle is tracked, allowing dependency rollback and reverse-order shutdown to remain valid.
+- [x] Added regression coverage for an untracked nonzero handle and stale root metadata; corrupted runtime state must be rejected before any backend stop callback is invoked.
+- [ ] Exact-head Windows DML test, Debian build/QEMU, and security-design CI are pending for this change.
+
+### Desktop status
+This is a DML state-integrity hardening change, not a production process backend or a graphical-session implementation. The DML still uses a mock backend in host tests; the real OS process spawn/exec syscall, scheduler-managed init, dedicated idle task, production display/input path, window-system integration, and graphical end-to-end acceptance remain incomplete.
