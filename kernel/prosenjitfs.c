@@ -5799,6 +5799,8 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     pfs_consistency_diag_stage = 0xC002u;
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
+        /* Keep the current inode visible if its bitmap or inode image is bad. */
+        pfs_consistency_diag_stage = 0xB000u + (uint32_t)inode_number;
         uint64_t bi = inode_number / bits_per_block;
         uint64_t within = inode_number % bits_per_block;
         uint64_t lba;
