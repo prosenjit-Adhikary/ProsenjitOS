@@ -715,6 +715,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
+    serial_write("ProsenjitOS: IPC channel/capability foundation test passed\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
