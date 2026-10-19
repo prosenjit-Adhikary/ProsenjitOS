@@ -7553,14 +7553,20 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
-        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
-                            &node) != PROS_VFS_OK ||
-            node->size != 513u + sizeof(small_data) ||
-            vfs_vnode_put(node) != PROS_VFS_OK ||
-            vfs_path_lookup(&fs.mount, "/persist/config/sub/renamed.bin",
+        if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1501);
+        if (vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+            return pfs_selftest_fail(__LINE__, -1502);
+        if (node->size != 513u + sizeof(small_data)) {
+            vfs_vnode_put(node);
+            return pfs_selftest_fail(__LINE__, -1503);
+        }
+        if (vfs_vnode_put(node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1504);
+        if (vfs_path_lookup(&fs.mount, "/persist/config/sub/renamed.bin",
+                            &node) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1505);
         node_data = (struct pfs_vnode_data *)node->private_data;
         if (!node_data || node_data->inode_number != rename_inode_before ||
             node_data->inode_number == inode_before ||
