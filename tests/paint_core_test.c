@@ -6,6 +6,7 @@ int main(void){
  struct pros_paint_canvas c;const uint32_t white=0xffffffffu,black=0xff000000u,red=0xffff0000u;
  assert(pros_paint_init(&c,16,12,white)==PROS_PAINT_OK);
  assert(pros_paint_init(&c,0,12,white)==PROS_PAINT_EINVAL);
+ assert(pros_paint_line(&c,INT32_MIN,0,INT32_MAX,0,red,1)==PROS_PAINT_EINVAL);
  assert(pros_paint_line(&c,1,1,8,1,red,1)==PROS_PAINT_OK);
  assert(c.pixels[20]==red);assert(pros_paint_undo(&c)==PROS_PAINT_OK);assert(c.pixels[20]==white);
  assert(pros_paint_redo(&c)==PROS_PAINT_OK);assert(c.pixels[20]==red);
@@ -16,5 +17,9 @@ int main(void){
  assert(pros_paint_load_bmp(&c,"paint-test.bmp")==PROS_PAINT_OK);assert(c.width==16&&c.height==12);
  assert(c.pixels[0]==0xff00ff00u);assert(c.pixels[3*16+3]==black);
  assert(pros_paint_load_bmp(&c,"missing-paint-file.bmp")==PROS_PAINT_EIO);
+ { FILE *bad=fopen("bad-paint.bmp","wb");assert(bad);assert(fwrite("BM",1,2,bad)==2);assert(fclose(bad)==0); }
+ assert(pros_paint_load_bmp(&c,"bad-paint.bmp")==PROS_PAINT_EFORMAT);
+ assert(c.width==16&&c.height==12&&c.pixels[0]==0xff00ff00u);
+ remove("bad-paint.bmp");
  remove("paint-test.bmp");pros_paint_destroy(&c);puts("ProsenjitOS Paint core tests passed");return 0;
 }
