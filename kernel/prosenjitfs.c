@@ -2719,7 +2719,9 @@ static int pfs_vnode_rmdir_unlocked(struct pros_vfs_vnode *parent, const char *n
                         goto rmdir_out;
                     }
                     kfree(scan);
-                    rc = PROS_VFS_ENOTEMPTY;
+                    /* This helper returns ProsenjitFS-native errors; the
+                     * outer adapter translates them to VFS errors exactly once. */
+                    rc = PROSENJITFS_ENOTEMPTY;
                     goto rmdir_out;
                 }
                 current = child_entry.next;
