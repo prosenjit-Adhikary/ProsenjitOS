@@ -2,6 +2,7 @@ name: Build and boot-test ProsenjitOS
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
