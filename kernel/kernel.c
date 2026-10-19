@@ -1749,10 +1749,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
          * child's user test performs IPC, waits through timer preemption, and
          * exits through INT 0x80; the parent resumes and wait/reaps it.
          */
-        if (thread_schedule() != 0) {
+        if (thread_schedule() != 0 ||
+            cpu_set_kernel_stack(parent_stack_top) != 0) {
             serial_write("ProsenjitOS: ERROR scheduler-managed lifecycle start failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
+        thread_context_switch(0, &exit_test_parent_thread);
     }
 
     serial_write("ProsenjitOS: ERROR scheduler returned from terminal lifecycle test\n");
