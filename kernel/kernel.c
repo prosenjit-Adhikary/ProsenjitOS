@@ -778,6 +778,32 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
+    /*
+     * A failed filesystem-backed launch must roll back the registered child,
+     * close its resources, and remove its PID. An inactive mount forces a
+     * deterministic failure after process creation but before ELF mapping.
+     */
+    {
+        struct pros_vfs_mount inactive_launch_mount = {0};
+        struct pros_file_security_metadata launch_metadata = {0};
+        struct pros_process launch_rollback_child = {0};
+        struct pros_thread launch_rollback_thread = {0};
+        int launch_rc = pros_init_launch(
+            &inactive_launch_mount, "/not-mounted", &init_process,
+            &launch_rollback_child, &launch_rollback_thread,
+            0x7000u, 0x7000u, PROS_SECURITY_LIMITED, &launch_metadata,
+            (uint64_t)(uintptr_t)init_thread_stack,
+            (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack)));
+        if (launch_rc != PROS_INIT_EIO ||
+            process_lookup(0x7000u) != 0 ||
+            process_state(&launch_rollback_child) != PROS_PROCESS_DEAD ||
+            launch_rollback_child.address_space.root != 0) {
+            serial_write("ProsenjitOS: ERROR launch transaction rollback self-test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: launch transaction failure rollback self-test passed\n");
+    }
+
     struct pros_process child_process;
     if (process_create(&init_process, &child_process, 2,
                        PROS_SECURITY_LIMITED) != 0 ||
