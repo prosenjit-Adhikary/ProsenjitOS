@@ -456,7 +456,7 @@ static int process_selftest_isolated(void)
         process_wait(&parent, child.pid, &exit_code) != -3 ||
         exit_code != -999 ||
         process_state(&child) != PROS_PROCESS_ZOMBIE ||
-        child.address_space.root == 0u)
+        child.address_space.root == 0)
         return -9;
     if (object_release(&child.object) != 0)
         return -10;
