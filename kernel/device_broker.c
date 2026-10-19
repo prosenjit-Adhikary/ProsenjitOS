@@ -85,7 +85,11 @@ int pros_device_revoke(uint32_t device_id, uint32_t process_id)
             return PROS_DRIVER_OK;
         }
     }
-    return PROS_DRIVER_ENODEV;
+    /*
+     * The device may still exist and be bound; the missing object here is
+     * the grant. Report a permission denial rather than a missing device.
+     */
+    return PROS_DRIVER_EPERM;
 }
 
 int pros_device_check(uint32_t device_id, uint32_t process_id,
