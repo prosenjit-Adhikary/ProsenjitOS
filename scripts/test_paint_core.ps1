@@ -52,6 +52,8 @@ try {
     try {
         if ($name -ieq 'cl.exe') {
             & $compilerPath '/nologo' '/std:c11' '/W4' '/WX' '/O2' $paint $test ("/Fo:" + $tmp + "\") ("/Fe:" + $output)
+        } elseif ($isZig) {
+            & $compilerPath 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
         } else {
             & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
         }
