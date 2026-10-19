@@ -697,7 +697,7 @@ int pros_net_selftest(void)
     tcp[16] ^= 0x01u;
     if (pros_net_validate_tcp_checksum(0xC0A80101u, 0xC0A80102u,
                                        tcp, sizeof(tcp)) != PROS_NET_ECHECKSUM)
-        return -9;
+        return -91;
     tcp[16] ^= 0x01u;
     if (pros_net_tcp_transition(PROS_NET_TCP_SYN_SENT, TCP_SYN | TCP_ACK, &state) != PROS_NET_OK ||
         state != PROS_NET_TCP_ESTABLISHED ||
@@ -716,7 +716,7 @@ int pros_net_selftest(void)
             pros_net_route_add(0xC0A80000u, 0xFFFF0000u, 0xC0A80101u, 10u) != PROS_NET_OK ||
             pros_net_route_lookup(0xC0A80102u, &gateway, &mask) != PROS_NET_OK ||
             mask != 0xFFFF0000u)
-            return -9;
+            return -92;
     }
 
     if (pros_net_socket_init() != PROS_NET_OK ||
@@ -726,7 +726,7 @@ int pros_net_selftest(void)
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
         pros_net_socket_send(sid, payload, sizeof(payload)) != 1 ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
-        return -9;
+        return -93;
 
     {
         const uint8_t rxdata[2] = {0x11, 0x22};
