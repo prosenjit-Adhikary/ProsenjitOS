@@ -234,3 +234,11 @@ This is a narrow safety-consistency fix, **not** a production process-launch imp
 - [x] Updated `docs/PROCESS-LIFECYCLE.md` to record launch publication and reap preflight invariants.
 - [ ] Verify these exact changes on the designated self-hosted runners: build/ISO/native BIOS QEMU, OfficeWindows DML tests, and security architecture checks. The current workflow runs are queued/pending; no pass is claimed for this patch yet.
 - [ ] Still missing: a real allocation/ownership policy for process/thread/kernel-stack storage, an end-to-end safe user-mode interrupt-frame scheduler path, a public spawn/exec/wait ABI with user-pointer and security-policy enforcement, and a production DML backend. Do not merge or promote PR #137 from Draft based on this source-only checkpoint.
+
+
+## Wait/reap syscall checkpoint
+
+- [x] Published `PROSENJIT_SYS_WAIT_REAP = 8` and included it in the supported syscall-policy mask.
+- [x] Added a user-mode-only dispatcher path that validates the status output range, limits wait to the current parent process, and returns `EAGAIN` for a child that is not yet a zombie.
+- [x] Added a dispatcher self-test that confirms a ring-0 call is rejected.
+- [ ] CI/build/boot-test verification for these commits is still pending. The syscall is non-blocking and must not be described as full POSIX wait or a complete spawn/exec/wait ABI.
