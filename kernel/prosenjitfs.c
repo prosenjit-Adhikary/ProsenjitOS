@@ -856,6 +856,8 @@ static int pfs_vnode_dir_open(struct pros_vfs_vnode *vnode)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs *fs;
+    struct pros_prosenjitfs_inode inode;
+    int rc;
 
     if (!vnode || !vnode->private_data ||
         vnode->type != PROS_VFS_NODE_DIRECTORY)
@@ -865,7 +867,17 @@ static int pfs_vnode_dir_open(struct pros_vfs_vnode *vnode)
     if (!fs || data->inode_number >= PROSENJITFS_MAX_INODES)
         return PROS_VFS_EINVAL;
 
+    /* Keep stale directory handles from pinning a reclaimed/reused inode. */
     pfs_io_lock(fs);
+    rc = pfs_vnode_validate_inode(data, &inode);
+    if (rc != PROSENJITFS_OK) {
+        pfs_io_unlock(fs);
+        return pfs_vfs_error(rc);
+    }
+    if (inode.type != PROSENJITFS_INODE_DIR) {
+        pfs_io_unlock(fs);
+        return PROS_VFS_ESTALE;
+    }
     if (fs->open_dir_refs[data->inode_number] == UINT32_MAX) {
         pfs_io_unlock(fs);
         return PROS_VFS_EOVERFLOW;
