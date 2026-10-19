@@ -9,14 +9,41 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 
 try {
     $compiler = $null
-    foreach ($candidate in @('cl.exe', 'clang.exe', 'gcc.exe', 'cc.exe', 'clang', 'gcc', 'cc')) {
+    foreach ($candidate in @('clang.exe', 'gcc.exe', 'cc.exe', 'clang', 'gcc', 'cc', 'cl.exe')) {
         $found = Get-Command $candidate -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($found) { $compiler = $found; break }
     }
+    $isZig = $false
     if (-not $compiler) {
-        throw 'No supported C compiler found on OfficeWindows (expected cl, clang, gcc, or cc).'
+        # Last-resort compiler: download official Zig and verify its pinned digest.
+        $zigVersion = '0.17.0'
+        $archiveName = "zig-x86_64-windows-$zigVersion.zip"
+        $archive = Join-Path $tmp $archiveName
+        $extract = Join-Path $tmp 'zig-extracted'
+        $expectedSha256 = 'b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428'
+        $url = "https://ziglang.org/download/$zigVersion/$archiveName"
+        $downloaded = $false
+        for ($attempt = 1; $attempt -le 4; $attempt++) {
+            try {
+                Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
+                $downloaded = $true
+                break
+            } catch {
+                Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+                if ($attempt -eq 4) { throw "Unable to download pinned Zig compiler: $($_.Exception.Message)" }
+                Start-Sleep -Seconds ([Math]::Min(30, 5 * [Math]::Pow(2, $attempt - 1)))
+            }
+        }
+        if (-not $downloaded) { throw 'Pinned Zig compiler download did not complete.' }
+        $actualSha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualSha256 -ne $expectedSha256) { throw "Zig SHA-256 mismatch: $actualSha256" }
+        Expand-Archive -LiteralPath $archive -DestinationPath $extract -Force
+        $zig = Get-ChildItem -LiteralPath $extract -Filter 'zig.exe' -File -Recurse | Select-Object -First 1
+        if (-not $zig) { throw 'Verified Zig archive did not contain zig.exe.' }
+        $compiler = $zig
+        $isZig = $true
     }
-    $compilerPath = $compiler.Source
+    $compilerPath = if ($compiler -is [System.IO.FileInfo]) { $compiler.FullName } else { $compiler.Source }
     $name = [System.IO.Path]::GetFileName($compilerPath)
     $output = Join-Path $tmp 'paint_core_test.exe'
     Write-Host ("Paint C compiler: " + $compilerPath)
