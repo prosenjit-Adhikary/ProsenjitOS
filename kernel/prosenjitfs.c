@@ -5975,7 +5975,9 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 logical_end = end_logical;
                 current = extent.next;
             }
-            pfs_consistency_diag_stage = 0xC044u;
+            /* Encode the inode number so CI identifies the bad file. */
+            pfs_consistency_diag_stage =
+                0xD000u + (uint32_t)inode_number;
             if (allocated_bytes != inode.allocated_bytes) {
                 rc = PROSENJITFS_ECORRUPT;
                 goto consistency_out;
