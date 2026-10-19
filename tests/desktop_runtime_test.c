@@ -173,7 +173,15 @@ int main(void)
         struct pros_dml_runtime corrupt_runtime = runtime;
         corrupt_runtime.active_root = 3u; /* Registered, but not in this session. */
         CHECK(pros_dml_runtime_active(&corrupt_runtime, &active) ==
-              PROS_DML_ESTATE, 7);
+              PROS_DML_EINVAL, 7);
+    }
+    {
+        struct pros_dml_runtime corrupt_runtime = runtime;
+        uint32_t inactive = PROS_DML_MAX_DESKTOPS - 1u;
+        uint32_t stops_before = mock.stop_count;
+        corrupt_runtime.process_handles[inactive] = 0xBADu;
+        CHECK(pros_dml_runtime_stop(&corrupt_runtime) == PROS_DML_EINVAL, 7);
+        CHECK(mock.stop_count == stops_before, 7);
     }
     {
         struct pros_dml_runtime corrupt_runtime = runtime;
@@ -251,9 +259,9 @@ int main(void)
     CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 14);
     {
         struct pros_dml_runtime corrupt_runtime = runtime;
-        corrupt_runtime.active_root = 0u; /* No active handles remain. */
+        corrupt_runtime.active_root = 0u; /* Root must clear with the last handle. */
         CHECK(pros_dml_runtime_active(&corrupt_runtime, &active) ==
-              PROS_DML_ENOENT, 14);
+              PROS_DML_EINVAL, 14);
     }
     CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
           state == PROS_DML_SESSION_STOPPED, 14);
