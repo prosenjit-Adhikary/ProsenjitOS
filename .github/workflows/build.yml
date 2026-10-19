@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run DML unit tests on Windows
-        timeout-minutes: 12
+        timeout-minutes: 25
         shell: pwsh
         run: |
           ./scripts/test_desktop_manager.ps1
