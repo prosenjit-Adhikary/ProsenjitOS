@@ -6800,9 +6800,22 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -1408);
         high_lba = second_extent.physical_block;
 
-        if (vfs_file_open(&fs.mount, "/s-delalloc-cross.bin",
-                          PROS_VFS_O_READ, &file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -1501);
+        {
+            struct pros_vfs_vnode *read_probe = 0;
+            int lookup_rc = vfs_path_lookup(&fs.mount,
+                                            "/s-delalloc-cross.bin",
+                                            &read_probe);
+            if (lookup_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -1700 + lookup_rc);
+            vfs_vnode_put(read_probe);
+        }
+        {
+            int read_open_rc = vfs_file_open(&fs.mount,
+                                             "/s-delalloc-cross.bin",
+                                             PROS_VFS_O_READ, &file);
+            if (read_open_rc != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -1800 + read_open_rc);
+        }
         if (vfs_file_seek(&file, low_block * bs) != PROS_VFS_OK) {
             (void)vfs_file_close(&file);
             return pfs_selftest_fail(__LINE__, -1502);
