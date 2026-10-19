@@ -6098,7 +6098,7 @@ consistency_out:
 
 int prosenjitfs_selftest(void)
 {
-    pfs_selftest_diag_stage = 0u;
+    pfs_selftest_diag_stage = 0xC100u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
     pfs_crash_inject_stage = 0u;
     pfs_crash_injected = 0u;
@@ -6106,6 +6106,7 @@ int prosenjitfs_selftest(void)
     struct pros_block_device device;
     struct pros_prosenjitfs fs;
     pfs_zero(&fs, sizeof(fs));
+    pfs_selftest_diag_stage = 0xC100u;
     struct pros_prosenjitfs_inode inode;
     uint64_t first_block;
     uint64_t inode_number;
@@ -6113,9 +6114,10 @@ int prosenjitfs_selftest(void)
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
                           pfs_test_write, &disk) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -1);
+    pfs_selftest_diag_stage = 0xC101u;
     if (block_device_set_flush(&device, pfs_test_flush) != PROS_BLOCK_OK)
         return pfs_selftest_fail(__LINE__, -2);
-    pfs_selftest_diag_stage = 0xC101u;
+    pfs_selftest_diag_stage = 0xC102u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
     /*
      * LBA contract regression: offsets are device-relative sector offsets,
