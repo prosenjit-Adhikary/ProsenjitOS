@@ -5928,9 +5928,11 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
             uint64_t steps = 0u;
             uint64_t allocated_bytes = 0u;
             uint64_t logical_end = 0u;
-            uint64_t max_logical_blocks =
-                inode.size / fs->sb.block_size +
-                ((inode.size % fs->sb.block_size) != 0u ? 1u : 0u);
+            /*
+             * Keep-size preallocation may legitimately reserve extents past
+             * EOF. Validate logical ordering and overflow below, but do not
+             * reject those reservations merely because inode->size is smaller.
+             */
 
             while (current != 0u) {
                 struct pros_prosenjitfs_extent extent;
@@ -5949,8 +5951,6 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                 if (extent.logical_block < logical_end ||
                     extent.logical_block >
                         UINT64_MAX - extent.block_count ||
-                    extent.logical_block + extent.block_count >
-                        max_logical_blocks ||
                     extent.block_count > UINT64_MAX / fs->sb.block_size ||
                     allocated_bytes >
                         UINT64_MAX -
