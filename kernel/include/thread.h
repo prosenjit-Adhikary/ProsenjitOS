@@ -89,6 +89,9 @@ uint64_t thread_dead_count(void);
 /* Save the current IRQ frame and select the next runnable thread frame. */
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame);
+/* Terminate the current CPL3 process and switch directly from its IRQ frame. */
+struct pros_interrupt_frame *thread_exit_schedule_interrupt(
+    struct pros_interrupt_frame *current_frame, int32_t exit_code);
 
 /* Switches CPU execution from prev to next using their saved kernel stacks. */
 void thread_context_switch(struct pros_thread *prev,
