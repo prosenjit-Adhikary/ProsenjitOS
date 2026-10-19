@@ -60,6 +60,11 @@ static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
 /* Prevent a fault in exception reporting from recursively re-entering it. */
 static volatile uint8_t exception_dispatch_active;
+static struct pros_process *exit_lifecycle_parent;
+static struct pros_process *exit_lifecycle_child;
+static struct pros_thread *exit_lifecycle_parent_thread;
+static uint64_t exit_lifecycle_child_pid;
+static volatile uint64_t exit_lifecycle_preemption_count;
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -391,6 +396,48 @@ void user_mode_test_complete(void) {
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
     for (;;) __asm__ volatile ("cli; hlt");
+}
+
+/*
+ * First-run continuation for the parent kernel thread. It runs after a real
+ * timer interrupt or SYS_EXIT IRET-frame switch, and reaps only after the
+ * child has reached ZOMBIE.
+ */
+static void exit_lifecycle_parent_entry(void) {
+    for (;;) {
+        struct pros_process *child = exit_lifecycle_child;
+        uint32_t state = child ? process_state(child) : PROS_PROCESS_DEAD;
+
+        if (state == PROS_PROCESS_ZOMBIE) {
+            int32_t status = 0;
+            if (!exit_lifecycle_preemption_count ||
+                !exit_lifecycle_parent ||
+                !exit_lifecycle_parent_thread ||
+                process_current() != exit_lifecycle_parent ||
+                thread_current() != exit_lifecycle_parent_thread ||
+                process_wait(exit_lifecycle_parent, exit_lifecycle_child_pid,
+                             &status) != 0 ||
+                status != 23 ||
+                process_lookup(exit_lifecycle_child_pid) != 0 ||
+                child->address_space.root != 0) {
+                serial_write("ProsenjitOS: ERROR real CPL3 exit/preemption/wait-reap test failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
+            serial_write("ProsenjitOS: user process exit/scheduler/wait-reap integration test passed\n");
+            vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        if (state == PROS_PROCESS_DEAD || !child) {
+            serial_write("ProsenjitOS: ERROR user child became invalid before reap\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /* Count only parent execution while the child is still alive. */
+        ++exit_lifecycle_preemption_count;
+        __asm__ volatile ("pause");
+    }
 }
 
 
