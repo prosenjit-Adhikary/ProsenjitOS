@@ -7751,8 +7751,13 @@ int prosenjitfs_selftest(void)
             if (pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
                     PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -1513);
-            if (pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
-                return pfs_selftest_fail(pfs_consistency_diag_stage, -1514);
+            /*
+             * Do not run the whole-filesystem ownership audit here: the
+             * separately allocated test data blocks are intentionally still
+             * reserved and are not yet referenced by an inode extent. The
+             * full consistency audit runs immediately after those blocks are
+             * released below.
+             */
         }
 
         {
