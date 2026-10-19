@@ -8089,6 +8089,7 @@ int prosenjitfs_selftest(void)
     {
         /* Keep the 512 KiB test image off the limited kernel stack. */
         static struct pfs_test_disk small_disk;
+        static uint64_t allocated_blocks[PFS_MIN_BLOCKS];
         struct pros_block_device small_device;
         static struct pros_prosenjitfs small_fs;
         uint64_t block;
@@ -8117,24 +8118,38 @@ int prosenjitfs_selftest(void)
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
-            if (++allocated > PFS_MIN_BLOCKS)
+            if (allocated >= PFS_MIN_BLOCKS)
                 {
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
+            allocated_blocks[allocated++] = block;
         }
+        /*
+         * These allocations are deliberately unowned raw data blocks, so the
+         * filesystem consistency checker must not run until the test releases
+         * them. Verify exhaustion and deterministic reuse first.
+         */
         if (allocated == 0u ||
-            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK)
+            prosenjitfs_free_blocks(&small_fs, block, 1u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
+                PROSENJITFS_OK ||
+            first_reused != block)
             {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
             }
 
-        if (prosenjitfs_free_blocks(&small_fs, block, 1u) !=
-                PROSENJITFS_OK ||
-            prosenjitfs_alloc_blocks(&small_fs, 1u, &first_reused) !=
-                PROSENJITFS_OK ||
-            first_reused != block ||
+        /* Restore all raw allocations so later consistency checks are valid. */
+        for (uint32_t i = 0u; i < allocated; ++i) {
+            if (prosenjitfs_free_blocks(&small_fs, allocated_blocks[i], 1u) !=
+                PROSENJITFS_OK) {
+                prosenjitfs_unmount(&small_fs);
+                return pfs_selftest_fail(__LINE__, -17);
+            }
+        }
+        if (pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK ||
             prosenjitfs_alloc_inode(&small_fs, &inode_tmp) !=
                 PROSENJITFS_OK)
             {
