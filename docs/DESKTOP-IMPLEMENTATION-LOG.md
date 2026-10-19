@@ -730,3 +730,11 @@ This change improves CI diagnosability only. It does not implement the productio
 
 ### Desktop status
 This is a DML state-integrity hardening change, not a production process backend or a graphical-session implementation. The DML still uses a mock backend in host tests; the real OS process spawn/exec syscall, scheduler-managed init, dedicated idle task, production display/input path, window-system integration, and graphical end-to-end acceptance remain incomplete.
+
+
+## 2026-10-19 — Correct DML rollback root metadata after CI regression
+
+- [x] Retrieved the failing Windows DML job log. The compiler download and desktop-manager tests succeeded; the runtime unit test failed at the rollback-stop-failure case because the new invariant validation correctly rejected an active root that had never actually started.
+- [x] Fixed both rollback failure paths to publish the root only if its process handle is still present in the tracked active order. A failed prerequisite rollback remains tracked for cleanup, but is not falsely reported as the active desktop root.
+- [ ] Re-run Windows DML unit tests and confirm the regression fix; latest-head Debian ISO/native BIOS QEMU and security-design CI must also pass.
+
