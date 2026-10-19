@@ -419,7 +419,8 @@ int pros_net_socket_create(uint32_t *socket_id)
 int pros_net_socket_bind(uint32_t socket_id, uint32_t addr, uint16_t port)
 {
     struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || s->state != PROS_NET_TCP_CLOSED || port_conflict(addr, port, s))
+    if (!s || s->state != PROS_NET_TCP_CLOSED ||
+        (port != 0u && port_conflict(addr, port, s)))
         return PROS_NET_ESTATE;
     if (port == 0u) {
         port = allocate_ephemeral(addr, s);
