@@ -5,6 +5,27 @@ on:
   pull_request:
 
 jobs:
+  paint-tests:
+    timeout-minutes: 30
+    # All Paint development and regression testing must use the designated Windows runner.
+    runs-on: [self-hosted, windows, x64]
+    steps:
+      - name: Verify designated OfficeWindows runner
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_NAME -ne 'OfficeWindows') {
+            throw "Paint tests must run on OfficeWindows; actual runner is '$env:RUNNER_NAME'."
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile and run Paint core tests on OfficeWindows
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          ./scripts/test_paint_core.ps1
+
   build:
     # Use the configured Debian self-hosted runner; the toolchain is preinstalled
     # there, and the runner account intentionally does not need sudo.
@@ -23,13 +44,12 @@ jobs:
             fi
           done
 
-      - name: Validate desktop scripts, Paint core, and DML unit tests
+      - name: Validate desktop scripts and run DML unit tests
         run: |
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           make desktop-unit-test
-          make paint-unit-test
 
       - name: Build ISO
         run: |
