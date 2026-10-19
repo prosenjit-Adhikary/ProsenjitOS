@@ -6821,20 +6821,29 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -1511);
 
-        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
-                PROSENJITFS_OK ||
-            cross_inode.allocated_bytes != bs * 2u ||
-            pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
-                PROSENJITFS_OK ||
-            first_extent.logical_block != low_block ||
-            first_extent.block_count != 2u ||
-            pfs_read_extent(&fs, first_extent.next, &second_extent) !=
-                PROSENJITFS_OK ||
-            second_extent.logical_block != high_block ||
-            second_extent.physical_block != high_lba)
-            return pfs_selftest_fail(__LINE__, -14);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1601);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1602);
+        if (prosenjitfs_read_inode(&fs, entry.inode, &cross_inode) !=
+            PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1603);
+        if (cross_inode.allocated_bytes != bs * 2u)
+            return pfs_selftest_fail(__LINE__, -1604);
+        if (pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
+            PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1605);
+        if (first_extent.logical_block != low_block)
+            return pfs_selftest_fail(__LINE__, -1606);
+        if (first_extent.block_count != 2u)
+            return pfs_selftest_fail(__LINE__, -1607);
+        if (pfs_read_extent(&fs, first_extent.next, &second_extent) !=
+            PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -1608);
+        if (second_extent.logical_block != high_block)
+            return pfs_selftest_fail(__LINE__, -1609);
+        if (second_extent.physical_block != high_lba)
+            return pfs_selftest_fail(__LINE__, -1610);
 
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
