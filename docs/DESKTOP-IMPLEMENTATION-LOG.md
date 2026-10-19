@@ -1,5 +1,16 @@
 # Desktop Implementation Work Log
 
+## 2026-10-19 — DML rollback-active status regression
+
+### Checks and findings
+- [x] Re-checked exact HEAD `78859f09cacf0e92c0df99821fb2094b4c361900` on both designated self-hosted runners.
+- [x] Debian `build` job passed: toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot all succeeded.
+- [x] Security-design check passed.
+- [x] Windows `OfficeWindows` DML job failed reproducibly at `tests/desktop_runtime_test.c:232`: after rollback could not stop a retained prerequisite, `pros_dml_runtime_active()` returned `PROS_DML_ENOENT` although a failed process handle remained tracked and cleanup was still required.
+- [x] Fixed `user/desktop/dml_runtime.c`: no tracked processes now returns `PROS_DML_ENOENT`; a non-empty retained process list without an active root returns `PROS_DML_ESTATE`, distinguishing failed/incomplete session state from an idle runtime.
+- [ ] Re-run Windows DML tests and all checks against the fix commit before marking the regression resolved.
+- [ ] Desktop remains incomplete: no production process-launch backend, verified userspace init/service lifecycle, or end-to-end graphical display/input session.
+
 ## 2026-10-16 — DML source audit and selection-guard fix
 
 ### Scope
