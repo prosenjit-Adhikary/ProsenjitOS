@@ -1402,6 +1402,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      */
     {
         struct pros_thread user_frame_test_thread;
+        struct pros_thread scheduler_kernel_test_thread;
         struct pros_user_interrupt_frame *user_frame;
         uint64_t kernel_stack_bottom =
             (uint64_t)(uintptr_t)user_frame_thread_stack;
@@ -1426,6 +1427,41 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: CPL3 scheduler-frame construction self-test passed\n");
+
+        /*
+         * Exercise the interrupt scheduler's CPL3 first-run selection path.
+         * This checks the selected IRET frame and TSS kernel-stack handoff;
+         * it deliberately does not enable IF or claim timer preemption is
+         * verified. Reset old scheduler fixtures before building this pair.
+         */
+        if (thread_manager_init() != 0 ||
+            thread_init(&scheduler_kernel_test_thread, &init_process, 4u,
+                        (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                        (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                              sizeof(lifecycle_thread_stack))) != 0 ||
+            thread_enqueue(&user_frame_test_thread) != 0 ||
+            thread_enqueue(&scheduler_kernel_test_thread) != 0 ||
+            thread_schedule() != 0 ||
+            thread_current() != &scheduler_kernel_test_thread) {
+            serial_write("ProsenjitOS: ERROR CPL3 scheduler candidate setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        {
+            struct pros_interrupt_frame *selected =
+                thread_schedule_interrupt(&scheduler_init_frame);
+            if (selected != &user_frame->registers ||
+                thread_current() != &user_frame_test_thread ||
+                thread_state(&user_frame_test_thread) != PROS_THREAD_RUNNING ||
+                cpu_get_kernel_stack() != kernel_stack_top ||
+                selected->rip != elf_result.entry ||
+                selected->cs != 0x1Bu ||
+                selected->rflags != 0x2u) {
+                serial_write("ProsenjitOS: ERROR CPL3 interrupt scheduler handoff failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+        serial_write("ProsenjitOS: CPL3 interrupt scheduler handoff self-test passed\n");
     }
 
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
