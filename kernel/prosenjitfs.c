@@ -7814,7 +7814,8 @@ int prosenjitfs_selftest(void)
             if (pfs_lba_add(&device, device.sector_count - 1u, 1u, &lba) !=
                     PROSENJITFS_EINVAL)
                 return pfs_selftest_fail(__LINE__, -1502);
-            if (pfs_lba_add(&device, 0u, UINT64_MAX, &lba) !=
+            /* Base 1 plus UINT64_MAX must overflow before device bounds. */
+            if (pfs_lba_add(&device, 1u, UINT64_MAX, &lba) !=
                     PROSENJITFS_EOVERFLOW)
                 return pfs_selftest_fail(__LINE__, -1503);
             if (pfs_read_block(&device, device.sector_count, block) !=
