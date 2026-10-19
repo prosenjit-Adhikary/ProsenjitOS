@@ -1,15 +1,4 @@
 #include "block.h"
-
-/* Temporary cross-layer trace used only while the ProsenjitFS self-test is
- * immediately entering block_device_init(). Removed after the fault is found. */
-extern volatile uint32_t pfs_selftest_diag_stage;
-volatile uint64_t block_init_diag_entry_return;
-volatile uint64_t block_init_diag_exit_return;
-volatile uint64_t block_init_diag_entry_rsp;
-volatile uint64_t block_init_diag_exit_rsp;
-volatile uint64_t block_init_diag_entry_frame;
-volatile uint64_t block_init_diag_exit_frame;
-
 #include "health.h"
 
 static uint64_t read_count;
@@ -18,7 +7,6 @@ static uint64_t error_count;
 static uint64_t flush_count;
 static uint64_t flush_error_count;
 
-__attribute__((noinline, optimize("O0")))
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
                       uint64_t sector_count,
@@ -26,38 +14,14 @@ int block_device_init(struct pros_block_device *device,
                       pros_block_write_fn write,
                       void *private_data)
 {
-    if (pfs_selftest_diag_stage == 0xF004u) {
-        uintptr_t rsp;
-        uintptr_t frame = (uintptr_t)__builtin_frame_address(0);
-        __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-        block_init_diag_entry_rsp = (uint64_t)rsp;
-        block_init_diag_entry_frame = (uint64_t)frame;
-        block_init_diag_entry_return =
-            (uint64_t)(uintptr_t)__builtin_return_address(0);
-        pfs_selftest_diag_stage = 0xF041u; /* entered block_device_init */
-    }
     if (!device || sector_size == 0 || sector_count == 0 || !read)
         return PROS_BLOCK_EINVAL;
-    if (pfs_selftest_diag_stage == 0xF041u)
-        pfs_selftest_diag_stage = 0xF042u; /* arguments accepted */
     device->sector_size = sector_size;
     device->sector_count = sector_count;
     device->read = read;
     device->write = write;
     device->flush = 0;
     device->private_data = private_data;
-    if (pfs_selftest_diag_stage == 0xF042u)
-        pfs_selftest_diag_stage = 0xF043u; /* fields initialized */
-    if (pfs_selftest_diag_stage == 0xF043u) {
-        uintptr_t rsp;
-        uintptr_t frame = (uintptr_t)__builtin_frame_address(0);
-        __asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
-        block_init_diag_exit_rsp = (uint64_t)rsp;
-        block_init_diag_exit_frame = (uint64_t)frame;
-        block_init_diag_exit_return =
-            (uint64_t)(uintptr_t)__builtin_return_address(0);
-        pfs_selftest_diag_stage = 0xF044u; /* immediately before return */
-    }
     return PROS_BLOCK_OK;
 }
 
