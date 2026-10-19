@@ -12,6 +12,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Pin the workspace to the exact event commit; the self-hosted runner
+          # must never build a stale branch tip from a previous queued job.
+          ref: ${{ github.sha }}
+          clean: true
+
+      - name: Verify checked-out revision
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_SHA}"
+          actual="$(git rev-parse HEAD)"
+          echo "Expected event SHA: $expected"
+          echo "Checked-out SHA:    $actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::Checkout SHA mismatch; refusing to test stale source."
+            exit 1
+          fi
 
       - name: Verify toolchain
         run: |
