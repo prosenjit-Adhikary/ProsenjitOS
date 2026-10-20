@@ -44,6 +44,18 @@ int main(void){
  CHECK(pros_paint_frontend_set_color(&ui,black)==PROS_PAINT_OK);
  CHECK(pros_paint_frontend_pointer_down(&ui,15,11)==PROS_PAINT_OK);
  CHECK(c.pixels[11*16+15]==black);
+ CHECK(pros_paint_frontend_set_tool(&ui,PROS_PAINT_TOOL_RECTANGLE)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_set_filled(&ui,1)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_set_color(&ui,red)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_down(&ui,9,8)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_up(&ui,12,10)==PROS_PAINT_OK);
+ CHECK(c.pixels[9*16+10]==red);
+ CHECK(pros_paint_frontend_set_tool(&ui,PROS_PAINT_TOOL_ELLIPSE)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_set_filled(&ui,0)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_down(&ui,8,7)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_up(&ui,14,11)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_undo(&ui)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_redo(&ui)==PROS_PAINT_OK);
  remove("bad-paint.bmp");
  remove("paint-test.bmp");pros_paint_destroy(&c);puts("ProsenjitOS Paint core tests passed");return 0;
 }
