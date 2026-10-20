@@ -7518,8 +7518,9 @@ int prosenjitfs_selftest(void)
                 PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
         /*
-         * The file vnode is not the mount root. Unmount must still fail while
-         * this child vnode handle is live, even when the root refcount is one.
+         * The filesystem-level open-file count must prevent teardown while
+         * this file handle is live, in addition to generic VFS refcount
+         * protection.
          */
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY) {
             (void)vfs_file_close(&file);
