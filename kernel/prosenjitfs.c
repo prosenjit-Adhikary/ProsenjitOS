@@ -7415,6 +7415,10 @@ int prosenjitfs_selftest(void)
         uint64_t inode_tmp;
 
         pfs_zero(&small_disk, sizeof(small_disk));
+        /* prosenjitfs_mount() reads mount.active before clearing fs.  Do not
+         * pass an indeterminate stack object: initialize it before the first
+         * mount attempt so stale stack data cannot spuriously return EBUSY. */
+        pfs_zero(&small_fs, sizeof(small_fs));
         {
             int rc = block_device_init(&small_device, 512u, PFS_MIN_BLOCKS,
                                        pfs_test_read, pfs_test_write,
