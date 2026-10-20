@@ -166,3 +166,28 @@ jobs:
             build/qemu-debug.log
             build/native-qemu-serial.log
             build/native-qemu-debug.log
+
+  officewindows-smoke:
+    # Deliberately minimal: validates that the Windows self-hosted runner can
+    # receive and execute a PowerShell job. It does not run Linux/QEMU tests.
+    runs-on: [self-hosted, windows, x64]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Report runner identity and basic environment
+        run: |
+          Write-Output "SMOKE_TEST=OfficeWindows"
+          Write-Output "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Output "RUNNER_OS=$env:RUNNER_OS"
+          Write-Output "COMPUTERNAME=$env:COMPUTERNAME"
+          if ($env:RUNNER_OS -ne "Windows") {
+            throw "Expected Windows runner, got '$env:RUNNER_OS'"
+          }
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            throw "git is not available on the Windows runner"
+          }
+          Write-Output "PowerShell execution: PASS"
+          Write-Output "Git availability: PASS"
+          Write-Output "OFFICEWINDOWS_SMOKE_TEST=PASS"
+
