@@ -7235,11 +7235,11 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
-        /* /hello.bin was deliberately unlinked by the earlier stale-handle
-         * regression. Use the persistent fixture created above for overflow
-         * checks so this test does not depend on a deleted pathname. */
-        if (vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
-                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+        /* Use a dedicated fixture: /hello.bin was deliberately unlinked
+         * earlier, and other persistence tests may remount or reset paths. */
+        if (vfs_file_open(&fs.mount, "/truncate-overflow.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
             vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
             vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
             vfs_file_close(&file) != PROS_VFS_OK)
