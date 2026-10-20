@@ -7265,7 +7265,9 @@ int prosenjitfs_selftest(void)
                     PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             for (uint32_t n = 0u; n < 8u; ++n) {
-                if (vfs_file_seek(&file, (uint64_t)n * fs.sb.block_size) !=
+                /* Leave a logical hole between writes so each byte owns
+                 * a distinct extent; adjacent blocks may coalesce. */
+                if (vfs_file_seek(&file, (uint64_t)n * 2u * fs.sb.block_size) !=
                         PROS_VFS_OK ||
                     vfs_file_write(&file, &marker_byte, 1u, &done) !=
                         PROS_VFS_OK ||
