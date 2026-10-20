@@ -1,7 +1,10 @@
 name: Build and boot-test ProsenjitOS
 
 on:
+  # Keep mainline pushes tested while avoiding duplicate push + PR runs
+  # for every diagnostic-branch commit.
   push:
+    branches: [main]
   pull_request:
 
 jobs:
