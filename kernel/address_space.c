@@ -410,6 +410,8 @@ int address_space_validate_user_range(const struct pros_address_space *space,
         if ((pml4e & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
             (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER))
             return -1;
+        if (write_access && !(pml4e & PROSENJIT_PAGE_WRITABLE))
+            return -1;
 
         uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4e & PAGE_MASK);
         uint64_t pdpte = pdpt[PDPT_INDEX(va)];
@@ -417,12 +419,16 @@ int address_space_validate_user_range(const struct pros_address_space *space,
             (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
             (pdpte & LARGE_PAGE_FLAG))
             return -1;
+        if (write_access && !(pdpte & PROSENJIT_PAGE_WRITABLE))
+            return -1;
 
         uint64_t *pd = (uint64_t *)(uintptr_t)(pdpte & PAGE_MASK);
         uint64_t pde = pd[PD_INDEX(va)];
         if ((pde & (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER)) !=
             (PROSENJIT_PAGE_PRESENT | PROSENJIT_PAGE_USER) ||
             (pde & LARGE_PAGE_FLAG))
+            return -1;
+        if (write_access && !(pde & PROSENJIT_PAGE_WRITABLE))
             return -1;
 
         uint64_t *pt = (uint64_t *)(uintptr_t)(pde & PAGE_MASK);
