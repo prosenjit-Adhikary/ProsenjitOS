@@ -4,8 +4,15 @@ on:
   push:
   pull_request:
 
+# Keep token permissions minimal; this workflow only checks out source and builds.
+permissions:
+  contents: read
+
 jobs:
   build:
+    # Never execute code from an untrusted fork on the persistent self-hosted runner.
+    # Fork PR validation must use an isolated GitHub-hosted runner/workflow instead.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Use the configured Debian self-hosted runner; the toolchain is preinstalled
     # there, and the runner account intentionally does not need sudo.
     runs-on: [self-hosted, linux, x64]
