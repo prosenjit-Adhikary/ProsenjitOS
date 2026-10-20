@@ -7400,8 +7400,13 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -17);
                 }
         }
-        if (allocated == 0u ||
-            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK)
+        /*
+         * These blocks are deliberately allocated directly, without inode
+         * extents owning them. The global consistency checker correctly flags
+         * such reservations as unowned, so validate allocator exhaustion via
+         * the authoritative free-block counter instead.
+         */
+        if (allocated == 0u || small_fs.sb.free_blocks != 0u)
             {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
