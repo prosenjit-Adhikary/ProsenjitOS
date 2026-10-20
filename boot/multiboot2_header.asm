@@ -18,4 +18,12 @@ mb2_header:
     dd 8
 mb2_header_end:
 
+; The native BIOS stage-2 loader enters the flat image at byte 24, directly
+; after the 24-byte Multiboot2 header. The linker may align the following
+; .text input section, so byte 24 must be a real instruction rather than
+; padding. GRUB still enters the ELF _start symbol through ENTRY(_start).
+extern _start
+native_flat_entry:
+    jmp _start
+
 section .note.GNU-stack noalloc noexec nowrite progbits
