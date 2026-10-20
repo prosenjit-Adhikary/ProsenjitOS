@@ -1274,6 +1274,16 @@ static int vfs_vnode_api_selftest(void)
         vfs_path_lookup(&mount, "/hello.txt/", &found) != PROS_VFS_ENOTDIR)
         return -113;
 
+    {
+        char oversized_path[PROS_VFS_PATH_MAX + 2u];
+        for (uint32_t i = 0u; i <= PROS_VFS_PATH_MAX; ++i)
+            oversized_path[i] = '/';
+        oversized_path[PROS_VFS_PATH_MAX + 1u] = '\0';
+        if (vfs_path_lookup(&mount, oversized_path, &found) !=
+            PROS_VFS_EOVERFLOW)
+            return -114;
+    }
+
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK ||
         vfs_file_read(&file, output, 5, &done) != PROS_VFS_OK ||
