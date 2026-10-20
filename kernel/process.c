@@ -189,13 +189,22 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
     if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
+    /*
+     * Reaping destroys the address space and closes the handle table. The
+     * final unregister requires the process object's sole owning reference.
+     * Check that invariant before any irreversible cleanup; otherwise a
+     * failed unregister would restore ZOMBIE with an already-destroyed
+     * address space, making every subsequent wait fail permanently.
+     */
+    if (child->object.refcount != 1u) return -5;
     *exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
-        /* Keep a fully reaped process visible if final unlinking fails. */
+        /* This should now indicate an invariant violation, not a retryable
+         * reference-count condition discovered after destructive cleanup. */
         child->state = PROS_PROCESS_ZOMBIE;
-        return -5;
+        return -6;
     }
     return 0;
 }
