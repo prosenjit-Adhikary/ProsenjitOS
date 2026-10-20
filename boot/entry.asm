@@ -7,7 +7,6 @@ global user_mode_exit_trampoline
 global cpu_load_tss
 global stack_top
 extern kernel_main
-extern cpu_security_init
 extern user_mode_test_complete
 extern paging_switch_kernel
 extern __kernel_bss_start
