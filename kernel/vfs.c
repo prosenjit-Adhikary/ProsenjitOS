@@ -569,6 +569,15 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             vfs_vnode_put(current);
             return PROS_VFS_ELOOP;
         }
+        /*
+         * Every path component, including "." and "..", requires the
+         * preceding vnode to be a directory. Otherwise paths such as
+         * "/file/." and "/file/.." incorrectly succeed on regular files.
+         */
+        if (current->type != PROS_VFS_NODE_DIRECTORY) {
+            vfs_vnode_put(current);
+            return PROS_VFS_ENOTDIR;
+        }
         if (component[0] == '.' && component[1] == '\0')
             continue;
         if (component[0] == '.' && component[1] == '.' &&
@@ -584,10 +593,9 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
             current = parent;
             continue;
         }
-        if (current->type != PROS_VFS_NODE_DIRECTORY ||
-            !current->ops->lookup) {
+        if (!current->ops->lookup) {
             vfs_vnode_put(current);
-            return PROS_VFS_ENOTDIR;
+            return PROS_VFS_ENOSYS;
         }
         struct pros_vfs_vnode *next = 0;
         int lookup_rc = current->ops->lookup(current, component, &next);
@@ -1244,6 +1252,11 @@ static int vfs_vnode_api_selftest(void)
         found != &hello_node)
         return -104;
     vfs_vnode_put(found);
+
+    /* Dot components must not make a regular file behave like a directory. */
+    if (vfs_path_lookup(&mount, "/hello.txt/.", &found) != PROS_VFS_ENOTDIR ||
+        vfs_path_lookup(&mount, "/hello.txt/..", &found) != PROS_VFS_ENOTDIR)
+        return -113;
 
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK ||
