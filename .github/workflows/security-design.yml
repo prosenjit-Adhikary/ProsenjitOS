@@ -8,8 +8,8 @@ on:
 
 jobs:
   security-design:
-    # Kernel security checks are restricted to the dedicated OfficeWindows runner.
-    runs-on: [self-hosted, Windows, X64, OfficeWindows]
+    # Let GitHub schedule on whichever self-hosted runner is idle.
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
