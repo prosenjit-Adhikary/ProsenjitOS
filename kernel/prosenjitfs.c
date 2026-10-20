@@ -5652,8 +5652,9 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
 
     /*
      * Never tear down transaction/scratch state while any file or directory
-     * handle still owns a vnode. Child vnode references do not increment the
-     * root vnode's refcount, so checking the root alone is insufficient.
+     * handle still owns a vnode. Vnode parent references already help keep
+     * the root alive; checking the provider's open-handle counts explicitly
+     * is an additional fail-closed guard that does not depend on that chain.
      */
     if (fs->mount.root && fs->mount.root->refcount > 1u)
         return PROSENJITFS_EBUSY;
