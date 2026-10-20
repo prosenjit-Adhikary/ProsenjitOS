@@ -7297,6 +7297,23 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
             {
+                uint64_t extent_cursor = before_inode.extent_head;
+                uint64_t extent_steps = 0u;
+                uint32_t extent_count = 0u;
+                while (extent_cursor != 0u) {
+                    struct pros_prosenjitfs_extent extent;
+                    if (++extent_steps > fs.sb.total_blocks ||
+                        pfs_read_extent(&fs, extent_cursor, &extent) !=
+                            PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -167);
+                    ++extent_count;
+                    extent_cursor = extent.next;
+                }
+                /* Prove the setup really exercises eight separate extents. */
+                if (extent_count != 8u)
+                    return pfs_selftest_fail(__LINE__, -168);
+            }
+            {
                 int truncate_rc = vfs_file_truncate(&file, 0u);
                 if (truncate_rc != PROS_VFS_EOVERFLOW) {
                     vfs_file_close(&file);
