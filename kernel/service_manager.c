@@ -230,7 +230,7 @@ int service_stop(const char *name)
 int service_restart(const char *name)
 {
     int rc = service_stop(name);
-    if (rc != PROS_SERVICE_OK && rc != PROS_SERVICE_EINVAL)
+    if (rc != PROS_SERVICE_OK)
         return rc;
     return service_start(name);
 }
