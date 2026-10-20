@@ -269,3 +269,39 @@ This is a proposed design, not an implementation-complete report. The existing [
 If an older high-level paragraph conflicts with these explicit constraints (for example, suggesting Wine as a runtime dependency or implying that foreign kernel drivers can load natively), prefer the current approved Version 2 and this platform specification; update the older paragraph during the next relevant documentation cleanup.
 
 No source code, package manager, runtime backend, or driver loader is implemented by this document alone.
+
+## 11. Contributor and AI-agent handoff contract
+
+This section is normative for human contributors and coding agents (including future AI agents) so work can continue from repository evidence rather than assumptions.
+
+### Before changing code or documentation
+
+1. Read this document and the linked `docs/V2-UNIFIED-APPLICATION-RUNTIME.md`, `docs/WINDOWS-APP-INSTALLATION.md`, `docs/ARCHITECTURE.md`, and `docs/SECURITY_MODEL.md`. Read the relevant roadmap section and the current implementation before proposing changes.
+2. Inspect the live default branch, current open PRs, their base/head branches, changed files, review comments, and CI/runner status. Do not assume a PR's description is current truth; compare it with its actual diff and current source.
+3. Search the repository for existing managers, manifests, device APIs, driver loaders, package formats, security brokers, tests, and documentation before adding a parallel implementation. Extend the existing contract when safe; explain any intentional replacement.
+4. State the exact task boundary, prerequisites, files expected to change, verification commands, and risks. Keep unrelated subsystems out of the patch.
+5. If another PR or unfinished branch already owns the same area, coordinate with it or build on its reviewed base. Avoid duplicate documents, duplicate APIs, accidental stacked-PR base mistakes, and editing `main` directly when a review branch is appropriate.
+
+### Implementation rules
+
+- Treat this specification as architecture guidance, not proof that a feature already exists. Verify every claimed capability in source and tests.
+- Work in small, reviewable changes. Preserve user data and existing working native paths; do not perform broad unrelated refactors.
+- Never weaken a security boundary to make a compatibility test pass. Unknown formats, unsupported ABIs, untrusted packages, and incompatible drivers must fail closed with actionable diagnostics.
+- Never load foreign OS kernel-driver binaries directly into the ProsenjitOS kernel. Driver-source discovery/import is not driver activation.
+- Do not report a test as passed unless it was actually executed and its result inspected. Distinguish source review, host tests, clean build, CI, QEMU, and physical-hardware verification.
+- Where repository policy or the user's current instructions specify a self-hosted runner, use the designated runner and avoid spending GitHub-hosted Actions minutes unnecessarily. Do not claim a runner was used unless its actual job result/log confirms it.
+- Keep the patch within the requested scope. For this platform, kernel/ProsenjitFS work remains separate from desktop/compatibility work unless an explicit shared contract requires a change.
+
+### Required completion report
+
+For each task, report:
+
+1. **Status:** complete, partial, blocked, or not started.
+2. **Repository evidence:** branch, base branch, PR/commit URL and exact changed paths.
+3. **What changed:** implementation/documentation boundaries and any deliberately unsupported features.
+4. **Verification:** exact commands or CI jobs actually run, their outcomes, and links/log references where available.
+5. **Unverified work:** what could not be run (for example QEMU, offline Debian, or physical hardware) and why.
+6. **Remaining blockers:** ordered by dependency, with the next concrete action.
+7. **Regression assessment:** confirm relevant native process, VFS/ProsenjitFS, security, boot, and driver paths were considered; cite tests rather than making blanket claims.
+
+Do not say “complete” for the universal platform until the declared backend contracts, security gates, install/update/rollback behavior, compatibility matrix, and required regression tests are implemented and verified. Documentation-only work must be labelled documentation-only.
