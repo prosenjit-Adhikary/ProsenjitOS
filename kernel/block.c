@@ -9,6 +9,7 @@ static uint64_t error_count;
 static uint64_t flush_count;
 static uint64_t flush_error_count;
 
+__attribute__((noinline))
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
                       uint64_t sector_count,
@@ -30,6 +31,9 @@ int block_device_init(struct pros_block_device *device,
     device->private_data = private_data;
     if (pfs_selftest_diag_stage == 0xF041u)
         pfs_selftest_diag_stage = 0xF042u;
+    /* Distinguish a fault in the return path from one inside field setup. */
+    if (pfs_selftest_diag_stage == 0xF042u)
+        pfs_selftest_diag_stage = 0xF043u;
     return PROS_BLOCK_OK;
 }
 
