@@ -6,16 +6,21 @@ on:
 
 jobs:
   build:
-    # Use the configured Debian self-hosted runner; the toolchain is preinstalled
-    # there, and the runner account intentionally does not need sudo.
-    runs-on: [self-hosted, linux, x64]
+    # GitHub automatically assigns this job to either available self-hosted runner:
+    # office (Linux X64) or OfficeWindows (Windows X64). Both must have the build toolchain.
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify toolchain
+      - name: Identify selected runner and verify toolchain
         run: |
           set -eu
+          echo "Selected runner: ${RUNNER_NAME:-unknown}"
+          echo "Selected runner OS: ${RUNNER_OS:-unknown}"
           for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
