@@ -1,5 +1,14 @@
 # DML process-launch implementation gates
 
+## 2026-10-20 verification update — CPL3 exit/wait-reap integration
+
+- Exact head `f02b53701bfb0d66755d691f729a7c8d7ec69e15` passed [Build and boot-test run 39384197248](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39384197248).
+- The ISO boot, first native BIOS boot, and second native BIOS boot each logged the real timer-preemption observation and the unique `user process exit/scheduler/wait-reap integration test passed` marker. The test validates exit status 23, parent process/thread restoration, successful ownership-checked wait/reap, PID removal, and address-space cleanup.
+- The DML tests passed on the verified `OfficeWindows` runner; security architecture checks passed in [run 39384197268](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39384197268).
+- This closes the **focused CPL3 child exit/scheduler/wait-reap integration** gate. It does not close general production spawn/exec: a caller-controlled, permission-checked spawn syscall and production DML adapter remain outstanding.
+- Next implementation gate: design a bounded versioned spawn request with validated executable reference/arguments, explicit syscall policy and capability checks, transactional process/thread/stack ownership, and complete failure rollback. Do not claim production DML launch or graphical-session support until the adapter and end-to-end path pass.
+
+
 ## Status
 
 This document is a source-audit record and implementation gate, not a claim
