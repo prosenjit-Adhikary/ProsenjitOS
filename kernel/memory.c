@@ -270,19 +270,34 @@ int physical_memory_selftest(void) {
     if (free_pages != before - 1ULL)
         return -2;
 
+    /* Only explicitly user-allocated pages may be mapped into CPL3. */
+    if (physical_page_is_user_mappable(b))
+        return -3;
+    uint64_t user = physical_page_alloc_user();
+    if (!user || !physical_page_is_allocated(user) ||
+        !physical_page_is_user_mappable(user)) {
+        if (user) physical_page_free(user);
+        physical_page_free(b);
+        return -4;
+    }
+    physical_page_free(user);
+    if (physical_page_is_user_mappable(user) ||
+        physical_page_is_allocated(user))
+        return -5;
+
     /* Double-free must not inflate the free-page count. */
     physical_page_free(a);
     if (free_pages != before - 1ULL)
-        return -3;
+        return -6;
 
     physical_page_free(b);
     if (free_pages != before)
-        return -4;
+        return -7;
 
     /* Page zero is permanently reserved by physical_memory_init(). */
     physical_page_free(0);
     if (free_pages != before || managed_test(0))
-        return -5;
+        return -8;
 
     return 0;
 }
