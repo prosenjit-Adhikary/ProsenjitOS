@@ -311,8 +311,14 @@ int service_manager_selftest(void)
             .name = "bad/name", .start = sm_test_start, .stop = sm_test_stop,
             .context = &a, .dependency_count = 0, .max_retries = 0
         };
+        const struct pros_service_definition duplicate_deps = {
+            .name = "duplicate-deps", .start = sm_test_start,
+            .stop = sm_test_stop, .context = &a, .dependency_count = 2,
+            .dependencies = {"base", "base"}, .max_retries = 0
+        };
         if (service_register(&bad_self) != PROS_SERVICE_EINVAL ||
-            service_register(&bad_name) != PROS_SERVICE_EINVAL)
+            service_register(&bad_name) != PROS_SERVICE_EINVAL ||
+            service_register(&duplicate_deps) != PROS_SERVICE_EINVAL)
             return -14;
     }
 
@@ -370,6 +376,37 @@ int service_manager_selftest(void)
      * intentionally leaves both test counters at one, so reset their state
      * before asserting that a missing dependency never invokes a start hook.
      */
+    /*
+     * Registration must own service/dependency identifiers, even if the
+     * caller mutates their source buffers after the registration call.
+     */
+    if (service_manager_init() != PROS_SERVICE_OK)
+        return -15;
+    {
+        char temporary_name[PROS_SERVICE_NAME_MAX] = "temporary";
+        char dependency_name[PROS_SERVICE_NAME_MAX] = "base";
+        const struct pros_service_definition base = {
+            .name = "base", .start = sm_test_start, .stop = sm_test_stop,
+            .context = &a, .dependency_count = 0, .max_retries = 0
+        };
+        struct pros_service_definition temporary = {
+            .name = temporary_name, .start = sm_test_start,
+            .stop = sm_test_stop, .context = &b, .dependency_count = 1,
+            .dependencies = {dependency_name}, .max_retries = 0
+        };
+        a = 0u;
+        b = 0u;
+        if (service_register(&base) != PROS_SERVICE_OK ||
+            service_register(&temporary) != PROS_SERVICE_OK)
+            return -16;
+        temporary_name[0] = 'X';
+        dependency_name[0] = 'X';
+        if (service_start("temporary") != PROS_SERVICE_OK ||
+            a != 1u || b != 1u ||
+            service_stop("base") != PROS_SERVICE_OK || a != 0u || b != 0u)
+            return -17;
+    }
+
     a = 0u;
     b = 0u;
     /* Missing dependencies must fail closed rather than partially starting. */
