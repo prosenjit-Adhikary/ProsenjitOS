@@ -120,9 +120,23 @@ int address_space_map_user_page(struct pros_address_space *space,
                                 uint64_t flags) {
     if (!space || !space->root || !user_va_valid(virtual_address)) return -1;
     if ((physical_address & 0xFFFULL) ||
-        (physical_address & ~PAGE_MASK) != 0 || physical_address == 0 ||
+        (physical_address & ~PAGE_MASK) != 0 ||
+        physical_address == 0 ||
+        physical_address >= PROSENJIT_PHYS_LIMIT ||
+        !physical_page_is_user_mappable(physical_address) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
+        return -1;
+
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pdi = PD_INDEX(virtual_address);
+    uint64_t old_pml4e = space->root[pml4i];
+    if ((old_pml4e & PROSENJIT_PAGE_PRESENT) &&
+        (!(old_pml4e & PROSENJIT_PAGE_USER) ||
+         (old_pml4e & LARGE_PAGE_FLAG) ||
+         ((flags & PROSENJIT_PAGE_WRITABLE) &&
+          !(old_pml4e & PROSENJIT_PAGE_WRITABLE))))
         return -1;
 
     uint32_t pml4i = PML4_INDEX(virtual_address);
@@ -136,6 +150,12 @@ int address_space_map_user_page(struct pros_address_space *space,
     int created_pdpt = !(old_pml4e & PROSENJIT_PAGE_PRESENT);
 
     uint64_t old_pdpte = pdpt[pdpti];
+    if ((old_pdpte & PROSENJIT_PAGE_PRESENT) &&
+        (!(old_pdpte & PROSENJIT_PAGE_USER) ||
+         (old_pdpte & LARGE_PAGE_FLAG) ||
+         ((flags & PROSENJIT_PAGE_WRITABLE) &&
+          !(old_pdpte & PROSENJIT_PAGE_WRITABLE))))
+        return -1;
     uint64_t *pd = ensure_table(pdpt, pdpti);
     if (!pd) {
         if (created_pdpt) {
@@ -147,6 +167,12 @@ int address_space_map_user_page(struct pros_address_space *space,
     int created_pd = !(old_pdpte & PROSENJIT_PAGE_PRESENT);
 
     uint64_t old_pde = pd[pdi];
+    if ((old_pde & PROSENJIT_PAGE_PRESENT) &&
+        (!(old_pde & PROSENJIT_PAGE_USER) ||
+         (old_pde & LARGE_PAGE_FLAG) ||
+         ((flags & PROSENJIT_PAGE_WRITABLE) &&
+          !(old_pde & PROSENJIT_PAGE_WRITABLE))))
+        return -1;
     uint64_t *pt = ensure_table(pd, pdi);
     if (!pt) {
         if (created_pd) {
