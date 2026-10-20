@@ -9,10 +9,35 @@ static size_t pixel_count(const struct pros_paint_canvas *c){return (size_t)c->w
 static int valid(const struct pros_paint_canvas *c){return c&&c->pixels&&c->width&&c->height&&c->width<=PROS_PAINT_MAX_DIMENSION&&c->height<=PROS_PAINT_MAX_DIMENSION;}
 static int coordinate_valid(int32_t v){return v>=-(int32_t)PROS_PAINT_MAX_DIMENSION&&v<=(int32_t)(2u*PROS_PAINT_MAX_DIMENSION);}
 static void discard_redo(struct pros_paint_canvas *c){while(c->history_count>c->history_cursor){free(c->history[--c->history_count]);c->history[c->history_count]=NULL;}}
-static int snapshot(struct pros_paint_canvas *c){
- size_t bytes; uint32_t *copy; if(!valid(c))return PROS_PAINT_EINVAL; discard_redo(c);
- if(c->history_count==PROS_PAINT_HISTORY_DEPTH){free(c->history[0]);memmove(&c->history[0],&c->history[1],(PROS_PAINT_HISTORY_DEPTH-1u)*sizeof(c->history[0]));--c->history_count;if(c->history_cursor)--c->history_cursor;}
- bytes=pixel_count(c)*sizeof(*copy);copy=(uint32_t*)malloc(bytes);if(!copy)return PROS_PAINT_ENOMEM;memcpy(copy,c->pixels,bytes);c->history[c->history_count++]=copy;c->history_cursor=c->history_count;return PROS_PAINT_OK;
+static int snapshot(struct pros_paint_canvas *c)
+{
+    size_t bytes;
+    uint32_t *copy;
+
+    if (!valid(c))
+        return PROS_PAINT_EINVAL;
+
+    /* Allocate first: a failed drawing operation must not destroy redo or
+     * evict the oldest undo snapshot merely because memory is exhausted. */
+    bytes = pixel_count(c) * sizeof(*copy);
+    copy = (uint32_t *)malloc(bytes);
+    if (!copy)
+        return PROS_PAINT_ENOMEM;
+    memcpy(copy, c->pixels, bytes);
+
+    discard_redo(c);
+    if (c->history_count == PROS_PAINT_HISTORY_DEPTH) {
+        free(c->history[0]);
+        memmove(&c->history[0], &c->history[1],
+                (PROS_PAINT_HISTORY_DEPTH - 1u) * sizeof(c->history[0]));
+        --c->history_count;
+        if (c->history_cursor)
+            --c->history_cursor;
+    }
+
+    c->history[c->history_count++] = copy;
+    c->history_cursor = c->history_count;
+    return PROS_PAINT_OK;
 }
 int pros_paint_init(struct pros_paint_canvas *c,uint32_t w,uint32_t h,uint32_t bg){
  size_t n;if(!c||!w||!h||w>PROS_PAINT_MAX_DIMENSION||h>PROS_PAINT_MAX_DIMENSION)return PROS_PAINT_EINVAL;memset(c,0,sizeof(*c));n=(size_t)w*h;if(n>PAINT_MAX_PIXELS||n>SIZE_MAX/sizeof(uint32_t))return PROS_PAINT_EINVAL;
