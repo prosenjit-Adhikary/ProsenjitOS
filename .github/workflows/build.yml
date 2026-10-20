@@ -6,9 +6,10 @@ on:
 
 jobs:
   build:
-    # GitHub automatically assigns this job to either available self-hosted runner:
-    # office (Linux X64) or OfficeWindows (Windows X64). Both must have the build toolchain.
-    runs-on: self-hosted
+    # Native kernel/ProsenjitFS build and QEMU boot tests currently require the
+    # Linux GNU toolchain. Do not dispatch this job to Windows until its compatible
+    # toolchain is provisioned and validated there.
+    runs-on: [self-hosted, linux, x64]
     defaults:
       run:
         shell: bash
