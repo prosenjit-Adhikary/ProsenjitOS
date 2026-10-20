@@ -1,4 +1,4 @@
-#include "block.h"
+#include "block.h"\n\nextern volatile uint32_t pfs_selftest_diag_stage;
 #include "health.h"
 
 static uint64_t read_count;
@@ -14,6 +14,10 @@ int block_device_init(struct pros_block_device *device,
                       pros_block_write_fn write,
                       void *private_data)
 {
+    /* Minimal stage markers: avoid reading caller frames while isolating a
+     * null-RIP fault at the block-device initialization boundary. */
+    if (pfs_selftest_diag_stage == 0xF004u)
+        pfs_selftest_diag_stage = 0xF041u;
     if (!device || sector_size == 0 || sector_count == 0 || !read)
         return PROS_BLOCK_EINVAL;
     device->sector_size = sector_size;
@@ -22,6 +26,8 @@ int block_device_init(struct pros_block_device *device,
     device->write = write;
     device->flush = 0;
     device->private_data = private_data;
+    if (pfs_selftest_diag_stage == 0xF041u)
+        pfs_selftest_diag_stage = 0xF042u;
     return PROS_BLOCK_OK;
 }
 
