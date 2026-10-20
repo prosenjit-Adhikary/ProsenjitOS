@@ -1,4 +1,6 @@
-#include "block.h"\n\nextern volatile uint32_t pfs_selftest_diag_stage;
+#include "block.h"
+
+extern volatile uint32_t pfs_selftest_diag_stage;
 #include "health.h"
 
 static uint64_t read_count;
