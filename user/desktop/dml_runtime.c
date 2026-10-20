@@ -265,6 +265,20 @@ int pros_dml_runtime_start(struct pros_dml_runtime *runtime,
         if (rc != PROS_DML_OK) {
             (void)pros_dml_transition(runtime->manager, entry->manifest.id,
                                       PROS_DML_SESSION_FAILED);
+            /*
+             * A defensive adapter may have created a process before a later
+             * launch step failed. If it published a nonzero handle, retain
+             * ownership and route it through the same reverse-order rollback
+             * path. If stop fails, runtime_stop_index leaves the handle tracked
+             * in FAILED state so a later runtime_stop() can retry cleanup.
+             */
+            if (process_handle != PROS_DML_INVALID_PROCESS_HANDLE) {
+                runtime->process_handles[index] = process_handle;
+                runtime->active_order[runtime->active_count++] = index;
+                started_this_call[started_count++] = index;
+                if (index == root_index)
+                    runtime->active_root = root_index;
+            }
             goto rollback;
         }
         /*
