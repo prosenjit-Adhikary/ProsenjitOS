@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $paint = Join-Path $root 'user/apps/paint/paint_core.c'
+$frontend = Join-Path $root 'user/apps/paint/paint_frontend.c'
 $test = Join-Path $root 'tests/paint_core_test.c'
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("prosenjitos-paint-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -51,9 +52,9 @@ try {
     Push-Location $tmp
     try {
         if ($name -ieq 'cl.exe') {
-            & $compilerPath '/nologo' '/std:c11' '/W4' '/WX' '/O2' $paint $test ("/Fo:" + $tmp + "\") ("/Fe:" + $output)
+            & $compilerPath '/nologo' '/std:c11' '/W4' '/WX' '/O2' $paint $frontend $test ("/Fo:" + $tmp + "\") ("/Fe:" + $output)
         } elseif ($isZig) {
-            & $compilerPath 'cc' '-target' 'x86_64-windows-gnu' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
+            & $compilerPath 'cc' '-target' 'x86_64-windows-gnu' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $frontend $test '-o' $output
         } else {
             & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
         }
