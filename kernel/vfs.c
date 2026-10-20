@@ -593,6 +593,14 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
         int lookup_rc = current->ops->lookup(current, component, &next);
         if (lookup_rc != PROS_VFS_OK || !next || !next->initialized ||
             next->mount != mount) {
+            /*
+             * A successful lookup transfers one owned reference. If the
+             * provider returned an initialized vnode from another mount,
+             * release that reference before rejecting the invalid result.
+             */
+            if (lookup_rc == PROS_VFS_OK && next && next->initialized &&
+                next->mount != mount)
+                (void)vfs_vnode_put(next);
             vfs_vnode_put(current);
             return lookup_rc == PROS_VFS_OK ? PROS_VFS_EINVAL : lookup_rc;
         }
