@@ -41,6 +41,15 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
+      - name: Diagnose ProsenjitFS block-init call/return path
+        run: |
+          echo "===== block_device_init disassembly ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 8 -A 70 '<block_device_init>:' || true
+          echo "===== direct call sites to block_device_init ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 10 -A 10 'call.*<block_device_init>' || true
+          echo "===== filesystem self-test entry ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
+
       - name: Boot-test ISO in QEMU
         run: |
           set +e
