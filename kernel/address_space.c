@@ -131,20 +131,15 @@ int address_space_map_user_page(struct pros_address_space *space,
     uint32_t pml4i = PML4_INDEX(virtual_address);
     uint32_t pdpti = PDPT_INDEX(virtual_address);
     uint32_t pdi = PD_INDEX(virtual_address);
-    uint64_t old_pml4e = space->root[pml4i];
+    uint32_t pti = PT_INDEX(virtual_address);
+    uint64_t *root = space->root;
+    uint64_t old_pml4e = root[pml4i];
     if ((old_pml4e & PROSENJIT_PAGE_PRESENT) &&
         (!(old_pml4e & PROSENJIT_PAGE_USER) ||
          (old_pml4e & LARGE_PAGE_FLAG) ||
          ((flags & PROSENJIT_PAGE_WRITABLE) &&
           !(old_pml4e & PROSENJIT_PAGE_WRITABLE))))
         return -1;
-
-    uint32_t pml4i = PML4_INDEX(virtual_address);
-    uint32_t pdpti = PDPT_INDEX(virtual_address);
-    uint32_t pdi = PD_INDEX(virtual_address);
-    uint32_t pti = PT_INDEX(virtual_address);
-    uint64_t *root = space->root;
-    uint64_t old_pml4e = root[pml4i];
     uint64_t *pdpt = ensure_table(root, pml4i);
     if (!pdpt) return -1;
     int created_pdpt = !(old_pml4e & PROSENJIT_PAGE_PRESENT);
