@@ -413,21 +413,32 @@ static void exit_lifecycle_parent_entry(void) {
 
         if (state == PROS_PROCESS_ZOMBIE) {
             int32_t status = 0;
-            if (!exit_lifecycle_preemption_count ||
-                !exit_lifecycle_parent ||
-                !exit_lifecycle_parent_thread ||
-                process_current() != exit_lifecycle_parent ||
-                thread_current() != exit_lifecycle_parent_thread ||
-                process_wait(exit_lifecycle_parent, exit_lifecycle_child_pid,
-                             &status) != 0 ||
-                status != 23 ||
-                process_lookup(exit_lifecycle_child_pid) != 0 ||
-                child->address_space.root != 0) {
-                serial_write("ProsenjitOS: ERROR real CPL3 exit/preemption/wait-reap test failed\n");
+            uint64_t failures = 0u;
+            int wait_rc = -99;
+            if (!exit_lifecycle_preemption_count) failures |= 1u;
+            if (!exit_lifecycle_parent ||
+                process_current() != exit_lifecycle_parent) failures |= 2u;
+            if (!exit_lifecycle_parent_thread ||
+                thread_current() != exit_lifecycle_parent_thread) failures |= 4u;
+            if (!failures)
+                wait_rc = process_wait(exit_lifecycle_parent,
+                                       exit_lifecycle_child_pid, &status);
+            if (wait_rc != 0) failures |= 8u;
+            if (status != 23) failures |= 16u;
+            if (process_lookup(exit_lifecycle_child_pid) != 0) failures |= 32u;
+            if (child->address_space.root != 0) failures |= 64u;
+            if (failures) {
+                serial_write("ProsenjitOS: ERROR real CPL3 lifecycle failure mask=");
+                serial_hex64(failures);
+                serial_write(" wait_rc=");
+                serial_hex64((uint64_t)(int64_t)wait_rc);
+                serial_write(" status=");
+                serial_hex64((uint64_t)(int64_t)status);
+                serial_write("\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
             serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
-            serial_write("ProsenjitOS: user process exit scheduler unit test passed\n");
+            serial_write("ProsenjitOS: user process exit/scheduler/wait-reap integration test passed\n");
             vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
             for (;;) __asm__ volatile ("cli; hlt");
         }
