@@ -372,6 +372,9 @@ int pros_elf_selftest(void)
                  !(flags & PROSENJIT_PAGE_NX)) check_rc = -28;
         else if (process.user_stack_top < PROSENJIT_USER_STACK_VA ||
                  process.user_stack_top > PROSENJIT_USER_STACK_TOP) check_rc = -29;
+        else if (((uint64_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL)))[
+                     (process.user_stack_top - PROSENJIT_USER_STACK_VA) /
+                     sizeof(uint64_t)] != 2u) check_rc = -30;
         if (check_rc != 0) {
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
