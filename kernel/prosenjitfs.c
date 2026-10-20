@@ -2904,6 +2904,7 @@ static int pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *
     uint64_t inode_byte_offset, inode_lba;
     uint32_t inode_offset;
     uint32_t name_length = 0u;
+    uint32_t entry_name_length = 0u;
     uint32_t bucket;
     uint64_t steps = 0u;
     int rc = PROSENJITFS_EIO;
@@ -2959,9 +2960,9 @@ static int pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *
             entry.name_length > PROSENJITFS_MAX_NAME ||
             entry.name[entry.name_length] != 0u ||
             entry.inode >= parent_data->fs->sb.inode_count ||
-            pfs_utf8_name_valid((const char *)entry.name, &name_length) !=
+            pfs_utf8_name_valid((const char *)entry.name, &entry_name_length) !=
                 PROSENJITFS_OK ||
-            name_length != entry.name_length ||
+            entry_name_length != entry.name_length ||
             entry.name_hash != pfs_name_hash(entry.name, entry.name_length) ||
             pfs_crc_with_zero32(entry_block, sizeof(entry),
                                 (uint32_t)offsetof(
