@@ -111,6 +111,7 @@ jobs:
           # Security-manager component self-tests run before this aggregate runtime gate.
           require_log "ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_log "ProsenjitOS: CPL3 SYS_EXIT syscall accepted"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
@@ -165,6 +166,7 @@ jobs:
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
           require_native_log "ProsenjitOS: block storage health self-test passed"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_native_log "ProsenjitOS: CPL3 SYS_EXIT syscall accepted"
           require_native_log "ProsenjitOS: partition discovery self-test passed"
           require_native_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
           require_native_log "ProsenjitOS: CPL3 scheduler-frame construction self-test passed"
@@ -200,6 +202,7 @@ jobs:
           require_second_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_second_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
           require_second_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
+          require_second_native_log "ProsenjitOS: CPL3 SYS_EXIT syscall accepted"
           require_second_native_log "ProsenjitOS: user process exit/scheduler/wait-reap integration test passed"
 
       # Diagnostics are already printed into the job log above. Do not upload
