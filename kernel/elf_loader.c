@@ -283,7 +283,7 @@ int pros_elf_selftest(void)
         uint64_t existing = 0, translated = 0, flags = 0;
         int rc = process_init(&process, 0xE1F2u, PROS_SECURITY_LIMITED);
         if (rc != 0) return -14;
-        existing = physical_page_alloc();
+        existing = physical_page_alloc_user();
         if (!existing ||
             address_space_map_user_page_owned(&process.address_space,
                                               ELF_TEST_CODE_VA, existing,
@@ -533,7 +533,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             }
         }
         if (flags < 0) continue;
-        uint64_t physical = physical_page_alloc();
+        uint64_t physical = physical_page_alloc_user();
         if (!physical) {
             rollback_user_pages(process, start, end);
             return PROS_ELF_ENOMEM;
@@ -591,7 +591,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         return PROS_ELF_ECONFLICT;
     }
     {
-        uint64_t stack_page = physical_page_alloc();
+        uint64_t stack_page = physical_page_alloc_user();
         if (!stack_page) {
             rollback_user_pages(process, start, end);
             return PROS_ELF_ENOMEM;
