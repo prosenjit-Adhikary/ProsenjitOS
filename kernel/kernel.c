@@ -208,7 +208,7 @@ void idt_init(void) {
      * path. If delivery itself fails, #DF will still have its dedicated IST.
      */
     idt_set_gate(13, handlers[13], 0);
-    idt_set_gate(14, handlers[14], 0);
+    idt_set_gate(14, handlers[14], 3); /* dedicated page-fault diagnostic stack */
     idt_set_gate(32, isr32, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
