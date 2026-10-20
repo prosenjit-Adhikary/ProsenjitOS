@@ -298,3 +298,14 @@ Before publishing a spawn syscall, add a kernel-owned launch-resource policy (or
 - [ ] Passing launch rollback and CPL3 lifecycle tests do not yet prove a production user-facing spawn service. `pros_init_launch()` still requires caller-owned process/thread/stack storage and is not exposed as a permission-checked spawn syscall. DML still lacks a production kernel-backed start/stop adapter; real graphical session/input integration remains incomplete.
 
 **Decision:** current-head CI is green, so the documentation-only head is verified. Keep PR #137 Draft; next kernel implementation must address durable resource allocation/ownership and focused launch failure-injection coverage before finalizing any spawn ABI or production DML adapter.
+
+
+## 2026-10-20 follow-up CI refresh — commit `a99183ad1b89d544a77b26bdce182521c356fa4b`
+
+- [x] [Build and boot-test run 39411122283](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39411122283) completed successfully. Debian `office` logs confirm the launch rollback self-test, CPL3 scheduler handoff, timer IRQ preemption, and user process exit/scheduler/wait-reap integration milestones; ISO and native BIOS image build/boot checks succeeded.
+- [x] The DML job in that run passed desktop manager, runtime, and compositor/window primitives on the Windows self-hosted runner. The runner guard remained active.
+- [x] [Security architecture run 39411122417](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39411122417) completed successfully on Debian `office`.
+- [!] These passing tests cover current kernel lifecycle paths and desktop unit tests, not a production spawn syscall or a complete graphical desktop session.
+- [ ] The next implementation gate remains a kernel-owned process/thread/stack allocation and lifetime policy, followed by direct `pros_init_launch()` success/failure injection against a mounted test filesystem. Existing boot self-test output alone does not demonstrate that every `pros_init_launch()` rollback branch was exercised.
+
+The PR description contains older verification notes and must not override the run-specific evidence above. Keep PR #137 Draft until production launch and real desktop integration gates are closed.
