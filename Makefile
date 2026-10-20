@@ -24,6 +24,6 @@ run: iso
 desktop-unit-test:
 	bash scripts/test_desktop_manager.sh
 
-# Host-side raster drawing/BMP regression tests; does not add GUI code to kernel.
+# Host-side raster drawing, frontend-controller, and BMP regression tests; no kernel GUI code.
 paint-unit-test:
 	bash scripts/test_paint_core.sh
