@@ -56,7 +56,7 @@ try {
         } elseif ($isZig) {
             & $compilerPath 'cc' '-target' 'x86_64-windows-gnu' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $frontend $test '-o' $output
         } else {
-            & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
+            & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $frontend $test '-o' $output
         }
         if ($LASTEXITCODE -ne 0) {
             throw "Paint core compilation failed (exit code $LASTEXITCODE)."
