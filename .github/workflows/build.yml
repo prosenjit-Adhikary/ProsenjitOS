@@ -35,6 +35,15 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
+      - name: Diagnose ProsenjitFS block-init call boundary
+        if: always()
+        run: |
+          set -eu
+          echo "===== block_device_init disassembly ====="
+          objdump -dr -Mintel build/obj/block.o | awk '/<block_device_init>:/ {show=1; n=0} show {print; n++} n==65 {show=0}'
+          echo "===== prosenjitfs_selftest block-init call site ====="
+          objdump -dr -Mintel build/obj/prosenjitfs.o | awk '/<prosenjitfs_selftest>:/ {show=1; n=0} show {print; n++} n==240 {show=0}'
+
       - name: Boot-test ISO in QEMU
         run: |
           set +e
