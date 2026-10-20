@@ -65,6 +65,7 @@ static struct pros_process *exit_lifecycle_child;
 static struct pros_thread *exit_lifecycle_parent_thread;
 static uint64_t exit_lifecycle_child_pid;
 static volatile uint64_t exit_lifecycle_preemption_count;
+static volatile uint8_t exit_lifecycle_timer_observed;
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -405,6 +406,7 @@ void user_mode_test_complete(void) {
  */
 static void exit_lifecycle_parent_entry(void) {
     __asm__ volatile ("sti" ::: "memory");
+    serial_write("ProsenjitOS: lifecycle parent thread entered with IRQs enabled\\n");
     for (;;) {
         struct pros_process *child = exit_lifecycle_child;
         uint32_t state = child ? process_state(child) : PROS_PROCESS_DEAD;
@@ -440,8 +442,13 @@ static void exit_lifecycle_parent_entry(void) {
          * preemption. Count only after the PIT has delivered real IRQs; the
          * child remains in its delay loop long enough to be preempted back.
          */
-        if (timer_irq_count() >= 10u)
+        if (timer_irq_count() >= 10u) {
             ++exit_lifecycle_preemption_count;
+            if (!exit_lifecycle_timer_observed) {
+                exit_lifecycle_timer_observed = 1u;
+                serial_write("ProsenjitOS: lifecycle observed real timer IRQ preemption window\\n");
+            }
+        }
         __asm__ volatile ("pause");
     }
 }
@@ -1748,6 +1755,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         exit_lifecycle_parent_thread = &exit_test_parent_thread;
         exit_lifecycle_child_pid = exit_test_child.pid;
         exit_lifecycle_preemption_count = 0u;
+        exit_lifecycle_timer_observed = 0u;
 
         serial_write("ProsenjitOS: starting real CPL3 timer-preemption and SYS_EXIT test\n");
         /*
