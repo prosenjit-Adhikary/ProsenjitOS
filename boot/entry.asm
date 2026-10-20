@@ -364,7 +364,7 @@ user_test_entry:
 
     ; Leave enough user execution time for a real timer IRQ to preempt
     ; this CPL3 thread, then exit through the public syscall ABI.
-    mov ecx, 20000000
+    mov ecx, 100000000
 .exit_delay:
     dec ecx
     jnz .exit_delay
