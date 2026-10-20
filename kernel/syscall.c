@@ -182,6 +182,7 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 registers[0] = PROSENJIT_SYSCALL_EBADF;
                 return;
             }
+            syscall_serial_write("ProsenjitOS: CPL3 SYS_EXIT syscall accepted\\n");
             registers[0] = PROSENJIT_SYSCALL_INTERNAL_TERMINATE;
             return;
         }
