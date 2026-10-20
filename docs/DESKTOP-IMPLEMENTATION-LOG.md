@@ -850,3 +850,24 @@ Do not add guessed syscall IDs or enable user-mode timer interrupts just to forc
 - [ ] This is prerequisite CI verification, not proof of a production desktop. The first-run CPL3 scheduling/exit/reap path still lacks an end-to-end acceptance test; the public spawn/exec API, owned process/thread/stack allocation policy, preemptive user-mode interrupt policy, production DML backend, and real display/input/session integration remain open.
 
 **Gate:** keep PR #137 in Draft and do not merge until the launch/lifecycle and real desktop integration gates are implemented and verified.
+
+
+## 2026-10-20 — Desktop pause checkpoint / resumable handoff
+
+The user is pausing Desktop Environment work to prioritize PR #118 and the boot-failure investigation. Keep this branch as a resumable checkpoint; do not imply the graphical desktop is complete.
+
+### Exact-head verification
+- [x] Tested commit `98fa46ebba05886d374bcff0f925e4d303c94e26`: [Build and boot-test run 39397593688](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39397593688) passed. Its designated `OfficeWindows` `dml-tests` job passed; Debian `office` runner passed toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- [x] OfficeWindows logs explicitly report `desktop manager tests passed`, `desktop runtime tests passed`, `desktop compositor/window primitives passed`, and `DML manager/runtime and compositor unit tests passed`.
+- [x] Exact-head [Security architecture checks run 39397593777](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39397593777) completed successfully.
+- [x] Regression coverage now includes a backend start callback that publishes a process handle and then fails, plus cleanup failure that retains the child handle and retries cleanup in reverse dependency order.
+- [x] Production launch ABI draft is in `docs/DML-SPAWN-ABI-DESIGN.md`; it is design-only, reserves no syscall number, and must not be treated as an implemented userspace spawn API.
+
+### Resume from here — next priorities
+1. Re-check PR #118 and the boot-failure report/logs first; avoid mixing kernel/boot-failure fixes into this Desktop branch without a clear dependency.
+2. When Desktop work resumes, start by reading this checkpoint, `docs/DML-SPAWN-ABI-DESIGN.md`, and `docs/DML-PROCESS-LAUNCH-GATES.md`.
+3. Keep DML unit tests on the designated `OfficeWindows` runner; keep kernel ISO/native BIOS QEMU verification on the designated Debian `office` runner.
+4. Next substantive Desktop milestone is a reviewed first-run CPL3 scheduling/exit/reap test and explicit process/thread/kernel-stack ownership contract. Do not add a guessed spawn syscall or enable user-mode timer preemption until the interrupt-frame, CR3, TSS-stack, first-run and exit/reap paths are verified together.
+5. After kernel launch/lifecycle gates are satisfied, implement and test the public policy-checked spawn/exec surface and production DML backend; graphical display/input delivery, compositor/window integration, session startup and boot-to-desktop acceptance remain later gates.
+
+**Checkpoint status:** DML runtime regression fixes are CI-verified on OfficeWindows and the kernel's existing build/boot gates are green at this exact head. This is a stable test checkpoint, not a production-ready desktop. Keep the desktop/launcher PR in Draft until all launch and real GUI acceptance gates pass.
