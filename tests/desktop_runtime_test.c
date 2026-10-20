@@ -294,6 +294,38 @@ int main(void)
     }
 
     /*
+     * If cleanup of a partially launched child itself fails, retain that
+     * handle and every still-live prerequisite. A later stop must retry the
+     * failed child first, then clean up the prerequisite.
+     */
+    {
+        uint32_t stops_before = mock.stop_count;
+        mock.fail_start_id = "graphics";
+        mock.fail_start_once = 1;
+        mock.publish_handle_on_failed_start = 1;
+        mock.fail_stop_id = "graphics";
+        mock.fail_stop_once = 1;
+        CHECK(pros_dml_runtime_start(&runtime, "session") ==
+              PROS_DML_EROLLBACK, 17);
+        CHECK(mock.stop_count == stops_before + 1u, 17);
+        CHECK(strcmp(mock.stops[stops_before], "graphics") == 0, 17);
+        CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ESTATE, 17);
+        CHECK(pros_dml_get_state(&manager, "graphics", &state) == PROS_DML_OK &&
+              state == PROS_DML_SESSION_FAILED, 17);
+        CHECK(pros_dml_runtime_stop(&runtime) == PROS_DML_OK, 17);
+        CHECK(mock.stop_count == stops_before + 3u, 17);
+        CHECK(strcmp(mock.stops[stops_before + 1u], "graphics") == 0, 17);
+        CHECK(strcmp(mock.stops[stops_before + 2u], "base") == 0, 17);
+        CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ENOENT, 17);
+        CHECK(pros_dml_get_state(&manager, "graphics", &state) == PROS_DML_OK &&
+              state == PROS_DML_SESSION_STOPPED, 17);
+        CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
+              state == PROS_DML_SESSION_STOPPED, 17);
+        mock.fail_start_id = 0;
+        mock.fail_stop_id = 0;
+    }
+
+    /*
      * The backend contract is synchronous and non-reentrant. Verify a backend
      * that accidentally calls back into the orchestrator cannot corrupt the
      * active order or reset the runtime while a callback is in flight.
