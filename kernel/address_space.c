@@ -444,10 +444,28 @@ int address_space_selftest(void) {
     if (address_space_create(&space) != 0)
         return -1;
 
+    /*
+     * A generic kernel allocation must not be accepted as a CPL3 mapping.
+     * User mappings require an explicitly user-classified physical page.
+     */
+    uint64_t kernel_page = physical_page_alloc();
+    if (!kernel_page) {
+        address_space_destroy(&space);
+        return -2;
+    }
+    if (address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
+                                    kernel_page, PROSENJIT_PAGE_NX) == 0) {
+        (void)address_space_unmap_user_page(&space, PROSENJIT_USER_TEST_VA, 0);
+        physical_page_free(kernel_page);
+        address_space_destroy(&space);
+        return -3;
+    }
+    physical_page_free(kernel_page);
+
     physical = physical_page_alloc_user();
     if (!physical) {
         address_space_destroy(&space);
-        return -2;
+        return -4;
     }
 
     if (address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA,
