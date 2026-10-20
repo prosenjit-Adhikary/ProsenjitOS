@@ -259,3 +259,13 @@ This is a narrow safety-consistency fix, **not** a production process-launch imp
 - [x] Added a user-mode-only dispatcher path that validates the status output range, limits wait to the current parent process, and returns `EAGAIN` for a child that is not yet a zombie.
 - [x] Added a dispatcher self-test that confirms a ring-0 call is rejected.
 - [ ] CI/build/boot-test verification for these commits is still pending. The syscall is non-blocking and must not be described as full POSIX wait or a complete spawn/exec/wait ABI.
+
+
+## 2026-10-20 latest-head verification — PR #137
+
+- [x] DML manager, runtime, and compositor/window-primitive unit tests passed in [workflow run 39398979928](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39398979928). The job log confirms runner name `OfficeWindows` (machine `IT`), then reports all three test groups passed.
+- [x] The designated Debian `office` build job in the same run passed toolchain verification, ISO build, QEMU ISO boot milestones, and native BIOS QEMU boot milestones.
+- [x] Security architecture contract validation passed in [workflow run 39398980049](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39398980049).
+- [x] Runner separation was enforced: DML tests ran on `OfficeWindows`; kernel/build/QEMU checks ran on Debian `office`.
+- [ ] These green checks do **not** establish production DML spawn/exec. The current runtime still depends on callbacks; a production permission-checked spawn adapter and end-to-end graphical desktop session remain outstanding.
+- [ ] This documentation update changes the PR head, so the new head must complete its own CI before the latest commit is considered verified. Keep PR #137 Draft until the production launch and desktop integration exit criteria above pass.
