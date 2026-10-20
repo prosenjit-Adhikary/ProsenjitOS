@@ -269,3 +269,20 @@ This is a narrow safety-consistency fix, **not** a production process-launch imp
 - [x] Runner separation was enforced: DML tests ran on `OfficeWindows`; kernel/build/QEMU checks ran on Debian `office`.
 - [ ] These green checks do **not** establish production DML spawn/exec. The current runtime still depends on callbacks; a production permission-checked spawn adapter and end-to-end graphical desktop session remain outstanding.
 - [ ] This documentation update changes the PR head, so the new head must complete its own CI before the latest commit is considered verified. Keep PR #137 Draft until the production launch and desktop integration exit criteria above pass.
+
+
+## 2026-10-20 follow-up source audit — scheduler progress vs. production launch
+
+This audit checked the current branch source, not just earlier notes:
+
+- [x] `thread_init_user()` constructs a CPL3 IRET frame and validates that the entry is user/executable and the initial stack is user/writable/NX.
+- [x] `thread_schedule_interrupt()` can select a queued user thread, updates the current process and TSS kernel stack, and returns the saved user interrupt frame for the assembly `iretq` path. The kernel boot self-test exercises this scheduler handoff.
+- [x] The boot lifecycle test now runs a scheduler-managed CPL3 child with timer-preemption observation, IPC, `SYS_EXIT`, and parent wait/reap. This is stronger than the earlier frame-construction-only milestone.
+- [ ] The ordinary `thread_schedule()` / kernel context-switch path is still not a CPL3 launch path; user threads must enter through the interrupt-frame/IRET route.
+- [ ] `pros_init_launch()` remains an internal helper whose caller supplies process/thread storage, PID/TID, security metadata, and kernel-stack bounds. It opens a filesystem path, but is not exposed as a permission-checked user syscall and does not itself solve durable allocation/ownership for production service children.
+- [ ] `include/abi/syscall.h` still has no general spawn/exec syscall, and `user/desktop/dml_runtime.c` still delegates start/stop to an adapter callback rather than a production kernel-backed process service.
+- [ ] The latest documentation commit `f37b03bd08ab73d61eab4af14a280e302e43033e` has workflow runs queued (run IDs `39400038370` and `39400038456` at the time of this audit). Do not treat the earlier green head as verification of this commit.
+
+### Next implementation gate
+
+Before publishing a spawn syscall, add a kernel-owned launch-resource policy (or a reviewed allocator interface) for process/thread objects and kernel stacks, then add a focused test of `pros_init_launch()` success and injected failures against a mounted test filesystem. Prove rollback leaves no registered PID, runnable thread, mapped address space, or retained stack. After that, review the executable-handle request and syscall policy as a separate ABI change; only then wire the DML adapter. Keep all desktop tests on `OfficeWindows` and kernel/QEMU verification on Debian `office`.
