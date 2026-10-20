@@ -4169,6 +4169,15 @@ static int pfs_vnode_readdir_unlocked(struct pros_vfs_vnode *directory,
         rc = prosenjitfs_read_inode(data->fs, disk_entry.inode, &child_inode);
         if (rc != PROSENJITFS_OK)
             return pfs_vfs_error(rc);
+        /*
+         * Directory-entry metadata is not authoritative for the inode type.
+         * Reject stale/corrupt entries instead of presenting a FREE or
+         * unknown inode as a regular file to callers enumerating the directory.
+         */
+        if (disk_entry.type != child_inode.type ||
+            (child_inode.type != PROSENJITFS_INODE_FILE &&
+             child_inode.type != PROSENJITFS_INODE_DIR))
+            return pfs_vfs_error(PROSENJITFS_ECORRUPT);
         for (uint32_t i = 0u; i < disk_entry.name_length; ++i)
             entry->name[i] = (char)disk_entry.name[i];
         entry->name[disk_entry.name_length] = '\0';
