@@ -21,6 +21,7 @@ struct mock_backend {
     int fail_start_once;
     int fail_stop_once;
     int return_zero_handle_once;
+    int publish_handle_on_failed_start;
     struct pros_dml_runtime *reentry_runtime;
     int reenter_start_once;
     int reenter_stop_once;
@@ -47,6 +48,10 @@ static int mock_start(const struct pros_dml_manifest *manifest,
     if (mock->fail_start_once && mock->fail_start_id &&
         strcmp(mock->fail_start_id, manifest->id) == 0) {
         mock->fail_start_once = 0;
+        if (mock->publish_handle_on_failed_start) {
+            mock->publish_handle_on_failed_start = 0;
+            *handle = ++mock->next_handle;
+        }
         return -77;
     }
     if (mock->return_zero_handle_once) {
@@ -265,6 +270,28 @@ int main(void)
     }
     CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
           state == PROS_DML_SESSION_STOPPED, 14);
+
+    /*
+     * If a backend publishes a child handle and then reports a later launch
+     * failure, the runtime must not orphan that child. Roll back the partial
+     * child first, then its already-started prerequisites.
+     */
+    {
+        uint32_t stops_before = mock.stop_count;
+        mock.fail_start_id = "graphics";
+        mock.fail_start_once = 1;
+        mock.publish_handle_on_failed_start = 1;
+        CHECK(pros_dml_runtime_start(&runtime, "session") == -77, 16);
+        CHECK(mock.stop_count == stops_before + 2u, 16);
+        CHECK(strcmp(mock.stops[stops_before], "graphics") == 0, 16);
+        CHECK(strcmp(mock.stops[stops_before + 1u], "base") == 0, 16);
+        CHECK(pros_dml_runtime_active(&runtime, &active) == PROS_DML_ENOENT, 16);
+        CHECK(pros_dml_get_state(&manager, "graphics", &state) == PROS_DML_OK &&
+              state == PROS_DML_SESSION_STOPPED, 16);
+        CHECK(pros_dml_get_state(&manager, "base", &state) == PROS_DML_OK &&
+              state == PROS_DML_SESSION_STOPPED, 16);
+        mock.fail_start_id = 0;
+    }
 
     /*
      * The backend contract is synchronous and non-reentrant. Verify a backend
