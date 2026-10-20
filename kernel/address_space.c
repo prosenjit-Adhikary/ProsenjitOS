@@ -65,6 +65,14 @@ static uint64_t *alloc_table(void) {
     return table;
 }
 
+static int table_empty(const uint64_t *table) {
+    if (!table) return 1;
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (table[i] & PROSENJIT_PAGE_PRESENT)
+            return 0;
+    return 1;
+}
+
 static uint64_t *ensure_table(uint64_t *parent, uint32_t index) {
     uint64_t entry = parent[index];
     if (entry & PROSENJIT_PAGE_PRESENT) {
@@ -255,6 +263,28 @@ int address_space_unmap_user_page(struct pros_address_space *space,
     }
     pt[PT_INDEX(virtual_address)] = 0;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+
+    /*
+     * Reclaim empty user page-table levels. Without this, repeated map/unmap
+     * cycles leak intermediate paging pages even after the leaf is removed.
+     * Only free tables reached through this user mapping; kernel-shared
+     * PML4 entries are outside the user VA range.
+     */
+    uint32_t pdi = PD_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    if (table_empty(pt)) {
+        pd[pdi] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pt);
+    }
+    if (table_empty(pd)) {
+        pdpt[pdpti] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pd);
+    }
+    if (table_empty(pdpt)) {
+        space->root[pml4i] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pdpt);
+    }
     return 0;
 }
 
