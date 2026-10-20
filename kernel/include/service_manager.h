@@ -15,6 +15,8 @@
 #define PROS_SERVICE_MAX       32u
 #define PROS_SERVICE_MAX_DEPS   8u
 #define PROS_SERVICE_MAX_RETRIES 3u
+/* Includes trailing NUL; service identifiers are at most 31 bytes. */
+#define PROS_SERVICE_NAME_MAX 32u
 
 enum pros_service_state {
     PROS_SERVICE_DEFINED = 0,
@@ -44,6 +46,12 @@ struct pros_service {
     uint32_t restart_count;
     uint8_t registered;
     uint8_t reserved[3];
+    /*
+     * The manager owns service/dependency identifiers. Callback functions
+     * and context remain caller-owned and must outlive registration.
+     */
+    char name_storage[PROS_SERVICE_NAME_MAX];
+    char dependency_storage[PROS_SERVICE_MAX_DEPS][PROS_SERVICE_NAME_MAX];
 };
 
 int service_manager_init(void);
