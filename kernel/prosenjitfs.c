@@ -3803,6 +3803,23 @@ static int pfs_vnode_rename_unlocked(struct pros_vfs_vnode *old_parent,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
 
+    /*
+     * Do not trust the directory-entry type as the inode's authoritative
+     * type. In particular, a forged/corrupt DIR entry must not make rename
+     * rewrite a regular file's parent_inode or bypass directory-cycle rules.
+     */
+    {
+        struct pros_prosenjitfs_inode source_inode;
+        rc = prosenjitfs_read_inode(old_data->fs, entry.inode, &source_inode);
+        if (rc != PROSENJITFS_OK)
+            return pfs_vfs_error(rc);
+        if (entry.type != source_inode.type ||
+            (source_inode.type != PROSENJITFS_INODE_FILE &&
+             source_inode.type != PROSENJITFS_INODE_DIR)) {
+            return pfs_vfs_error(PROSENJITFS_ECORRUPT);
+        }
+    }
+
     {
         struct pros_prosenjitfs_dir_entry existing;
         rc = pfs_find_dir_entry(new_data->fs, &new_dir, new_name, &existing);
