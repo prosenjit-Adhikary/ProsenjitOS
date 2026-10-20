@@ -1,9 +1,10 @@
 #include "../user/apps/paint/paint_core.h"
+#include "../user/apps/paint/paint_frontend.h"
 #define CHECK(expr) do { if (!(expr)) { fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, #expr); return EXIT_FAILURE; } } while (0)
 #include <stdio.h>
 #include <stdlib.h>
 int main(void){
- struct pros_paint_canvas c;const uint32_t white=0xffffffffu,black=0xff000000u,red=0xffff0000u;
+ struct pros_paint_canvas c;struct pros_paint_frontend ui;const uint32_t white=0xffffffffu,black=0xff000000u,red=0xffff0000u;
  CHECK(pros_paint_init(&c,16,12,white)==PROS_PAINT_OK);
  CHECK(pros_paint_init(&c,0,12,white)==PROS_PAINT_EINVAL);
  CHECK(pros_paint_undo(&c)==PROS_PAINT_ENOHISTORY);
@@ -26,6 +27,23 @@ int main(void){
  { FILE *bad=fopen("bad-paint.bmp","wb");CHECK(bad);CHECK(fwrite("BM",1,2,bad)==2);CHECK(fclose(bad)==0); }
  CHECK(pros_paint_load_bmp(&c,"bad-paint.bmp")==PROS_PAINT_EFORMAT);
  CHECK(c.width==16&&c.height==12&&c.pixels[0]==0xff00ff00u);
+ CHECK(pros_paint_frontend_init(&ui,&c)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_set_tool(&ui,(enum pros_paint_tool)99)==PROS_PAINT_EINVAL);
+ CHECK(pros_paint_frontend_set_brush_width(&ui,0)==PROS_PAINT_EINVAL);
+ CHECK(pros_paint_frontend_set_color(&ui,red)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_set_tool(&ui,PROS_PAINT_TOOL_LINE)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_up(&ui,4,8)==PROS_PAINT_EINVAL);
+ CHECK(pros_paint_frontend_pointer_down(&ui,1,8)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_up(&ui,8,8)==PROS_PAINT_OK);
+ CHECK(c.pixels[8*16+4]==red);
+ CHECK(pros_paint_frontend_undo(&ui)==PROS_PAINT_OK);
+ CHECK(c.pixels[8*16+4]==0xff00ff00u);
+ CHECK(pros_paint_frontend_redo(&ui)==PROS_PAINT_OK);
+ CHECK(c.pixels[8*16+4]==red);
+ CHECK(pros_paint_frontend_set_tool(&ui,PROS_PAINT_TOOL_FILL)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_set_color(&ui,black)==PROS_PAINT_OK);
+ CHECK(pros_paint_frontend_pointer_down(&ui,15,11)==PROS_PAINT_OK);
+ CHECK(c.pixels[11*16+15]==black);
  remove("bad-paint.bmp");
  remove("paint-test.bmp");pros_paint_destroy(&c);puts("ProsenjitOS Paint core tests passed");return 0;
 }
