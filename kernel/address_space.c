@@ -444,7 +444,7 @@ int address_space_selftest(void) {
     if (address_space_create(&space) != 0)
         return -1;
 
-    physical = physical_page_alloc();
+    physical = physical_page_alloc_user();
     if (!physical) {
         address_space_destroy(&space);
         return -2;
