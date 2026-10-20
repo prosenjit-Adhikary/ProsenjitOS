@@ -7386,7 +7386,8 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
 
         for (;;) {
-            int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &block);
+            uint64_t candidate = 0u;
+            int rc = prosenjitfs_alloc_blocks(&small_fs, 1u, &candidate);
             if (rc == PROSENJITFS_ENOSPC)
                 break;
             if (rc != PROSENJITFS_OK)
@@ -7399,6 +7400,8 @@ int prosenjitfs_selftest(void)
                     prosenjitfs_unmount(&small_fs);
                     return pfs_selftest_fail(__LINE__, -17);
                 }
+            /* Failed allocations clear their output; retain only success. */
+            block = candidate;
         }
         /*
          * These blocks are deliberately allocated directly, without inode
