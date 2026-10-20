@@ -6277,8 +6277,16 @@ int prosenjitfs_selftest(void)
         inode.dir_index == 0u ||
         !fs.mount.root)
         return pfs_selftest_fail(__LINE__, -5);
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EBUSY)
-        return pfs_selftest_fail(__LINE__, -5);
+    {
+        int remount_rc = prosenjitfs_mount(&fs, &device, 0u);
+        if (remount_rc != PROSENJITFS_EBUSY)
+            /*
+             * Preserve the unexpected API result in the boot diagnostic.
+             * A generic -5 hid whether this was EINVAL, EIO, or a lost
+             * active-mount state when reproducing native boot failures.
+             */
+            return pfs_selftest_fail(__LINE__, remount_rc);
+    }
     pfs_selftest_diag_stage = 0xC120u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
     {
