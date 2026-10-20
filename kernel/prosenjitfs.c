@@ -4445,7 +4445,21 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_header h;
     struct pros_prosenjitfs_journal_commit c;
     uint32_t checksum;
-#define PFS_TX_RETURN(value) do { int pfs_tx_return_rc = (value); (void)pfs_tx_reset(fs); return pfs_tx_return_rc; } while (0)
+    /*
+     * Once commit-record I/O begins, an error may leave a durable committed
+     * journal even if the device reports failure. Keep the live mount
+     * fail-closed until remount/recovery resolves that uncertain transaction.
+     */
+    uint8_t commit_uncertain = 0u;
+#define PFS_TX_RETURN(value) do { \
+        int pfs_tx_return_rc = (value); \
+        if (fs && commit_uncertain) { \
+            fs->read_only = 1u; \
+            fs->mount.read_only = 1u; \
+        } \
+        (void)pfs_tx_reset(fs); \
+        return pfs_tx_return_rc; \
+    } while (0)
 
     pfs_tx_diag_stage = 1u;
     pfs_tx_diag_count = 0u;
@@ -4544,6 +4558,9 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                 PFS_TX_RETURN(rc);
         }
             {
+            /* From this point the commit record may reach durable media,
+             * even if write/flush reports an error. */
+            commit_uncertain = 1u;
             int rc = pfs_write_block(fs->mount.device, commit_lba, commit);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_flush(fs->mount.device);
@@ -4620,6 +4637,8 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     pfs_tx_diag_count_before_clear = fs->tx.count;
     pfs_tx_diag_clear_rc = pfs_journal_clear(fs);
     pfs_tx_diag_count_after_clear = fs->tx.count;
+    if (pfs_tx_diag_clear_rc == PROSENJITFS_OK)
+        commit_uncertain = 0u;
     PFS_TX_RETURN(pfs_tx_diag_clear_rc);
 }
 
