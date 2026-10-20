@@ -400,45 +400,80 @@ static int build_initial_stack(struct pros_process *process,
         return PROS_ELF_EINVAL;
 
     uint8_t *page = (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL));
-    uint64_t sp = PROSENJIT_USER_STACK_TOP;
     uint64_t argv_ptrs[64];
     uint64_t env_ptrs[64];
+    uint64_t string_bytes = 0;
 
+    /* Preflight every string before modifying the stack page. */
+    for (uint32_t pass = 0; pass < 2u; ++pass) {
+        const char *const *list = pass == 0u ? argv : envp;
+        uint32_t count = pass == 0u ? argc : envc;
+        for (uint32_t i = 0; i < count; ++i) {
+            const char *str = list[i];
+            if (!str) return PROS_ELF_EINVAL;
+            uint64_t len = 0;
+            while (len <= 4096u && str[len] != '\0') ++len;
+            if (len > 4096u) return PROS_ELF_EBOUNDS;
+            if (len == UINT64_MAX || string_bytes > UINT64_MAX - (len + 1u))
+                return PROS_ELF_EOVERFLOW;
+            string_bytes += len + 1u;
+        }
+    }
+
+    /* Validate the pointer-vector footprint independently so the stack
+     * construction cannot rely on an arithmetic-only capacity check. */
+    if (argc > 64u || envc > 64u ||
+        (uint64_t)argc + (uint64_t)envc > 128u)
+        return PROS_ELF_EINVAL;
+
+    uint64_t pointer_words = (uint64_t)argc + (uint64_t)envc + 3u;
+    if (pointer_words > UINT64_MAX / sizeof(uint64_t))
+        return PROS_ELF_EOVERFLOW;
+    uint64_t pointer_bytes = pointer_words * sizeof(uint64_t);
+    uint64_t stack_capacity = PROSENJIT_USER_STACK_TOP - PROSENJIT_USER_STACK_VA;
+
+    /* Account for both required data and worst-case 16-byte alignment padding. */
+    if (string_bytes > UINT64_MAX - pointer_bytes ||
+        string_bytes + pointer_bytes > UINT64_MAX - 15u ||
+        string_bytes + pointer_bytes + 15u > stack_capacity)
+        return PROS_ELF_EOVERFLOW;
+
+    uint64_t sp = PROSENJIT_USER_STACK_TOP - string_bytes;
     for (uint32_t pass = 0; pass < 2u; ++pass) {
         const char *const *list = pass == 0u ? argv : envp;
         uint32_t count = pass == 0u ? argc : envc;
         uint64_t *out = pass == 0u ? argv_ptrs : env_ptrs;
         for (uint32_t i = count; i > 0u; --i) {
             const char *str = list[i - 1u];
-            if (!str) return PROS_ELF_EINVAL;
             uint64_t len = 0;
             while (len <= 4096u && str[len] != '\0') ++len;
-            if (len > 4096u) return PROS_ELF_EBOUNDS;
-            if (len + 1u > sp - PROSENJIT_USER_STACK_VA)
-                return PROS_ELF_EOVERFLOW;
             sp -= len + 1u;
-            if (sp < PROSENJIT_USER_STACK_VA) return PROS_ELF_EBOUNDS;
             uint64_t off = sp - PROSENJIT_USER_STACK_VA;
-            for (uint64_t j = 0; j <= len; ++j) page[off + j] = (uint8_t)str[j];
+            for (uint64_t j = 0; j <= len; ++j)
+                page[off + j] = (uint8_t)str[j];
             out[i - 1u] = sp;
         }
     }
 
-    sp &= ~0xFULL;
-    uint64_t pointer_words = (uint64_t)argc + (uint64_t)envc + 3u;
-    uint64_t bytes = pointer_words * sizeof(uint64_t);
-    if (bytes > sp - PROSENJIT_USER_STACK_VA)
+    /* Place the pointer block below the strings and align the final
+     * initial stack pointer down to 16 bytes. */
+    if (pointer_bytes > sp - PROSENJIT_USER_STACK_VA)
         return PROS_ELF_EBOUNDS;
-    sp -= bytes;
+    sp -= pointer_bytes;
     sp &= ~0xFULL;
-    if (sp < PROSENJIT_USER_STACK_VA) return PROS_ELF_EBOUNDS;
+    if (sp < PROSENJIT_USER_STACK_VA)
+        return PROS_ELF_EBOUNDS;
+
     uint64_t *stack = (uint64_t *)(page + (sp - PROSENJIT_USER_STACK_VA));
     *stack++ = argc;
     for (uint32_t i = 0; i < argc; ++i) *stack++ = argv_ptrs[i];
     *stack++ = 0;
     for (uint32_t i = 0; i < envc; ++i) *stack++ = env_ptrs[i];
     *stack++ = 0;
+
     /* Keep an ABI-safe 16-byte aligned initial stack pointer. */
+    if ((sp & 0xFULL) != 0)
+        return PROS_ELF_EBOUNDS;
     process->user_stack_top = sp;
     return PROS_ELF_OK;
 }
