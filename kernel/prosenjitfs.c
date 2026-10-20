@@ -6391,6 +6391,26 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -17);
     }
 
+    /*
+     * Directory-handle lifecycle regression: an open directory must keep the
+     * mount alive until the handle is closed, just like an open regular file.
+     */
+    {
+        struct pros_vfs_dir dir;
+        struct pros_vfs_dirent entry;
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY) {
+            (void)vfs_dir_close(&dir);
+            return pfs_selftest_fail(__LINE__, -21);
+        }
+        if (vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
+            vfs_dir_close(&dir) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -21);
+    }
+
     pfs_selftest_diag_stage = 0xC105u;
     pfs_selftest_diag_rc = PROSENJITFS_OK;
     /* Crash-recovery regression: replay a transaction after a partial home write. */
