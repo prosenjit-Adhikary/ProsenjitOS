@@ -7236,11 +7236,18 @@ int prosenjitfs_selftest(void)
         }
 
         if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE, &file) !=
-                PROS_VFS_OK ||
-            vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW ||
-            vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW ||
-            vfs_file_close(&file) != PROS_VFS_OK)
-            return pfs_selftest_fail(__LINE__, -15);
+                PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -151);
+        if (vfs_file_truncate(&file, UINT64_MAX) != PROS_VFS_EOVERFLOW) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -152);
+        }
+        if (vfs_file_truncate(&file, 0x100000000ULL) != PROS_VFS_EOVERFLOW) {
+            vfs_file_close(&file);
+            return pfs_selftest_fail(__LINE__, -153);
+        }
+        if (vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -154);
 
         pfs_selftest_diag_stage = __LINE__;
         /*
