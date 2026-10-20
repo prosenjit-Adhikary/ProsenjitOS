@@ -3234,7 +3234,10 @@ static int pfs_vnode_create_unlocked(struct pros_vfs_vnode *parent, const char *
         return PROS_VFS_EPERM;
     if (!parent->mount || !parent->mount->active)
         return PROS_VFS_EPERM;
-    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK)
+    if (pfs_utf8_name_valid(name, &name_length) != PROSENJITFS_OK ||
+        name_length == 0u || name_length > PROSENJITFS_MAX_NAME ||
+        (name_length == 1u && name[0] == '.') ||
+        (name_length == 2u && name[0] == '.' && name[1] == '.'))
         return PROS_VFS_EINVAL;
 
     { int inode_read_rc = pfs_vnode_validate_inode(data, &parent_inode);
@@ -3788,6 +3791,16 @@ static int pfs_vnode_rename_unlocked(struct pros_vfs_vnode *old_parent,
 
     if (pfs_utf8_name_valid(old_name, &old_len) != PROSENJITFS_OK ||
         pfs_utf8_name_valid(new_name, &new_len) != PROSENJITFS_OK)
+        return PROS_VFS_EINVAL;
+    /*
+     * "." and ".." are synthesized by lookup/readdir, not ordinary
+     * directory entries. Never permit rename to create reserved names or
+     * move a reserved component as if it were a stored entry.
+     */
+    if ((old_len == 1u && old_name[0] == '.') ||
+        (old_len == 2u && old_name[0] == '.' && old_name[1] == '.') ||
+        (new_len == 1u && new_name[0] == '.') ||
+        (new_len == 2u && new_name[0] == '.' && new_name[1] == '.'))
         return PROS_VFS_EINVAL;
 
     if (old_data->inode_number == new_data->inode_number && old_len == new_len) {
