@@ -499,6 +499,19 @@ int address_space_selftest(void) {
         return -4;
     }
 
+    /* A read-only ancestor must make the full user range non-writable. */
+    uint32_t test_pml4i = PML4_INDEX(PROSENJIT_USER_TEST_VA);
+    uint64_t saved_pml4e = space.root[test_pml4i];
+    space.root[test_pml4i] &= ~PROSENJIT_PAGE_WRITABLE;
+    int readonly_write_rejected =
+        address_space_validate_user_range(&space, PROSENJIT_USER_TEST_VA,
+                                          PROSENJIT_PAGE_SIZE, 1) != 0;
+    space.root[test_pml4i] = saved_pml4e;
+    if (!readonly_write_rejected) {
+        address_space_destroy(&space);
+        return -5;
+    }
+
     if (address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
                                     physical, PROSENJIT_PAGE_NX) == 0 ||
         address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA + 0x1000ULL,
