@@ -59,6 +59,7 @@ static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
 /* Prevent a fault in exception reporting from recursively re-entering it. */
 static volatile uint8_t exception_dispatch_active;
+extern volatile uint64_t block_init_return_diag;
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -262,6 +263,9 @@ void exception_dispatch(uint64_t *frame) {
         serial_hex64((uint64_t)(int64_t)pfs_rc);
         serial_write("\n");
     }
+    serial_write("ProsenjitOS: block-init captured return address = ");
+    serial_hex64(block_init_return_diag);
+    serial_write("\n");
     uint64_t cr2;
     __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
     if (vector != 128 && !usercopy_fault_active()) {
