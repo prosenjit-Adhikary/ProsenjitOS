@@ -1,3 +1,12 @@
+## 2026-10-20 — Real CPL3 child exit and parent wait/reap verified
+
+- [x] Exact PR head `f02b53701bfb0d66755d691f729a7c8d7ec69e15`: [Build and boot-test run 39384197248](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39384197248) passed, including ISO QEMU boot, native BIOS QEMU boot, and a second boot of the same native disk image.
+- [x] The kernel build job ran on the designated Debian `office` runner; its serial log contains `lifecycle observed real timer IRQ preemption window` followed by `user process exit/scheduler/wait-reap integration test passed` for the ISO boot and both native BIOS boots. The latter marker is emitted only after the parent checks timer preemption, current parent process/thread, child exit status 23, successful `process_wait`, PID removal, and address-space-root cleanup.
+- [x] The DML manager/runtime/compositor host tests passed on the specifically checked `OfficeWindows` runner in the same workflow run. Security architecture workflow [39384197268](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39384197268) also passed.
+- [x] This closes the scheduler-managed CPL3 child-exit + parent-resume + wait/reap integration gate for this exact head.
+- [ ] Production DML process-launch adapter is still not implemented. The current runtime accepts backend callbacks, but there is no public spawn/exec syscall or production adapter yet; a passing mock-backed DML test is not a real desktop launch.
+- [ ] Next: define and review a bounded, versioned process-spawn ABI and ownership/rollback contract, then implement the real adapter only after the syscall and launch-security gates pass. Continue to keep DML/userspace outside kernel-core.
+
 # Desktop Implementation Work Log
 
 ## 2026-10-19 — Follow-up CI result for documentation commit
