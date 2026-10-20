@@ -1646,7 +1646,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 serial_write("ProsenjitOS: ERROR user process exit/wait/reap integration failed\n");
                 for (;;) __asm__ volatile ("cli; hlt");
             }
-            serial_write("ProsenjitOS: user process exit/scheduler/wait-reap integration test passed\n");
+            serial_write("ProsenjitOS: process exit/wait-reap unit regression passed\n");
         }
     }
 
