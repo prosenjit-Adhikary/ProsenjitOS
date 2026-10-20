@@ -286,3 +286,15 @@ This audit checked the current branch source, not just earlier notes:
 ### Next implementation gate
 
 Before publishing a spawn syscall, add a kernel-owned launch-resource policy (or a reviewed allocator interface) for process/thread objects and kernel stacks, then add a focused test of `pros_init_launch()` success and injected failures against a mounted test filesystem. Prove rollback leaves no registered PID, runnable thread, mapped address space, or retained stack. After that, review the executable-handle request and syscall policy as a separate ABI change; only then wire the DML adapter. Keep all desktop tests on `OfficeWindows` and kernel/QEMU verification on Debian `office`.
+
+
+## 2026-10-20 current-head verification — `ce0c60a093633cda9059f7347bca644eff53a588`
+
+- [x] Latest-head workflow [Build and boot-test run 39400417957](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39400417957) completed successfully. Its DML job checked out the PR merge containing this exact head and passed desktop manager, runtime, and compositor/window-primitive tests on the Windows self-hosted runner. This preserves the required desktop runner separation.
+- [x] The same run's Debian `office` build job passed. Its serial output includes `launch transaction failure rollback self-test passed`, `CPL3 interrupt scheduler handoff self-test passed`, `lifecycle observed real timer IRQ preemption window`, and `user process exit/scheduler/wait-reap integration test passed`; ISO and native BIOS boot milestones completed.
+- [x] Security architecture checks passed in [run 39400417935](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39400417935) on the Debian `office` runner.
+- [x] Runner roles were verified from logs: DML tests ran on the Windows self-hosted runner; kernel build/ISO/QEMU and security checks ran on Debian `office`.
+- [!] **Current source correction:** `kernel/thread.c::thread_init_user()` currently sets initial user RFLAGS to `0x202` (IF enabled), not `0x2`. The earlier 2026-10-18 IF-clear note above is historical and superseded by the current source plus passing lifecycle test, which explicitly observes timer preemption. Do not describe the current branch as keeping IF clear.
+- [ ] Passing launch rollback and CPL3 lifecycle tests do not yet prove a production user-facing spawn service. `pros_init_launch()` still requires caller-owned process/thread/stack storage and is not exposed as a permission-checked spawn syscall. DML still lacks a production kernel-backed start/stop adapter; real graphical session/input integration remains incomplete.
+
+**Decision:** current-head CI is green, so the documentation-only head is verified. Keep PR #137 Draft; next kernel implementation must address durable resource allocation/ownership and focused launch failure-injection coverage before finalizing any spawn ABI or production DML adapter.
