@@ -547,11 +547,18 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     struct pros_vfs_vnode *current;
     const char *cursor;
     char component[PROS_VFS_NAME_MAX + 1u];
-    uint32_t components = 0;
+    uint32_t components = 0u;
+    uint32_t path_length = 0u;
+    uint8_t require_directory = 0u;
 
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+    while (path_length < PROS_VFS_PATH_MAX && path[path_length] != '\0')
+        ++path_length;
+    if (path_length == PROS_VFS_PATH_MAX && path[path_length] != '\0')
+        return PROS_VFS_EOVERFLOW;
+    require_directory = path[path_length - 1u] == '/' ? 1u : 0u;
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
@@ -615,6 +622,14 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
         /* lookup() transfers one owned vnode reference to the caller. */
         vfs_vnode_put(current);
         current = next;
+    }
+    /*
+     * Path component parsing skips separators, so explicitly enforce the
+     * directory requirement implied by a trailing slash.
+     */
+    if (require_directory && current->type != PROS_VFS_NODE_DIRECTORY) {
+        vfs_vnode_put(current);
+        return PROS_VFS_ENOTDIR;
     }
     *result = current;
     return PROS_VFS_OK;
@@ -1255,7 +1270,8 @@ static int vfs_vnode_api_selftest(void)
 
     /* Dot components must not make a regular file behave like a directory. */
     if (vfs_path_lookup(&mount, "/hello.txt/.", &found) != PROS_VFS_ENOTDIR ||
-        vfs_path_lookup(&mount, "/hello.txt/..", &found) != PROS_VFS_ENOTDIR)
+        vfs_path_lookup(&mount, "/hello.txt/..", &found) != PROS_VFS_ENOTDIR ||
+        vfs_path_lookup(&mount, "/hello.txt/", &found) != PROS_VFS_ENOTDIR)
         return -113;
 
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
