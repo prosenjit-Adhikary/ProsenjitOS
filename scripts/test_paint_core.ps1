@@ -16,11 +16,11 @@ try {
     $isZig = $false
     if (-not $compiler) {
         # Last-resort compiler: download official Zig and verify its pinned digest.
-        $zigVersion = '0.17.0'
+        $zigVersion = '0.15.2'
         $archiveName = "zig-x86_64-windows-$zigVersion.zip"
         $archive = Join-Path $tmp $archiveName
         $extract = Join-Path $tmp 'zig-extracted'
-        $expectedSha256 = 'b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428'
+        $expectedSha256 = '3a0ed1e8799a2f8ce2a6e6290a9ff22e6906f8227865911fb7ddedc3cc14cb0c'
         $url = "https://ziglang.org/download/$zigVersion/$archiveName"
         $downloaded = $false
         for ($attempt = 1; $attempt -le 4; $attempt++) {
@@ -53,7 +53,7 @@ try {
         if ($name -ieq 'cl.exe') {
             & $compilerPath '/nologo' '/std:c11' '/W4' '/WX' '/O2' $paint $test ("/Fo:" + $tmp + "\") ("/Fe:" + $output)
         } elseif ($isZig) {
-            & $compilerPath 'cc' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
+            & $compilerPath 'cc' '-target' 'x86_64-windows-gnu' '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
         } else {
             & $compilerPath '-std=c11' '-Wall' '-Wextra' '-Werror' '-pedantic' '-O2' $paint $test '-o' $output
         }
