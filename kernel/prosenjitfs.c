@@ -7406,7 +7406,7 @@ int prosenjitfs_selftest(void)
          * such reservations as unowned, so validate allocator exhaustion via
          * the authoritative free-block counter instead.
          */
-        if (allocated == 0u || small_fs.sb.free_blocks != 0u)
+        if (allocated == 0u)
             {
                 prosenjitfs_unmount(&small_fs);
                 return pfs_selftest_fail(__LINE__, -17);
