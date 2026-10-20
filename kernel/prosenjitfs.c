@@ -7535,6 +7535,21 @@ int prosenjitfs_selftest(void)
         if (vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -12);
     }
+    /*
+     * Directory handles must likewise prevent mount teardown, and closing
+     * the directory must release both the provider handle count and vnode ref.
+     */
+    {
+        struct pros_vfs_dir dir;
+        if (vfs_dir_open(&fs.mount, "/", &dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1801);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_EBUSY) {
+            (void)vfs_dir_close(&dir);
+            return pfs_selftest_fail(__LINE__, -1802);
+        }
+        if (vfs_dir_close(&dir) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -1803);
+    }
     {
         struct pros_prosenjitfs_inode before;
         struct pros_prosenjitfs_inode after;
