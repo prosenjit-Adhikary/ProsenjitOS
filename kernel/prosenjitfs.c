@@ -5651,12 +5651,18 @@ int prosenjitfs_unmount(struct pros_prosenjitfs *fs)
         return PROSENJITFS_EINVAL;
 
     /*
-     * Never tear down transaction/scratch state while a file or directory
-     * handle still owns a vnode. This also prevents a stale handle from
-     * becoming valid again if the same fs object is immediately remounted.
+     * Never tear down transaction/scratch state while any file or directory
+     * handle still owns a vnode. Child vnode references do not increment the
+     * root vnode's refcount, so checking the root alone is insufficient.
      */
     if (fs->mount.root && fs->mount.root->refcount > 1u)
         return PROSENJITFS_EBUSY;
+    for (uint32_t inode_number = 0u;
+         inode_number < PROSENJITFS_MAX_INODES; ++inode_number) {
+        if (fs->open_file_refs[inode_number] != 0u ||
+            fs->open_dir_refs[inode_number] != 0u)
+            return PROSENJITFS_EBUSY;
+    }
 
     rc = pfs_flush(fs->mount.device);
     if (rc != PROSENJITFS_OK)
