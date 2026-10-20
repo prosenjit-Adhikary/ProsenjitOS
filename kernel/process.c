@@ -93,6 +93,15 @@ static int process_has_children(const struct pros_process *process) {
     return 0;
 }
 
+/* Reap preflight: all conditions that could make final unregister fail must
+ * be checked before irreversible handle/address-space teardown starts. */
+static int process_is_registered(const struct pros_process *process) {
+    if (!process) return 0;
+    for (struct pros_process *it = process_list; it; it = it->next)
+        if (it == process) return 1;
+    return 0;
+}
+
 static int process_release_resources(struct pros_process *process) {
     if (!process) return -1;
     if (handle_table_close_all(&process->handles) != 0) return -1;
@@ -188,15 +197,36 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
-    *exit_code = child->exit_code;
+
+    /*
+     * Do not begin destructive cleanup unless the process is quiescent and
+     * final unregister is guaranteed by the current single-owner process
+     * manager invariants. In particular, an extra object reference must not
+     * leave a zombie with its address space already destroyed.
+     */
+    if (thread_process_has_live(child) || thread_process_is_current(child) ||
+        child->object.refcount != 1u || process_has_children(child) ||
+        !process_is_registered(child))
+        return -3;
+
+    /*
+     * Dead thread records must no longer point into caller-owned storage when
+     * wait succeeds. Do this only after the non-destructive process preflight;
+     * the operation itself validates all matching records before unlinking.
+     */
+    if (thread_process_unregister_dead(child) != 0) return -3;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
-        /* Keep a fully reaped process visible if final unlinking fails. */
-        child->state = PROS_PROCESS_ZOMBIE;
+        /*
+         * Resource release has already committed. Never lie by changing this
+         * resource-less process back to ZOMBIE; return an error and leave the
+         * DEAD state as the truthful terminal state for diagnostics.
+         */
         return -5;
     }
+    /* Publish the status only after the child has been fully unregistered. */
+    *exit_code = child->exit_code;
     return 0;
 }
 
@@ -369,10 +399,12 @@ struct pros_process *process_current(void) {
     return current_process;
 }
 
-int process_selftest(void)
+static int process_selftest_isolated(void)
 {
     struct pros_process parent;
     struct pros_process child;
+    struct pros_thread child_thread;
+    uint64_t child_thread_stack[16] __attribute__((aligned(16)));
     int32_t exit_code = 0;
 
     if (process_manager_init() != 0)
@@ -385,6 +417,9 @@ int process_selftest(void)
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) != 0)
         return -4;
     if (child.parent != &parent || child.parent_pid != parent.pid)
+        return -5;
+    if (thread_init(&child_thread, &child, 0xFFFF0002ULL, 1u,
+                    (uint64_t)(uintptr_t)(child_thread_stack + 16)) != 0)
         return -5;
     if (process_create(&parent, &child, 1002u, PROS_SECURITY_LIMITED) == 0)
         return -6;
@@ -413,10 +448,25 @@ int process_selftest(void)
         child.quarantined ||
         child.quarantine_previous_state != 0u)
         return -8;
+
+    /* A retained process object must block reap before any resource teardown,
+     * and a failed wait must not publish a misleading exit status. */
+    exit_code = -999;
+    if (object_retain(&child.object) != 0 ||
+        process_wait(&parent, child.pid, &exit_code) != -3 ||
+        exit_code != -999 ||
+        process_state(&child) != PROS_PROCESS_ZOMBIE ||
+        child.address_space.root == 0)
+        return -9;
+    if (object_release(&child.object) != 0)
+        return -10;
     if (process_wait(&parent, child.pid, &exit_code) != 0 ||
         exit_code != 42 ||
-        process_lookup(child.pid) != 0)
-        return -9;
+        process_lookup(child.pid) != 0 ||
+        child_thread.process != 0 ||
+        child_thread.state != PROS_THREAD_DEAD ||
+        child_thread.registry_next != 0)
+        return -11;
 
     parent.quarantined = 1u;
     parent.quarantine_previous_state = (uint8_t)PROS_PROCESS_READY + 1u;
@@ -436,4 +486,31 @@ int process_selftest(void)
     if (process_unregister(&parent) != 0)
         return -14;
     return 0;
+}
+
+
+/*
+ * The process self-test intentionally resets the manager to exercise PID,
+ * parent/child, wait, and teardown invariants. Preserve the live boot process
+ * registry/current context around that isolated fixture so later CPL3
+ * syscalls still resolve the real init process.
+ */
+int process_selftest(void)
+{
+    struct pros_process *saved_list = process_list;
+    struct pros_process *saved_current = current_process;
+    uint64_t saved_next_pid = next_pid;
+    int rc = process_selftest_isolated();
+
+    process_list = saved_list;
+    next_pid = saved_next_pid;
+    current_process = 0;
+    if (saved_current) {
+        if (address_space_switch(&saved_current->address_space) != 0)
+            return rc != 0 ? rc : -15;
+        current_process = saved_current;
+    } else if (paging_switch_kernel() != 0) {
+        return rc != 0 ? rc : -16;
+    }
+    return rc;
 }

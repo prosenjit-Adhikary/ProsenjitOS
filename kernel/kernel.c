@@ -44,6 +44,7 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
+static uint8_t user_frame_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 
@@ -59,6 +60,12 @@ static volatile uint64_t health_previous_crash_rip;
 static volatile uint8_t health_previous_crash_pending;
 /* Prevent a fault in exception reporting from recursively re-entering it. */
 static volatile uint8_t exception_dispatch_active;
+static struct pros_process *exit_lifecycle_parent;
+static struct pros_process *exit_lifecycle_child;
+static struct pros_thread *exit_lifecycle_parent_thread;
+static uint64_t exit_lifecycle_child_pid;
+static volatile uint64_t exit_lifecycle_preemption_count;
+static volatile uint8_t exit_lifecycle_timer_observed;
 
 #define BOOT_ELF_IMAGE_CAP 65536u
 static uint8_t boot_user_elf[BOOT_ELF_IMAGE_CAP] __attribute__((aligned(16)));
@@ -236,6 +243,22 @@ extern volatile uint64_t block_init_diag_entry_rsp;
 extern volatile uint64_t block_init_diag_exit_rsp;
 extern volatile uint64_t block_init_diag_entry_frame;
 extern volatile uint64_t block_init_diag_exit_frame;
+extern volatile uint64_t block_init_diag_device;
+extern volatile uint64_t block_init_diag_read;
+extern volatile uint64_t block_init_diag_write;
+extern volatile uint64_t block_init_diag_private_data;
+extern volatile uint64_t block_init_diag_sector_size;
+extern volatile uint64_t block_init_diag_sector_count;
+extern volatile uint64_t pfs_block_call_target;
+extern volatile uint64_t pfs_block_call_rsp;
+extern volatile uint64_t pfs_block_call_frame;
+extern volatile uint64_t pfs_block_call_return;
+extern volatile uint64_t pfs_block_call_device;
+extern volatile uint64_t pfs_block_call_read;
+extern volatile uint64_t pfs_block_call_write;
+extern volatile uint64_t pfs_block_call_private;
+extern volatile uint64_t pfs_block_call_sector_size;
+extern volatile uint64_t pfs_block_call_sector_count;
 
 void exception_dispatch(uint64_t *frame) {
     /* A nested exception means this handler or its reporting path faulted. Stop
@@ -268,7 +291,29 @@ void exception_dispatch(uint64_t *frame) {
         serial_write(" rc = ");
         serial_hex64((uint64_t)(int64_t)pfs_rc);
         serial_write("\n");
-        if (pfs_stage >= 0xF041u && pfs_stage <= 0xF044u) {
+        if (pfs_stage == 0xF004u ||
+            (pfs_stage >= 0xF041u && pfs_stage <= 0xF044u)) {
+            serial_write("ProsenjitOS: block-call target = ");
+            serial_hex64(pfs_block_call_target);
+            serial_write("\nProsenjitOS: block-call RSP/frame/return = ");
+            serial_hex64(pfs_block_call_rsp);
+            serial_write("/");
+            serial_hex64(pfs_block_call_frame);
+            serial_write("/");
+            serial_hex64(pfs_block_call_return);
+            serial_write("\nProsenjitOS: block-call device/read/write/private = ");
+            serial_hex64(pfs_block_call_device);
+            serial_write("/");
+            serial_hex64(pfs_block_call_read);
+            serial_write("/");
+            serial_hex64(pfs_block_call_write);
+            serial_write("/");
+            serial_hex64(pfs_block_call_private);
+            serial_write("\nProsenjitOS: block-call sector size/count = ");
+            serial_hex64(pfs_block_call_sector_size);
+            serial_write("/");
+            serial_hex64(pfs_block_call_sector_count);
+            serial_write("\n");
             serial_write("ProsenjitOS: block-init entry return = ");
             serial_hex64(block_init_diag_entry_return);
             serial_write("\nProsenjitOS: block-init exit return = ");
@@ -281,6 +326,18 @@ void exception_dispatch(uint64_t *frame) {
             serial_hex64(block_init_diag_exit_rsp);
             serial_write("/");
             serial_hex64(block_init_diag_exit_frame);
+            serial_write("\nProsenjitOS: block-init arguments device/read/write/private = ");
+            serial_hex64(block_init_diag_device);
+            serial_write("/");
+            serial_hex64(block_init_diag_read);
+            serial_write("/");
+            serial_hex64(block_init_diag_write);
+            serial_write("/");
+            serial_hex64(block_init_diag_private_data);
+            serial_write("\nProsenjitOS: block-init sector size/count = ");
+            serial_hex64(block_init_diag_sector_size);
+            serial_write("/");
+            serial_hex64(block_init_diag_sector_count);
             serial_write("\n");
         }
     }
@@ -340,6 +397,266 @@ void user_mode_test_complete(void) {
     serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
     vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
     for (;;) __asm__ volatile ("cli; hlt");
+}
+
+/*
+ * First-run continuation for the parent kernel thread. It runs after a real
+ * timer interrupt or SYS_EXIT IRET-frame switch, and reaps only after the
+ * child has reached ZOMBIE.
+ */
+static void exit_lifecycle_parent_entry(void) {
+    __asm__ volatile ("sti" ::: "memory");
+    serial_write("ProsenjitOS: lifecycle parent thread entered with IRQs enabled\n");
+    for (;;) {
+        struct pros_process *child = exit_lifecycle_child;
+        uint32_t state = child ? process_state(child) : PROS_PROCESS_DEAD;
+
+        if (state == PROS_PROCESS_ZOMBIE) {
+            int32_t status = 0;
+            uint64_t failures = 0u;
+            int wait_rc = -99;
+            if (!exit_lifecycle_preemption_count) failures |= 1u;
+            if (!exit_lifecycle_parent ||
+                process_current() != exit_lifecycle_parent) failures |= 2u;
+            if (!exit_lifecycle_parent_thread ||
+                thread_current() != exit_lifecycle_parent_thread) failures |= 4u;
+            if (!failures)
+                wait_rc = process_wait(exit_lifecycle_parent,
+                                       exit_lifecycle_child_pid, &status);
+            if (wait_rc != 0) failures |= 8u;
+            if (status != 23) failures |= 16u;
+            if (process_lookup(exit_lifecycle_child_pid) != 0) failures |= 32u;
+            if (child->address_space.root != 0) failures |= 64u;
+            if (failures) {
+                serial_write("ProsenjitOS: ERROR real CPL3 lifecycle failure mask=");
+                serial_hex64(failures);
+                serial_write(" wait_rc=");
+                serial_hex64((uint64_t)(int64_t)wait_rc);
+                serial_write(" status=");
+                serial_hex64((uint64_t)(int64_t)status);
+                serial_write("\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: CPL3 user-mode and IPC syscall test passed\n");
+            serial_write("ProsenjitOS: user process exit/scheduler/wait-reap integration test passed\n");
+            vga_write("ProsenjitOS: CPL3 user mode online", 0x0F);
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        if (state == PROS_PROCESS_DEAD || !child) {
+            serial_write("ProsenjitOS: ERROR user child became invalid before reap\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /*
+         * A parent iteration before the first timer tick is not proof of
+         * preemption. Count only after the PIT has delivered real IRQs; the
+         * child remains in its delay loop long enough to be preempted back.
+         */
+        if (timer_irq_count() >= 10u) {
+            ++exit_lifecycle_preemption_count;
+            if (!exit_lifecycle_timer_observed) {
+                exit_lifecycle_timer_observed = 1u;
+                serial_write("ProsenjitOS: lifecycle observed real timer IRQ preemption window\n");
+            }
+        }
+        __asm__ volatile ("pause");
+    }
+}
+
+
+static const char native_persistence_path[] = "/native-persistence.bin";
+static const uint8_t native_persistence_signature[] = {
+    'P', 'R', 'O', 'S', '-', 'N', 'A', 'T', '-', 'P', 'E', 'R', 'S', 'I', 'S', 'T', 1u
+};
+
+static int native_partition_is_blank(struct pros_block_device *device)
+{
+    uint8_t *buffer;
+    uint64_t lba = 0u;
+    if (!device || device->sector_size == 0u || device->sector_count == 0u) {
+        serial_write("ProsenjitOS: native blank scan invalid device\n");
+        return -1;
+    }
+    buffer = (uint8_t *)kmalloc(device->sector_size * 8u);
+    if (!buffer) {
+        serial_write("ProsenjitOS: native blank scan allocation failed\n");
+        return -1;
+    }
+    while (lba < device->sector_count) {
+        uint64_t remaining = device->sector_count - lba;
+        uint32_t count = remaining > 8u ? 8u : (uint32_t)remaining;
+        uint32_t bytes = count * device->sector_size;
+        int read_rc = block_device_read(device, lba, count, buffer);
+        if (read_rc != PROS_BLOCK_OK) {
+            serial_write("ProsenjitOS: native blank scan read failed lba=");
+            serial_hex64(lba);
+            serial_write(" rc=");
+            serial_hex64((uint64_t)(int64_t)read_rc);
+            serial_write("\n");
+            kfree(buffer);
+            return -1;
+        }
+        for (uint32_t i = 0u; i < bytes; ++i) {
+            if (buffer[i] != 0u) {
+                serial_write("ProsenjitOS: native partition not blank sector=");
+                serial_hex64(lba + i / device->sector_size);
+                serial_write(" byte=");
+                serial_hex64(i % device->sector_size);
+                serial_write(" value=");
+                serial_hex64(buffer[i]);
+                serial_write("\n");
+                kfree(buffer);
+                return 0;
+            }
+        }
+        lba += count;
+    }
+    kfree(buffer);
+    return 1;
+}
+
+static int native_persistence_marker_read(struct pros_prosenjitfs *fs)
+{
+    struct pros_vfs_file file = {0};
+    uint8_t actual[sizeof(native_persistence_signature)];
+    uint32_t done = 0u;
+    int rc = vfs_file_open(&fs->mount, native_persistence_path,
+                           PROS_VFS_O_READ, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    if (!file.vnode || file.vnode->size != sizeof(native_persistence_signature)) {
+        (void)vfs_file_close(&file);
+        return PROS_VFS_ECORRUPT;
+    }
+    rc = vfs_file_read(&file, actual, sizeof(actual), &done);
+    {
+        int close_rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK || close_rc != PROS_VFS_OK ||
+            done != sizeof(actual))
+            return PROS_VFS_EIO;
+    }
+    for (uint32_t i = 0u; i < sizeof(actual); ++i) {
+        if (actual[i] != native_persistence_signature[i])
+            return PROS_VFS_ECORRUPT;
+    }
+    return PROS_VFS_OK;
+}
+
+static int native_persistence_marker_create(struct pros_prosenjitfs *fs)
+{
+    struct pros_vfs_file file = {0};
+    uint32_t done = 0u;
+    int rc = vfs_file_open(&fs->mount, native_persistence_path,
+                           PROS_VFS_O_READ | PROS_VFS_O_WRITE |
+                           PROS_VFS_O_CREATE, &file);
+    if (rc != PROS_VFS_OK)
+        return rc;
+    rc = vfs_file_write(&file, native_persistence_signature,
+                        sizeof(native_persistence_signature), &done);
+    {
+        int close_rc = vfs_file_close(&file);
+        if (rc != PROS_VFS_OK || close_rc != PROS_VFS_OK ||
+            done != sizeof(native_persistence_signature))
+            return PROS_VFS_EIO;
+    }
+    return PROS_VFS_OK;
+}
+
+/*
+ * Native BIOS storage is an actual IDE/ATA block path, not a RAM-disk test.
+ * A blank PFS partition is formatted only after every sector has been
+ * confirmed zero; a nonblank unsupported/corrupt partition is never
+ * auto-formatted. The marker is written once, then checked after unmount and
+ * remount so durable writes and partition-local bounds are exercised.
+ */
+static int native_bios_storage_selftest(void)
+{
+    static struct pros_ata_pio ata;
+    static struct pros_prosenjitfs fs;
+    struct pros_partition partitions[4];
+    struct pros_partition *pfs_partition = 0;
+    struct pros_partition_device view = {0};
+    uint8_t mbr[512];
+    uint32_t partition_count = 0u;
+    int rc;
+    int marker_preexisting = 0;
+
+    if (pros_ata_pio_selftest() != PROS_ATA_OK)
+        return -1;
+    serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+
+    if (pros_ata_pio_probe(&ata) != PROS_ATA_OK ||
+        ata.block.sector_size != 512u ||
+        block_device_read(&ata.block, 0u, 1u, mbr) != PROS_BLOCK_OK ||
+        mbr[510] != 0x55u || mbr[511] != 0xAAu)
+        return -2;
+
+    if (partition_read_mbr(&ata.block, partitions, 4u, &partition_count) !=
+            PROS_PARTITION_OK)
+        return -3;
+    for (uint32_t i = 0u; i < partition_count; ++i) {
+        if (partitions[i].mbr_type == 0xDAu) {
+            pfs_partition = &partitions[i];
+            break;
+        }
+    }
+    if (!pfs_partition)
+        return -4;
+    if (partition_device_init(&view, &ata.block, pfs_partition) !=
+            PROS_PARTITION_OK)
+        return -5;
+
+    rc = prosenjitfs_probe(&view.device);
+    if (rc == PROSENJITFS_ENOTSUP) {
+        int blank = native_partition_is_blank(&view.device);
+        if (blank != 1)
+            return -6;
+        if (prosenjitfs_format(&view.device) != PROSENJITFS_OK ||
+            prosenjitfs_probe(&view.device) != PROSENJITFS_OK)
+            return -7;
+    } else if (rc != PROSENJITFS_OK) {
+        return -8;
+    }
+
+    if (prosenjitfs_mount(&fs, &view.device, 0u) != PROSENJITFS_OK)
+        return -9;
+    rc = native_persistence_marker_read(&fs);
+    if (rc == PROS_VFS_ENOENT) {
+        if (native_persistence_marker_create(&fs) != PROS_VFS_OK) {
+            (void)prosenjitfs_unmount(&fs);
+            return -10;
+        }
+    } else if (rc == PROS_VFS_OK) {
+        marker_preexisting = 1;
+    } else {
+        (void)prosenjitfs_unmount(&fs);
+        return -11;
+    }
+
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+        prosenjitfs_mount(&fs, &view.device, 0u) != PROSENJITFS_OK)
+        return -12;
+    if (native_persistence_marker_read(&fs) != PROS_VFS_OK) {
+        (void)prosenjitfs_unmount(&fs);
+        return -13;
+    }
+
+    if (block_device_read(&view.device, view.device.sector_count, 1u, mbr) !=
+            PROS_BLOCK_EINVAL ||
+        block_device_write(&view.device, view.device.sector_count, 1u, mbr) !=
+            PROS_BLOCK_EINVAL) {
+        (void)prosenjitfs_unmount(&fs);
+        return -14;
+    }
+    serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
+
+    if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+        return -15;
+    if (marker_preexisting)
+        serial_write("ProsenjitOS: native persistence marker recovered from prior boot\n");
+    serial_write("ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed\n");
+    return 0;
 }
 
 void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
@@ -491,6 +808,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     (void)pros_health_watchdog_kick(1u);
 
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        int native_storage_rc = native_bios_storage_selftest();
+        if (native_storage_rc != 0) {
+            serial_write("ProsenjitOS: ERROR native BIOS storage self-test rc=");
+            serial_hex64((uint64_t)(int64_t)native_storage_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+
     struct pros_process init_process;
     if (process_manager_init() != 0 ||
         process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
@@ -520,6 +847,32 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_state(&init_process) != PROS_PROCESS_RUNNING) {
         serial_write("ProsenjitOS: ERROR initial process lifecycle test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /*
+     * A failed filesystem-backed launch must roll back the registered child,
+     * close its resources, and remove its PID. An inactive mount forces a
+     * deterministic failure after process creation but before ELF mapping.
+     */
+    {
+        struct pros_vfs_mount inactive_launch_mount = {0};
+        struct pros_file_security_metadata launch_metadata = {0};
+        struct pros_process launch_rollback_child = {0};
+        struct pros_thread launch_rollback_thread = {0};
+        int launch_rc = pros_init_launch(
+            &inactive_launch_mount, "/not-mounted", &init_process,
+            &launch_rollback_child, &launch_rollback_thread,
+            0x7000u, 0x7000u, PROS_SECURITY_LIMITED, &launch_metadata,
+            (uint64_t)(uintptr_t)init_thread_stack,
+            (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack)));
+        if (launch_rc != PROS_INIT_EIO ||
+            process_lookup(0x7000u) != 0 ||
+            process_state(&launch_rollback_child) != PROS_PROCESS_DEAD ||
+            launch_rollback_child.address_space.root != 0) {
+            serial_write("ProsenjitOS: ERROR launch transaction rollback self-test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: launch transaction failure rollback self-test passed\n");
     }
 
     struct pros_process child_process;
@@ -683,6 +1036,37 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR thread scheduler foundation test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /*
+     * Quarantine regression: queued threads belonging to a quarantined
+     * process must remain recoverable, but must not be reported runnable.
+     */
+    {
+        uint32_t init_state_before = thread_state(&init_thread);
+        uint32_t worker_state_before = thread_state(&worker_thread);
+        init_process.quarantined = 1u;
+        if (thread_schedule() == 0 ||
+            thread_has_runnable() != 0 ||
+            thread_state(&worker_thread) == PROS_THREAD_DEAD ||
+            thread_state(&init_thread) != init_state_before) {
+            serial_write("ProsenjitOS: ERROR quarantined scheduler preservation regression failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        init_process.quarantined = 0u;
+        if (!thread_has_runnable() ||
+            thread_schedule() != 0 ||
+            thread_current() != &worker_thread ||
+            thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+            thread_state(&init_thread) == PROS_THREAD_DEAD ||
+            worker_state_before == PROS_THREAD_DEAD) {
+            serial_write("ProsenjitOS: ERROR quarantined scheduler recovery regression failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        if (thread_schedule() != 0 || thread_current() != &init_thread) {
+            serial_write("ProsenjitOS: ERROR scheduler recovery restore failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: scheduler quarantine preservation/recovery regression passed\n");
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
 
     /* Process exit must terminate its threads and remove them from the run queue. */
@@ -738,6 +1122,23 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
 
+    /* A malformed CPL3 candidate must be discarded, never started through
+     * the CPL0 RET trampoline synthesized for kernel threads. */
+    struct pros_thread invalid_user_frame_thread;
+    if (thread_init(&invalid_user_frame_thread, &init_process, 3u,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(user_frame_thread_stack +
+                                          sizeof(user_frame_thread_stack))) != 0) {
+        serial_write("ProsenjitOS: ERROR invalid user-frame regression setup failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    invalid_user_frame_thread.user_mode = 1u;
+    if (thread_set_state(&invalid_user_frame_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&invalid_user_frame_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR invalid user-frame regression enqueue failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
@@ -748,7 +1149,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame) {
+        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) {
         serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -764,7 +1167,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         init_thread.interrupt_frame != &scheduler_init_frame ||
         scheduler_init_frame.rax != 0x1111111111111111ULL ||
         scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame != &scheduler_worker_frame) {
+        worker_thread.interrupt_frame != &scheduler_worker_frame ||
+        invalid_user_frame_thread.state != PROS_THREAD_DEAD ||
+        cpu_get_kernel_stack() !=
+            (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -900,9 +1306,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     (void)pros_health_watchdog_poll();
 
     /* Device permission broker: grants are issued only after a device is bound. */
-    if (pros_device_broker_selftest() != PROS_DRIVER_OK) {
-        serial_write("ProsenjitOS: ERROR device permission broker self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int broker_rc = pros_device_broker_selftest();
+        if (broker_rc != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR device permission broker self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)broker_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\n");
 
@@ -912,9 +1323,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: display-device binding self-test passed\n");
 
-    if (pros_net_selftest() != PROS_NET_OK) {
-        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int network_rc = pros_net_selftest();
+        if (network_rc != PROS_NET_OK) {
+            serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)network_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: network protocol/socket self-test passed\n");
 
@@ -1076,6 +1492,182 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated\n");
 
+    /*
+     * Exercise construction of a first-run CPL3 scheduler frame without
+     * enqueueing it. This verifies entry/stack permissions, selectors, RFLAGS,
+     * and the per-thread kernel-stack contract before process spawning exists.
+     */
+    {
+        struct pros_thread user_frame_test_thread;
+        struct pros_thread scheduler_kernel_test_thread;
+        struct pros_user_interrupt_frame *user_frame;
+        uint64_t kernel_stack_bottom =
+            (uint64_t)(uintptr_t)user_frame_thread_stack;
+        uint64_t kernel_stack_top = kernel_stack_bottom +
+                                    sizeof(user_frame_thread_stack);
+        if (thread_init_user(&user_frame_test_thread, &init_process, 3u,
+                             elf_result.entry, elf_result.stack_top,
+                             kernel_stack_bottom, kernel_stack_top) != 0) {
+            serial_write("ProsenjitOS: ERROR CPL3 scheduler-frame construction failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        user_frame = (struct pros_user_interrupt_frame *)(uintptr_t)
+                     user_frame_test_thread.interrupt_frame;
+        if (!user_frame_test_thread.user_mode ||
+            user_frame_test_thread.kernel_stack_top != kernel_stack_top ||
+            user_frame->registers.rip != elf_result.entry ||
+            user_frame->registers.cs != 0x1Bu ||
+            user_frame->registers.rflags != 0x202u ||
+            user_frame->user_rsp != elf_result.stack_top ||
+            user_frame->user_ss != 0x23u) {
+            serial_write("ProsenjitOS: ERROR CPL3 scheduler-frame fields invalid\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: CPL3 scheduler-frame construction self-test passed\n");
+
+        /*
+         * Exercise the interrupt scheduler's CPL3 first-run selection path.
+         * This checks the selected IRET frame and TSS kernel-stack handoff;
+         * The user frame now carries IF=1 so the real CPL3 path can receive
+         * timer IRQs; this fixture still tests selection, not elapsed-time
+         * preemption. Reset old scheduler fixtures before building this pair.
+         */
+        if (thread_manager_init() != 0 ||
+            thread_init(&scheduler_kernel_test_thread, &init_process, 4u,
+                        (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                        (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                              sizeof(lifecycle_thread_stack))) != 0 ||
+            thread_enqueue(&user_frame_test_thread) != 0 ||
+            thread_enqueue(&scheduler_kernel_test_thread) != 0 ||
+            thread_schedule() != 0 ||
+            thread_current() != &scheduler_kernel_test_thread) {
+            serial_write("ProsenjitOS: ERROR CPL3 scheduler candidate setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        {
+            struct pros_interrupt_frame *selected =
+                thread_schedule_interrupt(&scheduler_init_frame);
+            if (selected != &user_frame->registers ||
+                thread_current() != &user_frame_test_thread ||
+                thread_state(&user_frame_test_thread) != PROS_THREAD_RUNNING ||
+                cpu_get_kernel_stack() != kernel_stack_top ||
+                selected->rip != elf_result.entry ||
+                selected->cs != 0x1Bu ||
+                selected->rflags != 0x202u) {
+                serial_write("ProsenjitOS: ERROR CPL3 interrupt scheduler handoff failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+        serial_write("ProsenjitOS: CPL3 interrupt scheduler handoff self-test passed\n");
+
+        /*
+         * Exercise the real process-exit scheduler transition without
+         * executing a test ELF: select a mapped CPL3 child frame, terminate
+         * that child through the same scheduler entry used by SYS_EXIT, then
+         * verify the parent resumes and can reap all child resources.
+         */
+        {
+            struct pros_process exit_child = {0};
+            struct pros_thread exit_parent_thread;
+            struct pros_thread exit_child_thread;
+            uint64_t entry_physical = 0u, entry_flags = 0u;
+            uint64_t stack_page = physical_page_alloc_user();
+            uint64_t stack_va = (elf_result.stack_top - 1u) & ~0xFFFULL;
+            uint64_t kernel_stack_bottom =
+                (uint64_t)(uintptr_t)user_frame_thread_stack;
+            uint64_t kernel_stack_top = kernel_stack_bottom +
+                                        sizeof(user_frame_thread_stack);
+            int32_t exit_status = 0;
+            struct pros_interrupt_frame *child_frame;
+            struct pros_interrupt_frame *parent_frame;
+
+            if (!stack_page ||
+                process_create(&init_process, &exit_child, 0x7100u,
+                               PROS_SECURITY_LIMITED) != 0 ||
+                process_set_state(&exit_child, PROS_PROCESS_NEW) != 0 ||
+                address_space_translate_user(&init_process.address_space,
+                                             elf_result.entry,
+                                             &entry_physical, &entry_flags) != 0 ||
+                !(entry_flags & PROSENJIT_PAGE_USER) ||
+                (entry_flags & PROSENJIT_PAGE_NX) != 0u ||
+                address_space_map_user_page(&exit_child.address_space,
+                                            elf_result.entry & ~0xFFFULL,
+                                            entry_physical & ~0xFFFULL, 0u) != 0 ||
+                address_space_map_user_page_owned(&exit_child.address_space,
+                                                  stack_va, stack_page,
+                                                  PROSENJIT_PAGE_WRITABLE |
+                                                  PROSENJIT_PAGE_NX) != 0) {
+                if (stack_page) physical_page_free(stack_page);
+                serial_write("ProsenjitOS: ERROR exit scheduler child mappings failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            if (thread_manager_init() != 0 ||
+                thread_init(&exit_parent_thread, &init_process, 0x7100u,
+                            (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                            (uint64_t)(uintptr_t)(init_thread_stack +
+                                                  sizeof(init_thread_stack))) != 0 ||
+                thread_init_user(&exit_child_thread, &exit_child, 0x7101u,
+                                 elf_result.entry, elf_result.stack_top,
+                                 kernel_stack_bottom, kernel_stack_top) != 0 ||
+                process_set_state(&exit_child, PROS_PROCESS_READY) != 0 ||
+                thread_enqueue(&exit_parent_thread) != 0 ||
+                thread_enqueue(&exit_child_thread) != 0 ||
+                thread_schedule() != 0 ||
+                thread_current() != &exit_parent_thread) {
+                serial_write("ProsenjitOS: ERROR exit scheduler fixture setup failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            scheduler_init_frame.rax = 0u;
+            scheduler_init_frame.rbx = 0u;
+            scheduler_init_frame.rcx = 0u;
+            scheduler_init_frame.rdx = 0u;
+            scheduler_init_frame.rsi = 0u;
+            scheduler_init_frame.rdi = 0u;
+            scheduler_init_frame.rbp = 0u;
+            scheduler_init_frame.r8 = scheduler_init_frame.r9 = 0u;
+            scheduler_init_frame.r10 = scheduler_init_frame.r11 = 0u;
+            scheduler_init_frame.r12 = scheduler_init_frame.r13 = 0u;
+            scheduler_init_frame.r14 = scheduler_init_frame.r15 = 0u;
+            scheduler_init_frame.rip = (uint64_t)(uintptr_t)scheduler_test_init_entry;
+            scheduler_init_frame.cs = 0x08u;
+            scheduler_init_frame.rflags = 0x202u;
+
+            child_frame = thread_schedule_interrupt(&scheduler_init_frame);
+            if (child_frame != exit_child_thread.interrupt_frame ||
+                thread_current() != &exit_child_thread ||
+                process_current() != &exit_child) {
+                serial_write("ProsenjitOS: ERROR exit scheduler failed to select child\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+
+            child_frame->rdi = 23u;
+            child_frame->rax = PROSENJIT_SYS_EXIT;
+            syscall_dispatch((volatile uint64_t *)child_frame,
+                             (volatile uint64_t *)&child_frame->rip);
+            if (child_frame->rax != PROSENJIT_SYSCALL_INTERNAL_TERMINATE) {
+                serial_write("ProsenjitOS: ERROR SYS_EXIT dispatcher integration failed\\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            parent_frame = thread_exit_schedule_interrupt(
+                child_frame, (int32_t)child_frame->rdi);
+            if (parent_frame != &scheduler_init_frame ||
+                thread_current() != &exit_parent_thread ||
+                process_current() != &init_process ||
+                process_state(&exit_child) != PROS_PROCESS_ZOMBIE ||
+                process_wait(&init_process, 0x7100u, &exit_status) != 0 ||
+                exit_status != 23 ||
+                process_lookup(0x7100u) != 0 ||
+                exit_child.address_space.root != 0) {
+                serial_write("ProsenjitOS: ERROR user process exit/wait/reap integration failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+            serial_write("ProsenjitOS: process exit/wait-reap unit regression passed\n");
+        }
+    }
+
     for (uint64_t i = 0; i < PROSENJIT_PAGE_SIZE; ++i)
         ((uint8_t *)(uintptr_t)user_data_page)[i] = 0;
 
@@ -1087,11 +1679,110 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    serial_write("ProsenjitOS: switching to CPL3 user address space\n");
+    /*
+     * The earlier scheduler fixtures are kernel self-tests, not live runtime
+     * tasks. Retire their run queue before entering the standalone CPL3 smoke
+     * test so a future timer-preemption change cannot accidentally dispatch
+     * the test worker's infinite loop as if it were a production task.
+     */
+    if (thread_manager_init() != 0) {
+        serial_write("ProsenjitOS: ERROR scheduler test-fixture retirement failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: scheduler test fixtures retired before CPL3 smoke test\n");
+
+    serial_write("ProsenjitOS: preparing scheduler-managed CPL3 lifecycle test\n");
     if (address_space_switch(&init_process.address_space) != 0) {
         serial_write("ProsenjitOS: ERROR final user address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
-    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
+
+    {
+        struct pros_process exit_test_child = {0};
+        struct pros_thread exit_test_parent_thread;
+        struct pros_thread exit_test_child_thread;
+        struct pros_elf_load_result child_elf_result = {0};
+        const char *child_argv[] = { "/init", "scheduler-exit-test" };
+        const char *child_envp[] = { "PROS_EXIT_TEST=1" };
+        uint64_t child_user_data_page = physical_page_alloc_user();
+        uint64_t parent_stack_top =
+            (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack));
+        uint64_t child_kernel_stack_bottom =
+            (uint64_t)(uintptr_t)user_frame_thread_stack;
+        uint64_t child_kernel_stack_top = child_kernel_stack_bottom +
+                                          sizeof(user_frame_thread_stack);
+        uint64_t child_test_handle;
+
+        if (process_create(&init_process, &exit_test_child, 0x7200u,
+                           PROS_SECURITY_LIMITED) != 0 ||
+            process_set_state(&exit_test_child, PROS_PROCESS_NEW) != 0 ||
+            pros_elf_load_with_args(&exit_test_child, boot_user_elf,
+                                    boot_elf_offset + user_text_size,
+                                    child_argv, 2u, child_envp, 1u,
+                                    &child_elf_result) != PROS_ELF_OK ||
+            !child_user_data_page) {
+            if (child_user_data_page) physical_page_free(child_user_data_page);
+            serial_write("ProsenjitOS: ERROR scheduler-managed child ELF load failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        for (uint64_t n = 0u; n < PROSENJIT_PAGE_SIZE; ++n)
+            ((uint8_t *)(uintptr_t)child_user_data_page)[n] = 0u;
+        if (address_space_map_user_page_owned(&exit_test_child.address_space,
+                                              PROSENJIT_USER_TEST_VA,
+                                              child_user_data_page,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) != 0) {
+            physical_page_free(child_user_data_page);
+            serial_write("ProsenjitOS: ERROR child user test-data mapping failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        child_test_handle = process_transfer_handle_copy(
+            &init_process, &exit_test_child, user_test_handle,
+            PROSENJIT_CAP_READ | PROSENJIT_CAP_WRITE |
+            PROSENJIT_CAP_DUPLICATE | PROSENJIT_CAP_TRANSFER);
+        if (child_test_handle == PROSENJIT_HANDLE_INVALID ||
+            thread_manager_init() != 0 ||
+            thread_init(&exit_test_parent_thread, &init_process, 0x7200u,
+                        (uint64_t)(uintptr_t)exit_lifecycle_parent_entry,
+                        parent_stack_top) != 0 ||
+            thread_init_user(&exit_test_child_thread, &exit_test_child,
+                             0x7201u, child_elf_result.entry,
+                             child_elf_result.stack_top,
+                             child_kernel_stack_bottom,
+                             child_kernel_stack_top) != 0 ||
+            process_set_state(&exit_test_child, PROS_PROCESS_READY) != 0 ||
+            thread_enqueue(&exit_test_parent_thread) != 0 ||
+            thread_enqueue(&exit_test_child_thread) != 0) {
+            serial_write("ProsenjitOS: ERROR scheduler-managed process/thread setup failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        exit_test_child_thread.interrupt_frame->rdi = child_test_handle;
+
+        exit_lifecycle_parent = &init_process;
+        exit_lifecycle_child = &exit_test_child;
+        exit_lifecycle_parent_thread = &exit_test_parent_thread;
+        exit_lifecycle_child_pid = exit_test_child.pid;
+        exit_lifecycle_preemption_count = 0u;
+        exit_lifecycle_timer_observed = 0u;
+
+        serial_write("ProsenjitOS: starting real CPL3 timer-preemption and SYS_EXIT test\n");
+        /*
+         * This first switch enters the parent kernel thread. It enables IRQs,
+         * then the interrupt scheduler selects the queued CPL3 child. The
+         * child's user test performs IPC, waits through timer preemption, and
+         * exits through INT 0x80; the parent resumes and wait/reaps it.
+         */
+        if (thread_schedule() != 0 ||
+            cpu_set_kernel_stack(parent_stack_top) != 0) {
+            serial_write("ProsenjitOS: ERROR scheduler-managed lifecycle start failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        thread_context_switch(0, &exit_test_parent_thread);
+    }
+
+    serial_write("ProsenjitOS: ERROR scheduler returned from terminal lifecycle test\n");
+    for (;;) __asm__ volatile ("cli; hlt");
 }

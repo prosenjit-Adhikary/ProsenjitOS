@@ -166,6 +166,73 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             return;
         }
 
+        case PROSENJIT_SYS_EXIT: {
+            /*
+             * Exit is completed by the interrupt-return scheduler, not by
+             * returning to user mode and not by switching to the bootstrap
+             * stack. The saved RDI register carries the signed exit status.
+             */
+            struct pros_process *process = process_current();
+            if ((cpu_frame[1] & 3ULL) != 3ULL) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            if (!process || !thread_current() ||
+                !thread_current()->user_mode) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            syscall_serial_write("ProsenjitOS: CPL3 SYS_EXIT syscall accepted\n");
+            registers[0] = PROSENJIT_SYSCALL_INTERNAL_TERMINATE;
+            return;
+        }
+
+        case PROSENJIT_SYS_WAIT_REAP: {
+            struct pros_process *parent = process_current();
+            uint64_t child_pid = registers[5];
+            uint64_t status_pointer = registers[4];
+            int32_t exit_code = 0;
+            int wait_rc;
+
+            /* Wait/reap is a user ABI: never expose it to ring-0 callers. */
+            if ((cpu_frame[1] & 3ULL) != 3ULL) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            if (!parent || child_pid == 0u ||
+                address_space_validate_user_range(&parent->address_space,
+                                                  status_pointer,
+                                                  sizeof(exit_code), 1) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+
+            /*
+             * Current process_wait is intentionally non-blocking: a live
+             * child returns EAGAIN rather than suspending the only execution
+             * context. The parent must retry until a zombie is available.
+             * Only process_wait may perform the ownership-checked final reap.
+             */
+            wait_rc = process_wait(parent, child_pid, &exit_code);
+            if (wait_rc == -2) {
+                registers[0] = PROSENJIT_SYSCALL_EAGAIN;
+                return;
+            }
+            if (wait_rc != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+            if (copy_to_user(&parent->address_space, status_pointer,
+                             &exit_code, sizeof(exit_code)) != 0) {
+                /* Range was prevalidated; a failure indicates a mapping race
+                 * or usercopy fault after reap, so fail closed and report it. */
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            registers[0] = PROSENJIT_SYSCALL_OK;
+            return;
+        }
+
         case PROSENJIT_SYS_HANDLE_CLOSE: {
             struct pros_process *process = process_current();
             uint64_t handle = registers[5];
@@ -366,6 +433,23 @@ int syscall_selftest(struct pros_process *process) {
     syscall_dispatch(regs, frame);
     if (regs[0] != PROSENJIT_ABI_VERSION)
         return -2;
+
+    /* The wait/reap syscall must reject ring-0 callers before touching
+     * any process or user-memory state. */
+    regs[0] = PROSENJIT_SYS_WAIT_REAP;
+    frame[1] = 0;
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+        return -5;
+
+    /* A kernel-mode caller must never terminate a process via the user ABI. */
+    regs[0] = PROSENJIT_SYS_EXIT;
+    frame[1] = 0;
+    syscall_dispatch(regs, frame);
+    if (regs[0] != PROSENJIT_SYSCALL_EPERM)
+        return -6;
+
+    frame[1] = 0;
 
     if (process) {
         process->syscall_policy = 0;

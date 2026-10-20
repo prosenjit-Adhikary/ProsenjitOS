@@ -38,6 +38,15 @@ int main(void)
     CHECK(pros_dml_count(&manager) == 0u, 3);
     CHECK(pros_dml_selected(&manager, &output) == PROS_DML_ENOENT, 4);
 
+    /* Reject holes and hidden registrations in the public registry storage. */
+    manager.entries[1].registered = 1u;
+    CHECK(pros_dml_count(&manager) == 0u, 4);
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 4);
+    manager.entries[1].registered = 0u;
+    manager.count = 1u;
+    CHECK(pros_dml_select(&manager, "before-init") == PROS_DML_EINVAL, 4);
+    manager.count = 0u;
+
     {
         struct pros_dml_manager invalid;
 
@@ -52,12 +61,69 @@ int main(void)
     manifest.required_features = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 5);
     CHECK(pros_dml_count(&manager) == 1u, 6);
+    manager.entries[0].registered = 2u;
+    CHECK(pros_dml_select(&manager, "xfce") == PROS_DML_EINVAL, 6);
+    manager.entries[0].registered = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EEXIST, 7);
     CHECK(pros_dml_preflight(&manager, "xfce") == PROS_DML_OK, 8);
     CHECK(pros_dml_select(&manager, "xfce") == PROS_DML_OK, 9);
     CHECK(pros_dml_selected(&manager, &output) == PROS_DML_OK, 10);
     CHECK(strcmp(output.id, "xfce") == 0, 11);
     CHECK(pros_dml_get(&manager, "missing", &output) == PROS_DML_ENOENT, 12);
+    {
+        enum pros_dml_session_state state = PROS_DML_SESSION_FAILED;
+
+        CHECK(pros_dml_get_state(&manager, "xfce", &state) == PROS_DML_OK,
+              12);
+        CHECK(state == PROS_DML_SESSION_STOPPED, 12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_RUNNING) == PROS_DML_ESTATE,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STARTING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_RUNNING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STARTING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_FAILED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_RUNNING) == PROS_DML_ESTATE,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPING) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_FAILED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  (enum pros_dml_session_state)99) ==
+              PROS_DML_EINVAL, 12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  (enum pros_dml_session_state)-1) ==
+              PROS_DML_EINVAL, 12);
+        CHECK(pros_dml_transition(&manager, "xfce",
+                                  PROS_DML_SESSION_STOPPED) == PROS_DML_OK,
+              12);
+        CHECK(pros_dml_get_state(&manager, "not-installed", &state) ==
+              PROS_DML_ENOENT, 12);
+
+        /* Corrupt public storage must not be surfaced as a valid enum value. */
+        manager.entries[0].session_state = UINT32_MAX;
+        CHECK(pros_dml_get_state(&manager, "xfce", &state) == PROS_DML_ESTATE,
+              12);
+        manager.entries[0].session_state = PROS_DML_SESSION_STOPPED;
+    }
 
     {
         const char *const bad_paths[] = {
@@ -97,6 +163,30 @@ int main(void)
     CHECK(pros_dml_preflight(&manager, "plasma") == PROS_DML_OK, 21);
     CHECK(pros_dml_select(&manager, "plasma") == PROS_DML_OK, 22);
 
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+        uint32_t sentinel = 0xA5A5A5A5u;
+
+        CHECK(pros_dml_resolve_order(&manager, "plasma", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_OK, 22);
+        CHECK(order_count == 2u, 22);
+        CHECK(strcmp(manager.entries[order[0]].manifest.id, "graphics") == 0,
+              22);
+        CHECK(strcmp(manager.entries[order[1]].manifest.id, "plasma") == 0,
+              22);
+        order[0] = sentinel;
+        order_count = 0u;
+        CHECK(pros_dml_resolve_order(&manager, "plasma", order, 1u,
+                                     &order_count) == PROS_DML_ENOSPC, 22);
+        CHECK(order_count == 2u && order[0] == sentinel, 22);
+        CHECK(pros_dml_resolve_order(&manager, "missing", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_ENOENT, 22);
+        CHECK(order_count == 0u, 22);
+    }
+
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 23);
     manifest = manifest_make("cycle-a", "bin/start");
     manifest.dependency_count = 1u;
@@ -109,6 +199,86 @@ int main(void)
                    "%s", "cycle-a");
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 25);
     CHECK(pros_dml_preflight(&manager, "cycle-a") == PROS_DML_ELOOP, 26);
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 99u;
+
+        CHECK(pros_dml_resolve_order(&manager, "cycle-a", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_ELOOP, 26);
+        CHECK(order_count == 0u, 26);
+    }
+
+    /* Shared dependencies are emitted once in dependency-first order. */
+    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 26);
+    manifest = manifest_make("session", "bin/session");
+    manifest.dependency_count = 2u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    (void)snprintf(manifest.dependencies[1], sizeof(manifest.dependencies[1]),
+                   "%s", "graphics");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manifest = manifest_make("graphics", "bin/graphics");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manifest = manifest_make("base", "bin/base");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+
+        CHECK(pros_dml_resolve_order(&manager, "session", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_OK, 26);
+        CHECK(order_count == 3u, 26);
+        CHECK(strcmp(manager.entries[order[0]].manifest.id, "base") == 0, 26);
+        CHECK(strcmp(manager.entries[order[1]].manifest.id, "graphics") == 0,
+              26);
+        CHECK(strcmp(manager.entries[order[2]].manifest.id, "session") == 0,
+              26);
+    }
+    /* Public manager storage can be corrupted; reject unsafe dependency counts. */
+    manager.entries[0].manifest.dependency_count =
+        PROS_DML_MAX_DEPENDENCIES + 1u;
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+
+        CHECK(pros_dml_preflight(&manager, "session") == PROS_DML_EINVAL, 26);
+        CHECK(pros_dml_resolve_order(&manager, "session", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_EINVAL, 26);
+        CHECK(order_count == 0u, 26);
+    }
+
+    /* Corruption in a transitive dependency must also stop traversal safely. */
+    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 26);
+    manifest = manifest_make("session", "bin/session");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "graphics");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manifest = manifest_make("graphics", "bin/graphics");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manifest = manifest_make("base", "bin/base");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 26);
+    manager.entries[1].manifest.dependency_count =
+        PROS_DML_MAX_DEPENDENCIES + 1u;
+    {
+        uint32_t order[PROS_DML_MAX_DESKTOPS];
+        uint32_t order_count = 0u;
+
+        CHECK(pros_dml_preflight(&manager, "session") == PROS_DML_EINVAL, 26);
+        CHECK(pros_dml_resolve_order(&manager, "session", order,
+                                     PROS_DML_MAX_DESKTOPS,
+                                     &order_count) == PROS_DML_EINVAL, 26);
+        CHECK(order_count == 0u, 26);
+    }
 
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 27);
     manifest = manifest_make("duplicate-dep", "bin/start");

@@ -10,6 +10,7 @@ extern syscall_dispatch
 extern timer_dispatch
 extern timer_should_preempt
 extern thread_schedule_interrupt
+extern thread_exit_schedule_interrupt
 extern pic_eoi_master
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
@@ -38,10 +39,23 @@ isr128:
     lea rdi, [rsp + 8]
     lea rsi, [rsp + 128]
     call syscall_dispatch
+    cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF02
+    je .syscall_terminate
     cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF01
     jne .syscall_return
     lea rdi, [rsp + 8]
     call thread_schedule_interrupt
+    test rax, rax
+    jz .syscall_return
+    mov rsp, rax
+    jmp .syscall_restore_switched
+
+.syscall_terminate:
+    ; RDI = saved register-frame pointer, RSI = signed exit status from user RDI.
+    ; The C scheduler terminates the process and returns a different IRET frame.
+    lea rdi, [rsp + 8]
+    mov esi, dword [rsp + 48]
+    call thread_exit_schedule_interrupt
     test rax, rax
     jz .syscall_return
     mov rsp, rax
@@ -119,18 +133,31 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
-    ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
-    sub rsp, 8
-    lea rdi, [rsp + 24]
+    ; The saved RAX..R15 frame starts 16 bytes above the synthetic vector
+    ; and error words. Preserve its address in RBX (the interrupted RBX is
+    ; already saved in the frame), then align the temporary C call stack
+    ; dynamically. An interrupt may arrive at either CPL0 or CPL3 with
+    ; different stack alignment; a fixed SUB would violate the SysV ABI.
+    lea rbx, [rsp + 16]
+    and rsp, -16
+    mov rdi, rbx
     call timer_dispatch
+    ; A C call after popping the saved GPRs can clobber caller-saved registers.
+    ; Acknowledge IRQ0 now, while the temporary stack is ABI-aligned and all
+    ; interrupted registers remain safely stored in the frame.
+    call pic_eoi_master
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 24]
+    mov rdi, rbx
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
+    ; The scheduler returns current_frame unchanged when no runnable successor
+    ; exists. Compare frame pointers (not frame contents) before choosing the
+    ; restore path: the original IRQ frame includes vector/error words.
+    cmp rax, rbx
+    je .timer_no_switch
 
     ; A switched thread supplies a saved pros_interrupt_frame whose layout
     ; is RAX..R15, RIP, CS, RFLAGS. It has no synthetic vector/error pair.
@@ -138,9 +165,9 @@ isr32:
     jmp .timer_restore_switched
 
 .timer_no_switch:
-    ; The current IRQ frame still contains vector/error below RAX..R15.
-    ; Restore the GPRs first, then skip those two words before IRET.
-    add rsp, 24
+    ; Restore from the saved register-frame pointer, skipping the synthetic
+    ; vector/error pair below it regardless of temporary call-stack alignment.
+    mov rsp, rbx
     pop rax
     pop rbx
     pop rcx
@@ -156,7 +183,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 .timer_restore_switched:
@@ -175,7 +201,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 %macro ISR_NO_ERROR 1

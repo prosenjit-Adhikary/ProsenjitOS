@@ -5,6 +5,8 @@ global _start
 global enter_user_mode
 global user_mode_exit_trampoline
 global cpu_load_tss
+global cpu_set_kernel_stack
+global cpu_get_kernel_stack
 global stack_top
 extern kernel_main
 extern cpu_security_init
@@ -102,6 +104,10 @@ long_mode_entry:
     jmp .halt
 
 enter_user_mode:
+    ; This is the non-preemptive CPL3 self-test path. Restore its dedicated
+    ; bootstrap kernel stack even if scheduler self-tests changed TSS.RSP0.
+    mov rax, stack_top
+    mov [tss64 + 4], rax
     ; RDI=entry, RSI=stack_top, RDX=initial capability handle.
     ; Load CPL3-compatible data segments before IRET so the first user
     ; memory access does not inherit the CPL0 data-segment cache.
@@ -200,6 +206,24 @@ cpu_load_tss:
     lgdt [gdt64.pointer]
     mov ax, gdt64.tss_low
     ltr ax
+    ret
+
+; Install the ring-0 stack used when a CPL3 thread enters through an interrupt.
+; The scheduler calls this with the next thread's aligned kernel stack top.
+cpu_set_kernel_stack:
+    test rdi, rdi
+    jz .bad_kernel_stack
+    test rdi, 0xF
+    jnz .bad_kernel_stack
+    mov [tss64 + 4], rdi
+    xor eax, eax
+    ret
+.bad_kernel_stack:
+    mov eax, -1
+    ret
+
+cpu_get_kernel_stack:
+    mov rax, [tss64 + 4]
     ret
 
 section .user_text
@@ -338,10 +362,16 @@ user_test_entry:
     cmp rax, rbx
     jne .user_halt
 
-    ; Ask the kernel to finish the CPL3 test. The kernel validates the
-    ; caller privilege and user mapping before returning to its trampoline.
-    mov rax, 2
+    ; Leave enough user execution time for a real timer IRQ to preempt
+    ; this CPL3 thread, then exit through the public syscall ABI.
+    mov ecx, 100000000
+.exit_delay:
+    dec ecx
+    jnz .exit_delay
+    mov edi, 23
+    mov eax, 9                  ; PROSENJIT_SYS_EXIT
     int 0x80
+    ud2                         ; a successful exit never returns here
 .user_halt:
     jmp .user_halt
 

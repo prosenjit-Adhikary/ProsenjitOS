@@ -23,6 +23,12 @@ struct pros_prosenjitfs {
     volatile uint32_t io_lock;
 };
 
+int prosenjitfs_probe(struct pros_block_device *device);
+int prosenjitfs_format(struct pros_block_device *device);
+int prosenjitfs_mount(struct pros_prosenjitfs *fs,
+                      struct pros_block_device *device, uint8_t read_only);
+int prosenjitfs_unmount(struct pros_prosenjitfs *fs);
+
 /* Kernel-only diagnostics and self-test entry points. */
 void prosenjitfs_write_diag_reset(void);
 void prosenjitfs_write_diag_begin_read(void);

@@ -30,6 +30,13 @@ struct pros_interrupt_frame {
     uint64_t rip, cs, rflags;
 };
 
+/* CPL3 IRET frames also carry the user RSP and SS after RFLAGS. */
+struct pros_user_interrupt_frame {
+    struct pros_interrupt_frame registers;
+    uint64_t user_rsp;
+    uint64_t user_ss;
+};
+
 struct pros_thread {
     uint64_t tid;
     struct pros_process *process;
@@ -43,14 +50,26 @@ struct pros_thread {
     struct pros_thread *next;
     struct pros_thread *prev;
     struct pros_thread *registry_next;
+    /* Keep these after context: context.rsp is consumed at fixed offset 80 by assembly. */
+    uint64_t kernel_stack_top;
+    uint8_t user_mode;
+    uint8_t reserved_flags[7];
 };
 
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry, uint64_t stack_top);
+int thread_init_user(struct pros_thread *thread, struct pros_process *process,
+                     uint64_t tid, uint64_t user_entry, uint64_t user_stack_top,
+                     uint64_t kernel_stack_bottom, uint64_t kernel_stack_top);
+
+/* TSS.RSP0 accessors used by the interrupt-driven scheduler. */
+int cpu_set_kernel_stack(uint64_t stack_top);
+uint64_t cpu_get_kernel_stack(void);
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
+int thread_process_unregister_dead(struct pros_process *process);
 int thread_terminate_process(struct pros_process *process);
 uint32_t thread_state(const struct pros_thread *thread);
 int thread_enqueue(struct pros_thread *thread);
@@ -70,6 +89,9 @@ uint64_t thread_dead_count(void);
 /* Save the current IRQ frame and select the next runnable thread frame. */
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame);
+/* Terminate the current CPL3 process and switch directly from its IRQ frame. */
+struct pros_interrupt_frame *thread_exit_schedule_interrupt(
+    struct pros_interrupt_frame *current_frame, int32_t exit_code);
 
 /* Switches CPU execution from prev to next using their saved kernel stacks. */
 void thread_context_switch(struct pros_thread *prev,

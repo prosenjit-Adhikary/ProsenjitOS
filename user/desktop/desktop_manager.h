@@ -20,7 +20,18 @@ enum pros_dml_status {
     PROS_DML_EABI = -5,
     PROS_DML_ENODEP = -6,
     PROS_DML_ELOOP = -7,
-    PROS_DML_EFEATURE = -8
+    PROS_DML_EFEATURE = -8,
+    PROS_DML_ESTATE = -9,
+    PROS_DML_EBACKEND = -10,
+    PROS_DML_EROLLBACK = -11
+};
+
+enum pros_dml_session_state {
+    PROS_DML_SESSION_STOPPED = 0,
+    PROS_DML_SESSION_STARTING = 1,
+    PROS_DML_SESSION_RUNNING = 2,
+    PROS_DML_SESSION_STOPPING = 3,
+    PROS_DML_SESSION_FAILED = 4
 };
 
 /*
@@ -46,6 +57,7 @@ struct pros_dml_entry {
     struct pros_dml_manifest manifest;
     uint8_t registered;
     uint8_t reserved[3];
+    uint32_t session_state;
 };
 
 /*
@@ -65,6 +77,17 @@ int pros_dml_init(struct pros_dml_manager *manager,
                   uint32_t supported_features);
 int pros_dml_register(struct pros_dml_manager *manager,
                       const struct pros_dml_manifest *manifest);
+/*
+ * Resolve a desktop's transitive dependencies in deterministic
+ * dependency-first order. Output indices refer to the manager's registry.
+ * On PROS_DML_ENOSPC, out_count reports the required capacity and the output
+ * array is left untouched. Calls must be serialized by the control-plane owner.
+ */
+int pros_dml_resolve_order(const struct pros_dml_manager *manager,
+                           const char *desktop_id,
+                           uint32_t *out_indices,
+                           uint32_t capacity,
+                           uint32_t *out_count);
 int pros_dml_preflight(const struct pros_dml_manager *manager,
                        const char *desktop_id);
 int pros_dml_select(struct pros_dml_manager *manager,
@@ -74,6 +97,13 @@ int pros_dml_get(const struct pros_dml_manager *manager,
                  struct pros_dml_manifest *out_manifest);
 int pros_dml_selected(const struct pros_dml_manager *manager,
                       struct pros_dml_manifest *out_manifest);
+/* State bookkeeping only; these APIs do not launch or supervise processes. */
+int pros_dml_get_state(const struct pros_dml_manager *manager,
+                       const char *desktop_id,
+                       enum pros_dml_session_state *out_state);
+int pros_dml_transition(struct pros_dml_manager *manager,
+                        const char *desktop_id,
+                        enum pros_dml_session_state next_state);
 uint32_t pros_dml_count(const struct pros_dml_manager *manager);
 
 #endif

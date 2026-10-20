@@ -2,8 +2,24 @@
 
 static int manager_valid(const struct pros_dml_manager *manager)
 {
-    return manager && manager->magic == PROS_DML_MANAGER_MAGIC &&
-           manager->count <= PROS_DML_MAX_DESKTOPS;
+    if (!manager || manager->magic != PROS_DML_MANAGER_MAGIC ||
+        manager->count > PROS_DML_MAX_DESKTOPS)
+        return 0;
+
+    /*
+     * Registry slots are a contiguous prefix: registration writes exactly at
+     * count, then increments count. Public storage corruption must not create
+     * hidden entries or holes that can be overwritten by a later registration.
+     */
+    for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
+        if (i < manager->count) {
+            if (manager->entries[i].registered != 1u)
+                return 0;
+        } else if (manager->entries[i].registered != 0u) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static int id_valid(const char *id)
@@ -142,6 +158,9 @@ static int dml_check_dependencies(const struct pros_dml_manager *manager,
         return PROS_DML_OK;
 
     manifest = &manager->entries[index].manifest;
+    /* The manager is public storage; reject corrupted counts before indexing. */
+    if (manifest->dependency_count > PROS_DML_MAX_DEPENDENCIES)
+        return PROS_DML_EINVAL;
     visiting[index] = 1u;
     for (uint32_t d = 0; d < manifest->dependency_count; ++d) {
         int dependency = dml_find(manager, manifest->dependencies[d]);
@@ -194,7 +213,94 @@ int pros_dml_register(struct pros_dml_manager *manager,
 
     manager->entries[manager->count].manifest = *manifest;
     manager->entries[manager->count].registered = 1u;
+    manager->entries[manager->count].reserved[0] = 0u;
+    manager->entries[manager->count].reserved[1] = 0u;
+    manager->entries[manager->count].reserved[2] = 0u;
+    manager->entries[manager->count].session_state =
+        (uint32_t)PROS_DML_SESSION_STOPPED;
     ++manager->count;
+    return PROS_DML_OK;
+}
+
+static int dml_build_order(const struct pros_dml_manager *manager,
+                           uint32_t index,
+                           uint8_t visiting[PROS_DML_MAX_DESKTOPS],
+                           uint8_t visited[PROS_DML_MAX_DESKTOPS],
+                           uint32_t order[PROS_DML_MAX_DESKTOPS],
+                           uint32_t *order_count)
+{
+    const struct pros_dml_manifest *manifest;
+
+    if (!manager_valid(manager) || index >= manager->count ||
+        index >= PROS_DML_MAX_DESKTOPS || !visiting || !visited ||
+        !order || !order_count || !manager->entries[index].registered)
+        return PROS_DML_EINVAL;
+    if (visiting[index])
+        return PROS_DML_ELOOP;
+    if (visited[index])
+        return PROS_DML_OK;
+
+    manifest = &manager->entries[index].manifest;
+    /* The manager is public storage; reject corrupted counts before indexing. */
+    if (manifest->dependency_count > PROS_DML_MAX_DEPENDENCIES)
+        return PROS_DML_EINVAL;
+    visiting[index] = 1u;
+    for (uint32_t d = 0; d < manifest->dependency_count; ++d) {
+        int dependency = dml_find(manager, manifest->dependencies[d]);
+        int rc;
+
+        if (dependency < 0) {
+            visiting[index] = 0u;
+            return PROS_DML_ENODEP;
+        }
+        rc = dml_build_order(manager, (uint32_t)dependency, visiting, visited,
+                             order, order_count);
+        if (rc != PROS_DML_OK) {
+            visiting[index] = 0u;
+            return rc;
+        }
+    }
+    visiting[index] = 0u;
+    visited[index] = 1u;
+    if (*order_count >= PROS_DML_MAX_DESKTOPS)
+        return PROS_DML_ENOSPC;
+    order[(*order_count)++] = index;
+    return PROS_DML_OK;
+}
+
+int pros_dml_resolve_order(const struct pros_dml_manager *manager,
+                           const char *desktop_id,
+                           uint32_t *out_indices,
+                           uint32_t capacity,
+                           uint32_t *out_count)
+{
+    uint8_t visiting[PROS_DML_MAX_DESKTOPS] = {0};
+    uint8_t visited[PROS_DML_MAX_DESKTOPS] = {0};
+    uint32_t order[PROS_DML_MAX_DESKTOPS] = {0};
+    uint32_t order_count = 0u;
+    int index;
+    int rc;
+
+    if (!out_count)
+        return PROS_DML_EINVAL;
+    *out_count = 0u;
+    if (!manager_valid(manager) || !id_valid(desktop_id) ||
+        (capacity != 0u && !out_indices))
+        return PROS_DML_EINVAL;
+
+    index = dml_find(manager, desktop_id);
+    if (index < 0)
+        return PROS_DML_ENOENT;
+    rc = dml_build_order(manager, (uint32_t)index, visiting, visited,
+                         order, &order_count);
+    if (rc != PROS_DML_OK)
+        return rc;
+
+    *out_count = order_count;
+    if (capacity < order_count)
+        return PROS_DML_ENOSPC;
+    for (uint32_t i = 0; i < order_count; ++i)
+        out_indices[i] = order[i];
     return PROS_DML_OK;
 }
 
@@ -258,6 +364,73 @@ int pros_dml_selected(const struct pros_dml_manager *manager,
         !manager->entries[manager->selected_index].registered)
         return PROS_DML_EINVAL;
     *out_manifest = manager->entries[manager->selected_index].manifest;
+    return PROS_DML_OK;
+}
+
+static int dml_transition_allowed(enum pros_dml_session_state current,
+                                    enum pros_dml_session_state next)
+{
+    switch (current) {
+    case PROS_DML_SESSION_STOPPED:
+        return next == PROS_DML_SESSION_STARTING;
+    case PROS_DML_SESSION_STARTING:
+        return next == PROS_DML_SESSION_RUNNING ||
+               next == PROS_DML_SESSION_FAILED ||
+               next == PROS_DML_SESSION_STOPPED;
+    case PROS_DML_SESSION_RUNNING:
+        return next == PROS_DML_SESSION_STOPPING ||
+               next == PROS_DML_SESSION_FAILED;
+    case PROS_DML_SESSION_STOPPING:
+        return next == PROS_DML_SESSION_STOPPED ||
+               next == PROS_DML_SESSION_FAILED;
+    case PROS_DML_SESSION_FAILED:
+        return next == PROS_DML_SESSION_STOPPING ||
+               next == PROS_DML_SESSION_STOPPED;
+    default:
+        return 0;
+    }
+}
+
+int pros_dml_get_state(const struct pros_dml_manager *manager,
+                       const char *desktop_id,
+                       enum pros_dml_session_state *out_state)
+{
+    int index;
+
+    if (!manager_valid(manager) || !id_valid(desktop_id) || !out_state)
+        return PROS_DML_EINVAL;
+    index = dml_find(manager, desktop_id);
+    if (index < 0)
+        return PROS_DML_ENOENT;
+    /* Public manager storage may be corrupted; never report an invalid state
+     * as a successful observation to lifecycle callers. */
+    if (manager->entries[index].session_state >
+        (uint32_t)PROS_DML_SESSION_FAILED)
+        return PROS_DML_ESTATE;
+    *out_state = (enum pros_dml_session_state)
+        manager->entries[index].session_state;
+    return PROS_DML_OK;
+}
+
+int pros_dml_transition(struct pros_dml_manager *manager,
+                        const char *desktop_id,
+                        enum pros_dml_session_state next_state)
+{
+    int index;
+    enum pros_dml_session_state current;
+
+    if (!manager_valid(manager) || !id_valid(desktop_id) ||
+        (int32_t)next_state < (int32_t)PROS_DML_SESSION_STOPPED ||
+        (int32_t)next_state > (int32_t)PROS_DML_SESSION_FAILED)
+        return PROS_DML_EINVAL;
+    index = dml_find(manager, desktop_id);
+    if (index < 0)
+        return PROS_DML_ENOENT;
+    current = (enum pros_dml_session_state)
+        manager->entries[index].session_state;
+    if (!dml_transition_allowed(current, next_state))
+        return PROS_DML_ESTATE;
+    manager->entries[index].session_state = (uint32_t)next_state;
     return PROS_DML_OK;
 }
 

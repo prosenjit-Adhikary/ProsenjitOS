@@ -419,11 +419,13 @@ int pros_net_socket_create(uint32_t *socket_id)
 int pros_net_socket_bind(uint32_t socket_id, uint32_t addr, uint16_t port)
 {
     struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || s->state != PROS_NET_TCP_CLOSED || port_conflict(addr, port, s))
+    if (!s || s->state != PROS_NET_TCP_CLOSED)
         return PROS_NET_ESTATE;
     if (port == 0u) {
         port = allocate_ephemeral(addr, s);
         if (port == 0u) return PROS_NET_ENOSPC;
+    } else if (port_conflict(addr, port, s)) {
+        return PROS_NET_ESTATE;
     }
     s->local_addr = addr;
     s->local_port = port;
@@ -642,6 +644,7 @@ int pros_net_selftest(void)
     uint32_t off, sid;
     uint8_t payload[2] = {0xA5, 0x00};
     uint32_t received = 0;
+    uint16_t icmp_checksum;
 
     eth[12] = 0x08; eth[13] = 0x00;
     if (pros_net_parse_ethernet(eth, sizeof(eth), &eh, &off) != PROS_NET_OK ||
@@ -665,8 +668,9 @@ int pros_net_selftest(void)
     ip[0] = 0x45; put_be16(ip + 2u, 20u); ip[8] = 64u; ip[9] = PROS_NET_IP_TCP;
     put_be32(ip + 12u, 0xC0A80101u); put_be32(ip + 16u, 0xC0A80102u);
     put_be16(ip + 10u, 0u); put_be16(ip + 10u, pros_net_checksum(ip, 20u));
-    icmp[2] = (uint8_t)(pros_net_checksum(icmp, sizeof(icmp)) >> 8);
-    icmp[3] = (uint8_t)pros_net_checksum(icmp, sizeof(icmp));
+    icmp_checksum = pros_net_checksum(icmp, sizeof(icmp));
+    icmp[2] = (uint8_t)(icmp_checksum >> 8);
+    icmp[3] = (uint8_t)icmp_checksum;
     {
         struct pros_net_icmp ihc;
         if (pros_net_parse_icmp(icmp, sizeof(icmp), &ihc) != PROS_NET_OK ||
@@ -724,7 +728,7 @@ int pros_net_selftest(void)
         pros_net_socket_bind(sid, 0xC0A80101u, 4000u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 100u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
-        pros_net_socket_send(sid, payload, sizeof(payload)) != 1 ||
+        pros_net_socket_send(sid, payload, sizeof(payload)) != (int)sizeof(payload) ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
         return -9;
 
@@ -732,7 +736,7 @@ int pros_net_selftest(void)
         const uint8_t rxdata[2] = {0x11, 0x22};
         uint32_t received = 0;
         if (pros_net_socket_receive_segment(sid, 0u, rxdata, 2u, TCP_ACK) != PROS_NET_OK ||
-            pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EBOUNDS ||
+            pros_net_socket_receive(sid, payload, sizeof(payload) - 1u, &received) != PROS_NET_EBOUNDS ||
             pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK ||
             received != 2u || payload[0] != 0x11u || payload[1] != 0x22u ||
             pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE ||
@@ -774,6 +778,7 @@ int pros_net_selftest(void)
         pros_net_socket_bind(sid, 0u, 0u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE ||
+        pros_net_socket_ack(sid, 11u) != PROS_NET_OK ||
         pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
         return -13;
 

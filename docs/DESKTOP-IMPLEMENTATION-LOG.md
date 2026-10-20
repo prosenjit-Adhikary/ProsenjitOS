@@ -1,4 +1,47 @@
+## 2026-10-20 — Production spawn contract drafted (not implemented)
+
+- Added [DML-SPAWN-ABI-DESIGN.md](DML-SPAWN-ABI-DESIGN.md) as a review draft. It deliberately assigns no syscall number and is not a published ABI.
+- The draft records the existing boundary: DML manager/runtime tests exercise a mock callback backend; current public syscalls include WAIT_REAP and EXIT but no general spawn/exec call; pros_init_launch() remains an internal kernel transaction requiring VFS/security metadata and caller-owned lifetime resources.
+- Specified required authorization, executable-handle semantics, bounded request validation, NEW-to-READY transaction commit, rollback/ownership rules, DML start/stop callback guarantees, and required fault-injection/end-to-end test gates.
+- Remaining blockers before production code: agree executable object/handle type, caller-owned process/thread/stack allocation and cleanup, syscall number/request layout, argument limits, child policy profile, package trust, and stop/wait ownership. These decisions must be checked against current kernel/security interfaces before implementation; do not guess the ABI.
+- Verification remains pending for the new documentation commit until its latest-head workflows finish. Desktop tests must use OfficeWindows; kernel/QEMU tests remain on the designated Debian office runner.
+
+## 2026-10-20 — Real CPL3 child exit and parent wait/reap verified
+
+- [x] Exact PR head `f02b53701bfb0d66755d691f729a7c8d7ec69e15`: [Build and boot-test run 39384197248](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39384197248) passed, including ISO QEMU boot, native BIOS QEMU boot, and a second boot of the same native disk image.
+- [x] The kernel build job ran on the designated Debian `office` runner; its serial log contains `lifecycle observed real timer IRQ preemption window` followed by `user process exit/scheduler/wait-reap integration test passed` for the ISO boot and both native BIOS boots. The latter marker is emitted only after the parent checks timer preemption, current parent process/thread, child exit status 23, successful `process_wait`, PID removal, and address-space-root cleanup.
+- [x] The DML manager/runtime/compositor host tests passed on the specifically checked `OfficeWindows` runner in the same workflow run. Security architecture workflow [39384197268](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39384197268) also passed.
+- [x] This closes the scheduler-managed CPL3 child-exit + parent-resume + wait/reap integration gate for this exact head.
+- [ ] Production DML process-launch adapter is still not implemented. The current runtime accepts backend callbacks, but there is no public spawn/exec syscall or production adapter yet; a passing mock-backed DML test is not a real desktop launch.
+- [ ] Next: define and review a bounded, versioned process-spawn ABI and ownership/rollback contract, then implement the real adapter only after the syscall and launch-security gates pass. Continue to keep DML/userspace outside kernel-core.
+
 # Desktop Implementation Work Log
+
+## 2026-10-19 — Follow-up CI result for documentation commit
+
+- [x] Security architecture workflow for `782bfb4b28bdc4795b35e489937ce9bb2c6f951f` passed: [run 39289254753](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39289254753).
+- [x] Debian ISO/native BIOS QEMU build and boot checks passed: build job in [run 39289254470](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39289254470).
+- [ ] Windows DML job did **not** complete: [run 39289254470](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39289254470), job `118185298018`, timed out after 12 minutes while downloading the pinned Zig 0.17.0 toolchain; log showed an HTTPS transfer EOF. This is a runner/toolchain-download failure, not evidence that the DML tests passed on this commit.
+- [ ] Retry the Windows DML verification when the OfficeWindows runner can retrieve the pinned compiler; do not claim this head fully green until that job passes.
+
+## 2026-10-19 — Exact-head verification refresh
+
+- [x] Build and boot workflow [39285136037](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39285136037) completed successfully for PR head `de283b9a08934da31a6d7e171902e80738322cc3`.
+- [x] Designated runner checks passed: DML ran on `OfficeWindows` and reported `desktop manager tests passed`, `desktop runtime tests passed`, and `DML manager/runtime and compositor unit tests passed.`; OS build ran on Debian runner `office`.
+- [x] Security architecture workflow [39285135832](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39285135832) completed successfully and logged `Security architecture contract validated.`.
+- [x] The rollback-active regression assertion at `tests/desktop_runtime_test.c:232` is included in the passing DML test run; the earlier pending verification item is now closed.
+- [ ] Production desktop remains incomplete: these checks do not prove scheduler-managed CPL3 process launch/preemption/reap or a boot-to-graphical-session path.
+
+## 2026-10-19 — DML rollback-active status regression
+
+### Checks and findings
+- [x] Re-checked exact HEAD `78859f09cacf0e92c0df99821fb2094b4c361900` on both designated self-hosted runners.
+- [x] Debian `build` job passed: toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot all succeeded.
+- [x] Security-design check passed.
+- [x] Windows `OfficeWindows` DML job failed reproducibly at `tests/desktop_runtime_test.c:232`: after rollback could not stop a retained prerequisite, `pros_dml_runtime_active()` returned `PROS_DML_ENOENT` although a failed process handle remained tracked and cleanup was still required.
+- [x] Fixed `user/desktop/dml_runtime.c`: no tracked processes now returns `PROS_DML_ENOENT`; a non-empty retained process list without an active root returns `PROS_DML_ESTATE`, distinguishing failed/incomplete session state from an idle runtime.
+- [x] Re-ran exact PR head `de283b9a08934da31a6d7e171902e80738322cc3`: Windows `OfficeWindows` DML tests, Debian `office` ISO/QEMU build-and-boot checks, and security-design workflow all completed successfully (workflow runs `39285136037` and `39285135832`).
+- [ ] Desktop remains incomplete: no production process-launch backend, verified userspace init/service lifecycle, or end-to-end graphical display/input session.
 
 ## 2026-10-16 — DML source audit and selection-guard fix
 
@@ -102,3 +145,729 @@
 - [x] Assigned page fault (#PF) its own TSS IST3 stack, separate from the double-fault and syscall stacks, to avoid relying on a possibly damaged current stack for first-fault reporting.
 - [x] Added a re-entry guard to `exception_dispatch()`: if reporting triggers another exception that reaches the dispatcher, the kernel halts instead of recursively logging and corrupting the same context. The guard is cleared only on the existing recoverable-return paths.
 - [ ] CI must verify that these changes assemble, link, and produce a stable first-exception report. This is diagnostic hardening, not a confirmed root-cause fix. QEMU and native BIOS boot remain unverified/failed; desktop runtime is still incomplete.
+
+### 2026-10-17 — DML lifecycle hardening follow-up
+
+- [x] Made registration explicitly initialize each new entry's reserved bytes and lifecycle state to PROS_DML_SESSION_STOPPED, rather than relying only on manager-wide initialization.
+- [x] Hardened transition range validation with explicit signed comparisons before any state lookup/update.
+- [x] Added regression assertions rejecting FAILED -> RUNNING and enum values above and below the defined state range.
+- [x] Updated the implementation plan to describe the current DML scope and latest verification boundary.
+- [ ] Run make desktop-unit-test against the exact latest commit on the user's Debian system or an available self-hosted runner.
+- [ ] Run the project build and QEMU prerequisite gate only after the DML unit test passes; preserve the existing kernel/ProsenjitFS QEMU failure as a separate blocker unless fresh evidence shows it is resolved.
+- [ ] Latest edits were written through GitHub's repository API. This session has no attached shell/SSH execution channel, and the local clone attempt was blocked by DNS, so these newest changes have not been compiled or run here.
+- **Status:** source changes committed; runtime and latest-host-test verification pending. Do not mark the desktop environment complete.
+
+### 2026-10-17 — Guard dependency traversal against corrupted metadata
+
+- [x] Added bounds checks in both dependency preflight and dependency-order traversal before iterating a stored manifest's dependency array.
+- [x] Added regression coverage that corrupts a registered manifest's dependency_count beyond the fixed array capacity and expects PROS_DML_EINVAL from both APIs.
+- [x] Documented the corrupted-metadata guard in the dependency-order API contract.
+- [ ] Compile and execute the updated unit tests on the exact head commit; GitHub workflow lookup returned no runs for the current head, and no shell/SSH execution channel is attached to this chat.
+- **Status:** implementation and regression test are committed; compile/test/QEMU verification remains pending.
+
+### 2026-10-17 — Backend-driven DML session orchestration
+
+- [x] Added `user/desktop/dml_runtime.h` and `.c`: a serialized, single-active-root orchestrator that consumes dependency-first order, calls a narrow platform start/stop backend, tracks process handles, rolls back partial startup, stops in reverse order, and retains failed shutdowns for retry.
+- [x] Added runtime error codes and a FAILED -> STOPPING recovery transition for retrying a failed shutdown.
+- [x] Added `tests/desktop_runtime_test.c` with a mock backend covering dependency start order, failed middle-start rollback, retry after clean rollback, reverse-order shutdown, failed-stop retention, and stop retry.
+- [x] Updated `make desktop-unit-test`'s script to compile and run both registry and runtime suites; updated DML plan, user-mode README, and `docs/DML-RUNTIME.md` to state the exact adapter boundary.
+- [ ] Execute `make desktop-unit-test` on the exact branch head. No runner was used or occupied; this chat has no shell/SSH execution channel, so no compile/test result is available yet.
+- [ ] A production backend still needs a real process spawn/exec and wait/reap API, plus package-root resolution and security policy. The current public syscall ABI does not expose spawn/exec; do not wire the mock backend into boot or claim that a desktop session can run.
+- [ ] Display/input service integration, compatible window-system runtime, XFCE session, full OS build, QEMU, and boot-to-desktop verification remain incomplete.
+- **Status:** userspace orchestration logic and mock regression suite added as source; compilation, execution, real backend integration, and GUI runtime are unverified.
+
+### 2026-10-17 — DML runtime ownership and state-integrity hardening
+
+- [x] `pros_dml_runtime_init()` now refuses to attach a fresh runtime to a manager containing non-STOPPED registered sessions; without the previous runtime's process handles, attaching could orphan live processes or reset meaningful failure state.
+- [x] Runtime validation now rejects active-order entries outside the registry, unregistered entries, and duplicate indices before any start/stop operation.
+- [x] Added regression assertions for runtime reinitialization during an active session and corrupted active-index state.
+- [x] Reconciled the desktop implementation plan, runtime contract, and roadmap with the current source scope.
+- [ ] Run `make desktop-unit-test` against the current branch head when the user releases the runner; no runner was used by this source-only batch.
+- **Status:** new source and test cases committed; no claim of compile/test success. A real process backend, init/service launch path, display/input delivery, window-system/XFCE runtime, and QEMU boot-to-desktop proof remain pending.
+
+### 2026-10-17 — OfficeWindows runner repair and ProsenjitFS boot-fault diagnostics
+
+- [x] Replaced the missing-Bash dependency for DML validation with a native PowerShell harness.
+- [x] Confirmed the harness found no installed compiler/VS C++ toolchain, downloaded the official Zig 0.17.0 Windows x64 archive, verified its pinned SHA-256, and compiled and ran both DML test executables successfully on the designated `OfficeWindows` runner.
+- [x] Confirmed the `office` Debian build job passes toolchain checks and ISO build, but QEMU still faults before the IPC/CPL3 milestones: page-fault vector `0xE`, error `0x11`, `RIP=0`, `CR2=0`. Native BIOS QEMU is correctly skipped after ISO boot failure.
+- [x] Identified that the temporary block-device initialization trace could publish stage `0xF041` before the non-volatile diagnostic values became visible to the exception handler. Changed diagnostic fields to volatile and added a compiler memory barrier before publishing the stage.
+- [x] Added the block-device init arguments (device, callbacks, private data, sector size/count) to the fault report so the next designated `office` QEMU run can narrow the fault without guessing.
+- [x] Reviewed the latest failing QEMU trace: argument registers still contain the expected `block_device_init` inputs, but all callee-side snapshots are zero despite stage `0xF041`. Added caller-side snapshots (call target, stack/frame, caller return, device/callback/private pointers and geometry) to distinguish a bad call/stack transition from a fault inside the callee on the next `office` run.
+- [ ] Re-run the build/boot workflow and inspect the caller-side diagnostics. The fault is not yet fixed; do not claim the OS boot or ProsenjitFS runtime self-test passes until the QEMU milestones pass.
+- **Status:** DML unit tests pass on OfficeWindows. Kernel/ProsenjitFS QEMU fault remains open; Debian/QEMU runtime verification is only through the designated `office` self-hosted runner, not the user's offline Debian system.
+
+### 2026-10-17 — DML registry-layout integrity hardening
+
+- [x] Hardened `manager_valid()` to enforce the registry's contiguous-prefix invariant: every slot below `count` must be registered, and every slot at/above `count` must be unregistered.
+- [x] Added regression cases for a hidden registration outside `count` and a count that claims an unregistered slot. These cases verify malformed public storage is rejected before selection or a later registration can overwrite it.
+- [ ] The new regression tests require a fresh run on `OfficeWindows`; no test pass is claimed for this commit until its DML job completes.
+- **Status:** source-level hardening and regression coverage committed. Real process-spawn backend, package installation/verification, display/input delivery, desktop compositor/window-system, and boot-to-GUI remain separate unfinished integration gates.
+
+
+### 2026-10-17 — DML runtime rejects malformed registry layout
+
+- [x] Found a gap between the registry and runtime validation contracts: `pros_dml_manager` is public storage, and `pros_dml_runtime_init()` previously checked only its magic/count before skipping unregistered slots. A corrupted manager with a hole in the published prefix (or a hidden registration outside the prefix when count was zero) could be accepted as a runtime binding.
+- [x] Added runtime-local contiguous-prefix validation and reused it in runtime validation and initialization. This keeps the runtime boundary defensive even before a manifest lookup occurs.
+- [x] Added regression cases for a count claiming an unregistered slot and for a hidden registration beyond count.
+- [ ] Run `make desktop-unit-test` on the exact updated head using `OfficeWindows`. No compilation or test result is claimed until that job actually executes and its logs are inspected.
+- **Status:** source and regression test committed; designated runner verification pending. The production spawn/exec/wait/reap backend and graphical session remain incomplete.
+
+
+### 2026-10-17 — Runtime-operation regression for mutated registry
+
+- [x] Extended the malformed-registry regression to mutate the manager after a session is active and verify that runtime shutdown refuses to operate on a manager whose published count no longer matches its registered prefix.
+- [x] The test restores the original manager state after the rejection so the mock session can still be stopped normally; it does not fake successful cleanup.
+- [ ] Re-run the DML suite on `OfficeWindows` for the updated head. No test result is claimed from source inspection alone.
+
+
+### 2026-10-17 — Canonical DML registration flags
+
+- [x] Tightened registry validation to require `registered == 1` inside the published prefix and `registered == 0` outside it; nonzero-but-invalid flag values are no longer treated as valid registrations.
+- [x] Added a regression that corrupts a registered slot to value `2` and confirms selection rejects the manager before restoring the valid flag.
+- [ ] Re-run the complete DML suite on `OfficeWindows`; this commit has no test result until the designated job runs and logs are inspected.
+
+
+### 2026-10-17 13:00 UTC — Designated-runner verification and boot triage
+
+- [x] Retrieved workflow run [39033799224](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799224) job logs. The DML job explicitly identified runner `OfficeWindows`; both `desktop manager tests passed` and `desktop runtime tests passed`. The new malformed-registry regression suite therefore passed in this run.
+- [x] Confirmed toolchain verification and ISO build passed on the designated Debian runner `office`. Security architecture run [39033799262](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39033799262) also passed.
+- [x] Captured the current ISO QEMU failure from the same build run: page fault vector 14, instruction-fetch error code `0x11`, `RIP=0`, `CR2=0`, and ProsenjitFS diagnostic stage `0xF041`. The required IPC milestone is absent and the native BIOS test was skipped.
+- [x] Source audit confirms the public ABI still has no process spawn/exec or wait syscall. `process_create()` creates/registers a READY process but does not load an ELF or start its user instruction stream; the existing `enter_user_mode()` path is an explicit kernel boot self-test, not a general process launcher. `thread_init()` builds a kernel-context trampoline and is not a safe substitute for CPL3 ELF entry.
+- [ ] Root cause of the current `0xF041` / null instruction-fetch fault is not proven or fixed. Keep the fix in the designated `office` ProsenjitFS/build workflow; do not mask the failure or treat the QEMU timeout as success without all required milestones.
+- [ ] Define and implement a reviewed process ownership + user-mode entry + wait/reap contract before wiring a production DML backend. Do not invent a syscall number or route desktop policy into kernel-core.
+- [ ] Display/window-system integration, keyboard/pointer event delivery, real desktop session, and boot-to-desktop remain incomplete.
+
+
+### 2026-10-17 13:21 UTC — Fresh QEMU fault evidence (run 39036048406)
+
+- [x] Confirmed the workflow checked out PR merge commit `86d2dd267bf4e94d0f035f7675cdba5ec40a0020`; the designated `office` runner passed toolchain verification and built the ISO.
+- [x] Read the complete QEMU serial/interrupt diagnostics. Boot reaches process lifecycle, IPC wait-queue, security-runtime, partition discovery, VFS provider registry, storage-volume discovery, and process-lifecycle milestones, then faults before the ProsenjitFS self-test can progress and before the required IPC-channel/CPL3 markers.
+- [x] Exact fault remains #PF vector `0xE`, error `0x11`, saved `RIP=0`, `CR2=0`, diagnostic stage `0xF041`. QEMU exits via the workflow's 20-second timeout, but required milestone checks correctly fail; timeout is not accepted as a pass.
+- [x] New caller-side trace reports call target `0x112420`, caller RSP/frame/return `0xD5990/0x1568F0/0x102B95`, device/read/write/private `0x21C480/0x115EC0/0x115FA0/0x19C440`, and geometry `512/512`. Callee-side snapshots remain all zero despite linked disassembly placing their stores before its `0xF041` checkpoint. This is internally inconsistent diagnostic evidence; it does **not** yet establish a root cause.
+- [ ] Next kernel/ProsenjitFS step is to reconcile the emitted linked disassembly, runtime checkpoint and snapshot visibility, using a minimal isolated call/return probe or debugger trace before changing the production call path. Do not make speculative stack/ABI changes or remove the required boot gates.
+- [ ] Native BIOS boot remains skipped after ISO QEMU failure. Desktop production process launch and GUI integration remain incomplete.
+- **Status:** latest ISO build passed; QEMU boot still failed. Security architecture checks passed in run `39036048410`; DML tests on `OfficeWindows` were still in progress when polled.
+
+
+### 2026-10-17 13:27 UTC — Latest CI poll (run 39036283325)
+
+- [x] Confirmed the DML job ran on the designated `OfficeWindows` runner and passed. Its log explicitly reports `desktop manager tests passed`, `desktop runtime tests passed`, and `DML manager and runtime unit tests passed`.
+- [x] Confirmed the security architecture job passed in run `39036283329`.
+- [x] Confirmed the `office` runner passed toolchain verification and ISO build again.
+- [x] Confirmed the ISO QEMU boot gate still fails. Serial output reaches the storage-volume discovery and process-lifecycle markers, then reports page-fault vector `0xE`, instruction-fetch error `0x11`, `RIP=0`, `CR2=0`, stage `0xF041`; the required IPC channel/capability marker is absent, and native BIOS boot is skipped.
+- [ ] Root cause of the `0xF041` fault remains unproven. The caller trace has a nonzero target and arguments, but callee snapshots are zero despite stores appearing before the checkpoint in linked disassembly. Next, reconcile the trace using a minimal call/return probe or debugger evidence before modifying the production path.
+- [ ] Production process spawn/exec/wait/reap, userspace init/service startup, display/input delivery, and real desktop-session verification remain incomplete.
+- **Status:** DML unit tests and security checks pass; ISO compiles; QEMU boot and desktop completion remain blocked.
+
+
+### 2026-10-17 13:29 UTC — Add a stack-frame measurement probe (commit 95565d5)
+
+- [x] Re-read the latest `office` QEMU diagnostics and the exact linked `block_device_init` disassembly.
+- [x] The caller snapshot reports RSP `0xD5990` and frame address `0x1568F0` (a gap of about 562 KiB), while the fault has `RIP=0` and the callee's saved return-address snapshot is reported as zero. This is a strong clue to investigate stack/frame integrity, but it is not yet proof of stack overflow or a root cause; the caller/callee global-snapshot mismatch also needs explanation.
+- [x] Added a diagnostic-only `-fstack-usage` report for `kernel/prosenjitfs.c` and linked disassembly of `prosenjitfs_selftest` entry/call site to `scripts/build.sh`. This does not change runtime logic; it should reveal the compiler-reported static frame size and the actual call-site stack adjustment in the next build log.
+- [ ] Run the new diagnostics on the designated `office` runner and compare the reported frame size with the observed caller RSP/frame values.
+- [ ] Only after the new trace identifies a concrete cause, make a minimal kernel/ProsenjitFS fix and rerun all required ISO and native BIOS milestones.
+- **Status:** instrumentation commit `95565d5d44d23a4fcc4c59411a0c3758f9e741d4` is pushed; its build workflow is queued. DML tests and security checks passed on the immediately preceding tested commit; this new diagnostic commit still requires its own CI result.
+
+
+### 2026-10-17 13:33 UTC — Root cause isolated: oversized ProsenjitFS test stack object
+
+- [x] Inspected the compiler-generated stack-usage output from build run [39036768898](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39036768898): `prosenjitfs_selftest` uses 528,240 bytes of static stack.
+- [x] Located the dominant object in the source: the nested tiny-image exhaustion test declared a local `struct pfs_test_disk small_disk`. Its two 512 × 512-byte media arrays alone consume 524,288 bytes, before other locals and compiler-generated frame space. This explains the measured oversized frame and is consistent with (but does not alone prove every detail of) the QEMU null-return/fault evidence.
+- [x] Applied a narrow fix in commit `5c70267a4066a6b4832902e9d4e6d3f113333e34`: made only `small_disk` static storage, with an explanatory comment. The test already zeroes the complete disk before use; device and filesystem state remain local. No production filesystem semantics or desktop code were changed.
+- [ ] Verify the new compiler-reported stack usage is substantially reduced on `office`; inspect the exact value rather than assuming the fix worked.
+- [ ] Re-run ISO QEMU and native BIOS gates on `office`. Accept no success unless required IPC/CPL3 milestones are present; investigate any next failure from fresh logs.
+- [ ] Re-run DML tests on `OfficeWindows` and security architecture checks for the new head.
+- **Status:** concrete oversized stack object identified and moved off stack; validation is pending. Desktop remains incomplete until boot milestones and real display/input/session tests pass.
+
+
+### 2026-10-17 13:40 UTC — Stack fix verified; next ProsenjitFS assertion isolated
+
+- [x] Retried the failed Debian `office` job after its earlier `actions/checkout` download/network error.
+- [x] The retry built the ISO successfully and confirmed `prosenjitfs_selftest` static stack usage dropped from 528,240 bytes to **7,408 bytes** after moving the 512 KiB test-only disk object to static storage.
+- [x] The prior null-RIP/oversized-frame symptom did not recur in this run. Kernel reached storage-volume discovery, then reported ProsenjitFS self-test failure `rc=-15`, source line/stage 7272 (hex `0x1C68`). The missing IPC/CPL3 markers are downstream of this filesystem self-test abort; they are not yet independent IPC failures.
+- [x] Added a focused diagnostic change in commit `fe59c25e8a1ce0883b0b37f9d400fc5b95d309d5`: split the combined negative/boundary assertion into individual checks so the next serial failure line identifies the exact violated contract; also replaced the test's cast of a `uint64_t` local as a `uint32_t *` with a correctly typed `uint32_t invalid_offset`.
+- [ ] Verify which individual boundary assertion fails on the next `office` QEMU run. Do not change filesystem production logic until the exact assertion and function contract are established.
+- [ ] After ProsenjitFS self-test passes, verify IPC/CPL3 and all later boot milestones, then native BIOS and real desktop display/input/session gates.
+- [x] `OfficeWindows` DML tests passed on the current tested head; security architecture checks passed.
+- **Status:** oversized stack regression is fixed and its compiler measurement confirms it. ProsenjitFS self-test still fails on a separate `-15` boundary-test assertion; desktop remains incomplete.
+
+
+### 2026-10-17 14:00 UTC — Fix stale pathname in oversized-truncate regression
+
+- [x] Inspected the latest QEMU job for commit `2786587b394b1dab90f728f7eaa997885b799e1c`. Toolchain verification and ISO build passed; DML tests and security architecture checks passed; ISO QEMU failed in ProsenjitFS self-test at line 7280.
+- [x] Traced line 7280 to the attempt to open `/hello.bin` for write. The same self-test intentionally unlinks `/hello.bin` at line 6931 and verifies the deleted path stays absent; reopening it without `O_CREATE` is an invalid test setup, not evidence of a VFS production bug.
+- [x] Changed the oversized-truncate regression to use `/sizes.bin`, a file created and verified by the immediately preceding boundary-size persistence matrix. This preserves the intent of testing `UINT64_MAX` and 4 GiB truncation overflow without relying on a deleted pathname. Commit: `824af6da1cfd4810ce21c8814040f6493a5ac902`.
+- [ ] Verify the new head on the designated Debian `office` runner. Check the next exact ProsenjitFS self-test failure, if any, before changing production behavior; then confirm IPC/CPL3 markers and the native BIOS boot gate.
+- [ ] Production process spawn/exec/wait/reap, a real DML process-launch adapter, display/input delivery, and an end-to-end desktop session remain unfinished.
+- **Status:** a test-fixture ordering/path bug was corrected; CI verification of this correction is pending. Desktop is not complete.
+
+## 2026-10-17 — ProsenjitFS truncate-bound regression follow-up
+
+- Re-ran the pull-request CI after the oversized-truncate pathname correction. The ISO build passed on the designated Debian `office` runner, but the QEMU boot gate failed before the IPC milestone: ProsenjitFS self-test returned `rc=-15` at stage `0x1CA6` (source line 7334 at the tested revision). The security architecture contract job passed.
+- Root-cause candidate found in the failing truncate-bound test: it closed `file` and then read `file_data->inode_number`, even though `file_data` is vnode-private state whose lifetime is not guaranteed after close. The inode number had already been copied into the stable local `inode_number` variable.
+- Fix committed: `afdff35fe7dc43b444c4baf94d02ab90a8d7340e` — use the saved inode number after close and split the combined checks into individual failures for precise diagnostics.
+- Verification status at log update: source change committed; fresh CI/QEMU and OfficeWindows DML results are pending. Do not mark desktop or boot as complete until the next run proves the IPC milestone and all required runtime/display/input checks.
+
+### 2026-10-17 — Audited the real CPL3 launch path before DML integration
+
+- [x] Traced `boot/entry.asm`'s `enter_user_mode` IRETQ frame (user SS `0x23`, CS `0x1B`, entry and stack) and the `kernel/idt.asm` syscall/exit-trampoline route.
+- [x] Compared the boot-time CPL3 test with `thread_start_trampoline`, `thread_init`, ELF loader output, and internal process lifecycle APIs. Confirmed the boot test is not yet a general scheduled-child launcher; ELF loading does not enqueue a runnable user thread; the kernel thread trampoline is not a substitute for an IRETQ ring-3 frame.
+- [x] Recorded the exact source audit and implementation decision in `docs/DML-PROCESS-LAUNCH-GATES.md`, commit `92dbfbd67b5f89e9a5be294791c8f18d73a0038c`.
+- [x] Kept syscall ABI and production behavior unchanged; no guessed spawn syscall or mock-backed boot path was added.
+- [ ] Implement and test a kernel-internal launch transaction with admission, ELF loading, initial user frame, runnable thread handoff, rollback, and wait/reap ownership. Then review a versioned user ABI and integrate the DML backend only after kernel tests pass.
+- **Status:** source audit and documentation committed; this is not a launch implementation or desktop completion. Current CI remains blocked on the ProsenjitFS QEMU self-test regression, and the OfficeWindows DML job result is still pending in the latest available run.
+
+
+### 2026-10-17 — Corrected stale QEMU log-gate expectations
+
+- [x] Inspected the failed Office/debian QEMU workflow log for commit `572dadd43f1c8d7372d6dd618573ba4fee4ff138`. The ISO built successfully; QEMU reached and printed `CPL3 user-mode and IPC syscall test passed`, `IPC wait-queue block/wakeup test passed`, the ProsenjitFS persistence milestone, and the scheduler milestones before the workflow failed on a missing marker string.
+- [x] Traced the missing marker against the current source: `kernel/kernel.c` does not emit the old standalone `IPC channel/capability foundation`, per-test security, capability-transfer, or usercopy-recovery marker strings. The security manager runs component self-tests before emitting its aggregate runtime verification marker; the real address-space self-test emits `address-space deep isolation self-test passed`.
+- [x] Updated `.github/workflows/build.yml` on this branch to require the current emitted IPC/CPL3 and wait-queue markers, the security-manager aggregate verification marker, and the actual address-space and usercopy initialization markers instead of obsolete strings. This corrects a CI log-contract mismatch; it does not implement missing runtime capabilities.
+- [ ] Re-run the updated workflow and inspect every remaining missing milestone or QEMU exception. Confirm the native BIOS boot gate separately.
+- [ ] Explicitly audit/add runtime regression coverage for capability copy/move transfer and usercopy page-fault recovery; those old marker strings were not present in the serial log and are not claimed as independently verified by this change.
+- [ ] DML test result on the designated `OfficeWindows` runner remains unverified because the prior DML job was cancelled before completion. Re-run it on the current branch head.
+- **Status:** workflow gate corrected and committed as `e016776e13c9bb1234291b081718a67cec84d0ac`; this is not desktop completion. Real process spawning, DML-to-kernel backend integration, display/input delivery, and a graphical session remain outstanding.
+
+
+### 2026-10-17 — Prevent Actions from cancelling the designated runner tests
+
+- [x] Inspected the workflow history after the DML job on `OfficeWindows` was cancelled while its test step was running.
+- [x] Root cause: `.github/workflows/build.yml` used the same concurrency key for `push` and `pull_request` events on the same branch. A push-triggered run and the PR-triggered run therefore cancelled one another before verification could finish.
+- [x] Updated the concurrency key to include `${{ github.event_name }}`, so push and PR event runs no longer cancel each other merely because they refer to the same branch.
+- [ ] Verify the new PR-triggered `OfficeWindows` DML run reaches a final result and the Debian `office` build/QEMU run completes without being cancelled by the parallel event.
+- **Status:** concurrency fix committed as `ba785afb8782083658ce568d369730817a9eff49`. Earlier DML job results remain cancelled and must not be counted as pass/fail test results.
+
+
+### 2026-10-17 — Fix bounded-truncate regression fixture
+
+- [x] Inspected the latest QEMU failure: ProsenjitFS self-test returned `rc=-15` at source line 7329, where the bounded-truncate test expected `PROS_VFS_EOVERFLOW`.
+- [x] Root cause in the test fixture: it wrote at `n * block_size`, which allocates adjacent logical blocks and can coalesce into one extent, contradicting the test comment that eight independent extents exceed the v1 transaction bound.
+- [x] Changed fixture writes to `n * 2 * block_size`, leaving one logical block hole between each written block. Added a precondition that the inode contains exactly eight one-block extents at logical blocks 0, 2, 4, ..., 14 before testing bounded truncate.
+- [ ] Run the updated ISO/QEMU test. If the new extent-layout assertion or truncate expectation fails, use its distinct `-17` diagnostic and the exact source line to continue root-cause analysis.
+- **Status:** source/test fix committed as `8863302b4c2fbf12373d61b01a3ab32f2d2d87f0`; runtime verification pending. This is a regression-test fixture correction, not yet a verified filesystem fix or desktop completion.
+
+
+### 2026-10-17 — Preserve corruption errors on malformed file extents
+
+- [x] The updated bounded-truncate fixture advanced past its previous `-15` failure. The next QEMU result stopped at source line 7400 with `rc=-16` in the semantic-corruption test for `/corrupt.bin`.
+- [x] Traced the failure to `pfs_file_read()`: when `pfs_find_extent()` returned a specific error (including `PROSENJITFS_ECORRUPT` for the deliberately invalid extent head), the read path collapsed it to generic `PROS_VFS_EIO`. The regression correctly expects `PROS_VFS_ECORRUPT`.
+- [x] Changed the read path to preserve filesystem error mapping through `pfs_vfs_error(rc)`; a successful lookup with an impossible zero extent-block location now returns `PROS_VFS_ECORRUPT` instead of generic I/O failure. Partial reads continue to return the bytes already read.
+- [ ] Re-run ISO/QEMU and confirm the corruption regression passes, then continue through the remaining persistence/journal matrix and native BIOS gate.
+- **Status:** source fix committed with this log entry; runtime verification pending. No desktop-completion claim.
+
+
+### 2026-10-17 — Unmount corrupted test image before restoring it
+
+- [x] The latest QEMU run passed the bounded-truncate fixture and the malformed-extent read assertion, then failed at source line 7415 with `rc=-16` while restoring the clean ProsenjitFS image.
+- [x] Traced the restore sequence: after validating that the corrupted filesystem is rejected, the self-test zeroed and reformatted the backing disk while the same `fs` object was still mounted, then attempted to mount it again. `prosenjitfs_mount()` must not be called over an active mount.
+- [x] Added an explicit successful `prosenjitfs_unmount(&fs)` check before resetting the mock disk and formatting/remounting the clean image.
+- [ ] Re-run QEMU and verify the corruption test, clean remount, allocation-exhaustion and journal/crash matrix all advance. Continue fixing the next exact failing assertion rather than weakening the self-test gate.
+- **Status:** source fix and log committed together; runtime verification pending.
+
+
+### 2026-10-17 — Initialize tiny-image filesystem state before mount
+
+- [x] The next QEMU run passed the corruption-image restore and advanced to the tiny-image allocation-exhaustion test, then failed at source line 7444 with `rc=-17`.
+- [x] Root cause: `small_fs` was an uninitialized local object. `prosenjitfs_mount()` checks `fs->mount.active` before it clears/initializes the supplied filesystem structure, so uninitialized stack bytes could reject the mount as busy.
+- [x] Explicitly zero-initialized `small_fs` before the tiny-device format/mount sequence. The 512 KiB disk remains static to avoid placing it on the kernel self-test stack.
+- [ ] Re-run QEMU to verify minimum-size format/mount and allocation exhaustion, then continue through the recovery/reuse and journal/crash matrix.
+- **Status:** test initialization fix and this log entry committed together; runtime verification pending.
+
+
+### 2026-10-17 — Correct allocation-exhaustion self-test invariant
+
+- [x] The latest QEMU run advanced past the tiny-image setup and failed at source line 7467 (`rc=-17`) after exhausting the raw block allocator.
+- [x] The test was incorrectly calling `pfs_selftest_consistency()` after allocating data blocks directly without attaching them to inode extent chains. The consistency checker intentionally rejects allocated blocks that have no filesystem owner, so this assertion contradicted the test's setup.
+- [x] Replaced the inappropriate global consistency check with a direct allocation-bitmap range check for the last successfully allocated block. Added an explicit `last_allocated_block` variable and used it for free/reuse verification.
+- [ ] Re-run QEMU and verify ENOSPC, free/reuse, inode allocation, and the remaining journal/crash recovery matrix.
+- **Status:** regression-test invariant fix and log committed together; runtime verification pending.
+
+
+### 2026-10-17 — Keep inode-exhaustion test scoped to allocator contract
+
+- [x] The office Debian runner built the ISO successfully. QEMU advanced to source line 7505 and failed with `rc=-17` in the tiny-image inode-exhaustion test.
+- [x] Root cause: the test intentionally calls `prosenjitfs_alloc_inode()` repeatedly to exhaust bitmap slots, without initializing valid inode records or linking them into the namespace. It then ran the global consistency checker, which is correctly expected to reject those deliberately unowned slots.
+- [x] Removed only the contradictory global-consistency assertion. The test still requires allocation to terminate with `PROSENJITFS_ENOSPC` and verifies that the allocator reached the expected exhaustion count; the surrounding mount/unmount and other consistency gates remain intact.
+- [ ] Re-run ISO/QEMU and native BIOS QEMU. Continue from the next exact failure; do not mark the desktop implementation complete until the full required gates pass.
+- **Status:** regression-test scope fix and this log entry committed together; runtime verification pending.
+
+
+### 2026-10-17 — Reset allocator-exhaustion image before global consistency check
+
+- [x] The latest office Debian QEMU run passed block and inode allocation exhaustion but stopped at source line 7543 with rc=-17 in the following mount-boundary/consistency check.
+- [x] Root cause: the preceding exhaustion test intentionally leaves raw data blocks and inode bitmap slots allocated without inode/extent ownership. Reusing that same image for pfs_selftest_consistency() makes the checker correctly reject the deliberately inconsistent exhaustion fixture.
+- [x] Added a checked reformat of the tiny test device after its filesystem is unmounted and before the independent short-partition rejection and clean consistency checks. This preserves the strict global consistency assertion while isolating the test fixtures.
+- [ ] Re-run ISO/QEMU and verify the remaining journal recovery and crash/power-loss matrix, then run the native BIOS QEMU gate. The OfficeWindows DML manager/runtime tests passed on commit 31e7beee53bfce2d1b073ddc50d4023039079439.
+- **Status:** test-fixture isolation fix committed; runtime verification pending. Desktop environment is not yet complete.
+
+
+### 2026-10-17 — Simulate power loss before interrupted journal recovery
+
+- [x] The latest ISO/QEMU run passed the tiny-image boundary checks and the nine transaction-boundary crash cases, then failed at source line 7849 with rc=-14 in the interrupted-recovery/idempotence regression.
+- [x] Root cause: the test injected stage 9 after a durable journal commit, verified the expected write error, then called prosenjitfs_mount() again on the still-active filesystem object. That violates the mount lifecycle and prevents recovery-stage 10/11 injection from being exercised.
+- [x] Added pfs_test_crash_reset(&fs, &disk) between the durable stage-9 interruption and the recovery mount. This discards volatile cache state and tears down in-memory mount state while preserving the durable journal, matching the intended power-loss scenario.
+- [ ] Re-run ISO/QEMU to verify recovery interruption at stages 10 and 11, then verify the native BIOS QEMU gate and the full DML Windows job.
+- **Status:** crash-test lifecycle fix committed; runtime verification pending, desktop environment remains incomplete.
+
+
+### 2026-10-17 — Expose device-broker self-test failure stage
+
+- [x] The latest QEMU run passed the complete ProsenjitFS journal/recovery self-test and then stopped in the device permission broker self-test before CPL3 startup.
+- [x] The broker self-test already returns distinct negative codes for its assertions (-1 through -12), but kernel boot logging discarded that code, preventing evidence-based diagnosis.
+- [x] Updated the boot failure message to print the exact signed broker self-test result in hexadecimal. This is diagnostic instrumentation only; it does not relax the broker gate or claim the broker is fixed.
+- [ ] Re-run the latest commit, map the reported code to the precise broker assertion, fix the underlying defect, then rerun ISO/QEMU, native BIOS QEMU, and OfficeWindows DML tests.
+- **Status:** diagnostic commit pending runtime evidence; desktop implementation is not complete.
+
+
+### 2026-10-17 — Align stale device-grant revocation assertion with API result
+
+- [x] Source-traced the broker self-test's combined assertion after the QEMU run stopped at `device permission broker self-test failed`. `pros_device_revoke()` returns PROS_DRIVER_ENODEV when no active grant matches; after the first revoke, the second revoke therefore returns ENODEV, not EPERM.
+- [x] Corrected the test to expect ENODEV for revoking an already-revoked grant. The adjacent permission check still requires EPERM, so the test continues to prove that the revoked grant no longer authorizes access. The broker's runtime behavior and enforcement were not weakened.
+- [x] Retained the kernel's numeric broker error diagnostic so any later broker assertion failure reports its exact test code.
+- [ ] Re-run ISO/QEMU, confirm broker and display/input device tests pass, then run native BIOS QEMU and OfficeWindows DML unit tests on this commit.
+- **Status:** source-derived assertion fix committed; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Exercise oversized network payload on an established socket
+
+- [x] The latest ISO/QEMU run passed the ProsenjitFS, device permission broker, and display-device binding self-tests, then stopped at the network protocol/socket self-test.
+- [x] Source review found the final network assertion tested an oversized send immediately after deliberately rejecting an invalid ACK. The socket correctly remained in SYN_SENT, and send validates socket state before payload length, so ESTATE was returned before the intended EBOUNDS check.
+- [x] Added the valid ACK for the expected sequence number after the invalid-ACK assertion and before the oversized send. The test now proves the bad ACK is rejected without advancing state, then transitions to ESTABLISHED and tests the payload bound under the documented state precondition.
+- [ ] Re-run ISO/QEMU and continue through PCI and CPL3 milestones; verify native BIOS and OfficeWindows DML gates separately.
+- **Status:** network regression fixture corrected; runtime verification pending and desktop environment remains incomplete.
+
+
+### 2026-10-17 — Check the full accepted network payload length
+
+- [x] The latest QEMU run passed the filesystem, broker, and display self-tests but still stopped at the network protocol/socket self-test after the first socket send assertion.
+- [x] Source review found the test sent a two-byte payload (`sizeof(payload) == 2`) while expecting `pros_net_socket_send()` to return `1`. The API returns the number of bytes accepted, so the assertion was incorrect.
+- [x] Changed the expected result to `(int)sizeof(payload)`. The separate final oversized-payload test now also establishes the socket before checking EBOUNDS, preserving state and bounds coverage.
+- [ ] Re-run ISO/QEMU and continue through PCI/CPL3 and later milestones; verify native BIOS and OfficeWindows DML gates separately.
+- **Status:** network test assertions aligned with API semantics; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Use a genuinely undersized receive buffer in network self-test
+
+- [x] After correcting the two-byte send return expectation, the next QEMU run still stopped in the network self-test.
+- [x] Source review found the receive-bounds assertion supplied a two-byte buffer for a two-byte queued payload while expecting PROS_NET_EBOUNDS. The receive API correctly accepts that capacity; the fixture was not undersized.
+- [x] Changed the first receive attempt to advertise one byte of capacity, then retained the following two-byte receive to verify the queued payload can be read intact after the bounds rejection.
+- [ ] Re-run ISO/QEMU; continue to PCI and CPL3 milestones, then complete native BIOS and Windows DML gates.
+- **Status:** receive-buffer fixture corrected; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Build the ICMP test checksum from one snapshot
+
+- [x] The latest QEMU run passed ProsenjitFS, device-broker, and display self-tests but still stopped in the network self-test after the send/receive test-fixture corrections.
+- [x] Source audit found the ICMP fixture called pros_net_checksum() twice while filling the two checksum bytes. The second call included the already-written high checksum byte, so it computed a different checksum and created an invalid ICMP packet.
+- [x] Compute the checksum once while the field is zero, then write both bytes from that same value. This corrects the fixture and keeps the ICMP parser's checksum validation strict.
+- [ ] Re-run ISO/QEMU to verify the full network self-test and continue to PCI/CPL3; then verify native BIOS and OfficeWindows DML gates.
+- **Status:** ICMP regression fixture corrected; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Expose network self-test failure code
+
+- [x] The latest QEMU run passed the filesystem, broker, and display-device tests but continued to stop in the network protocol/socket self-test after the ICMP and socket-fixture corrections.
+- [x] The network self-test returns distinct negative codes for each assertion, but kernel boot logging only printed a generic failure, hiding which assertion remains incorrect.
+- [x] Added the signed network self-test result to the serial error line. This is diagnostic-only and does not skip or weaken network checks.
+- [ ] Re-run QEMU, map the exact return code to its assertion, fix the root cause, and continue through PCI/CPL3 and the native BIOS gate.
+- **Status:** diagnostic instrumentation committed; runtime verification pending, desktop remains incomplete.
+
+
+### 2026-10-17 — Fix ephemeral port binding in network socket API
+
+- [x] The network self-test diagnostic reported rc=-13, which maps to the final invalid-ACK/oversized-send regression block. Inspection localized the first failing expression to `pros_net_socket_bind(sid, 0u, 0u)`.
+- [x] Root cause was in the implementation: `pros_net_socket_bind()` called `port_conflict()` before checking whether port 0 requested an ephemeral port, while `port_conflict()` intentionally treats port 0 as invalid. This made the function's existing ephemeral-allocation branch unreachable.
+- [x] Reordered validation so socket/state are checked first; port 0 now allocates an ephemeral port, while nonzero ports still go through conflict validation. The self-test keeps the port-0 bind path and verifies subsequent invalid-ACK and payload-bound behavior.
+- [ ] Re-run ISO/QEMU; verify the complete network self-test, PCI/CPL3 milestones, native BIOS boot, and Windows DML tests.
+- **Status:** real socket API defect fixed; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Preserve the live process manager around its self-test
+
+- [x] After network sockets and PCI enumeration passed, the ISO/QEMU run entered CPL3 but never emitted the user-mode syscall success milestone. Serial diagnostics showed handle-duplication denials with `process=0`, indicating that `process_current()` had been cleared before the user-mode test.
+- [x] Root cause: `process_selftest()` called `process_manager_init()`, which reset the global process list, current process, and PID counter. The self-test then returned success without restoring the live `init_process` registry/context, invalidating later syscall dispatch.
+- [x] Split the test body into an isolated fixture and wrapped it with save/restore of the manager globals and address-space context. The original self-test assertions remain intact; on return, the previously active process and PID allocator are restored.
+- [ ] Re-run ISO/QEMU to verify the CPL3 syscall completion milestone and downstream scheduler/IPC tests; then run native BIOS QEMU and the Windows DML tests.
+- **Status:** process-manager test-isolation defect fixed; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Implement and verify native BIOS ATA/MBR/ProsenjitFS persistence path
+
+- [x] The ISO/QEMU run now passes all existing milestones through CPL3. The native BIOS job exposed a missing implementation, not a log-only issue: `kernel.c` never probed ATA PIO or mounted the MBR-declared PFS partition, while `build.sh` left that partition blank.
+- [x] Added a native-boot-only ATA PIO path: probe/read the real IDE block device, parse its MBR, locate the 0xDA ProsenjitFS partition, and validate partition-local out-of-range reads/writes are rejected.
+- [x] The kernel now formats a partition only when `prosenjitfs_probe()` rejects it and a full sector scan proves every partition sector is zero. A nonblank unsupported/corrupt partition is never auto-formatted.
+- [x] Added a persistent marker write/read test with unmount/remount verification. The native workflow now boots the same disk image twice and requires the second boot to report recovery of the marker written on the first boot.
+- [x] Exposed the existing PFS probe/format/mount/unmount functions through the kernel PFS header and corrected the build-script comment to match the real native storage flow.
+- [ ] Verify build, ISO/QEMU, first native BIOS boot, second native BIOS persistence boot, security architecture checks, and OfficeWindows DML unit tests on this commit.
+- **Status:** native storage integration implemented; runtime verification pending. Desktop environment is not yet complete.
+
+
+### 2026-10-17 — Diagnose native PFS blank-partition rejection
+
+- [x] The current Office Debian run passes ISO/QEMU and all earlier boot milestones, but native BIOS boot stops in `native_bios_storage_selftest()` with `rc=-6` after the ATA real-disk block self-test.
+- [x] Mapped `-6` to the exact guard: the PFS partition is rejected because the full-sector blank scan did not return `1`. The existing log did not distinguish a nonzero byte from an ATA read/allocation failure.
+- [x] Added bounded serial diagnostics for allocation failure, read failure (including partition-relative LBA and return code), and the first nonzero sector/byte/value. The scanner remains read-only; it does not auto-format a nonblank or unreadable partition.
+- [ ] Re-run native BIOS QEMU, use the emitted diagnostic to fix the underlying storage/image issue, then verify first-boot marker creation and second-boot persistence. Recheck ISO/QEMU and OfficeWindows DML tests after the fix.
+- **Status:** root-cause instrumentation committed; native storage and desktop completion remain unverified.
+
+
+### 2026-10-17 — Fix ATA transfers that end at the final device LBA
+
+- [x] The latest run's blank-scan diagnostic narrowed the native BIOS failure to the final batch: partition-relative LBA `0x1F8` (504), count 8, returned `PROS_BLOCK_EIO` while scanning the 512-sector partition.
+- [x] Traced the error through `ata_read()` to `block_device_lba_add()`. After successfully transferring the last chunk, the ATA read/write loops unconditionally advanced to the one-past-end LBA. The helper correctly rejects an out-of-range result, so a valid transfer ending exactly at `sector_count` was incorrectly reported as I/O failure.
+- [x] Updated both ATA read and write loops to advance the LBA only when more sectors remain. Bounds validation and per-sector I/O error checks are unchanged; exact-end transfers now can complete without manufacturing an invalid next-LBA request.
+- [ ] Verify ISO/QEMU and native BIOS QEMU; confirm blank scan passes, first boot writes the persistence marker, and second boot recovers it. Re-run OfficeWindows DML tests and security checks.
+- **Status:** ATA exact-end transfer bug fixed in source; runtime verification pending and desktop remains incomplete.
+
+
+### 2026-10-17 — Fix second native BIOS QEMU command continuation
+
+- [x] After the ATA exact-end transfer fix, the first native BIOS boot passed the ATA/MBR/PFS persistent mount test and wrote the persistence marker.
+- [x] The workflow then failed before its second boot: shell logs showed `Second native QEMU exit status: 127`. Inspection of `.github/workflows/build.yml` found doubled trailing backslashes on every continuation line of the second QEMU command, so Bash ended the command early and tried to execute `-drive` as a separate command.
+- [x] Changed those seven continuations to single backslashes. The first native boot and all its checks are unchanged; the second boot will now invoke QEMU with the same image and can verify marker recovery.
+- [ ] Re-run build, ISO/QEMU, first and second native BIOS boots, OfficeWindows DML tests, and security checks on this revision.
+- **Status:** CI invocation defect fixed; persistent second-boot recovery and desktop completion still require verification.
+
+
+### 2026-10-17 — Verification of native persistence and DML gates
+
+- [x] Tested exact source commit `73d5680b1b629d712fef4bc4b220be9a996de3b5` on the designated `office` Debian self-hosted runner: warnings-as-errors build and ISO/QEMU boot gate passed.
+- [x] Native BIOS first boot passed ATA PIO, MBR partition discovery, ProsenjitFS format/mount, filesystem-local LBA boundary checks, marker write, unmount/remount, and marker readback.
+- [x] Native BIOS second boot reused the same disk image and emitted `ProsenjitOS: native persistence marker recovered from prior boot`; the persistent-mount and LBA-boundary milestones also passed. Both QEMU invocations ended with expected timeout status 124 after the required milestones.
+- [x] The designated `OfficeWindows` runner passed `desktop_manager_test` and `desktop_runtime_test` (DML job `117459252207`).
+- [x] Security architecture checks passed (run `39054385898`).
+- [x] Root causes corrected in this sequence: ATA loops falsely failed transfers ending at the final LBA, and the second native QEMU command used doubled shell continuations. No checks were skipped or weakened.
+- [ ] Continue Desktop Implementation Plan phases: implement and test safe preemptive CPL3 process execution/spawn-wait-reap, userspace init/service management, production display/input drivers/services, then verify a compatible window system and XFCE end-to-end. These are genuine remaining features, not CI failures.
+- **Status:** OS/storage regression gates and host DML tests are green on the verified commit. Desktop GUI completion is still outstanding.
+
+
+### 2026-10-17 — Add validated first-run CPL3 scheduler frames
+
+- [x] Added a distinct CPL3 interrupt-frame shape with the required user RSP and SS words after RIP/CS/RFLAGS, while preserving the existing kernel interrupt-frame layout and the assembly-critical `pros_cpu_context.rsp` offset.
+- [x] Added `thread_init_user()` to validate an executable user entry mapping, a writable/NX user stack mapping, aligned bounded kernel stack storage, and then construct an IRET frame with user selectors `CS=0x1B`, `SS=0x23`, and `RFLAGS=0x202`. It does not enqueue or execute the thread by itself.
+- [x] Added TSS.RSP0 setter/getter assembly helpers and made interrupt-driven scheduling install the selected thread's kernel stack before returning its saved frame. The existing non-preemptive CPL3 self-test explicitly restores the bootstrap stack.
+- [x] Guarded the kernel `RET` scheduler path against selecting a CPL3 thread; CPL3 frames must go through the interrupt/IRET path.
+- [x] Added boot assertions for scheduler TSS-stack selection and a CPL3 frame-construction self-test; added both milestones to ISO and native BIOS QEMU gates.
+- [ ] Build and boot-test this commit on `office`, run security architecture checks, and run DML manager/runtime tests on `OfficeWindows`. A successful frame-construction test is only a prerequisite: real spawn/exec/wait/reap, safe user-mode preemption, and GUI services remain unimplemented.
+- **Status:** initial user-mode scheduler-frame primitive implemented; runtime verification pending and desktop remains incomplete.
+
+## 2026-10-18 — Add bounded userspace compositor/window primitives
+
+- [x] Added a userspace-only, caller-owned 32-bit pixel-surface renderer with desktop background/panel and clipped window surfaces.
+- [x] Added a bounded eight-window registry, opaque IDs, z-order raising, focus, close, and topmost pointer hit-testing.
+- [x] Validate surface dimensions, pitch/capacity arithmetic, title bounds/printable characters, window geometry, and stale IDs.
+- [x] Added regression coverage for rendering, overlap/z-order, focus, pointer routing, close/stale handles, invalid geometry/title, and invalid backing surfaces; wired it into POSIX and Windows DML test scripts.
+- [ ] Verify compositor tests on OfficeWindows and rerun Debian warnings-as-errors build/ISO/native BIOS regressions on this commit.
+- **Limitations:** this is not a hardware display driver, framebuffer mapping, real input path, window-server process, package/runtime backend, or bootable graphical desktop. Desktop completion remains unverified.
+
+## 2026-10-18 — Harden compositor state validation
+
+- [x] Follow-up source audit found that the public compositor structure needed validation of its z-order indices before pointer hit-testing; corrupted indices could otherwise be used as array subscripts.
+- [x] Extended the shared validity gate to verify active-window count, unique nonzero IDs, geometry/title bounds, unique in-range z-order slots, cleared unused order slots, and focus membership before every public operation.
+- [ ] Verify the compositor regression suite and all existing desktop/OS CI gates on the updated commit.
+- **Status:** defensive validation implemented; CI verification pending.
+
+- [x] Added forward declarations for the shared title/ID validators used by the compositor's common state gate, keeping the implementation valid under strict C11 compilation.
+
+- [x] Corrected the invalid-title regression input to an empty title; path-like punctuation is valid display text and must not be confused with package-path validation.
+
+
+### 2026-10-18 — Current-head verification and remaining desktop blockers
+
+- [x] Re-checked the Desktop PR #137 head and its latest verification record. Workflow run [39109546967](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39109546967) completed successfully: designated Debian `office` runner passed toolchain verification, ISO build, ISO QEMU boot checks, native BIOS QEMU boot checks, and the Windows `OfficeWindows` DML test job passed.
+- [x] Security architecture workflow [39109546969](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39109546969) completed successfully.
+- [x] Re-audited the source contracts on `desktop/dml-dependency-order-20261017`: `kernel/init.c` loads and security-admits `/init` into a process address space, but does not start a thread or provide spawn/wait. `thread_init_user()` constructs a CPL3 interrupt frame, but a general executable spawn transaction and safe userspace service lifecycle are not yet exposed by the public syscall ABI.
+- [x] Confirmed `user/desktop/compositor.c` is a software renderer over a caller-supplied pixel surface with window/z-order/pointer-hit-test primitives and host tests. It is not yet bound to the kernel display-present path, a concrete keyboard/pointer driver, or a running userspace session.
+- [ ] Implement and test a complete process-launch transaction: secure executable resolution/admission, ELF load, user stack and kernel stack/thread ownership, runnable scheduling, rollback on every partial failure, and parent wait/reap. Preserve the existing IF-clear CPL3 policy until interrupt-frame restoration and user-mode preemption are verified.
+- [ ] Add a real DML backend over that launch/stop/wait contract; do not connect the mock backend to boot.
+- [ ] Implement the userspace display/input event services and bind compositor presentation to the supported display ABI/backend.
+- [ ] Boot to a real session and verify rendering, keyboard and pointer delivery, application launch, logout, restart, and failure recovery.
+- **Status:** prerequisite CI is green; Desktop Environment is **not complete**. These blockers are source/runtime work, not documentation-only acceptance gates. PR #137 must remain Draft until end-to-end evidence exists.
+
+### 2026-10-18 — Initial kernel-side init launch transaction (verification pending)
+
+- [x] Added `pros_init_launch()` as a kernel-internal primitive that creates a child process, applies the existing security-gated `/init` ELF loader, validates a CPL3 thread frame, and queues the thread only after all setup stages succeed.
+- [x] Added failure rollback that attempts to terminate and reap a child after loader, user-thread initialization, or run-queue insertion fails.
+- [x] Kept the caller responsible for process/thread storage and kernel-stack memory; the API does not allocate unbounded resources or invent a public syscall number.
+- [ ] Compile the exact branch head with `-Wall -Wextra -Werror` and run ISO/native BIOS QEMU tests.
+- [ ] Add a real process-launch selftest that exercises success and each rollback edge using an admitted executable fixture.
+- [ ] The scheduler currently skips user threads in ordinary `thread_schedule()`; the interrupt-frame scheduling path, IF policy, child exit return, and parent wait/reap must be verified together before this helper can be treated as a production spawn/exec path.
+- [ ] No public spawn/exec/wait syscall, DML production backend, graphical display presentation path, keyboard/pointer event path, or boot-to-desktop test has been completed by this change.
+- **Status:** source primitive committed; compilation and runtime verification pending. Desktop Environment remains incomplete.
+
+## 2026-10-18 — Current-head CI and user-thread scheduling audit
+
+### Verified on branch head `895ca9122ba5fcb6cfea2cccfc2ac6b9c32ae1bf`
+- [x] GitHub Actions PR build/boot run `39135123119`: Debian self-hosted runner verification, toolchain verification, ISO build, ISO QEMU boot test, and native BIOS QEMU boot test all succeeded.
+- [x] The same run's OfficeWindows `dml-tests` job succeeded.
+- [x] Security workflow run `39135122988` succeeded.
+- [x] Reviewed `kernel/thread.c` scheduler and `kernel/include/thread.h` user-thread frame contract on this branch head.
+
+### Blocking finding — not fixed by these green workflows
+- [x] Confirmed `thread_schedule()` deliberately requeues and skips every `user_mode` thread because the ordinary context switch uses a kernel RET path.
+- [x] Confirmed `thread_schedule_interrupt()` can select a user thread only when a saved interrupt frame exists; `thread_init_user()` deliberately builds a CPL3 IRET frame with interrupts disabled pending verified preemption.
+- [ ] No end-to-end test yet proves timer-driven CPL3 preemption, user-thread exit, process teardown/reap, and safe return to another process together. Do not enable user interrupts or claim general spawn/exec readiness without that test.
+- [ ] No real graphical desktop-session test is represented by the current build/boot or hosted DML tests. Display presentation, keyboard/pointer event delivery, application launch, logout/restart, and failure recovery remain pending.
+
+### Header clarification
+- [x] Clarified that `pros_init_launch()` accepts a caller-selected executable path rather than only `/init`; its successful return means the CPL3 thread is queued, not that it has executed.
+- [ ] This launch helper is still an initial kernel primitive, not a production userspace spawn/exec/wait ABI or a complete desktop launcher.
+
+### Next required implementation gate
+Implement a reviewed interrupt-return scheduling/exit lifecycle with deterministic cleanup and regression tests before connecting a production DML process backend. Preserve the current safe non-preemptive user-mode behavior until that gate passes.
+
+## 2026-10-18 — Timer IRQ same-frame return correction
+
+- [x] Audited `kernel/idt.asm` against `thread_schedule_interrupt()`'s documented contract.
+- [x] Found that the timer ISR treated any non-null scheduler result as a switched thread, even when the scheduler returned the original `current_frame` because no successor was runnable. The original IRQ frame includes vector/error words after the saved GPRs; the switched-frame restore skips those words and would feed the wrong values to `iretq`.
+- [x] Updated the timer ISR to compare the returned frame pointer with the original frame pointer and branch to the normal IRQ restore path when they are identical.
+- [ ] CI must validate NASM assembly, ISO/native BIOS builds, QEMU boot, and security checks for this change.
+- [ ] This is a targeted interrupt-return fix, not proof of CPL3 preemption or a complete desktop runtime. Those still require a real end-to-end scheduler/process-lifecycle test.
+
+
+
+### 2026-10-18 — Correct timer-frame pointer comparison
+
+- [x] Review caught that the initial same-frame guard compared RAX with the qword stored at the frame address, rather than with the frame address itself.
+- [x] Corrected the guard to compute the original frame address with `lea rdx, [rsp + 24]` and compare pointer-to-pointer. RDX is caller-saved and the interrupted value is restored from the saved frame.
+- [ ] Run NASM/build, ISO and native BIOS QEMU gates, plus security workflow on this exact revision before treating the timer-return change as verified.
+- **Status:** comparison corrected by source review; CI/runtime verification pending. Desktop Environment remains incomplete.
+
+
+### 2026-10-18 — Timer ISR C-ABI stack alignment hardening
+
+- [x] Re-reviewed the timer interrupt path after the same-frame fix and found that a fixed `sub rsp, 8` assumed one stack alignment, although IRQs can arrive from CPL0 or CPL3 and interrupt-frame depth differs.
+- [x] Changed the timer ISR to preserve the saved-register-frame pointer in RBX (the interrupted RBX is already saved), align the temporary C-call stack with `and rsp, -16`, and restore the original frame pointer before the no-switch register pops. The saved-frame pointer is now used consistently for scheduler argument and same-frame comparison.
+- [ ] Verify strict assembly/build, ISO QEMU boot, native BIOS QEMU boot, Windows DML tests, and security checks on this exact revision.
+- **Status:** source-level ABI correction; exact-commit CI pending. This does not enable CPL3 interrupts or establish full desktop completion.
+
+
+### 2026-10-18 — OfficeWindows DML runner download reliability
+
+- [x] Investigated PR build/boot run `39138763374`: Debian toolchain, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed; the OfficeWindows DML job failed before compilation because the Zig HTTPS download connection was forcibly closed.
+- [x] Confirmed the same pinned Zig download subsequently succeeded on the push run and the manager, runtime, and compositor tests passed. This indicates a transient download failure, not a C test failure.
+- [x] Added four bounded download attempts with exponential backoff and removal of partial archives between attempts. The existing pinned SHA-256 check remains mandatory; no unverified archive can be used.
+- [ ] Verify this retry change on the Windows runner and rerun the full Debian build/boot and security gates.
+- **Status:** CI resilience change committed; validation pending. This addresses a flaky toolchain fetch, not the remaining production desktop integration blockers.
+
+
+### 2026-10-18 — Preserve interrupted registers across PIC EOI
+
+- [x] Further review of the timer ISR found both restore paths called the C `pic_eoi_master()` after popping saved GPRs. Since a C call may clobber caller-saved registers, that ordering could corrupt the interrupted context before `iretq`.
+- [x] Moved the PIC EOI call to the ABI-aligned temporary stack immediately after `timer_dispatch()`, while the complete register frame remains saved. Removed both post-pop EOI calls so register restoration is the final operation before `iretq`.
+- [ ] Verify assembly/build, ISO and native BIOS QEMU tests, Windows DML tests, and security workflow on this exact revision.
+- **Status:** source-level interrupt-state correction; CI/runtime verification pending. User-mode interrupts remain disabled pending a dedicated lifecycle test.
+
+
+### 2026-10-18 — Keep push and PR security runs independent
+
+- [x] CI review found the security workflow concurrency group used workflow + branch only, so push and pull_request events on the same branch cancelled each other. The build workflow already includes the event name; security did not.
+- [x] Added `github.event_name` to the security concurrency key, allowing push and PR validations to run independently while still cancelling superseded runs within the same event/branch.
+- [ ] Verify push and pull_request security jobs both complete on the next exact-head run.
+- **Status:** CI scheduling fix committed; verification pending.
+
+
+### 2026-10-18 — Desktop integration audit and current-head CI verification
+
+#### Exact commit and CI
+- [x] Audited branch `desktop/dml-dependency-order-20261017` at commit `52dbd6f30e1e3d451325d060270ac33cca49cb16`.
+- [x] Build/boot workflow [39139371221](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39139371221) completed successfully on this exact commit. The `build` job passed toolchain verification, ISO build, ISO QEMU boot test, and native BIOS image QEMU test.
+- [x] The same workflow's `dml-tests` job passed on the designated `OfficeWindows` runner.
+- [x] Security architecture workflow [39139371214](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39139371214) completed successfully on this exact commit.
+- [x] Confirmed the corresponding push-triggered build and security workflows also succeeded. This verifies these automated checks only; it does not prove a graphical desktop session.
+
+#### Source-level findings (rechecked on the feature branch)
+- [x] `include/abi/display.h` and `include/abi/input.h` define versioned data contracts, not a complete userspace service/event path.
+- [x] `kernel/display.c` currently demonstrates backend validation and a synthetic self-test backend. The inspected code does not establish a production framebuffer device connected to the compositor or a userspace display service.
+- [x] `kernel/include/driver_class.h` defines an input-driver read callback contract, but this is not evidence of a concrete keyboard/pointer driver feeding events to userspace.
+- [x] `kernel/syscall.c` and `user/README.md` confirm that the public syscall ABI still has no process spawn/exec operation and the DML runtime callbacks are not wired to a real process-launch backend.
+- [x] `user/desktop/compositor.c` remains a host-testable software compositor/window core; no end-to-end framebuffer presentation and keyboard/pointer route was verified.
+- [x] Reviewed `thread_schedule_interrupt()` and the timer ISR. User threads are intentionally created with IF clear, and ordinary scheduling skips user-mode threads because they require an IRET frame. Do not enable user interrupts or call the user lifecycle complete until preemption, address-space switching, process exit, and reaping are tested together.
+- [x] Kept the current feature branch and draft PR #137 open; did not merge an incomplete desktop integration.
+
+#### Remaining blockers — not complete
+- [ ] Implement and test a safe user-process launch/exec contract that can be called from userspace, with bounded argument copying, security admission, and cleanup on every failure path.
+- [ ] Verify timer-driven CPL3 scheduling and return/exit lifecycle with more than one user process; keep interrupts disabled for user threads until the test proves this safe.
+- [ ] Implement concrete keyboard and pointer device/event delivery to userspace with permission and focus/routing checks.
+- [ ] Connect a real display backend/framebuffer presentation path to the userspace display/compositor boundary.
+- [ ] Add a boot-to-graphical-session test proving rendering, input, app launch, logout/restart, and recovery on the target OS. XFCE/Xorg/Wayland support remains unverified.
+- [ ] Continue to record exact commit and CI evidence for each step; do not treat filename/symbol checks or a successful text-mode boot as a GUI completion gate.
+
+#### Result
+- [x] Current-head build, QEMU smoke tests, Windows DML unit tests, and security checks are green.
+- [ ] Desktop Environment completion gate remains **NOT COMPLETE** because process startup, production display/input integration, and graphical end-to-end behavior are not yet implemented and demonstrated.
+
+
+### 2026-10-18 — Scheduler must reject blocked and quarantined processes
+
+- [x] Re-audited the scheduler at commit `add373d471dc84d605de59697a43658c69f6137e` after the prior green build/boot and security runs.
+- [x] Found `thread_process_runnable()` rejected only ZOMBIE/DEAD states, allowing BLOCKED processes (including processes held in security quarantine) to pass the scheduler's runnable predicate.
+- [x] Tightened the predicate to reject null threads/processes and quarantined processes, and to allow only READY/RUNNING process states.
+- [ ] Await current-head build, QEMU boot, DML, and security workflows before treating this change as verified.
+- [ ] Follow-up still required: add a focused scheduler regression test proving BLOCKED/quarantined processes cannot be selected, then validate user-process preemption/exit/reaping end-to-end.
+- [ ] This is a scheduler/security hardening fix, not evidence that the graphical Desktop Environment is complete.
+
+
+### 2026-10-18 — Preserve blocked threads while enforcing scheduler eligibility
+
+- [x] Follow-up review found that tightening the runnable predicate alone would incorrectly mark BLOCKED/quarantined threads DEAD. Corrected both schedulers to distinguish terminal processes from temporarily non-runnable processes.
+- [x] Ordinary and interrupt schedulers now scan a bounded snapshot of the run queue, discard only ZOMBIE/DEAD-process threads (and invalid CPL3 frames), and requeue blocked/quarantined candidates rather than executing or destroying them.
+- [x] Interrupt scheduling preserves a current thread as BLOCKED when its process is blocked/quarantined; it does not accidentally mark the thread DEAD.
+- [ ] Await CI on this exact commit; add focused regression coverage for blocked/quarantined queue retention before considering scheduler lifecycle verified.
+
+
+### 2026-10-18 — Fail closed when a blocked process has no safe successor
+
+- [x] Follow-up audit identified a remaining edge case: an interrupt scheduler with no eligible successor could return the current interrupt frame even when that process had become blocked or quarantined.
+- [x] Until a dedicated idle thread is implemented, the scheduler now halts with interrupts disabled if the current process is ineligible and no safe successor can be installed. This intentionally favors isolation over continued operation; a real idle thread is still required for graceful idle behavior.
+- [ ] Await CI on the exact commit and add regression coverage for no-successor/quarantine paths.
+
+
+## 2026-10-18 — Scheduler quarantine regression coverage
+
+### Checks and findings
+- [x] Re-checked CI for exact source commit `a0399c060ad583ef6ec5e697ec4c1cadf9560491`: build/QEMU, DML tests, and security-design all passed.
+- [x] Added a boot-time scheduler regression that quarantines the shared test process while a worker is queued, verifies scheduling fails without marking the queued thread DEAD, clears quarantine, and verifies the worker can run again.
+- [ ] Build/QEMU validation of this regression on the new commit is pending.
+- [ ] This test covers queue preservation/recovery only; it does not prove an idle-thread implementation or a complete desktop session.
+
+### Desktop status
+The scheduler still has no dedicated idle thread. Its fail-closed halt path is a temporary safety fallback and can stop the machine when the current process becomes ineligible and no safe successor exists. Production display/input services, a process spawn/exec backend, window system integration, and boot-to-desktop runtime acceptance remain incomplete.
+
+
+## 2026-10-18 — Retire scheduler test fixtures before standalone CPL3 smoke test
+
+### Finding and fix
+- [x] Audited the full boot path after scheduler self-tests and found the kernel later enters CPL3 directly with `enter_user_mode()`, rather than launching the process through the scheduler.
+- [x] The scheduler self-test's kernel worker is an intentional infinite-loop fixture. If timer-driven preemption is enabled in a future change without cleaning up the fixture queue, it could be selected as though it were a real task.
+- [x] Reset the scheduler manager immediately before the standalone CPL3 smoke test. This drops the self-test run queue/registry and clears its current-thread pointer; it does not claim to create a production user thread or enable preemption.
+- [ ] Build/QEMU validation of this cleanup is pending.
+- [ ] Production process spawning, a scheduler-managed init/user thread, a dedicated idle task, and timer-preemptive CPL3 execution remain unimplemented.
+
+### Verification notes
+The prior commit `3304937e0c98c1c7b6a3932ee3c4d6345d12fa35` passed build/QEMU, DML tests, and security-design CI. The new cleanup requires its own CI run.
+
+
+## 2026-10-18 — Bound and diagnose the Windows DML test step
+
+### Finding and fix
+- [x] The current commit's Debian ISO/QEMU and native BIOS/persistence checks passed, and security-design passed.
+- [x] The Windows DML job remained in progress without a GitHub job update for more than 30 minutes; its live logs were unavailable while the step remained active. This is not counted as a test pass or a confirmed source failure.
+- [x] Suppressed PowerShell's interactive progress rendering during the pinned Zig fallback download and added explicit download-attempt/completion markers to make the slow path observable.
+- [x] Added a 12-minute step timeout to the Windows DML test step so a stalled test step fails with a bounded diagnostic instead of consuming the entire job window.
+- [ ] Verify this CI-only change on the exact new commit; Windows DML tests must complete and report their unit-test markers.
+
+### Desktop status
+This change improves CI diagnosability only. It does not implement the production process spawn/exec backend, scheduler-managed userspace init, idle thread, real display/input service path, window-system integration, or boot-to-desktop acceptance. Desktop remains incomplete.
+
+
+## 2026-10-19 — Validate DML process-handle and active-session invariants
+
+### Finding and fix
+- [x] Reviewed the current DML runtime and found that validation checked every listed active handle, but did not check the reverse relationship: a nonzero process handle could exist outside the active order and be silently left untracked.
+- [x] Strengthened runtime validation to require a one-to-one mapping between active-order entries and nonzero process handles, reject stale active-order tail entries, and validate root metadata whenever a root is published.
+- [x] Clear vacated active-order slots and clear the active root when its process is stopped. The root is published only once its own process handle is tracked, allowing dependency rollback and reverse-order shutdown to remain valid.
+- [x] Added regression coverage for an untracked nonzero handle and stale root metadata; corrupted runtime state must be rejected before any backend stop callback is invoked.
+- [ ] Exact-head Windows DML test, Debian build/QEMU, and security-design CI are pending for this change.
+
+### Desktop status
+This is a DML state-integrity hardening change, not a production process backend or a graphical-session implementation. The DML still uses a mock backend in host tests; the real OS process spawn/exec syscall, scheduler-managed init, dedicated idle task, production display/input path, window-system integration, and graphical end-to-end acceptance remain incomplete.
+
+
+## 2026-10-19 — Correct DML rollback root metadata after CI regression
+
+- [x] Retrieved the failing Windows DML job log. The compiler download and desktop-manager tests succeeded; the runtime unit test failed at the rollback-stop-failure case because the new invariant validation correctly rejected an active root that had never actually started.
+- [x] Fixed both rollback failure paths to publish the root only if its process handle is still present in the tracked active order. A failed prerequisite rollback remains tracked for cleanup, but is not falsely reported as the active desktop root.
+- [ ] Re-run Windows DML unit tests and confirm the regression fix; latest-head Debian ISO/native BIOS QEMU and security-design CI must also pass.
+
+
+
+## 2026-10-19 — Exact-head DML rollback regression verified
+
+- [x] Verified branch head `5a0f97940f9f65997519c5bd2afcd1f5522a435b` through PR workflow run [39276338837](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276338837): the designated Debian `office` runner passed toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- [x] The designated Windows `OfficeWindows` runner completed the DML unit-test step successfully on that same PR run; the rollback-active status regression is no longer failing in this run.
+- [x] Push-triggered build/DML run [39276329369](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276329369) also passed both build and DML jobs.
+- [x] Push security-design run [39276329318](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276329318) and PR security-design run [39276338834](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39276338834) both passed.
+- [x] Re-audited the current scheduler/process/syscall boundary: `thread_schedule_interrupt()` has an interrupt-frame switch path and per-thread kernel-stack update, but `thread_init_user()` deliberately constructs a user frame with IF clear; ordinary `thread_schedule()` still skips user-mode threads. The boot path still enters CPL3 directly rather than launching a scheduler-managed init process.
+- [ ] Next blocking implementation gate remains a safe scheduler-managed user-process lifecycle (preemption, address-space/TSS/kernel-stack transitions, exit and reap) with dedicated idle behavior and exact-head QEMU regression evidence. Do not enable CPL3 interrupts until that integrated test passes.
+- [ ] Public spawn/exec ABI, production DML process backend, concrete display/framebuffer presentation, keyboard/pointer event delivery, window-system/session startup, and boot-to-graphical-desktop acceptance remain unimplemented/unverified.
+
+**Status:** current automated build/boot, DML unit, and security checks are green; Desktop Environment remains **NOT COMPLETE**. These checks do not demonstrate a graphical session.
+
+
+## 2026-10-19 — Do not resume a blocked current thread without a successor
+
+- [x] Source audit found that `thread_schedule_interrupt()` returned the interrupted frame unchanged whenever no successor was found, after checking only whether the process was runnable. A process can remain READY/RUNNING while its only thread is BLOCKED, so process eligibility alone is insufficient to justify resuming the saved thread frame.
+- [x] Changed the no-successor path to return the current frame only if the current thread state is still `PROS_THREAD_RUNNING` and its process remains eligible. Otherwise it uses the existing fail-closed halt path.
+- [ ] Exact-head Debian build, ISO/native BIOS QEMU boot, DML unit tests, and security-design checks are pending for commit `36ef2a7b4d78b9dcfac7c7863a4bb130ddb75e9a`.
+- [ ] This is a safety guard, not a substitute for a dedicated idle thread. When a blocked thread has no successor the kernel can still halt; implement and verify an idle-thread/wakeup lifecycle before calling blocking process scheduling production-ready.
+- [ ] Desktop still lacks a production spawn/exec backend, real display/input path, window-system integration, and boot-to-graphical-session acceptance test.
+
+
+## 2026-10-19 — Keep blocked-frame fail-closed behavior on switch errors
+
+- [x] Follow-up source audit found two error paths in `thread_schedule_interrupt()` (failed process-current switch and failed TSS kernel-stack update) that checked process eligibility but not the interrupted thread state before returning its saved interrupt frame.
+- [x] Updated both error paths to fail closed unless the interrupted thread is still `PROS_THREAD_RUNNING` and its process is eligible. This closes the same blocked-thread-resume class across no-successor and switch-failure paths.
+- [ ] CI remains queued for prior scheduler guard commit `36ef2a7b4d78b9dcfac7c7863a4bb130ddb75e9a` at the time of this audit; new exact-head CI for `3a50ddc8fd0881a817072f26107ad519791e18c3` is pending.
+- [ ] These are fail-closed safety guards only. A dedicated idle thread, interrupt-safe wakeup/preemption, complete userspace spawn/exec lifecycle, production DML backend, real display/input delivery, and graphical-session acceptance remain open.
+
+
+## 2026-10-19 — OfficeWindows follow-up: launch-path source audit
+
+### Exact-head workflow verification
+- [x] Build/DML workflow run [39278879126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39278879126) completed successfully. Job logs explicitly identify the DML runner as `OfficeWindows` / machine `IT` and the OS build runner as `office` / machine `debian`.
+- [x] `dml-tests`, ISO build, ISO QEMU boot, native BIOS QEMU boot, and the security architecture workflow [39278879242](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39278879242) all report success for tested commit `cb229658d9eda6d8b74f05e06eab3787237585b0`.
+- [x] Confirmed the Windows test job does not require Bash and validates `RUNNER_NAME == OfficeWindows` before running the PowerShell test harness.
+
+### Fresh source audit (read-only; no kernel behavior changed)
+- [x] `kernel/init.c` already contains `pros_init_launch()`: it registers a child, moves it to `NEW`, performs executable admission and ELF loading, constructs a validated CPL3 frame, publishes `READY`, then enqueues the thread. Post-registration failures attempt exit/reap rollback.
+- [x] `include/abi/syscall.h` already publishes `PROSENJIT_SYS_WAIT_REAP = 8`; `kernel/syscall.c` enforces ring-3 entry, validates the output pointer, restricts reaping to a direct child, and returns `EAGAIN` while the child is still running. This is a non-blocking wait/reap primitive, not a complete spawn/exec API.
+- [x] `thread_init_user()` validates executable/user-stack mapping permissions and builds a CPL3 IRET frame. The interrupt scheduler has a dedicated saved-frame return path and TSS kernel-stack update, but the initial user frame currently keeps IF clear. This deliberately prevents timer preemption; a running user process therefore cannot be considered a production multitasking session yet.
+- [x] `thread_schedule()` still skips user-mode threads rather than starting them through a kernel RET trampoline. Do not route CPL3 frames through that ordinary context-switch path.
+- [ ] Remaining launch blockers: no public, policy-checked spawn/exec syscall or service-manager caller; no verified production allocation/ownership policy for process/thread/kernel-stack storage; no end-to-end test proving a queued CPL3 thread actually starts, exits, and is safely reaped under the interrupt scheduler; no production DML start/stop backend.
+- [ ] GUI blockers remain: concrete display/input drivers and userspace event delivery, window-system/compositor integration, package installation, session startup, and boot-to-desktop acceptance.
+
+### Decision
+Do not add guessed syscall IDs or enable user-mode timer interrupts just to force progress. Next code milestone is a focused kernel test of first-run CPL3 scheduling and exit/reap with IF policy preserved, followed by a reviewed spawn/exec ownership contract and only then a production DML backend. PR #137 remains Draft; the passing workflow is prerequisite verification, not GUI completion.
+
+## 2026-10-19 — Exact-head verification after Windows DML timeout adjustment
+
+- [x] Updated `.github/workflows/build.yml` Windows DML test-step timeout from 12 to 25 minutes; compiler digest verification and the designated `OfficeWindows` runner requirement remain intact.
+- [x] Exact commit `8a4e726721740ece89d2efedc65d077a3849acff`: build/DML workflow [39301429707](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39301429707) passed both `dml-tests` and `build`. Windows logs show the pinned Zig archive downloaded, compiler selected, and manager, runtime, and compositor/window-primitives tests passed.
+- [x] Exact commit security architecture workflow [39301429617](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39301429617) passed.
+- [x] Debian boot logs include the expected CPL3 user-mode/IPC syscall milestone, CPL3 scheduler-frame construction, native BIOS persistent-marker recovery, and the required ISO/native boot gates.
+- [ ] These CI results verify the existing tests only. They do not establish a production scheduler-managed user desktop: public spawn/exec, verified process/thread/stack ownership, safe preemptive CPL3 scheduling and exit/reap, production DML backend, display/input event delivery, window-system/session startup, and boot-to-graphical-desktop acceptance remain incomplete.
+
+**Status:** CI timeout adjustment verified successfully on the exact commit. Keep PR #137 Draft; do not merge on the strength of prerequisite CI alone.
+
+
+## 2026-10-19 — Exact-head verification of documentation commit
+
+- [x] Commit `f60cf62cf3ad890d8a72bcf896bbd6af59451de6` passed the complete Build and boot-test workflow [39302668174](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39302668174): the designated Debian runner passed toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot; the designated `OfficeWindows` runner passed `dml-tests`.
+- [x] Exact-head security architecture workflow [39302668307](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39302668307) passed.
+- [x] PR #137 head is `fc98abc7264384319e2792ae196612b2a6f8e3e6`; the exact-head Build and boot-test workflow [39303801817](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39303801817) and Security architecture workflow [39303801718](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39303801718) both completed successfully. The build workflow includes the Debian ISO/native BIOS QEMU gates and the designated `OfficeWindows` DML test job.
+- [ ] This is prerequisite CI verification, not proof of a production desktop. The first-run CPL3 scheduling/exit/reap path still lacks an end-to-end acceptance test; the public spawn/exec API, owned process/thread/stack allocation policy, preemptive user-mode interrupt policy, production DML backend, and real display/input/session integration remain open.
+
+**Gate:** keep PR #137 in Draft and do not merge until the launch/lifecycle and real desktop integration gates are implemented and verified.
+
+
+## 2026-10-20 — Desktop pause checkpoint / resumable handoff
+
+The user is pausing Desktop Environment work to prioritize PR #118 and the boot-failure investigation. Keep this branch as a resumable checkpoint; do not imply the graphical desktop is complete.
+
+### Exact-head verification
+- [x] Tested commit `98fa46ebba05886d374bcff0f925e4d303c94e26`: [Build and boot-test run 39397593688](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39397593688) passed. Its designated `OfficeWindows` `dml-tests` job passed; Debian `office` runner passed toolchain verification, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- [x] OfficeWindows logs explicitly report `desktop manager tests passed`, `desktop runtime tests passed`, `desktop compositor/window primitives passed`, and `DML manager/runtime and compositor unit tests passed`.
+- [x] Exact-head [Security architecture checks run 39397593777](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39397593777) completed successfully.
+- [x] Regression coverage now includes a backend start callback that publishes a process handle and then fails, plus cleanup failure that retains the child handle and retries cleanup in reverse dependency order.
+- [x] Production launch ABI draft is in `docs/DML-SPAWN-ABI-DESIGN.md`; it is design-only, reserves no syscall number, and must not be treated as an implemented userspace spawn API.
+
+### Resume from here — next priorities
+1. Re-check PR #118 and the boot-failure report/logs first; avoid mixing kernel/boot-failure fixes into this Desktop branch without a clear dependency.
+2. When Desktop work resumes, start by reading this checkpoint, `docs/DML-SPAWN-ABI-DESIGN.md`, and `docs/DML-PROCESS-LAUNCH-GATES.md`.
+3. Keep DML unit tests on the designated `OfficeWindows` runner; keep kernel ISO/native BIOS QEMU verification on the designated Debian `office` runner.
+4. Next substantive Desktop milestone is a reviewed first-run CPL3 scheduling/exit/reap test and explicit process/thread/kernel-stack ownership contract. Do not add a guessed spawn syscall or enable user-mode timer preemption until the interrupt-frame, CR3, TSS-stack, first-run and exit/reap paths are verified together.
+5. After kernel launch/lifecycle gates are satisfied, implement and test the public policy-checked spawn/exec surface and production DML backend; graphical display/input delivery, compositor/window integration, session startup and boot-to-desktop acceptance remain later gates.
+
+**Checkpoint status:** DML runtime regression fixes are CI-verified on OfficeWindows and the kernel's existing build/boot gates are green at this exact head. This is a stable test checkpoint, not a production-ready desktop. Keep the desktop/launcher PR in Draft until all launch and real GUI acceptance gates pass.

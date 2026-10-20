@@ -20,13 +20,29 @@ The first host-testable DML component is in `user/desktop/desktop_manager.c` and
 `user/desktop/desktop_manager.h`. It currently provides a bounded desktop
 registry, a size-tagged, versioned manifest contract, safe relative entry-point
 path validation, required-feature checks, dependency preflight (including
-missing dependency and cycle detection), and default-desktop selection.
+missing dependency and cycle detection), deterministic dependency-first
+resolution with shared dependencies emitted once, default-desktop selection,
+and validated session-state bookkeeping.
 
-This is deliberately **not yet a session launcher**: it does not install or
-execute packages, spawn processes, connect to a display server, route input, or
-claim XFCE/KDE/GNOME support. Those operations must be connected to real
-userspace process, package, permission, display, and input services before the
-DML can launch a desktop.
+A backend-driven session orchestrator now lives in `user/desktop/dml_runtime.c`.
+It starts the resolved dependency closure in dependency-first order, tracks
+opaque process handles, rolls back a partial startup, stops in reverse order,
+and retains failed shutdowns for retry. Its backend callbacks are a contract,
+not a kernel process implementation. The public syscall ABI still has no
+process spawn/exec operation and there is no production backend wired to a real
+userspace process API. See [DML runtime contract](../docs/DML-RUNTIME.md).
+
+A first host-testable userspace compositor/window core is present in
+compositor.c and compositor.h. It renders into a caller-owned 32-bit pixel
+surface and supports bounded windows, z-order, focus, close, and pointer
+hit-testing. It is not connected to a kernel framebuffer mapping, real input
+drivers, a process launcher, or a graphical session.
+
+The DML therefore remains **not yet a working OS desktop launcher**: it does
+not install packages, create real processes on its own, connect to a display
+server, route input, or claim XFCE/KDE/GNOME support. Those operations must be
+connected to real userspace process, package, permission, display, and input
+services before a desktop can be launched.
 
 When a suitable development environment is available, run the isolated host
 unit tests with:

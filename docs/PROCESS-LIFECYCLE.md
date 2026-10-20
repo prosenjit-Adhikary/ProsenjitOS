@@ -26,7 +26,26 @@ The current process manager does not permit a DEAD process to transition back to
 
 ## Resource lifetime
 
-Process address spaces are switched with the process context. A process cannot be reaped while one of its threads is still current, and process exit first terminates all non-dead threads and removes them from runnable queues. The kernel CR3 is restored when the current process exits.
+Process address spaces are switched with the process context. A process cannot be
+reaped while one of its threads is still current, and process exit first
+terminates all non-dead threads and removes them from runnable queues. The
+kernel CR3 is restored when the current process exits.
+
+`pros_init_launch()` is a launch transaction, not proof of a general
+spawn/exec syscall. It registers the child as `NEW` while execution admission,
+ELF mapping, and CPL3-frame construction run. Only after the user frame is
+validated does it publish `READY` and enqueue the thread. Every
+post-registration failure attempts exit and reap rollback. The caller still
+owns the process object, thread object, and kernel stack supplied to this API;
+they must outlive the child thread and must not be stack-local temporaries.
+
+Reap is guarded by a non-destructive preflight: the child must be a registered
+direct child in `ZOMBIE` state, no thread may remain live/current, the process
+must have no live descendants, and the process object must have only its
+sole base reference. A failed preflight must not tear down handles or the
+address space and must not publish an exit status. Once teardown commits, the
+implementation must never relabel a resource-less process as `ZOMBIE` if
+final unlinking reports an invariant violation.
 
 Process destruction is deliberately two-stage:
 
@@ -40,6 +59,12 @@ This keeps exit status observable while preventing the PID registry from exposin
 Each process owns an independent handle table, capability policy, and syscall policy. Handle operations require an active process. A limited-security process starts without administrative capability, while a super-security process receives the full capability policy.
 
 Syscall-policy changes are restricted to the super-security control path, and policies are validated against the supported syscall mask before installation.
+
+## User wait/reap syscall
+
+The public ABI assigns `PROSENJIT_SYS_WAIT_REAP` syscall number 8. The caller supplies a direct-child PID and a writable user pointer for the 32-bit exit status. The dispatcher rejects ring-0 invocation, validates the complete output range before attempting the reap, and only reports success after `process_wait()` has completed the ownership checks and unregister operation.
+
+This first implementation is deliberately non-blocking: a child that has not exited returns `EAGAIN`, so userspace must retry. It does not yet suspend the parent or register a child-exit wait queue. Errors during final status copy are reported, but because reaping is already committed at that point, userspace must not assume such an error means the child remains waitable. This syscall is not a claim that process creation/exec or the complete user-mode scheduler path is production-ready.
 
 ## Isolation boundary
 
