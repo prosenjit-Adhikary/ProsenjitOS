@@ -9,9 +9,9 @@ on:
 
 jobs:
   build:
-    # ProsenjitFS boot-failure diagnosis must run only on OfficeWindows.
-    # Fail visibly if the Windows runner lacks the required POSIX toolchain.
-    runs-on: [self-hosted, Windows, X64, OfficeWindows]
+    # Use either idle self-hosted runner (OfficeWindows or office/Debian).
+    # GitHub schedules this job on an available runner; toolchain preflight fails clearly if incompatible.
+    runs-on: self-hosted
     defaults:
       run:
         shell: bash
@@ -24,8 +24,8 @@ jobs:
       - name: Verify OfficeWindows runner and toolchain
         run: |
           set -eu
-          echo "Runner name: ${RUNNER_NAME:-unknown}"
-          echo "Runner OS: ${RUNNER_OS:-unknown}"
+          echo "Selected runner: ${RUNNER_NAME:-unknown}"
+          echo "Selected runner OS: ${RUNNER_OS:-unknown}"
           uname -a
           for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
