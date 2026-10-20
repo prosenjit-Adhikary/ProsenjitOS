@@ -406,7 +406,7 @@ void user_mode_test_complete(void) {
  */
 static void exit_lifecycle_parent_entry(void) {
     __asm__ volatile ("sti" ::: "memory");
-    serial_write("ProsenjitOS: lifecycle parent thread entered with IRQs enabled\\n");
+    serial_write("ProsenjitOS: lifecycle parent thread entered with IRQs enabled\n");
     for (;;) {
         struct pros_process *child = exit_lifecycle_child;
         uint32_t state = child ? process_state(child) : PROS_PROCESS_DEAD;
@@ -457,7 +457,7 @@ static void exit_lifecycle_parent_entry(void) {
             ++exit_lifecycle_preemption_count;
             if (!exit_lifecycle_timer_observed) {
                 exit_lifecycle_timer_observed = 1u;
-                serial_write("ProsenjitOS: lifecycle observed real timer IRQ preemption window\\n");
+                serial_write("ProsenjitOS: lifecycle observed real timer IRQ preemption window\n");
             }
         }
         __asm__ volatile ("pause");
