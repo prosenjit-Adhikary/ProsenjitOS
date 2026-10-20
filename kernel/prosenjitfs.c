@@ -7382,6 +7382,12 @@ int prosenjitfs_selftest(void)
         if (pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
 
+        /* The corruption fixture is still mounted. Tear it down before
+         * replacing the backing image; otherwise the next mount correctly
+         * rejects the already-active fs object with EBUSY. */
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -16);
+
         /*
          * Restore a clean image before the journal/crash matrix. This keeps
          * the negative corruption fixture isolated from subsequent tests.
