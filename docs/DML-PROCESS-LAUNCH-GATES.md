@@ -1,3 +1,11 @@
+## 2026-10-20 — Production spawn contract drafted (not implemented)
+
+- Added [DML-SPAWN-ABI-DESIGN.md](DML-SPAWN-ABI-DESIGN.md) as a review draft. It deliberately assigns no syscall number and is not a published ABI.
+- The draft records the existing boundary: DML manager/runtime tests exercise a mock callback backend; current public syscalls include WAIT_REAP and EXIT but no general spawn/exec call; pros_init_launch() remains an internal kernel transaction requiring VFS/security metadata and caller-owned lifetime resources.
+- Specified required authorization, executable-handle semantics, bounded request validation, NEW-to-READY transaction commit, rollback/ownership rules, DML start/stop callback guarantees, and required fault-injection/end-to-end test gates.
+- Remaining blockers before production code: agree executable object/handle type, caller-owned process/thread/stack allocation and cleanup, syscall number/request layout, argument limits, child policy profile, package trust, and stop/wait ownership. These decisions must be checked against current kernel/security interfaces before implementation; do not guess the ABI.
+- Verification remains pending for the new documentation commit until its latest-head workflows finish. Desktop tests must use OfficeWindows; kernel/QEMU tests remain on the designated Debian office runner.
+
 # DML process-launch implementation gates
 
 ## 2026-10-20 verification update — CPL3 exit/wait-reap integration
