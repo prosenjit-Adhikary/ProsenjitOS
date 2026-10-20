@@ -85,6 +85,14 @@ NATIVE_KERNEL_LBA=$((1 + NATIVE_STAGE2_SECTORS))
 NATIVE_PFS_START_LBA=2048
 NATIVE_PFS_SECTORS=512
 objcopy -O binary "$BUILD/prosenjit.elf" "$BUILD/prosenjit.bin"
+# Native stage-2 enters at byte 24, immediately after the 24-byte Multiboot2
+# header. Require the trampoline's near-jump opcode there so linker alignment
+# can never silently turn that fixed handoff address into executable padding.
+NATIVE_ENTRY_OPCODE="$(od -An -tx1 -N1 -j24 "$BUILD/prosenjit.bin" | tr -d ' \n')"
+if [[ "$NATIVE_ENTRY_OPCODE" != "e9" ]]; then
+    echo "Native BIOS entry trampoline missing at flat-image offset 24" >&2
+    exit 1
+fi
 KERNEL_BYTES="$(stat -c%s "$BUILD/prosenjit.bin")"
 NATIVE_KERNEL_SECTORS=$(( (KERNEL_BYTES + 511) / 512 ))
 if (( NATIVE_KERNEL_SECTORS == 0 || NATIVE_KERNEL_SECTORS > 1536 )); then
