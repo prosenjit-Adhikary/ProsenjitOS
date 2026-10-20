@@ -7289,9 +7289,15 @@ int prosenjitfs_selftest(void)
                                        &before_inode) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
             before_size = before_inode.size;
-            if (vfs_file_truncate(&file, 0u) != PROS_VFS_EOVERFLOW) {
-                vfs_file_close(&file);
-                return pfs_selftest_fail(__LINE__, -161);
+            {
+                int truncate_rc = vfs_file_truncate(&file, 0u);
+                if (truncate_rc != PROS_VFS_EOVERFLOW) {
+                    vfs_file_close(&file);
+                    /* Preserve the actual callback result in the boot log.
+                     * Reserve -160 to distinguish an unexpected success. */
+                    return pfs_selftest_fail(
+                        __LINE__, truncate_rc == PROS_VFS_OK ? -160 : truncate_rc);
+                }
             }
             if (vfs_file_close(&file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -162);
