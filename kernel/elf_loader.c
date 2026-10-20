@@ -104,6 +104,11 @@ static int validate_load_segments(const uint8_t *image, uint64_t size,
             return PROS_ELF_EFORMAT;
         if (ph->align > ELF_MAX_ALIGN)
             return PROS_ELF_EFORMAT;
+        /* ELF PT_LOAD requires page-offset congruence even when p_align
+         * is 0 or 1. The p_align-specific constraint below is additional. */
+        if ((ph->vaddr & (ELF_PAGE - 1ULL)) !=
+            (ph->offset & (ELF_PAGE - 1ULL)))
+            return PROS_ELF_EFORMAT;
         if (ph->align > 1 &&
             ((ph->vaddr & (ph->align - 1)) !=
              (ph->offset & (ph->align - 1))))
@@ -238,6 +243,15 @@ int pros_elf_selftest(void)
     ph[0].vaddr = ELF_TEST_CODE_VA;
 
     ph[0].align = ELF_MAX_ALIGN + 1ULL;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -6;
+    ph[0].align = ELF_PAGE;
+
+    /* Page-offset congruence is mandatory even when p_align is 0 or 1. */
+    ph[0].offset = data_off + 1u;
+    ph[0].align = 0u;
+    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -6;
+    ph[0].offset = data_off;
+    ph[0].align = 1u;
     if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -6;
     ph[0].align = ELF_PAGE;
 
