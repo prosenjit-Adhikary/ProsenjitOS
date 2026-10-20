@@ -93,7 +93,10 @@ long_mode_entry:
     mov rsp, stack_top
 
     ; Enable CPU memory-protection features that are safe at this stage.
+    ; The kernel relies on NX for W^X; do not continue if the CPU lacks NX.
     call cpu_security_init
+    test eax, eax
+    jz security_halt
 
     ; Pass the original Multiboot2 values to C:
     ; System V x86-64 ABI: RDI, RSI.
@@ -150,17 +153,17 @@ cpu_security_init:
     mov eax, 0x80000000
     cpuid
     cmp eax, 0x80000001
-    jb .done
+    jb .no_nx
     mov eax, 0x80000001
     cpuid
     test edx, (1 << 20)
-    jz .done
+    jz .no_nx
     mov ecx, 0xC0000080
     rdmsr
     or eax, (1 << 11)
     wrmsr
     mov eax, 1
-.done:
+
     ; Load a long-mode TSS with RSP0 pointing at the kernel bootstrap stack.
     mov rax, tss64
     mov word [gdt64 + gdt64.tss_low + 0], 103
@@ -183,10 +186,23 @@ cpu_security_init:
     mov [tss64 + 36], rax
     mov rax, ist2_stack_top
     mov [tss64 + 44], rax
+    mov rax, ist3_stack_top
+    mov [tss64 + 52], rax
     ; Disable the TSS I/O-permission bitmap explicitly.
     mov word [tss64 + 102], 104
     ; TSS descriptor is prepared here; LTR is performed after the IDT is live.
     ret
+
+.no_nx:
+    ; NX is mandatory because kernel page tables use XD bits for W^X.
+    xor eax, eax
+    ret
+
+security_halt:
+    cli
+.halt_security:
+    hlt
+    jmp .halt_security
 
 cpu_load_tss:
     ; Load the GDT again immediately before LTR so GDTR is known-good.
@@ -390,6 +406,13 @@ global ist2_stack_top
 ist2_stack_bottom:
     resb 8192
 ist2_stack_top:
+
+align 16
+global ist3_stack_bottom
+global ist3_stack_top
+ist3_stack_bottom:
+    resb 8192
+ist3_stack_top:
 
 align 16
 tss64:
