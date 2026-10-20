@@ -10,16 +10,25 @@ extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
 extern paging_switch_kernel
+extern __kernel_bss_start
+extern __kernel_bss_end
 
 _start:
     cli
     cld
 
-    ; GRUB supplies:
-    ; EAX = Multiboot2 boot magic
-    ; EBX = Multiboot2 information structure address
-    mov [boot_magic], eax
-    mov [boot_info], ebx
+    ; Preserve the boot arguments while initializing BSS. GRUB clears ELF
+    ; BSS for us, but the native BIOS path loads a flat objcopy binary whose
+    ; BSS is absent from the image. Zero it here so both boot paths agree.
+    mov edx, eax
+    mov esi, ebx
+    xor eax, eax
+    mov edi, __kernel_bss_start
+    mov ecx, __kernel_bss_end
+    sub ecx, edi
+    rep stosb
+    mov [boot_magic], edx
+    mov [boot_info], esi
 
     ; Temporary bootstrap stack.
     mov esp, stack_top
