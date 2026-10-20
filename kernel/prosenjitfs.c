@@ -2957,6 +2957,12 @@ static int pfs_vnode_unlink_unlocked(struct pros_vfs_vnode *parent, const char *
         if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
             entry.name_length == 0u ||
             entry.name_length > PROSENJITFS_MAX_NAME ||
+            entry.name[entry.name_length] != 0u ||
+            entry.inode >= parent_data->fs->sb.inode_count ||
+            pfs_utf8_name_valid((const char *)entry.name, &name_length) !=
+                PROSENJITFS_OK ||
+            name_length != entry.name_length ||
+            entry.name_hash != pfs_name_hash(entry.name, entry.name_length) ||
             pfs_crc_with_zero32(entry_block, sizeof(entry),
                                 (uint32_t)offsetof(
                                     struct pros_prosenjitfs_dir_entry,
