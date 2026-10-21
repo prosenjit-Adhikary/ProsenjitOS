@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     # Use the shared Linux runner pool (office/office1); never use OfficeWindows.
-    runs-on: [self-hosted, office, linux, x64]
+    runs-on: [self-hosted, linux, x64]
     defaults:
       run:
         shell: bash
