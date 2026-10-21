@@ -13,6 +13,21 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 - `boot/entry.asm:enter_user_mode` clears IF before `iretq`. Do not enable CPL3 timer preemption until the return-frame and stack-switch path is validated.
 - The current IPC wait path has an SMP-sensitive publication window: `ipc_channel_wait()` marks the thread blocked and publishes it in the waiter list, then `syscall_dispatch()` sets `blocked_syscall` after the channel lock has been released. A concurrent sender could observe a partially published blocked syscall; the existing single-CPU QEMU boot tests do not establish SMP safety. Do not claim SMP-safe IPC blocking until waiter state, saved frame, and syscall continuation are published as one synchronized transition.
 
+## SMP correctness boundary
+
+The current scheduler/IPC implementation must be treated as **not SMP-safe**. The IPC channel lock serializes a channel's message and waiter arrays, but it does not serialize the scheduler's global `current_thread`, run queue, thread state transitions, or interrupt-frame publication. A channel lock alone therefore cannot make a block/wake operation atomic with respect to scheduler hand-off.
+
+Before claiming SMP-safe blocking, the implementation needs an explicit ownership protocol covering all of these steps:
+
+1. The receiving thread publishes its blocked-syscall continuation and marks its frame as not-yet-resumable.
+2. The scheduler copies the complete CPL3 interrupt frame into thread-owned storage.
+3. The saved frame becomes resumable only after the copy is complete.
+4. A sender that arrives before step 3 leaves a pending wake/message condition that the scheduler reconciles after frame publication; it must not rewrite an old frame or lose the wake.
+5. Waiter-list mutation, thread state, run-queue membership, and wake completion are serialized under a documented lock order (or equivalent per-CPU/atomic protocol). No path may hold a channel lock while acquiring a scheduler lock if another path can acquire them in reverse order.
+6. The implementation defines CPU affinity/migration rules for a thread's saved frame and the CPU that owns the active interrupt stack.
+
+Until those invariants are implemented and exercised with targeted interleaving tests, the current behavior is only a uniprocessor-oriented foundation; the existing channel spinlock is not evidence of SMP correctness. Do not paper over the publication window by merely moving the `blocked_syscall` assignment earlier.
+
 ## Required ABI invariants
 
 1. Define named layouts for at least:
