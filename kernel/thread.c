@@ -275,8 +275,21 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev)
-        prev->interrupt_frame = current_frame;
+    if (prev) {
+        /*
+         * isr128 runs on a reusable IST stack. Copy the complete return frame
+         * into storage owned by the interrupted thread before another entry
+         * can overwrite that stack. CPL3 IRET frames append user RSP and SS;
+         * CPL0 frames do not, so determine the copy length from saved CS.
+         */
+        const uint64_t frame_words = (current_frame->cs & 3ULL) == 3ULL
+            ? 20u : 18u;
+        const uint64_t *source = (const uint64_t *)(uintptr_t)current_frame;
+        uint64_t *destination = prev->interrupt_frame_storage;
+        for (uint64_t i = 0; i < frame_words; ++i)
+            destination[i] = source[i];
+        prev->interrupt_frame = (struct pros_interrupt_frame *)(uintptr_t)destination;
+    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();
