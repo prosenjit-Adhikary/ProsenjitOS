@@ -22,8 +22,8 @@ concurrency:
 jobs:
   cleanup:
     name: Delete Old Workflow Artifacts
-    # Use either available self-hosted runner for repository maintenance.
-    runs-on: self-hosted
+    # Repository maintenance also stays on the designated OfficeWindows runner.
+    runs-on: [self-hosted, OfficeWindows]
 
     steps:
       - name: Delete artifacts older than retention period
