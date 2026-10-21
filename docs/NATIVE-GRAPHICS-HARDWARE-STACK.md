@@ -118,11 +118,23 @@ Track each milestone separately as source-implemented, build-verified, QEMU-veri
 
 No runner is currently active for this work. Therefore this phase is restricted to repository inspection and reviewable documentation/contract preparation. Do not dispatch jobs, trigger CI intentionally, or claim build, QEMU, or hardware verification. Resume implementation only when a runner is explicitly available, starting with the source audit in step 1 and a focused change plan.
 
-## 9. Out of scope for this phase
 
-- replacing the existing desktop/windowing stack with a new compositor;
-- writing a GPU driver without a verified target and documented device contract;
-- direct loading of Windows `.sys` drivers;
-- claiming universal `.exe`/GUI compatibility;
-- marking the desktop complete based on architecture documents alone;
-- unrelated kernel, ProsenjitFS, bootloader, or security changes.
+## 10. Initial repository cross-check (source-index evidence; runtime unverified)
+
+The initial GitHub source search found the following existing components and constraints. These are discovery findings, not a complete code audit:
+
+- `kernel/device_broker.c` and `kernel/include/device_broker.h` expose grant, revoke, permission-check, and self-test interfaces. The desktop must consume this broker rather than add direct device access.
+- `kernel/kernel.c` invokes the device-broker self-test during kernel initialization, according to indexed source excerpts.
+- The roadmap marks the kernel display abstraction as implemented at source level, including framebuffer/backend validation, present path, and lifecycle boundary. This does not establish that a physical or QEMU display backend is fully operational.
+- The roadmap still marks the keyboard/input implementation as incomplete. The end-to-end device-to-userspace input event path therefore remains an explicit prerequisite to a usable desktop.
+- `user/desktop/desktop_manager.c` and its header provide a bounded, versioned manifest registry/preflight foundation. The repository's desktop implementation log explicitly distinguishes this registry from a session launcher; a registered desktop is not yet proof of a launched graphical session.
+- The desktop plan already requires auditing display/input ABI versioning, permissions, errors, and real implementations before integration.
+
+### Audit decisions
+
+1. Reuse the existing device broker, display contract, and DML registry; do not create parallel authorities or duplicate managers.
+2. Treat keyboard/pointer event delivery and service lifecycle as prerequisite gaps until source-level contracts and implementations are confirmed.
+3. Keep the Windows GUI bridge behind a functioning native desktop session. PE loading, Win32 API coverage, and GUI compatibility are separate milestones.
+4. Do not change roadmap completion markers based on search excerpts alone.
+5. No build, unit test, CI workflow, QEMU boot, or hardware test was started during this audit because no runner is active.
+
