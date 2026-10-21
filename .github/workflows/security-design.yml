@@ -1,9 +1,9 @@
 name: Security architecture checks
 
 on:
-  # Keep mainline pushes tested without duplicate push + PR runs.
+  # Test mainline and diagnostic branch pushes so draft PRs still get CI.
   push:
-    branches: [main]
+    branches: [main, debug/pfs-null-rip-diagnostics-20261020]
   pull_request:
   workflow_dispatch:
 
