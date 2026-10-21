@@ -268,9 +268,15 @@ int thread_schedule(void) {
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame) {
     struct pros_thread *prev = current_thread;
-    if (!prev || !current_frame) return current_frame;
+    if (!current_frame) return current_frame;
 
-    prev->interrupt_frame = current_frame;
+    /*
+     * current_thread is NULL only while the scheduler is parked in its
+     * interruptible idle loop because no runnable thread existed. In that
+     * case this frame belongs to the idle loop, not to a blocked thread.
+     */
+    if (prev)
+        prev->interrupt_frame = current_frame;
     struct pros_thread *next;
     do {
         next = thread_dequeue();
@@ -290,6 +296,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
                                (prev->process->quarantined ||
                                 process_status == PROS_PROCESS_BLOCKED))
                     ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+                /*
+                 * Detach the blocked thread before enabling interrupts. This
+                 * prevents timer interrupts in the idle loop from overwriting
+                 * its saved interrupt frame with an idle-loop frame.
+                 */
+                current_thread = 0;
                 for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
             }
             return current_frame;
@@ -313,7 +325,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * remain authoritative. If the CR3 switch fails, the previous thread is
      * already safely queued and the candidate is requeued.
      */
-    if (prev->state != PROS_THREAD_BLOCKED) {
+    if (prev && prev->state != PROS_THREAD_BLOCKED) {
         if (!thread_process_runnable(prev)) {
             uint32_t process_status = prev->process
                 ? process_state(prev->process) : PROS_PROCESS_DEAD;
