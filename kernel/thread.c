@@ -426,7 +426,19 @@ int thread_has_runnable(void) {
 
 int thread_schedule_preempt(void) {
     struct pros_thread *prev = current_thread;
-    if (thread_schedule() != 0) return -1;
+    if (thread_schedule() != 0) {
+        /*
+         * Until an explicit idle thread exists, a blocked/dead/ineligible
+         * current thread must not continue past a failed schedule attempt.
+         * Park with interrupts enabled so timer/device wakeups can enqueue a
+         * runnable thread; an interrupt-driven schedule can then switch away.
+         */
+        if (prev && (prev->state != PROS_THREAD_RUNNING ||
+                     !thread_process_runnable(prev))) {
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
+        return -1;
+    }
     if (prev && prev != current_thread)
         thread_context_switch(prev, current_thread);
     return 0;
