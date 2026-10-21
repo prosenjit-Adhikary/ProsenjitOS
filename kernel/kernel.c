@@ -842,6 +842,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC queued-message waiter race regression passed\\n");
 
+    /*
+     * Model the required retry after EALREADY: the queued message must still
+     * be consumable, and a successful receive must drain it exactly once.
+     */
+    uint8_t retry_message[sizeof(wait_message)] = { 0 };
+    uint32_t retry_length = 0;
+    if (ipc_channel_receive(&ipc_wait_test, retry_message,
+                            sizeof(retry_message), &retry_length) != PROSENJIT_IPC_OK ||
+        retry_length != sizeof(wait_message) ||
+        ipc_channel_count(&ipc_wait_test) != 0) {
+        serial_write("ProsenjitOS: ERROR IPC receive-after-EALREADY regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    for (uint32_t retry_i = 0; retry_i < retry_length; ++retry_i) {
+        if (retry_message[retry_i] != wait_message[retry_i]) {
+            serial_write("ProsenjitOS: ERROR IPC receive-after-EALREADY payload mismatch\\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
+    serial_write("ProsenjitOS: IPC receive-after-EALREADY regression passed\\n");
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
