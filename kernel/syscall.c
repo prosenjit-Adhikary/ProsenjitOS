@@ -198,15 +198,35 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
             struct pros_intent intent;
             uint64_t reason = PROS_REASON_NONE;
 
-            if (!process || length > PROSENJIT_IPC_MESSAGE_MAX ||
-                address_space_validate_user_range(&process->address_space,
-                                                  buffer, length ? length : 1, 0) != 0 ||
-                process_handle_type(process, handle, &object_type) != 0 ||
-                object_type != PROS_OBJECT_IPC ||
-                security_make_intent(&intent, PROS_INTENT_WRITE,
-                                     PROS_OBJECT_IPC, handle,
-                                     PROSENJIT_CAP_WRITE) != 0 ||
-                security_authorize(process, &intent, tid, &reason) != PROS_DECISION_ALLOW) {
+            int validation_stage = 0;
+            if (!process) validation_stage = 1;
+            else if (length > PROSENJIT_IPC_MESSAGE_MAX) validation_stage = 2;
+            else if (address_space_validate_user_range(&process->address_space,
+                                                        buffer, length ? length : 1, 0) != 0)
+                validation_stage = 3;
+            else if (process_handle_type(process, handle, &object_type) != 0)
+                validation_stage = 4;
+            else if (object_type != PROS_OBJECT_IPC) validation_stage = 5;
+            else if (security_make_intent(&intent, PROS_INTENT_WRITE,
+                                          PROS_OBJECT_IPC, handle,
+                                          PROSENJIT_CAP_WRITE) != 0)
+                validation_stage = 6;
+            else if (security_authorize(process, &intent, tid, &reason) != PROS_DECISION_ALLOW)
+                validation_stage = 7;
+            if (validation_stage != 0) {
+                syscall_serial_write("ProsenjitOS: IPC SEND rejected stage=");
+                syscall_serial_hex64(validation_stage);
+                syscall_serial_write(" handle=");
+                syscall_serial_hex64(handle);
+                syscall_serial_write(" buffer=");
+                syscall_serial_hex64(buffer);
+                syscall_serial_write(" length=");
+                syscall_serial_hex64(length);
+                syscall_serial_write(" type=");
+                syscall_serial_hex64(object_type);
+                syscall_serial_write(" reason=");
+                syscall_serial_hex64(reason);
+                syscall_serial_write("\n");
                 registers[0] = PROSENJIT_SYSCALL_EPERM;
                 return;
             }
