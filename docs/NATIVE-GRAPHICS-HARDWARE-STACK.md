@@ -119,6 +119,16 @@ Track each milestone separately as source-implemented, build-verified, QEMU-veri
 No runner is currently active for this work. Therefore this phase is restricted to repository inspection and reviewable documentation/contract preparation. Do not dispatch jobs, trigger CI intentionally, or claim build, QEMU, or hardware verification. Resume implementation only when a runner is explicitly available, starting with the source audit in step 1 and a focused change plan.
 
 
+
+## 9. Out of scope for this phase
+
+- Replacing the existing desktop/windowing stack with a new compositor.
+- Writing a GPU driver without a verified target and documented device contract.
+- Direct loading of Windows `.sys` drivers.
+- Claiming universal `.exe`/GUI compatibility.
+- Marking the desktop complete based on architecture documents alone.
+- Unrelated kernel, ProsenjitFS, bootloader, or security changes.
+
 ## 10. Initial repository cross-check (source-index evidence; runtime unverified)
 
 The initial GitHub source search found the following existing components and constraints. These are discovery findings, not a complete code audit:
