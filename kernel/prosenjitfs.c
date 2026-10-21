@@ -7526,7 +7526,15 @@ int prosenjitfs_selftest(void)
             }
         }
 
-        if (prosenjitfs_mount(&small_fs, &small_device, 0u) !=
+        /*
+         * The exhaustion fixture intentionally leaves every data block and
+         * inode slot reserved. Reset it before asking the ownership checker
+         * to validate a clean mounted filesystem.
+         */
+        pfs_zero(&small_disk, sizeof(small_disk));
+        pfs_zero(&small_fs, sizeof(small_fs));
+        if (prosenjitfs_format(&small_device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&small_fs, &small_device, 0u) !=
                 PROSENJITFS_OK ||
             pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
