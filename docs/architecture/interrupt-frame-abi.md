@@ -33,8 +33,8 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 - [ ] Implement matching restore paths for CPL0 and CPL3 frames, including correct stack cleanup and IRET behavior.
 - [ ] Normalize the IRQ0 vector/error frame and define same-CPL kernel RSP restore before re-enabling timer-driven scheduling.
 - [ ] Establish per-thread kernel-stack ownership and TSS.RSP0 updates before enabling CPL3 preemption.
-- [ ] Add regression coverage for repeated syscalls from CPL3, blocked IPC wake/retry, successive IST entries, frame preservation across thread switches, and return to both CPL0 and CPL3.
-- [ ] Run compiler/assembler checks, boot tests, and targeted QEMU runtime tests on the self-hosted Linux runner; use other runners for independent checks where the workflow supports them.
+- [ ] Add targeted runtime regressions for blocked IPC wake/retry, repeated IST1 entries while a thread is suspended, and real CPL0/CPL3 return paths. The current CPL3 syscall/IPC test exercises multiple ordinary syscalls but does not force the blocked-receive scheduler hand-off.
+- [x] Run compiler/assembler checks, ISO build, ISO and native-BIOS QEMU boot tests, and the CPL3 user-mode syscall/IPC test on the self-hosted Linux runner; latest PR #153 head passed both build/boot and security workflows.
 - [ ] Update the roadmap only after each runtime claim has matching evidence.
 
 ## Explicit non-claims
