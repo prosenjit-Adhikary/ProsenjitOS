@@ -378,6 +378,36 @@ int pros_elf_selftest(void)
             (void)object_release(&process.object);
             return -12;
         }
+        /*
+         * Regression: argc/argv/envp and their strings must all be inside
+         * the mapped initial stack page. Check actual payload, not only argc.
+         */
+        {
+            uint8_t *stack_base =
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL));
+            uint64_t *initial =
+                (uint64_t *)(stack_base +
+                    (process.user_stack_top - PROSENJIT_USER_STACK_VA));
+            uint64_t argv0 = initial[1];
+            uint64_t argv1 = initial[2];
+            uint64_t env0 = initial[4];
+            if (initial[0] != 2u || initial[3] != 0 ||
+                initial[5] != 0 ||
+                argv0 < PROSENJIT_USER_STACK_VA ||
+                argv0 + sizeof("elf-selftest") >
+                    PROSENJIT_USER_STACK_TOP ||
+                argv1 < PROSENJIT_USER_STACK_VA ||
+                argv1 + sizeof("ok") > PROSENJIT_USER_STACK_TOP ||
+                env0 < PROSENJIT_USER_STACK_VA ||
+                env0 + sizeof("PFS=1") > PROSENJIT_USER_STACK_TOP ||
+                ((char *)stack_base)[argv0 - PROSENJIT_USER_STACK_VA] != 'e' ||
+                ((char *)stack_base)[argv1 - PROSENJIT_USER_STACK_VA] != 'o' ||
+                ((char *)stack_base)[env0 - PROSENJIT_USER_STACK_VA] != 'P') {
+                (void)address_space_destroy(&process.address_space);
+                (void)object_release(&process.object);
+                return -16;
+            }
+        }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
             return -13;
