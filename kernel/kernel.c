@@ -716,7 +716,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     worker_thread.state = PROS_THREAD_READY;
     scheduler_blocked_owner.state = PROS_PROCESS_READY;
     if (thread_enqueue(&worker_thread) != 0) {
-        serial_write("ProsenjitOS: ERROR scheduler blocked-process enqueue setup failed\\n");
+        serial_write("ProsenjitOS: ERROR scheduler blocked-process enqueue setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     scheduler_blocked_owner.state = PROS_PROCESS_BLOCKED;
@@ -732,7 +732,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_blocked_owner.state = PROS_PROCESS_READY;
     scheduler_blocked_owner.quarantined = 0u;
     if (thread_enqueue(&worker_thread) != 0) {
-        serial_write("ProsenjitOS: ERROR scheduler quarantine enqueue setup failed\\n");
+        serial_write("ProsenjitOS: ERROR scheduler quarantine enqueue setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     scheduler_blocked_owner.quarantined = 1u;
