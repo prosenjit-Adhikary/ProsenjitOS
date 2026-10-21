@@ -131,6 +131,7 @@ static int dml_check_dependencies(const struct pros_dml_manager *manager,
                                   uint8_t visited[PROS_DML_MAX_DESKTOPS])
 {
     const struct pros_dml_manifest *manifest;
+    int validation_rc;
 
     if (!manager_valid(manager) || index >= manager->count ||
         index >= PROS_DML_MAX_DESKTOPS || !visiting || !visited ||
@@ -142,8 +143,9 @@ static int dml_check_dependencies(const struct pros_dml_manager *manager,
         return PROS_DML_OK;
 
     manifest = &manager->entries[index].manifest;
-    if (manifest->dependency_count > PROS_DML_MAX_DEPENDENCIES)
-        return PROS_DML_EINVAL;
+    validation_rc = manifest_validate(manager, manifest);
+    if (validation_rc != PROS_DML_OK)
+        return validation_rc;
     visiting[index] = 1u;
     for (uint32_t d = 0; d < manifest->dependency_count; ++d) {
         int dependency = dml_find(manager, manifest->dependencies[d]);
