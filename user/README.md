@@ -6,7 +6,7 @@ User-mode programs and services are outside the kernel image.
 
 ELF loader -> process creation -> init/service manager -> display/input service boundary -> existing Xorg/X11 or Wayland -> XFCE session -> desktop applications.
 
-The versioned display/input contracts live in `include/abi/display.h` and `include/abi/input.h`. They do not grant userspace direct hardware access.
+The versioned display/input contracts live in `include/abi/display.h` and `include/abi/input.h`. The shared integration message contract is in `include/abi/desktop.h`; it covers window requests, input events, clipboard limits, and bounded audio submissions. These headers do not grant userspace direct hardware access, and the receiving service must validate every complete message/payload.
 
 ## Current status
 
@@ -33,6 +33,9 @@ unit tests with:
 
 ```sh
 make desktop-unit-test
+make desktop-abi-test
+# or run both isolated suites:
+make desktop-tests
 ```
 
 The test target compiles only the DML registry and its unit tests; it does not
