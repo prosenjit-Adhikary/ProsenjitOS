@@ -299,6 +299,18 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                                           message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
                 /*
+                 * isr128 uses IST1 for both CPL3 and CPL0 entries. Only a
+                 * CPL3 frame has the user RSP/SS words required by the
+                 * scheduler's stable-frame copy path. Never block a CPL0
+                 * caller here: its frame lives on reusable IST1 and cannot
+                 * be retained as a same-CPL return frame.
+                 */
+                if ((cpu_frame[1] & 3ULL) != 3ULL) {
+                    registers[0] = PROSENJIT_SYSCALL_EPERM;
+                    return;
+                }
+
+                /*
                  * Do not block if there is no runnable successor. Until the
                  * kernel has a dedicated idle thread, returning an error is
                  * safer than suspending the only runnable execution context.
