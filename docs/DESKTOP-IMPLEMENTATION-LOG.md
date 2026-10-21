@@ -186,5 +186,6 @@
 - [x] The first thread is dead and otherwise reapable; the second is dead but deliberately retains a non-null IPC wait-channel reference.
 - [x] Asserted that both direct thread_reap_process() and process_wait() reject this inconsistent state without detaching the first eligible thread, changing either process owner link, or destroying the child's address space.
 - [x] After clearing the stale wait-channel reference, the test retries normal final reap and checks that both thread objects are detached from the registry.
-- [ ] Exact-head build/boot and security CI must complete before this new regression is counted as runtime-verified. Earlier run 39602910274 and reduced-trace run 39603747695 were cancelled, so neither is a pass.
+- [x] The immediately preceding revision (before this newest atomicity test) passed build/boot plus officewindows-smoke in run [39625892768](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39625892768) and security architecture in [39625892761](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39625892761). These do not validate this newest test.
+- [ ] Exact-head build/boot and security CI must complete before this new regression is counted as runtime-verified. Earlier runs 39602910274 and 39603747695 were cancelled, so neither is a pass.
 - **Scope:** test-only strengthening of native process/thread lifetime invariants; no spawn/exec syscall or desktop runtime is claimed.
