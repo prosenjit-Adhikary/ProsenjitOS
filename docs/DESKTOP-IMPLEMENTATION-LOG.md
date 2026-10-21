@@ -112,3 +112,13 @@
 - [ ] Run `make desktop-unit-test` before treating these tests as verified.
 - [ ] No workflow run is currently reported for the latest test commit. No new CI run was deliberately triggered in this step, to avoid adding runner queue load.
 - [ ] Desktop session blockers remain unchanged: a complete userspace process/service-launch path and end-to-end display/input delivery are not yet verified.
+
+
+### 2026-10-21 — Guard corrupted stored dependency metadata
+
+- [x] Static review found that registration rejected oversized `dependency_count`, but dependency preflight trusted the stored field. Because the manager structure is public, corrupted in-memory metadata could make traversal index beyond the fixed dependency array.
+- [x] Added a defensive bound check in `dml_check_dependencies()` before the dependency loop; invalid stored counts now return `PROS_DML_EINVAL`.
+- [x] Added a regression case that registers a valid entry, corrupts its stored dependency count, and expects preflight to reject it.
+- [x] Re-fetched both changed source files and confirmed the guard and regression case are present on the work branch.
+- [ ] Host compilation and unit-test execution are still pending; this is source inspection, not a passing test result.
+- [ ] No new workflow run was started; the build workflow targets pushes to `main` and pull requests, and no pull request has been opened for this work branch.
