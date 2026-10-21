@@ -274,7 +274,26 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_thread *next;
     do {
         next = thread_dequeue();
-        if (!next) return current_frame;
+        if (!next) {
+            /*
+             * There is not yet a dedicated idle thread. Returning the saved
+             * interrupt frame is safe only while the interrupted thread is
+             * still eligible to execute. A process may have been blocked or
+             * quarantined while its thread was running; resuming that frame
+             * would bypass the process policy. Park the CPU until an interrupt
+             * makes a runnable thread available instead of returning to it.
+             */
+            if (!thread_process_runnable(prev)) {
+                uint32_t process_status = prev->process
+                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
+                prev->state = (prev->process &&
+                               (prev->process->quarantined ||
+                                process_status == PROS_PROCESS_BLOCKED))
+                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+                for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+            }
+            return current_frame;
+        }
         if (!thread_process_runnable(next)) {
             uint32_t process_status = next->process
                 ? process_state(next->process) : PROS_PROCESS_DEAD;
