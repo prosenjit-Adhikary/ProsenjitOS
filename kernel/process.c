@@ -192,7 +192,10 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     struct pros_process *child = process_lookup(pid);
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
-    if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
+    /* Check every reap invariant before closing handles or destroying the
+     * address space. A late thread-reap failure must not strand a half-reaped
+     * zombie whose resources can no longer be released on retry. */
+    if (!thread_process_reapable(child)) return -3;
     int32_t child_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
     child->state = PROS_PROCESS_DEAD;
