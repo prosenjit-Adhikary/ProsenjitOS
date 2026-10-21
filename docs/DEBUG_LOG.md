@@ -291,3 +291,28 @@ Those are intentionally transient allocator reservations, not yet owned by a fil
 
 ### Verification status
 The source/workflow change is committed on the diagnostic branch. A fresh clean build and QEMU run are required to establish whether the ProsenjitFS self-test advances and to identify any subsequent failures. Do not mark the filesystem or boot path as passing until that run completes successfully.
+
+
+## 2026-10-21 — Boot path advanced through CPL3; CI milestone contract corrected
+
+### Runtime findings and fixes
+- Tiny-image ProsenjitFS allocator exhaustion: the failed ENOSPC allocation can clear its output parameter, so the test now preserves the last successful block for free/reuse assertions.
+- Tiny-image consistency check: reset/reformat the temporary disk before running ownership consistency validation, because the exhaustion fixture deliberately reserves raw blocks and inode slots.
+- Interrupted journal replay: discard the stage-9 interrupted mount before testing recovery-stage interruptions; otherwise the test attempts to remount while stale volatile mount state remains.
+- Device permission broker: revoking a grant that does not exist on an existing device now returns EPERM, while a missing device still returns ENODEV.
+- Network tests: reclaim expired ARP cache entries during insertion and allow port zero to request an ephemeral local port.
+- Process manager: run `process_selftest()` before registering the live init process. The test calls `process_manager_init()`, which clears the global process list and current-process pointer; running it later detached init and caused CPL3 syscalls to observe no current process.
+
+### Latest observed QEMU milestone
+The QEMU serial log now reaches:
+- ProsenjitFS format/mount/allocation/journal/recovery self-test passed
+- device permission broker self-test passed
+- display-device binding self-test passed
+- network protocol/socket self-test passed
+- PCI enumeration and ELF runtime mapping/stack verification passed
+- CPL3 user-mode and IPC syscall test passed
+
+The kernel's `user_mode_test_complete()` intentionally halts after the CPL3 test. The previous workflow incorrectly required additional capability/sandbox milestone strings that are not emitted by this startup path, so it failed with a misleading “Missing QEMU milestone” after CPL3 had succeeded. The build workflow now checks only milestones actually emitted before that intentional halt; the native BIOS boot test will provide the next independent verification.
+
+### Verification status
+ISO build, desktop unit tests, and the listed runtime milestones passed on the latest observed code run. The workflow change and native BIOS test still need a fresh run on the updated branch before claiming the complete build/boot workflow is green.
