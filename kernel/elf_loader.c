@@ -194,9 +194,35 @@ static int page_mapped(const struct pros_address_space *space, uint64_t va)
 }
 
 static void rollback_user_pages(struct pros_process *process,
+                                const uint8_t *image,
                                 uint64_t start, uint64_t end)
 {
+    if (!process || !image || start >= end)
+        return;
+
+    const struct elf64_ehdr *eh = (const struct elf64_ehdr *)image;
     for (uint64_t va = start; va < end; va += ELF_PAGE) {
+        int belongs_to_image = 0;
+
+        /*
+         * The [start, end) span can contain unmapped gaps between PT_LOAD
+         * segments. A caller may already own a mapping in such a gap.
+         * Only unmap pages covered by a validated PT_LOAD segment; treating
+         * the whole span as loader-owned can destroy unrelated mappings when
+         * a later allocation or map operation fails.
+         */
+        for (uint16_t i = 0; i < eh->phnum; ++i) {
+            const struct elf64_phdr *ph =
+                (const struct elf64_phdr *)(image + eh->phoff +
+                                            (uint64_t)i * sizeof(*ph));
+            if (ph->type == PT_LOAD && segment_page_flags(ph, va) >= 0) {
+                belongs_to_image = 1;
+                break;
+            }
+        }
+        if (!belongs_to_image)
+            continue;
+
         uint64_t physical = 0;
         if (address_space_unmap_user_page(&process->address_space, va,
                                           &physical) == 0)
@@ -327,6 +353,93 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /*
+     * Rollback gap regression: the image span includes a gap between two
+     * PT_LOAD segments. A pre-existing user mapping in that gap belongs to
+     * the process, not to this ELF load, and must survive rollback.
+     */
+    {
+        struct pros_process process;
+        uint64_t segment_a = 0, gap_page = 0, segment_b = 0;
+        uint64_t translated = 0, flags = 0;
+        int mapped_a = 0, mapped_gap = 0, mapped_b = 0;
+        int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -17;
+
+        segment_a = physical_page_alloc_user();
+        gap_page = physical_page_alloc_user();
+        segment_b = physical_page_alloc_user();
+        if (!segment_a || !gap_page || !segment_b) {
+            if (segment_a) physical_page_free(segment_a);
+            if (gap_page) physical_page_free(gap_page);
+            if (segment_b) physical_page_free(segment_b);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -18;
+        }
+
+        if (address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA, segment_a,
+                                              PROSENJIT_PAGE_NX) == 0)
+            mapped_a = 1;
+        if (mapped_a &&
+            address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA + 0x3000ULL,
+                                              gap_page,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) == 0)
+            mapped_gap = 1;
+        if (mapped_gap &&
+            address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA + 0x5000ULL,
+                                              segment_b,
+                                              PROSENJIT_PAGE_NX) == 0)
+            mapped_b = 1;
+
+        if (!mapped_a || !mapped_gap || !mapped_b) {
+            if (!mapped_a) physical_page_free(segment_a);
+            if (!mapped_gap) physical_page_free(gap_page);
+            if (!mapped_b) physical_page_free(segment_b);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -19;
+        }
+
+        eh->phnum = 2;
+        ph[0].type = PT_LOAD;
+        ph[0].flags = PF_R | PF_X;
+        ph[0].offset = data_off;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].align = ELF_PAGE;
+        ph[1] = ph[0];
+        ph[1].vaddr = ELF_TEST_CODE_VA + 0x5000ULL;
+        eh->entry = ELF_TEST_CODE_VA;
+
+        rollback_user_pages(&process, image, ELF_TEST_CODE_VA,
+                            ELF_TEST_CODE_VA + 0x6000ULL);
+        if (address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA,
+                                         &translated, &flags) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA + 0x5000ULL,
+                                         &translated, &flags) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA + 0x3000ULL,
+                                         &translated, &flags) != 0 ||
+            translated != gap_page) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -20;
+        }
+
+        eh->phnum = 1;
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -21;
+    }
+
     /* Positive mapping test: verify PT_LOAD bytes, zero-filled BSS, stack
      * construction, entry publication, and owned-page teardown. */
     {
@@ -377,6 +490,36 @@ int pros_elf_selftest(void)
             (void)address_space_destroy(&process.address_space);
             (void)object_release(&process.object);
             return -12;
+        }
+        /*
+         * Regression: argc/argv/envp and their strings must all be inside
+         * the mapped initial stack page. Check actual payload, not only argc.
+         */
+        {
+            uint8_t *stack_base =
+                (uint8_t *)(uintptr_t)(physical & ~(ELF_PAGE - 1ULL));
+            uint64_t *initial =
+                (uint64_t *)(stack_base +
+                    (process.user_stack_top - PROSENJIT_USER_STACK_VA));
+            uint64_t argv0 = initial[1];
+            uint64_t argv1 = initial[2];
+            uint64_t env0 = initial[4];
+            if (initial[0] != 2u || initial[3] != 0 ||
+                initial[5] != 0 ||
+                argv0 < PROSENJIT_USER_STACK_VA ||
+                argv0 + sizeof("elf-selftest") >
+                    PROSENJIT_USER_STACK_TOP ||
+                argv1 < PROSENJIT_USER_STACK_VA ||
+                argv1 + sizeof("ok") > PROSENJIT_USER_STACK_TOP ||
+                env0 < PROSENJIT_USER_STACK_VA ||
+                env0 + sizeof("PFS=1") > PROSENJIT_USER_STACK_TOP ||
+                ((char *)stack_base)[argv0 - PROSENJIT_USER_STACK_VA] != 'e' ||
+                ((char *)stack_base)[argv1 - PROSENJIT_USER_STACK_VA] != 'o' ||
+                ((char *)stack_base)[env0 - PROSENJIT_USER_STACK_VA] != 'P') {
+                (void)address_space_destroy(&process.address_space);
+                (void)object_release(&process.object);
+                return -16;
+            }
         }
         if (address_space_destroy(&process.address_space) != 0 ||
             object_release(&process.object) != 0)
@@ -439,7 +582,8 @@ static int build_initial_stack(struct pros_process *process,
         string_bytes + pointer_bytes + 15u > stack_capacity)
         return PROS_ELF_EOVERFLOW;
 
-    uint64_t sp = PROSENJIT_USER_STACK_TOP - string_bytes;
+    /* Start at the top; each string placement decrements SP exactly once. */
+    uint64_t sp = PROSENJIT_USER_STACK_TOP;
     for (uint32_t pass = 0; pass < 2u; ++pass) {
         const char *const *list = pass == 0u ? argv : envp;
         uint32_t count = pass == 0u ? argc : envc;
@@ -493,7 +637,7 @@ int pros_elf_load_with_args(struct pros_process *process,
     if (rc != PROS_ELF_OK) return rc;
     rc = build_initial_stack(process, argv, argc, envp, envc);
     if (rc != PROS_ELF_OK) {
-        rollback_user_pages(process, result->image_start, result->image_end);
+        rollback_user_pages(process, image, result->image_start, result->image_end);
         uint64_t physical = 0;
         if (address_space_unmap_user_page(&process->address_space,
                                           PROSENJIT_USER_STACK_VA,
@@ -564,14 +708,14 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             if (f < 0) continue;
             if (flags < 0) flags = f;
             else if (flags != f) {
-                rollback_user_pages(process, start, end);
+                rollback_user_pages(process, image, start, end);
                 return PROS_ELF_ECONFLICT;
             }
         }
         if (flags < 0) continue;
         uint64_t physical = physical_page_alloc_user();
         if (!physical) {
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, start, end);
             return PROS_ELF_ENOMEM;
         }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
@@ -580,7 +724,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
         if (address_space_map_user_page_owned(&process->address_space, va,
                                               physical, (uint64_t)flags) != 0) {
             physical_page_free(physical);
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, start, end);
             return PROS_ELF_EINVAL;
         }
         ++mapped;
@@ -593,7 +737,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
             uint64_t seg_end = 0, page_end = 0;
             if (!range_ok(ph->vaddr, ph->memsz, ELF_USER_MAX, &seg_end) ||
                 seg_end > UINT64_MAX - (ELF_PAGE - 1ULL)) {
-                rollback_user_pages(process, start, end);
+                rollback_user_pages(process, image, start, end);
                 return PROS_ELF_EOVERFLOW;
             }
             page_end = (seg_end + ELF_PAGE - 1ULL) & ~(ELF_PAGE - 1ULL);
@@ -611,12 +755,12 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                 copy_len = ELF_PAGE - dst_delta;
             if (copy_len != 0) {
                 if (ph->offset > UINT64_MAX - src_delta) {
-                    rollback_user_pages(process, start, end);
+                    rollback_user_pages(process, image, start, end);
                     return PROS_ELF_EOVERFLOW;
                 }
                 uint64_t file_off = ph->offset + src_delta;
                 if (file_off > size || copy_len > size - file_off) {
-                    rollback_user_pages(process, start, end);
+                    rollback_user_pages(process, image, start, end);
                     return PROS_ELF_EBOUNDS;
                 }
                 for (uint64_t j = 0; j < copy_len; ++j)
@@ -634,13 +778,13 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
      * caller-supplied stack addresses.
      */
     if (page_mapped(&process->address_space, PROSENJIT_USER_STACK_VA)) {
-        rollback_user_pages(process, start, end);
+        rollback_user_pages(process, image, start, end);
         return PROS_ELF_ECONFLICT;
     }
     {
         uint64_t stack_page = physical_page_alloc_user();
         if (!stack_page) {
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, start, end);
             return PROS_ELF_ENOMEM;
         }
         for (uint64_t off = 0; off < ELF_PAGE; ++off)
@@ -651,7 +795,7 @@ int pros_elf_load(struct pros_process *process, const uint8_t *image,
                                               PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_NX) != 0) {
             physical_page_free(stack_page);
-            rollback_user_pages(process, start, end);
+            rollback_user_pages(process, image, start, end);
             return PROS_ELF_EINVAL;
         }
         ++mapped;

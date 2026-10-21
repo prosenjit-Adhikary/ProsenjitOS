@@ -125,6 +125,38 @@ int thread_process_has_live(const struct pros_process *process) {
     return 0;
 }
 
+int thread_reap_process(struct pros_process *process) {
+    if (!process || thread_process_is_current(process) ||
+        thread_process_has_live(process))
+        return -1;
+
+    /* Preflight the entire registry before mutating it. Reaping must never
+     * detach a live thread or partially unlink a process's thread set. */
+    for (struct pros_thread *thread = thread_registry; thread;
+         thread = thread->registry_next) {
+        if (thread->process == process &&
+            (thread->state != PROS_THREAD_DEAD || thread->wait_channel != 0))
+            return -1;
+    }
+
+    struct pros_thread **link = &thread_registry;
+    while (*link) {
+        struct pros_thread *thread = *link;
+        if (thread->process != process) {
+            link = &thread->registry_next;
+            continue;
+        }
+
+        *link = thread->registry_next;
+        thread->registry_next = 0;
+        thread->process = 0;
+        thread->interrupt_frame = 0;
+        thread->wait_channel = 0;
+        thread->blocked_syscall = 0;
+    }
+    return 0;
+}
+
 int thread_terminate_process(struct pros_process *process) {
     if (!process) return -1;
 

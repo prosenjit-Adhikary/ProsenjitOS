@@ -102,3 +102,63 @@
 - [x] Assigned page fault (#PF) its own TSS IST3 stack, separate from the double-fault and syscall stacks, to avoid relying on a possibly damaged current stack for first-fault reporting.
 - [x] Added a re-entry guard to `exception_dispatch()`: if reporting triggers another exception that reaches the dispatcher, the kernel halts instead of recursively logging and corrupting the same context. The guard is cleared only on the existing recoverable-return paths.
 - [ ] CI must verify that these changes assemble, link, and produce a stable first-exception report. This is diagnostic hardening, not a confirmed root-cause fix. QEMU and native BIOS boot remain unverified/failed; desktop runtime is still incomplete.
+
+
+### 2026-10-21 — Desktop implementation restart: source-backed prerequisite audit
+- [x] Re-read the current `main` desktop plan, DML implementation/header/tests, desktop prerequisite gate, user-mode README, and Version 2 unified-runtime design.
+- [x] Confirmed the DML is currently only a bounded registry/preflight selector. It does not spawn processes, install packages, start a display server, route input, or launch a session.
+- [x] Confirmed the public syscall ABI has no process spawn/exec syscall; the kernel already has process/thread lifecycle primitives and an ELF loader, but these are not yet joined into a general userspace exec/service-launch path.
+- [x] Inspected the actual GitHub Actions run for commit `f73434eabbc83b466f48535e4f28827308a68d21`: Build and boot-test run [39599868861](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39599868861) succeeded on runner `office` / machine `debian`; security architecture run [39599868676](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39599868676) also succeeded.
+- [x] Build workflow logs confirm the DML test, ISO build, ISO QEMU required milestones, native BIOS QEMU required milestones, ProsenjitFS mount/recovery tests, process/thread lifecycle tests, syscall/IPC tests, and security W^X/NX checks all passed on that commit. Native QEMU exit status `124` was the expected timeout after required milestones, not a test failure.
+- [x] Confirmed the smoke job completed successfully; the main build job's runner identity was `office` on machine `debian`. This is evidence for that job only, not proof that every configured runner is online.
+- [ ] Implement the smallest missing userspace process-launch/service contract only after auditing existing syscall, process, capability, VFS, ELF-loader and service-manager APIs. Preserve kernel validation and fail-closed behavior; do not add an ENOSYS stub and call it execution support.
+- [ ] Add focused unit/regression tests for the new contract, then rerun DML tests, warnings-as-errors build, ISO QEMU, native BIOS QEMU, and security-design checks.
+- [ ] Implement display/input userspace services only after process launch and IPC prerequisites are verified; then integrate a real window-system route and desktop session.
+- [ ] Keep Windows PE/API runtime work downstream of native userspace startup and shared desktop services. No Windows compatibility or GUI runtime is claimed complete by this audit.
+- **Verification status:** source audit plus GitHub Actions verification completed for commit above. No local Debian shell was executed from this chat session; test evidence comes from the linked self-hosted GitHub Actions run.
+
+
+### 2026-10-21 — DML manifest boundary regression coverage
+- [x] Added a host regression test rejecting dependency_count above PROS_DML_MAX_DEPENDENCIES.
+- [x] Added self-dependency rejection coverage.
+- [x] Added rejection coverage for fixed-size manifest id and entry_point buffers without a terminating NUL.
+- [x] Confirmed rejected manifests do not change the registered entry count.
+- [x] Build and boot-test run [39601180449](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180449) passed on commit 91a2f44ea2cd2ab85f593cd9a0a2e093d67e73be, including DML unit tests, ISO build, ISO QEMU milestones, and native BIOS QEMU milestones. Both QEMU runs ended with expected timeout status 124 after required milestones.
+- [x] Security architecture run [39601180487](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180487) passed for the same commit.
+- [ ] Next: define process/thread allocation, rollback, and final-reap ownership before implementing a general spawn syscall. Current process/thread objects are caller-owned and must not be freed until registry lifetime is explicitly handled.
+
+
+### 2026-10-21 — DML manifest boundary regression coverage
+- [x] Added a host regression test rejecting dependency_count above PROS_DML_MAX_DEPENDENCIES.
+- [x] Added self-dependency rejection coverage.
+- [x] Added rejection coverage for fixed-size manifest id and entry_point buffers without a terminating NUL.
+- [x] Confirmed rejected manifests do not change the registered entry count.
+- [x] Build and boot-test run [39601180449](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180449) passed on commit 91a2f44ea2cd2ab85f593cd9a0a2e093d67e73be, including DML unit tests, ISO build, ISO QEMU milestones, and native BIOS QEMU milestones. Both QEMU runs ended with expected timeout status 124 after required milestones.
+- [x] Security architecture run [39601180487](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180487) passed for the same commit.
+- [ ] Next: define process/thread allocation, rollback, and final-reap ownership before implementing a general spawn syscall. Current process/thread objects are caller-owned and must not be freed until registry lifetime is explicitly handled.
+
+
+### 2026-10-21 — Process/thread reap ownership groundwork (CI pending)
+- [x] Added `thread_reap_process()` to preflight the entire thread registry and reject reaping if the process is current, has any live thread, or retains an IPC wait-channel reference.
+- [x] The reap operation unlinks only dead threads owned by the target process and clears their registry/process links; it does not free caller-owned storage.
+- [x] Integrated thread reaping into `process_wait()` after address-space/resource release and before process unregister, so stale registry entries do not outlive a reaped process object.
+- [x] Added boot regression assertions that a live queued thread cannot be reaped and remains registered, and that successful process wait detaches the dead thread from the registry.
+- [ ] Verify the latest branch-head Build and boot-test plus Security architecture workflows. These are pending/running; do not treat source edits as test success until GitHub Actions completes.
+- [ ] Follow-up: consolidate all final-unregister paths around the same thread-reap invariant, then build an allocator/rollback API for a real userspace spawn/exec contract. No general spawn/exec support is claimed yet.
+
+## 2026-10-21 — Native ELF initial-stack placement regression
+
+### Scope
+- Area: `kernel/elf_loader.c`, `build_initial_stack()`, and the existing ELF loader self-test.
+- Change is limited to the native ELF initial-stack path; no Windows subsystem, scheduler, filesystem, or desktop service behavior was changed.
+
+### Finding and fix
+- [x] Found that the initial stack pointer was initialized to `PROSENJIT_USER_STACK_TOP - string_bytes` before the loop that subtracts each argument/environment string length. The loop therefore accounted for the string storage twice and could write outside the intended stack-page region.
+- [x] Changed the starting pointer to `PROSENJIT_USER_STACK_TOP`; the reverse-copy loop now decrements it exactly once per string.
+- [x] Extended the positive ELF loader self-test to verify the initial `argc`, argv/envp terminators, and that the argv/env strings begin at expected locations inside the mapped stack page.
+- [ ] Build and execute the ELF self-test and QEMU milestones on the project's supported Linux runner. Not run in this editing step; no CI success is claimed.
+
+### Commits
+- `684a3e1b1994aa84feef87a8471ddbdfb65bd161` — fix initial stack string placement
+- `f4ef5dd152c76d48aeeb395e9d8ff450f67b9c1d` — add argv/env stack regression assertions
+
