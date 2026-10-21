@@ -781,8 +781,31 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         process_grant_handle(&lifecycle_parent, &lifecycle_object,
                              PROSENJIT_CAP_READ, &lifecycle_handle) != 0 ||
         lifecycle_object.refcount != 2 ||
-        process_exit(&lifecycle_parent, 13) != 0 ||
-        process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
+        process_exit(&lifecycle_parent, 13) != 0) {
+        serial_write("ProsenjitOS: ERROR process resource cleanup setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    /*
+     * Retaining the process object must make wait fail before any destructive
+     * cleanup. The zombie must keep its address space and open handle usable.
+     */
+    uint64_t lifecycle_root_before_wait = lifecycle_parent.address_space.root;
+    if (object_retain(&lifecycle_parent.object) != 0 ||
+        process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != -5 ||
+        lifecycle_parent.object.refcount != 2 ||
+        lifecycle_parent.state != PROS_PROCESS_ZOMBIE ||
+        lifecycle_parent.address_space.root != lifecycle_root_before_wait ||
+        lifecycle_root_before_wait == 0 ||
+        lifecycle_object.refcount != 2 ||
+        handle_check(&lifecycle_parent.handles, lifecycle_handle,
+                     PROSENJIT_CAP_READ, PROS_OBJECT_FILE) != 0 ||
+        object_release(&lifecycle_parent.object) != 0 ||
+        lifecycle_parent.object.refcount != 1) {
+        serial_write("ProsenjitOS: ERROR process wait refcount preflight regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process wait refcount preflight regression passed\n");
+    if (process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != 0 ||
         waited_exit != 13 ||
         lifecycle_object.refcount != 1 ||
         lifecycle_parent.address_space.root != 0) {
