@@ -787,7 +787,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1 ||
         process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
-        waited_exit != 21 || thread_lifecycle_process.address_space.root != 0) {
+        waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
+        thread_lifecycle.process != 0 || thread_lifecycle.registry_next != 0) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
