@@ -328,3 +328,18 @@ Follow-up source review compared the process structure and lifecycle with the de
 5. Only after those contracts are reviewed should display/input service work consume device grants.
 
 No code change is made in this pass because the runner is unavailable and the cleanup/identity contract needs to be decided before changing security-sensitive lifecycle code.
+## 15. Public syscall and handle-boundary review
+
+Reviewed `include/abi/syscall.h`, `kernel/syscall.c`, `kernel/include/object.h`, and `kernel/object.c` against the proposed desktop/device-service boundary. Source inspection only; no runner or runtime verification was used.
+
+- The public syscall enum currently exposes version query, user-test completion, handle close/duplicate, IPC send/receive, and handle transfer. It has no process-create/exec, display, input-event, or device-broker grant/revoke syscall in this inspected ABI.
+- The existing handle table is a capability-oriented object reference mechanism: entries hold an object pointer, generation, and rights; close-all releases handles. That is useful infrastructure, but it does not itself create a device grant or prove that a device's mapped resources are revoked when a handle closes.
+- `PROS_OBJECT_DEVICE` exists as an object type constant. Its presence alone does not demonstrate a complete userspace device-object implementation, a safe device-resource mapping API, or a policy-authorized path from a handle to broker grants.
+- The syscall ABI is explicitly versioned and documents published syscall numbers as stable. Do not insert new public syscall numbers or widen public structures casually; first document versioning, error values, capability checks, and compatibility behavior.
+- IPC handles can be transferred under capability checks, so any future display/input service design must specify which service handles and rights are provisioned at startup. It must not let an untrusted client self-issue device grants or infer authority from a numeric PID.
+
+### Boundary decision
+
+Keep the next implementation step at contract/design level until the process identity mismatch and grant cleanup semantics are resolved. Prefer provisioning a narrow trusted broker/service authority through existing object/IPC mechanisms where feasible; add a public syscall only if the audited design shows it is necessary. Before implementation, trace the actual device object creation and mapping path end-to-end rather than relying on the object-type constant.
+
+No syscall, object model, or process lifecycle code was changed in this pass. No build, test, CI, or QEMU job was started.
