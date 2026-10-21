@@ -136,3 +136,12 @@
 - [x] Build and boot-test run [39601180449](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180449) passed on commit 91a2f44ea2cd2ab85f593cd9a0a2e093d67e73be, including DML unit tests, ISO build, ISO QEMU milestones, and native BIOS QEMU milestones. Both QEMU runs ended with expected timeout status 124 after required milestones.
 - [x] Security architecture run [39601180487](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180487) passed for the same commit.
 - [ ] Next: define process/thread allocation, rollback, and final-reap ownership before implementing a general spawn syscall. Current process/thread objects are caller-owned and must not be freed until registry lifetime is explicitly handled.
+
+
+### 2026-10-21 — Process/thread reap ownership groundwork (CI pending)
+- [x] Added `thread_reap_process()` to preflight the entire thread registry and reject reaping if the process is current, has any live thread, or retains an IPC wait-channel reference.
+- [x] The reap operation unlinks only dead threads owned by the target process and clears their registry/process links; it does not free caller-owned storage.
+- [x] Integrated thread reaping into `process_wait()` after address-space/resource release and before process unregister, so stale registry entries do not outlive a reaped process object.
+- [x] Added boot regression assertions that a live queued thread cannot be reaped and remains registered, and that successful process wait detaches the dead thread from the registry.
+- [ ] Verify the latest branch-head Build and boot-test plus Security architecture workflows. These are pending/running; do not treat source edits as test success until GitHub Actions completes.
+- [ ] Follow-up: consolidate all final-unregister paths around the same thread-reap invariant, then build an allocator/rollback API for a real userspace spawn/exec contract. No general spawn/exec support is claimed yet.
