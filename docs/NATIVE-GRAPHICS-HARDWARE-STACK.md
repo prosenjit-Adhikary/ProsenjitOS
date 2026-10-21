@@ -418,3 +418,14 @@ Static cross-check after the edit: the synthetic 640x480 XRGB8888 backend has a 
 ### Verification limits
 
 Changed files: `kernel/include/display.h`, `kernel/display.c`, and `include/abi/display.h`. No syscall number, public structure layout, PCI implementation, process code, filesystem, or boot code was changed. The GitHub files were re-fetched after updates for source-level confirmation. No compiler/build/test/CI/QEMU/runner was used, so compile-time and runtime status remain unverified. Do not mark the display stack or hardware path complete on this change alone.
+
+## 20. Build and boot-path cross-check
+
+A follow-up static inspection checked the build script and the kernel initialization call site against Section 19:
+
+- `scripts/build.sh` compiles `kernel/display.c` into the kernel image with `-Wall -Wextra -Werror -O2`. This makes warnings compile-blocking, but source inspection cannot establish that the edited translation unit compiles.
+- `kernel/kernel.c` calls `pros_display_selftest()` during kernel initialization. A nonzero result prints an error and enters a permanent `cli; hlt` loop. Therefore, the newly added negative cases are part of a boot-critical self-test path, not merely a dormant helper.
+- The self-test fixture's expected sequence was traced statically: register the synthetic driver/device, bind, validate and present a 4-byte partial buffer, exercise malformed metadata, reject an oversized submission, unbind, then unregister. The reviewed driver API paths are consistent with that sequence on source inspection only.
+- Because the self-test can halt boot on failure, do not label this change runtime-safe until the display self-test and a targeted build have run on an explicitly authorized runner. No runner, build, test, CI, or QEMU was started during this cross-check.
+
+This section records integration risk and verification requirements; it does not claim that the build or boot path passed.
