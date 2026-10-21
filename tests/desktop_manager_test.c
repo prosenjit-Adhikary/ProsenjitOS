@@ -64,6 +64,11 @@ int main(void)
     manifest.dependency_count = PROS_DML_MAX_DEPENDENCIES + 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 6);
 
+    manifest = manifest_make("unterminated-dependency", "bin/launch");
+    manifest.dependency_count = 1u;
+    memset(manifest.dependencies[0], 'D', sizeof(manifest.dependencies[0]));
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 6);
+
     manifest = manifest_make("xfce", "bin/startxfce4");
     manifest.required_features = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 5);
