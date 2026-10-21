@@ -57,6 +57,9 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
+    /* Stable per-thread storage for either CPL0 (18-qword) or CPL3
+     * (20-qword) interrupt return frames; never retain a reusable IST pointer. */
+    uint64_t interrupt_frame_storage[20];
     void *wait_channel;
     uint64_t blocked_syscall;
     struct pros_thread *next;
