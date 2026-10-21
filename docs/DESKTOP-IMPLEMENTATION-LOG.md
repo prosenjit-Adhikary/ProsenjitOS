@@ -102,3 +102,16 @@
 - [x] Assigned page fault (#PF) its own TSS IST3 stack, separate from the double-fault and syscall stacks, to avoid relying on a possibly damaged current stack for first-fault reporting.
 - [x] Added a re-entry guard to `exception_dispatch()`: if reporting triggers another exception that reaches the dispatcher, the kernel halts instead of recursively logging and corrupting the same context. The guard is cleared only on the existing recoverable-return paths.
 - [ ] CI must verify that these changes assemble, link, and produce a stable first-exception report. This is diagnostic hardening, not a confirmed root-cause fix. QEMU and native BIOS boot remain unverified/failed; desktop runtime is still incomplete.
+
+
+### 2026-10-21 — Desktop implementation restart: source-backed prerequisite audit
+- [x] Re-read the current `main` desktop plan, DML implementation/header/tests, desktop prerequisite gate, user-mode README, and Version 2 unified-runtime design.
+- [x] Confirmed the DML is currently only a bounded registry/preflight selector. It does not spawn processes, install packages, start a display server, route input, or launch a session.
+- [x] Confirmed the user-mode README says the kernel has process/address-space/syscall foundations and an ELF loader, but the public syscall ABI does not yet expose process spawn/exec; the current service manager is kernel-resident, not the planned userspace init/service manager.
+- [x] Confirmed the desktop prerequisite script and CI workflow already include host DML tests and a QEMU boot gate. Source presence or passing DML tests alone cannot establish GUI support.
+- [ ] Run the latest self-hosted build/boot workflow and inspect actual job assignment, logs, and required boot milestones before making any kernel/process changes. Do not assume a runner is available just because its local service is active.
+- [ ] Implement the smallest missing userspace process-launch/service contract only after auditing existing syscall, process, capability, VFS, and service-manager APIs. Preserve kernel validation and fail-closed behavior.
+- [ ] Add focused unit/regression tests for the new contract, then run DML tests, warnings-as-errors build, ISO QEMU, native BIOS QEMU where supported, and security-design checks.
+- [ ] Implement display/input userspace services only after process launch and IPC prerequisites are verified; then integrate a real window-system route and desktop session.
+- [ ] Keep Windows PE/API runtime work downstream of native userspace startup and shared desktop services. No Windows compatibility or GUI runtime is claimed complete by this audit.
+- **Verification status for this audit:** source review only. No local Debian command, build, QEMU test, or self-hosted runner job was executed from this chat session.
