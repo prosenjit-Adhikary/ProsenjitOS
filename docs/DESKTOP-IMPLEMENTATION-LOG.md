@@ -130,3 +130,10 @@
 - [x] Added a regression case proving an unsupported feature requirement injected into stored metadata returns `PROS_DML_EFEATURE`.
 - [x] Re-fetched the implementation and test files from the work branch and confirmed the guard and regression case are present.
 - [ ] Test execution is blocked in this environment: the local clone attempt failed because `github.com` could not be resolved. The repository's build workflow targets self-hosted Linux runners, so no workflow was started just to run this unit test.
+
+
+### 2026-10-21 — Extend corrupted stored-manifest regression cases
+
+- [x] Added preflight regression cases for a non-terminated stored entry-point path and dependency ID, after a valid manifest was registered and then corrupted.
+- [x] Re-fetched the test and implementation files; both new cases are present and preflight calls `manifest_validate()` before traversing each unvisited entry.
+- [ ] Unit-test execution remains pending because this environment could not resolve GitHub for a local clone. No CI/runner was triggered.
