@@ -49,6 +49,18 @@ int main(void)
     }
 
     /*
+     * The manager is a public struct, so guard against corrupted stored
+     * metadata as well as malformed manifests rejected during registration.
+     */
+    manifest = manifest_make("corrupted-dependency-count", "bin/start");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 6);
+    manager.entries[0].manifest.dependency_count =
+        PROS_DML_MAX_DEPENDENCIES + 1u;
+    CHECK(pros_dml_preflight(&manager, "corrupted-dependency-count") ==
+          PROS_DML_EINVAL, 6);
+    CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 6);
+
+    /*
      * Fixed-size manifest fields must be NUL-terminated within their
      * declared arrays; dependency_count must be bounded before indexing.
      */
