@@ -6,9 +6,10 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 
 - `kernel/idt.asm:isr128` saves 15 general-purpose registers in this order on the stack: RAX, RBX, RCX, RDX, RSI, RDI, RBP, R8, R9, R10, R11, R12, R13, R14, R15 (the push sequence is reversed because the stack grows down).
 - The `struct pros_interrupt_frame` register section contains those 15 registers, followed by RIP, CS, and RFLAGS. It is 18 64-bit words (144 bytes) as currently declared; comments that call this “16 GPRs” are inaccurate.
-- For a CPL3-origin interrupt, the CPU's return frame also contains user RSP and SS after RFLAGS. Those words are not currently members of `struct pros_interrupt_frame`.
-- `isr128` uses IST1. Its current frame pointer therefore refers to the IST stack, not automatically to storage owned by the interrupted thread.
-- `thread_schedule_interrupt()` currently stores the supplied pointer directly in `thread->interrupt_frame`. A later entry can reuse the IST stack, so this pointer does not establish stable per-thread frame ownership.
+- For a CPL3-origin `INT 0x80`, the CPU's return frame contains user RSP and SS after RFLAGS. `struct pros_interrupt_frame` models only the first 18 qwords; the per-thread storage capacity is 20 qwords and preserves the two trailing CPL3 words.
+- `isr128` uses IST1. Its incoming frame initially lives on the reusable IST stack, so it must be copied before the scheduler allows another entry to reuse that stack.
+- `thread_schedule_interrupt()` now copies a frame into `thread->interrupt_frame_storage` only when the saved CS indicates CPL3. CPL0 frames remain on their owning kernel stack because same-CPL `iretq` does not restore the old RSP from the three-word CPU frame.
+- `isr32` places synthetic vector/error words between the saved GPRs and CPU IRET frame. Its raw frame is not the scheduler's 18-qword layout; `timer_should_preempt()` therefore returns zero until a normalized IRQ0 hand-off and same-CPL stack policy are implemented.
 - `boot/entry.asm:enter_user_mode` clears IF before `iretq`. Do not enable CPL3 timer preemption until the return-frame and stack-switch path is validated.
 
 ## Required ABI invariants
@@ -26,7 +27,7 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 
 ## Implementation and verification sequence
 
-- [ ] Add C layout assertions and matching assembly constants/comments; verify offsets from the actual NASM push order.
+- [x] Add C compile-time size/offset assertions for the 18-qword C frame; matching assembly constants and a full offset audit remain pending.
 - [x] Introduce stable per-thread saved-frame storage for CPL3 RSP/SS; CPL0 frames remain on their owning kernel stack until same-CPL RSP restore is defined.
 - [x] Update CPL3 ISR-to-scheduler hand-off to copy incoming frames into per-thread storage before IST1 can be reused.
 - [ ] Implement matching restore paths for CPL0 and CPL3 frames, including correct stack cleanup and IRET behavior.
@@ -38,6 +39,6 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 
 ## Explicit non-claims
 
-- A successful ISO/BIOS QEMU boot does not by itself prove arbitrary scheduler interleavings or a stable IST-frame lifetime.
-- Existing synthetic C frame tests do not prove the real `isr128` CPL3 return path.
+- A successful ISO/BIOS QEMU boot does not by itself prove arbitrary scheduler interleavings, per-thread TSS.RSP0 correctness, or a stable IST-frame lifetime under repeated hardware entries.
+- The synthetic C frame tests exercise copy/selection logic but do not execute the real `isr128` CPL3 return path or prove that `iretq` returns through the copied storage correctly.
 - This design note does not implement the changes above and does not enable user-mode timer preemption.
