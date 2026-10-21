@@ -21,12 +21,6 @@ jobs:
         with:
           clean: true
 
-      - name: Install Linux build and QEMU toolchain
-        run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends build-essential nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
-
       - name: Verify Linux runner and toolchain
         run: |
           set -eu
