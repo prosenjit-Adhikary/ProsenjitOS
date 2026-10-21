@@ -202,9 +202,18 @@ int thread_schedule(void) {
     do {
         next = thread_dequeue();
         if (!next) return -1;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+        if (!thread_process_runnable(next)) {
+            uint32_t process_status = next->process
+                ? process_state(next->process) : PROS_PROCESS_DEAD;
+            /* A process becoming blocked/quarantined after enqueue is not a
+             * thread exit. Retire the stale queue entry without killing it. */
+            next->state = (next->process &&
+                           (next->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+        }
+    } while (next->state == PROS_THREAD_DEAD ||
+             next->state == PROS_THREAD_BLOCKED);
 
     /*
      * Queue the previous runnable thread before changing address spaces.
