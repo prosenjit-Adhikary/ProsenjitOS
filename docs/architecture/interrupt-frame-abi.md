@@ -28,7 +28,7 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 ## Implementation and verification sequence
 
 - [x] Add C compile-time size/offset assertions for the 18-qword C frame; matching assembly constants and a full offset audit remain pending.
-- [x] Introduce stable per-thread saved-frame storage for CPL3 RSP/SS; CPL0 frames remain on their owning kernel stack until same-CPL RSP restore is defined.
+- [x] Introduce stable per-thread saved-frame storage for CPL3 RSP/SS; CPL0-origin IST1 blocking is rejected, and CPL0 frame scheduling remains unsupported until same-CPL RSP restore is defined.
 - [x] Update CPL3 ISR-to-scheduler hand-off to copy incoming frames into per-thread storage before IST1 can be reused.
 - [ ] Implement matching restore paths for CPL0 and CPL3 frames, including correct stack cleanup and IRET behavior.
 - [ ] Normalize the IRQ0 vector/error frame and define same-CPL kernel RSP restore before re-enabling timer-driven scheduling.
