@@ -48,6 +48,22 @@ int main(void)
         CHECK(pros_dml_select(&invalid, "xfce") == PROS_DML_EINVAL, 5);
     }
 
+    /*
+     * Fixed-size manifest fields must be NUL-terminated within their
+     * declared arrays; dependency_count must be bounded before indexing.
+     */
+    manifest = manifest_make("unterminated-id", "bin/launch");
+    memset(manifest.id, 'A', sizeof(manifest.id));
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 6);
+
+    manifest = manifest_make("unterminated-path", "bin/launch");
+    memset(manifest.entry_point, 'A', sizeof(manifest.entry_point));
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 6);
+
+    manifest = manifest_make("too-many-dependencies", "bin/launch");
+    manifest.dependency_count = PROS_DML_MAX_DEPENDENCIES + 1u;
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 6);
+
     manifest = manifest_make("xfce", "bin/startxfce4");
     manifest.required_features = 1u;
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 5);
