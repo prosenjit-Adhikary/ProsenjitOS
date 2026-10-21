@@ -50,6 +50,10 @@ int process_unregister(struct pros_process *process) {
     struct pros_process **link = &process_list;
     while (*link) {
         if (*link == process) {
+            /* Every final-unregister path must detach dead thread registry
+             * nodes before caller-owned process/thread storage can disappear. */
+            if (thread_reap_process(process) != 0)
+                return -1;
             *link = process->next;
             process->next = 0;
             if (current_process == process) {
@@ -189,15 +193,15 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (!child || child->parent != parent) return -1;
     if (child->state != PROS_PROCESS_ZOMBIE) return -2;
     if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
-    *exit_code = child->exit_code;
+    int32_t child_exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
-    if (thread_reap_process(child) != 0) return -5;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
         /* Keep a fully reaped process visible if final unlinking fails. */
         child->state = PROS_PROCESS_ZOMBIE;
-        return -6;
+        return -5;
     }
+    *exit_code = child_exit_code;
     return 0;
 }
 
