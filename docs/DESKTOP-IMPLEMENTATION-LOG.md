@@ -145,3 +145,20 @@
 - [x] Added boot regression assertions that a live queued thread cannot be reaped and remains registered, and that successful process wait detaches the dead thread from the registry.
 - [ ] Verify the latest branch-head Build and boot-test plus Security architecture workflows. These are pending/running; do not treat source edits as test success until GitHub Actions completes.
 - [ ] Follow-up: consolidate all final-unregister paths around the same thread-reap invariant, then build an allocator/rollback API for a real userspace spawn/exec contract. No general spawn/exec support is claimed yet.
+
+## 2026-10-21 — Native ELF initial-stack placement regression
+
+### Scope
+- Area: `kernel/elf_loader.c`, `build_initial_stack()`, and the existing ELF loader self-test.
+- Change is limited to the native ELF initial-stack path; no Windows subsystem, scheduler, filesystem, or desktop service behavior was changed.
+
+### Finding and fix
+- [x] Found that the initial stack pointer was initialized to `PROSENJIT_USER_STACK_TOP - string_bytes` before the loop that subtracts each argument/environment string length. The loop therefore accounted for the string storage twice and could write outside the intended stack-page region.
+- [x] Changed the starting pointer to `PROSENJIT_USER_STACK_TOP`; the reverse-copy loop now decrements it exactly once per string.
+- [x] Extended the positive ELF loader self-test to verify the initial `argc`, argv/envp terminators, and that the argv/env strings begin at expected locations inside the mapped stack page.
+- [ ] Build and execute the ELF self-test and QEMU milestones on the project's supported Linux runner. Not run in this editing step; no CI success is claimed.
+
+### Commits
+- `684a3e1b1994aa84feef87a8471ddbdfb65bd161` — fix initial stack string placement
+- `f4ef5dd152c76d48aeeb395e9d8ff450f67b9c1d` — add argv/env stack regression assertions
+
