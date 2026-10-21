@@ -805,6 +805,25 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     thread_lifecycle.wait_channel = 0;
 
+    /* An extra retained process-object reference prevents final unregister.
+     * wait must reject it before releasing any child resources or publishing
+     * the exit code, so the caller can release the reference and retry. */
+    if (object_retain(&thread_lifecycle_process.object) != 0) {
+        serial_write("ProsenjitOS: ERROR process-thread reap reference setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    waited_exit = -12345;
+    if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != -3 ||
+        thread_lifecycle_process.address_space.root == 0 || waited_exit != -12345) {
+        (void)object_release(&thread_lifecycle_process.object);
+        serial_write("ProsenjitOS: ERROR process-thread reap reference preflight regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    if (object_release(&thread_lifecycle_process.object) != 0) {
+        serial_write("ProsenjitOS: ERROR process-thread reap reference release failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.process != 0 || thread_lifecycle.registry_next != 0) {

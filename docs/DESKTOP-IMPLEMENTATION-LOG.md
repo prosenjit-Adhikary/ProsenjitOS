@@ -170,3 +170,11 @@
 - [x] Added a boot regression that injects a residual wait-channel reference, verifies wait fails without destroying the child's address space, clears the reference, and then verifies retry/reap succeeds.
 - [ ] Build/boot and security workflows must verify the exact updated branch head. The source edits are committed, but no workflow run is currently associated with the latest commit; verification is pending.
 - **Scope:** native process/thread lifecycle groundwork only. No public spawn/exec syscall, userspace service manager, display/input service, or desktop runtime is claimed complete.
+
+### 2026-10-21 — Retained process reference blocks unsafe final reap (runtime verification pending)
+
+- [x] Deep source review found that `process_unregister()` requires `process->object.refcount == 1`, but `process_wait()` did not preflight that invariant before closing handles and destroying the address space.
+- [x] Added a read-only reference-count preflight to `process_wait()`. A retained process object now causes an early `-3` result, before resource teardown and before the caller's exit-code output is changed.
+- [x] Added a focused kernel regression: retain the child process object, verify wait rejects it while preserving the address-space root and an exit-code sentinel, release the extra reference, then retry and verify normal reaping still succeeds.
+- [ ] Build/QEMU and security verification on the exact final commit are pending. No runtime pass is claimed until the designated CI results complete.
+- **Scope:** process/thread lifecycle hardening only. No public spawn/exec syscall or complete userspace launch path is claimed.
