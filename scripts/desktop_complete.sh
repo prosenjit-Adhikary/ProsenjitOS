@@ -56,10 +56,10 @@ else
 fi
 
 echo "[4/6] DML unit test and local build"
-if ! make desktop-unit-test >/tmp/prosenjitos_desktop_unit_test.log 2>&1; then
+if ! make desktop-tests >/tmp/prosenjitos_desktop_unit_test.log 2>&1; then
   fail "desktop DML unit test failed; see /tmp/prosenjitos_desktop_unit_test.log"
 else
-  note "desktop DML host unit tests passed"
+  note "desktop DML and shared ABI host unit tests passed"
 fi
 if ! make clean >/tmp/prosenjitos_make_clean.log 2>&1; then fail "make clean failed; see /tmp/prosenjitos_make_clean.log"; fi
 if ! make iso >/tmp/prosenjitos_make_iso.log 2>&1; then fail "make iso failed; see /tmp/prosenjitos_make_iso.log"; fi
