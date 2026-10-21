@@ -125,6 +125,22 @@ int main(void)
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 33);
 
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 34);
+    manifest = manifest_make("self-dep", "bin/start");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0],
+                   sizeof(manifest.dependencies[0]), "%s", "self-dep");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 35);
+
+    manifest = manifest_make("bad-id", "bin/start");
+    memset(manifest.id, 'x', sizeof(manifest.id));
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 36);
+
+    manifest = manifest_make("bad-entry", "bin/start");
+    memset(manifest.entry_point, 'x', sizeof(manifest.entry_point));
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 37);
+    CHECK(pros_dml_count(&manager) == 0u, 38);
+
+    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 39);
     for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
         char id[PROS_DML_ID_MAX];
         (void)snprintf(id, sizeof(id), "desktop-%u", i);
