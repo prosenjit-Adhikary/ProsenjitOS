@@ -277,11 +277,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      */
     if (prev) {
         /*
-         * CPL3 INT 0x80 enters through reusable IST1, so its frame must be
-         * copied before that IST stack is reused. CPL0 interrupt frames must
-         * remain on their owning kernel stack: IRETQ does not restore an
-         * interrupted same-CPL RSP from this three-word frame, so returning
-         * from a copied struct would resume on the wrong stack.
+         * CPL3 INT 0x80 enters through reusable IST1, so its full 20-qword
+         * frame must be copied before that IST stack is reused. A CPL0 frame
+         * must not be copied into this storage because same-CPL IRETQ does
+         * not restore the interrupted RSP. Also, isr128 uses IST1 for CPL0
+         * entries, so such an IST frame cannot safely be retained by pointer;
+         * the IPC dispatcher rejects blocking CPL0 receive calls.
          *
          * Timer-driven switching is gated off until isr32 normalizes its
          * vector/error frame and a per-thread kernel-stack hand-off exists.
