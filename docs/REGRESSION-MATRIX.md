@@ -71,6 +71,24 @@ The following work remains intentionally dependent on lower layers:
 
 The deterministic native-filesystem self-test now covers persistent inode/data-block allocation and reclamation, file create/delete, directory creation/removal, nested directories, cross-directory file and directory moves, rename collision rejection, directory-parent cycle rejection, and non-empty-directory removal rejection. The test remains subject to the repository-wide GitHub Actions verification gate.
 
+## ProsenjitFS parent-chain reachability hardening — 2026-10-21
+
+The diagnostic consistency checker now walks each allocated non-root inode's
+parent chain and requires it to reach the root inode within an inode-count
+bound. Out-of-range parents, unreadable parent inodes, non-directory parents,
+and chains that exceed the bound fail closed as corruption. This check is
+read-only: it does not rewrite metadata or attempt orphan repair.
+
+Current validation status:
+- Existing ProsenjitFS format/mount/allocation/journal/recovery self-test passed
+  in the PR #158 ISO and native BIOS QEMU CI run.
+- ISO build and both QEMU boot paths passed in that run.
+- A dedicated corruption fixture that creates an otherwise locally consistent
+  disconnected parent cycle is still pending. The existing generic filesystem
+  self-test must not be interpreted as proof that this exact new branch ran.
+- Do not mark this hardening complete or merge solely on the existing boot
+  markers; add the focused fixture and rerun the required CI gate first.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
