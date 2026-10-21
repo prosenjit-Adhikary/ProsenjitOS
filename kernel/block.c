@@ -9,11 +9,8 @@ static uint64_t error_count;
 static uint64_t flush_count;
 static uint64_t flush_error_count;
 
-/* Temporary diagnostic: capture the compiled caller return address immediately
- * before block_device_init returns, without walking the caller's stack. */
-volatile uint64_t block_init_return_diag;
-
-__attribute__((noinline))
+/* Keep this boundary diagnostic limited to stage markers: do not inspect
+ * caller return addresses or stack frames while isolating the null-RIP fault. */
 int block_device_init(struct pros_block_device *device,
                       uint32_t sector_size,
                       uint64_t sector_count,
@@ -35,11 +32,8 @@ int block_device_init(struct pros_block_device *device,
     device->private_data = private_data;
     if (pfs_selftest_diag_stage == 0xF041u)
         pfs_selftest_diag_stage = 0xF042u;
-    /* Distinguish a fault in the return path from one inside field setup. */
-    if (pfs_selftest_diag_stage == 0xF042u) {
-        block_init_return_diag = (uint64_t)(uintptr_t)__builtin_return_address(0);
+    if (pfs_selftest_diag_stage == 0xF042u)
         pfs_selftest_diag_stage = 0xF043u;
-    }
     return PROS_BLOCK_OK;
 }
 
