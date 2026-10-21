@@ -912,9 +912,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: display-device binding self-test passed\n");
 
-    if (pros_net_selftest() != PROS_NET_OK) {
-        serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
+    {
+        int network_selftest_rc = pros_net_selftest();
+        if (network_selftest_rc != PROS_NET_OK) {
+            serial_write("ProsenjitOS: ERROR network protocol/socket self-test failed rc=");
+            serial_hex64((uint64_t)(int64_t)network_selftest_rc);
+            serial_write("\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
     }
     serial_write("ProsenjitOS: network protocol/socket self-test passed\n");
 
@@ -1088,8 +1093,16 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
 
     serial_write("ProsenjitOS: switching to CPL3 user address space\n");
-    if (address_space_switch(&init_process.address_space) != 0) {
-        serial_write("ProsenjitOS: ERROR final user address-space switch failed\n");
+    /*
+     * Keep the process-context identity synchronized with CR3. The syscall
+     * dispatcher resolves capabilities through process_current(); switching
+     * only the page tables here can leave a valid user address space paired
+     * with a NULL process context after earlier lifecycle self-tests.
+     */
+    process_set_current(&init_process);
+    if (process_current() != &init_process ||
+        address_space_switch(&init_process.address_space) != 0) {
+        serial_write("ProsenjitOS: ERROR final user process/address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");

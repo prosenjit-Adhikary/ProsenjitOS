@@ -2,11 +2,13 @@ name: Security architecture checks
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
   security-design:
-    # Share the available Debian runner so checks do not depend on hosted capacity.
+    # This check uses Bash. Let GitHub schedule it across either Linux X64 runner
+    # (office or office1); OfficeWindows remains eligible for Windows-compatible jobs.
     runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout

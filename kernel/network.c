@@ -64,6 +64,8 @@ int pros_net_arp_update(uint32_t ip, const uint8_t mac[6], uint64_t now,
     if (!mac || ip == 0u || ttl == 0u || now > UINT64_MAX - ttl)
         return PROS_NET_EINVAL;
     for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i) {
+        if (arp_cache[i].valid && now >= arp_cache[i].expires)
+            arp_cache[i].valid = 0u;
         if (arp_cache[i].valid && arp_cache[i].ip == ip) { slot = i; break; }
         if (!arp_cache[i].valid && slot == PROS_NET_ARP_CACHE_MAX) slot = i;
     }
@@ -419,11 +421,13 @@ int pros_net_socket_create(uint32_t *socket_id)
 int pros_net_socket_bind(uint32_t socket_id, uint32_t addr, uint16_t port)
 {
     struct pros_net_socket *s = socket_find(socket_id);
-    if (!s || s->state != PROS_NET_TCP_CLOSED || port_conflict(addr, port, s))
+    if (!s || s->state != PROS_NET_TCP_CLOSED)
         return PROS_NET_ESTATE;
     if (port == 0u) {
         port = allocate_ephemeral(addr, s);
         if (port == 0u) return PROS_NET_ENOSPC;
+    } else if (port_conflict(addr, port, s)) {
+        return PROS_NET_ESTATE;
     }
     s->local_addr = addr;
     s->local_port = port;
@@ -717,6 +721,14 @@ int pros_net_selftest(void)
             pros_net_route_lookup(0xC0A80102u, &gateway, &mask) != PROS_NET_OK ||
             mask != 0xFFFF0000u)
             return -9;
+        /* A full cache containing only expired entries must be reusable. */
+        for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i) {
+            if (pros_net_arp_update(0x0A000100u + i, mac, 100u, 1u) != PROS_NET_OK)
+                return -14;
+        }
+        if (pros_net_arp_update(0x0A000200u, mac, 101u, 10u) != PROS_NET_OK ||
+            pros_net_arp_lookup(0x0A000200u, got, 102u) != PROS_NET_OK)
+            return -15;
     }
 
     if (pros_net_socket_init() != PROS_NET_OK ||
@@ -724,21 +736,27 @@ int pros_net_selftest(void)
         pros_net_socket_bind(sid, 0xC0A80101u, 4000u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 100u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 101u) != PROS_NET_OK ||
-        pros_net_socket_send(sid, payload, sizeof(payload)) != 1 ||
+        pros_net_socket_send(sid, payload, sizeof(payload)) != (int)sizeof(payload) ||
         pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EAGAIN)
         return -9;
 
     {
         const uint8_t rxdata[2] = {0x11, 0x22};
         uint32_t received = 0;
-        if (pros_net_socket_receive_segment(sid, 0u, rxdata, 2u, TCP_ACK) != PROS_NET_OK ||
-            pros_net_socket_receive(sid, payload, sizeof(payload), &received) != PROS_NET_EBOUNDS ||
-            pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK ||
-            received != 2u || payload[0] != 0x11u || payload[1] != 0x22u ||
-            pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE ||
-            pros_net_socket_receive_segment(sid, 2u, rxdata, 0u, TCP_FIN | TCP_ACK) != PROS_NET_OK ||
-            pros_net_socket_close(sid) != PROS_NET_OK)
-            return -10;
+        if (pros_net_socket_receive_segment(sid, 0u, rxdata, 2u, TCP_ACK) != PROS_NET_OK)
+            return -101;
+        if (pros_net_socket_receive(sid, payload, 1u, &received) != PROS_NET_EBOUNDS)
+            return -102;
+        if (pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK)
+            return -103;
+        if (received != 2u || payload[0] != 0x11u || payload[1] != 0x22u)
+            return -104;
+        if (pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE)
+            return -105;
+        if (pros_net_socket_receive_segment(sid, 2u, rxdata, 0u, TCP_FIN | TCP_ACK) != PROS_NET_OK)
+            return -106;
+        if (pros_net_socket_close(sid) != PROS_NET_OK)
+            return -107;
     }
 
     {
@@ -773,6 +791,7 @@ int pros_net_selftest(void)
     if (pros_net_socket_create(&sid) != PROS_NET_OK ||
         pros_net_socket_bind(sid, 0u, 0u) != PROS_NET_OK ||
         pros_net_socket_connect(sid, 0xC0A80102u, 80u, 10u) != PROS_NET_OK ||
+        pros_net_socket_ack(sid, 11u) != PROS_NET_OK ||
         pros_net_socket_ack(sid, 999u) != PROS_NET_ESTATE ||
         pros_net_socket_send(sid, payload, PROS_NET_PAYLOAD_MAX + 1u) != PROS_NET_EBOUNDS)
         return -13;

@@ -22,7 +22,8 @@ concurrency:
 jobs:
   cleanup:
     name: Delete Old Workflow Artifacts
-    runs-on: ubuntu-latest
+    # Repository maintenance also shares the self-hosted runner pool.
+    runs-on: self-hosted
 
     steps:
       - name: Delete artifacts older than retention period

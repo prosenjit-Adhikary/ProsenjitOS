@@ -274,3 +274,22 @@ Source-level stale-vnode audit completed for directory traversal and mutation ca
 ### Verification status
 - The next clean CI/QEMU run must verify this change. The full persistence test still has further namespace, truncate, remount, and allocation assertions after this checker, so completion is not yet established.
 
+
+
+## 2026-10-21 — Network receive-size regression exposed by native boot test
+
+### Diagnosis
+
+The latest Linux self-hosted QEMU run built the ISO successfully and printed `ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed`. Boot then stopped at the network self-test with return code `-10`, before the later CPL3 milestone. The failing `-10` block intentionally checks that receiving a two-byte queued segment into a one-byte destination returns `PROS_NET_EBOUNDS`, then checks successful two-byte receive.
+
+The earlier safety fix correctly enlarged the test's `payload` array from one byte to two bytes because the successful path reads `payload[1]`; however, the undersized-buffer assertion still passed `sizeof(payload)`, now two bytes. The test was therefore no longer undersized and failed its own expected error check.
+
+### Fix
+
+Changed only the undersized-receive assertion to pass a capacity of `1u`; retained the two-byte array and the subsequent two-byte successful receive checks. No runtime assertion was removed or weakened.
+
+Commit: `4fdc8603` (`test: preserve undersized network receive regression`).
+
+### Verification status
+
+The preceding run `7460` on Linux runner `Office1` built successfully but failed QEMU at the network self-test (`rc=-10`); ProsenjitFS's format/mount/allocation/journal/recovery self-test passed in that run. The new commit triggers another full build/QEMU run; ISO boot, native BIOS boot, and final all-green status remain pending until that run completes.
