@@ -74,3 +74,15 @@ SMP support.
 
 
 CI verification target: build workflow must execute both ISO and native BIOS QEMU boot tests for this milestone.
+
+## Scheduler eligibility and no-successor handling
+
+A queued thread whose owner becomes blocked or quarantined is retired from the
+runnable queue as `PROS_THREAD_BLOCKED`, not misclassified as dead. The interrupt
+scheduler also checks the currently interrupted thread before returning its saved
+frame: it must not resume a thread whose process is no longer scheduler-eligible.
+Because a dedicated idle thread is not implemented yet, this exceptional no-successor
+case parks in an interruptible halt loop with `current_thread` detached; a later
+interrupt can dispatch a newly runnable thread without overwriting the blocked
+thread's saved interrupt frame. This is a single-CPU fallback, not a substitute for
+a proper idle thread and synchronized wakeup semantics.
