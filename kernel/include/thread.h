@@ -71,6 +71,11 @@ struct pros_thread {
     struct pros_thread *registry_next;
 };
 
+/* The saved-frame backing store must fit the complete CPL3 IRET frame. */
+_Static_assert(sizeof(((struct pros_thread *)0)->interrupt_frame_storage) ==
+               PROS_INTERRUPT_FRAME_CPL3_WORDS * sizeof(uint64_t),
+               "per-thread interrupt frame storage capacity mismatch");
+
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry, uint64_t stack_top);
