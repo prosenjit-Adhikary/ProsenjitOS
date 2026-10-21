@@ -439,7 +439,8 @@ static int build_initial_stack(struct pros_process *process,
         string_bytes + pointer_bytes + 15u > stack_capacity)
         return PROS_ELF_EOVERFLOW;
 
-    uint64_t sp = PROSENJIT_USER_STACK_TOP - string_bytes;
+    /* Start at the top; each string placement decrements SP exactly once. */
+    uint64_t sp = PROSENJIT_USER_STACK_TOP;
     for (uint32_t pass = 0; pass < 2u; ++pass) {
         const char *const *list = pass == 0u ? argv : envp;
         uint32_t count = pass == 0u ? argc : envc;
