@@ -420,20 +420,39 @@ int thread_wake(struct pros_thread *thread) {
         !thread_process_runnable(thread))
         return -1;
 
-    if (thread->blocked_syscall != 0 &&
-        (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u))
-        return -1;
+    /*
+     * Repair a blocked syscall's stable return frame before making the thread
+     * runnable. A scheduler must never observe a queued receiver whose frame
+     * still contains the internal block sentinel. Save the original words so
+     * a failed enqueue can roll the frame back without consuming the wake.
+     *
+     * This ordering is necessary but not sufficient for SMP: run-queue and
+     * current-thread ownership still require a scheduler-wide lock/protocol.
+     */
+    uint64_t blocked_syscall = thread->blocked_syscall;
+    uint64_t original_rax = 0;
+    uint64_t original_rip = 0;
+    if (blocked_syscall != 0) {
+        if (!thread->interrupt_frame || thread->interrupt_frame->rip < 2u)
+            return -1;
+        original_rax = thread->interrupt_frame->rax;
+        original_rip = thread->interrupt_frame->rip;
+        thread->interrupt_frame->rax = blocked_syscall;
+        thread->interrupt_frame->rip = original_rip - 2u;
+    }
 
     thread->state = PROS_THREAD_READY;
     if (thread_enqueue(thread) != 0) {
         thread->state = PROS_THREAD_BLOCKED;
+        if (blocked_syscall != 0) {
+            thread->interrupt_frame->rax = original_rax;
+            thread->interrupt_frame->rip = original_rip;
+        }
         return -1;
     }
-    if (thread->blocked_syscall != 0 && thread->interrupt_frame) {
-        thread->interrupt_frame->rax = thread->blocked_syscall;
-        thread->interrupt_frame->rip -= 2;
+
+    if (blocked_syscall != 0)
         thread->blocked_syscall = 0;
-    }
     thread->wait_channel = 0;
     return 0;
 }
