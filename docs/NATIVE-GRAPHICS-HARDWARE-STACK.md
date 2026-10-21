@@ -148,3 +148,71 @@ The initial GitHub source search found the following existing components and con
 4. Do not change roadmap completion markers based on search excerpts alone.
 5. No build, unit test, CI workflow, QEMU boot, or hardware test was started during this audit because no runner is active.
 
+## 11. Focused source audit — display, input, and launch boundary
+
+This pass inspected the current branch's full contents for `kernel/display.c`,
+`include/abi/display.h`, `include/abi/input.h`,
+`kernel/include/driver_class.h`, `include/abi/syscall.h`,
+`kernel/syscall.c`, `user/README.md`, and the desktop implementation log.
+It was source inspection only; no compiler, tests, CI, runner, or emulator was invoked.
+
+### Display: present, but not yet a desktop-facing service
+
+- `kernel/display.c` has a backend-binding path, a mode/info query, a present call,
+  and a synthetic self-test backend. The self-test verifies the contract against
+  an in-memory fake backend; it does not establish real hardware output.
+- The checked mode path bounds width and height and checks minimum pitch and
+  nonzero framebuffer metadata. It does not, in the inspected function, validate
+  pixel-format semantics or prove that pitch × height fits the reported buffer
+  using overflow-safe arithmetic.
+- The present path rejects a zero buffer and sizes greater than the backend's
+  reported framebuffer size, then delegates to the backend. This is not yet a
+  complete userspace presentation ABI: user-buffer validation, ownership,
+  format/layout agreement, and a user-accessible service path still need to be
+  specified and verified.
+- `include/abi/display.h` defines a version constant and metadata/event
+  structures, but the inspected public syscall ABI does not expose display
+  operations. The relationship between this userspace ABI and the kernel
+  backend structures needs an explicit, reviewed adapter/contract rather than
+  assuming the similarly named structures are interchangeable.
+
+### Input: data shapes exist; delivery path remains missing/unverified
+
+- `include/abi/input.h` defines versioned event fields and key/pointer event
+  types. `kernel/include/driver_class.h` defines a driver read callback and
+  a separate kernel-side event structure.
+- The inspected public syscall list contains no input-read/event-delivery syscall.
+  The inspected code does not establish a concrete keyboard/pointer driver feeding
+  an event queue and delivering validated events to a userspace session.
+- Before implementing this path, reconcile the two event representations, define
+  event-size/version checks, queue ownership and bounds, device removal, key/button
+  release semantics, and access control. Do not add an ABI syscall until the
+  existing IPC/handle and process contracts have been checked for a suitable path.
+
+### Process and service startup: explicit blocker
+
+- `user/README.md` states that the kernel has process/address-space/syscall
+  foundations and ELF/init-image loading primitives, but not a complete
+  userspace exec/service-launch path. The inspected public syscall set contains
+  handle and IPC calls but no process spawn/exec operation.
+- The DML code is a manifest registry and dependency preflight/selection layer.
+  Its manifest entry point is metadata; it does not open or execute the entry.
+  It must not be extended into a pretend launcher before a real process creation,
+  identity/capability, IPC, and service lifecycle contract is identified.
+
+### Ordered next work (still no runner)
+
+1. Trace existing process creation, ELF loading, init image admission, handles,
+   and IPC callers from source; identify which pieces are callable from userspace
+   and which remain kernel-internal.
+2. Audit the existing driver/device lifecycle and permission revocation path before
+   wiring display/input services to it.
+3. Write a small ABI decision note for display and input: structure sizes,
+   version handling, pixel formats, safe buffer validation, event queue bounds,
+   device ownership, and error values. Do not alter public syscall numbers yet.
+4. Only after the source contracts are understood, propose one narrow implementation
+   change with focused host tests. Runtime verification remains blocked until a
+   runner is explicitly available.
+
+No source-code behavior, roadmap checkbox, syscall number, kernel component, or
+ProsenjitFS/bootloader code was changed in this pass.
