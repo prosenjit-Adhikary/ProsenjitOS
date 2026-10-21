@@ -116,3 +116,13 @@
 - [ ] Implement display/input userspace services only after process launch and IPC prerequisites are verified; then integrate a real window-system route and desktop session.
 - [ ] Keep Windows PE/API runtime work downstream of native userspace startup and shared desktop services. No Windows compatibility or GUI runtime is claimed complete by this audit.
 - **Verification status:** source audit plus GitHub Actions verification completed for commit above. No local Debian shell was executed from this chat session; test evidence comes from the linked self-hosted GitHub Actions run.
+
+
+### 2026-10-21 — DML manifest boundary regression coverage
+- [x] Added a host regression test rejecting dependency_count above PROS_DML_MAX_DEPENDENCIES.
+- [x] Added self-dependency rejection coverage.
+- [x] Added rejection coverage for fixed-size manifest id and entry_point buffers without a terminating NUL.
+- [x] Confirmed rejected manifests do not change the registered entry count.
+- [x] Build and boot-test run [39601180449](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180449) passed on commit 91a2f44ea2cd2ab85f593cd9a0a2e093d67e73be, including DML unit tests, ISO build, ISO QEMU milestones, and native BIOS QEMU milestones. Both QEMU runs ended with expected timeout status 124 after required milestones.
+- [x] Security architecture run [39601180487](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39601180487) passed for the same commit.
+- [ ] Next: define process/thread allocation, rollback, and final-reap ownership before implementing a general spawn syscall. Current process/thread objects are caller-owned and must not be freed until registry lifetime is explicitly handled.
