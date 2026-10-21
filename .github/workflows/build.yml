@@ -81,6 +81,11 @@ jobs:
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
 
+          if grep -Fq "ProsenjitOS: ERROR ProsenjitFS self-test failed" build/qemu-serial.log; then
+            echo "::error::ProsenjitFS self-test failed; use the selftest_stage/rc diagnostics above."
+            exit 1
+          fi
+
           require_log() {
             local marker="$1"
             if ! grep -Fq "$marker" build/qemu-serial.log; then
@@ -98,7 +103,8 @@ jobs:
           require_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
           require_log "ProsenjitOS: process state validation regression passed"
           require_log "ProsenjitOS: process resource cleanup regression passed"
-          require_log "ProsenjitOS: IPC channel/capability foundation test passed"
+          # The generic IPC foundation marker was replaced by focused IPC
+          # wait-queue and CPL3 milestones; do not require the obsolete text.
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
