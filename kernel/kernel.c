@@ -783,6 +783,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack + sizeof(lifecycle_thread_stack))) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
+        thread_reap_process(&thread_lifecycle_process) == 0 ||
+        thread_lifecycle.process != &thread_lifecycle_process ||
+        thread_state(&thread_lifecycle) != PROS_THREAD_READY ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1 ||
