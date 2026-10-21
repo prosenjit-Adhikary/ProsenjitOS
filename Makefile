@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test
+.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests
 
 all: iso
 
@@ -23,3 +23,10 @@ run: iso
 # Host-side unit tests for the userspace DML registry; does not boot the OS.
 desktop-unit-test:
 	bash scripts/test_desktop_manager.sh
+
+# Host-side tests for the versioned shared desktop message contract.
+desktop-abi-test:
+	bash scripts/test_desktop_abi.sh
+
+# All isolated desktop contract tests; neither target boots the OS.
+desktop-tests: desktop-unit-test desktop-abi-test
