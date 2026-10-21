@@ -135,6 +135,16 @@ static void serial_hex64(uint64_t value) {
     for (int shift = 60; shift >= 0; shift -= 4) serial_putc(hex[(value >> shift) & 0xFu]);
 }
 
+static void native_storage_fail(const char *stage, int rc)
+{
+    serial_write("ProsenjitOS: ERROR native storage test ");
+    serial_write(stage);
+    serial_write(" rc=");
+    serial_hex64((uint64_t)(int64_t)rc);
+    serial_write("\n");
+    for (;;) __asm__ volatile ("cli; hlt");
+}
+
 struct idt_gate {
     uint16_t offset_low;
     uint16_t selector;
@@ -876,6 +886,118 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
     }
     serial_write("ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed\n");
+    if (boot_magic == PROSENJIT_NATIVE_BOOT_MAGIC) {
+        struct pros_ata_pio native_ata;
+        struct pros_partition partitions[4];
+        struct pros_partition_device native_partition_view;
+        struct pros_prosenjitfs native_fs;
+        struct pros_vfs_file native_file;
+        const struct pros_partition *native_partition = 0;
+        uint32_t partition_count = 0u;
+        uint32_t done = 0u;
+        uint64_t translated_lba = 0u;
+        uint32_t trace_count = 0u;
+        uint8_t sector[512];
+        static const uint8_t native_payload[] = {
+            'N', 'A', 'T', 'I', 'V', 'E', '-', 'P', 'F', 'S', 0xA5u
+        };
+        uint8_t native_readback[sizeof(native_payload)];
+
+        int native_rc = pros_ata_pio_selftest();
+        if (native_rc != PROS_ATA_OK)
+            native_storage_fail("ATA PIO probe/read", native_rc);
+        serial_write("ProsenjitOS: ATA PIO real-disk block path self-test passed\n");
+
+        native_rc = pros_ata_pio_probe(&native_ata);
+        if (native_rc != PROS_ATA_OK)
+            native_storage_fail("ATA PIO device probe", native_rc);
+        native_rc = partition_read_mbr(&native_ata.block, partitions, 4u,
+                                       &partition_count);
+        if (native_rc != PROS_PARTITION_OK)
+            native_storage_fail("MBR partition parse", native_rc);
+        for (uint32_t i = 0u; i < partition_count; ++i) {
+            if (partitions[i].mbr_type == 0xDAu &&
+                partitions[i].first_lba == 2048u &&
+                partitions[i].sector_count == 512u) {
+                native_partition = &partitions[i];
+                break;
+            }
+        }
+        if (!native_partition)
+            native_storage_fail("ProsenjitFS MBR partition missing", -1);
+        native_rc = partition_device_init(&native_partition_view,
+                                          &native_ata.block,
+                                          native_partition);
+        if (native_rc != PROS_PARTITION_OK)
+            native_storage_fail("partition block-device setup", native_rc);
+
+        if (block_device_read(&native_partition_view.device, 0u, 1u,
+                              sector) != PROS_BLOCK_OK ||
+            partition_trace_find(&native_partition_view, 0u, 0u,
+                                 &translated_lba, &trace_count) !=
+                PROS_PARTITION_OK ||
+            translated_lba != native_partition->first_lba ||
+            block_device_read(&native_partition_view.device,
+                              native_partition_view.device.sector_count,
+                              1u, sector) != PROS_BLOCK_EINVAL) {
+            native_storage_fail("partition LBA translation/bounds", -2);
+        }
+        serial_write("ProsenjitOS: native filesystem LBA boundary diagnostic passed\n");
+
+        if (prosenjitfs_probe(&native_partition_view.device) != PROSENJITFS_OK)
+            native_storage_fail("native ProsenjitFS superblock probe", -3);
+        native_rc = prosenjitfs_mount(&native_fs,
+                                      &native_partition_view.device, 0u);
+        if (native_rc != PROSENJITFS_OK)
+            native_storage_fail("native ProsenjitFS writable mount", native_rc);
+        if (vfs_file_open(&native_fs.mount, "/native-persist.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                          &native_file) != PROS_VFS_OK) {
+            (void)prosenjitfs_unmount(&native_fs);
+            native_storage_fail("native persistence file create", -4);
+        }
+        native_rc = vfs_file_write(&native_file, native_payload,
+                                   sizeof(native_payload), &done);
+        if (native_rc != PROS_VFS_OK || done != sizeof(native_payload)) {
+            (void)vfs_file_close(&native_file);
+            (void)prosenjitfs_unmount(&native_fs);
+            native_storage_fail("native persistence file write", native_rc);
+        }
+        if (vfs_file_close(&native_file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK) {
+            native_storage_fail("native filesystem flush/unmount", -5);
+        }
+
+        native_rc = prosenjitfs_mount(&native_fs,
+                                      &native_partition_view.device, 1u);
+        if (native_rc != PROSENJITFS_OK)
+            native_storage_fail("native ProsenjitFS read-only remount", native_rc);
+        if (vfs_file_open(&native_fs.mount, "/native-persist.bin",
+                          PROS_VFS_O_READ, &native_file) != PROS_VFS_OK) {
+            (void)prosenjitfs_unmount(&native_fs);
+            native_storage_fail("native persistence file reopen", -6);
+        }
+        done = 0u;
+        native_rc = vfs_file_read(&native_file, native_readback,
+                                  sizeof(native_readback), &done);
+        if (native_rc != PROS_VFS_OK || done != sizeof(native_payload)) {
+            (void)vfs_file_close(&native_file);
+            (void)prosenjitfs_unmount(&native_fs);
+            native_storage_fail("native persistence file read", native_rc);
+        }
+        for (uint32_t i = 0u; i < sizeof(native_payload); ++i) {
+            if (native_readback[i] != native_payload[i]) {
+                (void)vfs_file_close(&native_file);
+                (void)prosenjitfs_unmount(&native_fs);
+                native_storage_fail("native persistence data mismatch", -7);
+            }
+        }
+        if (vfs_file_close(&native_file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&native_fs) != PROSENJITFS_OK) {
+            native_storage_fail("native filesystem final unmount", -8);
+        }
+        serial_write("ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed\n");
+    }
 
     /* Driver-model foundation: discovery, matching, controlled binding and
      * lifecycle are verified independently before real bus drivers consume it. */

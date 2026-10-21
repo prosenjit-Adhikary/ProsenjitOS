@@ -115,6 +115,15 @@ dd if="$BUILD/native_stage1.bin" of="$NATIVE_DISK" bs=512 seek=0 conv=notrunc st
 dd if="$BUILD/native_stage2.bin" of="$NATIVE_DISK" bs=512 seek=1 conv=notrunc status=none
 dd if="$BUILD/prosenjit.bin" of="$NATIVE_DISK" bs=512 seek="$NATIVE_KERNEL_LBA" conv=notrunc status=none
 
+# Format only this freshly-created disposable test image with the kernel's
+# own ProsenjitFS formatter. The running OS never auto-formats real disks.
+gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
+    -ffunction-sections -fdata-sections -fno-builtin \
+    -I"$ROOT/kernel/include" -I"$ROOT/include" \
+    "$ROOT/tools/mkprosenjitfs.c" "$ROOT/kernel/prosenjitfs.c" \
+    -Wl,--gc-sections -o "$BUILD/mkprosenjitfs"
+"$BUILD/mkprosenjitfs" "$NATIVE_DISK"
+
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
 echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"

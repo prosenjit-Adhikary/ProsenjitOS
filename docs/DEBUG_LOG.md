@@ -293,3 +293,18 @@ Commit: `4fdc8603` (`test: preserve undersized network receive regression`).
 ### Verification status
 
 The preceding run `7460` on Linux runner `Office1` built successfully but failed QEMU at the network self-test (`rc=-10`); ProsenjitFS's format/mount/allocation/journal/recovery self-test passed in that run. The new commit triggers another full build/QEMU run; ISO boot, native BIOS boot, and final all-green status remain pending until that run completes.
+
+
+## 2026-10-21 — Native BIOS ProsenjitFS persistence path
+
+### Confirmed progress
+
+- The network receive-size regression was fixed by restoring its deliberately undersized one-byte receive capacity; the two-byte successful receive remains covered.
+- The CPL3 process context was restored before user-mode entry, and the ISO/QEMU boot milestones now pass, including ProsenjitFS format/mount/allocation/journal/recovery and the CPL3 syscall test.
+- Main run `7470` and PR run `7469` passed the current build workflow, including ISO and native BIOS boot checks.
+
+### Native disk gap identified for deeper validation
+
+The native BIOS image reserves an MBR partition (type `0xDA`, LBA 2048, 512 sectors), but the current build script does not format that partition and the kernel does not invoke the ATA PIO provider. The current green boot run therefore validates the native bootloader and the in-memory ProsenjitFS self-test, but does not yet prove that the real ATA disk partition can be mounted and written.
+
+The next change adds a host formatter that reuses the kernel's existing `prosenjitfs_format()` implementation on the freshly-created disposable image, plus a native-boot-only ATA/MBR/partition test that writes a file, unmounts, remounts read-only, and verifies persisted bytes. The kernel will not auto-format an unknown disk. Verification is pending the next self-hosted run.
