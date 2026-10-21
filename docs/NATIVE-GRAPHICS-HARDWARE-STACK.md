@@ -287,3 +287,26 @@ Do not create a second service manager or pretend that the kernel callback manag
 - **Source foundation found:** process lifecycle APIs, ELF loading, /init admission, kernel callback service manager, and handle-mediated IPC.
 - **Still missing or not proven:** general user-callable spawn/exec; a userspace init/service supervisor; safe initial IPC/handle provisioning for user services; concrete keyboard/pointer event delivery; userspace display service and actual desktop session.
 - **No runtime claims:** no build, test, CI, QEMU, or hardware run was started. No source code, syscall number, roadmap checkbox, ProsenjitFS, or bootloader was changed in this pass.
+## 13. Device permission lifecycle review
+
+Source inspected: kernel/device_broker.c, kernel/include/device_broker.h, kernel/driver.c, kernel/process.c, kernel/include/process.h, include/abi/syscall.h, and kernel/syscall.c. This was source review only.
+
+### Findings
+
+- The device broker stores READ/WRITE/CONTROL/MAP permissions using a device ID and a process ID. It supports grant checks, per-device cleanup, and explicit revocation.
+- Device unregister calls the broker cleanup routine to remove grants for that device. The inspected public syscall list and dispatcher do not expose broker grant/revoke operations to user processes.
+- Process exit and reap close process handles and destroy its address space. In the inspected process lifecycle, there is no call to remove all device-broker grants for that process ID.
+- The process manager uses numeric PIDs and can allocate future PIDs after a previous process has been reaped. Since broker grants are keyed by PID, process-lifetime cleanup or a non-reusable lifetime identifier should be reviewed before device grants are used by desktop services.
+- This is a source-level lifecycle concern; it has not been reproduced at runtime. The broker registry alone does not prove that display/input services safely map device resources or revoke existing mappings.
+
+### Required design work before user-space display/input access
+
+1. Define idempotent cleanup for every process exit and final reap, or use a process-lifetime identity that cannot be confused with a later process.
+2. Keep grant/revoke authority behind a trusted policy boundary; user processes must not be able to authorize their own device access.
+3. Specify how device removal affects existing mappings, handles, and service notifications.
+4. Validate memory ranges, pixel formats, mapping lifetime, and permissions before any display resource is exposed to user space.
+5. Add focused host tests for grant cleanup, PID reuse, device removal, repeated revocation, and denial of unauthorized access before runtime testing.
+
+### Scope and next step
+
+No source code was changed, and no test, build, CI, runner, or QEMU job was started. The next implementation candidate is process-scoped broker cleanup, but only after reviewing all process termination and PID allocation paths. Public syscall numbers and roadmap checkboxes remain unchanged.
