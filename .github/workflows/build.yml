@@ -14,7 +14,9 @@ jobs:
     runs-on: [self-hosted, OfficeWindows]
     defaults:
       run:
-        shell: bash
+        # OfficeWindows is a Windows host; invoke the Git-for-Windows Bash explicitly
+        # instead of relying on `bash` being present on PATH.
+        shell: 'C:\Program Files\Git\bin\bash.exe --noprofile --norc -e -o pipefail {0}'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
