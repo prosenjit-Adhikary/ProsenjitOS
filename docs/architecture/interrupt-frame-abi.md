@@ -1,6 +1,6 @@
 # Interrupt-frame ABI and scheduler hand-off contract
 
-Status: partially implemented / end-to-end runtime verification pending. The C layout assertions and per-thread frame-copy foundation are present on the stacked implementation branch; the remaining checklist items are still prerequisites before user-mode interrupt-frame preemption is enabled.
+Status: partially implemented / end-to-end runtime verification pending. The C layout assertions and CPL3 per-thread frame-copy foundation are present on the stacked implementation branch. Timer-driven scheduling is explicitly disabled because the IRQ0 raw frame does not match the scheduler restore ABI. Remaining checklist items are prerequisites before enabling preemption.
 
 ## Current source facts
 
@@ -27,9 +27,10 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 ## Implementation and verification sequence
 
 - [ ] Add C layout assertions and matching assembly constants/comments; verify offsets from the actual NASM push order.
-- [x] Introduce stable per-thread saved-frame storage with capacity for CPL3 RSP/SS; frame shape is selected from saved CS privilege bits.
-- [x] Update ISR-to-scheduler hand-off to copy incoming frames into per-thread storage before the IST stack can be reused.
+- [x] Introduce stable per-thread saved-frame storage for CPL3 RSP/SS; CPL0 frames remain on their owning kernel stack until same-CPL RSP restore is defined.
+- [x] Update CPL3 ISR-to-scheduler hand-off to copy incoming frames into per-thread storage before IST1 can be reused.
 - [ ] Implement matching restore paths for CPL0 and CPL3 frames, including correct stack cleanup and IRET behavior.
+- [ ] Normalize the IRQ0 vector/error frame and define same-CPL kernel RSP restore before re-enabling timer-driven scheduling.
 - [ ] Establish per-thread kernel-stack ownership and TSS.RSP0 updates before enabling CPL3 preemption.
 - [ ] Add regression coverage for repeated syscalls from CPL3, blocked IPC wake/retry, successive IST entries, frame preservation across thread switches, and return to both CPL0 and CPL3.
 - [ ] Run compiler/assembler checks, boot tests, and targeted QEMU runtime tests on the self-hosted Linux runner; use other runners for independent checks where the workflow supports them.
