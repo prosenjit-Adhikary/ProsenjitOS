@@ -429,3 +429,15 @@ A follow-up static inspection checked the build script and the kernel initializa
 - Because the self-test can halt boot on failure, do not label this change runtime-safe until the display self-test and a targeted build have run on an explicitly authorized runner. No runner, build, test, CI, or QEMU was started during this cross-check.
 
 This section records integration risk and verification requirements; it does not claim that the build or boot path passed.
+
+## 21. Display API semantic and ABI-boundary findings
+
+A further source-level review compared `kernel/display.c` with both display headers. These are follow-up findings, not runtime observations:
+
+- `pros_display_unbind(id)` currently checks readiness, ID, device existence, and device class, then returns success for any display-class device. It does not clear display-layer state, detach a backend, or call `pros_driver_unbind()`. The name therefore promises more than the implementation currently does. Do not silently change it to unbind the hardware driver until the intended lifecycle contract is chosen; a targeted test should define the expected postcondition first.
+- The kernel-internal `struct pros_display_info` and public `include/abi/display.h` `struct pros_display_info` are different layouts: the public structure includes `version` and uses `framebuffer_bytes`, while the kernel structure has no version field and uses `framebuffer_size`. They are separate C declarations in separate headers, so this is not by itself a compiler conflict; however, no conversion/validation bridge between them was established in this audit. Do not copy either structure directly across a syscall boundary. Add an explicit versioned conversion when a public display syscall is designed.
+- The current display present function passes the caller's pixel pointer and byte count to the backend. The interface does not yet define whether the buffer must contain a complete frame, how row pitch is interpreted for source pixels, or how invalid/unmapped source memory is rejected. Current acceptance of a 4-byte partial buffer is only the synthetic backend's contract, not evidence of a safe user-facing frame API.
+
+### Safe follow-up gate
+
+Before implementing a public display syscall, define the internal-to-public structure conversion, the exact `unbind` postcondition, source-buffer size/stride rules, and caller-memory validation. Keep this as an API-contract task; no syscall number or structure layout was changed in this review. No build, test, CI, QEMU, or runner was started.
