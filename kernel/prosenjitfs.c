@@ -7454,6 +7454,15 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
 
+        /*
+         * The exhaustion checks deliberately reserve blocks and inodes
+         * without filesystem ownership. Reformat the medium before the
+         * independent partition-boundary and clean-remount checks.
+         */
+        pfs_zero(&small_disk, sizeof(small_disk));
+        if (prosenjitfs_format(&small_device) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -17);
+
         pfs_selftest_diag_stage = __LINE__;
         /*
          * A partition view that is one sector shorter than the durable
