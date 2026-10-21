@@ -310,3 +310,21 @@ Source inspected: kernel/device_broker.c, kernel/include/device_broker.h, kernel
 ### Scope and next step
 
 No source code was changed, and no test, build, CI, runner, or QEMU job was started. The next implementation candidate is process-scoped broker cleanup, but only after reviewing all process termination and PID allocation paths. Public syscall numbers and roadmap checkboxes remain unchanged.
+## 14. PID-width and teardown-path refinement
+
+Follow-up source review compared the process structure and lifecycle with the device broker's key type. This remains a static review; no code was executed.
+
+- `struct pros_process.pid` is `uint64_t`, while `struct pros_device_grant.process_id` and the broker grant/check/revoke APIs use `uint32_t`. The current broker cannot uniquely represent every valid process ID. Before integrating device services, define one canonical process identity and reject out-of-range IDs at the boundary, or widen the broker key consistently.
+- `process_create()` receives an explicit PID and `process_register()` advances `next_pid` based on registered IDs; this inspected path does not itself allocate a PID for callers. The lifecycle risk is therefore about possible reuse by the caller after reap, plus width truncation—not proof that an automatic allocator currently reuses IDs.
+- `process_exit()` transitions a process to ZOMBIE after thread termination. `process_wait()` closes handles/destroys the address space, marks it DEAD, then unregisters it. Neither path calls a device-broker per-process cleanup routine in the inspected source.
+- Device unbind and device unregister both drop grants for the device. That handles device lifecycle, but it does not replace cleanup for an individual process exiting while the device remains bound.
+
+### Revised safe implementation order
+
+1. Decide the canonical identity type for broker grants; do not silently cast a 64-bit PID to 32 bits.
+2. Add a broker cleanup operation scoped to one process identity, with idempotent semantics and a clear result contract.
+3. Call it at the correct process-lifecycle point, after verifying cleanup ordering and failure handling. Consider both exit-to-zombie and final reap so no authority remains during a long zombie interval.
+4. Add focused tests for PID values above UINT32_MAX, process exit without immediate reap, PID reuse after reap, device unbind/removal, repeated cleanup, and unauthorized grants.
+5. Only after those contracts are reviewed should display/input service work consume device grants.
+
+No code change is made in this pass because the runner is unavailable and the cleanup/identity contract needs to be decided before changing security-sensitive lifecycle code.
