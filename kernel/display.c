@@ -2,6 +2,28 @@
 
 static uint8_t display_ready;
 
+/* Validate the backend's XRGB8888 metadata before any caller consumes it. */
+static int display_info_valid(const struct pros_display_info *info)
+{
+    uint64_t required_bytes;
+
+    if (!info || !info->width || !info->height ||
+        info->width > PROS_DISPLAY_MAX_WIDTH ||
+        info->height > PROS_DISPLAY_MAX_HEIGHT ||
+        info->pitch < info->width ||
+        info->format != PROS_DISPLAY_FORMAT_XRGB8888 ||
+        !info->framebuffer || !info->framebuffer_size)
+        return 0;
+
+    if ((uint64_t)info->pitch >
+        UINT64_MAX / (uint64_t)info->height / 4ULL)
+        return 0;
+
+    required_bytes = (uint64_t)info->pitch *
+                     (uint64_t)info->height * 4ULL;
+    return info->framebuffer_size >= required_bytes;
+}
+
 static const struct pros_display_backend *backend_of(const struct pros_driver_device *d)
 {
     if (!d || d->class_id != PROS_DEVICE_CLASS_DISPLAY ||
@@ -42,9 +64,7 @@ int pros_display_get_info(uint32_t id, struct pros_display_info *info)
     if (!b) return PROS_DRIVER_ENODEV;
     int rc = b->get_info(b->ctx, info);
     if (rc != PROS_DRIVER_OK) return rc;
-    if (!info->width || !info->height || info->width > PROS_DISPLAY_MAX_WIDTH ||
-        info->height > PROS_DISPLAY_MAX_HEIGHT || info->pitch < info->width ||
-        !info->framebuffer || !info->framebuffer_size) return PROS_DRIVER_EIO;
+    if (!display_info_valid(info)) return PROS_DRIVER_EIO;
     return PROS_DRIVER_OK;
 }
 
@@ -54,9 +74,9 @@ int pros_display_present(uint32_t id, const void *pixels, uint64_t size)
     const struct pros_display_backend *b = backend_of(pros_device_get(id));
     if (!b) return PROS_DRIVER_ENODEV;
     struct pros_display_info info;
-    if (b->get_info(b->ctx, &info) != PROS_DRIVER_OK ||
-        !info.framebuffer_size || size > info.framebuffer_size)
-        return PROS_DRIVER_EINVAL;
+    int rc = pros_display_get_info(id, &info);
+    if (rc != PROS_DRIVER_OK) return rc;
+    if (size > info.framebuffer_size) return PROS_DRIVER_EINVAL;
     return b->present(b->ctx, pixels, size);
 }
 
@@ -98,10 +118,27 @@ int pros_display_selftest(void)
     if(pros_display_bind(dev.id)!=0)return -5;
     if(pros_display_get_info(dev.id,&i)!=0||i.width!=640u||i.height!=480u)return -6;
     if(pros_display_present(dev.id,px,sizeof(px))!=0)return -7;
-    if(pros_display_present(dev.id,px,1228801ULL)!=PROS_DRIVER_EINVAL)return -8;
-    if(pros_driver_unbind(dev.id)!=0)return -9;
-    if(pros_display_bind(dev.id)!=PROS_DRIVER_ENODEV)return -10;
-    if(pros_device_unregister(dev.id)!=0)return -11;
-    if(pros_driver_unregister(&drv)!=0)return -12;
+
+    /* Reject malformed backend metadata before the present callback is used. */
+    struct pros_display_backend *backend =
+        (struct pros_display_backend *)dev.driver_data;
+    struct display_test_state *state =
+        backend ? (struct display_test_state *)backend->ctx : 0;
+    if (!state) return -8;
+    state->info.format = 0u;
+    if (pros_display_get_info(dev.id, &i) != PROS_DRIVER_EIO) return -9;
+    state->info.format = PROS_DISPLAY_FORMAT_XRGB8888;
+    state->info.pitch = state->info.width - 1u;
+    if (pros_display_get_info(dev.id, &i) != PROS_DRIVER_EIO) return -10;
+    state->info.pitch = state->info.width;
+    state->info.framebuffer_size = 1228799ULL;
+    if (pros_display_get_info(dev.id, &i) != PROS_DRIVER_EIO) return -11;
+    state->info.framebuffer_size = 1228800ULL;
+
+    if(pros_display_present(dev.id,px,1228801ULL)!=PROS_DRIVER_EINVAL)return -12;
+    if(pros_driver_unbind(dev.id)!=0)return -13;
+    if(pros_display_bind(dev.id)!=PROS_DRIVER_ENODEV)return -14;
+    if(pros_device_unregister(dev.id)!=0)return -15;
+    if(pros_driver_unregister(&drv)!=0)return -16;
     return 0;
 }
