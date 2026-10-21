@@ -216,3 +216,53 @@ It was source inspection only; no compiler, tests, CI, runner, or emulator was i
 
 No source-code behavior, roadmap checkbox, syscall number, kernel component, or
 ProsenjitFS/bootloader code was changed in this pass.
+
+## 12. Process, IPC, and device-permission source trace
+
+This pass inspected `kernel/process.c`, `kernel/include/process.h`,
+`kernel/init.c`, `kernel/elf_loader.c`, `kernel/ipc.c`,
+`kernel/include/ipc.h`, `kernel/device_broker.c`, and the IPC cases in
+`kernel/syscall.c`. It was source-only inspection; no execution was started.
+
+### Confirmed reusable foundations
+
+- `process_create()` creates/registers a process object and address space, assigns
+  parent linkage and default policies, and sets the process READY. It does not
+  itself load an executable or establish a complete user thread/exec transaction.
+- `pros_init_load()` reads `/init` from a mounted VFS, admits it through the
+  executable-security path, validates it as ELF, and calls `pros_elf_load()`.
+  This is a kernel-mediated init-image loading primitive, not a general userspace
+  spawn/exec API.
+- ELF validation rejects unsupported dynamic/interpreter/TLS program headers and
+  checks segment bounds and permissions. Compatibility must be based on the
+  loader's actually supported ELF subset, not on the ELF file extension alone.
+- IPC is already exposed through public send/receive syscalls and process handles.
+  The syscall path validates user ranges and handle type, authorizes read/write
+  intents, copies data across the user/kernel boundary, and uses a bounded channel.
+  The current message maximum is 64 bytes and channel capacity is 8 messages.
+  IPC is a potential control/event transport, but its small message size and
+  lifecycle/ownership semantics must be considered before choosing it for graphics.
+- The device broker offers process/device grants and revoke/drop operations. It
+  is not, by itself, a userspace display/input API. Any future adapter must define
+  who is allowed to grant/revoke, ensure teardown removes grants, and reconcile
+  the broker's 32-bit process ID parameter with the process model's 64-bit PID
+  without truncation or ambiguous identity.
+
+### Still not established by source inspection
+
+- A user-callable transaction that creates a process, admits and loads an image,
+  creates its initial thread, applies least-privilege policy, and safely publishes
+  it as runnable.
+- A userspace init/service manager that launches and supervises services.
+- A display/input service with a defined IPC protocol, device grants, queue
+  ownership, and shutdown/removal behavior.
+- A complete real-device keyboard/pointer event path or physical display output.
+
+### Next safe step
+
+Before implementing new public ABI or changing kernel behavior, map the existing
+thread creation and scheduler handoff to the ELF load result, and inspect service
+manager definitions/callers to establish whether any existing lifecycle primitive
+can be reused. Then draft a narrow launch-transaction proposal with rollback rules
+for every failure point. Keep the native desktop ahead of the Windows GUI bridge.
+No source code or roadmap checkbox was changed in this pass.
