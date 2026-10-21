@@ -85,7 +85,10 @@ int pros_device_revoke(uint32_t device_id, uint32_t process_id)
             return PROS_DRIVER_OK;
         }
     }
-    return PROS_DRIVER_ENODEV;
+    /* Keep absent devices distinct from an existing device with no grant. */
+    if (!pros_device_get(device_id))
+        return PROS_DRIVER_ENODEV;
+    return PROS_DRIVER_EPERM;
 }
 
 int pros_device_check(uint32_t device_id, uint32_t process_id,
