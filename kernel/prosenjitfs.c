@@ -7065,6 +7065,40 @@ int prosenjitfs_selftest(void)
             vfs_vnode_put(node) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
+        /*
+         * Cross-directory directory rename regression: preserve descendants,
+         * reject moving a directory below itself, and verify parent metadata
+         * survives a clean unmount/remount.
+         */
+        {
+            struct pros_vfs_vnode *moved_node = 0;
+            if (vfs_mkdir(&fs.mount, "/persist/move_src") != PROS_VFS_OK ||
+                vfs_mkdir(&fs.mount, "/persist/move_src/child") != PROS_VFS_OK ||
+                vfs_mkdir(&fs.mount, "/persist/move_dst") != PROS_VFS_OK ||
+                vfs_rename(&fs.mount, "/persist/move_src",
+                           "/persist/move_dst/moved") != PROS_VFS_OK ||
+                vfs_rename(&fs.mount, "/persist/move_dst/moved",
+                           "/persist/move_dst/moved/child/loop") !=
+                    PROS_VFS_EINVAL ||
+                vfs_path_lookup(&fs.mount, "/persist/move_dst/moved/child",
+                                &moved_node) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -211);
+            if (vfs_vnode_put(moved_node) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -212);
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_path_lookup(&fs.mount, "/persist/move_dst/moved/child",
+                                &moved_node) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -213);
+            if (vfs_vnode_put(moved_node) != PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/persist/move_dst/moved/child") !=
+                    PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/persist/move_dst/moved") !=
+                    PROS_VFS_OK ||
+                vfs_rmdir(&fs.mount, "/persist/move_dst") != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -214);
+        }
+
         done = 0u;
         if (vfs_file_open(&fs.mount, "/persist/config/sub/tree.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
