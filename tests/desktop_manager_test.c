@@ -120,6 +120,11 @@ int main(void)
     CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 28);
 
     CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 29);
+    manifest = manifest_make("too-many-deps", "bin/start");
+    manifest.dependency_count = PROS_DML_MAX_DEPENDENCIES + 1u;
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_EINVAL, 33);
+
+    CHECK(pros_dml_init(&manager, 0u) == PROS_DML_OK, 34);
     for (uint32_t i = 0; i < PROS_DML_MAX_DESKTOPS; ++i) {
         char id[PROS_DML_ID_MAX];
         (void)snprintf(id, sizeof(id), "desktop-%u", i);
