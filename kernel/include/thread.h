@@ -2,6 +2,7 @@
 #define PROSENJIT_THREAD_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "process.h"
 
 enum pros_thread_state {
@@ -19,16 +20,34 @@ struct pros_cpu_context {
     uint64_t rflags;
 };
 
-/* Exact memory layout at the RAX pointer passed by isr32.
- * The CPU's vector/error words live immediately before this pointer.
- * At the frame pointer itself the layout is RAX..R15, then the CPU's
- * kernel-mode IRET frame (RIP, CS, RFLAGS).
+/* Exact CPL0 frame layout at the RAX pointer passed by isr32 or isr128.
+ * CPU/vector/error words and alignment padding are outside this structure.
+ * It contains 15 saved GPRs followed by RIP, CS, and RFLAGS.
+ * A CPL3-origin IRET frame also has user RSP and SS after RFLAGS; this
+ * structure does not represent those trailing words. A pointer into a
+ * reusable IST stack is not stable per-thread saved-frame storage.
  */
 struct pros_interrupt_frame {
     uint64_t rax, rbx, rcx, rdx, rsi, rdi, rbp;
     uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
     uint64_t rip, cs, rflags;
 };
+
+/* Compile-time guardrails for the C/assembly ABI. These cover only the
+ * CPL0-shaped C struct; CPL3 RSP/SS require a separate representation.
+ */
+_Static_assert(sizeof(struct pros_interrupt_frame) == 18u * sizeof(uint64_t),
+               "pros_interrupt_frame must be 18 qwords");
+_Static_assert(offsetof(struct pros_interrupt_frame, rax) == 0u,
+               "interrupt frame RAX offset mismatch");
+_Static_assert(offsetof(struct pros_interrupt_frame, r15) == 14u * sizeof(uint64_t),
+               "interrupt frame R15 offset mismatch");
+_Static_assert(offsetof(struct pros_interrupt_frame, rip) == 15u * sizeof(uint64_t),
+               "interrupt frame RIP offset mismatch");
+_Static_assert(offsetof(struct pros_interrupt_frame, cs) == 16u * sizeof(uint64_t),
+               "interrupt frame CS offset mismatch");
+_Static_assert(offsetof(struct pros_interrupt_frame, rflags) == 17u * sizeof(uint64_t),
+               "interrupt frame RFLAGS offset mismatch");
 
 struct pros_thread {
     uint64_t tid;
