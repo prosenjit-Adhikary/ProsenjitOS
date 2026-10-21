@@ -5694,6 +5694,49 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     }
 
     /*
+     * A valid parent pointer and exactly one directory reference do not prove
+     * that an inode belongs to the root namespace: a corrupted pair of
+     * directories can reference each other while remaining locally valid.
+     * Walk every allocated inode's parent chain and require it to terminate
+     * at root. The inode_count bound makes cycles fail closed without needing
+     * another allocation or a recursive traversal.
+     */
+    for (uint64_t inode_number = 0u;
+         inode_number < fs->sb.inode_count; ++inode_number) {
+        uint64_t current_parent;
+        uint64_t steps = 0u;
+        int inode_rc;
+
+        if (inode_number == fs->sb.root_inode)
+            continue;
+
+        inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+        if (inode_rc == PROSENJITFS_ENOENT)
+            continue;
+        if (inode_rc != PROSENJITFS_OK) {
+            rc = PROSENJITFS_ECORRUPT;
+            fail_line = __LINE__;
+            goto consistency_out;
+        }
+
+        current_parent = inode.parent_inode;
+        while (current_parent != fs->sb.root_inode) {
+            struct pros_prosenjitfs_inode parent_inode;
+
+            if (++steps >= fs->sb.inode_count ||
+                current_parent >= fs->sb.inode_count ||
+                prosenjitfs_read_inode(fs, current_parent, &parent_inode) !=
+                    PROSENJITFS_OK ||
+                parent_inode.type != PROSENJITFS_INODE_DIR) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            current_parent = parent_inode.parent_inode;
+        }
+    }
+
+    /*
      * Metadata blocks are never allocatable. Every block below data_start
      * must be marked used; every referenced data/extent/directory-entry block
      * must be marked used; and every allocated data bit must have an owner.
