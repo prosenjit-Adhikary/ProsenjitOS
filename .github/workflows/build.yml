@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Keep only the newest build/boot-test run for a branch; stale queued runs
+# must not occupy the designated runner after newer commits arrive.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     # Never execute code from an untrusted fork on the persistent self-hosted runner.
