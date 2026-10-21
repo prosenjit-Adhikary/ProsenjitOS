@@ -784,6 +784,47 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
 
+    /* A failed CR3/address-space switch must not leave the still-executing
+     * thread marked READY and linked in the run queue. */
+    struct pros_process switch_failure_process;
+    struct pros_thread switch_failure_thread;
+    uint64_t *switch_failure_root = 0;
+    if (process_create(&init_process, &switch_failure_process, 11,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&switch_failure_thread, &switch_failure_process, 11,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                          sizeof(lifecycle_thread_stack))) != 0 ||
+        thread_set_state(&switch_failure_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&switch_failure_thread) != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR scheduler switch-failure setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    switch_failure_root = switch_failure_process.address_space.root;
+    switch_failure_process.address_space.root = 0;
+    if (thread_schedule() == 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+        process_current() != &init_process ||
+        thread_state(&switch_failure_thread) != PROS_THREAD_READY) {
+        serial_write("ProsenjitOS: ERROR scheduler switch-failure rollback regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    switch_failure_process.address_space.root = switch_failure_root;
+    if (process_exit(&switch_failure_process, 22) != 0 ||
+        process_wait(&init_process, switch_failure_process.pid, &waited_exit) != 0 ||
+        waited_exit != 22 ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR scheduler switch-failure cleanup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: scheduler address-space failure rollback test passed\n");
+
     serial_write("ProsenjitOS: initial limited process and capability context online\n");
     {
         int security_init_status = security_manager_init();
