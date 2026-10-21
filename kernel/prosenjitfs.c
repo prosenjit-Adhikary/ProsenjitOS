@@ -7828,6 +7828,12 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -14);
             }
 
+            /*
+             * The stage-9 write interruption leaves the original mount's
+             * volatile state alive. Model power loss and discard that mount
+             * before attempting to interrupt journal replay on a fresh mount.
+             */
+            pfs_test_crash_reset(&fs, &disk);
             pfs_crash_inject_stage = recovery_stages[recovery_index];
             pfs_crash_injected = 0u;
             mount_rc = prosenjitfs_mount(&fs, &device, 0u);
