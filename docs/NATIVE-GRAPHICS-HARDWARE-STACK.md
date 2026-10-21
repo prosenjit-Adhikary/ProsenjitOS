@@ -363,3 +363,24 @@ Reviewed the concrete driver bind/unbind, device register/unregister, and broker
 4. Keep the native display/input user ABI separate from driver callback structs and raw kernel pointers.
 
 No code was changed. No runner, build, test, CI, or QEMU job was started.
+## 17. Display ABI, PCI discovery, and memory-mapping boundary
+
+Reviewed `kernel/display.c`, `kernel/include/display.h`, `include/abi/display.h`, `kernel/pci.c`, `kernel/include/pci.h`, `kernel/memory.c`, and `kernel/include/memory.h`. This is a source-level contract audit, not a runtime verification.
+
+- The public display ABI declares `PROSENJIT_DISPLAY_ABI_VERSION`, an info structure with a `version` field and `framebuffer_bytes`, and a public format enum. The kernel backend info structure is a separate type: it has no `version` member and names the size field `framebuffer_size`. The current kernel display functions do not establish a validated conversion/negotiation path between these two structures. Do not pass one structure as the other or assume the public ABI is wired into syscalls.
+- `pros_display_get_info()` checks nonzero dimensions, maximum dimensions, `pitch >= width`, and nonzero framebuffer metadata. It does not validate supported `format`, compute the minimum byte pitch from format/bits-per-pixel, or check overflow-safe `pitch * height` against framebuffer size. These checks are needed before exposing a stable display contract.
+- `pros_display_present()` rejects null/zero input and compares submitted byte count with backend framebuffer size, but it does not itself validate the public ABI's pixel format, row layout, or userspace buffer range. The reviewed API is a kernel-facing backend callback path, not evidence of a safe syscall or mapped userspace presentation interface.
+- The in-file display self-test backend advertises a fixed synthetic framebuffer address and validates callback plumbing. This is useful as a self-test fixture, not evidence that a real PCI GPU/framebuffer backend, physical mapping, or desktop presentation is operational.
+- `pci_scan()` reads PCI identity, class/subclass/programming-interface, and header type, but the inspected scan structure does not include Base Address Registers (BARs) or resource sizes. `pros_driver_register_pci_device()` maps a discovered class and explicitly discards the supplied slot/function values; the reviewed device structure therefore does not preserve a complete PCI location/resource description for later safe binding.
+- `physical_page_is_user_mappable()` only checks pages managed by the allocator and explicitly marked as user-mappable. It is not a general MMIO/framebuffer mapping API, and must not be used as proof that device BARs or reserved physical ranges are safe to map into user address spaces.
+- No reviewed public syscall provides display info/present, input event delivery, or device-resource mapping. The versioned ABI header alone is not proof of a reachable userspace service.
+
+### Required gates before userspace display
+
+1. Define one explicit, versioned conversion contract between kernel backend metadata and the public display ABI; validate version, structure size, pixel format, pitch units, and all size calculations with overflow-safe arithmetic.
+2. Keep device physical addresses and BARs kernel-owned until PCI resource sizing, reserved-range validation, mapping lifetime, and teardown behavior are designed and implemented.
+3. Preserve PCI bus/slot/function identity and validated resource metadata in the device model before attempting a hardware-backed display driver.
+4. Add a narrow userspace display service/API with handle-based authorization and buffer validation only after the process identity, broker authority, and grant-cleanup gates in Sections 15–16 are resolved.
+5. Keep the synthetic display self-test status separate from real hardware, QEMU, or end-to-end desktop readiness.
+
+No source code, syscall ABI, PCI behavior, memory manager, or roadmap checkbox was changed. No runner, build, test, CI, or QEMU job was started.
