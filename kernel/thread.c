@@ -283,7 +283,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
          * CPL0 frames do not, so determine the copy length from saved CS.
          */
         const uint64_t frame_words = (current_frame->cs & 3ULL) == 3ULL
-            ? 20u : 18u;
+            ? PROS_INTERRUPT_FRAME_CPL3_WORDS : PROS_INTERRUPT_FRAME_CPL0_WORDS;
         const uint64_t *source = (const uint64_t *)(uintptr_t)current_frame;
         uint64_t *destination = prev->interrupt_frame_storage;
         for (uint64_t i = 0; i < frame_words; ++i)
