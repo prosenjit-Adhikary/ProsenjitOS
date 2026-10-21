@@ -125,19 +125,27 @@ int thread_process_has_live(const struct pros_process *process) {
     return 0;
 }
 
-int thread_reap_process(struct pros_process *process) {
+int thread_process_reapable(const struct pros_process *process) {
     if (!process || thread_process_is_current(process) ||
         thread_process_has_live(process))
-        return -1;
+        return 0;
 
-    /* Preflight the entire registry before mutating it. Reaping must never
-     * detach a live thread or partially unlink a process's thread set. */
-    for (struct pros_thread *thread = thread_registry; thread;
+    /* This must remain read-only: process_wait uses it before closing handles
+     * or destroying the address space, both of which are irreversible. */
+    for (const struct pros_thread *thread = thread_registry; thread;
          thread = thread->registry_next) {
         if (thread->process == process &&
             (thread->state != PROS_THREAD_DEAD || thread->wait_channel != 0))
-            return -1;
+            return 0;
     }
+    return 1;
+}
+
+int thread_reap_process(struct pros_process *process) {
+    if (!thread_process_reapable(process))
+        return -1;
+
+    /* The read-only preflight completed before any registry mutation. */
 
     struct pros_thread **link = &thread_registry;
     while (*link) {
