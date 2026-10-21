@@ -5,9 +5,14 @@
 #define PROSENJIT_DISPLAY_ABI_VERSION 1u
 enum pros_display_format { PROS_DISPLAY_XRGB8888 = 1 };
 struct pros_display_info {
-    uint32_t version,width,height,pitch,format;
+    uint32_t version;
+    uint32_t width;
+    uint32_t height;
     /* For PROS_DISPLAY_XRGB8888, pitch is measured in pixels, not bytes. */
-    uint64_t framebuffer,framebuffer_bytes;
+    uint32_t pitch;
+    uint32_t format;
+    uint64_t framebuffer;
+    uint64_t framebuffer_bytes;
 };
 struct pros_display_event { uint32_t type,flags; uint64_t timestamp,value0,value1; };
 #define PROS_DISPLAY_EVENT_NONE 0u
