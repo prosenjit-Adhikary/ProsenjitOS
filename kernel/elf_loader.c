@@ -353,6 +353,93 @@ int pros_elf_selftest(void)
             return -13;
     }
 
+    /*
+     * Rollback gap regression: the image span includes a gap between two
+     * PT_LOAD segments. A pre-existing user mapping in that gap belongs to
+     * the process, not to this ELF load, and must survive rollback.
+     */
+    {
+        struct pros_process process;
+        uint64_t segment_a = 0, gap_page = 0, segment_b = 0;
+        uint64_t translated = 0, flags = 0;
+        int mapped_a = 0, mapped_gap = 0, mapped_b = 0;
+        int rc = process_init(&process, 0xE1F3u, PROS_SECURITY_LIMITED);
+        if (rc != 0) return -17;
+
+        segment_a = physical_page_alloc_user();
+        gap_page = physical_page_alloc_user();
+        segment_b = physical_page_alloc_user();
+        if (!segment_a || !gap_page || !segment_b) {
+            if (segment_a) physical_page_free(segment_a);
+            if (gap_page) physical_page_free(gap_page);
+            if (segment_b) physical_page_free(segment_b);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -18;
+        }
+
+        if (address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA, segment_a,
+                                              PROSENJIT_PAGE_NX) == 0)
+            mapped_a = 1;
+        if (mapped_a &&
+            address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA + 0x3000ULL,
+                                              gap_page,
+                                              PROSENJIT_PAGE_WRITABLE |
+                                              PROSENJIT_PAGE_NX) == 0)
+            mapped_gap = 1;
+        if (mapped_gap &&
+            address_space_map_user_page_owned(&process.address_space,
+                                              ELF_TEST_CODE_VA + 0x5000ULL,
+                                              segment_b,
+                                              PROSENJIT_PAGE_NX) == 0)
+            mapped_b = 1;
+
+        if (!mapped_a || !mapped_gap || !mapped_b) {
+            if (!mapped_a) physical_page_free(segment_a);
+            if (!mapped_gap) physical_page_free(gap_page);
+            if (!mapped_b) physical_page_free(segment_b);
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -19;
+        }
+
+        eh->phnum = 2;
+        ph[0].type = PT_LOAD;
+        ph[0].flags = PF_R | PF_X;
+        ph[0].offset = data_off;
+        ph[0].vaddr = ELF_TEST_CODE_VA;
+        ph[0].filesz = 2;
+        ph[0].memsz = ELF_PAGE;
+        ph[0].align = ELF_PAGE;
+        ph[1] = ph[0];
+        ph[1].vaddr = ELF_TEST_CODE_VA + 0x5000ULL;
+        eh->entry = ELF_TEST_CODE_VA;
+
+        rollback_user_pages(&process, image, ELF_TEST_CODE_VA,
+                            ELF_TEST_CODE_VA + 0x6000ULL);
+        if (address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA,
+                                         &translated, &flags) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA + 0x5000ULL,
+                                         &translated, &flags) == 0 ||
+            address_space_translate_user(&process.address_space,
+                                         ELF_TEST_CODE_VA + 0x3000ULL,
+                                         &translated, &flags) != 0 ||
+            translated != gap_page) {
+            (void)address_space_destroy(&process.address_space);
+            (void)object_release(&process.object);
+            return -20;
+        }
+
+        eh->phnum = 1;
+        if (address_space_destroy(&process.address_space) != 0 ||
+            object_release(&process.object) != 0)
+            return -21;
+    }
+
     /* Positive mapping test: verify PT_LOAD bytes, zero-filled BSS, stack
      * construction, entry publication, and owned-page teardown. */
     {
