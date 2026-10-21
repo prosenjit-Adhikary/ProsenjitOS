@@ -249,10 +249,10 @@ int pros_elf_selftest(void)
     /* Page-offset congruence is mandatory even when p_align is 0 or 1. */
     ph[0].offset = data_off + 1u;
     ph[0].align = 0u;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -6;
+    if (pros_elf_validate(image, data_off + 5u) != PROS_ELF_EFORMAT) return -6;
     ph[0].offset = data_off + 1u;
     ph[0].align = 1u;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_EFORMAT) return -6;
+    if (pros_elf_validate(image, data_off + 5u) != PROS_ELF_EFORMAT) return -6;
     ph[0].offset = data_off;
     ph[0].align = ELF_PAGE;
 
