@@ -44,6 +44,7 @@ static volatile uint16_t *const VGA = (uint16_t *)VGA_ADDRESS;
 static uint8_t init_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
+static uint8_t lifecycle_reap_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 
@@ -777,33 +778,43 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
     struct pros_thread thread_lifecycle;
+    struct pros_thread thread_lifecycle_second;
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack + sizeof(lifecycle_thread_stack))) != 0 ||
+        thread_init(&thread_lifecycle_second, &thread_lifecycle_process, 11,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_reap_stack + sizeof(lifecycle_reap_stack))) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||
+        thread_set_state(&thread_lifecycle_second, PROS_THREAD_DEAD) != 0 ||
         thread_reap_process(&thread_lifecycle_process) == 0 ||
         thread_lifecycle.process != &thread_lifecycle_process ||
         thread_state(&thread_lifecycle) != PROS_THREAD_READY ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
+        thread_state(&thread_lifecycle_second) != PROS_THREAD_DEAD ||
         thread_has_runnable() != 1) {
         serial_write("ProsenjitOS: ERROR process-thread teardown setup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    /* A dead thread with a residual IPC wait-channel reference must be
-     * rejected before process_wait closes handles or destroys its address
-     * space. The caller-owned process must remain retryable after cleanup. */
-    thread_lifecycle.wait_channel = (void *)(uintptr_t)1u;
+    /* Atomicity regression: the first dead thread is reapable, but the second
+     * still carries an IPC wait-channel reference. The full preflight must
+     * reject the process without detaching the earlier eligible registry node. */
+    thread_lifecycle_second.wait_channel = (void *)(uintptr_t)1u;
     if (thread_process_reapable(&thread_lifecycle_process) != 0 ||
+        thread_reap_process(&thread_lifecycle_process) == 0 ||
+        thread_lifecycle.process != &thread_lifecycle_process ||
+        thread_lifecycle_second.process != &thread_lifecycle_process ||
+        thread_lifecycle_second.registry_next != &thread_lifecycle ||
         process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != -3 ||
         thread_lifecycle_process.address_space.root == 0) {
-        serial_write("ProsenjitOS: ERROR process-thread reap preflight regression failed\n");
+        serial_write("ProsenjitOS: ERROR process-thread reap atomicity regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    thread_lifecycle.wait_channel = 0;
+    thread_lifecycle_second.wait_channel = 0;
 
     /* An extra retained process-object reference prevents final unregister.
      * wait must reject it before releasing any child resources or publishing
@@ -826,7 +837,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
-        thread_lifecycle.process != 0 || thread_lifecycle.registry_next != 0) {
+        thread_lifecycle.process != 0 || thread_lifecycle.registry_next != 0 ||
+        thread_lifecycle_second.process != 0 ||
+        thread_lifecycle_second.registry_next != 0) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
