@@ -66,7 +66,7 @@ jobs:
             -serial file:build/qemu-serial.log \
             -no-reboot \
             -no-shutdown \
-            -d int \
+            -d guest_errors \
             -D build/qemu-debug.log
           qemu_status=$?
           set -e
@@ -79,7 +79,7 @@ jobs:
             exit "$qemu_status"
           fi
           cat build/qemu-serial.log
-          echo "===== QEMU interrupt trace (exceptions) ====="
+          echo "===== QEMU guest-error trace ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
@@ -138,7 +138,7 @@ jobs:
             -serial file:build/native-qemu-serial.log \
             -no-reboot \
             -no-shutdown \
-            -d int \
+            -d guest_errors \
             -D build/native-qemu-debug.log
           qemu_status=$?
           set -e
@@ -151,7 +151,7 @@ jobs:
             exit "$qemu_status"
           fi
           cat build/native-qemu-serial.log
-          echo "===== Native QEMU interrupt trace (exceptions) ====="
+          echo "===== Native QEMU guest-error trace ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
           echo "===== Native QEMU exception diagnostics (tail) ====="
           tail -n 200 build/native-qemu-debug.log || true
