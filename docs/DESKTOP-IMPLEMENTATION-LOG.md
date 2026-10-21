@@ -162,3 +162,11 @@
 - `684a3e1b1994aa84feef87a8471ddbdfb65bd161` — fix initial stack string placement
 - `f4ef5dd152c76d48aeeb395e9d8ff450f67b9c1d` — add argv/env stack regression assertions
 
+
+### 2026-10-21 — Reap preflight before irreversible resource teardown (CI pending)
+- [x] Found a failure-ordering gap in `process_wait()`: it checked for live/current threads, but `thread_reap_process()` could still reject a dead thread with a residual IPC wait-channel reference after handles and the address space had already been released.
+- [x] Added read-only `thread_process_reapable()` preflight and made `process_wait()` reject the child before resource teardown if any thread-reap invariant fails.
+- [x] Reused the same preflight in `thread_reap_process()`, preserving the rule that registry mutation begins only after the complete thread set is checked.
+- [x] Added a boot regression that injects a residual wait-channel reference, verifies wait fails without destroying the child's address space, clears the reference, and then verifies retry/reap succeeds.
+- [ ] Build/boot and security workflows must verify the exact updated branch head. The source edits are committed, but no workflow run is currently associated with the latest commit; verification is pending.
+- **Scope:** native process/thread lifecycle groundwork only. No public spawn/exec syscall, userspace service manager, display/input service, or desktop runtime is claimed complete.
