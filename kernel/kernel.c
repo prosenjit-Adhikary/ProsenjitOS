@@ -838,7 +838,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
         worker_thread.interrupt_frame == &scheduler_init_frame ||
-        init_thread.interrupt_frame == &scheduler_init_frame ||
+        init_thread.interrupt_frame != &scheduler_init_frame ||
         init_thread.interrupt_frame->rax != 0x1111111111111111ULL ||
         init_thread.interrupt_frame->rip != 0xAAAAAAAAAAAAAAAAULL) {
         serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
@@ -852,11 +852,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_interrupt_frame *second_switch =
         thread_schedule_interrupt(&scheduler_worker_frame);
     if (thread_current() != &init_thread ||
-        second_switch != init_thread.interrupt_frame ||
-        init_thread.interrupt_frame == &scheduler_init_frame ||
+        second_switch != &scheduler_init_frame ||
+        init_thread.interrupt_frame != &scheduler_init_frame ||
         init_thread.interrupt_frame->rax != 0x1111111111111111ULL ||
         init_thread.interrupt_frame->rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame == &scheduler_worker_frame ||
+        worker_thread.interrupt_frame != &scheduler_worker_frame ||
         worker_thread.interrupt_frame->rax != 0x2222222222222222ULL ||
         worker_thread.interrupt_frame->rip != 0xBBBBBBBBBBBBBBBBULL) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
@@ -897,7 +897,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR CPL3 interrupt-frame restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: stable CPL0/CPL3 interrupt-frame save/restore tests passed\n");
+    serial_write("ProsenjitOS: stable CPL3 interrupt-frame save/restore tests passed\n");
     /* Keep the milestone consumed by existing QEMU boot-test scripts. */
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\\n");
 
