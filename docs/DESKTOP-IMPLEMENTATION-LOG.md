@@ -178,3 +178,13 @@
 - [x] Added a focused kernel regression: retain the child process object, verify wait rejects it while preserving the address-space root and an exit-code sentinel, release the extra reference, then retry and verify normal reaping still succeeds.
 - [ ] Build/QEMU and security verification on the exact final commit are pending. No runtime pass is claimed until the designated CI results complete.
 - **Scope:** process/thread lifecycle hardening only. No public spawn/exec syscall or complete userspace launch path is claimed.
+
+
+### 2026-10-21 — Atomic multi-thread reap regression
+
+- [x] Extended the process/thread lifecycle boot regression to use two caller-owned thread objects for one child process.
+- [x] The first thread is dead and otherwise reapable; the second is dead but deliberately retains a non-null IPC wait-channel reference.
+- [x] Asserted that both direct thread_reap_process() and process_wait() reject this inconsistent state without detaching the first eligible thread, changing either process owner link, or destroying the child's address space.
+- [x] After clearing the stale wait-channel reference, the test retries normal final reap and checks that both thread objects are detached from the registry.
+- [ ] Exact-head build/boot and security CI must complete before this new regression is counted as runtime-verified. Earlier run 39602910274 and reduced-trace run 39603747695 were cancelled, so neither is a pass.
+- **Scope:** test-only strengthening of native process/thread lifetime invariants; no spawn/exec syscall or desktop runtime is claimed.
