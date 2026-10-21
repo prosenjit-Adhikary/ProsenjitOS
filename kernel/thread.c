@@ -315,7 +315,12 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      */
     if (prev->state != PROS_THREAD_BLOCKED) {
         if (!thread_process_runnable(prev)) {
-            prev->state = PROS_THREAD_DEAD;
+            uint32_t process_status = prev->process
+                ? process_state(prev->process) : PROS_PROCESS_DEAD;
+            prev->state = (prev->process &&
+                           (prev->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
         } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
             return current_frame;
