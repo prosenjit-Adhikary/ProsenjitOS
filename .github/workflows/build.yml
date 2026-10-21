@@ -9,21 +9,24 @@ on:
 
 jobs:
   build:
-    # Kernel build/QEMU verification must run only on the designated OfficeWindows self-hosted runner.
-    # Do not fall back to the Debian runner or a GitHub-hosted runner.
-    runs-on: [self-hosted, OfficeWindows]
+    # Use an ephemeral GitHub-hosted Linux runner; never dispatch to OfficeWindows or the local runner.
+    runs-on: ubuntu-24.04
     defaults:
       run:
-        # OfficeWindows is a Windows host; invoke the Git-for-Windows Bash explicitly
-        # instead of relying on `bash` being present on PATH.
-        shell: '"C:\Program Files\Git\bin\bash.exe" --noprofile --norc -e -o pipefail {0}'
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           clean: true
 
-      - name: Verify OfficeWindows runner and toolchain
+      - name: Install Linux build and QEMU toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
+
+      - name: Verify Linux runner and toolchain
         run: |
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
