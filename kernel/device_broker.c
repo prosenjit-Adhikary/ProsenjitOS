@@ -76,6 +76,8 @@ int pros_device_revoke(uint32_t device_id, uint32_t process_id)
 {
     if (!broker_ready || device_id == 0u || process_id == 0u)
         return PROS_DRIVER_EINVAL;
+    if (!pros_device_get(device_id))
+        return PROS_DRIVER_ENODEV;
 
     for (uint32_t i = 0u; i < PROS_DEVICE_BROKER_MAX_GRANTS; ++i) {
         if (grants[i].active && grants[i].device_id == device_id &&
@@ -85,7 +87,8 @@ int pros_device_revoke(uint32_t device_id, uint32_t process_id)
             return PROS_DRIVER_OK;
         }
     }
-    return PROS_DRIVER_ENODEV;
+    /* The device exists, but this process has no revocable grant. */
+    return PROS_DRIVER_EPERM;
 }
 
 int pros_device_check(uint32_t device_id, uint32_t process_id,
@@ -172,16 +175,21 @@ int pros_device_broker_selftest(void)
     if (pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_MAP) !=
         PROS_DRIVER_EPERM)
         return -8;
-    if (pros_device_revoke(device.id, 42u) != PROS_DRIVER_OK ||
-        pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_READ) !=
-        PROS_DRIVER_EPERM ||
-        pros_device_revoke(device.id, 42u) != PROS_DRIVER_EPERM ||
-        pros_device_check(device.id, 42u,
+    if (pros_device_revoke(device.id, 42u) != PROS_DRIVER_OK)
+        return -91;
+    if (pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_READ) !=
+        PROS_DRIVER_EPERM)
+        return -92;
+    if (pros_device_revoke(device.id, 42u) != PROS_DRIVER_EPERM)
+        return -93;
+    if (pros_device_check(device.id, 42u,
                           PROS_DEVICE_PERMISSION_READ |
-                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_EINVAL ||
-        pros_device_grant(device.id, 42u, 0u) != PROS_DRIVER_EINVAL ||
-        pros_device_grant(device.id, 42u, 0x8000u) != PROS_DRIVER_EINVAL)
-        return -9;
+                          PROS_DEVICE_PERMISSION_WRITE) != PROS_DRIVER_EINVAL)
+        return -94;
+    if (pros_device_grant(device.id, 42u, 0u) != PROS_DRIVER_EINVAL)
+        return -95;
+    if (pros_device_grant(device.id, 42u, 0x8000u) != PROS_DRIVER_EINVAL)
+        return -96;
     if (pros_driver_unbind(device.id) != PROS_DRIVER_OK ||
         pros_device_check(device.id, 42u, PROS_DEVICE_PERMISSION_READ) !=
         PROS_DRIVER_EPERM)
