@@ -11,6 +11,22 @@ static int thread_is_queued(const struct pros_thread *thread) {
     return thread && (thread == runq_head || thread->next || thread->prev);
 }
 
+/* Unlink a specific queued thread without disturbing other runnable entries. */
+static int thread_remove_queued(struct pros_thread *thread) {
+    if (!thread) return -1;
+    struct pros_thread *it = runq_head;
+    while (it && it != thread) it = it->next;
+    if (!it) return -1;
+
+    if (it->prev) it->prev->next = it->next;
+    else runq_head = it->next;
+    if (it->next) it->next->prev = it->prev;
+    else runq_tail = it->prev;
+    it->next = 0;
+    it->prev = 0;
+    return 0;
+}
+
 static int thread_process_runnable(const struct pros_thread *thread) {
     if (!thread || !thread->process) return 0;
 
@@ -229,6 +245,11 @@ int thread_schedule(void) {
 
     process_set_current(next->process);
     if (process_current() != next->process) {
+        /* The candidate address-space switch failed. Roll back the outgoing
+         * thread's queue/state transition so current_thread remains RUNNING. */
+        if (prev && prev != next && prev->state == PROS_THREAD_READY &&
+            thread_remove_queued(prev) == 0)
+            prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
         return -1;
     }
@@ -278,6 +299,11 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
 
     process_set_current(next->process);
     if (process_current() != next->process) {
+        /* If the interrupted thread was requeued, undo that transition before
+         * returning its frame; otherwise it would be both executing and READY. */
+        if (prev->state == PROS_THREAD_READY &&
+            thread_remove_queued(prev) == 0)
+            prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
         return current_frame;
     }
