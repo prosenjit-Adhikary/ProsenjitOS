@@ -67,6 +67,25 @@ int main(void)
           PROS_DML_EFEATURE, 6);
     CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 6);
 
+    manifest = manifest_make("corrupted-entry-path", "bin/start");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 6);
+    memset(manager.entries[0].manifest.entry_point, 'P',
+           sizeof(manager.entries[0].manifest.entry_point));
+    CHECK(pros_dml_preflight(&manager, "corrupted-entry-path") ==
+          PROS_DML_EINVAL, 6);
+    CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 6);
+
+    manifest = manifest_make("corrupted-dependency-id", "bin/start");
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    manifest.dependency_count = 1u;
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 6);
+    memset(manager.entries[0].manifest.dependencies[0], 'D',
+           sizeof(manager.entries[0].manifest.dependencies[0]));
+    CHECK(pros_dml_preflight(&manager, "corrupted-dependency-id") ==
+          PROS_DML_EINVAL, 6);
+    CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 6);
+
     /*
      * Fixed-size manifest fields must be NUL-terminated within their
      * declared arrays; dependency_count must be bounded before indexing.
