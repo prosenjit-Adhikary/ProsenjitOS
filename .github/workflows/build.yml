@@ -13,9 +13,9 @@ jobs:
     # Never execute code from an untrusted fork on the persistent self-hosted runner.
     # Fork PR validation must use an isolated GitHub-hosted runner/workflow instead.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    # Use the configured Debian self-hosted runner; the toolchain is preinstalled
-    # there, and the runner account intentionally does not need sudo.
-    runs-on: [self-hosted, linux, x64]
+    # Kernel builds must run only on the explicitly designated OfficeWindows runner.
+    # Do not fall back to the generic Debian/self-hosted runner.
+    runs-on: [self-hosted, OfficeWindows]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
