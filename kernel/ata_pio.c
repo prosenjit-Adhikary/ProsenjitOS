@@ -257,7 +257,9 @@ static int ata_read(struct pros_block_device *device, uint64_t lba,
                     ata_in16(ata->io_base + ATA_REG_DATA);
             dst += 512u;
         }
-        {
+        /* Only advance when another chunk remains. A request ending at
+         * sector_count is valid, but sector_count itself is not a valid LBA. */
+        if (remaining > chunk) {
             uint64_t next_lba;
             if (block_device_lba_add(device, lba, chunk, &next_lba) !=
                     PROS_BLOCK_OK)
@@ -310,7 +312,9 @@ static int ata_write(struct pros_block_device *device, uint64_t lba,
                 return PROS_BLOCK_EIO;
         }
 
-        {
+        /* Do not calculate a one-past-end LBA after the final chunk:
+         * sector_count is a valid exclusive end, not a valid sector index. */
+        if (remaining > chunk) {
             uint64_t next_lba;
             if (block_device_lba_add(device, lba, chunk, &next_lba) !=
                     PROS_BLOCK_OK)
