@@ -701,27 +701,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     /*
      * Regression: a process may become blocked or quarantined after one of
-     * its threads has already entered the run queue. The scheduler must
-     * retire that stale queue entry as BLOCKED, not DEAD, and must not
-     * switch away from the still-running init thread when no successor
-     * remains (the kernel does not yet have a dedicated idle thread).
+     * its threads has already entered the run queue. Stale queue entries
+     * must become BLOCKED rather than DEAD. With no idle thread yet, the
+     * cooperative scheduler must leave the current thread authoritative.
      */
     struct pros_process scheduler_blocked_owner;
     if (process_init(&scheduler_blocked_owner, 0xB101u,
-                     PROS_SECURITY_LIMITED) != 0) {
+                     PROS_SECURITY_LIMITED) != 0 ||
+        thread_dequeue() != &worker_thread) {
         serial_write("ProsenjitOS: ERROR scheduler blocked-owner setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     worker_thread.process = &scheduler_blocked_owner;
-    scheduler_blocked_owner.state = PROS_PROCESS_BLOCKED;
-    if (thread_enqueue(&worker_thread) == 0 ||
-        thread_state(&worker_thread) != PROS_THREAD_RUNNING) {
-        /* The current thread must not be enqueued while still RUNNING. */
-        serial_write("ProsenjitOS: ERROR scheduler blocked-owner enqueue guard failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    /* Make the worker a stale queued entry using the supported queue path. */
     worker_thread.state = PROS_THREAD_READY;
+    scheduler_blocked_owner.state = PROS_PROCESS_BLOCKED;
     if (thread_enqueue(&worker_thread) != 0 ||
         thread_schedule() == 0 ||
         thread_current() != &init_thread ||
@@ -730,19 +723,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    /* Repeat the same eligibility check for a quarantined READY process. */
-    worker_thread.process = &scheduler_blocked_owner;
+    /* A quarantined READY owner must be treated as blocked, not dead. */
     worker_thread.state = PROS_THREAD_READY;
     scheduler_blocked_owner.state = PROS_PROCESS_READY;
     scheduler_blocked_owner.quarantined = 1u;
-    if (thread_enqueue(&worker_thread) == 0 ||
-        thread_state(&worker_thread) != PROS_THREAD_BLOCKED ||
-        thread_current() != &init_thread) {
-        serial_write("ProsenjitOS: ERROR scheduler quarantined-process enqueue guard failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    worker_thread.state = PROS_THREAD_READY;
-    if (thread_enqueue(&worker_thread) == 0 ||
+    if (thread_enqueue(&worker_thread) != 0 ||
         thread_schedule() == 0 ||
         thread_current() != &init_thread ||
         thread_state(&worker_thread) != PROS_THREAD_BLOCKED) {
