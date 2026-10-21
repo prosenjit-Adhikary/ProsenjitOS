@@ -11,6 +11,7 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 - `thread_schedule_interrupt()` copies a frame into `thread->interrupt_frame_storage` only when the saved CS indicates CPL3. The IPC receive syscall now refuses to block on an empty queue unless the saved CS is CPL3; this prevents the CPL0 IST frame from being retained by the scheduler. CPL0 timer scheduling remains disabled.
 - `isr32` places synthetic vector/error words between the saved GPRs and CPU IRET frame. Its raw frame is not the scheduler's 18-qword layout; `timer_should_preempt()` therefore returns zero until a normalized IRQ0 hand-off and same-CPL stack policy are implemented.
 - `boot/entry.asm:enter_user_mode` clears IF before `iretq`. Do not enable CPL3 timer preemption until the return-frame and stack-switch path is validated.
+- The current IPC wait path has an SMP-sensitive publication window: `ipc_channel_wait()` marks the thread blocked and publishes it in the waiter list, then `syscall_dispatch()` sets `blocked_syscall` after the channel lock has been released. A concurrent sender could observe a partially published blocked syscall; the existing single-CPU QEMU boot tests do not establish SMP safety. Do not claim SMP-safe IPC blocking until waiter state, saved frame, and syscall continuation are published as one synchronized transition.
 
 ## Required ABI invariants
 
