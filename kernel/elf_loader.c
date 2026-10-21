@@ -205,7 +205,7 @@ static void rollback_user_pages(struct pros_process *process,
 
 int pros_elf_selftest(void)
 {
-    uint8_t image[ELF_PAGE + 16u] = {0};
+    uint8_t image[2u * ELF_PAGE + 16u] = {0};
     struct elf64_ehdr *eh = (struct elf64_ehdr *)image;
     struct elf64_phdr *ph = (struct elf64_phdr *)(image + sizeof(*eh));
     const uint64_t data_off = ELF_PAGE;
@@ -263,8 +263,9 @@ int pros_elf_selftest(void)
     eh->phnum = 2;
     ph[1] = ph[0];
     ph[1].vaddr = ELF_TEST_CODE_VA + 0x800ULL;
+    ph[1].offset = data_off + 0x800ULL;
     ph[1].align = 0;
-    if (pros_elf_validate(image, data_off + 4) != PROS_ELF_ECONFLICT) return -8;
+    if (pros_elf_validate(image, data_off + 0x804ULL) != PROS_ELF_ECONFLICT) return -8;
 
     eh->phnum = 1;
     /* Isolate the zero-memory-size case: filesz must not independently
