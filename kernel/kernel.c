@@ -788,8 +788,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&thread_lifecycle) != PROS_THREAD_READY ||
         process_exit(&thread_lifecycle_process, 21) != 0 ||
         thread_state(&thread_lifecycle) != PROS_THREAD_DEAD ||
-        thread_has_runnable() != 1 ||
-        process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
+        thread_has_runnable() != 1) {
+        serial_write("ProsenjitOS: ERROR process-thread teardown setup regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* A dead thread with a residual IPC wait-channel reference must be
+     * rejected before process_wait closes handles or destroys its address
+     * space. The caller-owned process must remain retryable after cleanup. */
+    thread_lifecycle.wait_channel = (void *)(uintptr_t)1u;
+    if (thread_process_reapable(&thread_lifecycle_process) != 0 ||
+        process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != -3 ||
+        thread_lifecycle_process.address_space.root == 0) {
+        serial_write("ProsenjitOS: ERROR process-thread reap preflight regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    thread_lifecycle.wait_channel = 0;
+
+    if (process_wait(&init_process, thread_lifecycle_process.pid, &waited_exit) != 0 ||
         waited_exit != 21 || thread_lifecycle_process.address_space.root != 0 ||
         thread_lifecycle.process != 0 || thread_lifecycle.registry_next != 0) {
         serial_write("ProsenjitOS: ERROR process-thread teardown regression failed\n");
