@@ -384,3 +384,23 @@ Reviewed `kernel/display.c`, `kernel/include/display.h`, `include/abi/display.h`
 5. Keep the synthetic display self-test status separate from real hardware, QEMU, or end-to-end desktop readiness.
 
 No source code, syscall ABI, PCI behavior, memory manager, or roadmap checkbox was changed. No runner, build, test, CI, or QEMU job was started.
+## 18. PCI identity preservation and input delivery readiness
+
+Reviewed `kernel/driver.c`, `kernel/include/driver.h`, `kernel/pci.c`, `kernel/include/pci.h`, `kernel/include/driver_class.h`, `include/abi/input.h`, `kernel/device_broker.c`, and `kernel/include/device_broker.h`. Findings are source-level only.
+
+- `pci_scan()` discovers bus, slot, function, vendor/device IDs, class/subclass, programming interface, and header type. However, `struct pros_pci_device` does not retain PCI BAR values or resource sizes, so it cannot yet describe validated MMIO/I/O resources for a hardware driver.
+- `pros_driver_register_pci_device()` explicitly discards `bus`, `slot`, and `function` after accepting them. The device model retains hardware ID/class and an opaque `bus_data` pointer, but not a durable PCI BDF. This weakens exact device identity for diagnostics, rebinding, resource ownership, and safe hot-remove. Preserve the BDF as data, not as a substitute for resource validation.
+- PCI base-class mapping is conservative, but mapping a device to `PROS_DEVICE_CLASS_DISPLAY` or `PROS_DEVICE_CLASS_INPUT` is classification only. It does not establish that a matching hardware driver is registered, bound, or delivering events/frames.
+- `kernel/include/driver_class.h` defines a kernel-side input event (`type`, `code`, `value`) and a `read` callback, with a maximum event count constant. `include/abi/input.h` defines a different public event shape with version, type, timestamp, two values, and flags. No conversion/queue contract connecting these event types was found in the inspected paths.
+- The public input header declares key/pointer event types and press/release/relative flags, but the reviewed public syscall ABI does not expose an input event read/wait operation. The declarations therefore do not establish a user session input stream, key/button release guarantees, or device-lost notification delivery.
+- `kernel/device_broker.c` keeps a fixed-size grant table and updates it directly; no locking or other serialization is visible in that implementation. The driver registry also mutates shared device state. Before concurrent driver, process, or service access is introduced, define a locking/serialization policy and safe lock ordering for grant checks, bind/unbind, and device removal.
+
+### Required gates before hardware-backed desktop input/display
+
+1. Extend the internal PCI discovery/device representation to retain BDF and validated BAR/resource metadata; keep register access and mapping kernel-owned.
+2. Define and implement a versioned kernel-to-public input event conversion, bounded queue semantics, event overflow behavior, timestamp policy, and guaranteed key/button release or device-lost handling.
+3. Specify how input/display handles are provisioned to authorized user sessions and how permissions are revoked on process exit, device removal, and failed driver removal.
+4. Choose and document synchronization for device registry and broker state before concurrent paths are added; include callback failure and check-vs-unbind races in the future targeted tests.
+5. Keep class detection, driver registration, driver binding, and actual event/frame delivery as separate readiness milestones.
+
+No code, public ABI, kernel, or roadmap status was changed. No build, test, CI, QEMU, or runner job was started.
