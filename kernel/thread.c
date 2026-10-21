@@ -248,9 +248,18 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     do {
         next = thread_dequeue();
         if (!next) return current_frame;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+        if (!thread_process_runnable(next)) {
+            uint32_t process_status = next->process
+                ? process_state(next->process) : PROS_PROCESS_DEAD;
+            /* Match the cooperative scheduler: a blocked/quarantined owner
+             * blocks its queued thread; only an invalid/dead owner retires it. */
+            next->state = (next->process &&
+                           (next->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+        }
+    } while (next->state == PROS_THREAD_DEAD ||
+             next->state == PROS_THREAD_BLOCKED);
 
     /*
      * Queue the interrupted thread before changing address spaces. If the
