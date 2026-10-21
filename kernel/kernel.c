@@ -763,7 +763,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
         thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
-        address_space_destroy(&scheduler_blocked_owner.address_space) != 0) {
+        address_space_destroy(&scheduler_blocked_owner.address_space) != 0 ||
+        /* Restore the scheduler's expected init-thread context for the IPC
+         * wait/wakeup regressions that follow this eligibility test. */
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
         serial_write("ProsenjitOS: ERROR scheduler eligibility recovery regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
