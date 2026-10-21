@@ -867,6 +867,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
 
+    /* Reinitializing an object already linked into the registry must fail
+     * without changing its scheduler state or registry linkage. */
+    if (thread_init(&init_thread, &init_process, 99,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack))) == 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        thread_state(&worker_thread) != PROS_THREAD_READY) {
+        serial_write("ProsenjitOS: ERROR registered-thread reinitialization regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: registered-thread reinitialization guard passed\n");
+
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
     struct pros_thread thread_lifecycle;
