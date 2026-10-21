@@ -5,6 +5,12 @@ static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
+
+/* Queue membership and thread state must change as one scheduler operation. */
+static int thread_is_queued(const struct pros_thread *thread) {
+    return thread && (thread == runq_head || thread->next || thread->prev);
+}
+
 static int thread_process_runnable(const struct pros_thread *thread) {
     return thread && thread->process &&
            process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
@@ -136,6 +142,10 @@ int thread_terminate_process(struct pros_process *process) {
 int thread_set_state(struct pros_thread *thread, uint32_t state) {
     if (!thread || state > PROS_THREAD_DEAD) return -1;
     if (thread->state == PROS_THREAD_DEAD && state != PROS_THREAD_DEAD)
+        return -1;
+    /* A queued thread cannot become BLOCKED/DEAD behind the run queue's back.
+     * Callers must use the scheduler/wait/termination paths to unlink it first. */
+    if (state != thread->state && thread_is_queued(thread))
         return -1;
     thread->state = state;
     return 0;
