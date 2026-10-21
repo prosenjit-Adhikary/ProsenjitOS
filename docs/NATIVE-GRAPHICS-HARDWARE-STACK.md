@@ -441,3 +441,13 @@ A further source-level review compared `kernel/display.c` with both display head
 ### Safe follow-up gate
 
 Before implementing a public display syscall, define the internal-to-public structure conversion, the exact `unbind` postcondition, source-buffer size/stride rules, and caller-memory validation. Keep this as an API-contract task; no syscall number or structure layout was changed in this review. No build, test, CI, QEMU, or runner was started.
+
+## 22. Framebuffer address-range overflow hardening
+
+A small follow-up source change extends `display_info_valid()` after the existing geometry and byte-size checks:
+
+- It now rejects metadata when `framebuffer + required_bytes` would overflow the 64-bit address range, in addition to rejecting insufficient framebuffer size.
+- The synthetic display self-test now supplies a near-`UINT64_MAX` framebuffer base and expects `PROS_DRIVER_EIO`, then restores the normal test address before continuing the oversized-present and cleanup checks.
+- The existing supported-format, maximum-dimension, pitch, multiplication-overflow, and minimum-buffer-size checks remain in place.
+
+The edit is deliberately limited to display metadata validation and its existing self-test. It does not prove that the framebuffer address is mapped, is actually device memory, or is safe for user-space access; those require a separate mapping and access-control design. No build, test, CI, QEMU, or runner was started, so compile/runtime verification remains outstanding.
