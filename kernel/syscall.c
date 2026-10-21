@@ -295,7 +295,7 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
-ipc_receive_retry:
+ipc_receive_retry: ;
             int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
                                           message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
