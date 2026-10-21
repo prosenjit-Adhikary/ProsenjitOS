@@ -35,11 +35,11 @@ Status: partially implemented / end-to-end runtime verification pending. The C l
 - [ ] Normalize the IRQ0 vector/error frame and define same-CPL kernel RSP restore before re-enabling timer-driven scheduling.
 - [ ] Establish per-thread kernel-stack ownership and TSS.RSP0 updates before enabling CPL3 preemption.
 - [ ] Add targeted runtime regressions for blocked IPC wake/retry, repeated IST1 entries while a thread is suspended, and real CPL0/CPL3 return paths. The current CPL3 syscall/IPC test exercises multiple ordinary syscalls but does not force the blocked-receive scheduler hand-off.
-- [x] Run compiler/assembler checks, ISO build, ISO and native-BIOS QEMU boot tests, and the CPL3 user-mode syscall/IPC test on the self-hosted Linux runner; latest PR #153 head passed both build/boot and security workflows.
+- [x] Run compiler/assembler checks, ISO build, ISO and native-BIOS QEMU boot tests, and the CPL3 user-mode syscall/IPC test on the self-hosted Linux runner for the earlier implementation commit (`8bb7f99e98edde86b5446e84df989f043b812aeb`). These build/boot and security workflows passed for that commit; the later documentation-only head (`c63647e8347f68ca81d63ef0d12c9c701884c8cb`) has no matching workflow run verified yet.
 - [ ] Update the roadmap only after each runtime claim has matching evidence.
 
 ## Explicit non-claims
 
-- A successful ISO/BIOS QEMU boot does not by itself prove arbitrary scheduler interleavings, per-thread TSS.RSP0 correctness, or a stable IST-frame lifetime under repeated hardware entries.
+- A successful ISO/BIOS QEMU boot does not by itself prove arbitrary scheduler interleavings, per-thread TSS.RSP0 correctness, or a stable IST-frame lifetime under repeated hardware entries. The verified successful build/boot and security runs are for `8bb7f99e98edde86b5446e84df989f043b812aeb`, not the current documentation head.
 - The synthetic C frame tests exercise copy/selection logic but do not execute the real `isr128` CPL3 return path or prove that `iretq` returns through the copied storage correctly.
 - This design note does not implement the changes above and does not enable user-mode timer preemption.
