@@ -191,11 +191,12 @@ int process_wait(struct pros_process *parent, uint64_t pid, int32_t *exit_code) 
     if (thread_process_has_live(child) || thread_process_is_current(child)) return -3;
     *exit_code = child->exit_code;
     if (process_release_resources(child) != 0) return -4;
+    if (thread_reap_process(child) != 0) return -5;
     child->state = PROS_PROCESS_DEAD;
     if (process_unregister(child) != 0) {
         /* Keep a fully reaped process visible if final unlinking fails. */
         child->state = PROS_PROCESS_ZOMBIE;
-        return -5;
+        return -6;
     }
     return 0;
 }
