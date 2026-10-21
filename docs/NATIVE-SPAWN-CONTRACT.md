@@ -94,5 +94,6 @@ The helper now examines PT_LOAD page coverage before unmapping, and a focused re
 This change is committed on `work/desktop-prerequisite-audit-2026-10-21` in:
 - `550a474e76fb120545e177857f7eb5b2d1f701fa` — preserve unrelated mappings during ELF rollback.
 - `7a994d00e61898863a32582ad4dfe249d4cdfae1` — add the rollback-gap regression.
+- `e9cd35bfad5fbb169c50658e31509fe20c0623eb` — document that the ELF loader accepts trusted kernel buffers, so a future syscall must copy and validate user vectors/strings first.
 
 Verification boundary: these are source changes only. No build, kernel self-test, CI, or QEMU boot was run. The branch still needs the project's designated Debian office runner for kernel build/self-test and QEMU evidence before this fix can be called runtime-verified.
