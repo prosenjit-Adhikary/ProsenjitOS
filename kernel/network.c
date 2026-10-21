@@ -64,8 +64,19 @@ int pros_net_arp_update(uint32_t ip, const uint8_t mac[6], uint64_t now,
     if (!mac || ip == 0u || ttl == 0u || now > UINT64_MAX - ttl)
         return PROS_NET_EINVAL;
     for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i) {
-        if (arp_cache[i].valid && arp_cache[i].ip == ip) { slot = i; break; }
-        if (!arp_cache[i].valid && slot == PROS_NET_ARP_CACHE_MAX) slot = i;
+        /*
+         * Expired entries must be reclaimed during insertion too; otherwise
+         * a cache filled with stale neighbors can never accept a fresh entry
+         * unless each stale IP is looked up individually first.
+         */
+        if (arp_cache[i].valid && now >= arp_cache[i].expires)
+            arp_cache[i].valid = 0u;
+        if (arp_cache[i].valid && arp_cache[i].ip == ip) {
+            slot = i;
+            break;
+        }
+        if (!arp_cache[i].valid && slot == PROS_NET_ARP_CACHE_MAX)
+            slot = i;
     }
     if (slot == PROS_NET_ARP_CACHE_MAX) return PROS_NET_ENOSPC;
     arp_cache[slot].ip = ip;
