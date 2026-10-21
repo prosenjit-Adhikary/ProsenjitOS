@@ -19,7 +19,7 @@ int main(void)
     };
     struct pros_desktop_rect rect = {0, 0, 1920u, 1080u};
     struct pros_desktop_audio_request audio;
-    
+
     CHECK(pros_desktop_message_header_valid(&header), 1);
     CHECK(!pros_desktop_message_header_valid(0), 2);
     header.version++;
