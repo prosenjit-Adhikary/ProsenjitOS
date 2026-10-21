@@ -266,3 +266,24 @@ manager definitions/callers to establish whether any existing lifecycle primitiv
 can be reused. Then draft a narrow launch-transaction proposal with rollback rules
 for every failure point. Keep the native desktop ahead of the Windows GUI bridge.
 No source code or roadmap checkbox was changed in this pass.
+## 12. Follow-up source trace — process, init, IPC, and service manager
+
+This follow-up inspected kernel/process.c, kernel/include/process.h, kernel/elf_loader.c, kernel/init.c, kernel/service_manager.c, kernel/include/service_manager.h, kernel/ipc.c, and the IPC cases in kernel/syscall.c. This is a source trace, not runtime evidence.
+
+### What exists
+
+- process_create() allocates and registers a process with an address space, security level, syscall policy, and handle table. process_exit() and process_wait() implement lifecycle transitions and reaping at the kernel API level. These are useful primitives, but the inspected public syscall list does not let a user process request a new process or perform exec.
+- pros_elf_load() validates an ELF64 image, maps its loadable segments, creates a dedicated initial user stack page, and records the entry and stack addresses. pros_elf_load_with_args() is a kernel API for image loading/argument setup, not evidence of a user-callable process-launch service.
+- pros_init_load() reads /init from an active VFS mount, applies file admission and execution-security checks, validates the ELF, and loads it into a supplied process. The function loads an image; by itself it does not establish a general init/service supervisor that launches arbitrary user services.
+- The kernel service manager has dependency ordering, start/stop callbacks, bounded retries, and state reporting. Its callback types run functions supplied by registered kernel code; this is not a userspace service manager and does not create isolated processes for registered services.
+- IPC has bounded message/channel primitives and public send/receive syscalls mediated by handles, user-range validation, and security authorization. This is a possible foundation for future service communication, but a complete userspace service bootstrap and safe channel/handle provisioning path has not been established by this audit.
+
+### Architecture consequence
+
+Do not create a second service manager or pretend that the kernel callback manager is a desktop supervisor. The next design should bridge existing process/ELF and IPC primitives through an explicit, security-reviewed launch contract. That contract must define who may create a process, how executable bytes are admitted, how PID/parent relationships are established, how initial handles/capabilities are passed, how startup failure and exit are reported, and how service restart and shutdown are bounded. Any new syscall or ABI must wait until these ownership and authorization rules are reviewed.
+
+### Current status after this trace
+
+- **Source foundation found:** process lifecycle APIs, ELF loading, /init admission, kernel callback service manager, and handle-mediated IPC.
+- **Still missing or not proven:** general user-callable spawn/exec; a userspace init/service supervisor; safe initial IPC/handle provisioning for user services; concrete keyboard/pointer event delivery; userspace display service and actual desktop session.
+- **No runtime claims:** no build, test, CI, QEMU, or hardware run was started. No source code, syscall number, roadmap checkbox, ProsenjitFS, or bootloader was changed in this pass.
