@@ -1,7 +1,10 @@
 name: Build and boot-test ProsenjitOS
 
+concurrency:
+  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
-  # Test mainline and diagnostic branch pushes so draft PRs still get CI.
   push:
     branches: [main, debug/pfs-null-rip-diagnostics-20261020]
   pull_request:
@@ -9,7 +12,9 @@ on:
 
 jobs:
   build:
-    # Use the shared Linux runner pool (office/office1); never use OfficeWindows.
+    # Native kernel/ProsenjitFS build and QEMU boot tests currently require the
+    # Linux GNU toolchain. Do not dispatch this job to Windows until its compatible
+    # toolchain is provisioned and validated there.
     runs-on: [self-hosted, linux, x64]
     defaults:
       run:
@@ -18,14 +23,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          clean: true
+          persist-credentials: false
 
-      - name: Verify Linux runner and toolchain
+      - name: Identify selected runner and verify toolchain
         run: |
           set -eu
           echo "Selected runner: ${RUNNER_NAME:-unknown}"
           echo "Selected runner OS: ${RUNNER_OS:-unknown}"
-          uname -a
           for tool in bash make cc nasm grub-file grub-mkrescue xorriso mcopy gcc ld qemu-system-x86_64 timeout; do
             if ! command -v "$tool" >/dev/null 2>&1; then
               echo "::error::Missing required tool: $tool"
@@ -45,14 +49,14 @@ jobs:
           chmod +x scripts/build.sh
           ./scripts/build.sh
 
-      - name: Diagnose ProsenjitFS block-init call boundary
-        if: always()
+      - name: Diagnose ProsenjitFS block-init call/return path
         run: |
-          set -eu
           echo "===== block_device_init disassembly ====="
-          objdump -dr -Mintel build/obj/block.o | awk '/<block_device_init>:/ {show=1; n=0} show {print; n++} n==65 {show=0}'
-          echo "===== prosenjitfs_selftest block-init call site ====="
-          objdump -dr -Mintel build/obj/prosenjitfs.o | awk '/<prosenjitfs_selftest>:/ {show=1; n=0} show {print; n++} n==240 {show=0}'
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 8 -A 70 '<block_device_init>:' || true
+          echo "===== direct call sites to block_device_init ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 10 -A 10 'call.*<block_device_init>' || true
+          echo "===== filesystem self-test entry ====="
+          objdump -d -Mintel build/prosenjit.elf | grep -n -B 3 -A 24 '<prosenjitfs_selftest>:' || true
 
       - name: Boot-test ISO in QEMU
         run: |
@@ -76,15 +80,14 @@ jobs:
             exit "$qemu_status"
           fi
           cat build/qemu-serial.log
+          if grep -Fq "ProsenjitOS: ERROR ProsenjitFS self-test failed" build/qemu-serial.log; then
+            echo "::error::ProsenjitFS self-test failed; inspect selftest_stage/rc diagnostics above."
+            exit 1
+          fi
           echo "===== QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/qemu-debug.log | tail -n 120 || true
           echo "===== QEMU exception diagnostics (tail) ====="
           tail -n 200 build/qemu-debug.log || true
-
-          if grep -Fq "ProsenjitOS: ERROR ProsenjitFS self-test failed" build/qemu-serial.log; then
-            echo "::error::ProsenjitFS self-test failed; use the selftest_stage/rc diagnostics above."
-            exit 1
-          fi
 
           require_log() {
             local marker="$1"
@@ -94,18 +97,25 @@ jobs:
             fi
           }
 
-          # The CPL3 test is the final startup milestone: its exit trampoline
-          # intentionally halts the kernel after confirming user-mode IPC.
-          # Require only milestones actually emitted by this boot path.
           require_log "ProsenjitOS: x86-64 long mode active"
+          require_log "ProsenjitOS: physical memory deep invariant self-test passed"
           require_log "ProsenjitOS: page allocation/free test passed"
+          require_log "ProsenjitOS: paging deep invariant self-test passed"
           require_log "ProsenjitOS: kernel heap allocation/free test passed"
+          require_log "ProsenjitOS: kernel heap deep invariant self-test passed"
+          require_log "ProsenjitOS: address-space deep isolation self-test passed"
           require_log "ProsenjitOS: system health monitor initialized"
           require_log "ProsenjitOS: persistent crash record self-test passed"
+          require_log "ProsenjitOS: ELF validation negative self-test passed"
+          require_log "ProsenjitOS: /init filesystem-boundary negative self-test passed"
           require_log "ProsenjitOS: block storage health self-test passed"
+          require_log "ProsenjitOS: syscall dispatcher ABI/policy self-test passed"
+          require_log "ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)"
           require_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
           require_log "ProsenjitOS: process state validation regression passed"
           require_log "ProsenjitOS: process resource cleanup regression passed"
+          require_log "ProsenjitOS: address-space switch/reap regression passed"
+          require_log "ProsenjitOS: parent/child lifetime ordering regression passed"
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
           require_log "ProsenjitOS: process-thread teardown regression passed"
           require_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
@@ -121,7 +131,7 @@ jobs:
           require_log "ProsenjitOS: display-device binding self-test passed"
           require_log "ProsenjitOS: network protocol/socket self-test passed"
           require_log "ProsenjitOS: PCI enumeration passed; devices ="
-          require_log "ProsenjitOS: ELF runtime mapping/stack verification passed"
+          require_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
 
       - name: Boot-test native BIOS image in QEMU
@@ -146,6 +156,10 @@ jobs:
             exit "$qemu_status"
           fi
           cat build/native-qemu-serial.log
+          if grep -Fq "ProsenjitOS: ERROR ProsenjitFS self-test failed" build/native-qemu-serial.log; then
+            echo "::error::Native ProsenjitFS self-test failed; inspect serial diagnostics above."
+            exit 1
+          fi
           echo "===== Native QEMU interrupt trace (exceptions) ====="
           grep -E "v=0[0-9a-f]|exception|check_exception" build/native-qemu-debug.log | tail -n 120 || true
           echo "===== Native QEMU exception diagnostics (tail) ====="
@@ -160,22 +174,28 @@ jobs:
           }
 
           require_native_log "ProsenjitOS: native bootloader handoff accepted"
-          # Keep native storage assertions as required gates. If the native
-          # startup path does not emit these markers, the storage integration
-          # is incomplete and the workflow must remain red rather than silently
-          # treating bootloader handoff as a filesystem persistence test.
           require_native_log "ProsenjitOS: ATA PIO real-disk block path self-test passed"
-          require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_native_log "ProsenjitOS: native filesystem LBA boundary diagnostic passed"
+          require_native_log "ProsenjitOS: ATA PIO -> MBR -> ProsenjitFS persistent mount test passed"
           require_native_log "ProsenjitOS: x86-64 long mode active"
+          require_native_log "ProsenjitOS: physical memory deep invariant self-test passed"
           require_native_log "ProsenjitOS: page allocation/free test passed"
+          require_native_log "ProsenjitOS: paging deep invariant self-test passed"
           require_native_log "ProsenjitOS: kernel heap allocation/free test passed"
+          require_native_log "ProsenjitOS: kernel heap deep invariant self-test passed"
+          require_native_log "ProsenjitOS: address-space deep isolation self-test passed"
           require_native_log "ProsenjitOS: system health monitor initialized"
           require_native_log "ProsenjitOS: persistent crash record self-test passed"
+          require_native_log "ProsenjitOS: ELF validation negative self-test passed"
+          require_native_log "ProsenjitOS: /init filesystem-boundary negative self-test passed"
           require_native_log "ProsenjitOS: block storage health self-test passed"
+          require_native_log "ProsenjitOS: syscall dispatcher ABI/policy self-test passed"
+          require_native_log "ProsenjitOS: security runtime verification passed (process policy + kernel W^X/NX)"
           require_native_log "ProsenjitOS: process lifecycle/parent/exit-wait test passed"
           require_native_log "ProsenjitOS: process state validation regression passed"
           require_native_log "ProsenjitOS: process resource cleanup regression passed"
+          require_native_log "ProsenjitOS: address-space switch/reap regression passed"
+          require_native_log "ProsenjitOS: parent/child lifetime ordering regression passed"
           require_native_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
           require_native_log "ProsenjitOS: process-thread teardown regression passed"
           require_native_log "ProsenjitOS: IPC wait-queue block/wakeup test passed"
@@ -191,20 +211,8 @@ jobs:
           require_native_log "ProsenjitOS: display-device binding self-test passed"
           require_native_log "ProsenjitOS: network protocol/socket self-test passed"
           require_native_log "ProsenjitOS: PCI enumeration passed; devices ="
-          require_native_log "ProsenjitOS: ELF runtime mapping/stack verification passed"
+          require_native_log "ProsenjitOS: ELF64 userspace image loaded, mapped, and stack-validated"
           require_native_log "ProsenjitOS: CPL3 user-mode and IPC syscall test passed"
 
-      - name: Upload ISO and boot diagnostics
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 1
-          name: prosenjitOS-boot-test
-          # Keep only small diagnostics in Actions storage; ISO and raw BIOS
-          # images are reproducible build outputs and quickly exhaust artifact quota.
-          path: |
-            build/qemu-serial.log
-            build/qemu-debug.log
-            build/native-qemu-serial.log
-            build/native-qemu-debug.log
+      # QEMU serial/debug output is already printed in the job log. Skip artifact upload
+      # because the GitHub Actions artifact quota is exhausted on this repository.
