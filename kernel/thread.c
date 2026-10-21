@@ -12,9 +12,17 @@ static int thread_is_queued(const struct pros_thread *thread) {
 }
 
 static int thread_process_runnable(const struct pros_thread *thread) {
-    return thread && thread->process &&
-           process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
-           process_state(thread->process) != PROS_PROCESS_DEAD;
+    if (!thread || !thread->process) return 0;
+
+    const struct pros_process *process = thread->process;
+    uint32_t state = process_state(process);
+
+    /* Only live, scheduler-eligible processes may own runnable threads.
+     * In particular, BLOCKED and quarantined processes must never execute. */
+    if (process->quarantined ||
+        (state != PROS_PROCESS_READY && state != PROS_PROCESS_RUNNING))
+        return 0;
+    return 1;
 }
 
 
@@ -157,7 +165,8 @@ uint32_t thread_state(const struct pros_thread *thread) {
 
 int thread_enqueue(struct pros_thread *thread) {
     if (!thread || thread->state == PROS_THREAD_DEAD ||
-        thread->state == PROS_THREAD_BLOCKED)
+        thread->state == PROS_THREAD_BLOCKED ||
+        !thread_process_runnable(thread))
         return -1;
     if (thread->next || thread->prev || runq_head == thread)
         return -1;
