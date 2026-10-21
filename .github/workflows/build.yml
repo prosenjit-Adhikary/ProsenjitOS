@@ -117,6 +117,7 @@ jobs:
           require_log "ProsenjitOS: thread lifecycle/run-queue scheduler test passed"
           require_log "ProsenjitOS: registered-thread reinitialization guard passed"
           require_log "ProsenjitOS: blocked/quarantined process scheduler regression passed"
+          require_log "ProsenjitOS: scheduler address-space failure rollback test passed"
           require_log "ProsenjitOS: interrupt-frame scheduler save/restore test passed"
           require_log "ProsenjitOS: partition discovery self-test passed"
           require_log "ProsenjitOS: ProsenjitFS format/mount/allocation/journal/recovery self-test passed"
