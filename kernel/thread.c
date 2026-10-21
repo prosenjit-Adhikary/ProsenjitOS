@@ -347,6 +347,20 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
+
+        /* Never iret back into a process that became blocked/quarantined while
+         * running, even if switching to its replacement failed. Keep the CPU
+         * in an interruptible idle loop; a later IRQ can retry scheduling. */
+        if (prev && !thread_process_runnable(prev)) {
+            uint32_t process_status = prev->process
+                ? process_state(prev->process) : PROS_PROCESS_DEAD;
+            prev->state = (prev->process &&
+                           (prev->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+            current_thread = 0;
+            for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+        }
         return current_frame;
     }
 
