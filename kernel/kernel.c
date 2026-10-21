@@ -881,6 +881,63 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: registered-thread reinitialization guard passed\n");
 
+    /*
+     * A process may become blocked or quarantined after its thread is queued.
+     * Such stale queue entries must become BLOCKED, not DEAD.
+     */
+    struct pros_process scheduler_blocked_owner;
+    if (process_init(&scheduler_blocked_owner, 0xB101u,
+                     PROS_SECURITY_LIMITED) != 0 ||
+        thread_dequeue() != &worker_thread) {
+        serial_write("ProsenjitOS: ERROR scheduler blocked-owner setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    worker_thread.process = &scheduler_blocked_owner;
+    worker_thread.state = PROS_THREAD_READY;
+    scheduler_blocked_owner.state = PROS_PROCESS_READY;
+    if (thread_enqueue(&worker_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR scheduler blocked-process enqueue setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    scheduler_blocked_owner.state = PROS_PROCESS_BLOCKED;
+    if (thread_schedule() == 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR scheduler blocked-process regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* Queue while eligible, then quarantine the owner before scheduling. */
+    worker_thread.state = PROS_THREAD_READY;
+    scheduler_blocked_owner.state = PROS_PROCESS_READY;
+    scheduler_blocked_owner.quarantined = 0u;
+    if (thread_enqueue(&worker_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR scheduler quarantine enqueue setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    scheduler_blocked_owner.quarantined = 1u;
+    if (thread_schedule() == 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR scheduler quarantined-process regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    worker_thread.process = &init_process;
+    worker_thread.state = PROS_THREAD_READY;
+    if (thread_enqueue(&worker_thread) != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+        address_space_destroy(&scheduler_blocked_owner.address_space) != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR scheduler eligibility recovery regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: blocked/quarantined process scheduler regression passed\n");
+
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
     struct pros_thread thread_lifecycle;
