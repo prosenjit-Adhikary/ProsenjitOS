@@ -22,8 +22,8 @@ concurrency:
 jobs:
   cleanup:
     name: Delete Old Workflow Artifacts
-    # Repository maintenance also stays on the designated OfficeWindows runner.
-    runs-on: [self-hosted, OfficeWindows]
+    # Use an ephemeral hosted Linux runner; do not depend on the retired OfficeWindows runner.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Delete artifacts older than retention period
