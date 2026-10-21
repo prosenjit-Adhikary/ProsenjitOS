@@ -24,6 +24,14 @@ struct pros_elf_load_result {
 
 int pros_elf_validate(const uint8_t *image, uint64_t size);
 int pros_elf_selftest(void);
+
+/*
+ * Kernel-internal loader interface: image, argv, envp, and each string they
+ * reference must already be readable kernel-owned buffers. A syscall handler
+ * must first copy and bound-check user vectors/strings with usercopy helpers;
+ * never pass raw CPL3 pointers to this API. argv/envp are copied onto the
+ * child's initial user stack, and the caller retains ownership of its buffers.
+ */
 int pros_elf_load_with_args(struct pros_process *process,
                              const uint8_t *image,
                              uint64_t size,
