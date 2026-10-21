@@ -1,0 +1,98 @@
+# Native Spawn Contract
+
+## Status and scope
+
+This document freezes the proposed contract for launching a native ELF process without claiming that a public spawn/exec syscall or complete userspace launch path already exists. It is based on the current process, thread, address-space, ELF/init, syscall, and security interfaces. Treat every item marked **required** as a gate for implementation.
+
+Architecture boundary: native ELF applications use the Native Subsystem; Windows executables use the separate Windows Subsystem. Both may later integrate with the Shared Desktop Integration Layer. This contract does not put desktop/session logic in kernel-core.
+
+## Current source facts
+
+- `struct pros_process` owns an address space, process state, user entry/stack fields, handle table, parent relationship, and security policies (`kernel/include/process.h`).
+- `process_create()` initializes an address space, sets parent and security defaults, publishes the process as READY, and registers it. It does not itself load an ELF image or create a runnable thread.
+- `pros_init_load()` reads and admits `/init`, checks execution security, validates ELF, and calls `pros_elf_load()`. This is an init-image loading path, not a general public spawn/exec ABI.
+- `thread_init()` builds a kernel context using a caller-supplied stack top and registers the thread. The inspected interface does not allocate/own a per-thread kernel stack and does not establish that a loaded user entry is safely entered at CPL3.
+- The public syscall ABI currently exposes version, test completion, handle close/duplicate, IPC send/receive, and handle transfer. It has no spawn/exec syscall.
+- The process/thread lifecycle has explicit cleanup constraints: a process cannot be finally unregistered while its address-space root remains, its object has extra references, or it owns live/current threads. Process exit publishes its exit code only after thread termination succeeds.
+
+These facts are prerequisites and constraints, not proof of a working native application launcher.
+
+## Required spawn contract
+
+### Inputs
+
+A future versioned spawn interface must accept only bounded, validated user inputs:
+- executable path or an already-authorized executable handle;
+- bounded argument and environment vectors with explicit total byte/count limits;
+- requested working directory only if VFS support and permissions are defined;
+- a documented inheritance policy for handles/capabilities;
+- explicit launch flags with unknown bits rejected.
+
+Do not accept kernel pointers from userspace. Copy and validate all user memory through the existing user-copy boundary before using it; reject invalid pointers, unterminated strings, overflow, excessive counts, and aggregate-size overflow.
+
+### Admission and construction order
+
+1. Validate syscall version/flags, caller state, argument bounds, and authorization.
+2. Resolve the executable through VFS; require a regular file and retain a stable reference while reading.
+3. Run the existing executable-admission/security policy before loading. A filesystem read alone must never authorize execution.
+4. Validate ELF format, machine/class, segment ranges, alignment, permissions, entry point, and unsupported features using the existing loader's supported contract. Do not claim dynamic linking/relocations unless implemented.
+5. Create a child process in a non-runnable construction state. Do not expose it as READY before its image, user stack, and initial thread are fully valid.
+6. Build the address space and map only validated loadable segments with appropriate permissions. Reject overflow, overlap/invalid ranges, W+X policy violations where enforced, and user/kernel address-boundary violations.
+7. Build a bounded user stack containing argument/environment data and the ABI-defined initial stack layout; record the validated user entry and stack pointer.
+8. Allocate and own a distinct kernel stack for the initial thread. Establish the complete architecture-specific user-entry frame, including the correct CPL3 return state and TSS/interrupt-stack requirements.
+9. Apply the child syscall/capability policy and a documented handle-inheritance policy. Default to least privilege; never inherit privileged handles implicitly.
+10. Register/publish the child and enqueue its initial thread only after every previous step succeeds. Publication must be the final commit point; no partially initialized process may become runnable.
+
+### Success result
+
+Return a child PID/handle only after successful publication. The ABI must define whether the parent receives a PID, a process handle, or both; raw kernel pointers are never returned. The initial thread must begin at the validated ELF entry in user mode, not by calling the entry as a kernel function.
+
+### Failure and rollback invariants
+
+Any failure before publication must leave no externally visible child and no runnable thread. Rollback must be idempotent or guarded by explicit ownership flags and must release, in reverse dependency order:
+- queued/runnable state (if publication was attempted);
+- registered thread objects and their owned kernel stacks;
+- mapped ELF pages and page-table/address-space resources;
+- inherited/created handles and references;
+- executable file/VFS references and temporary image/argument buffers;
+- process registry membership, parent-child linkage, and process object ownership.
+
+Do not call final process unregister while the address-space root exists, a thread is live/current, or object references remain. Do not publish a PID/exit result before the corresponding lifecycle transition succeeds. A rollback error must be surfaced and diagnosed; it must not be hidden by returning a generic success.
+
+## Required lifecycle semantics
+
+- Parent exit policy must be explicit: reject exit while live children exist, or implement reparenting before permitting exit. Do not leave dangling parent pointers.
+- Wait/reap must validate parent-child ownership and user output pointers before mutating state. A failed copy-out must not silently reap a child or lose its exit status.
+- Exit, wait, and spawn must define behavior for duplicate requests, PID exhaustion/reuse, quarantined callers, and concurrent lifecycle operations.
+- Scheduler/run-queue and process registry operations need a synchronization strategy before SMP or concurrent spawn/exit is supported. Existing single-path tests do not prove race freedom.
+- The public syscall number, register convention, errors, and ABI version change must be added deliberately with compatibility tests; do not reuse existing syscall numbers.
+
+## Focused verification gates
+
+Before marking spawn implemented:
+1. Source-level tests for each failure point and rollback ownership.
+2. Tests proving failed spawn leaves no PID-visible child, runnable thread, leaked address space, kernel stack, handle, or VFS reference.
+3. Tests for malformed ELF, invalid user buffers, oversized arguments, permission/admission denial, allocation failure, and PID collision/exhaustion.
+4. A real user-mode launch test proving CPL3 entry and correct initial stack/argument ABI.
+5. Exit/wait/reap tests including live-thread refusal, child ownership, failed user copy-out, and repeated cleanup.
+6. Warnings-as-errors build and focused kernel regressions.
+7. QEMU boot/serial evidence for the exact tested commit, plus security checks. Do not count queued or still-running jobs as passes.
+
+Do not run broad smoke-test matrices for every documentation change. Run only the checks justified by changed source; run full build/QEMU and security gates when executable kernel code or ABI behavior changes.
+
+## Explicit non-goals
+
+This contract does not implement a Windows PE/.exe runtime, MSI installation, dynamic linker, display server, input service, compositor, XFCE session, or general package manager. Those depend on the native launch contract and separate subsystem interfaces.
+
+
+## Implementation audit update — 2026-10-21
+
+A source-level rollback defect was found in `kernel/elf_loader.c`: the former rollback helper treated the entire interval from the lowest to highest load page as loader-owned. When PT_LOAD segments were separated by gaps, that interval could contain a pre-existing process mapping. A later loader failure could therefore unmap a page that the failed load never created.
+
+The helper now examines PT_LOAD page coverage before unmapping, and a focused regression case maps two separated segment pages plus an unrelated page in the gap. It verifies that rollback removes the segment pages while preserving the gap mapping.
+
+This change is committed on `work/desktop-prerequisite-audit-2026-10-21` in:
+- `550a474e76fb120545e177857f7eb5b2d1f701fa` — preserve unrelated mappings during ELF rollback.
+- `7a994d00e61898863a32582ad4dfe249d4cdfae1` — add the rollback-gap regression.
+
+Verification boundary: these are source changes only. No build, kernel self-test, CI, or QEMU boot was run. The branch still needs the project's designated Debian office runner for kernel build/self-test and QEMU evidence before this fix can be called runtime-verified.
