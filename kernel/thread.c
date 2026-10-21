@@ -289,7 +289,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
              * would bypass the process policy. Park the CPU until an interrupt
              * makes a runnable thread available instead of returning to it.
              */
-            if (!thread_process_runnable(prev)) {
+            if (prev && !thread_process_runnable(prev)) {
                 uint32_t process_status = prev->process
                     ? process_state(prev->process) : PROS_PROCESS_DEAD;
                 prev->state = (prev->process &&
@@ -343,7 +343,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     if (process_current() != next->process) {
         /* If the interrupted thread was requeued, undo that transition before
          * returning its frame; otherwise it would be both executing and READY. */
-        if (prev->state == PROS_THREAD_READY &&
+        if (prev && prev->state == PROS_THREAD_READY &&
             thread_remove_queued(prev) == 0)
             prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
