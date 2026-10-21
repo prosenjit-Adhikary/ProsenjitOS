@@ -7938,6 +7938,30 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
+    /*
+     * Both superblocks remain individually valid (including their CRCs), but
+     * a different UUID in the backup must be rejected as conflicting metadata.
+     * Restore the original byte and checksum before the remaining corruption
+     * regression so this test leaves the durable image unchanged.
+     */
+    saved = disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)];
+    disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)] ^= 0x01u;
+    pfs_put32(disk.data + 512u +
+              offsetof(struct pros_prosenjitfs_superblock, checksum),
+              pfs_crc_with_zero32(
+                  disk.data + 512u,
+                  (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+        return pfs_selftest_fail(__LINE__, -17);
+    disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)] = saved;
+    pfs_put32(disk.data + 512u +
+              offsetof(struct pros_prosenjitfs_superblock, checksum),
+              pfs_crc_with_zero32(
+                  disk.data + 512u,
+                  (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
