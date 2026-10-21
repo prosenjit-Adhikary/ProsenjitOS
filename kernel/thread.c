@@ -5,10 +5,40 @@ static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
 static struct pros_thread *current_thread;
 static struct pros_thread *thread_registry;
+
+/* Queue membership and thread state must change as one scheduler operation. */
+static int thread_is_queued(const struct pros_thread *thread) {
+    return thread && (thread == runq_head || thread->next || thread->prev);
+}
+
+/* Unlink a specific queued thread without disturbing other runnable entries. */
+static int thread_remove_queued(struct pros_thread *thread) {
+    if (!thread) return -1;
+    struct pros_thread *it = runq_head;
+    while (it && it != thread) it = it->next;
+    if (!it) return -1;
+
+    if (it->prev) it->prev->next = it->next;
+    else runq_head = it->next;
+    if (it->next) it->next->prev = it->prev;
+    else runq_tail = it->prev;
+    it->next = 0;
+    it->prev = 0;
+    return 0;
+}
+
 static int thread_process_runnable(const struct pros_thread *thread) {
-    return thread && thread->process &&
-           process_state(thread->process) != PROS_PROCESS_ZOMBIE &&
-           process_state(thread->process) != PROS_PROCESS_DEAD;
+    if (!thread || !thread->process) return 0;
+
+    const struct pros_process *process = thread->process;
+    uint32_t state = process_state(process);
+
+    /* Only live, scheduler-eligible processes may own runnable threads.
+     * In particular, BLOCKED and quarantined processes must never execute. */
+    if (process->quarantined ||
+        (state != PROS_PROCESS_READY && state != PROS_PROCESS_RUNNING))
+        return 0;
+    return 1;
 }
 
 
@@ -36,9 +66,15 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
         return -1;
-    for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next)
+    for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next) {
+        /* Registry nodes are embedded in caller-owned thread objects. Reusing
+         * an already-registered object would overwrite registry_next and can
+         * detach the remainder of the registry (or create a self-cycle). */
+        if (existing == thread)
+            return -1;
         if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
             return -1;
+    }
 
     thread->tid = tid;
     thread->process = process;
@@ -137,6 +173,10 @@ int thread_set_state(struct pros_thread *thread, uint32_t state) {
     if (!thread || state > PROS_THREAD_DEAD) return -1;
     if (thread->state == PROS_THREAD_DEAD && state != PROS_THREAD_DEAD)
         return -1;
+    /* A queued thread cannot become BLOCKED/DEAD behind the run queue's back.
+     * Callers must use the scheduler/wait/termination paths to unlink it first. */
+    if (state != thread->state && thread_is_queued(thread))
+        return -1;
     thread->state = state;
     return 0;
 }
@@ -147,7 +187,8 @@ uint32_t thread_state(const struct pros_thread *thread) {
 
 int thread_enqueue(struct pros_thread *thread) {
     if (!thread || thread->state == PROS_THREAD_DEAD ||
-        thread->state == PROS_THREAD_BLOCKED)
+        thread->state == PROS_THREAD_BLOCKED ||
+        !thread_process_runnable(thread))
         return -1;
     if (thread->next || thread->prev || runq_head == thread)
         return -1;
@@ -183,9 +224,18 @@ int thread_schedule(void) {
     do {
         next = thread_dequeue();
         if (!next) return -1;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+        if (!thread_process_runnable(next)) {
+            uint32_t process_status = next->process
+                ? process_state(next->process) : PROS_PROCESS_DEAD;
+            /* A process becoming blocked/quarantined after enqueue is not a
+             * thread exit. Retire the stale queue entry without killing it. */
+            next->state = (next->process &&
+                           (next->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+        }
+    } while (next->state == PROS_THREAD_DEAD ||
+             next->state == PROS_THREAD_BLOCKED);
 
     /*
      * Queue the previous runnable thread before changing address spaces.
@@ -201,6 +251,11 @@ int thread_schedule(void) {
 
     process_set_current(next->process);
     if (process_current() != next->process) {
+        /* The candidate address-space switch failed. Roll back the outgoing
+         * thread's queue/state transition so current_thread remains RUNNING. */
+        if (prev && prev != next && prev->state == PROS_THREAD_READY &&
+            thread_remove_queued(prev) == 0)
+            prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
         return -1;
     }
@@ -213,16 +268,56 @@ int thread_schedule(void) {
 struct pros_interrupt_frame *thread_schedule_interrupt(
     struct pros_interrupt_frame *current_frame) {
     struct pros_thread *prev = current_thread;
-    if (!prev || !current_frame) return current_frame;
+    if (!current_frame) return current_frame;
 
-    prev->interrupt_frame = current_frame;
+    /*
+     * current_thread is NULL only while the scheduler is parked in its
+     * interruptible idle loop because no runnable thread existed. In that
+     * case this frame belongs to the idle loop, not to a blocked thread.
+     */
+    if (prev)
+        prev->interrupt_frame = current_frame;
     struct pros_thread *next;
     do {
         next = thread_dequeue();
-        if (!next) return current_frame;
-        if (!thread_process_runnable(next))
-            next->state = PROS_THREAD_DEAD;
-    } while (next->state == PROS_THREAD_DEAD);
+        if (!next) {
+            /*
+             * There is not yet a dedicated idle thread. Returning the saved
+             * interrupt frame is safe only while the interrupted thread is
+             * still eligible to execute. A process may have been blocked or
+             * quarantined while its thread was running; resuming that frame
+             * would bypass the process policy. Park the CPU until an interrupt
+             * makes a runnable thread available instead of returning to it.
+             */
+            if (prev && !thread_process_runnable(prev)) {
+                uint32_t process_status = prev->process
+                    ? process_state(prev->process) : PROS_PROCESS_DEAD;
+                prev->state = (prev->process &&
+                               (prev->process->quarantined ||
+                                process_status == PROS_PROCESS_BLOCKED))
+                    ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+                /*
+                 * Detach the blocked thread before enabling interrupts. This
+                 * prevents timer interrupts in the idle loop from overwriting
+                 * its saved interrupt frame with an idle-loop frame.
+                 */
+                current_thread = 0;
+                for (;;) __asm__ volatile ("sti; hlt" ::: "memory");
+            }
+            return current_frame;
+        }
+        if (!thread_process_runnable(next)) {
+            uint32_t process_status = next->process
+                ? process_state(next->process) : PROS_PROCESS_DEAD;
+            /* Match the cooperative scheduler: a blocked/quarantined owner
+             * blocks its queued thread; only an invalid/dead owner retires it. */
+            next->state = (next->process &&
+                           (next->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
+        }
+    } while (next->state == PROS_THREAD_DEAD ||
+             next->state == PROS_THREAD_BLOCKED);
 
     /*
      * Queue the interrupted thread before changing address spaces. If the
@@ -230,9 +325,14 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * remain authoritative. If the CR3 switch fails, the previous thread is
      * already safely queued and the candidate is requeued.
      */
-    if (prev->state != PROS_THREAD_BLOCKED) {
+    if (prev && prev->state != PROS_THREAD_BLOCKED) {
         if (!thread_process_runnable(prev)) {
-            prev->state = PROS_THREAD_DEAD;
+            uint32_t process_status = prev->process
+                ? process_state(prev->process) : PROS_PROCESS_DEAD;
+            prev->state = (prev->process &&
+                           (prev->process->quarantined ||
+                            process_status == PROS_PROCESS_BLOCKED))
+                ? PROS_THREAD_BLOCKED : PROS_THREAD_DEAD;
         } else if (thread_enqueue(prev) != 0) {
             (void)thread_enqueue(next);
             return current_frame;
@@ -241,6 +341,11 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
 
     process_set_current(next->process);
     if (process_current() != next->process) {
+        /* If the interrupted thread was requeued, undo that transition before
+         * returning its frame; otherwise it would be both executing and READY. */
+        if (prev && prev->state == PROS_THREAD_READY &&
+            thread_remove_queued(prev) == 0)
+            prev->state = PROS_THREAD_RUNNING;
         (void)thread_enqueue(next);
         return current_frame;
     }

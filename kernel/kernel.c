@@ -681,6 +681,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&init_thread) != 0 ||
         thread_enqueue(&worker_thread) != 0 ||
+        /* Regression: changing a queued thread to BLOCKED must not leave a
+         * blocked entry linked into the runnable queue. */
+        thread_set_state(&worker_thread, PROS_THREAD_BLOCKED) == 0 ||
+        thread_state(&worker_thread) != PROS_THREAD_READY ||
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
@@ -694,6 +698,81 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: thread lifecycle/run-queue scheduler test passed\n");
+
+    /* Reinitializing an object already linked into the registry must fail
+     * without changing its scheduler state or registry linkage. */
+    if (thread_init(&init_thread, &init_process, 99,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack))) == 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        thread_state(&worker_thread) != PROS_THREAD_READY) {
+        serial_write("ProsenjitOS: ERROR registered-thread reinitialization regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: registered-thread reinitialization guard passed\n");
+
+    /*
+     * Regression: a process may become blocked or quarantined after one of
+     * its threads has already entered the run queue. Stale queue entries
+     * must become BLOCKED rather than DEAD. With no idle thread yet, the
+     * cooperative scheduler must leave the current thread authoritative.
+     */
+    struct pros_process scheduler_blocked_owner;
+    if (process_init(&scheduler_blocked_owner, 0xB101u,
+                     PROS_SECURITY_LIMITED) != 0 ||
+        thread_dequeue() != &worker_thread) {
+        serial_write("ProsenjitOS: ERROR scheduler blocked-owner setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    worker_thread.process = &scheduler_blocked_owner;
+    worker_thread.state = PROS_THREAD_READY;
+    scheduler_blocked_owner.state = PROS_PROCESS_READY;
+    if (thread_enqueue(&worker_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR scheduler blocked-process enqueue setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    scheduler_blocked_owner.state = PROS_PROCESS_BLOCKED;
+    if (thread_schedule() == 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR scheduler blocked-process regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    /* A quarantined READY owner must be treated as blocked, not dead. */
+    worker_thread.state = PROS_THREAD_READY;
+    scheduler_blocked_owner.state = PROS_PROCESS_READY;
+    scheduler_blocked_owner.quarantined = 0u;
+    if (thread_enqueue(&worker_thread) != 0) {
+        serial_write("ProsenjitOS: ERROR scheduler quarantine enqueue setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    scheduler_blocked_owner.quarantined = 1u;
+    if (thread_schedule() == 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_BLOCKED) {
+        serial_write("ProsenjitOS: ERROR scheduler quarantined-process regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    worker_thread.process = &init_process;
+    worker_thread.state = PROS_THREAD_READY;
+    if (thread_enqueue(&worker_thread) != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+        address_space_destroy(&scheduler_blocked_owner.address_space) != 0 ||
+        /* Restore the scheduler's expected init-thread context for the IPC
+         * wait/wakeup regressions that follow this eligibility test. */
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR scheduler eligibility recovery regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: blocked/quarantined process scheduler regression passed\n");
 
     /* Process exit must terminate its threads and remove them from the run queue. */
     struct pros_process thread_lifecycle_process;
@@ -779,6 +858,47 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
+
+    /* A failed CR3/address-space switch must not leave the still-executing
+     * thread marked READY and linked in the run queue. */
+    struct pros_process switch_failure_process;
+    struct pros_thread switch_failure_thread;
+    uint64_t *switch_failure_root = 0;
+    if (process_create(&init_process, &switch_failure_process, 11,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&switch_failure_thread, &switch_failure_process, 11,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                          sizeof(lifecycle_thread_stack))) != 0 ||
+        thread_set_state(&switch_failure_thread, PROS_THREAD_READY) != 0 ||
+        thread_enqueue(&switch_failure_thread) != 0 ||
+        thread_schedule() != 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR scheduler switch-failure setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    switch_failure_root = switch_failure_process.address_space.root;
+    switch_failure_process.address_space.root = 0;
+    if (thread_schedule() == 0 ||
+        thread_current() != &worker_thread ||
+        thread_state(&worker_thread) != PROS_THREAD_RUNNING ||
+        process_current() != &init_process ||
+        thread_state(&switch_failure_thread) != PROS_THREAD_READY) {
+        serial_write("ProsenjitOS: ERROR scheduler switch-failure rollback regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    switch_failure_process.address_space.root = switch_failure_root;
+    if (process_exit(&switch_failure_process, 22) != 0 ||
+        process_wait(&init_process, switch_failure_process.pid, &waited_exit) != 0 ||
+        waited_exit != 22 ||
+        thread_schedule() != 0 ||
+        thread_current() != &init_thread ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING) {
+        serial_write("ProsenjitOS: ERROR scheduler switch-failure cleanup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: scheduler address-space failure rollback test passed\n");
 
     serial_write("ProsenjitOS: initial limited process and capability context online\n");
     {
