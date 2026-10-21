@@ -9,9 +9,9 @@ on:
 
 jobs:
   build:
-    # Use either idle self-hosted runner (OfficeWindows or office/Debian).
-    # GitHub schedules this job on an available runner; toolchain preflight fails clearly if incompatible.
-    runs-on: self-hosted
+    # Kernel build/QEMU verification must run only on the designated OfficeWindows self-hosted runner.
+    # Do not fall back to the Debian runner or a GitHub-hosted runner.
+    runs-on: [self-hosted, OfficeWindows]
     defaults:
       run:
         shell: bash
