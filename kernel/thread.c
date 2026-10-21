@@ -66,9 +66,15 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
         return -1;
-    for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next)
+    for (struct pros_thread *existing = thread_registry; existing; existing = existing->registry_next) {
+        /* Registry nodes are embedded in caller-owned thread objects. Reusing
+         * an already-registered object would overwrite registry_next and can
+         * detach the remainder of the registry (or create a self-cycle). */
+        if (existing == thread)
+            return -1;
         if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
             return -1;
+    }
 
     thread->tid = tid;
     thread->process = process;
