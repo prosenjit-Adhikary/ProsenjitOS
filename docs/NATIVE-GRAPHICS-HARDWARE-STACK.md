@@ -404,3 +404,17 @@ Reviewed `kernel/driver.c`, `kernel/include/driver.h`, `kernel/pci.c`, `kernel/i
 5. Keep class detection, driver registration, driver binding, and actual event/frame delivery as separate readiness milestones.
 
 No code, public ABI, kernel, or roadmap status was changed. No build, test, CI, QEMU, or runner job was started.
+## 19. First bounded display hardening change
+
+After cross-checking the kernel backend structure, public display ABI, existing synthetic backend, and the display self-test call path, applied a narrow validation change on this documentation/work branch:
+
+- Added `PROS_DISPLAY_FORMAT_XRGB8888` to the kernel display contract and documented that `pitch` is measured in pixels for XRGB8888 in both the kernel backend and public ABI. The public structure field order and types are unchanged; this is a clarification, not an ABI layout revision.
+- Added a shared display metadata validator. It rejects zero/oversized dimensions, insufficient pitch, unsupported pixel format, missing framebuffer metadata, overflow in required-size arithmetic, and framebuffer sizes smaller than `pitch * height * 4` bytes.
+- Routed `pros_display_present()` through `pros_display_get_info()` so malformed backend metadata is rejected before the present callback is called; the existing partial-buffer behavior is retained, and submitted size is still bounded by the validated framebuffer size.
+- Extended the existing display self-test source with negative cases for unsupported format, too-small pitch, and a framebuffer size one byte below the required geometry. Existing successful synthetic presentation and oversized-present checks remain.
+
+Static cross-check after the edit: the synthetic 640x480 XRGB8888 backend has a 640-pixel pitch and a 1,228,800-byte framebuffer, which satisfies the new geometry contract. This does not prove runtime success because the self-test was not executed.
+
+### Verification limits
+
+Changed files: `kernel/include/display.h`, `kernel/display.c`, and `include/abi/display.h`. No syscall number, public structure layout, PCI implementation, process code, filesystem, or boot code was changed. The GitHub files were re-fetched after updates for source-level confirmation. No compiler/build/test/CI/QEMU/runner was used, so compile-time and runtime status remain unverified. Do not mark the display stack or hardware path complete on this change alone.
