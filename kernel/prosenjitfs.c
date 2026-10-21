@@ -355,6 +355,27 @@ static int pfs_superblock_decode(const uint8_t *block,
     return PROSENJITFS_OK;
 }
 
+/* Redundant superblocks must agree byte-for-byte after each copy has
+ * independently passed checksum and structural validation. Choosing one of
+ * two valid but conflicting layouts could redirect metadata I/O or allocation. */
+static int pfs_superblocks_equal(
+    const struct pros_prosenjitfs_superblock *a,
+    const struct pros_prosenjitfs_superblock *b)
+{
+    const uint8_t *pa;
+    const uint8_t *pb;
+
+    if (!a || !b)
+        return 0;
+    pa = (const uint8_t *)a;
+    pb = (const uint8_t *)b;
+    for (uint32_t i = 0u; i < sizeof(*a); ++i) {
+        if (pa[i] != pb[i])
+            return 0;
+    }
+    return 1;
+}
+
 static int pfs_superblock_valid(const uint8_t *block,
                                 uint32_t block_size,
                                 struct pros_prosenjitfs_superblock *sb)
@@ -5075,6 +5096,12 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     }
     backup_ok = pfs_superblock_valid(block, device->sector_size, &backup) == PROSENJITFS_OK;
     if (!primary_ok && !backup_ok) {
+        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_ECORRUPT;
+    }
+    /* Both copies passed their own checksums, but conflicting metadata layouts
+     * are still unsafe. Fail closed rather than arbitrarily trusting the primary. */
+    if (primary_ok && backup_ok && !pfs_superblocks_equal(&primary, &backup)) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
