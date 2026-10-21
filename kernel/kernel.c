@@ -469,6 +469,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     (void)pros_health_watchdog_kick(1u);
 
+    /*
+     * Run the process-manager self-test before registering the live init
+     * process. The test intentionally calls process_manager_init(), which
+     * clears the global process list/current pointer; running it later would
+     * silently detach init and make CPL3 syscalls see no current process.
+     */
+    if (process_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: process lifecycle self-test passed\n");
+
     struct pros_process init_process;
     if (process_manager_init() != 0 ||
         process_init(&init_process, 1, PROS_SECURITY_LIMITED) != 0 ||
@@ -803,11 +815,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: VFS provider registry boundary self-test passed\n");
-    if (process_selftest() != 0) {
-        serial_write("ProsenjitOS: ERROR process lifecycle self-test failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
-    serial_write("ProsenjitOS: process lifecycle self-test passed\n");
+
     if (pros_storage_selftest() != PROS_STORAGE_OK) {
         serial_write("ProsenjitOS: ERROR storage volume discovery self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
