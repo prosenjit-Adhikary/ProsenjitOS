@@ -76,7 +76,7 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [x] Virtual memory and paging (4-level mappings, canonical/physical bounds, W^X/NX checks, duplicate-map protection, translation/query invariants and deep self-test)
 - [x] Kernel heap (bounded growth, overflow-safe allocation, ownership-checked free, coalescing and deep self-test)
 - [x] User/kernel address-space separation foundation (isolated user mappings, ownership tracking, alias protection, range validation, teardown and deep self-test)
-- [x] Process/thread/syscall runtime verification (process lifecycle/reap, address-space switching, scheduler/run-queue, process-thread teardown, IPC block/wake, interrupt-frame save/restore, syscall ABI/allowlist/unknown-call checks)
+- [~] Process/thread/syscall runtime verification (process lifecycle/reap, address-space switching, scheduler/run-queue, process-thread teardown, IPC block/wake, synthetic interrupt-frame save/restore, syscall ABI/allowlist/unknown-call checks; real CPL3 context-frame lifetime and full privilege-return switching remain unverified)
 - [x] NX/W^X memory policy where supported
 
 ## Phase 3 — Kernel architecture
@@ -94,11 +94,14 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [x] Thread scheduler
   - [x] Thread object and lifecycle state
   - [x] FIFO run queue and scheduler selection
-  - [x] Timer-driven preemption
+  - [~] Timer-driven preemption (kernel IRQ0 path exists; user-mode IF is deliberately cleared, so CPL3 timer preemption is not enabled)
 - [x] Context switching foundation (kernel-stack switch + callee-saved state)
-- [x] Preemptive interrupt-frame context switching
-  - [x] Interrupt-frame ABI and scheduler hand-off foundation
+- [~] Preemptive interrupt-frame context switching (kernel-thread/QEMU foundation exists; complete CPL3 frame lifetime and privilege-return handoff are not yet verified)
+  - [~] Interrupt-frame ABI and scheduler hand-off foundation (synthetic-frame tests exist; stable per-thread CPL3 entry-frame ABI remains pending)
   - [x] Kernel-thread timer preemption validated under QEMU
+  - [ ] Stable per-thread syscall/interrupt frame storage and complete CPL3 IRET frame (RSP/SS) preservation
+  - [ ] TSS RSP0/IST policy integrated with per-thread kernel stacks
+  - [ ] Real assembly-entry/return regression tests for CPL0 and CPL3
 - [x] System-call boundary
 - [x] IPC
   - [x] Kernel message/channel objects
