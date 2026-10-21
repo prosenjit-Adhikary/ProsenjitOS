@@ -837,7 +837,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (thread_current() != &worker_thread ||
         first_switch != worker_thread.interrupt_frame ||
         first_switch->rip != (uint64_t)(uintptr_t)thread_start_trampoline ||
-        worker_thread.interrupt_frame == &scheduler_init_frame) {
+        worker_thread.interrupt_frame == &scheduler_init_frame ||
+        init_thread.interrupt_frame == &scheduler_init_frame ||
+        init_thread.interrupt_frame->rax != 0x1111111111111111ULL ||
+        init_thread.interrupt_frame->rip != 0xAAAAAAAAAAAAAAAAULL) {
         serial_write("ProsenjitOS: ERROR interrupt-frame first-switch regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -849,15 +852,52 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_interrupt_frame *second_switch =
         thread_schedule_interrupt(&scheduler_worker_frame);
     if (thread_current() != &init_thread ||
-        second_switch != &scheduler_init_frame ||
-        init_thread.interrupt_frame != &scheduler_init_frame ||
-        scheduler_init_frame.rax != 0x1111111111111111ULL ||
-        scheduler_init_frame.rip != 0xAAAAAAAAAAAAAAAAULL ||
-        worker_thread.interrupt_frame != &scheduler_worker_frame) {
+        second_switch != init_thread.interrupt_frame ||
+        init_thread.interrupt_frame == &scheduler_init_frame ||
+        init_thread.interrupt_frame->rax != 0x1111111111111111ULL ||
+        init_thread.interrupt_frame->rip != 0xAAAAAAAAAAAAAAAAULL ||
+        worker_thread.interrupt_frame == &scheduler_worker_frame ||
+        worker_thread.interrupt_frame->rax != 0x2222222222222222ULL ||
+        worker_thread.interrupt_frame->rip != 0xBBBBBBBBBBBBBBBBULL) {
         serial_write("ProsenjitOS: ERROR interrupt-frame save/restore regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
+
+    /* CPL3 frames include user RSP/SS after RFLAGS. Prove both trailing
+     * words survive a switch into thread-owned storage and back out. */
+    uint64_t scheduler_user_frame_words[20] = {0};
+    struct pros_interrupt_frame *scheduler_user_frame =
+        (struct pros_interrupt_frame *)(uintptr_t)scheduler_user_frame_words;
+    scheduler_user_frame->rax = 0x3333333333333333ULL;
+    scheduler_user_frame->rip = 0xCCCCCCCCCCCCCCCCULL;
+    scheduler_user_frame->cs = 0x1B;
+    scheduler_user_frame->rflags = 0x202;
+    scheduler_user_frame_words[18] = 0x00007FFFFFFFE000ULL;
+    scheduler_user_frame_words[19] = 0x23ULL;
+    struct pros_interrupt_frame *third_switch =
+        thread_schedule_interrupt(scheduler_user_frame);
+    if (thread_current() != &worker_thread ||
+        third_switch != worker_thread.interrupt_frame ||
+        init_thread.interrupt_frame == scheduler_user_frame ||
+        init_thread.interrupt_frame->rip != 0xCCCCCCCCCCCCCCCCULL ||
+        ((uint64_t *)(uintptr_t)init_thread.interrupt_frame)[18] !=
+            0x00007FFFFFFFE000ULL ||
+        ((uint64_t *)(uintptr_t)init_thread.interrupt_frame)[19] != 0x23ULL) {
+        serial_write("ProsenjitOS: ERROR CPL3 interrupt-frame copy regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    struct pros_interrupt_frame *fourth_switch =
+        thread_schedule_interrupt(&scheduler_worker_frame);
+    if (thread_current() != &init_thread ||
+        fourth_switch != init_thread.interrupt_frame ||
+        fourth_switch->cs != 0x1B ||
+        fourth_switch->rip != 0xCCCCCCCCCCCCCCCCULL ||
+        ((uint64_t *)(uintptr_t)fourth_switch)[18] != 0x00007FFFFFFFE000ULL ||
+        ((uint64_t *)(uintptr_t)fourth_switch)[19] != 0x23ULL) {
+        serial_write("ProsenjitOS: ERROR CPL3 interrupt-frame restore regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: stable CPL0/CPL3 interrupt-frame save/restore tests passed\n");
 
     /* A failed CR3/address-space switch must not leave the still-executing
      * thread marked READY and linked in the run queue. */
