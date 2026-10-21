@@ -60,6 +60,13 @@ int main(void)
           PROS_DML_EINVAL, 6);
     CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 6);
 
+    manifest = manifest_make("corrupted-feature-requirement", "bin/start");
+    CHECK(pros_dml_register(&manager, &manifest) == PROS_DML_OK, 6);
+    manager.entries[0].manifest.required_features = 2u;
+    CHECK(pros_dml_preflight(&manager, "corrupted-feature-requirement") ==
+          PROS_DML_EFEATURE, 6);
+    CHECK(pros_dml_init(&manager, 1u) == PROS_DML_OK, 6);
+
     /*
      * Fixed-size manifest fields must be NUL-terminated within their
      * declared arrays; dependency_count must be bounded before indexing.
