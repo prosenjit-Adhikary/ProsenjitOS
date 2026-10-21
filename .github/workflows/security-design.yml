@@ -16,7 +16,7 @@ jobs:
 
       - name: Validate security architecture contract
         # OfficeWindows is a Windows host; use the installed Git-for-Windows Bash explicitly.
-        shell: 'C:\Program Files\Git\bin\bash.exe --noprofile --norc -e -o pipefail {0}'
+        shell: '"C:\Program Files\Git\bin\bash.exe" --noprofile --norc -e -o pipefail {0}'
         run: |
           set -euo pipefail
 
