@@ -21,7 +21,14 @@ static int display_info_valid(const struct pros_display_info *info)
 
     required_bytes = (uint64_t)info->pitch *
                      (uint64_t)info->height * 4ULL;
-    return info->framebuffer_size >= required_bytes;
+    if (info->framebuffer_size < required_bytes)
+        return 0;
+
+    /* Reject framebuffer ranges whose end address would wrap around. */
+    if (info->framebuffer > UINT64_MAX - required_bytes)
+        return 0;
+
+    return 1;
 }
 
 static const struct pros_display_backend *backend_of(const struct pros_driver_device *d)
@@ -134,11 +141,14 @@ int pros_display_selftest(void)
     state->info.framebuffer_size = 1228799ULL;
     if (pros_display_get_info(dev.id, &i) != PROS_DRIVER_EIO) return -11;
     state->info.framebuffer_size = 1228800ULL;
+    state->info.framebuffer = UINT64_MAX - 100ULL;
+    if (pros_display_get_info(dev.id, &i) != PROS_DRIVER_EIO) return -12;
+    state->info.framebuffer = 0xE0000000ULL;
 
-    if(pros_display_present(dev.id,px,1228801ULL)!=PROS_DRIVER_EINVAL)return -12;
-    if(pros_driver_unbind(dev.id)!=0)return -13;
-    if(pros_display_bind(dev.id)!=PROS_DRIVER_ENODEV)return -14;
-    if(pros_device_unregister(dev.id)!=0)return -15;
-    if(pros_driver_unregister(&drv)!=0)return -16;
+    if(pros_display_present(dev.id,px,1228801ULL)!=PROS_DRIVER_EINVAL)return -13;
+    if(pros_driver_unbind(dev.id)!=0)return -14;
+    if(pros_display_bind(dev.id)!=PROS_DRIVER_ENODEV)return -15;
+    if(pros_device_unregister(dev.id)!=0)return -16;
+    if(pros_driver_unregister(&drv)!=0)return -17;
     return 0;
 }
