@@ -6,6 +6,7 @@
 
 #define PROS_DISPLAY_ABI_VERSION 1u
 #define PROS_DISPLAY_BACKEND_MAGIC 0x50534442u /* PSDB */
+#define PROS_DISPLAY_FORMAT_XRGB8888 1u
 
 #define PROS_DISPLAY_MAX_WIDTH 16384u
 #define PROS_DISPLAY_MAX_HEIGHT 16384u
@@ -13,6 +14,7 @@
 struct pros_display_info {
     uint32_t width;
     uint32_t height;
+    /* Pitch is measured in pixels for the supported XRGB8888 format. */
     uint32_t pitch;
     uint32_t format;
     uint64_t framebuffer;
