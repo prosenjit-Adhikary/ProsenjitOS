@@ -743,14 +743,20 @@ int pros_net_selftest(void)
     {
         const uint8_t rxdata[2] = {0x11, 0x22};
         uint32_t received = 0;
-        if (pros_net_socket_receive_segment(sid, 0u, rxdata, 2u, TCP_ACK) != PROS_NET_OK ||
-            pros_net_socket_receive(sid, payload, 1u, &received) != PROS_NET_EBOUNDS ||
-            pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK ||
-            received != 2u || payload[0] != 0x11u || payload[1] != 0x22u ||
-            pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE ||
-            pros_net_socket_receive_segment(sid, 2u, rxdata, 0u, TCP_FIN | TCP_ACK) != PROS_NET_OK ||
-            pros_net_socket_close(sid) != PROS_NET_OK)
-            return -10;
+        if (pros_net_socket_receive_segment(sid, 0u, rxdata, 2u, TCP_ACK) != PROS_NET_OK)
+            return -101;
+        if (pros_net_socket_receive(sid, payload, 1u, &received) != PROS_NET_EBOUNDS)
+            return -102;
+        if (pros_net_socket_receive(sid, payload, sizeof(rxdata), &received) != PROS_NET_OK)
+            return -103;
+        if (received != 2u || payload[0] != 0x11u || payload[1] != 0x22u)
+            return -104;
+        if (pros_net_socket_receive_segment(sid, 999u, rxdata, 1u, TCP_ACK) != PROS_NET_ESTATE)
+            return -105;
+        if (pros_net_socket_receive_segment(sid, 2u, rxdata, 0u, TCP_FIN | TCP_ACK) != PROS_NET_OK)
+            return -106;
+        if (pros_net_socket_close(sid) != PROS_NET_OK)
+            return -107;
     }
 
     {
