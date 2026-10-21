@@ -827,6 +827,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
 
+    /*
+     * Regression: if a message is already queued when a receiver tries to
+     * register as a waiter, the wait operation must report EALREADY without
+     * blocking the thread or adding a stale waiter. syscall_dispatch() must
+     * retry receive for this result rather than return a spurious error.
+     */
+    if (ipc_channel_wait(&ipc_wait_test, &worker_thread) != PROSENJIT_IPC_EALREADY ||
+        thread_state(&worker_thread) != PROS_THREAD_READY ||
+        worker_thread.wait_channel != 0 ||
+        ipc_wait_test.waiter_count != 0 ||
+        ipc_channel_count(&ipc_wait_test) != 1) {
+        serial_write("ProsenjitOS: ERROR IPC queued-message waiter race regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC queued-message waiter race regression passed\n");
+
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
     scheduler_init_frame.rax = 0x1111111111111111ULL;
     scheduler_init_frame.rip = 0xAAAAAAAAAAAAAAAAULL;
