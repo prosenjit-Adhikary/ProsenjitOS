@@ -343,3 +343,23 @@ Reviewed `include/abi/syscall.h`, `kernel/syscall.c`, `kernel/include/object.h`,
 Keep the next implementation step at contract/design level until the process identity mismatch and grant cleanup semantics are resolved. Prefer provisioning a narrow trusted broker/service authority through existing object/IPC mechanisms where feasible; add a public syscall only if the audited design shows it is necessary. Before implementation, trace the actual device object creation and mapping path end-to-end rather than relying on the object-type constant.
 
 No syscall, object model, or process lifecycle code was changed in this pass. No build, test, CI, or QEMU job was started.
+## 16. Driver and broker lifecycle edge cases
+
+Reviewed the concrete driver bind/unbind, device register/unregister, and broker grant/check/revoke paths. This was static source inspection only.
+
+- Device IDs are allocated monotonically by `pros_device_register()` and are not normally recycled: allocation advances `next_device_id` and refuses exhaustion rather than wrapping. This reduces device-ID aliasing risk, but the process-ID width mismatch remains independent and unresolved.
+- `pros_device_grant()` accepts only a currently registered device in `BOUND` state and rejects zero IDs/invalid permissions. The broker API itself does not authenticate the caller; it is safe only while kept behind a trusted kernel policy boundary. Do not expose it as a self-service userspace operation.
+- `pros_device_grant()` merges additional permissions into an existing `(device_id, process_id)` grant using bitwise OR. A later request cannot narrow an existing grant; `pros_device_revoke()` removes the entire grant. The policy layer must compute the final least-privilege permission set and explicitly revoke/reissue if a reduction is needed.
+- `pros_device_check()` confirms the device still exists and that the grant contains the requested single permission bit, but it does not independently require the device state to be `BOUND`. The reviewed unbind path drops device grants after a successful driver `remove()` callback; unregister also drops grants. The transition and callback ordering must be preserved or tightened when asynchronous service access is introduced.
+- If the driver's `remove()` callback fails, `pros_driver_unbind()` returns `EBUSY` before dropping grants or clearing the driver binding. That is a fail-safe against pretending teardown succeeded, but callers need a visible failure/retry state and must not assume resources were removed.
+- The inspected driver/device structures contain kernel-side callbacks and `driver_data`/`bus_data` pointers. They are not a userspace device-resource mapping ABI. Do not expose these pointers or callback structures across the process boundary.
+- The grant registry is a fixed 64-entry array and its operations show no locking in the inspected implementation. Before concurrent driver, process, and desktop service access is enabled, establish the kernel's serialization/locking rule and test grant/check/revoke against lifecycle transitions.
+
+### Follow-up implementation gates
+
+1. Resolve the 64-bit process PID versus 32-bit broker key mismatch before using grants for real processes.
+2. Document who may grant/revoke, how rights are reduced, and what state `check` must require during bind/unbind transitions.
+3. Confirm a single serialization rule for the grant table and device lifecycle; add focused tests for merge-versus-revoke, callback failure, unbind/check ordering, and registry exhaustion.
+4. Keep the native display/input user ABI separate from driver callback structs and raw kernel pointers.
+
+No code was changed. No runner, build, test, CI, or QEMU job was started.
