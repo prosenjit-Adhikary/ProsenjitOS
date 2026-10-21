@@ -122,3 +122,11 @@
 - [x] Re-fetched both changed source files and confirmed the guard and regression case are present on the work branch.
 - [ ] Host compilation and unit-test execution are still pending; this is source inspection, not a passing test result.
 - [ ] No new workflow run was started; the build workflow targets pushes to `main` and pull requests, and no pull request has been opened for this work branch.
+
+
+### 2026-10-21 — Revalidate stored manifests during dependency preflight
+
+- [x] Extended preflight traversal to re-run manifest validation on each stored entry before reading its dependency list. This covers corrupted dependency counts, invalid fixed-size strings, malformed dependency declarations, and feature requirements changed after registration.
+- [x] Added a regression case proving an unsupported feature requirement injected into stored metadata returns `PROS_DML_EFEATURE`.
+- [x] Re-fetched the implementation and test files from the work branch and confirmed the guard and regression case are present.
+- [ ] Test execution is blocked in this environment: the local clone attempt failed because `github.com` could not be resolved. The repository's build workflow targets self-hosted Linux runners, so no workflow was started just to run this unit test.
