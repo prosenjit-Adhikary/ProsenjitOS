@@ -721,6 +721,14 @@ int pros_net_selftest(void)
             pros_net_route_lookup(0xC0A80102u, &gateway, &mask) != PROS_NET_OK ||
             mask != 0xFFFF0000u)
             return -9;
+        /* A full cache containing only expired entries must be reusable. */
+        for (uint32_t i = 0; i < PROS_NET_ARP_CACHE_MAX; ++i) {
+            if (pros_net_arp_update(0x0A000100u + i, mac, 100u, 1u) != PROS_NET_OK)
+                return -14;
+        }
+        if (pros_net_arp_update(0x0A000200u, mac, 101u, 10u) != PROS_NET_OK ||
+            pros_net_arp_lookup(0x0A000200u, got, 102u) != PROS_NET_OK)
+            return -15;
     }
 
     if (pros_net_socket_init() != PROS_NET_OK ||
