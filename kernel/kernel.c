@@ -681,6 +681,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&init_thread) != 0 ||
         thread_enqueue(&worker_thread) != 0 ||
+        /* Regression: changing a queued thread to BLOCKED must not leave a
+         * blocked entry linked into the runnable queue. */
+        thread_set_state(&worker_thread, PROS_THREAD_BLOCKED) == 0 ||
+        thread_state(&worker_thread) != PROS_THREAD_READY ||
         thread_schedule() != 0 ||
         thread_current() != &init_thread ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
