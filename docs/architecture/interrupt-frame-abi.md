@@ -1,6 +1,6 @@
 # Interrupt-frame ABI and scheduler hand-off contract
 
-Status: design contract / implementation pending. This document records the current assembly contract and the invariants that must hold before user-mode interrupt-frame preemption is enabled. It is not evidence that those invariants are already implemented.
+Status: partially implemented / end-to-end runtime verification pending. The C layout assertions and per-thread frame-copy foundation are present on the stacked implementation branch; the remaining checklist items are still prerequisites before user-mode interrupt-frame preemption is enabled.
 
 ## Current source facts
 
@@ -27,8 +27,8 @@ Status: design contract / implementation pending. This document records the curr
 ## Implementation and verification sequence
 
 - [ ] Add C layout assertions and matching assembly constants/comments; verify offsets from the actual NASM push order.
-- [ ] Introduce stable per-thread saved-frame storage with explicit capacity for CPL3 RSP/SS and defined alignment/lifetime.
-- [ ] Update ISR-to-scheduler hand-off to copy/normalize incoming frames before the IST stack can be reused.
+- [x] Introduce stable per-thread saved-frame storage with capacity for CPL3 RSP/SS; frame shape is selected from saved CS privilege bits.
+- [x] Update ISR-to-scheduler hand-off to copy incoming frames into per-thread storage before the IST stack can be reused.
 - [ ] Implement matching restore paths for CPL0 and CPL3 frames, including correct stack cleanup and IRET behavior.
 - [ ] Establish per-thread kernel-stack ownership and TSS.RSP0 updates before enabling CPL3 preemption.
 - [ ] Add regression coverage for repeated syscalls from CPL3, blocked IPC wake/retry, successive IST entries, frame preservation across thread switches, and return to both CPL0 and CPL3.
