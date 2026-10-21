@@ -9,8 +9,8 @@ on:
 
 jobs:
   security-design:
-    # Use an ephemeral GitHub-hosted Linux runner; never dispatch to OfficeWindows or the local runner.
-    runs-on: ubuntu-24.04
+    # Use the shared Linux runner pool (office/office1); never use OfficeWindows.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
