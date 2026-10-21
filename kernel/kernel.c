@@ -790,8 +790,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * cleanup. The zombie must keep its address space and open handle usable.
      */
     uint64_t lifecycle_root_before_wait = lifecycle_parent.address_space.root;
+    waited_exit = -777;
     if (object_retain(&lifecycle_parent.object) != 0 ||
         process_wait(&init_process, lifecycle_parent.pid, &waited_exit) != -5 ||
+        waited_exit != -777 ||
         lifecycle_parent.object.refcount != 2 ||
         lifecycle_parent.state != PROS_PROCESS_ZOMBIE ||
         lifecycle_parent.address_space.root != lifecycle_root_before_wait ||
