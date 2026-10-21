@@ -205,7 +205,7 @@ static void rollback_user_pages(struct pros_process *process,
 
 int pros_elf_selftest(void)
 {
-    uint8_t image[2u * ELF_PAGE + 16u] = {0};
+    uint8_t image[2u * ELF_PAGE + 16u];
     struct elf64_ehdr *eh = (struct elf64_ehdr *)image;
     struct elf64_phdr *ph = (struct elf64_phdr *)(image + sizeof(*eh));
     const uint64_t data_off = ELF_PAGE;
