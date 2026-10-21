@@ -295,8 +295,11 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
 
             uint8_t message[PROSENJIT_IPC_MESSAGE_MAX];
             uint32_t received = 0;
-            int rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
-                                          message, (uint32_t)capacity, &received);
+            int rc;
+retry_ipc_receive:
+            received = 0;
+            rc = ipc_channel_receive((struct pros_ipc_channel *)entry->object,
+                                     message, (uint32_t)capacity, &received);
             if (rc == PROSENJIT_IPC_EEMPTY) {
                 /*
                  * isr128 uses IST1 for both CPL3 and CPL0 entries. Only a
@@ -319,8 +322,18 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
-                if (ipc_channel_wait((struct pros_ipc_channel *)entry->object,
-                                      current) != PROSENJIT_IPC_OK) {
+                int wait_rc = ipc_channel_wait(
+                    (struct pros_ipc_channel *)entry->object, current);
+                if (wait_rc == PROSENJIT_IPC_EALREADY) {
+                    /*
+                     * A sender published a message after the empty receive
+                     * but before waiter registration. Retry the receive while
+                     * preserving the syscall frame; do not turn this normal
+                     * race into EPERM or leave a stale waiter behind.
+                     */
+                    goto retry_ipc_receive;
+                }
+                if (wait_rc != PROSENJIT_IPC_OK) {
                     registers[0] = PROSENJIT_SYSCALL_EPERM;
                     return;
                 }
