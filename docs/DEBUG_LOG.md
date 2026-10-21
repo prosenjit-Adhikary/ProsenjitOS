@@ -274,3 +274,20 @@ Source-level stale-vnode audit completed for directory traversal and mutation ca
 ### Verification status
 - The next clean CI/QEMU run must verify this change. The full persistence test still has further namespace, truncate, remount, and allocation assertions after this checker, so completion is not yet established.
 
+
+
+## 2026-10-21 — Tiny-image allocator exhaustion regression
+
+### Diagnosis
+The clean ISO build reached the ProsenjitFS self-test and reported `selftest_stage=0x1D22`, return code `-17`. The stage maps to the tiny-image allocator exhaustion test. That test allocated raw data blocks directly, then called `pfs_selftest_consistency()`; it also allocated inode-bitmap reservations without creating initialized inode records and called the same consistency checker.
+
+Those are intentionally transient allocator reservations, not yet owned by a file extent, directory index, or initialized inode. The consistency checker correctly enforces the stronger mounted-filesystem invariant that allocated data blocks have metadata owners and allocated inodes are valid namespace objects. Invoking it while the exhaustion fixture deliberately holds unowned reservations made the test self-contradictory.
+
+### Change made
+- Kept the real block exhaustion, ENOSPC, free/reuse, and inode exhaustion checks.
+- Removed only the consistency-check calls made while the test intentionally holds raw block/inode reservations.
+- Added an early explicit failure message in the QEMU workflow when the serial log reports a ProsenjitFS self-test error, so the actual filesystem diagnostic is surfaced instead of a misleading later missing-milestone message.
+- Removed the obsolete generic IPC foundation milestone requirement; the workflow already checks the focused IPC wait-queue and CPL3 milestones.
+
+### Verification status
+The source/workflow change is committed on the diagnostic branch. A fresh clean build and QEMU run are required to establish whether the ProsenjitFS self-test advances and to identify any subsequent failures. Do not mark the filesystem or boot path as passing until that run completes successfully.
