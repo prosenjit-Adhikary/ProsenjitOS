@@ -404,7 +404,7 @@ static int pfs_superblock_valid(const uint8_t *block,
         sb->max_name != PROSENJITFS_MAX_NAME ||
         (sb->features & PROSENJITFS_FEATURE_KNOWN_MASK) !=
             PROSENJITFS_FEATURE_KNOWN_MASK ||
-        (sb->features & ~PROSENJITFS_FEATURE_KNOWN_MASK) != 0u
+        (sb->features & ~PROSENJITFS_FEATURE_KNOWN_MASK) != 0u)
         return PROSENJITFS_ECORRUPT;
     checksum = pfs_crc_with_zero32(block, sb->header_size,
                                    (uint32_t)offsetof(
