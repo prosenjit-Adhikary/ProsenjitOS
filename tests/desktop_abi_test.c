@@ -85,6 +85,9 @@ int main(void)
     window.bounds = rect;
     window.reserved = 1u;
     CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 32);
+    window.reserved = 0u;
+    window.window_flags = 1u; /* No window flags are defined in ABI v1. */
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 46);
 
     (void)memset(&input, 0, sizeof(input));
     input.header.version = PROSENJIT_DESKTOP_ABI_VERSION;
