@@ -42,7 +42,9 @@ jobs:
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_desktop_abi.sh
+          bash -n scripts/test_hw_stack.sh
           make desktop-tests
+          make hw-stack-test
 
       - name: Build ISO
         run: |
