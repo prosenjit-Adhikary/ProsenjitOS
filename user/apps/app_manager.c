@@ -496,8 +496,10 @@ int pros_app_install_transaction(struct pros_app_manager *manager,
     manager->transaction_active = 0u;
     rc = pros_app_commit_install(manager, app_id);
     if (rc != PROS_APP_OK) {
-        if (install_rollback(ops, &manifest) != PROS_APP_OK)
-            return PROS_APP_EROLLBACK;
+        manager->transaction_active = 1u;
+        rc = install_rollback(ops, &manifest) == PROS_APP_OK
+                 ? rc : PROS_APP_EROLLBACK;
+        manager->transaction_active = 0u;
         return rc;
     }
 
