@@ -75,15 +75,20 @@ int main(void)
     audio.channels = 2u;
     audio.format = PROS_DESKTOP_AUDIO_S16_LE;
     audio.frame_count = 480u;
-    CHECK(pros_desktop_audio_request_valid(&audio), 15);
+    CHECK(pros_desktop_audio_request_valid(
+              &audio, sizeof(audio) + audio.header.payload_size), 15);
+    CHECK(!pros_desktop_audio_request_valid(&audio, sizeof(audio) - 1u), 26);
     audio.channels = 9u;
-    CHECK(!pros_desktop_audio_request_valid(&audio), 16);
+    CHECK(!pros_desktop_audio_request_valid(
+              &audio, sizeof(audio) + audio.header.payload_size), 16);
     audio.channels = 2u;
     audio.header.payload_size = 1u;
-    CHECK(!pros_desktop_audio_request_valid(&audio), 17);
+    CHECK(!pros_desktop_audio_request_valid(
+              &audio, sizeof(audio) + audio.header.payload_size), 17);
     audio.header.payload_size = PROS_DESKTOP_MAX_AUDIO_BYTES + 1u;
     audio.frame_count = 100000u;
-    CHECK(!pros_desktop_audio_request_valid(&audio), 18);
+    CHECK(!pros_desktop_audio_request_valid(
+              &audio, sizeof(audio) + audio.header.payload_size), 18);
 
     (void)puts("shared desktop ABI tests passed");
     return 0;
