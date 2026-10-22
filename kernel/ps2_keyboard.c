@@ -80,8 +80,12 @@ int pros_ps2_keyboard_decode_byte(uint8_t byte, struct pros_hw_input_event *out)
         extended_prefix = 1u;
         return PROS_DRIVER_ENOTSUP;
     }
-    if (byte == 0x00u || byte == 0xFFu)
+    if (byte == 0x00u || byte == 0xFFu) {
+        /* Malformed input must not leave a stale E0 prefix for the next key. */
+        extended_prefix = 0u;
+        pause_bytes_remaining = 0u;
         return PROS_DRIVER_EIO;
+    }
 
     extended = extended_prefix;
     extended_prefix = 0u;
