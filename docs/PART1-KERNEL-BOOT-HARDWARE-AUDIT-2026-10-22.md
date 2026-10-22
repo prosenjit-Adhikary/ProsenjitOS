@@ -185,3 +185,12 @@ Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded s
 - The script also guards restoration of the saved interrupt-frame pointer and checks that the timer entry retains a PIC EOI call.
 - This is a static source-structure regression test. It does **not** execute injected register sentinels or prove actual IST delivery, stack bounds, nested exceptions, or scheduler-switch correctness. Those remain open acceptance gates.
 - Build/boot and security workflows must pass on the resulting branch head before this follow-up is considered CI-verified. Part 1 remains **PARTIAL / NOT COMPLETE**.
+
+
+## Verification result — interrupt entry source-structure guards
+
+- Commit `4006900fbcfb229ba69786be3787b6e2a78a6cf8` adds static guards for GPR save/restore instructions, call-stack alignment, saved-frame restoration, error-code vectors, and the timer PIC EOI call.
+- Build and boot-test workflow [#39787841682](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841682): **SUCCESS**. The workflow completed script/unit-test validation, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot test, and native BIOS QEMU boot test.
+- Security architecture workflow [#39787841777](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841777): **SUCCESS**.
+- These CI results verify the current source-structure test and the configured boot milestones in QEMU. They do not prove actual runtime register sentinels, IST guard/bounds, nested exception handling, physical hardware, UEFI, or SMP safety.
+- PR #183 remains draft and unmerged. Overall Part 1 remains **PARTIAL / NOT COMPLETE**.
