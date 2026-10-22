@@ -174,6 +174,7 @@ int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
     for (; mapped < length; mapped += 0x1000ULL) {
         int rc = paging_map_page_internal(virtual_address + mapped,
                                           physical_address + mapped,
+                                          PROSENJIT_PAGE_WRITABLE |
                                           PROSENJIT_PAGE_NX |
                                           PROSENJIT_PAGE_PWT |
                                           PROSENJIT_PAGE_PCD, 1);
