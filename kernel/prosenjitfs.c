@@ -6033,7 +6033,7 @@ int prosenjitfs_selftest(void)
      * return corruption, and leave all medium/cache state untouched.
      */
     {
-        uint64_t orphan_block = fs.sb.data_start;
+        uint64_t orphan_block = fs.sb.data_start + 1u;
         uint64_t bitmap_lba = fs.sb.block_bitmap_start +
                               orphan_block / ((uint64_t)fs.sb.block_size * 8u);
         uint64_t byte_offset = bitmap_lba * fs.sb.block_size +
