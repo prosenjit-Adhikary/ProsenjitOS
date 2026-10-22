@@ -18,4 +18,10 @@ void pros_ps2_keyboard_reset_decoder(void);
  */
 int pros_ps2_keyboard_poll(uint32_t input_endpoint_id);
 
+#if __STDC_HOSTED__
+/* Hosted-only controller FIFO injection used by deterministic unit tests. */
+int pros_ps2_keyboard_test_push(uint8_t status, uint8_t byte);
+void pros_ps2_keyboard_test_reset_fifo(void);
+#endif
+
 #endif
