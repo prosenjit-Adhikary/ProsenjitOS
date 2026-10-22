@@ -8134,6 +8134,42 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -13);
             }
 
+            /*
+             * Once the commit write may have reached durable media, reject
+             * further writes on this mount until remount recovery. Verify
+             * that a rejected retry leaves every mock-media view unchanged.
+             */
+            if (stage >= 5u) {
+                uint32_t durable_crc = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                uint32_t volatile_crc = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                uint32_t dirty_crc = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+                int retry_rc = vfs_file_open(
+                    &fs.mount, "/crash.bin", PROS_VFS_O_WRITE, &file);
+
+                done = 0u;
+                if (retry_rc == PROS_VFS_OK) {
+                    retry_rc = vfs_file_write(
+                        &file, old_data, sizeof(old_data), &done);
+                    if (vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -13);
+                    }
+                }
+                if (retry_rc == PROS_VFS_OK || done != 0u ||
+                    durable_crc != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_crc != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_crc != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+            }
+
             pfs_crash_inject_stage = 0u;
             pfs_test_crash_reset(&fs, &disk);
 
