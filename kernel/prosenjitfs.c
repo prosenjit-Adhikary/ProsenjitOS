@@ -5878,7 +5878,12 @@ static int pfs_selftest_consistency(
         }
     }
 
-    rc = PROSENJITFS_OK;
+    /*
+     * Report mode deliberately completes the bounded bitmap scan when orphan
+     * candidates exist. Preserve the corruption result after the scan rather
+     * than overwriting it with the clean-path success status.
+     */
+    rc = orphaned_blocks != 0u ? PROSENJITFS_ECORRUPT : PROSENJITFS_OK;
 
 consistency_out:
     kfree(owner);
