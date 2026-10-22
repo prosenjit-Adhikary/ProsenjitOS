@@ -1,5 +1,12 @@
 # ProsenjitFS Completion Matrix — 2026-10-22
 
+## Pending verification — PR #196
+
+- PR #196 adds a deterministic integrity-scan read-fault sweep: each successive mock block-device read is failed in turn, and the regression requires `PROSENJITFS_EIO`, a zero source-error location, and unchanged durable, volatile, and dirty media state. The first countdown beyond the scanner's read sequence must complete as a clean scan.
+- This expands coverage beyond the previous single inode-bitmap read-failure injection and is intended to exercise the other read-propagation paths without hard-coding metadata-read order.
+- **Pending:** the sweep has not been run through CI or boot tests yet. Do not count it as passing until the authorized Linux x64 runner is online and the exact PR head passes filesystem diagnostics, build/boot, and security checks.
+
+
 ## Latest verification update — 2026-10-22 13:07 UTC
 
 - PR #193 fixed a diagnostic contract bug in the report-only integrity scanner: allocated inode bitmap + FREE inode record previously returned `-20000 - inode_number`, which the public wrapper incorrectly decoded as a source line. It now returns corruption with the actual checker source line and has a targeted regression. PR #193 merged as `0e61bc728f1eb0fe5cf3a701de806d98a04bfeb0`.
