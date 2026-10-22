@@ -24,6 +24,13 @@ extern char ist2_stack_top[];
 
 static uint64_t *kernel_pml4;
 
+/*
+ * Deterministic fault injection is used only by paging_selftest(). A value
+ * of N permits N successful table allocations, then fails the next one.
+ * -1 disables injection. This is not exposed as a runtime kernel interface.
+ */
+static int paging_test_alloc_fail_after = -1;
+
 static int canonical_address(uint64_t address) {
     uint64_t upper = address >> 48;
     uint64_t sign = (address >> 47) & 1ULL;
@@ -45,6 +52,13 @@ static void page_zero(uint64_t *page) {
 }
 
 static uint64_t *alloc_table(void) {
+    if (paging_test_alloc_fail_after == 0) {
+        paging_test_alloc_fail_after = -1;
+        return 0;
+    }
+    if (paging_test_alloc_fail_after > 0)
+        --paging_test_alloc_fail_after;
+
     uint64_t physical = physical_page_alloc();
     if (physical == 0) return 0;
     uint64_t *table = (uint64_t *)physical;
@@ -383,6 +397,29 @@ int paging_selftest(void) {
     }
 
     physical_page_free(physical);
+
+    /*
+     * Force failure at each of the three intermediate page-table allocations
+     * for an otherwise empty kernel virtual-address subtree. Every failure
+     * must leave the address unmapped and return all temporary table pages.
+     */
+    {
+        static const uint64_t fault_va = 0xFFFF800040000000ULL;
+        for (int fail_after = 0; fail_after < 3; ++fail_after) {
+            uint64_t free_before = physical_memory_free_pages();
+            if (paging_translate(fault_va) != 0)
+                return -8;
+            paging_test_alloc_fail_after = fail_after;
+            int map_result = paging_map_page(
+                fault_va, 0x2000ULL,
+                PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX);
+            paging_test_alloc_fail_after = -1;
+            if (map_result == 0 ||
+                paging_translate(fault_va) != 0 ||
+                physical_memory_free_pages() != free_before)
+                return -9;
+        }
+    }
 
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
