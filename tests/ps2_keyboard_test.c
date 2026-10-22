@@ -61,6 +61,10 @@ int main(void)
     assert(pros_ps2_keyboard_decode_byte(0x2Au, &event) == PROS_DRIVER_ENOTSUP);
     assert(pros_ps2_keyboard_decode_byte(0x00u, &event) == PROS_DRIVER_EIO);
     assert(pros_ps2_keyboard_decode_byte(0x1Eu, 0) == PROS_DRIVER_EINVAL);
+    assert(pros_ps2_keyboard_decode_byte(0xE0u, &event) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_keyboard_decode_byte(0xFFu, &event) == PROS_DRIVER_EIO);
+    assert(pros_ps2_keyboard_decode_byte(0x1Eu, &event) == PROS_DRIVER_OK);
+    assert(event.value0 == 0x1E); /* malformed byte cleared the stale prefix */
 
     /* Exercise the actual polling and endpoint-delivery path with a fake FIFO. */
     pros_ps2_keyboard_reset_decoder();
