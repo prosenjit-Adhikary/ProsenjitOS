@@ -6063,6 +6063,7 @@ int prosenjitfs_selftest(void)
         original_byte = disk.data[byte_offset];
         {
             uint8_t original_volatile_byte = disk.volatile_data[byte_offset];
+
             /*
              * The mock device reads dirty sectors from volatile_data and
              * clean sectors from durable data. Inject the same bitmap bit in
@@ -6072,26 +6073,26 @@ int prosenjitfs_selftest(void)
             disk.volatile_data[byte_offset] =
                 (uint8_t)(original_volatile_byte | mask);
             durable_before = prosenjitfs_crc32c(
-            disk.data, (uint32_t)sizeof(disk.data));
-        volatile_before = prosenjitfs_crc32c(
-            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
-        dirty_before = prosenjitfs_crc32c(
-            disk.dirty, (uint32_t)sizeof(disk.dirty));
-        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
-                PROSENJITFS_ECORRUPT ||
-            integrity_report.status != PROSENJITFS_ECORRUPT ||
-            integrity_report.orphaned_blocks_reported != 1u ||
-            integrity_report.first_orphaned_block != orphan_block ||
-            integrity_report.first_error_location == 0u ||
-            durable_before != prosenjitfs_crc32c(
-                disk.data, (uint32_t)sizeof(disk.data)) ||
-            volatile_before != prosenjitfs_crc32c(
-                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-            dirty_before != prosenjitfs_crc32c(
-                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
-            disk.data[byte_offset] = original_byte;
-            disk.volatile_data[byte_offset] = original_volatile_byte;
-            return pfs_selftest_fail(__LINE__, -4);
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                integrity_report.orphaned_blocks_reported != 1u ||
+                integrity_report.first_orphaned_block != orphan_block ||
+                integrity_report.first_error_location == 0u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                disk.data[byte_offset] = original_byte;
+                disk.volatile_data[byte_offset] = original_volatile_byte;
+                return pfs_selftest_fail(__LINE__, -4);
             }
             disk.data[byte_offset] = original_byte;
             disk.volatile_data[byte_offset] = original_volatile_byte;
