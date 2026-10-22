@@ -149,6 +149,12 @@ int pros_hw_stack_selftest(void) {
     c.init_rc=PROS_DRIVER_EIO;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EIO||c.calls!=2u)return -9;
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=PROS_DRIVER_ENODEV)return -10;
+    c.calls=0u; c.shutdown_rc=PROS_DRIVER_EIO;
+    if(pros_hw_endpoint_register(2u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EIO||c.calls!=2u)return -20;
+    if(pros_hw_endpoint_status(2u,PROS_HW_ENDPOINT_INPUT,&st)!=0||st.initialized)return -21;
+    c.shutdown_rc=0;
+    if(pros_hw_endpoint_unregister(2u,PROS_HW_ENDPOINT_INPUT)!=0)return -22;
+    if(pros_hw_endpoint_status(2u,PROS_HW_ENDPOINT_INPUT,&st)!=PROS_DRIVER_ENODEV)return -23;
     c.init_rc=0; c.calls=0u;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=0)return -11;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EBUSY)return -12;
