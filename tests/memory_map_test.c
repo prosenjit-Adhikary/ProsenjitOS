@@ -88,6 +88,35 @@ int main(void) {
     failures += check(physical_page_alloc() == 0x00100000ULL,
                       "allocator returns first available page");
 
+    uint64_t before_reinit = physical_memory_free_pages();
+    begin_info();
+    end_offset = append_map(overlapping, 2u, 0u);
+    append_end(end_offset);
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -6,
+                      "reinitialization cannot reset live allocator state");
+    failures += check(physical_memory_free_pages() == before_reinit,
+                      "rejected reinitialization preserves free-page accounting");
+
+    uint64_t user_page = physical_page_alloc_user();
+    failures += check(user_page != 0 &&
+                      physical_page_is_allocated(user_page) &&
+                      physical_page_is_user_mappable(user_page),
+                      "user allocation sets allocated and user-mappable state");
+    failures += check(!physical_page_is_user_mappable(user_page + 1u) &&
+                      !physical_page_is_user_mappable(0x40000000ULL),
+                      "invalid user-mapping queries are rejected safely");
+    if (user_page) {
+        uint64_t before_user_free = physical_memory_free_pages();
+        physical_page_free(user_page);
+        failures += check(!physical_page_is_user_mappable(user_page) &&
+                          !physical_page_is_allocated(user_page) &&
+                          physical_memory_free_pages() == before_user_free + 1u,
+                          "free clears user classification and restores accounting");
+        physical_page_free(user_page);
+        failures += check(physical_memory_free_pages() == before_user_free + 1u,
+                          "double free does not inflate free-page accounting");
+    }
+
     begin_info();
     struct test_mmap_tag *oversized =
         (struct test_mmap_tag *)(info + sizeof(struct test_info_header));
