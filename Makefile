@@ -29,7 +29,7 @@ desktop-abi-test:
 	bash scripts/test_desktop_abi.sh
 
 # Run all isolated desktop contract suites; neither target boots the OS.
-desktop-tests: desktop-unit-test desktop-abi-test
+desktop-tests: desktop-unit-test desktop-abi-test desktop-shared-test
 
 # Host-side tests for native device discovery and endpoint lifecycle contracts.
 hw-stack-test:
