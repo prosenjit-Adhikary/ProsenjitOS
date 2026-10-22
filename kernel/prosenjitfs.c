@@ -4125,6 +4125,23 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                               fs->sb.block_size;
     pfs_zero(header, fs->sb.block_size);
     pfs_zero(commit, fs->sb.block_size);
+    /*
+     * The transaction ID is currently a mount-local sequence, and the
+     * journal reuses commit slots. Retire the selected slot before publishing
+     * a new header so a previous mount's valid commit record cannot be
+     * mistaken for this transaction after a restart.
+     */
+    {
+        uint64_t commit_lba;
+        int rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start,
+                             1u + fs->tx.count, &commit_lba);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_write_block(fs->mount.device, commit_lba, commit);
+        if (rc == PROSENJITFS_OK)
+            rc = pfs_flush(fs->mount.device);
+        if (rc != PROSENJITFS_OK)
+            PFS_TX_RETURN(rc);
+    }
     pfs_zero(&h, sizeof(h));
     if (fs->sb.transaction_sequence == UINT64_MAX)
         PFS_TX_RETURN(PROSENJITFS_EOVERFLOW);
@@ -8012,6 +8029,74 @@ int prosenjitfs_selftest(void)
                 done != sizeof(old_data) ||
                 vfs_file_close(&file) != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
+
+            /*
+             * Simulate a reboot before this overwrite, which resets the
+             * mount-local transaction sequence. For the pre-commit-flush
+             * case, seed every possible commit slot with a valid stale record
+             * for transaction 1. The new transaction must invalidate its
+             * selected slot before writing a durable header/images; otherwise
+             * recovery could mistake the stale record for this transaction.
+             */
+            if (stage == 4u) {
+                struct pros_prosenjitfs_journal_header stale_header;
+                struct pros_prosenjitfs_journal_commit stale_commit;
+                uint8_t *stale_header_block = fs.scratch;
+                uint8_t *stale_images = fs.tx.images;
+                uint8_t *stale_commit_block =
+                    fs.tx.images + (uint64_t)PROSENJITFS_MAX_TX_BLOCKS *
+                                    fs.sb.block_size;
+
+                if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -13);
+
+                for (uint32_t count = 1u;
+                     count <= PROSENJITFS_MAX_TX_BLOCKS &&
+                     (uint64_t)count + 2u <= fs.sb.journal_blocks;
+                     ++count) {
+                    uint64_t commit_lba;
+                    pfs_zero(stale_header_block, fs.sb.block_size);
+                    pfs_zero(stale_images,
+                             PROSENJITFS_MAX_TX_BLOCKS * fs.sb.block_size);
+                    pfs_zero(stale_commit_block, fs.sb.block_size);
+                    pfs_zero(&stale_header, sizeof(stale_header));
+                    stale_header.magic = PROSENJITFS_JOURNAL_MAGIC;
+                    stale_header.record_count = count;
+                    stale_header.transaction_id = 1u;
+                    stale_header.targets[0] = fs.sb.data_start;
+                    pfs_copy(stale_header_block, &stale_header,
+                             sizeof(stale_header));
+                    stale_header.checksum = pfs_crc_with_zero32(
+                        stale_header_block, fs.sb.block_size,
+                        (uint32_t)offsetof(
+                            struct pros_prosenjitfs_journal_header, checksum));
+                    pfs_copy(stale_header_block, &stale_header,
+                             sizeof(stale_header));
+
+                    pfs_zero(&stale_commit, sizeof(stale_commit));
+                    stale_commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+                    stale_commit.record_count = count;
+                    stale_commit.transaction_id = 1u;
+                    pfs_copy(stale_commit_block, &stale_commit,
+                             sizeof(stale_commit));
+                    stale_commit.checksum = pfs_journal_checksum(
+                        stale_header_block, stale_images, fs.sb.block_size,
+                        count, stale_commit_block);
+                    pfs_copy(stale_commit_block, &stale_commit,
+                             sizeof(stale_commit));
+                    if (pfs_lba_add(&device, fs.sb.journal_start,
+                                    1u + count, &commit_lba) !=
+                            PROSENJITFS_OK ||
+                        pfs_write_block(&device, commit_lba,
+                                        stale_commit_block) !=
+                            PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -13);
+                }
+                if (pfs_flush(&device) != PROSENJITFS_OK ||
+                    fs.sb.transaction_sequence != 1u)
+                    return pfs_selftest_fail(__LINE__, -13);
+            }
 
             pfs_crash_inject_stage = stage;
             pfs_crash_injected = 0u;
