@@ -10728,6 +10728,97 @@ int prosenjitfs_selftest(void)
         }
     }
 
+    /*
+     * Recovery read errors at the journal header and first journal image
+     * must abort mount without retiring the committed journal. After the
+     * transient fault and simulated power loss, a later mount must replay
+     * the complete committed replacement.
+     */
+    {
+        static const uint64_t recovery_read_offsets[] = { 0u, 1u };
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint64_t journal_start;
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x35u ^ (uint8_t)(i * 7u));
+            new_data[i] = (uint8_t)(0xC7u ^ (uint8_t)(i * 13u));
+        }
+
+        for (uint32_t case_index = 0u;
+             case_index < sizeof(recovery_read_offsets) /
+                          sizeof(recovery_read_offsets[0]);
+             ++case_index) {
+            uint32_t done = 0u;
+            int write_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/recovery-read-fault.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            journal_start = fs.sb.journal_start;
+            pfs_crash_inject_stage = 9u;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery-read-fault.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO || done != 0u ||
+                pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            disk.fail_read_lba = journal_start + recovery_read_offsets[case_index];
+            disk.fail_read_lba_once = 1u;
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
+                disk.fail_read_lba_once != 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            /* The one-shot fault is consumed; recovery must be retryable. */
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery-read-fault.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+                if (read_data[i] != new_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+            }
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+    }
     pfs_selftest_diag_stage = __LINE__;
     /* Repeated persistence/reuse regression: 100 complete create/write/
      * unmount/remount/read/unlink/unmount/remount cycles on one image. */
