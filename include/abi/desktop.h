@@ -122,6 +122,12 @@ static inline int pros_desktop_message_fits(
 {
     uint64_t declared_bytes;
 
+    /*
+     * Do not dereference the header until the transport confirms that the
+     * complete fixed header was received.
+     */
+    if (header == 0 || received_bytes < sizeof(*header))
+        return 0;
     if (!pros_desktop_message_header_valid(header))
         return 0;
     declared_bytes = (uint64_t)header->struct_size +
