@@ -5250,6 +5250,8 @@ struct pfs_test_disk {
     uint32_t fail_flush_countdown;
     /* Persist the selected flush, then report an ambiguous I/O failure. */
     uint32_t fail_flush_after_persist_countdown;
+    /* Fail the selected future block write before any bytes land. */
+    uint32_t fail_write_countdown;
     /* Fail the next journal commit-record block write before any bytes land. */
     uint8_t fail_commit_write_once;
 };
@@ -5298,6 +5300,11 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
+    if (disk->fail_write_countdown != 0u) {
+        --disk->fail_write_countdown;
+        if (disk->fail_write_countdown == 0u)
+            return PROS_BLOCK_EIO;
+    }
     if (disk->fail_commit_write_once && count == 1u) {
         uint32_t magic = 0u;
         pfs_copy(&magic, buffer, sizeof(magic));
@@ -10069,6 +10076,91 @@ int prosenjitfs_selftest(void)
 
         done = 0u;
         if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != new_data[i])
+                return pfs_selftest_fail(__LINE__, -13);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
+     * Generic block-write failure before journal publication: the first write
+     * retires the selected commit slot. If that write fails before accepting
+     * bytes, the transaction is not published and the mount can retry safely.
+     * Verify no media change on failure, then retry and verify after remount.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        uint32_t durable_crc;
+        uint32_t volatile_crc;
+        uint32_t dirty_crc;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x19u ^ (uint8_t)(i * 3u));
+            new_data[i] = (uint8_t)(0xE3u ^ (uint8_t)(i * 11u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/precommit-write.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        durable_crc = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_crc = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_crc = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        disk.fail_write_countdown = 1u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/precommit-write.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_write_countdown != 0u ||
+            fs.read_only || fs.mount.read_only ||
+            durable_crc != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_crc != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_crc != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/precommit-write.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, new_data, sizeof(new_data), &done) !=
+                PROSENJITFS_OK ||
+            done != sizeof(new_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/precommit-write.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
             vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
                 PROS_VFS_OK ||
