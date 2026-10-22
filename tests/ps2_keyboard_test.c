@@ -82,14 +82,18 @@ int main(void)
     assert(pros_ps2_keyboard_poll(77u) == 1);
     assert(captured.count == 3u && captured.events[2].value0 == 0x148);
 
-    assert(pros_ps2_keyboard_test_push(0x21u, 0x33u) == PROS_DRIVER_OK); /* mouse/AUX */
+    /* An AUX byte between E0 and a key must clear the stale extended prefix. */
     assert(pros_ps2_keyboard_test_push(0x01u, 0xE0u) == PROS_DRIVER_OK);
-    assert(pros_ps2_keyboard_poll(77u) == 0); /* pending extended prefix */
-    assert(pros_ps2_keyboard_test_push(0x81u, 0x33u) == PROS_DRIVER_OK); /* parity error */
-    assert(pros_ps2_keyboard_poll(77u) == 0); /* clears partial prefix */
-    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x33u) == PROS_DRIVER_OK); /* mouse/AUX */
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x48u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == 1);
-    assert(captured.count == 4u && captured.events[3].value0 == 0x1E);
+    assert(captured.count == 4u && captured.events[3].value0 == 0x48);
+
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xE0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x81u, 0x33u) == PROS_DRIVER_OK); /* parity error */
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == 1); /* clears partial prefix on parity error */
+    assert(captured.count == 5u && captured.events[4].value0 == 0x1E);
 
     assert(pros_ps2_keyboard_test_push(0x01u, 0x00u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_EIO);
