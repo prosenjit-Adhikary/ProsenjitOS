@@ -5733,25 +5733,18 @@ static int pfs_selftest_consistency(
                 current = extent.next;
             }
             /*
-             * Every allocated extent must lie within the file's logical EOF.
-             * Sparse files may have holes before EOF, but an extent beyond
-             * ceil(size / block_size) is stale allocation or corrupt metadata.
-             * Compute the ceiling without adding block_size - 1 to an
-             * untrusted 64-bit size, which could overflow.
+             * Keep-size preallocation may legitimately extend beyond EOF,
+             * so EOF is not an extent-allocation boundary. However, no
+             * logical extent may exceed the maximum file range representable
+             * by the volume's data-block capacity.
              */
             {
-                uint64_t logical_blocks =
-                    inode.size / fs->sb.block_size +
-                    ((inode.size % fs->sb.block_size) != 0u ? 1u : 0u);
+                uint64_t max_logical_blocks =
+                    fs->sb.total_blocks - fs->sb.data_start;
                 if (allocated_bytes != inode.allocated_bytes ||
-                    logical_end > logical_blocks) {
+                    logical_end > max_logical_blocks) {
                     rc = -10004;
-                    /* Temporary diagnostic encoding for the CI self-test. */
-                    fail_line = logical_end > logical_blocks
-                              ? (uint32_t)(1000000u +
-                                  inode_number * 1000000u +
-                                  inode.size * 100u + logical_end)
-                              : __LINE__;
+                    fail_line = __LINE__;
                     goto consistency_out;
                 }
             }
@@ -6773,9 +6766,10 @@ int prosenjitfs_selftest(void)
         high_lba = second_extent.physical_block;
 
         /*
-         * Integrity regression: a checksum-valid extent beyond logical EOF
-         * must be rejected. Preserve the original extent block and compare
-         * all mock-media/cache views around the read-only scan.
+         * Integrity regression: a checksum-valid extent outside the volume's
+         * maximum logical file range must be rejected. Keep-size preallocation
+         * beyond EOF remains valid. Preserve the original extent block and
+         * compare all mock-media/cache views around the read-only scan.
          */
         {
             uint8_t original_extent_block[4096];
@@ -6793,7 +6787,8 @@ int prosenjitfs_selftest(void)
                      fs.sb.block_size);
             pfs_copy(&corrupt_extent, corrupt_extent_block,
                      sizeof(corrupt_extent));
-            corrupt_extent.logical_block = high_block + 1u;
+            corrupt_extent.logical_block =
+                fs.sb.total_blocks - fs.sb.data_start;
             corrupt_extent.checksum = 0u;
             pfs_copy(corrupt_extent_block, &corrupt_extent,
                      sizeof(corrupt_extent));
