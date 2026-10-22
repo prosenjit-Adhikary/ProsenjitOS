@@ -5883,6 +5883,9 @@ int prosenjitfs_selftest(void)
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
+    uint32_t integrity_durable_crc;
+    uint32_t integrity_volatile_crc;
+    uint32_t integrity_dirty_crc;
 
     /* Avoid a compiler-generated aggregate initializer obscuring early
      * crash diagnostics; make this initialization an explicit checkpoint. */
@@ -5924,7 +5927,19 @@ int prosenjitfs_selftest(void)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
-    if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+    integrity_durable_crc = prosenjitfs_crc32c(
+        disk.data, (uint32_t)sizeof(disk.data));
+    integrity_volatile_crc = prosenjitfs_crc32c(
+        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+    integrity_dirty_crc = prosenjitfs_crc32c(
+        disk.dirty, (uint32_t)sizeof(disk.dirty));
+    if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+        integrity_durable_crc != prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data)) ||
+        integrity_volatile_crc != prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+        integrity_dirty_crc != prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty)))
         return pfs_selftest_fail(__LINE__, -4);
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
