@@ -85,6 +85,7 @@ struct pros_app_manager {
     uint32_t count;
     uint32_t supported_features;
     uint32_t magic;
+    uint32_t transaction_active;
 };
 
 
