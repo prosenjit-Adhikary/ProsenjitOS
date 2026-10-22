@@ -162,7 +162,7 @@ int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
         (length & 0xFFFULL) != 0u ||
         length > (256ULL * 1024ULL * 1024ULL) ||
         physical_address > PAGE_MASK ||
-        length - 1ULL > PAGE_MASK - physical_address ||
+        length - 1ULL > (PAGE_MASK | 0xFFFULL) - physical_address ||
         length - 1ULL > UINT64_MAX - virtual_address)
         return -1;
     uint64_t last_va = virtual_address + length - 1ULL;
@@ -457,12 +457,14 @@ int paging_selftest(void) {
     if (paging_translate(mmio_va) != 0)
         return -8;
     if (paging_map_mmio_range(mmio_va, mmio_pa, 0x1001ULL) == 0 ||
-        paging_map_mmio_range(0x0000800000000000ULL, mmio_pa, 0x1000ULL) == 0)
+        paging_map_mmio_range(0x0000800000000000ULL, mmio_pa, 0x1000ULL) == 0 ||
+        paging_map_mmio_range(mmio_va, PAGE_MASK, 0x2000ULL) == 0 ||
+        paging_map_mmio_range(UINT64_MAX - 0xFFFULL, mmio_pa, 0x2000ULL) == 0)
         return -9;
 
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
-        return -6;
+        return -10;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -10;
