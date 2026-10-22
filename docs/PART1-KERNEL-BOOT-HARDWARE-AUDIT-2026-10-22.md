@@ -64,3 +64,14 @@ This is a remote source audit supplemented by actual GitHub Actions logs. CI evi
 - DMA/IOMMU: BLOCKED / not established.
 - Physical hardware/UEFI: NOT TESTED.
 - Overall Part 1 acceptance: NOT COMPLETE.
+
+
+## Addendum — CI rerun for audit head (2026-10-22)
+
+- Audit branch head tested: `5d1900fbe41e3aeb3b12ab7f2dd3240785a06ae0`.
+- PR merge-test commit used by GitHub Actions: `46e95e7376b3b1b5324cb81f438f3f345563a722`.
+- Build and boot-test workflow [run #7796](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39776529908): SUCCESS on Linux self-hosted runner `office`. Desktop manager unit tests, ISO build and ProsenjitFS block-init diagnostic passed. ISO QEMU and native BIOS QEMU required-marker checks passed.
+- Native BIOS serial log confirmed Multiboot/native handoff, x86-64 long mode, physical memory allocation/free, paging and heap deep-invariant tests, address-space isolation, syscall/security, process/thread/scheduler/IPC, ProsenjitFS format/mount/journal/recovery, ATA PIO -> MBR -> ProsenjitFS persistent mount, PCI enumeration, and CPL3 syscall/IPC markers.
+- Native BIOS QEMU exited with status 124 because the configured timeout terminated QEMU; required serial markers were checked and passed before the workflow concluded success. This is not an unlimited-duration boot or physical-hardware test.
+- Security architecture workflow [run #7332](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39776529531): SUCCESS for the audit head.
+- These CI results improve confidence in the existing boot/test path but do not close the remaining memory-map edge cases, full interrupt/scheduler/IPC audit, DMA/IOMMU safety, UEFI, or physical-hardware validation. No kernel source change was made.
