@@ -43,6 +43,13 @@ enum pros_desktop_audio_format {
     PROS_DESKTOP_AUDIO_F32_LE = 2u
 };
 
+enum pros_desktop_clipboard_mime {
+    PROS_DESKTOP_CLIPBOARD_MIME_TEXT_UTF8 = 1u,
+    PROS_DESKTOP_CLIPBOARD_MIME_URI_LIST = 2u,
+    PROS_DESKTOP_CLIPBOARD_MIME_PNG = 3u,
+    PROS_DESKTOP_CLIPBOARD_MIME_OCTET_STREAM = 4u
+};
+
 /* All messages are size-tagged; unknown flags/reserved values fail closed. */
 struct pros_desktop_message_header {
     uint32_t version;
@@ -132,7 +139,8 @@ static inline int pros_desktop_message_fits(
         return 0;
     declared_bytes = (uint64_t)header->struct_size +
                      (uint64_t)header->payload_size;
-    return declared_bytes <= received_bytes;
+    /* ABI v1 messages have no transport padding or implicit trailing bytes. */
+    return declared_bytes == received_bytes;
 }
 
 /* Reject zero-sized, oversized, and signed-coordinate overflow rectangles. */
@@ -167,7 +175,7 @@ static inline int pros_desktop_audio_request_valid(
     if (request == 0 || received_bytes < sizeof(*request) ||
         !pros_desktop_message_fits(&request->header, received_bytes) ||
         request->header.type != PROS_DESKTOP_MSG_AUDIO_SUBMIT ||
-        request->header.struct_size < sizeof(*request) ||
+        request->header.struct_size != sizeof(*request) ||
         request->reserved != 0u ||
         request->sample_rate < 8000u || request->sample_rate > 192000u ||
         request->channels == 0u || request->channels > 8u ||
@@ -195,7 +203,7 @@ static inline int pros_desktop_window_request_valid(
 
     if (request == 0 || received_bytes < sizeof(*request) ||
         !pros_desktop_message_fits(&request->header, received_bytes) ||
-        request->header.struct_size < sizeof(*request) ||
+        request->header.struct_size != sizeof(*request) ||
         request->header.payload_size != 0u ||
         request->header.type < PROS_DESKTOP_MSG_WINDOW_CREATE ||
         request->header.type > PROS_DESKTOP_MSG_WINDOW_FOCUS ||
@@ -219,7 +227,12 @@ static inline int pros_desktop_window_request_valid(
     return 1;
 }
 
-/* Validate key/pointer event envelopes and reject undefined flag bits. */
+/*
+ * Validate key/pointer event envelopes and reject undefined flag bits.
+ * For pointer events, x/y are absolute desktop coordinates unless RELATIVE
+ * is set; RELATIVE means signed deltas from the previous pointer position.
+ * RELATIVE is never valid for keyboard events.
+ */
 static inline int pros_desktop_input_event_valid(
     const struct pros_desktop_input_event *event,
     uint64_t received_bytes)
@@ -232,7 +245,7 @@ static inline int pros_desktop_input_event_valid(
 
     if (event == 0 || received_bytes < sizeof(*event) ||
         !pros_desktop_message_fits(&event->header, received_bytes) ||
-        event->header.struct_size < sizeof(*event) ||
+        event->header.struct_size != sizeof(*event) ||
         event->header.payload_size != 0u ||
         (event->header.type != PROS_DESKTOP_MSG_INPUT_KEY &&
          event->header.type != PROS_DESKTOP_MSG_INPUT_POINTER))
@@ -269,6 +282,8 @@ static inline int pros_desktop_clipboard_request_valid(
         (request->header.type != PROS_DESKTOP_MSG_CLIPBOARD_READ &&
          request->header.type != PROS_DESKTOP_MSG_CLIPBOARD_WRITE) ||
         request->reserved != 0u ||
+        request->mime_type < PROS_DESKTOP_CLIPBOARD_MIME_TEXT_UTF8 ||
+        request->mime_type > PROS_DESKTOP_CLIPBOARD_MIME_OCTET_STREAM ||
         !pros_desktop_clipboard_size_valid(request->header.payload_size))
         return 0;
     if (request->header.type == PROS_DESKTOP_MSG_CLIPBOARD_READ &&
