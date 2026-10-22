@@ -121,3 +121,21 @@ int pros_app_format_compatible_with_backend(uint32_t backend,
                format == PROS_APP_FORMAT_ELF64;
     return 0;
 }
+
+int pros_app_check_binary_backend(uint32_t backend,
+                                  const uint8_t *data,
+                                  uint32_t length,
+                                  enum pros_app_file_format *format_out)
+{
+    int rc;
+
+    if (!format_out)
+        return -1;
+    rc = pros_app_detect_format(data, length, format_out);
+    if (rc != 0)
+        return rc;
+    if (*format_out == PROS_APP_FORMAT_UNKNOWN ||
+        !pros_app_format_compatible_with_backend(backend, *format_out))
+        return -3;
+    return 0;
+}
