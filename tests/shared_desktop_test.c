@@ -19,4 +19,4 @@ C(pros_sd_validate_request(&r.header,sizeof(r))==PROS_SD_EINVAL,30);
 r.header.flags=0; r.header.type=PROS_DESKTOP_MSG_FRAME_PRESENT;
 C(pros_sd_validate_request(&r.header,sizeof(r))==PROS_SD_ENOTSUP,31);
 }
-memset(&e,0,sizeof(e));e.abi_version=99;e.struct_size=sizeof(e);e.type=PROS_SD_EVENT_KEY;C(pros_sd_validate_event(&e)==PROS_SD_EINVAL,32);puts("shared desktop integration tests passed (host state model only)");return 0;}
+memset(&e,0,sizeof(e));e.abi_version=99;e.struct_size=sizeof(e);e.type=PROS_SD_EVENT_KEY;C(pros_sd_validate_event(&e)==PROS_SD_EINVAL,32);C(pros_sd_connect(&c,202,PROS_SD_NATIVE,0)==0,33);C(pros_sd_window_create(&c,202,&w1)==0,34);puts("shared desktop integration tests passed (host state model only)");return 0;}
