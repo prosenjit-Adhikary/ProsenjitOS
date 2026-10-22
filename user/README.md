@@ -33,6 +33,9 @@ unit tests with:
 
 ```sh
 make desktop-unit-test
+make desktop-abi-test
+# or run both isolated suites:
+make desktop-tests
 ```
 
 The test target compiles only the DML registry and its unit tests; it does not

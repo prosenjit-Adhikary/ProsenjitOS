@@ -36,12 +36,13 @@ jobs:
             fi
           done
 
-      - name: Validate desktop scripts and run DML unit tests
+      - name: Validate desktop scripts and run desktop contract tests
         run: |
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+          bash -n scripts/test_desktop_abi.sh
+          make desktop-tests
 
       - name: Build ISO
         run: |

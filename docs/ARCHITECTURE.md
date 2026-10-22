@@ -257,3 +257,10 @@ Handle duplication is now routed through the same intent-aware security pipeline
 ## IPC
 
 The kernel now has a bounded IPC channel object (`PROS_OBJECT_IPC`) with eight 64-byte message slots. Existing capability handles authorize READ, WRITE, DUPLICATE, and TRANSFER access to the channel. CPL3 capability-mediated send/receive syscalls, complete user-range validation, blocking receive with scheduler handoff/wakeup, endpoint transfer, queue/waiter locking, and fault-recoverable user-copy are implemented and covered by kernel/QEMU regression markers. User-space channel creation and lifecycle ownership remain future work.
+
+
+## Single-desktop execution architecture — Part 1
+
+The target user experience is one ProsenjitOS desktop shared by native and supported Windows applications. Native ELF and Windows PE applications retain separate user-space execution subsystems; only their window/display/input/clipboard/audio integration is shared. Desktop policy, compositor, shell, and compatibility runtimes must not be placed in kernel-core.
+
+The source-backed implementation matrix, stable ABI rules, ownership, lifecycle, error handling, security boundaries, and acceptance gate are maintained in [DESKTOP-ARCHITECTURE-FOUNDATION.md](DESKTOP-ARCHITECTURE-FOUNDATION.md). That document distinguishes implemented primitives from partial foundations, missing runtime components, and unverified hardware/session behavior. Architecture documentation and ABI declarations do not by themselves establish a working desktop or Windows application compatibility.
