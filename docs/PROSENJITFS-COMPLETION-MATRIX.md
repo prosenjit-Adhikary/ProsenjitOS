@@ -1,5 +1,12 @@
 # ProsenjitFS Completion Matrix — 2026-10-22
 
+## Latest verification update — 2026-10-22 12:51 UTC
+
+- PR #165 (conflicting redundant-superblock probe behavior) merged as `6dd990b380f5ac1d0b7aa8df68dae4cb461b7d86`. Its exact PR head had passing security and build/boot workflows; the merge commit's own main-branch build/boot and security workflows are now running. Do not mark the merge commit verified until both finish successfully.
+- Main commit `4c6f473f336971da515847a595cd5e9d0032875e` passed build/boot-test #7838 on self-hosted runner `office`: desktop script validation, DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot all passed. Security architecture checks #7374 also passed.
+- PR #163 (unknown v1 feature flags) still has green checks on its own head, but remains a draft and has not been merged. Its change overlaps `kernel/prosenjitfs.c` with the superblock-probe work, so integrate/revalidate against the new main head before merge.
+- PR #142 remains a diagnostic-only branch with a recorded native BIOS QEMU boot failure on its own head. Do not treat the passing descendant-main boot as proof that this separate diagnostic branch is fixed.
+
 ## Purpose and baseline
 
 This is a source-grounded tracking document, not a declaration that ProsenjitFS is production-complete. The inspection baseline for the integrity-scan implementation is branch
