@@ -44,9 +44,11 @@ jobs:
           bash -n scripts/test_desktop_abi.sh
           bash -n scripts/test_hw_stack.sh
           bash -n scripts/test_ps2_keyboard.sh
+          bash -n scripts/test_input_service.sh
           make desktop-tests
           make hw-stack-test
           make ps2-keyboard-test
+          make input-service-test
 
       - name: Build ISO
         run: |
