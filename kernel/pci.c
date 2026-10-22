@@ -166,16 +166,36 @@ int pci_decode_bar(uint8_t index, uint8_t bar_count, uint32_t low,
 int pci_read_bar(const struct pros_pci_device *device, uint8_t index,
                  struct pros_pci_bar *out)
 {
-    uint8_t header_type, bar_count;
-    uint32_t low, high = 0u;
+    uint8_t header_type, bar_count, previous;
+    uint32_t low, high = 0u, header_word;
     if (!device || !out || device->slot >= 32u || device->function >= 8u)
         return PROS_PCI_EINVAL;
-    header_type = (uint8_t)(device->header_type & 0x7Fu);
+    if (pci_config_read32(device->bus, device->slot, device->function,
+                          0x0Cu, &header_word) != PROS_PCI_OK)
+        return PROS_PCI_EINVAL;
+    header_type = (uint8_t)((header_word >> 16) & 0x7Fu);
     if (header_type == 0u) bar_count = 6u;
     else if (header_type == 1u) bar_count = 2u;
     else if (header_type == 2u) bar_count = 1u;
     else return PROS_PCI_ENOTSUP;
     if (index >= bar_count) return PROS_PCI_EINVAL;
+
+    /* A 64-bit BAR consumes the following slot; never decode its high half. */
+    for (previous = 0u; previous < index;) {
+        uint32_t previous_low;
+        if (pci_config_read32(device->bus, device->slot, device->function,
+                              (uint8_t)(0x10u + (uint32_t)previous * 4u),
+                              &previous_low) != PROS_PCI_OK)
+            return PROS_PCI_EINVAL;
+        if (previous_low != 0u && previous_low != UINT32_MAX &&
+            !(previous_low & 1u) && (((previous_low >> 1) & 3u) == 2u)) {
+            if ((uint32_t)previous + 1u == index)
+                return PROS_PCI_EINVAL;
+            previous = (uint8_t)(previous + 2u);
+        } else {
+            ++previous;
+        }
+    }
 
     if (pci_config_read32(device->bus, device->slot, device->function,
                           (uint8_t)(0x10u + (uint32_t)index * 4u), &low) != PROS_PCI_OK)
