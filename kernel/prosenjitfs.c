@@ -5252,6 +5252,9 @@ struct pfs_test_disk {
     uint32_t fail_flush_after_persist_countdown;
     /* Fail the selected future block write before any bytes land. */
     uint32_t fail_write_countdown;
+    /* Fail the first home-block write after a commit record is accepted. */
+    uint8_t fail_home_write_after_commit_once;
+    uint8_t commit_record_seen_for_home_failure;
     /* Fail the next journal commit-record block write before any bytes land. */
     uint8_t fail_commit_write_once;
 };
@@ -5300,6 +5303,12 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
+    if (disk->fail_home_write_after_commit_once &&
+        disk->commit_record_seen_for_home_failure) {
+        disk->fail_home_write_after_commit_once = 0u;
+        disk->commit_record_seen_for_home_failure = 0u;
+        return PROS_BLOCK_EIO;
+    }
     if (disk->fail_write_countdown != 0u) {
         --disk->fail_write_countdown;
         if (disk->fail_write_countdown == 0u)
@@ -5319,6 +5328,12 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
                  (const uint8_t *)buffer + (uint64_t)i * 512u,
                  512u);
         pfs_test_mark_dirty(disk, current);
+    }
+    if (disk->fail_home_write_after_commit_once && count == 1u) {
+        uint32_t magic = 0u;
+        pfs_copy(&magic, buffer, sizeof(magic));
+        if (magic == PROSENJITFS_JOURNAL_COMMIT)
+            disk->commit_record_seen_for_home_failure = 1u;
     }
     return PROS_BLOCK_OK;
 }
@@ -10230,6 +10245,70 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -13);
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != old_data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
+     * Home-block write failure after the commit record is durable. The mock
+     * rejects the first following block write; power loss then remount must
+     * replay the committed journal and expose the new file contents.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x35u ^ (uint8_t)(i * 9u));
+            new_data[i] = (uint8_t)(0xA7u ^ (uint8_t)(i * 13u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/home-write-failure.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_home_write_after_commit_once = 1u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/home-write-failure.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_home_write_after_commit_once != 0u ||
+            disk.commit_record_seen_for_home_failure != 0u ||
+            !fs.read_only || !fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/home-write-failure.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != new_data[i]) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -13);
             }
