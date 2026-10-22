@@ -79,9 +79,14 @@ int pros_hw_endpoint_register(uint32_t id, enum pros_hw_endpoint_type type,
     if (rc!=PROS_DRIVER_OK) {
         endpoints[n].last_error=rc;
         int cleanup=ops->shutdown(ctx);
+        if (cleanup!=PROS_DRIVER_OK) {
+            /* Preserve ownership so a failed partial-init cleanup can be retried. */
+            endpoints[n].last_error=cleanup;
+            return PROS_DRIVER_EIO;
+        }
         endpoints[n].used=0u; endpoints[n].ops=0; endpoints[n].context=0;
         endpoints[n].device_id=0u; endpoints[n].initialized=0u;
-        return cleanup==PROS_DRIVER_OK ? rc : PROS_DRIVER_EIO;
+        return rc;
     }
     endpoints[n].initialized=1u;
     return PROS_DRIVER_OK;
