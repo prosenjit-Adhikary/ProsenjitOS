@@ -176,3 +176,12 @@ Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded s
 - `paging_selftest()` forces allocation failure after 0, 1, and 2 successful intermediate-table allocations, exercising failure at each of the three levels for an otherwise unmapped kernel virtual-address subtree.
 - Each case asserts mapping failure, no resulting translation, and exact restoration of allocator free-page accounting. Fault injection is disabled/reset after each attempt and is not exposed as a public kernel API.
 - CI must pass on this latest head before these new cases are considered verified. Physical hardware and actual SMP behavior remain separate validation requirements.
+
+
+## Follow-up — interrupt entry source-structure regression guards
+
+- Commit `2a58cbfffb2d475ed399ffac7677679ec1dfcc93` expands `scripts/test_interrupt_vectors.sh`.
+- In addition to the existing architectural error-code vector checks, the script now checks that the syscall, timer IRQ and common exception entry blocks each contain saves/restores for all 15 general-purpose registers and explicitly align the temporary C-call stack.
+- The script also guards restoration of the saved interrupt-frame pointer and checks that the timer entry retains a PIC EOI call.
+- This is a static source-structure regression test. It does **not** execute injected register sentinels or prove actual IST delivery, stack bounds, nested exceptions, or scheduler-switch correctness. Those remain open acceptance gates.
+- Build/boot and security workflows must pass on the resulting branch head before this follow-up is considered CI-verified. Part 1 remains **PARTIAL / NOT COMPLETE**.
