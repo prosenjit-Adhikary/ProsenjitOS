@@ -4102,7 +4102,16 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
     struct pros_prosenjitfs_journal_header h;
     struct pros_prosenjitfs_journal_commit c;
     uint32_t checksum;
-#define PFS_TX_RETURN(value) do { int pfs_tx_return_rc = (value); (void)pfs_tx_reset(fs); return pfs_tx_return_rc; } while (0)
+    uint8_t commit_may_be_durable = 0u;
+#define PFS_TX_RETURN(value) do { \
+    int pfs_tx_return_rc = (value); \
+    if (pfs_tx_return_rc != PROSENJITFS_OK && commit_may_be_durable && fs) { \
+        fs->read_only = 1u; \
+        fs->mount.read_only = 1u; \
+    } \
+    (void)pfs_tx_reset(fs); \
+    return pfs_tx_return_rc; \
+} while (0)
 
     pfs_tx_diag_stage = 1u;
     pfs_tx_diag_count = 0u;
@@ -4218,6 +4227,12 @@ static int pfs_tx_commit(struct pros_prosenjitfs *fs)
                 PFS_TX_RETURN(rc);
         }
             {
+            /*
+             * From the first commit-slot write attempt onward, a device error
+             * may leave a valid or partially durable commit record. Any
+             * failure must force this mount read-only until remount recovery.
+             */
+            commit_may_be_durable = 1u;
             int rc = pfs_write_block(fs->mount.device, commit_lba, commit);
             if (rc == PROSENJITFS_OK)
                 rc = pfs_flush(fs->mount.device);
@@ -8110,7 +8125,11 @@ int prosenjitfs_selftest(void)
             if (vfs_file_close(&file) != PROS_VFS_OK ||
                 write_rc != PROS_VFS_EIO ||
                 done != 0u ||
-                pfs_crash_injected == 0u) {
+                pfs_crash_injected == 0u ||
+                (stage >= 5u &&
+                 (!fs.read_only || !fs.mount.read_only)) ||
+                (stage < 5u &&
+                 (fs.read_only || fs.mount.read_only))) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -13);
             }
