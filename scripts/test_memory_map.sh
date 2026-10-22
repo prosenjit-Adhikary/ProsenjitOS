@@ -7,7 +7,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 "$CC_BIN" \
-  -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+  -std=c11 -Wall -Wextra -Werror -pedantic -O2 -pthread \
   -I"$ROOT/kernel/include" \
   "$ROOT/tests/memory_map_test.c" \
   -o "$TMP_DIR/memory_map_test"
