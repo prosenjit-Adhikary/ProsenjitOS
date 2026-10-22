@@ -234,9 +234,18 @@ static inline int pros_desktop_input_event_valid(
         (flags & (PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_RELEASE)) ==
             (PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_RELEASE))
         return 0;
-    if (event->header.type == PROS_DESKTOP_MSG_INPUT_KEY &&
-        (flags & PROS_DESKTOP_INPUT_RELATIVE) != 0u)
+    if (event->header.type == PROS_DESKTOP_MSG_INPUT_KEY) {
+        uint32_t edge = flags & (PROS_DESKTOP_INPUT_PRESS |
+                                 PROS_DESKTOP_INPUT_RELEASE);
+        if ((flags & PROS_DESKTOP_INPUT_RELATIVE) != 0u ||
+            (edge != PROS_DESKTOP_INPUT_PRESS &&
+             edge != PROS_DESKTOP_INPUT_RELEASE) ||
+            ((flags & PROS_DESKTOP_INPUT_REPEAT) != 0u &&
+             edge != PROS_DESKTOP_INPUT_PRESS))
+            return 0;
+    } else if ((flags & PROS_DESKTOP_INPUT_REPEAT) != 0u) {
         return 0;
+    }
     return 1;
 }
 
