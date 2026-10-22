@@ -1,6 +1,13 @@
 # ProsenjitFS Completion Matrix — 2026-10-22
 
-## Latest verification update — 2026-10-22 13:00 UTC
+## Latest verification update — 2026-10-22 13:07 UTC
+
+- PR #193 fixed a diagnostic contract bug in the report-only integrity scanner: allocated inode bitmap + FREE inode record previously returned `-20000 - inode_number`, which the public wrapper incorrectly decoded as a source line. It now returns corruption with the actual checker source line and has a targeted regression. PR #193 merged as `0e61bc728f1eb0fe5cf3a701de806d98a04bfeb0`.
+- Exact PR head `7a3ff53146aa9685d3becc0d304b62f16e8d01d4` passed build/boot-test [#39783774495](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39783774495) and security architecture [#39783774327](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39783774327). Build steps including ISO build, filesystem diagnostics, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- The merge-commit checks are running: build/boot-test [#39784112761](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39784112761) and security architecture [#39784112757](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39784112757). The security check passed; ISO QEMU passed on the build job and native BIOS QEMU was still pending at the last poll. Do not call the merge SHA fully verified until the build workflow finishes.
+- PRs #170 and #179 are merged. PRs #172 and #173 were closed as superseded by #179, not independently merged. Issue #166 remains open for staged integrity/recovery follow-up.
+- PRs #167 and #168 contain earlier, overlapping versions of the read-only/structured integrity API; their feature scope has since been consolidated and extended through #179 and #193. These stale branches conflict with current main and should not be used as merge candidates.
+- PR #142 remains a diagnostic-only branch with a recorded native BIOS QEMU boot failure on its own head. Do not treat passing descendant-main boot tests as proof that this separate branch is fixed.
 
 - Current `main` commit `141f63ae7c79ab85252fab84f8fc44bc05bfdf8d` (`docs(prosenjitfs): record green feature-mask verification`) passed build/boot-test [#39782771424](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771424) and security architecture [#39782771420](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771420).
 - The build/boot job ran on self-hosted runner `office`. Verified steps: toolchain validation, desktop script checks, DML unit tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS QEMU boot all passed.
@@ -73,7 +80,14 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Automatic repair and orphan reclamation remain deliberately deferred; a report-only candidate is not safe to free without a separately reviewed, crash-safe and resumable repair design.
 
 
-## Verification update — 2026-10-22 13:00 UTC
+## Verification update — 2026-10-22 13:07 UTC
+
+- Main merge commit: `0e61bc728f1eb0fe5cf3a701de806d98a04bfeb0`.
+- Exact PR head `7a3ff53146aa9685d3becc0d304b62f16e8d01d4` passed build/boot-test [#39783774495](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39783774495) and security architecture [#39783774327](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39783774327).
+- Merge-commit build/boot-test [#39784112761](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39784112761) and security architecture [#39784112757](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39784112757) were triggered. Security passed; build was still executing its final native BIOS QEMU boot when last checked.
+- The regression now guarantees that allocated-bitmap/free-inode corruption is not mistaken for a synthetic source-line encoding and that the report has a bounded source-line location.
+- This is a green exact-PR-head milestone, not a declaration of production-complete filesystem behavior. Remaining acceptance work includes injected read/write/flush failures, mutation rollback and persistence/remount coverage, report error-classification review, adversarial namespace/link semantics, caller serialization review, and physical-device durability validation.
+- Automatic orphan repair/reclamation remains deferred. QEMU and mock-device tests do not prove physical power-loss durability. PR #142's own branch remains independently unverified/failing.
 
 - Current main: `141f63ae7c79ab85252fab84f8fc44bc05bfdf8d`.
 - Build and boot-test [#39782771424](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771424): **PASS** on self-hosted runner `office`; desktop script validation, DML tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS QEMU boot all succeeded.
