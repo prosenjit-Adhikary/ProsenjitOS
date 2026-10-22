@@ -282,7 +282,11 @@ int pros_hw_display_present(uint32_t id, uint32_t width, uint32_t height,
     expected=(uint64_t)stride*height;
     if (expected>PROS_HW_TRANSFER_MAX || expected!=length)
         return PROS_DRIVER_EINVAL;
-    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_DISPLAY,pixels,length);
+    struct pros_hw_display_frame frame = {
+        PROS_HW_STACK_ABI_VERSION, width, height, stride, format, pixels, length
+    };
+    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_DISPLAY,&frame,
+                                   (uint32_t)sizeof(frame));
 }
 int pros_hw_input_send(uint32_t id, const struct pros_hw_input_event *e) {
     uint32_t edge;
@@ -313,7 +317,9 @@ int pros_hw_audio_write(uint32_t id, const struct pros_hw_audio_format *f,
     else return PROS_DRIVER_ENOTSUP;
     frame_bytes=f->channels*bytes_per_sample;
     if (length%frame_bytes!=0u) return PROS_DRIVER_EINVAL;
-    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_AUDIO,samples,length);
+    struct pros_hw_audio_buffer buffer = {*f,samples,length};
+    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_AUDIO,&buffer,
+                                   (uint32_t)sizeof(buffer));
 }
 struct selftest_context { int init_rc, transfer_rc, shutdown_rc; uint32_t calls; };
 static uint8_t selftest_reenter_unregister;

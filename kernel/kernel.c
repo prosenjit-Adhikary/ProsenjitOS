@@ -23,6 +23,7 @@
 #include "device_broker.h"
 #include "display.h"
 #include "hw_stack.h"
+#include "framebuffer.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -1154,6 +1155,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: native graphics/input/audio endpoint contract self-test passed\n");
+
+    {
+        int framebuffer_rc = pros_framebuffer_init(boot_magic, (uint64_t)boot_info);
+        if (framebuffer_rc == PROS_DRIVER_OK) {
+            struct pros_framebuffer_info info;
+            if (pros_framebuffer_get_info(&info) == PROS_DRIVER_OK) {
+                serial_write("ProsenjitOS: Multiboot framebuffer endpoint initialized; width = ");
+                serial_hex64(info.width);
+                serial_write("; height = ");
+                serial_hex64(info.height);
+                serial_write("\n");
+            }
+        } else if (framebuffer_rc == PROS_DRIVER_ENOTSUP) {
+            serial_write("ProsenjitOS: no supported boot framebuffer; legacy text console retained\n");
+        } else {
+            serial_write("ProsenjitOS: boot framebuffer unavailable rc=");
+            serial_hex64((uint64_t)(int64_t)framebuffer_rc);
+            serial_write("\n");
+        }
+    }
 
     if (pros_display_selftest() != PROS_DRIVER_OK) {
         serial_write("ProsenjitOS: ERROR display-device binding self-test failed\n");

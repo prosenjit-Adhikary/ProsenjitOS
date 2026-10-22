@@ -12,6 +12,15 @@ mb2_header:
     dd mb2_header_end - mb2_header
     dd -(0xE85250D6 + 0 + (mb2_header_end - mb2_header))
 
+    ; Request an optional 1024x768x32 framebuffer from Multiboot2 loaders.
+    dw 5
+    dw 0
+    dd 20
+    dd 1024
+    dd 768
+    dd 32
+    dd 0                       ; pad tag to the next 8-byte boundary
+
     ; End tag
     dw 0
     dw 0

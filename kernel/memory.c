@@ -2,6 +2,7 @@
 
 #define MULTIBOOT2_TAG_END 0u
 #define MULTIBOOT2_TAG_MMAP 6u
+#define MULTIBOOT2_TAG_FRAMEBUFFER 8u
 #define MULTIBOOT2_MEMORY_AVAILABLE 1u
 
 #define MAX_PAGES (PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE)
@@ -18,6 +19,18 @@ struct multiboot_tag_mmap {
     uint32_t entry_size;
     uint32_t entry_version;
 };
+
+struct multiboot_tag_framebuffer {
+    uint32_t type;
+    uint32_t size;
+    uint64_t address;
+    uint32_t pitch;
+    uint32_t width;
+    uint32_t height;
+    uint8_t bpp;
+    uint8_t framebuffer_type;
+    uint16_t reserved;
+} __attribute__((packed));
 
 struct multiboot_mmap_entry {
     uint64_t base_addr;
@@ -142,6 +155,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     if (multiboot_info_address > UINT64_MAX - (uint64_t)total_size)
         return -2;
 
+    uint64_t framebuffer_base = 0u;
+    uint64_t framebuffer_length = 0u;
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
 
@@ -149,6 +164,18 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         const struct multiboot_tag *tag = (const struct multiboot_tag *)(uintptr_t)current;
         if (tag->type == MULTIBOOT2_TAG_END) break;
         if (tag->size < 8u || current + tag->size > end) return -3;
+
+        if (tag->type == MULTIBOOT2_TAG_FRAMEBUFFER &&
+            tag->size >= sizeof(struct multiboot_tag_framebuffer)) {
+            const struct multiboot_tag_framebuffer *fb =
+                (const struct multiboot_tag_framebuffer *)tag;
+            uint64_t bytes = (uint64_t)fb->pitch * (uint64_t)fb->height;
+            if (fb->pitch != 0u && fb->height != 0u &&
+                bytes != 0u && bytes <= UINT64_MAX - fb->address) {
+                framebuffer_base = fb->address;
+                framebuffer_length = bytes;
+            }
+        }
 
         if (tag->type == MULTIBOOT2_TAG_MMAP) {
             const struct multiboot_tag_mmap *mmap =
@@ -183,6 +210,10 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     reserve_range(0, 0x100000ULL);
     reserve_range((uint64_t)(uintptr_t)__kernel_start,
                   (uint64_t)((uintptr_t)__kernel_end - (uintptr_t)__kernel_start));
+
+    /* The bootloader framebuffer must never be returned as ordinary RAM. */
+    if (framebuffer_length != 0u)
+        reserve_range(framebuffer_base, framebuffer_length);
 
     /* The Multiboot information structure must remain readable by the kernel. */
     reserve_range(multiboot_info_address, total_size);

@@ -25,6 +25,16 @@ struct pros_hw_input_event {
 struct pros_hw_audio_format {
     uint32_t version, sample_rate, channels, sample_format;
 };
+struct pros_hw_display_frame {
+    uint32_t version, width, height, stride, format;
+    const void *pixels;
+    uint32_t length;
+};
+struct pros_hw_audio_buffer {
+    struct pros_hw_audio_format format;
+    const void *samples;
+    uint32_t length;
+};
 enum pros_hw_endpoint_type { PROS_HW_ENDPOINT_DISPLAY=1, PROS_HW_ENDPOINT_INPUT=2, PROS_HW_ENDPOINT_AUDIO=3 };
 enum pros_hw_resource_type { PROS_HW_RESOURCE_MMIO=1, PROS_HW_RESOURCE_IOPORT=2, PROS_HW_RESOURCE_IRQ=3, PROS_HW_RESOURCE_DMA=4 };
 struct pros_hw_resource { uint32_t version, type; uint64_t base, length; uint32_t irq, flags; };
