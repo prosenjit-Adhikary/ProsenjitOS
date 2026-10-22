@@ -47,6 +47,9 @@ struct fake_storage {
     uint32_t stage_calls;
     uint32_t publish_calls;
     uint32_t rollback_calls;
+    struct pros_app_manager *manager;
+    const char *reentry_app_id;
+    int reentry_result;
 };
 
 static int fake_stage(void *context,
@@ -55,6 +58,9 @@ static int fake_stage(void *context,
     struct fake_storage *storage = (struct fake_storage *)context;
     (void)manifest;
     ++storage->stage_calls;
+    if (storage->manager && storage->reentry_app_id)
+        storage->reentry_result =
+            pros_app_mark_verified(storage->manager, storage->reentry_app_id);
     return storage->stage_result;
 }
 
@@ -140,8 +146,15 @@ int main(void)
         CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 60);
         CHECK(pros_app_mark_verified(&manager, "transaction-ok") ==
               PROS_APP_OK, 61);
+        storage.manager = &manager;
+        storage.reentry_app_id = "transaction-untrusted";
+        storage.reentry_result = PROS_APP_OK;
         CHECK(pros_app_install_transaction(&manager, "transaction-ok", &ops)
               == PROS_APP_OK, 62);
+        CHECK(storage.reentry_result == PROS_APP_ESTATE, 94);
+        CHECK(pros_app_get(&manager, "transaction-untrusted", &output) ==
+              PROS_APP_OK &&
+              output.trust_state == PROS_APP_TRUST_UNKNOWN, 95);
         CHECK(storage.stage_calls == 1u, 63);
         CHECK(storage.publish_calls == 1u, 64);
         CHECK(storage.rollback_calls == 0u, 65);
