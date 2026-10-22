@@ -31,8 +31,9 @@ concurrency:
 jobs:
   app-unit-tests:
     name: Compile and run bounded Apps Handler tests
-    # GitHub-hosted runner only. Never route this job to the retired OfficeWindows runner.
-    runs-on: ubuntu-latest
+    # Use the project's Linux x64 self-hosted runner pool, never the retired OfficeWindows runner.
+    # The Linux labels exclude a Windows-only runner.
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     steps:
       - name: Check out source
