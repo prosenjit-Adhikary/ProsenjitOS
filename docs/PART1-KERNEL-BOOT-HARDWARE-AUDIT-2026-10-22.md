@@ -168,3 +168,11 @@ Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded s
 - A rejected duplicate mapping now explicitly verifies that the original virtual-to-physical translation remains unchanged and allocator free-page accounting does not drift.
 - Unmapping now has an explicit regression assertion that the caller-owned leaf physical page remains allocated; page-table unmapping does not imply ownership transfer.
 - These checks run as part of the existing QEMU paging deep-invariant self-test. They do not yet replace deterministic allocation-failure injection for every intermediate page-table allocation branch. Final CI for this follow-up must be checked before claiming verification.
+
+
+## Follow-up — deterministic page-table allocation-failure injection
+
+- Commit `80dd711223ab1c1a9b0efe46e94c2be1b5573bdc` adds a private, self-test-only allocation fault injector around page-table allocation.
+- `paging_selftest()` forces allocation failure after 0, 1, and 2 successful intermediate-table allocations, exercising failure at each of the three levels for an otherwise unmapped kernel virtual-address subtree.
+- Each case asserts mapping failure, no resulting translation, and exact restoration of allocator free-page accounting. Fault injection is disabled/reset after each attempt and is not exposed as a public kernel API.
+- CI must pass on this latest head before these new cases are considered verified. Physical hardware and actual SMP behavior remain separate validation requirements.
