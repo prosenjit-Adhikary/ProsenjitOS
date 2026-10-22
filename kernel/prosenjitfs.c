@@ -7205,6 +7205,72 @@ int prosenjitfs_selftest(void)
         }
 
         /*
+         * Extent-chain cycle regression: make the second extent point to
+         * itself with a valid checksum. The ownership scan must detect the
+         * repeated extent-metadata block and remain read-only.
+         */
+        {
+            uint8_t original_extent_block[4096];
+            uint8_t corrupt_extent_block[4096];
+            struct pros_prosenjitfs_extent corrupt_extent;
+            uint64_t extent_lba = first_extent.next;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (extent_lba == 0u ||
+                pfs_read_block(fs.mount.device, extent_lba,
+                               original_extent_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            pfs_copy(corrupt_extent_block, original_extent_block,
+                     fs.sb.block_size);
+            pfs_copy(&corrupt_extent, corrupt_extent_block,
+                     sizeof(corrupt_extent));
+            corrupt_extent.next = extent_lba;
+            corrupt_extent.checksum = 0u;
+            pfs_copy(corrupt_extent_block, &corrupt_extent,
+                     sizeof(corrupt_extent));
+            corrupt_extent.checksum = pfs_crc_with_zero32(
+                corrupt_extent_block, sizeof(corrupt_extent),
+                (uint32_t)offsetof(struct pros_prosenjitfs_extent, checksum));
+            pfs_copy(corrupt_extent_block, &corrupt_extent,
+                     sizeof(corrupt_extent));
+
+            if (pfs_write_block(fs.mount.device, extent_lba,
+                                corrupt_extent_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, extent_lba,
+                                      original_extent_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, extent_lba,
+                                      original_extent_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, extent_lba,
+                                original_extent_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
          * Cross-inode ownership regression: create a second file, then point
          * its checksum-valid extent at a block already owned by
          * sparse-delalloc-cross.bin. The global owner map must reject aliasing
