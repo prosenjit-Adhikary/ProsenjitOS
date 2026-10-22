@@ -22,6 +22,7 @@
 #include "network.h"
 #include "device_broker.h"
 #include "display.h"
+#include "hw_stack.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -1147,6 +1148,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\n");
+
+    if (pros_hw_stack_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR native hardware stack contract self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native graphics/input/audio endpoint contract self-test passed\n");
 
     if (pros_display_selftest() != PROS_DRIVER_OK) {
         serial_write("ProsenjitOS: ERROR display-device binding self-test failed\n");
