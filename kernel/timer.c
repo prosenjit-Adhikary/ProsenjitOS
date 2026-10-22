@@ -1,5 +1,6 @@
 #include "timer.h"
 #include "pic.h"
+#include "input_service.h"
 
 #define PROSENJIT_PIT_BASE_HZ 1193182u
 
@@ -62,6 +63,11 @@ void timer_dispatch(uint64_t *frame) {
     (void)frame;
     ++ticks;
     ++irq_count;
+
+    /* The legacy PS/2 poller is bounded to 32 bytes and only publishes into
+     * the pre-registered fixed-size input queue; no allocation or blocking. */
+    if ((ticks & 0x3u) == 0u && pros_input_service_is_ready())
+        (void)pros_input_service_poll_hardware();
 
     /*
      * The timer is the real kernel heartbeat. The health watchdog is checked
