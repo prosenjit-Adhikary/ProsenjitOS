@@ -229,3 +229,20 @@ This small vertical slice tests the central architectural assumption before larg
 - Native drivers and standard device-class support: primary hardware strategy.
 - Selected isolated Windows-driver compatibility: research-only until explicit safety prerequisites pass.
 - Universal compatibility: aspiration, never an unverified release claim.
+
+
+## 13. Detailed seven-part AI execution plan
+
+For agent ownership, copy-ready prompts, dependencies, per-part implementation scope, required tests, stop conditions and the final integration checklist, see [Seven-Part AI Implementation Plan](SEVEN-PART-AI-IMPLEMENTATION-PLAN.md).
+
+The seven workstreams are:
+
+1. Kernel, boot and core interfaces.
+2. Native hardware discovery, drivers and I/O.
+3. Native filesystem, VFS and storage.
+4. Native executables, execution router and package transactions.
+5. Windows user-mode compatibility.
+6. Shared desktop, graphics and user experience — preserve existing work.
+7. Cross-part integration, security and release.
+
+All agents must use dedicated branches and PRs, inspect actual source before editing, coordinate interface changes, preserve existing desktop/filesystem work, and provide test evidence tied to the exact commit. The seven-part plan is an execution guide, not evidence that the listed features already exist or are complete.
