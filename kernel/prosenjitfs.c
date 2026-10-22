@@ -10300,8 +10300,22 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -13);
 
         pfs_test_crash_reset(&fs, &disk);
+
+        /*
+         * Recovery itself must be restartable: reject the first home-block
+         * write during replay, require mount to report failure, then simulate
+         * another power loss and retry with the journal still available.
+         */
+        disk.fail_write_countdown = 1u;
+        if (prosenjitfs_mount(&fs, &device, 0u) == PROSENJITFS_OK ||
+            disk.fail_write_countdown != 0u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        pfs_test_crash_reset(&fs, &disk);
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
+
         done = 0u;
         if (vfs_file_open(&fs.mount, "/home-write-failure.bin",
                           PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
