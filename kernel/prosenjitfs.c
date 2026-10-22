@@ -5880,7 +5880,8 @@ static int pfs_selftest_consistency(
                 }
                 if (orphaned_blocks == 0u) {
                     report->first_orphaned_block = block;
-                    fail_line = __LINE__;
+                    if (fail_line == 0u)
+                        fail_line = __LINE__;
                 }
                 ++orphaned_blocks;
                 report->orphaned_blocks_reported = orphaned_blocks;
@@ -6126,6 +6127,73 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_OK ||
             integrity_report.orphaned_blocks_reported != 0u ||
             integrity_report.first_orphaned_block != 0u)
+            return pfs_selftest_fail(__LINE__, -4);
+    }
+    /*
+     * Report-only orphan inode regression: allocate a valid, empty inode whose
+     * parent chain reaches root but which has no directory-entry reference.
+     * The report must identify it without changing durable or cached media.
+     */
+    {
+        struct pros_prosenjitfs_inode orphan_inode;
+        uint64_t orphan_inode_number = 0u;
+        uint64_t generation = 0u;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        if (prosenjitfs_alloc_inode(&fs, &orphan_inode_number) !=
+                PROSENJITFS_OK ||
+            pfs_allocate_generation(&fs, orphan_inode_number, &generation) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+        pfs_zero(&orphan_inode, sizeof(orphan_inode));
+        orphan_inode.type = PROSENJITFS_INODE_FILE;
+        orphan_inode.mode = 0644u;
+        orphan_inode.links = 1u;
+        orphan_inode.generation = generation;
+        orphan_inode.parent_inode = fs.sb.root_inode;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                    &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_inodes_reported != 1u ||
+            integrity_report.first_orphaned_inode != orphan_inode_number ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_error_location == 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_zero(&orphan_inode, sizeof(orphan_inode));
+            orphan_inode.type = PROSENJITFS_INODE_FREE;
+            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                          &orphan_inode);
+            (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
+            return pfs_selftest_fail(__LINE__, -4);
+        }
+
+        pfs_zero(&orphan_inode, sizeof(orphan_inode));
+        orphan_inode.type = PROSENJITFS_INODE_FREE;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number, &orphan_inode) !=
+                PROSENJITFS_OK ||
+            pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_OK ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u)
             return pfs_selftest_fail(__LINE__, -4);
     }
     if (fs.sb.root_inode != 0u ||
