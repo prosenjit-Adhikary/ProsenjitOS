@@ -11,17 +11,49 @@
 static uint8_t extended_prefix;
 static uint8_t pause_bytes_remaining;
 
+#if __STDC_HOSTED__
+#define PS2_TEST_FIFO_CAPACITY 64u
+static uint8_t test_status[PS2_TEST_FIFO_CAPACITY];
+static uint8_t test_data[PS2_TEST_FIFO_CAPACITY];
+static uint32_t test_head;
+static uint32_t test_tail;
+
+int pros_ps2_keyboard_test_push(uint8_t status, uint8_t byte)
+{
+    if ((uint32_t)(test_tail - test_head) >= PS2_TEST_FIFO_CAPACITY)
+        return PROS_DRIVER_ENOSPC;
+    test_status[test_tail % PS2_TEST_FIFO_CAPACITY] = status;
+    test_data[test_tail % PS2_TEST_FIFO_CAPACITY] = byte;
+    ++test_tail;
+    return PROS_DRIVER_OK;
+}
+
+void pros_ps2_keyboard_test_reset_fifo(void)
+{
+    test_head = 0u;
+    test_tail = 0u;
+}
+
 static uint8_t ps2_in8(uint16_t port)
 {
-#if __STDC_HOSTED__
-    (void)port;
+    if (port == PS2_STATUS_PORT) {
+        if (test_head == test_tail) return 0u;
+        return test_status[test_head % PS2_TEST_FIFO_CAPACITY];
+    }
+    if (port == PS2_DATA_PORT) {
+        if (test_head == test_tail) return 0u;
+        return test_data[test_head++ % PS2_TEST_FIFO_CAPACITY];
+    }
     return 0u;
+}
 #else
+static uint8_t ps2_in8(uint16_t port)
+{
     uint8_t value;
     __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
     return value;
-#endif
 }
+#endif
 
 void pros_ps2_keyboard_reset_decoder(void)
 {
