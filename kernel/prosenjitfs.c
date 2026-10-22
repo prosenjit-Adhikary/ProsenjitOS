@@ -5252,8 +5252,8 @@ struct pfs_test_disk {
     uint32_t fail_flush_after_persist_countdown;
     /* Fail the selected future block write before any bytes land. */
     uint32_t fail_write_countdown;
-    /* Fail the first home-block write after a commit record is accepted. */
-    uint8_t fail_home_write_after_commit_once;
+    /* Fail the Nth home-block write after a commit record is accepted. */
+    uint32_t fail_home_write_after_commit_countdown;
     uint8_t commit_record_seen_for_home_failure;
     /* Fail the next journal commit-record block write before any bytes land. */
     uint8_t fail_commit_write_once;
@@ -5303,11 +5303,13 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
-    if (disk->fail_home_write_after_commit_once &&
+    if (disk->fail_home_write_after_commit_countdown != 0u &&
         disk->commit_record_seen_for_home_failure) {
-        disk->fail_home_write_after_commit_once = 0u;
-        disk->commit_record_seen_for_home_failure = 0u;
-        return PROS_BLOCK_EIO;
+        --disk->fail_home_write_after_commit_countdown;
+        if (disk->fail_home_write_after_commit_countdown == 0u) {
+            disk->commit_record_seen_for_home_failure = 0u;
+            return PROS_BLOCK_EIO;
+        }
     }
     if (disk->fail_write_countdown != 0u) {
         --disk->fail_write_countdown;
@@ -10253,9 +10255,10 @@ int prosenjitfs_selftest(void)
     }
 
     /*
-     * Home-block write failure after the commit record is durable. The mock
-     * rejects the first following block write; power loss then remount must
-     * replay the committed journal and expose the new file contents.
+     * Later home-block write failure after the commit record is durable.
+     * Allow one home-block write to land, then reject the second. Power loss
+     * and remount must replay the committed journal and expose the complete
+     * new file contents rather than a partially applied home-block set.
      */
     {
         struct pros_vfs_file file;
@@ -10283,7 +10286,7 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
-        disk.fail_home_write_after_commit_once = 1u;
+        disk.fail_home_write_after_commit_countdown = 2u;
         done = 0u;
         if (vfs_file_open(&fs.mount, "/home-write-failure.bin",
                           PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
@@ -10291,7 +10294,7 @@ int prosenjitfs_selftest(void)
         write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
         if (vfs_file_close(&file) != PROS_VFS_OK ||
             write_rc == PROS_VFS_OK || done != 0u ||
-            disk.fail_home_write_after_commit_once != 0u ||
+            disk.fail_home_write_after_commit_countdown != 0u ||
             disk.commit_record_seen_for_home_failure != 0u ||
             !fs.read_only || !fs.mount.read_only)
             return pfs_selftest_fail(__LINE__, -13);
