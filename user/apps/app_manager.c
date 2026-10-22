@@ -327,6 +327,20 @@ int pros_app_disable(struct pros_app_manager *manager, const char *app_id)
         return PROS_APP_ENOENT;
     if (manager->entries[index].manifest.install_state != PROS_APP_INSTALLED)
         return PROS_APP_ESTATE;
+
+    /* Do not strand an installed dependent in an unusable state. */
+    for (uint32_t i = 0u; i < manager->count; ++i) {
+        const struct pros_app_manifest *candidate =
+            &manager->entries[i].manifest;
+        if ((int)i == index ||
+            candidate->install_state != PROS_APP_INSTALLED)
+            continue;
+        for (uint32_t d = 0u; d < candidate->dependency_count; ++d) {
+            if (id_equal(candidate->dependencies[d], app_id))
+                return PROS_APP_EBUSY;
+        }
+    }
+
     manager->entries[index].manifest.install_state = PROS_APP_DISABLED;
     return PROS_APP_OK;
 }
