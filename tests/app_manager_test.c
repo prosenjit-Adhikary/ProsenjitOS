@@ -56,8 +56,9 @@ int main(void)
     manifest = make_manifest("editor", "bin/editor");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 6);
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EEXIST, 7);
-    CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_ESTATE, 8);
+    CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_ETRUST, 8);
     CHECK(pros_app_mark_verified(&manager, "editor") == PROS_APP_OK, 40);
+    CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_ESTATE, 57);
     CHECK(pros_app_commit_install(&manager, "editor") == PROS_APP_OK, 41);
     CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_OK, 42);
     CHECK(pros_app_get(&manager, "editor", &output) == PROS_APP_OK, 9);
