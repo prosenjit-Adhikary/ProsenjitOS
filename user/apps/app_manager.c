@@ -409,3 +409,67 @@ uint32_t pros_app_count(const struct pros_app_manager *manager)
         return 0u;
     return manager->count;
 }
+
+
+static int install_rollback(const struct pros_app_install_ops *ops,
+                            const struct pros_app_manifest *manifest)
+{
+    return ops->rollback(ops->context, manifest) == 0
+               ? PROS_APP_OK
+               : PROS_APP_EROLLBACK;
+}
+
+int pros_app_install_transaction(struct pros_app_manager *manager,
+                                  const char *app_id,
+                                  const struct pros_app_install_ops *ops)
+{
+    uint8_t visiting[PROS_APP_MAX_ENTRIES] = {0};
+    uint8_t visited[PROS_APP_MAX_ENTRIES] = {0};
+    struct pros_app_manifest manifest;
+    int index;
+    int rc;
+
+    if (!manager_valid(manager) || !id_valid(app_id) || !ops ||
+        !ops->stage || !ops->publish || !ops->rollback)
+        return PROS_APP_EINVAL;
+
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+
+    manifest = manager->entries[index].manifest;
+    if (manifest.install_state != PROS_APP_STAGED)
+        return PROS_APP_ESTATE;
+    if (manifest.trust_state != PROS_APP_TRUST_VERIFIED)
+        return PROS_APP_ETRUST;
+
+    /*
+     * Fail before touching storage when dependencies are absent, untrusted,
+     * disabled, cyclic, or belong to a different backend ecosystem.
+     */
+    rc = validate_install_graph(manager, (uint32_t)index, (uint32_t)index,
+                                visiting, visited);
+    if (rc != PROS_APP_OK)
+        return rc;
+
+    /*
+     * The storage adapter owns temporary files and atomic publication. This
+     * coordinator commits registry state only after publish() succeeds.
+     */
+    if (ops->stage(ops->context, &manifest) != 0)
+        return install_rollback(ops, &manifest) == PROS_APP_OK
+                   ? PROS_APP_EIO : PROS_APP_EROLLBACK;
+
+    if (ops->publish(ops->context, &manifest) != 0)
+        return install_rollback(ops, &manifest) == PROS_APP_OK
+                   ? PROS_APP_EIO : PROS_APP_EROLLBACK;
+
+    rc = pros_app_commit_install(manager, app_id);
+    if (rc != PROS_APP_OK) {
+        if (install_rollback(ops, &manifest) != PROS_APP_OK)
+            return PROS_APP_EROLLBACK;
+        return rc;
+    }
+
+    return PROS_APP_OK;
+}
