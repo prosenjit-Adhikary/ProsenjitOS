@@ -1,11 +1,12 @@
 # ProsenjitFS Completion Matrix — 2026-10-22
 
-## Latest verification update — 2026-10-22 12:51 UTC
+## Latest verification update — 2026-10-22 13:00 UTC
 
-- PR #165 (conflicting redundant-superblock probe behavior) merged as `6dd990b380f5ac1d0b7aa8df68dae4cb461b7d86`. Its exact PR head had passing security and build/boot workflows; the merge commit's own main-branch build/boot and security workflows are now running. Do not mark the merge commit verified until both finish successfully.
-- Main commit `4c6f473f336971da515847a595cd5e9d0032875e` passed build/boot-test #7838 on self-hosted runner `office`: desktop script validation, DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot all passed. Security architecture checks #7374 also passed.
-- PR #163 (unknown v1 feature flags) had green checks on its own head but conflicted after the superblock-probe merge. Its fail-closed feature-mask validation, checksum-valid regression, and documentation were integrated directly into main in `7a54b22bc1e2b660c36c3ca20fd8cec3df6781a1`. The first build exposed a missing closing parenthesis in the validation condition; it was fixed in `75ed2617424aa5b4ae8fdd5cb9021666a05a1bde`. On that exact current main SHA, build/boot-test #39782429980 passed ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS QEMU boot; security architecture checks #39782430000 also passed.
-- PR #142 remains a diagnostic-only branch with a recorded native BIOS QEMU boot failure on its own head. Do not treat the passing descendant-main boot as proof that this separate diagnostic branch is fixed.
+- Current `main` commit `141f63ae7c79ab85252fab84f8fc44bc05bfdf8d` (`docs(prosenjitfs): record green feature-mask verification`) passed build/boot-test [#39782771424](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771424) and security architecture [#39782771420](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771420).
+- The build/boot job ran on self-hosted runner `office`. Verified steps: toolchain validation, desktop script checks, DML unit tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- The merged integrity/journal work is consolidated through PR #179 (`4bb5a241054b8e7b661672fc9ee64b0a30919756`); later merged hardening includes checksum-valid extent, bitmap-tail, directory-bucket and duplicate-name corruption regressions documented below.
+- PRs #170 and #179 are merged. PRs #172 and #173 were closed as superseded by #179, not independently merged. Issue #166 remains open for staged integrity/recovery follow-up.
+- PR #142 remains a diagnostic-only branch with a recorded native BIOS QEMU boot failure on its own head. Do not treat passing descendant-main boot tests as proof that this separate branch is fixed.
 
 ## Purpose and baseline
 
@@ -72,10 +73,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Automatic repair and orphan reclamation remain deliberately deferred; a report-only candidate is not safe to free without a separately reviewed, crash-safe and resumable repair design.
 
 
-## Verification update — 2026-10-22 12:57 UTC
+## Verification update — 2026-10-22 13:00 UTC
 
-- Current main: `75ed2617424aa5b4ae8fdd5cb9021666a05a1bde` (`fix(prosenjitfs): close feature validation condition`).
-- Build and boot-test [#39782429980](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782429980): **PASS** on self-hosted runner `office`; desktop script validation, DML tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot all succeeded.
-- Security architecture checks [#39782430000](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782430000): **PASS** on the same commit.
-- The unknown-feature regression sets an unsupported feature bit in both redundant superblocks, recomputes valid CRCs, expects mount to reject the volume, and restores the fixture. This covers that fail-closed case but does not establish full filesystem completion.
-- Remaining critical acceptance work: reconcile open integrity-scan PRs #167/#168 against current main; verify crash/recovery and injected-I/O-failure paths, persistence/remount, rollback guarantees, and the separate null-RIP diagnostic branch. Keep orphan-data reclamation disabled unless recovery safety is proven.
+- Current main: `141f63ae7c79ab85252fab84f8fc44bc05bfdf8d`.
+- Build and boot-test [#39782771424](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771424): **PASS** on self-hosted runner `office`; desktop script validation, DML tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS QEMU boot all succeeded.
+- Security architecture checks [#39782771420](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39782771420): **PASS** on the same commit.
+- The unknown-feature regression rejects unsupported v1 feature bits even when both redundant superblocks have valid CRCs, then restores the fixture.
+- This is a green build/security/boot milestone, not a declaration of production-complete filesystem behavior. Remaining acceptance work includes broader injected read/write/flush failures, persistence/remount and rollback testing for each mutation path, report initialization/error-classification checks, adversarial namespace/link semantics, caller serialization review, and physical-device durability validation.
+- Automatic orphan repair/reclamation remains deferred. QEMU and mock-device tests do not prove physical power-loss durability. PR #142's own branch remains unverified/failing independently even though descendant `main` boots successfully.
