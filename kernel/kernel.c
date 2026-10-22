@@ -1203,7 +1203,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         /* Register the PCI inventory in the generic driver model.
          * Registration does not claim ownership; binding remains separate. */
         uint32_t registered_count = 0u;
+        uint32_t classified_count = 0u;
+        uint32_t unsupported_class_count = 0u;
         for (uint32_t i = 0u; i < pci_count; ++i) {
+            enum pros_device_class discovered_class = PROS_DEVICE_CLASS_OTHER;
+            int class_rc = pros_hw_classify_pci(&pci_devices[i], &discovered_class);
+            if (class_rc == PROS_DRIVER_OK) ++classified_count;
+            else ++unsupported_class_count;
             uint32_t registered_id = 0u;
             int rc = pros_driver_register_pci_device(
                 pci_devices[i].bus, pci_devices[i].slot,
@@ -1223,6 +1229,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         serial_write("ProsenjitOS: PCI devices registered with driver model = ");
         serial_hex64(registered_count);
+        serial_write("\n");
+        serial_write("ProsenjitOS: PCI devices with known native class = ");
+        serial_hex64(classified_count);
+        serial_write("\n");
+        serial_write("ProsenjitOS: PCI devices with unsupported/unknown class = ");
+        serial_hex64(unsupported_class_count);
         serial_write("\n");
     }
 
