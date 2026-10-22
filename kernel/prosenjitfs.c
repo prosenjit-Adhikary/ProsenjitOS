@@ -5748,9 +5748,9 @@ static int pfs_selftest_consistency(
                     rc = -10004;
                     /* Temporary diagnostic encoding for the CI self-test. */
                     fail_line = logical_end > logical_blocks
-                              ? (uint32_t)(100000u +
-                                  inode_number * 10000u +
-                                  logical_blocks * 100u + logical_end)
+                              ? (uint32_t)(1000000u +
+                                  inode_number * 1000000u +
+                                  inode.size * 100u + logical_end)
                               : __LINE__;
                     goto consistency_out;
                 }
