@@ -72,7 +72,7 @@ On-disk uid/gid/mode are metadata and cannot bypass kernel capability checks. Re
 The native formatter will be implemented as prosenjitfs_format() in the filesystem layer. A host-side mkprosenjitfs utility will use the same on-disk format definitions and will not depend on Linux mkfs implementations.
 
 ## Mount validation
-Mount validates magic/version, feature flags, block size and volume bounds, all metadata regions, bitmap sizes, inode-table bounds, root inode, inode/extent references, checksums and journal structure. Malformed metadata is rejected; recovery occurs before writable mount exposure.
+Mount validates magic/version, all required v1 feature flags and rejects unknown feature bits, block size and volume bounds, all metadata regions, bitmap sizes, inode-table bounds, root inode, inode/extent references, checksums and journal structure. Malformed metadata is rejected; recovery occurs before writable mount exposure.
 
 ## Implementation sequence
 1. Define versioned structures and CRC32C.
