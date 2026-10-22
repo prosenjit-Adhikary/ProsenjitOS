@@ -6992,6 +6992,81 @@ int prosenjitfs_selftest(void)
         }
 
         /*
+         * Exercise the other explicit extent-range guards with checksum-valid
+         * metadata: a zero-length extent and a physical start at total_blocks.
+         * Both must be rejected by the scan without any scan-side media writes.
+         */
+        {
+            uint8_t original_extent_block[4096];
+            uint8_t corrupt_extent_block[4096];
+            struct pros_prosenjitfs_extent original_extent;
+            uint64_t extent_lba = first_extent.next;
+
+            if (pfs_read_block(fs.mount.device, extent_lba,
+                               original_extent_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            pfs_copy(&original_extent, original_extent_block,
+                     sizeof(original_extent));
+
+            for (uint32_t variant = 0u; variant < 2u; ++variant) {
+                struct pros_prosenjitfs_extent corrupt_extent = original_extent;
+                uint32_t durable_before;
+                uint32_t volatile_before;
+                uint32_t dirty_before;
+
+                if (variant == 0u)
+                    corrupt_extent.block_count = 0u;
+                else
+                    corrupt_extent.physical_block = fs.sb.total_blocks;
+
+                pfs_copy(corrupt_extent_block, original_extent_block,
+                         fs.sb.block_size);
+                corrupt_extent.checksum = 0u;
+                pfs_copy(corrupt_extent_block, &corrupt_extent,
+                         sizeof(corrupt_extent));
+                corrupt_extent.checksum = pfs_crc_with_zero32(
+                    corrupt_extent_block, sizeof(corrupt_extent),
+                    (uint32_t)offsetof(struct pros_prosenjitfs_extent,
+                                       checksum));
+                pfs_copy(corrupt_extent_block, &corrupt_extent,
+                         sizeof(corrupt_extent));
+
+                if (pfs_write_block(fs.mount.device, extent_lba,
+                                    corrupt_extent_block) != PROSENJITFS_OK) {
+                    (void)pfs_write_block(fs.mount.device, extent_lba,
+                                          original_extent_block);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+                if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                        PROSENJITFS_ECORRUPT ||
+                    integrity_report.status != PROSENJITFS_ECORRUPT ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                    (void)pfs_write_block(fs.mount.device, extent_lba,
+                                          original_extent_block);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+                if (pfs_write_block(fs.mount.device, extent_lba,
+                                    original_extent_block) != PROSENJITFS_OK ||
+                    prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                        PROSENJITFS_OK ||
+                    integrity_report.status != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -14);
+            }
+        }
+
+        /*
          * A checksum-valid inode size beyond the volume's maximum file range
          * is corruption even if every individual extent is in range. Inject
          * this malformed inode and prove the scanner itself remains read-only.
