@@ -4,6 +4,7 @@
 
 - PR #196 adds deterministic integrity-scan read-fault sweeps over each successive mock block-device read on both a freshly formatted filesystem and a populated filesystem containing a file, directory entry, inode and data extent. Each injected failure must return `PROSENJITFS_EIO`, keep the source-error location zero, and leave durable, volatile, and dirty media unchanged; the first countdown beyond each scan's read sequence must complete as a clean scan.
 - This expands coverage beyond the previous single inode-bitmap read-failure injection. The populated fixture exercises more of the directory and extent traversal paths, while still not proving every corruption-specific path or physical-device behavior.
+- Both sweeps now use a 4096-position guard and verify durable, volatile, and dirty media remain unchanged on the terminal successful scan as well as on every injected failure. This is defensive test coverage, not a runtime pass claim.
 - **Pending:** the sweep has not been run through CI or boot tests yet. Do not count it as passing until the authorized Linux x64 runner is online and the exact PR head passes filesystem diagnostics, build/boot, and security checks.
 
 
