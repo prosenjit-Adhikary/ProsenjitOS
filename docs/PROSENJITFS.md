@@ -56,7 +56,7 @@ extensions.
 
 ## Journal and crash consistency
 Version 1 uses a redo journal. A transaction stores complete target-block images followed by a CRC-protected commit record.
-Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction. Mount recovery now explicitly tests committed replay, torn transactions, and corrupt commit checksums.
+Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction. Mount recovery now explicitly tests committed replay, torn transactions, corrupt commit checksums, and commit records whose valid marker contradicts the journal transaction identity or record count; contradictory committed metadata fails closed rather than being discarded as an uncommitted transaction.
 Recovery replays only CRC-valid committed transactions. Replays are idempotent because records are complete replacement images.
 The block-device layer gets an optional flush primitive. Existing initializers remain source-compatible; devices without a flush callback are treated as lacking a durability barrier, so ProsenjitFS will not claim power-loss durability on such a device.
 Metadata is journaled. File data is written before the metadata transaction that publishes newly allocated blocks, with a flush barrier before publishing metadata.
