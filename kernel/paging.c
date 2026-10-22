@@ -352,15 +352,32 @@ int paging_selftest(void) {
         return -3;
     }
 
-    /* A second mapping must never silently replace an existing live PTE. */
+    /*
+     * A duplicate mapping must neither replace the leaf nor leak/reclaim
+     * intermediate tables. Capture accounting and the translation before
+     * attempting the invalid remap.
+     */
+    uint64_t free_before_duplicate = physical_memory_free_pages();
     if (paging_map_page(va, physical, PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0) {
+        paging_unmap_page(va);
+        physical_page_free(physical);
+        return -4;
+    }
+    if (paging_translate(va) != physical ||
+        physical_memory_free_pages() != free_before_duplicate) {
         paging_unmap_page(va);
         physical_page_free(physical);
         return -4;
     }
 
     paging_unmap_page(va);
-    if (paging_translate(va) != 0 || paging_query_page(va, &flags) == 0) {
+    if (paging_translate(va) != 0 || paging_query_page(va, &flags) == 0 ||
+        physical_memory_free_pages() != free_before_duplicate) {
+        physical_page_free(physical);
+        return -5;
+    }
+    /* Unmapping a virtual mapping must not release the caller-owned leaf page. */
+    if (!physical_page_is_allocated(physical)) {
         physical_page_free(physical);
         return -5;
     }
