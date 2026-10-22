@@ -94,6 +94,18 @@ int main(void)
     manifest = make_manifest("bad-abi", "bin/app");
     manifest.abi_version++;
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EABI, 17);
+    manifest = make_manifest("duplicate-dependency", "bin/app");
+    manifest.dependency_count = 2u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    (void)snprintf(manifest.dependencies[1], sizeof(manifest.dependencies[1]),
+                   "%s", "base");
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EINVAL, 58);
+    manifest = make_manifest("self-dependency", "bin/app");
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "self-dependency");
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EINVAL, 59);
     manifest = make_manifest("short-manifest", "bin/app");
     manifest.struct_size--;
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EABI, 18);
