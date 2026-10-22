@@ -5536,7 +5536,12 @@ static int pfs_selftest_consistency(
             (inode.type != PROSENJITFS_INODE_FILE &&
              inode.type != PROSENJITFS_INODE_DIR &&
              inode.type != PROSENJITFS_INODE_SYMLINK) ||
-            inode.parent_inode >= fs->sb.inode_count) {
+            inode.parent_inode >= fs->sb.inode_count ||
+            inode.size / fs->sb.block_size >
+                fs->sb.total_blocks - fs->sb.data_start ||
+            (inode.size / fs->sb.block_size ==
+                 fs->sb.total_blocks - fs->sb.data_start &&
+             inode.size % fs->sb.block_size != 0u)) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
                         goto consistency_out;
@@ -6826,6 +6831,75 @@ int prosenjitfs_selftest(void)
             }
             if (pfs_write_block(fs.mount.device, extent_lba,
                                 original_extent_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
+         * A checksum-valid inode size beyond the volume's maximum file range
+         * is corruption even if every individual extent is in range. Inject
+         * this malformed inode and prove the scanner itself remains read-only.
+         */
+        {
+            uint8_t original_inode_block[4096];
+            uint8_t corrupt_inode_block[4096];
+            struct pros_prosenjitfs_inode corrupt_inode;
+            uint64_t inode_lba = 0u;
+            uint32_t inode_offset = 0u;
+            uint64_t max_logical_blocks =
+                fs.sb.total_blocks - fs.sb.data_start;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (pfs_inode_block_location(&fs, entry.inode, &inode_lba,
+                                         &inode_offset) != PROSENJITFS_OK ||
+                pfs_read_block(fs.mount.device, inode_lba,
+                               original_inode_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            pfs_copy(corrupt_inode_block, original_inode_block, fs.sb.block_size);
+            pfs_copy(&corrupt_inode,
+                     original_inode_block + inode_offset,
+                     sizeof(corrupt_inode));
+            corrupt_inode.size = max_logical_blocks * fs.sb.block_size + 1u;
+            corrupt_inode.checksum = 0u;
+            pfs_copy(corrupt_inode_block + inode_offset, &corrupt_inode,
+                     sizeof(corrupt_inode));
+            corrupt_inode.checksum = pfs_crc_with_zero32(
+                corrupt_inode_block + inode_offset, sizeof(corrupt_inode),
+                (uint32_t)offsetof(struct pros_prosenjitfs_inode, checksum));
+            pfs_copy(corrupt_inode_block + inode_offset, &corrupt_inode,
+                     sizeof(corrupt_inode));
+
+            if (pfs_write_block(fs.mount.device, inode_lba,
+                                corrupt_inode_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, inode_lba,
+                                      original_inode_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, inode_lba,
+                                      original_inode_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, inode_lba,
+                                original_inode_block) != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                     PROSENJITFS_OK ||
                 integrity_report.status != PROSENJITFS_OK)
