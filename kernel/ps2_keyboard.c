@@ -136,7 +136,9 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
         /* Mouse/AUX bytes may interleave with keyboard bytes. Do not let a
          * pending E0 or Pause prefix leak across that unrelated byte stream. */
         if ((status & PS2_STATUS_AUX_DATA) != 0u) {
-            pros_ps2_keyboard_reset_decoder();
+            /* Drop a partial E0 key prefix, but keep an in-progress Pause
+             * sequence: its remaining keyboard bytes still belong to it. */
+            extended_prefix = 0u;
             continue;
         }
 
