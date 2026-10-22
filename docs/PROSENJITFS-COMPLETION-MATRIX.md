@@ -40,12 +40,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 ## Safe execution sequence
 
-1. Preserve PR dependency order; keep #170/#172/#173 open and unmerged unless explicitly authorized.
-2. Reconcile the journal-hardening branch with the report-only integrity branch without rewriting shared history.
-3. Fix one source-proven defect at a time and add a regression before changing behavior.
-4. Run narrow filesystem tests, then the warning-clean build, security workflow, ISO QEMU boot, native BIOS QEMU boot, remount/persistence and recovery/fault-injection suites.
-5. Inspect the actual workflow logs and exact commit SHA. Update this matrix only with results tied to that SHA.
-6. Do not enable destructive repair until the repair safety gates above are satisfied.
+1. The report-only integrity and journal-hardening branches have been reconciled and merged through PR #179.
+2. Continue fixing source-proven defects with a regression test for each behavior change.
+3. Run narrow filesystem tests, then the warning-clean build, security workflow, ISO QEMU boot, native BIOS QEMU boot, remount/persistence and recovery/fault-injection suites.
+4. Tie every verification result to an exact commit SHA and inspect actual workflow logs.
+5. Do not enable destructive repair until the repair safety gates above are satisfied.
 
 ## Verification record
 
