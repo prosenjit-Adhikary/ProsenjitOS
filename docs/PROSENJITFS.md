@@ -56,9 +56,9 @@ extensions.
 
 ## Journal and crash consistency
 Version 1 uses a redo journal. A transaction stores complete target-block images followed by a CRC-protected commit record.
-Required ordering: construct metadata images; write journal records; flush; write commit; flush; write home locations; flush; retire/reuse the journal transaction. Mount recovery now explicitly tests committed replay, torn transactions, and corrupt commit checksums.
-Recovery replays only CRC-valid committed transactions. Replays are idempotent because records are complete replacement images.
-The block-device layer gets an optional flush primitive. Existing initializers remain source-compatible; devices without a flush callback are treated as lacking a durability barrier, so ProsenjitFS will not claim power-loss durability on such a device.
+Required ordering: construct metadata images; invalidate the reused commit slot and flush; write journal header/images; flush; write commit; flush; write home locations; flush; retire the journal header. Clearing the selected commit slot before publishing the next header prevents a stale valid commit record from a prior mount-local transaction sequence from being mistaken for the new transaction.
+Recovery replays only CRC-valid committed transactions. A missing commit marker or stale transaction ID is treated as an uncommitted/torn transaction because a reused slot may retain a prior transaction's valid record; a matching transaction ID with a contradictory record count fails closed as corruption. Replays are idempotent because records are complete replacement images.
+The block-device layer gets an optional flush primitive. Existing initializers remain source-compatible; devices without a flush callback are treated as lacking a durability barrier, so ProsenjitFS will not claim power-loss durability on such a device. If a transaction fails after the commit-record write is attempted, the current mount is forced read-only until remount recovery resolves the journal; it must not start another transaction over an uncertain committed record.
 Metadata is journaled. File data is written before the metadata transaction that publishes newly allocated blocks, with a flush barrier before publishing metadata.
 
 ## Read-only integrity scan API
