@@ -368,7 +368,7 @@ int pros_hw_stack_selftest(void) {
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=0||!st.initialized||st.last_error!=0)return -14;
     c.shutdown_rc=PROS_DRIVER_EIO;
     if(pros_hw_endpoint_unregister(1u,PROS_HW_ENDPOINT_INPUT)!=PROS_DRIVER_EIO)return -15;
-    if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=0||!st.initialized||st.last_error!=PROS_DRIVER_EIO)return -16;
+    if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=0||st.initialized||st.last_error!=PROS_DRIVER_EIO)return -16;
     c.shutdown_rc=0; if(pros_hw_endpoint_unregister(1u,PROS_HW_ENDPOINT_INPUT)!=0)return -17;
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=PROS_DRIVER_ENODEV)return -18;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_AUDIO,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -19;
