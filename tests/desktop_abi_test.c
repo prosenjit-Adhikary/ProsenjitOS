@@ -18,6 +18,9 @@ int main(void)
         PROS_DESKTOP_MSG_WINDOW_CREATE, 0u, 0u, 0u
     };
     struct pros_desktop_rect rect = {0, 0, 1920u, 1080u};
+    struct pros_desktop_window_request window;
+    struct pros_desktop_input_event input;
+    struct pros_desktop_clipboard_request clipboard;
     struct pros_desktop_audio_request audio;
 
     CHECK(pros_desktop_message_header_valid(&header), 1);
@@ -65,6 +68,56 @@ int main(void)
               PROS_DESKTOP_MAX_CLIPBOARD_BYTES), 13);
     CHECK(!pros_desktop_clipboard_size_valid(
               PROS_DESKTOP_MAX_CLIPBOARD_BYTES + 1u), 14);
+
+
+    (void)memset(&window, 0, sizeof(window));
+    window.header.version = PROSENJIT_DESKTOP_ABI_VERSION;
+    window.header.struct_size = sizeof(window);
+    window.header.type = PROS_DESKTOP_MSG_WINDOW_CREATE;
+    window.bounds = rect;
+    CHECK(pros_desktop_window_request_valid(&window, sizeof(window)), 28);
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window) - 1u), 29);
+    window.header.type = PROS_DESKTOP_MSG_WINDOW_FOCUS;
+    window.bounds.width = 0u;
+    CHECK(pros_desktop_window_request_valid(&window, sizeof(window)), 30);
+    window.header.type = PROS_DESKTOP_MSG_WINDOW_CREATE;
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 31);
+    window.bounds = rect;
+    window.reserved = 1u;
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 32);
+
+    (void)memset(&input, 0, sizeof(input));
+    input.header.version = PROSENJIT_DESKTOP_ABI_VERSION;
+    input.header.struct_size = sizeof(input);
+    input.header.type = PROS_DESKTOP_MSG_INPUT_KEY;
+    input.input_flags = PROS_DESKTOP_INPUT_PRESS;
+    CHECK(pros_desktop_input_event_valid(&input, sizeof(input)), 33);
+    input.input_flags = PROS_DESKTOP_INPUT_RELATIVE;
+    CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 34);
+    input.input_flags = PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_RELEASE;
+    CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 35);
+    input.header.type = PROS_DESKTOP_MSG_INPUT_POINTER;
+    input.input_flags = PROS_DESKTOP_INPUT_RELATIVE;
+    CHECK(pros_desktop_input_event_valid(&input, sizeof(input)), 36);
+    input.input_flags = 0x80000000u;
+    CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 37);
+
+    (void)memset(&clipboard, 0, sizeof(clipboard));
+    clipboard.header.version = PROSENJIT_DESKTOP_ABI_VERSION;
+    clipboard.header.struct_size = sizeof(clipboard);
+    clipboard.header.type = PROS_DESKTOP_MSG_CLIPBOARD_READ;
+    CHECK(pros_desktop_clipboard_request_valid(&clipboard,
+                                                sizeof(clipboard)), 38);
+    clipboard.header.payload_size = 1u;
+    CHECK(!pros_desktop_clipboard_request_valid(
+              &clipboard, sizeof(clipboard) + 1u), 39);
+    clipboard.header.type = PROS_DESKTOP_MSG_CLIPBOARD_WRITE;
+    clipboard.header.payload_size = 4u;
+    CHECK(pros_desktop_clipboard_request_valid(
+              &clipboard, sizeof(clipboard) + 4u), 40);
+    clipboard.reserved = 1u;
+    CHECK(!pros_desktop_clipboard_request_valid(
+              &clipboard, sizeof(clipboard) + 4u), 41);
 
     (void)memset(&audio, 0, sizeof(audio));
     audio.header.version = PROSENJIT_DESKTOP_ABI_VERSION;
