@@ -12,7 +12,7 @@
 int pros_input_service_init(void);
 
 /* Poll the legacy PS/2 controller from a bounded safe kernel context.
- * The timer heartbeat calls this once per tick after service initialization. */
+ * The timer heartbeat invokes this every four ticks after service initialization. */
 int pros_input_service_poll_hardware(void);
 
 /* Read one queued event. Returns PROS_DRIVER_EBUSY when the queue is empty. */
