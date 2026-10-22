@@ -49,6 +49,20 @@ int main(void)
     e = ev(0x1Du, PROS_INPUT_FLAG_RELEASE);
     (void)pros_keymap_translate(&s, &e);
 
+    /* E0-prefixed right-side modifiers must suppress printable shortcuts too. */
+    e = ev(0x100u | 0x1Du, PROS_INPUT_FLAG_PRESS);
+    (void)pros_keymap_translate(&s, &e);
+    e = ev(0x2Eu, PROS_INPUT_FLAG_PRESS);
+    assert(pros_keymap_translate(&s, &e) == 0u);
+    e = ev(0x100u | 0x1Du, PROS_INPUT_FLAG_RELEASE);
+    (void)pros_keymap_translate(&s, &e);
+    e = ev(0x100u | 0x38u, PROS_INPUT_FLAG_PRESS);
+    (void)pros_keymap_translate(&s, &e);
+    e = ev(0x2Eu, PROS_INPUT_FLAG_PRESS);
+    assert(pros_keymap_translate(&s, &e) == 0u);
+    e = ev(0x100u | 0x38u, PROS_INPUT_FLAG_RELEASE);
+    (void)pros_keymap_translate(&s, &e);
+
     e = ev(0x1Eu, PROS_INPUT_FLAG_PRESS | PROS_INPUT_FLAG_RELEASE);
     assert(pros_keymap_translate(&s, &e) == 0u);
     e.version = 999u;
