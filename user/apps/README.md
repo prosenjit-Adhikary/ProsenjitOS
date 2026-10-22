@@ -4,6 +4,7 @@
 
 - Fixed-size, versioned manifests for Native, Linux, and Windows application backend identities.
 - Bounded application IDs and relative entry-point path validation.
+- Bounded content-based ELF32/ELF64, PE32/PE32+, and OLE-container header classification; malformed/truncated known headers are rejected.
 - Registry capacity limits, duplicate detection, ABI and required-feature checks.
 - Explicit lifecycle: registration accepts only staged/unverified manifests; a trusted verifier caller must mark trust; install commit requires trusted metadata and installed same-backend dependencies.
 - Disable and uninstall registry transitions; uninstall refuses to remove a package still referenced by another registered package.
@@ -12,7 +13,7 @@
 
 ## Important limits
 
-This is an initial **registry and metadata preflight**, not a complete Apps Handler. It does not download or verify packages, install/update/remove files, launch processes, implement a PE/ELF loader, provide Linux or Windows API compatibility, create a sandbox, or integrate with the desktop launcher.
+This is an initial **registry, format-detection, and metadata preflight**, not a complete Apps Handler. The format detector does not validate the full binary format or signatures and does not authorize execution; OLE detection is not MSI validation. The registry uninstall only removes an in-memory entry. It does not download or verify packages, install/update/remove filesystem objects, launch processes, implement a PE/ELF loader, provide Linux or Windows API compatibility, create a sandbox, or integrate with the desktop launcher.
 
 The `trust_state` field is only a result supplied by the trusted manager after a separate provenance/signature verification step. `pros_app_mark_verified()` is a trust-boundary API, not cryptographic verification: only the trusted verification service may call it, and package-controlled manifests must never be allowed to self-attest. This in-memory registry cannot enforce caller identity by itself. Likewise, `pros_app_preflight()` is not proof that an executable is compatible or safe to run.
 
