@@ -5918,6 +5918,7 @@ int prosenjitfs_selftest(void)
     static struct pros_block_device device;
     static struct pros_prosenjitfs fs;
     struct pros_prosenjitfs_inode inode;
+    struct pros_prosenjitfs_integrity_report integrity_report;
     uint64_t first_block;
     uint64_t inode_number;
     uint8_t saved;
@@ -5929,7 +5930,13 @@ int prosenjitfs_selftest(void)
      * crash diagnostics; make this initialization an explicit checkpoint. */
     pfs_zero(&fs, (uint32_t)sizeof(fs));
     if (prosenjitfs_check_integrity(0) != PROSENJITFS_EINVAL ||
-        prosenjitfs_check_integrity(&fs) != PROSENJITFS_EINVAL)
+        prosenjitfs_check_integrity(&fs) != PROSENJITFS_EINVAL ||
+        prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+            PROSENJITFS_EINVAL ||
+        integrity_report.status != PROSENJITFS_EINVAL ||
+        integrity_report.first_error_location != 0u ||
+        integrity_report.inodes_checked != 0u ||
+        integrity_report.block_bitmap_bits_checked != 0u)
         return pfs_selftest_fail(__LINE__, -1);
     PFS_SELFTEST_CHECKPOINT(0xF003u); /* local filesystem state zeroed */
     PFS_SELFTEST_CHECKPOINT(0xF004u); /* immediately before block-device init */
@@ -5971,7 +5978,12 @@ int prosenjitfs_selftest(void)
         disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
     integrity_dirty_crc = prosenjitfs_crc32c(
         disk.dirty, (uint32_t)sizeof(disk.dirty));
-    if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+    if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+            PROSENJITFS_OK ||
+        integrity_report.status != PROSENJITFS_OK ||
+        integrity_report.first_error_location != 0u ||
+        integrity_report.inodes_checked != fs.sb.inode_count ||
+        integrity_report.block_bitmap_bits_checked == 0u ||
         integrity_durable_crc != prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data)) ||
         integrity_volatile_crc != prosenjitfs_crc32c(
@@ -7722,7 +7734,11 @@ int prosenjitfs_selftest(void)
             disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
         integrity_dirty_crc = prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty));
-        if (prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK ||
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.first_error_location == 0u ||
+            integrity_report.inodes_checked == 0u ||
             integrity_durable_crc != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             integrity_volatile_crc != prosenjitfs_crc32c(
