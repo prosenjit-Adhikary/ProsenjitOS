@@ -5244,6 +5244,8 @@ struct pfs_test_disk {
     uint8_t data[512u * 512u];
     uint8_t volatile_data[512u * 512u];
     uint8_t dirty[512u / 8u];
+    /* Fail the selected future block read to test I/O error classification. */
+    uint32_t fail_read_countdown;
     /* Fail a selected future flush to model a device durability error. */
     uint32_t fail_flush_countdown;
     /* Persist the selected flush, then report an ambiguous I/O failure. */
@@ -5274,6 +5276,11 @@ static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
+    if (disk->fail_read_countdown != 0u) {
+        --disk->fail_read_countdown;
+        if (disk->fail_read_countdown == 0u)
+            return PROS_BLOCK_EIO;
+    }
     for (uint32_t i = 0u; i < count; ++i) {
         uint64_t current = lba + i;
         const uint8_t *source = pfs_test_dirty(disk, current)
@@ -5533,10 +5540,13 @@ static int pfs_selftest_consistency(
         (uint64_t)fs->sb.inode_count * PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_ECORRUPT;
 
-    if (fs->sb.root_inode >= fs->sb.inode_count ||
-        prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode) !=
-            PROSENJITFS_OK ||
-        inode.type != PROSENJITFS_INODE_DIR ||
+    if (fs->sb.root_inode >= fs->sb.inode_count)
+        return PROSENJITFS_ECORRUPT;
+    rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode);
+    if (rc != PROSENJITFS_OK)
+        return rc == PROSENJITFS_EIO ? PROSENJITFS_EIO
+                                     : PROSENJITFS_ECORRUPT;
+    if (inode.type != PROSENJITFS_INODE_DIR ||
         inode.parent_inode != fs->sb.root_inode ||
         inode.dir_index < fs->sb.data_start ||
         inode.dir_index >= fs->sb.total_blocks)
@@ -5569,11 +5579,15 @@ static int pfs_selftest_consistency(
 
         if (bi >= fs->sb.inode_bitmap_blocks ||
             pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK ||
-            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+                        bi, &lba) != PROSENJITFS_OK) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
-                        goto consistency_out;
+            goto consistency_out;
+        }
+        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+            /* A failed device read is not evidence of on-disk corruption. */
+            rc = PROSENJITFS_EIO;
+            goto consistency_out;
         }
 
         allocated = pfs_bitmap_bit(bitmap, within);
@@ -6158,6 +6172,39 @@ int prosenjitfs_selftest(void)
         integrity_dirty_crc != prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty)))
         return pfs_selftest_fail(__LINE__, -4);
+    /*
+     * I/O classification regression: a device read failure during the scan
+     * must be reported as EIO, not misclassified as on-disk corruption. The
+     * checker is read-only and must leave durable, volatile and dirty media
+     * state unchanged even when the read fails.
+     */
+    {
+        uint32_t durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        uint32_t volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        uint32_t dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        /*
+         * The scanner first reads the root inode, then reads inode bitmap
+         * block zero. Fail the second device read so this specifically covers
+         * the bitmap-read classification path below.
+         */
+        disk.fail_read_countdown = 2u;
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_EIO ||
+            integrity_report.status != PROSENJITFS_EIO ||
+            integrity_report.first_error_location != 0u ||
+            disk.fail_read_countdown != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -4);
+    }
+
     /*
      * Report-only orphan regression: flip one free data-block allocation bit
      * directly on the durable mock medium. The scan must report the candidate,
