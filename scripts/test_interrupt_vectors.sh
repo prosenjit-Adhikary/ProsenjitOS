@@ -15,7 +15,7 @@ block_has() {
   if ! awk -v start="$start" -v end="$end" '
     $0 ~ ("^" start ":$") { active=1 }
     active { print }
-    active && $0 ~ ("^" end ":$") { exit }
+    active && $0 ~ ("^" end) { exit }
   ' "$ASM" | grep -Eq "$pattern"; then
     fail "$description"
   fi
