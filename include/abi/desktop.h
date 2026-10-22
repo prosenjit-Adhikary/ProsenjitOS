@@ -185,4 +185,78 @@ static inline int pros_desktop_audio_request_valid(
            request->header.payload_size == total_bytes;
 }
 
+
+/* Validate fixed-size window operations before reading operation fields. */
+static inline int pros_desktop_window_request_valid(
+    const struct pros_desktop_window_request *request,
+    uint64_t received_bytes)
+{
+    uint32_t type;
+
+    if (request == 0 || received_bytes < sizeof(*request) ||
+        !pros_desktop_message_fits(&request->header, received_bytes) ||
+        request->header.struct_size < sizeof(*request) ||
+        request->header.payload_size != 0u ||
+        request->header.type < PROS_DESKTOP_MSG_WINDOW_CREATE ||
+        request->header.type > PROS_DESKTOP_MSG_WINDOW_FOCUS ||
+        request->reserved != 0u)
+        return 0;
+
+    type = request->header.type;
+    if (type == PROS_DESKTOP_MSG_WINDOW_CREATE ||
+        type == PROS_DESKTOP_MSG_WINDOW_MOVE ||
+        type == PROS_DESKTOP_MSG_WINDOW_RESIZE)
+        return pros_desktop_rect_valid(&request->bounds);
+    return 1;
+}
+
+/* Validate key/pointer event envelopes and reject undefined flag bits. */
+static inline int pros_desktop_input_event_valid(
+    const struct pros_desktop_input_event *event,
+    uint64_t received_bytes)
+{
+    const uint32_t allowed = PROS_DESKTOP_INPUT_PRESS |
+                             PROS_DESKTOP_INPUT_RELEASE |
+                             PROS_DESKTOP_INPUT_RELATIVE |
+                             PROS_DESKTOP_INPUT_REPEAT;
+    uint32_t flags;
+
+    if (event == 0 || received_bytes < sizeof(*event) ||
+        !pros_desktop_message_fits(&event->header, received_bytes) ||
+        event->header.struct_size < sizeof(*event) ||
+        event->header.payload_size != 0u ||
+        (event->header.type != PROS_DESKTOP_MSG_INPUT_KEY &&
+         event->header.type != PROS_DESKTOP_MSG_INPUT_POINTER))
+        return 0;
+
+    flags = event->input_flags;
+    if ((flags & ~allowed) != 0u ||
+        (flags & (PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_RELEASE)) ==
+            (PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_RELEASE))
+        return 0;
+    if (event->header.type == PROS_DESKTOP_MSG_INPUT_KEY &&
+        (flags & PROS_DESKTOP_INPUT_RELATIVE) != 0u)
+        return 0;
+    return 1;
+}
+
+/* Clipboard writes carry bounded bytes; reads are metadata-only requests. */
+static inline int pros_desktop_clipboard_request_valid(
+    const struct pros_desktop_clipboard_request *request,
+    uint64_t received_bytes)
+{
+    if (request == 0 || received_bytes < sizeof(*request) ||
+        !pros_desktop_message_fits(&request->header, received_bytes) ||
+        request->header.struct_size < sizeof(*request) ||
+        (request->header.type != PROS_DESKTOP_MSG_CLIPBOARD_READ &&
+         request->header.type != PROS_DESKTOP_MSG_CLIPBOARD_WRITE) ||
+        request->reserved != 0u ||
+        !pros_desktop_clipboard_size_valid(request->header.payload_size))
+        return 0;
+    if (request->header.type == PROS_DESKTOP_MSG_CLIPBOARD_READ &&
+        request->header.payload_size != 0u)
+        return 0;
+    return 1;
+}
+
 #endif
