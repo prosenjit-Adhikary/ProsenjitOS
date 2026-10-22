@@ -5540,10 +5540,13 @@ static int pfs_selftest_consistency(
         (uint64_t)fs->sb.inode_count * PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_ECORRUPT;
 
-    if (fs->sb.root_inode >= fs->sb.inode_count ||
-        prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode) !=
-            PROSENJITFS_OK ||
-        inode.type != PROSENJITFS_INODE_DIR ||
+    if (fs->sb.root_inode >= fs->sb.inode_count)
+        return PROSENJITFS_ECORRUPT;
+    rc = prosenjitfs_read_inode(fs, fs->sb.root_inode, &inode);
+    if (rc != PROSENJITFS_OK)
+        return rc == PROSENJITFS_EIO ? PROSENJITFS_EIO
+                                     : PROSENJITFS_ECORRUPT;
+    if (inode.type != PROSENJITFS_INODE_DIR ||
         inode.parent_inode != fs->sb.root_inode ||
         inode.dir_index < fs->sb.data_start ||
         inode.dir_index >= fs->sb.total_blocks)
