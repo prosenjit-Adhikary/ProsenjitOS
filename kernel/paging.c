@@ -67,14 +67,18 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
     return table;
 }
 
-int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+static int paging_map_page_internal(uint64_t virtual_address, uint64_t physical_address,
+                                    uint64_t flags, int mmio) {
     if (!kernel_pml4 ||
         (virtual_address & 0xFFFULL) != 0 || (physical_address & 0xFFFULL) != 0)
         return -1;
+    uint64_t allowed_flags = PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
+                             PROSENJIT_PAGE_NX;
+    if (mmio) allowed_flags |= PROSENJIT_PAGE_PWT | PROSENJIT_PAGE_PCD;
     if (!canonical_address(virtual_address) ||
-        physical_address >= PROSENJIT_PHYS_LIMIT ||
-        (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
-                   PROSENJIT_PAGE_NX)) != 0)
+        (mmio ? physical_address > PAGE_MASK :
+                physical_address >= PROSENJIT_PHYS_LIMIT) ||
+        (flags & ~allowed_flags) != 0)
         return -1;
 
     uint64_t table_flags = PROSENJIT_PAGE_WRITABLE;
@@ -133,10 +137,69 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
     pt[PT_INDEX(virtual_address)] = (physical_address & PAGE_MASK) |
                                     (flags & (PROSENJIT_PAGE_WRITABLE |
                                               PROSENJIT_PAGE_USER |
-                                              PROSENJIT_PAGE_NX)) |
+                                              PROSENJIT_PAGE_NX |
+                                              PROSENJIT_PAGE_PWT |
+                                              PROSENJIT_PAGE_PCD)) |
                                     PROSENJIT_PAGE_PRESENT;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
+}
+
+int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+    return paging_map_page_internal(virtual_address, physical_address, flags, 0);
+}
+
+/*
+ * MMIO mappings are supervisor-only, non-executable and uncached. The caller
+ * owns the virtual range and must unmap it before releasing the device.
+ * This maps page tables only; it does not probe or enable the device.
+ */
+int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
+                          uint64_t length) {
+    if (!kernel_pml4 || length == 0u ||
+        (virtual_address & 0xFFFULL) != 0u ||
+        (physical_address & 0xFFFULL) != 0u ||
+        (length & 0xFFFULL) != 0u ||
+        length > (256ULL * 1024ULL * 1024ULL) ||
+        physical_address > PAGE_MASK ||
+        length - 1ULL > PAGE_MASK - physical_address ||
+        length - 1ULL > UINT64_MAX - virtual_address)
+        return -1;
+    uint64_t last_va = virtual_address + length - 1ULL;
+    if (!canonical_address(virtual_address) || !canonical_address(last_va) ||
+        ((virtual_address >> 47) & 1ULL) != ((last_va >> 47) & 1ULL))
+        return -1;
+
+    uint64_t mapped = 0u;
+    for (; mapped < length; mapped += 0x1000ULL) {
+        int rc = paging_map_page_internal(virtual_address + mapped,
+                                          physical_address + mapped,
+                                          PROSENJIT_PAGE_NX |
+                                          PROSENJIT_PAGE_PWT |
+                                          PROSENJIT_PAGE_PCD, 1);
+        if (rc != 0) {
+            while (mapped != 0u) {
+                mapped -= 0x1000ULL;
+                paging_unmap_page(virtual_address + mapped);
+            }
+            return rc;
+        }
+    }
+    return 0;
+}
+
+void paging_unmap_mmio_range(uint64_t virtual_address, uint64_t length) {
+    if (!kernel_pml4 || (virtual_address & 0xFFFULL) != 0u ||
+        length == 0u || (length & 0xFFFULL) != 0u ||
+        length > (256ULL * 1024ULL * 1024ULL) ||
+        length - 1ULL > UINT64_MAX - virtual_address ||
+        !canonical_address(virtual_address) ||
+        !canonical_address(virtual_address + length - 1ULL) ||
+        (((virtual_address >> 47) & 1ULL) !=
+         (((virtual_address + length - 1ULL) >> 47) & 1ULL)))
+        return;
+    for (uint64_t offset = 0u; offset < length; offset += 0x1000ULL)
+        paging_unmap_page(virtual_address + offset);
 }
 
 void paging_unmap_page(uint64_t virtual_address) {
@@ -200,7 +263,9 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
         *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
                               PROSENJIT_PAGE_WRITABLE |
                               PROSENJIT_PAGE_USER |
-                              PROSENJIT_PAGE_NX);
+                              PROSENJIT_PAGE_NX |
+                              PROSENJIT_PAGE_PWT |
+                              PROSENJIT_PAGE_PCD);
         return 0;
     }
 
@@ -212,7 +277,9 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
     *flags_out = entry & (PROSENJIT_PAGE_PRESENT |
                           PROSENJIT_PAGE_WRITABLE |
                           PROSENJIT_PAGE_USER |
-                          PROSENJIT_PAGE_NX);
+                          PROSENJIT_PAGE_NX |
+                          PROSENJIT_PAGE_PWT |
+                          PROSENJIT_PAGE_PCD);
     return 0;
 }
 
@@ -367,12 +434,38 @@ int paging_selftest(void) {
 
     physical_page_free(physical);
 
+    /*
+     * Map a reserved PCI/APIC MMIO window without dereferencing it. Verify
+     * the physical translation and uncached + NX PTE attributes, then unmap.
+     */
+    static const uint64_t mmio_va = 0xFFFF900000000000ULL;
+    static const uint64_t mmio_pa = 0xFEC00000ULL;
+    if (paging_map_mmio_range(mmio_va, mmio_pa, 0x2000ULL) != 0)
+        return -6;
+    uint64_t mmio_flags = 0u;
+    if (paging_translate(mmio_va) != mmio_pa ||
+        paging_translate(mmio_va + 0x1000ULL) != mmio_pa + 0x1000ULL ||
+        paging_query_page(mmio_va, &mmio_flags) != 0 ||
+        !(mmio_flags & PROSENJIT_PAGE_NX) ||
+        !(mmio_flags & PROSENJIT_PAGE_PCD) ||
+        !(mmio_flags & PROSENJIT_PAGE_PWT) ||
+        (mmio_flags & PROSENJIT_PAGE_USER)) {
+        paging_unmap_mmio_range(mmio_va, 0x2000ULL);
+        return -7;
+    }
+    paging_unmap_mmio_range(mmio_va, 0x2000ULL);
+    if (paging_translate(mmio_va) != 0)
+        return -8;
+    if (paging_map_mmio_range(mmio_va, mmio_pa, 0x1001ULL) == 0 ||
+        paging_map_mmio_range(0x0000800000000000ULL, mmio_pa, 0x1000ULL) == 0)
+        return -9;
+
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -6;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
-        return -7;
+        return -10;
 
     return 0;
 }
