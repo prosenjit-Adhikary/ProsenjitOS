@@ -22,6 +22,7 @@ int main(void)
     };
     uint8_t malformed[64] = {0};
     uint8_t unknown[8] = {'n', 'o', 't', 'a', 'p', 'p', 0u, 0u};
+    uint8_t malformed_pe[128] = {0};
 
     CHECK(pros_app_detect_format(NULL, 0u, &format) == -1, 1);
     CHECK(pros_app_detect_format(elf, sizeof(elf), NULL) == -1, 2);
@@ -73,6 +74,23 @@ int main(void)
           15);
     CHECK(format == PROS_APP_FORMAT_UNKNOWN, 16);
     CHECK(pros_app_detect_format(pe, 64u, &format) == -2, 17);
+
+    malformed_pe[0] = 'M';
+    malformed_pe[1] = 'Z';
+    malformed_pe[0x3cu] = 0x40u;
+    malformed_pe[0x40u] = 'P';
+    malformed_pe[0x41u] = 'E';
+    malformed_pe[0x54u] = 0xffu;
+    malformed_pe[0x55u] = 0xffu;
+    CHECK(pros_app_detect_format(malformed_pe, sizeof(malformed_pe),
+                                 &format) == -2, 34);
+    CHECK(format == PROS_APP_FORMAT_UNKNOWN, 35);
+    malformed_pe[0x54u] = 2u;
+    malformed_pe[0x55u] = 0u;
+    malformed_pe[0x58u] = 0u;
+    malformed_pe[0x59u] = 0u;
+    CHECK(pros_app_detect_format(malformed_pe, sizeof(malformed_pe),
+                                 &format) == -2, 36);
 
     CHECK(pros_app_detect_format(ole, sizeof(ole), &format) == 0, 18);
     CHECK(format == PROS_APP_FORMAT_OLE_CONTAINER, 19);
