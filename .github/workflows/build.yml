@@ -41,7 +41,8 @@ jobs:
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
-          make desktop-unit-test
+          bash -n scripts/test_memory_map.sh
+          make desktop-unit-test memory-map-unit-test
 
       - name: Build ISO
         run: |
