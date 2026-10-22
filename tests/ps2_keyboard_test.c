@@ -99,6 +99,14 @@ int main(void)
     assert(pros_ps2_keyboard_poll(77u) == 1); /* clears partial prefix on parity error */
     assert(captured.count == 5u && captured.events[4].value0 == 0x1E);
 
+    /* Polling is bounded: a 33rd byte remains for the next invocation. */
+    for (uint32_t i = 0u; i < 32u; ++i)
+        assert(pros_ps2_keyboard_test_push(0x01u, 0xE0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == 0);
+    assert(pros_ps2_keyboard_poll(77u) == 1);
+    assert(captured.count == 6u && captured.events[5].value0 == 0x11E);
+
     assert(pros_ps2_keyboard_test_push(0x01u, 0x00u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_EIO);
     assert(pros_hw_endpoint_unregister(77u, PROS_HW_ENDPOINT_INPUT) == PROS_DRIVER_OK);
