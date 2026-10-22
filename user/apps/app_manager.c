@@ -111,12 +111,14 @@ static int manifest_validate(const struct pros_app_manager *manager,
         return PROS_APP_EINVAL;
     if (!backend_valid(manifest->backend))
         return PROS_APP_EBACKEND;
-    if (manifest->install_state != PROS_APP_STAGED &&
-        manifest->install_state != PROS_APP_INSTALLED &&
-        manifest->install_state != PROS_APP_DISABLED)
+    /*
+     * Registration is not installation. Only staged, unverified manifests
+     * enter the registry; trusted verification and install commit are separate
+     * explicit transitions below.
+     */
+    if (manifest->install_state != PROS_APP_STAGED)
         return PROS_APP_ESTATE;
-    if (manifest->trust_state != PROS_APP_TRUST_UNKNOWN &&
-        manifest->trust_state != PROS_APP_TRUST_VERIFIED)
+    if (manifest->trust_state != PROS_APP_TRUST_UNKNOWN)
         return PROS_APP_ETRUST;
     if ((manifest->required_features & ~manager->supported_features) != 0u)
         return PROS_APP_EFEATURE;
@@ -217,6 +219,143 @@ int pros_app_register(struct pros_app_manager *manager,
     manager->entries[manager->count].manifest = *manifest;
     manager->entries[manager->count].registered = 1u;
     ++manager->count;
+    return PROS_APP_OK;
+}
+
+
+static int validate_install_graph(const struct pros_app_manager *manager,
+                                  uint32_t index,
+                                  uint32_t root_index,
+                                  uint8_t visiting[PROS_APP_MAX_ENTRIES],
+                                  uint8_t visited[PROS_APP_MAX_ENTRIES])
+{
+    const struct pros_app_manifest *manifest;
+
+    if (!manager_valid(manager) || index >= manager->count ||
+        index >= PROS_APP_MAX_ENTRIES || !visiting || !visited ||
+        !manager->entries[index].registered)
+        return PROS_APP_EINVAL;
+    if (visiting[index])
+        return PROS_APP_ELOOP;
+    if (visited[index])
+        return PROS_APP_OK;
+
+    manifest = &manager->entries[index].manifest;
+    if (manifest->trust_state != PROS_APP_TRUST_VERIFIED)
+        return PROS_APP_ETRUST;
+    if (index != root_index &&
+        manifest->install_state != PROS_APP_INSTALLED)
+        return PROS_APP_ESTATE;
+
+    visiting[index] = 1u;
+    for (uint32_t d = 0u; d < manifest->dependency_count; ++d) {
+        int dependency = manager_find(manager, manifest->dependencies[d]);
+        int rc;
+
+        if (dependency < 0) {
+            visiting[index] = 0u;
+            return PROS_APP_ENODEP;
+        }
+        if (manager->entries[dependency].manifest.backend != manifest->backend) {
+            visiting[index] = 0u;
+            return PROS_APP_EBACKEND;
+        }
+        rc = validate_install_graph(manager, (uint32_t)dependency, root_index,
+                                    visiting, visited);
+        if (rc != PROS_APP_OK) {
+            visiting[index] = 0u;
+            return rc;
+        }
+    }
+    visiting[index] = 0u;
+    visited[index] = 1u;
+    return PROS_APP_OK;
+}
+
+int pros_app_mark_verified(struct pros_app_manager *manager,
+                           const char *app_id)
+{
+    int index;
+
+    if (!manager_valid(manager) || !id_valid(app_id))
+        return PROS_APP_EINVAL;
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+    if (manager->entries[index].manifest.install_state != PROS_APP_STAGED)
+        return PROS_APP_ESTATE;
+    manager->entries[index].manifest.trust_state = PROS_APP_TRUST_VERIFIED;
+    return PROS_APP_OK;
+}
+
+int pros_app_commit_install(struct pros_app_manager *manager,
+                            const char *app_id)
+{
+    uint8_t visiting[PROS_APP_MAX_ENTRIES] = {0};
+    uint8_t visited[PROS_APP_MAX_ENTRIES] = {0};
+    int index;
+    int rc;
+
+    if (!manager_valid(manager) || !id_valid(app_id))
+        return PROS_APP_EINVAL;
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+    if (manager->entries[index].manifest.install_state != PROS_APP_STAGED)
+        return PROS_APP_ESTATE;
+    if (manager->entries[index].manifest.trust_state != PROS_APP_TRUST_VERIFIED)
+        return PROS_APP_ETRUST;
+
+    rc = validate_install_graph(manager, (uint32_t)index, (uint32_t)index,
+                                visiting, visited);
+    if (rc != PROS_APP_OK)
+        return rc;
+
+    /* This in-memory transition is the registry commit point only. */
+    manager->entries[index].manifest.install_state = PROS_APP_INSTALLED;
+    return PROS_APP_OK;
+}
+
+int pros_app_disable(struct pros_app_manager *manager, const char *app_id)
+{
+    int index;
+
+    if (!manager_valid(manager) || !id_valid(app_id))
+        return PROS_APP_EINVAL;
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+    if (manager->entries[index].manifest.install_state != PROS_APP_INSTALLED)
+        return PROS_APP_ESTATE;
+    manager->entries[index].manifest.install_state = PROS_APP_DISABLED;
+    return PROS_APP_OK;
+}
+
+int pros_app_uninstall(struct pros_app_manager *manager, const char *app_id)
+{
+    int index;
+
+    if (!manager_valid(manager) || !id_valid(app_id))
+        return PROS_APP_EINVAL;
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+
+    for (uint32_t i = 0u; i < manager->count; ++i) {
+        const struct pros_app_manifest *candidate =
+            &manager->entries[i].manifest;
+        if ((int)i == index)
+            continue;
+        for (uint32_t d = 0u; d < candidate->dependency_count; ++d) {
+            if (id_equal(candidate->dependencies[d], app_id))
+                return PROS_APP_EBUSY;
+        }
+    }
+
+    for (uint32_t i = (uint32_t)index; i + 1u < manager->count; ++i)
+        manager->entries[i] = manager->entries[i + 1u];
+    --manager->count;
+    manager->entries[manager->count] = (struct pros_app_entry){0};
     return PROS_APP_OK;
 }
 
