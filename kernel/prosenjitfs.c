@@ -6185,7 +6185,12 @@ int prosenjitfs_selftest(void)
             disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
         uint32_t dirty_before = prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty));
-        disk.fail_read_countdown = 1u;
+        /*
+         * The scanner first reads the root inode, then reads inode bitmap
+         * block zero. Fail the second device read so this specifically covers
+         * the bitmap-read classification path below.
+         */
+        disk.fail_read_countdown = 2u;
         if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
                 PROSENJITFS_EIO ||
             integrity_report.status != PROSENJITFS_EIO ||
