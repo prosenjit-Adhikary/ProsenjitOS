@@ -71,6 +71,30 @@ The following work remains intentionally dependent on lower layers:
 
 The deterministic native-filesystem self-test now covers persistent inode/data-block allocation and reclamation, file create/delete, directory creation/removal, nested directories, cross-directory file and directory moves, rename collision rejection, directory-parent cycle rejection, and non-empty-directory removal rejection. The test remains subject to the repository-wide GitHub Actions verification gate.
 
+## ProsenjitFS parent-chain reachability hardening — 2026-10-21
+
+The diagnostic consistency checker now walks each allocated non-root inode's
+parent chain and requires it to reach the root inode within an inode-count
+bound. Out-of-range parents, unreadable parent inodes, non-directory parents,
+and chains that exceed the bound fail closed as corruption. This check is
+read-only: it does not rewrite metadata or attempt orphan repair.
+
+Regression coverage and validation status:
+- A focused on-disk fixture creates two valid directories, repurposes the
+  root entry block as a child entry, removes the first directory from the root
+  index, and forms a two-directory parent cycle. Directory-entry checksums,
+  inode checksums, directory-reference counts, and block ownership remain
+  locally consistent, so the full consistency checker must reject the image
+  at the parent-chain reachability check rather than at an earlier check.
+- The test also calls the shared parent-chain validator directly, then
+  unmounts and reformats the mock medium and requires the clean consistency
+  check to pass.
+- Commit `95deb3e388b6b535e84f33193b8738745870606d` passed Security architecture
+  checks, ISO QEMU boot, native BIOS QEMU boot, ProsenjitFS format/mount/
+  allocation/journal/recovery self-test, ATA PIO real-disk block-path test,
+  and the persistent MBR -> ProsenjitFS mount assertion. These are automated
+  QEMU/software-model checks, not physical power-loss validation.
+
 ## Completion principle
 
 A milestone is considered complete only when its implementation, regression coverage, CI gate, and documentation agree. Deterministic tests must not be described as physical hardware durability validation.
