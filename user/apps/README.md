@@ -27,4 +27,4 @@ All backends remain metadata identities until their respective runtime, package-
 
 ## Verification gate
 
-Run `make app-unit-test` on the project-designated OfficeWindows/self-hosted runner. This branch has not yet been verified because the runner is currently unavailable. A queued or not-started workflow is not a pass, and an unrelated local build must not be reported as runner verification. Before merging, inspect the test logs from the required runner and complete a source review; boot/runtime compatibility is outside this module's claim.
+OfficeWindows is permanently closed and must never be used. The test suite has not been compiled or executed during this implementation continuation. No runner/CI pass is claimed; do not treat static review as runtime verification. Before merging, select an explicitly approved active development environment, run `make app-unit-test`, and inspect its logs. Boot/runtime compatibility is outside this module's claim.
