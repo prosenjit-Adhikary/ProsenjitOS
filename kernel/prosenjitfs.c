@@ -7271,6 +7271,118 @@ int prosenjitfs_selftest(void)
         }
 
         /*
+         * Block-bitmap tail regression: set the first bit beyond total_blocks.
+         * Such bits are never valid allocation state and must be rejected
+         * without the report-only checker changing the media.
+         */
+        {
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint64_t bi = fs.sb.total_blocks / bits_per_block;
+            uint64_t within = fs.sb.total_blocks % bits_per_block;
+            uint64_t lba;
+            uint8_t original_bitmap[4096];
+            uint8_t corrupt_bitmap[4096];
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (within == 0u || bi >= fs.sb.block_bitmap_blocks ||
+                pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start,
+                            bi, &lba) != PROSENJITFS_OK ||
+                pfs_read_block(fs.mount.device, lba,
+                               original_bitmap) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            pfs_copy(corrupt_bitmap, original_bitmap, fs.sb.block_size);
+            corrupt_bitmap[within >> 3] |=
+                (uint8_t)(1u << (within & 7u));
+            if (pfs_write_block(fs.mount.device, lba,
+                                corrupt_bitmap) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, lba, original_bitmap);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, lba, original_bitmap);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, lba, original_bitmap) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
+         * Inode-bitmap tail regression: set the first bit beyond inode_count.
+         * The integrity checker must reject the invalid inode allocation bit
+         * without mutating the medium, then pass after the bit is restored.
+         */
+        {
+            uint64_t bits_per_block = (uint64_t)fs.sb.block_size * 8u;
+            uint64_t bi = (uint64_t)fs.sb.inode_count / bits_per_block;
+            uint64_t within = (uint64_t)fs.sb.inode_count % bits_per_block;
+            uint64_t lba;
+            uint8_t original_bitmap[4096];
+            uint8_t corrupt_bitmap[4096];
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (within == 0u || bi >= fs.sb.inode_bitmap_blocks ||
+                pfs_lba_add(fs.mount.device, fs.sb.inode_bitmap_start,
+                            bi, &lba) != PROSENJITFS_OK ||
+                pfs_read_block(fs.mount.device, lba,
+                               original_bitmap) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            pfs_copy(corrupt_bitmap, original_bitmap, fs.sb.block_size);
+            corrupt_bitmap[within >> 3] |=
+                (uint8_t)(1u << (within & 7u));
+            if (pfs_write_block(fs.mount.device, lba,
+                                corrupt_bitmap) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, lba, original_bitmap);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, lba, original_bitmap);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, lba, original_bitmap) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
          * Cross-inode ownership regression: create a second file, then point
          * its checksum-valid extent at a block already owned by
          * sparse-delalloc-cross.bin. The global owner map must reject aliasing
