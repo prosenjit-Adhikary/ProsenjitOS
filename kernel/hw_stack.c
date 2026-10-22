@@ -315,18 +315,6 @@ int pros_hw_audio_write(uint32_t id, const struct pros_hw_audio_format *f,
     if (length%frame_bytes!=0u) return PROS_DRIVER_EINVAL;
     return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_AUDIO,samples,length);
 }
-int pros_hw_endpoint_unregister(uint32_t id, enum pros_hw_endpoint_type type) {
-    if (!stack_ready || id==0u || !valid_type(type)) return PROS_DRIVER_EINVAL;
-    int n=endpoint_find(id,type);
-    if (n<0) return PROS_DRIVER_ENODEV;
-    struct endpoint_slot *s=&endpoints[(uint32_t)n];
-    int rc=s->ops->shutdown(s->context);
-    s->last_error=rc;
-    if (rc!=PROS_DRIVER_OK) return rc;
-    s->device_id=0u; s->type=0; s->ops=0; s->context=0;
-    s->used=0u; s->initialized=0u;
-    return PROS_DRIVER_OK;
-}
 struct selftest_context { int init_rc, transfer_rc, shutdown_rc; uint32_t calls; };
 static int selftest_init(void *p) { struct selftest_context *c=p; if(!c)return PROS_DRIVER_EINVAL; ++c->calls; return c->init_rc; }
 static int selftest_transfer(void *p,const void *b,uint32_t n) { struct selftest_context *c=p; if(!c||!b||!n)return PROS_DRIVER_EINVAL; ++c->calls; return c->transfer_rc; }
