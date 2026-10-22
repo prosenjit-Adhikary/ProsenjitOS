@@ -12,15 +12,15 @@ Date: 2026-10-22. Repository: prosenjit-Adhikary/ProsenjitOS. Branch: feature/sh
 - [ ] Part 2 acceptance remains NOT MET: its PR explicitly lists userspace input IPC delivery, USB HID/keymap, concrete audio backend, device arbitration/IRQ routing and physical hardware as outstanding.
 
 ## Part 3 changes
-- [x] Added a shared Native/Windows contract and bounded host state model.
+- [x] Reused the existing Part 1 wire ABI in include/abi/desktop.h; added a bounded host state model and adapter-side request validation rather than defining a second wire protocol.
 - [x] Added process/subsystem connect, disconnect and exit states.
 - [x] Added window ownership, focus, input target routing and destruction.
 - [x] Added bounded clipboard storage with explicit read/write rights.
 - [x] Added audio session handle ownership and lifecycle (not playback).
-- [x] Added version/size/type validation for event records.
+- [x] Added version/size/type validation for internal routed events and dispatch validation for existing ABI window/input/clipboard/audio messages; unsupported frame-present/audio-control payloads fail closed.
 - [x] Added resource revocation on disconnect/exit.
 - [x] Documented IPC identity, buffer validation, user-space compositor boundary, unsupported features and acceptance matrix.
-- [ ] Host tests: pending CI.
+- [ ] Host tests: pending exact-head CI (build run 7747 is pending; security run 7283 is queued).
 - [ ] Kernel IPC, process capability handles, user-buffer validation: not wired.
 - [ ] Display surfaces/presentation, physical input route, audio backend and lifecycle notification transport: not implemented.
 - [ ] QEMU/real GUI runtime: not run; no complete desktop claim.
