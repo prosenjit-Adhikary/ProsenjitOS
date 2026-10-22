@@ -5430,16 +5430,20 @@ static int pfs_parent_chain_reaches_root(
     inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
     if (inode_rc != PROSENJITFS_OK)
         return inode_rc == PROSENJITFS_ENOENT
-             ? PROSENJITFS_ENOENT : PROSENJITFS_ECORRUPT;
+             ? PROSENJITFS_ENOENT
+             : inode_rc == PROSENJITFS_EIO
+             ? PROSENJITFS_EIO : PROSENJITFS_ECORRUPT;
 
     current_parent = inode.parent_inode;
     while (current_parent != fs->sb.root_inode) {
         struct pros_prosenjitfs_inode parent_inode;
-
         if (++steps >= fs->sb.inode_count ||
-            current_parent >= fs->sb.inode_count ||
-            prosenjitfs_read_inode(fs, current_parent, &parent_inode) !=
-                PROSENJITFS_OK ||
+            current_parent >= fs->sb.inode_count)
+            return PROSENJITFS_ECORRUPT;
+        inode_rc = prosenjitfs_read_inode(fs, current_parent, &parent_inode);
+        if (inode_rc == PROSENJITFS_EIO)
+            return PROSENJITFS_EIO;
+        if (inode_rc != PROSENJITFS_OK ||
             parent_inode.type != PROSENJITFS_INODE_DIR)
             return PROSENJITFS_ECORRUPT;
         current_parent = parent_inode.parent_inode;
