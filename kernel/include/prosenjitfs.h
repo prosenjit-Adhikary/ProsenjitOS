@@ -34,6 +34,8 @@ struct pros_prosenjitfs_integrity_report {
     uint32_t first_error_location;
     uint64_t inodes_checked;
     uint64_t block_bitmap_bits_checked;
+    uint64_t orphaned_blocks_reported;
+    uint64_t first_orphaned_block;
 };
 
 /* Kernel-only diagnostics and self-test entry points. */
