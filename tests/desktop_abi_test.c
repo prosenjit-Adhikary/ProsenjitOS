@@ -5,7 +5,7 @@
 
 #define CHECK(condition, code) do { \
     if (!(condition)) { \
-        (void)fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); \
+        (void)fprintf(stderr, "FAIL line %d: %s\\n", __LINE__, #condition); \
         return (code); \
     } \
 } while (0)
@@ -33,6 +33,13 @@ int main(void)
     header.type = PROS_DESKTOP_MSG_WINDOW_CREATE;
     header.payload_size = PROS_DESKTOP_MAX_MESSAGE_BYTES + 1u;
     CHECK(!pros_desktop_message_header_valid(&header), 6);
+    header.payload_size = 0u;
+    header.struct_size = PROS_DESKTOP_MAX_MESSAGE_BYTES + 1u;
+    CHECK(!pros_desktop_message_header_valid(&header), 19);
+    header.struct_size = sizeof(header);
+    header.payload_size = PROS_DESKTOP_MAX_MESSAGE_BYTES;
+    CHECK(!pros_desktop_message_header_valid(&header), 20);
+    header.payload_size = 0u;
 
     CHECK(pros_desktop_rect_valid(&rect), 7);
     rect.width = 0u;
