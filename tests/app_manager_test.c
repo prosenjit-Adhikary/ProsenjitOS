@@ -162,6 +162,20 @@ int main(void)
               PROS_APP_OK && output.install_state == PROS_APP_STAGED, 71);
 
         storage = (struct fake_storage){0};
+        storage.stage_result = -1;
+        storage.rollback_result = -1;
+        manifest = make_manifest("transaction-stage-rollback-fail", "bin/app");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 89);
+        CHECK(pros_app_mark_verified(&manager,
+                                     "transaction-stage-rollback-fail") ==
+              PROS_APP_OK, 90);
+        CHECK(pros_app_install_transaction(&manager,
+                                           "transaction-stage-rollback-fail",
+                                           &ops) == PROS_APP_EROLLBACK, 91);
+        CHECK(storage.stage_calls == 1u && storage.publish_calls == 0u &&
+              storage.rollback_calls == 1u, 92);
+
+        storage = (struct fake_storage){0};
         storage.publish_result = -1;
         manifest = make_manifest("transaction-publish-fail", "bin/app");
         CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 72);
