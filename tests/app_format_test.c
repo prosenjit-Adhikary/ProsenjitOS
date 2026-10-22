@@ -21,6 +21,7 @@ int main(void)
         0xd0u, 0xcfu, 0x11u, 0xe0u, 0xa1u, 0xb1u, 0x1au, 0xe1u
     };
     uint8_t malformed[64] = {0};
+    uint8_t unknown[8] = {'n', 'o', 't', 'a', 'p', 'p', 0u, 0u};
 
     CHECK(pros_app_detect_format(NULL, 0u, &format) == -1, 1);
     CHECK(pros_app_detect_format(elf, sizeof(elf), NULL) == -1, 2);
@@ -90,6 +91,21 @@ int main(void)
               99u, PROS_APP_FORMAT_ELF64) == 0, 25);
     CHECK(pros_app_format_compatible_with_backend(
               PROS_APP_BACKEND_WINDOWS, PROS_APP_FORMAT_OLE_CONTAINER) == 0, 26);
+    CHECK(pros_app_check_binary_backend(
+              PROS_APP_BACKEND_NATIVE, elf, sizeof(elf), &format) == -2, 27);
+    elf[4] = 2u;
+    CHECK(pros_app_check_binary_backend(
+              PROS_APP_BACKEND_NATIVE, elf, sizeof(elf), &format) == 0, 28);
+    CHECK(format == PROS_APP_FORMAT_ELF64, 29);
+    CHECK(pros_app_check_binary_backend(
+              PROS_APP_BACKEND_WINDOWS, elf, sizeof(elf), &format) == -3, 30);
+    CHECK(pros_app_check_binary_backend(
+              PROS_APP_BACKEND_NATIVE, unknown, sizeof(unknown), &format) == -3,
+          31);
+    CHECK(pros_app_check_binary_backend(
+              PROS_APP_BACKEND_NATIVE, NULL, 0u, &format) == -1, 32);
+    CHECK(pros_app_check_binary_backend(
+              PROS_APP_BACKEND_NATIVE, elf, sizeof(elf), NULL) == -1, 33);
 
     (void)puts("application format tests passed");
     return 0;
