@@ -144,23 +144,59 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
+    int saw_end_tag = 0;
 
+    /*
+     * First pass: validate the complete tag chain before using any map entry.
+     * Subtract-before-add checks prevent wrapped tag sizes from passing bounds
+     * validation, and the mmap payload must fit inside its enclosing tag.
+     */
     while (current <= end && end - current >= 8ULL) {
-        const struct multiboot_tag *tag = (const struct multiboot_tag *)(uintptr_t)current;
-        if (tag->type == MULTIBOOT2_TAG_END) break;
-        if (tag->size < 8u || current + tag->size > end) return -3;
+        const struct multiboot_tag *tag =
+            (const struct multiboot_tag *)(uintptr_t)current;
+        if (tag->size < 8u || (uint64_t)tag->size > end - current)
+            return -3;
+
+        if (tag->type == MULTIBOOT2_TAG_END) {
+            if (tag->size != 8u) return -3;
+            saw_end_tag = 1;
+            break;
+        }
 
         if (tag->type == MULTIBOOT2_TAG_MMAP) {
             const struct multiboot_tag_mmap *mmap =
                 (const struct multiboot_tag_mmap *)tag;
-            if (mmap->size < 16u || mmap->entry_size < 24u) return -4;
+            if (mmap->size < 16u || mmap->size > tag->size ||
+                mmap->entry_size < 24u || mmap->entry_version != 0u ||
+                ((mmap->size - 16u) % mmap->entry_size) != 0u)
+                return -4;
+        }
 
+        uint64_t next = current + (uint64_t)tag->size;
+        if (next > UINT64_MAX - 7ULL) return -3;
+        current = (next + 7ULL) & ~7ULL;
+    }
+    if (!saw_end_tag) return -3;
+
+    /*
+     * Second pass: admit only complete, validated available ranges. Reserved
+     * firmware ranges are applied in a later pass so they always win if a
+     * malformed or overlapping map describes the same physical page as both
+     * available and reserved.
+     */
+    current = multiboot_info_address + 8ULL;
+    while (current < end) {
+        const struct multiboot_tag *tag =
+            (const struct multiboot_tag *)(uintptr_t)current;
+        if (tag->type == MULTIBOOT2_TAG_END) break;
+
+        if (tag->type == MULTIBOOT2_TAG_MMAP) {
+            const struct multiboot_tag_mmap *mmap =
+                (const struct multiboot_tag_mmap *)tag;
             uint64_t entries_start = current + 16ULL;
             uint64_t entries_end = current + mmap->size;
 
-            for (uint64_t p = entries_start;
-                 p <= entries_end &&
-                 entries_end - p >= mmap->entry_size;
+            for (uint64_t p = entries_start; p < entries_end;
                  p += mmap->entry_size) {
                 const struct multiboot_mmap_entry *entry =
                     (const struct multiboot_mmap_entry *)(uintptr_t)p;
@@ -170,8 +206,36 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         }
 
         uint64_t next = current + (uint64_t)tag->size;
-        if (next > UINT64_MAX - 7ULL)
-            return -3;
+        current = (next + 7ULL) & ~7ULL;
+    }
+
+    /*
+     * Third pass: non-available entries override overlapping available entries.
+     * This is conservative: ambiguous firmware memory is never handed to the
+     * allocator merely because an available entry was encountered later.
+     */
+    current = multiboot_info_address + 8ULL;
+    while (current < end) {
+        const struct multiboot_tag *tag =
+            (const struct multiboot_tag *)(uintptr_t)current;
+        if (tag->type == MULTIBOOT2_TAG_END) break;
+
+        if (tag->type == MULTIBOOT2_TAG_MMAP) {
+            const struct multiboot_tag_mmap *mmap =
+                (const struct multiboot_tag_mmap *)tag;
+            uint64_t entries_start = current + 16ULL;
+            uint64_t entries_end = current + mmap->size;
+
+            for (uint64_t p = entries_start; p < entries_end;
+                 p += mmap->entry_size) {
+                const struct multiboot_mmap_entry *entry =
+                    (const struct multiboot_mmap_entry *)(uintptr_t)p;
+                if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE)
+                    reserve_range(entry->base_addr, entry->length);
+            }
+        }
+
+        uint64_t next = current + (uint64_t)tag->size;
         current = (next + 7ULL) & ~7ULL;
     }
 
