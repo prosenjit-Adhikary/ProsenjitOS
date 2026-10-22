@@ -61,6 +61,12 @@ Recovery replays only CRC-valid committed transactions. Replays are idempotent b
 The block-device layer gets an optional flush primitive. Existing initializers remain source-compatible; devices without a flush callback are treated as lacking a durability barrier, so ProsenjitFS will not claim power-loss durability on such a device.
 Metadata is journaled. File data is written before the metadata transaction that publishes newly allocated blocks, with a flush barrier before publishing metadata.
 
+## Read-only integrity scan API
+
+The kernel-only `prosenjitfs_check_integrity(fs)` API exposes the existing consistency checker for an already active mount. Mount recovery (including committed journal replay) must have completed before the scan is called. The caller must serialize the scan against filesystem mutations; this API does not acquire a filesystem-wide operation lock itself.
+
+The scan is strictly read-only: it validates reachable directory/inode/extent ownership, parent-chain reachability, inode and block allocation bitmap agreement, reserved/tail bitmap bits, and checked metadata references. It returns `PROSENJITFS_OK` for a consistent image, `PROSENJITFS_EINVAL` for a null or inactive mount, `PROSENJITFS_EOVERFLOW` for bounded-size arithmetic/allocation sizing failures, and `PROSENJITFS_ECORRUPT` when consistency validation fails. It does not reclaim orphaned allocations, modify metadata, or attempt repair. Detailed structured diagnostics and report-only orphan enumeration remain future work.
+
 ## Integrity
 CRC32C (Castagnoli) is used for error detection, not authentication or encryption. It protects superblocks, journal records, inode records, directory-entry blocks and allocation bitmap blocks. The checksum field is zero while calculating the checksum.
 
