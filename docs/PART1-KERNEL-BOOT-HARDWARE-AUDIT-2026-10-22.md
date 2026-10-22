@@ -194,3 +194,16 @@ Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded s
 - Security architecture workflow [#39787841777](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841777): **SUCCESS**.
 - These CI results verify the current source-structure test and the configured boot milestones in QEMU. They do not prove actual runtime register sentinels, IST guard/bounds, nested exception handling, physical hardware, UEFI, or SMP safety.
 - PR #183 remains draft and unmerged. Overall Part 1 remains **PARTIAL / NOT COMPLETE**.
+
+
+## Cross-check — thread kernel-stack ownership and teardown
+
+Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_switch.asm`, and the boot scheduler tests confirms the following boundary:
+
+- `thread_init()` accepts a caller-provided `stack_top` and constructs the initial saved context on that memory. It does not allocate a stack, record its base/size/ownership, create a guard page, or provide a stack-release operation.
+- The current boot scheduler test uses statically allocated 4 KiB stacks for its test threads. This proves a test fixture exists; it is not a general per-thread stack allocator.
+- `thread_context_switch` stores the outgoing stack pointer in the saved context at the current structure layout's offset and restores the selected thread's stack. This is layout-coupled assembly; changes to `struct pros_thread`/`struct pros_cpu_context` need an explicit offset/layout check.
+- `thread_terminate_process()` removes queued threads, cancels waiters, clears saved frame references, and marks threads dead. It does not free kernel stacks because the current thread contract does not own or track them. Any future owned-stack implementation must defer freeing the currently executing stack until execution has switched away from it.
+- No source or CI evidence in this audit establishes per-thread stack guard pages, overflow detection, stack lifetime ownership, or safe reclamation after preemption.
+
+**Decision:** do not retrofit dynamic stack allocation as a one-off change in this interrupt-hardening patch. First define a stack descriptor/owner and lifecycle contract, then add allocation-failure, guard-page, switch-away-before-free, repeated create/terminate, and teardown tests. This remains an explicit acceptance gate, not a completed feature.
