@@ -129,9 +129,12 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
             pros_ps2_keyboard_reset_decoder();
             continue;
         }
-        /* Keyboard and mouse share the controller; never decode AUX bytes. */
-        if ((status & PS2_STATUS_AUX_DATA) != 0u)
+        /* Mouse/AUX bytes may interleave with keyboard bytes. Do not let a
+         * pending E0 or Pause prefix leak across that unrelated byte stream. */
+        if ((status & PS2_STATUS_AUX_DATA) != 0u) {
+            pros_ps2_keyboard_reset_decoder();
             continue;
+        }
 
         struct pros_hw_input_event event;
         int rc = pros_ps2_keyboard_decode_byte(byte, &event);
