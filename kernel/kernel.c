@@ -23,6 +23,7 @@
 #include "device_broker.h"
 #include "display.h"
 #include "hw_stack.h"
+#include "input_service.h"
 #include "framebuffer.h"
 #include "ata_pio.h"
 #include "partition.h"
@@ -1155,6 +1156,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: native graphics/input/audio endpoint contract self-test passed\n");
+
+    if (pros_input_service_init() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR kernel input service initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: kernel input queue registered; bounded PS/2 polling attached to timer heartbeat\n");
 
     {
         int framebuffer_rc = pros_framebuffer_init(boot_magic, (uint64_t)boot_info);
