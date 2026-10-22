@@ -131,6 +131,36 @@ int main(void) {
     failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -4,
                       "unsupported mmap entry version is rejected");
 
+    begin_info();
+    struct test_tag *zero_size =
+        (struct test_tag *)(info + sizeof(struct test_info_header));
+    zero_size->type = 1u;
+    zero_size->size = 0u;
+    ((struct test_info_header *)info)->total_size = 16u;
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -3,
+                      "zero-sized tag is rejected");
+
+    begin_info();
+    struct test_tag *bad_end =
+        (struct test_tag *)(info + sizeof(struct test_info_header));
+    bad_end->type = 0u;
+    bad_end->size = 16u;
+    ((struct test_info_header *)info)->total_size = 24u;
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -3,
+                      "end tag with invalid size is rejected");
+
+    begin_info();
+    struct test_mmap_tag *bad_stride =
+        (struct test_mmap_tag *)(info + sizeof(struct test_info_header));
+    bad_stride->type = 6u;
+    bad_stride->size = 16u;
+    bad_stride->entry_size = 0u;
+    bad_stride->entry_version = 0u;
+    ((struct test_info_header *)info)->total_size = 32u;
+    append_end(24u);
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -4,
+                      "zero-sized mmap entry stride is rejected");
+
     if (failures != 0) {
         fprintf(stderr, "%d memory-map regression test(s) failed\n", failures);
         return 1;
