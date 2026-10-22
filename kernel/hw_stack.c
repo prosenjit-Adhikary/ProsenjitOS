@@ -5,10 +5,57 @@ struct endpoint_slot {
     const struct pros_hw_endpoint_ops *ops;
     void *context;
     int32_t last_error;
-    uint8_t used, initialized;
+    uint8_t used, initialized, state;
+    uint32_t in_flight;
 };
 static struct endpoint_slot endpoints[PROS_HW_ENDPOINT_MAX];
 static uint8_t stack_ready;
+static uint32_t endpoint_lock;
+
+enum endpoint_state {
+    ENDPOINT_FREE = 0,
+    ENDPOINT_INITIALIZING,
+    ENDPOINT_ACTIVE,
+    ENDPOINT_CLEANUP_PENDING,
+    ENDPOINT_SHUTTING_DOWN
+};
+
+/*
+ * Protect the registry against scheduler preemption and concurrent CPUs.
+ * Host-side contract tests are hosted processes and must not execute CLI/STI;
+ * freestanding kernel builds save/restore RFLAGS around the same atomic lock.
+ */
+static uint64_t endpoint_irq_save(void) {
+#if __STDC_HOSTED__
+    return 0u;
+#else
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+#endif
+}
+static void endpoint_irq_restore(uint64_t flags) {
+#if __STDC_HOSTED__
+    (void)flags;
+#else
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+#endif
+}
+static uint64_t endpoint_lock_acquire(void) {
+    uint64_t flags = endpoint_irq_save();
+    while (__atomic_exchange_n(&endpoint_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+        __asm__ volatile ("pause");
+    return flags;
+}
+static void endpoint_lock_release(uint64_t flags) {
+    __atomic_store_n(&endpoint_lock, 0u, __ATOMIC_RELEASE);
+    endpoint_irq_restore(flags);
+}
+static void endpoint_clear(struct endpoint_slot *s) {
+    s->device_id=0u; s->type=0; s->ops=0; s->context=0;
+    s->last_error=PROS_DRIVER_OK; s->used=0u; s->initialized=0u;
+    s->state=ENDPOINT_FREE; s->in_flight=0u;
+}
 static int valid_type(enum pros_hw_endpoint_type t) {
     return t==PROS_HW_ENDPOINT_DISPLAY || t==PROS_HW_ENDPOINT_INPUT || t==PROS_HW_ENDPOINT_AUDIO;
 }
@@ -59,64 +106,167 @@ int pros_hw_resource_validate(const struct pros_hw_resource *r) {
     }
 }
 int pros_hw_stack_init(void) {
-    if (stack_ready) for (uint32_t i=0;i<PROS_HW_ENDPOINT_MAX;++i)
-        if (endpoints[i].used) return PROS_DRIVER_EBUSY;
+    uint64_t flags = endpoint_lock_acquire();
     for (uint32_t i=0;i<PROS_HW_ENDPOINT_MAX;++i) {
-        endpoints[i].device_id=0u; endpoints[i].type=0; endpoints[i].ops=0;
-        endpoints[i].context=0; endpoints[i].last_error=PROS_DRIVER_OK;
-        endpoints[i].used=0u; endpoints[i].initialized=0u;
+        if (endpoints[i].used) {
+            endpoint_lock_release(flags);
+            return PROS_DRIVER_EBUSY;
+        }
     }
+    for (uint32_t i=0;i<PROS_HW_ENDPOINT_MAX;++i) endpoint_clear(&endpoints[i]);
     stack_ready=1u;
+    endpoint_lock_release(flags);
     return PROS_DRIVER_OK;
 }
 int pros_hw_endpoint_register(uint32_t id, enum pros_hw_endpoint_type type,
                               const struct pros_hw_endpoint_ops *ops, void *ctx) {
-    if (!stack_ready || id==0u || !valid_type(type) || !ops ||
+    if (id==0u || !valid_type(type) || !ops ||
         !ops->init || !ops->transfer || !ops->shutdown) return PROS_DRIVER_EINVAL;
-    if (endpoint_find(id,type)>=0) return PROS_DRIVER_EBUSY;
+    uint64_t flags = endpoint_lock_acquire();
+    if (!stack_ready) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EINVAL;
+    }
+    if (endpoint_find(id,type)>=0) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EBUSY;
+    }
     uint32_t n=PROS_HW_ENDPOINT_MAX;
-    for (uint32_t i=0;i<PROS_HW_ENDPOINT_MAX;++i) if (!endpoints[i].used) { n=i; break; }
-    if (n==PROS_HW_ENDPOINT_MAX) return PROS_DRIVER_ENOSPC;
-    endpoints[n].device_id=id; endpoints[n].type=type; endpoints[n].ops=ops;
-    endpoints[n].context=ctx; endpoints[n].last_error=PROS_DRIVER_OK;
-    endpoints[n].used=1u; endpoints[n].initialized=0u;
+    for (uint32_t i=0;i<PROS_HW_ENDPOINT_MAX;++i)
+        if (!endpoints[i].used) { n=i; break; }
+    if (n==PROS_HW_ENDPOINT_MAX) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_ENOSPC;
+    }
+    struct endpoint_slot *s=&endpoints[n];
+    s->device_id=id; s->type=type; s->ops=ops; s->context=ctx;
+    s->last_error=PROS_DRIVER_OK; s->used=1u; s->initialized=0u;
+    s->state=ENDPOINT_INITIALIZING; s->in_flight=0u;
+    endpoint_lock_release(flags);
+
+    /* Backend callbacks must run outside the registry lock. */
     int rc=ops->init(ctx);
-    if (rc!=PROS_DRIVER_OK) {
-        endpoints[n].last_error=rc;
-        int cleanup=ops->shutdown(ctx);
-        if (cleanup!=PROS_DRIVER_OK) {
-            /* Preserve ownership so a failed partial-init cleanup can be retried. */
-            endpoints[n].last_error=cleanup;
-            return PROS_DRIVER_EIO;
-        }
-        endpoints[n].used=0u; endpoints[n].ops=0; endpoints[n].context=0;
-        endpoints[n].device_id=0u; endpoints[n].initialized=0u;
+    if (rc==PROS_DRIVER_OK) {
+        flags=endpoint_lock_acquire();
+        s->initialized=1u; s->state=ENDPOINT_ACTIVE; s->last_error=PROS_DRIVER_OK;
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_OK;
+    }
+
+    flags=endpoint_lock_acquire();
+    s->last_error=rc; s->state=ENDPOINT_SHUTTING_DOWN;
+    endpoint_lock_release(flags);
+    int cleanup=ops->shutdown(ctx);
+    flags=endpoint_lock_acquire();
+    if (cleanup==PROS_DRIVER_OK) {
+        endpoint_clear(s);
+        endpoint_lock_release(flags);
         return rc;
     }
-    endpoints[n].initialized=1u;
-    return PROS_DRIVER_OK;
+    /* Keep the resource lease so a caller can retry cleanup explicitly. */
+    s->last_error=cleanup; s->initialized=0u; s->state=ENDPOINT_CLEANUP_PENDING;
+    endpoint_lock_release(flags);
+    return PROS_DRIVER_EIO;
 }
 int pros_hw_endpoint_submit(uint32_t id, enum pros_hw_endpoint_type type,
                             const void *buffer, uint32_t length) {
-    if (!stack_ready || id==0u || !valid_type(type) || !buffer ||
+    if (id==0u || !valid_type(type) || !buffer ||
         length==0u || length>PROS_HW_TRANSFER_MAX) return PROS_DRIVER_EINVAL;
+    uint64_t flags=endpoint_lock_acquire();
+    if (!stack_ready) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EINVAL;
+    }
     int n=endpoint_find(id,type);
-    if (n<0) return PROS_DRIVER_ENODEV;
+    if (n<0) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_ENODEV;
+    }
     struct endpoint_slot *s=&endpoints[(uint32_t)n];
-    if (!s->initialized || !s->ops || !s->ops->transfer) return PROS_DRIVER_ENODEV;
-    int rc=s->ops->transfer(s->context,buffer,length);
+    if (s->state!=ENDPOINT_ACTIVE || !s->initialized || !s->ops || !s->ops->transfer) {
+        int rc=(s->state==ENDPOINT_INITIALIZING || s->state==ENDPOINT_SHUTTING_DOWN)
+            ? PROS_DRIVER_EBUSY : PROS_DRIVER_ENODEV;
+        endpoint_lock_release(flags);
+        return rc;
+    }
+    if (s->in_flight==UINT32_MAX) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EBUSY;
+    }
+    ++s->in_flight;
+    const struct pros_hw_endpoint_ops *ops=s->ops;
+    void *context=s->context;
+    endpoint_lock_release(flags);
+
+    int rc=ops->transfer(context,buffer,length);
+
+    flags=endpoint_lock_acquire();
     s->last_error=rc;
+    if (s->in_flight!=0u) --s->in_flight;
+    endpoint_lock_release(flags);
     return rc;
 }
 int pros_hw_endpoint_status(uint32_t id, enum pros_hw_endpoint_type type,
                             struct pros_hw_endpoint_status *out) {
-    if (!stack_ready || !out || id==0u || !valid_type(type)) return PROS_DRIVER_EINVAL;
+    if (!out || id==0u || !valid_type(type)) return PROS_DRIVER_EINVAL;
+    uint64_t flags=endpoint_lock_acquire();
+    if (!stack_ready) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EINVAL;
+    }
     int n=endpoint_find(id,type);
-    if (n<0) return PROS_DRIVER_ENODEV;
+    if (n<0) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_ENODEV;
+    }
     const struct endpoint_slot *s=&endpoints[(uint32_t)n];
     out->version=PROS_HW_STACK_ABI_VERSION; out->type=(uint32_t)s->type;
-    out->device_id=s->device_id; out->initialized=s->initialized; out->last_error=s->last_error;
+    out->device_id=s->device_id;
+    out->initialized=(s->state==ENDPOINT_ACTIVE && s->initialized) ? 1u : 0u;
+    out->last_error=s->last_error;
+    endpoint_lock_release(flags);
     return PROS_DRIVER_OK;
+}
+int pros_hw_endpoint_unregister(uint32_t id, enum pros_hw_endpoint_type type) {
+    if (id==0u || !valid_type(type)) return PROS_DRIVER_EINVAL;
+    uint64_t flags=endpoint_lock_acquire();
+    if (!stack_ready) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EINVAL;
+    }
+    int n=endpoint_find(id,type);
+    if (n<0) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_ENODEV;
+    }
+    struct endpoint_slot *s=&endpoints[(uint32_t)n];
+    if (s->state==ENDPOINT_INITIALIZING || s->state==ENDPOINT_SHUTTING_DOWN ||
+        s->in_flight!=0u) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_EBUSY;
+    }
+    if (s->state!=ENDPOINT_ACTIVE && s->state!=ENDPOINT_CLEANUP_PENDING) {
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_ENODEV;
+    }
+    s->state=ENDPOINT_SHUTTING_DOWN;
+    s->initialized=0u;
+    const struct pros_hw_endpoint_ops *ops=s->ops;
+    void *context=s->context;
+    endpoint_lock_release(flags);
+
+    int rc=ops->shutdown(context);
+
+    flags=endpoint_lock_acquire();
+    if (rc==PROS_DRIVER_OK) {
+        endpoint_clear(s);
+        endpoint_lock_release(flags);
+        return PROS_DRIVER_OK;
+    }
+    s->last_error=rc;
+    s->state=ENDPOINT_CLEANUP_PENDING;
+    endpoint_lock_release(flags);
+    return rc;
 }
 int pros_hw_display_present(uint32_t id, uint32_t width, uint32_t height,
                             uint32_t stride, uint32_t format,
