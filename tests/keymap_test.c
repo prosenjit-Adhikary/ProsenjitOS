@@ -30,6 +30,9 @@ int main(void)
 
     e = ev(0x3Au, PROS_INPUT_FLAG_PRESS);
     (void)pros_keymap_translate(&s, &e);
+    /* Keyboard typematic may repeat Caps Lock make without a release edge. */
+    e = ev(0x3Au, PROS_INPUT_FLAG_PRESS);
+    (void)pros_keymap_translate(&s, &e);
     e = ev(0x1Eu, PROS_INPUT_FLAG_PRESS);
     assert(pros_keymap_translate(&s, &e) == 'A');
     e = ev(0x2Eu, PROS_INPUT_FLAG_PRESS);
