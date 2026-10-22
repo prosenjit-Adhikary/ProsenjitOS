@@ -96,9 +96,19 @@ int main(void) {
     oversized->entry_size = (uint32_t)sizeof(struct test_mmap_entry);
     oversized->entry_version = 0u;
     ((struct test_info_header *)info)->total_size = 32u;
-    append_end(24u);
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -3,
+                      "mmap tag extending beyond info boundary is rejected");
+
+    begin_info();
+    oversized = (struct test_mmap_tag *)(info + sizeof(struct test_info_header));
+    oversized->type = 6u;
+    oversized->size = 41u;
+    oversized->entry_size = (uint32_t)sizeof(struct test_mmap_entry);
+    oversized->entry_version = 0u;
+    ((struct test_info_header *)info)->total_size = 64u;
+    append_end(56u);
     failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -4,
-                      "oversized mmap payload is rejected");
+                      "mmap payload with a partial entry is rejected");
 
     begin_info();
     struct test_tag *truncated =
