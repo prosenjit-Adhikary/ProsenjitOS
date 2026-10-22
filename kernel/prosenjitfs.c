@@ -8224,6 +8224,98 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Recovery itself must be restartable. Interrupt mount recovery after one
+     * home-block replay (stage 10) and after the home-block flush (stage 11),
+     * then power-cycle and recover again. Both cases must converge to the
+     * fully committed new file contents without requiring metadata repair.
+     */
+    {
+        static const uint32_t recovery_stages[] = { 10u, 11u };
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x42u ^ (uint8_t)(i * 3u));
+            new_data[i] = (uint8_t)(0xB1u ^ (uint8_t)(i * 19u));
+        }
+
+        for (uint32_t stage_index = 0u;
+             stage_index < sizeof(recovery_stages) /
+                           sizeof(recovery_stages[0]);
+             ++stage_index) {
+            uint32_t recovery_stage = recovery_stages[stage_index];
+            uint32_t done = 0u;
+            int write_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/recovery-restart.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            /* Stage 5 is after the commit record is durably flushed. */
+            pfs_crash_inject_stage = 5u;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery-restart.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO || done != 0u ||
+                pfs_crash_injected == 0u ||
+                !fs.read_only || !fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            pfs_crash_inject_stage = recovery_stage;
+            pfs_crash_injected = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) == PROSENJITFS_OK ||
+                pfs_crash_injected == 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+
+            /* Recovery was interrupted; a second power loss must be safe. */
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/recovery-restart.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(read_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+                if (read_data[i] != new_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+            }
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+    }
+
+    /*
      * A failure before the journal header is published is retryable. Fail
      * the first transaction flush (commit-slot invalidation), verify the
      * mount remains writable and no bytes are reported written, then retry
