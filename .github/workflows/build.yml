@@ -127,6 +127,7 @@ jobs:
           require_log "ProsenjitOS: driver model registry/lifecycle self-test passed"
           require_log "ProsenjitOS: device permission broker self-test passed"
           require_log "ProsenjitOS: display-device binding self-test passed"
+          require_log "ProsenjitOS: Multiboot framebuffer endpoint initialized; width ="
           require_log "ProsenjitOS: network protocol/socket self-test passed"
           require_log "ProsenjitOS: PCI enumeration passed; devices ="
           require_log "ProsenjitOS: PCI BAR inspection passed; assigned BARs ="

@@ -171,7 +171,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
                 (const struct multiboot_tag_framebuffer *)tag;
             uint64_t bytes = (uint64_t)fb->pitch * (uint64_t)fb->height;
             if (fb->pitch != 0u && fb->height != 0u &&
-                bytes != 0u && bytes <= UINT64_MAX - fb->address) {
+                bytes != 0u && bytes <= (256ULL * 1024ULL * 1024ULL) &&
+                fb->address <= 0x000FFFFFFFFFFFFFULL &&
+                bytes - 1u <= 0x000FFFFFFFFFFFFFULL - fb->address) {
                 framebuffer_base = fb->address;
                 framebuffer_length = bytes;
             }
