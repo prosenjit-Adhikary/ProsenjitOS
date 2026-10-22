@@ -456,6 +456,29 @@ int paging_selftest(void) {
     paging_unmap_mmio_range(mmio_va, 0x2000ULL);
     if (paging_translate(mmio_va) != 0)
         return -8;
+
+    /* A collision on page 2 must roll back page 1 without unmapping page 2. */
+    uint64_t rollback_page = physical_page_alloc();
+    if (!rollback_page) return -9;
+    if (paging_map_page(mmio_va + 0x1000ULL, rollback_page,
+                        PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(rollback_page);
+        return -10;
+    }
+    if (paging_map_mmio_range(mmio_va, mmio_pa, 0x2000ULL) == 0) {
+        paging_unmap_mmio_range(mmio_va, 0x2000ULL);
+        physical_page_free(rollback_page);
+        return -11;
+    }
+    if (paging_translate(mmio_va) != 0 ||
+        paging_translate(mmio_va + 0x1000ULL) != rollback_page) {
+        paging_unmap_page(mmio_va + 0x1000ULL);
+        physical_page_free(rollback_page);
+        return -12;
+    }
+    paging_unmap_page(mmio_va + 0x1000ULL);
+    physical_page_free(rollback_page);
+
     if (paging_map_mmio_range(mmio_va, mmio_pa, 0x1001ULL) == 0 ||
         paging_map_mmio_range(0x0000800000000000ULL, mmio_pa, 0x1000ULL) == 0 ||
         paging_map_mmio_range(mmio_va, PAGE_MASK, 0x2000ULL) == 0 ||
@@ -467,7 +490,7 @@ int paging_selftest(void) {
         return -10;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
-        return -10;
+        return -11;
 
     return 0;
 }
