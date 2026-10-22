@@ -7678,7 +7678,19 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
 
-        if (prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK)
+        integrity_durable_crc = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        integrity_volatile_crc = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        integrity_dirty_crc = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK ||
+            integrity_durable_crc != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            integrity_volatile_crc != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            integrity_dirty_crc != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
             return pfs_selftest_fail(__LINE__, -16);
 
         /*
