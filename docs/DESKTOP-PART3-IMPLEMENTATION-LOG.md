@@ -20,14 +20,16 @@ Date: 2026-10-22. Repository: prosenjit-Adhikary/ProsenjitOS. Branch: feature/sh
 - [x] Added version/size/type validation for internal routed events and dispatch validation for existing ABI window/input/clipboard/audio messages; unsupported frame-present/audio-control payloads fail closed.
 - [x] Added resource revocation on disconnect/exit.
 - [x] Documented IPC identity, buffer validation, user-space compositor boundary, unsupported features and acceptance matrix.
-- [ ] Host tests: pending exact-head CI (build run 7747 is pending; security run 7283 is queued).
+- [x] Host desktop test suite passed in build run #7749 at source head c5cb3d721d3bbeec49ffdd9e726131c25d0eba66; workflow step “Validate desktop scripts and run desktop contract tests” completed successfully, including make desktop-tests.
+- [x] Security architecture workflow #7285 passed at that source head.
+- [ ] ISO QEMU and native BIOS QEMU steps in build run #7749 were still running at the last status check; final boot result is pending and must be rechecked against the final head.
 - [ ] Kernel IPC, process capability handles, user-buffer validation: not wired.
 - [ ] Display surfaces/presentation, physical input route, audio backend and lifecycle notification transport: not implemented.
 - [ ] QEMU/real GUI runtime: not run; no complete desktop claim.
 
 ## Verification
 - Repository/source inspection: completed.
-- make desktop-shared-test and desktop-tests: pending CI on the Part 2 stacked branch.
+- make desktop-tests: PASS in build workflow #7749 (host tests only; not GUI runtime).
 - Full OS build/QEMU: not triggered; change is host-side model/docs and does not alter kernel source/ABI.
 - Part 4 has not started.
 
