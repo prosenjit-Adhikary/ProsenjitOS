@@ -179,3 +179,37 @@ int pros_framebuffer_get_info(struct pros_framebuffer_info *out)
     out->size = framebuffer.framebuffer_size;
     return PROS_DRIVER_OK;
 }
+
+/*
+ * Exercise the complete boot-framebuffer -> endpoint -> backend presentation
+ * path without allocating a second multi-megabyte frame. The current mapped
+ * image is used as the source, so the byte-for-byte copy is visually neutral.
+ * This validates dispatch and bounds, not visible pixels or GPU modesetting.
+ */
+int pros_framebuffer_selftest(void)
+{
+    struct pros_hw_endpoint_status status;
+    if (!framebuffer.active) return PROS_DRIVER_ENODEV;
+    if (framebuffer.framebuffer_size == 0u ||
+        framebuffer.framebuffer_size > UINT32_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (pros_hw_endpoint_status(PROS_FRAMEBUFFER_ENDPOINT_ID,
+                                PROS_HW_ENDPOINT_DISPLAY, &status) != PROS_DRIVER_OK ||
+        status.initialized == 0u)
+        return PROS_DRIVER_ENODEV;
+
+    const void *mapped_pixels = (const void *)(uintptr_t)
+        (framebuffer.virtual_base + framebuffer.byte_offset);
+    int rc = pros_hw_display_present(PROS_FRAMEBUFFER_ENDPOINT_ID,
+                                     framebuffer.width, framebuffer.height,
+                                     framebuffer.pitch, PROS_HW_DISPLAY_XRGB8888,
+                                     mapped_pixels,
+                                     (uint32_t)framebuffer.framebuffer_size);
+    if (rc != PROS_DRIVER_OK) return rc;
+
+    if (pros_hw_endpoint_status(PROS_FRAMEBUFFER_ENDPOINT_ID,
+                                PROS_HW_ENDPOINT_DISPLAY, &status) != PROS_DRIVER_OK ||
+        status.initialized == 0u || status.last_error != PROS_DRIVER_OK)
+        return PROS_DRIVER_EIO;
+    return PROS_DRIVER_OK;
+}

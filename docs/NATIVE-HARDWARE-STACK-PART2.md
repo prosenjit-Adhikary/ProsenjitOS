@@ -18,3 +18,8 @@ Status: **contract/lifecycle foundation implemented; concrete hardware drivers r
 `make hw-stack-test` runs host-side tests for PCI class classification, malformed/overflowing resource descriptors, explicitly unsupported DMA, invalid device IDs, malformed display/input/audio requests, missing endpoints, duplicate registration, initialization-failure cleanup, failed shutdown/retry, status reporting and normal cleanup. Kernel boot also runs the same deterministic contract self-test and emits a milestone before existing display, PCI, storage and user-mode boot checks.
 
 The paging self-test now maps a reserved APIC/PCI-style MMIO address range without dereferencing it, verifies physical translation plus supervisor/NX/PCD/PWT flags, checks malformed and overflowing ranges, and unmaps the range; both ISO and native-BIOS QEMU boot tests exercise this self-test. This proves the page-table mapping contract in the emulator, not a physical device's BAR ownership, register access, or operation. No real display modeset, keyboard/mouse event delivery, audio playback, or DMA support is claimed.
+
+
+## Framebuffer endpoint integration check
+
+On a bootloader-provided supported RGB framebuffer, the kernel now checks that the registered display endpoint is active and submits a full-frame descriptor through the public presentation API. The mapped framebuffer is used as the source, so the check is visually neutral and avoids allocating a duplicate frame. The QEMU ISO acceptance gate requires this milestone. This confirms endpoint dispatch and descriptor validation in the emulator; it does not prove visible pixel correctness, GPU modesetting, or physical display compatibility. Native BIOS boot without a Multiboot framebuffer continues to use the legacy text console.

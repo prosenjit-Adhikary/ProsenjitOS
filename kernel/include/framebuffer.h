@@ -20,5 +20,6 @@ struct pros_framebuffer_info {
 /* Optional Multiboot2 RGB framebuffer backend; no GPU modesetting is performed. */
 int pros_framebuffer_init(uint32_t boot_magic, uint64_t boot_info_address);
 int pros_framebuffer_get_info(struct pros_framebuffer_info *out);
+int pros_framebuffer_selftest(void);
 
 #endif
