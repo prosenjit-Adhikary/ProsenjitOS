@@ -199,7 +199,7 @@ static inline int pros_desktop_window_request_valid(
         request->header.payload_size != 0u ||
         request->header.type < PROS_DESKTOP_MSG_WINDOW_CREATE ||
         request->header.type > PROS_DESKTOP_MSG_WINDOW_FOCUS ||
-        request->reserved != 0u)
+        request->window_flags != 0u || request->reserved != 0u)
         return 0;
 
     type = request->header.type;
