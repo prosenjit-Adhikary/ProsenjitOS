@@ -22,7 +22,9 @@ enum pros_app_status {
     PROS_APP_EFEATURE = -8,
     PROS_APP_ETRUST = -9,
     PROS_APP_ESTATE = -10,
-    PROS_APP_EBACKEND = -11
+    PROS_APP_EBACKEND = -11,
+    PROS_APP_EIO = -12,
+    PROS_APP_EROLLBACK = -13
 };
 
 enum pros_app_backend {
@@ -85,6 +87,28 @@ struct pros_app_manager {
     uint32_t magic;
 };
 
+
+
+/*
+ * Storage adapter for the install coordinator.
+ *
+ * stage() writes package contents to an isolated temporary location and must
+ * not expose them as installed. publish() atomically publishes the staged
+ * package. rollback() must remove staged data or undo publication and should
+ * be idempotent. All callbacks return 0 on success and nonzero on failure.
+ *
+ * This interface coordinates a transaction; it does not implement a storage
+ * provider, signature verification, or a durability barrier. The adapter must
+ * provide those guarantees appropriate to its filesystem. Calls are
+ * synchronous and must not re-enter or mutate this manager.
+ */
+struct pros_app_install_ops {
+    int (*stage)(void *context, const struct pros_app_manifest *manifest);
+    int (*publish)(void *context, const struct pros_app_manifest *manifest);
+    int (*rollback)(void *context, const struct pros_app_manifest *manifest);
+    void *context;
+};
+
 int pros_app_init(struct pros_app_manager *manager,
                   uint32_t supported_features);
 int pros_app_register(struct pros_app_manager *manager,
@@ -94,6 +118,9 @@ int pros_app_mark_verified(struct pros_app_manager *manager,
                            const char *app_id);
 int pros_app_commit_install(struct pros_app_manager *manager,
                             const char *app_id);
+int pros_app_install_transaction(struct pros_app_manager *manager,
+                                  const char *app_id,
+                                  const struct pros_app_install_ops *ops);
 int pros_app_disable(struct pros_app_manager *manager, const char *app_id);
 int pros_app_uninstall(struct pros_app_manager *manager, const char *app_id);
 int pros_app_preflight(const struct pros_app_manager *manager,
