@@ -5,7 +5,7 @@
 - Fixed-size, versioned manifests for Native, Linux, and Windows application backend identities.
 - Bounded application IDs and relative entry-point path validation.
 - Bounded content-based ELF32/ELF64, PE32/PE32+, and OLE-container header classification; malformed/truncated known headers are rejected.
-- Format-family/backend consistency checks (ELF for Native/Linux identities, PE for Windows identities); this is not a runtime compatibility check.
+- A single binary-backend check that combines header classification with ELF-vs-PE backend-family enforcement; this is not a runtime compatibility check.
 - Registry capacity limits, duplicate detection, ABI and required-feature checks.
 - Explicit lifecycle: registration accepts only staged/unverified manifests; a trusted verifier caller must mark trust; install commit requires trusted metadata and installed same-backend dependencies.
 - Disable and uninstall registry transitions; uninstall refuses to remove a package still referenced by another registered package.
