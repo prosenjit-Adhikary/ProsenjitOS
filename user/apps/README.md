@@ -27,4 +27,4 @@ All backends remain metadata identities until their respective runtime, package-
 
 ## Verification gate
 
-OfficeWindows is permanently closed and must never be used. Apps Handler unit tests now have a dedicated GitHub-hosted `ubuntu-latest` workflow at `.github/workflows/app-handler-tests.yml`; it runs `make app-unit-test` and does not target any self-hosted runner. The workflow result must be checked before claiming runtime verification. This implementation continuation has not independently compiled or run the tests. Boot/runtime compatibility is outside this module's claim.
+OfficeWindows is permanently closed and must never be used. Apps Handler unit tests have a dedicated workflow at `.github/workflows/app-handler-tests.yml`; it runs `make app-unit-test` on the `[self-hosted, linux, x64]` runner pool and must never use OfficeWindows. A prior GitHub-hosted attempt failed before exposing any steps/logs; the cause is unconfirmed. The Linux-runner result must be checked before claiming runtime verification. This implementation continuation has not independently compiled or run the tests. Boot/runtime compatibility is outside this module's claim.
