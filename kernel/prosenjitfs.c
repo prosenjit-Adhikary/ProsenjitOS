@@ -5732,10 +5732,23 @@ static int pfs_selftest_consistency(
                 logical_end = end_logical;
                 current = extent.next;
             }
-            if (allocated_bytes != inode.allocated_bytes) {
-                rc = -10004;
-                fail_line = __LINE__;
-                        goto consistency_out;
+            /*
+             * Every allocated extent must lie within the file's logical EOF.
+             * Sparse files may have holes before EOF, but an extent beyond
+             * ceil(size / block_size) is stale allocation or corrupt metadata.
+             * Compute the ceiling without adding block_size - 1 to an
+             * untrusted 64-bit size, which could overflow.
+             */
+            {
+                uint64_t logical_blocks =
+                    inode.size / fs->sb.block_size +
+                    ((inode.size % fs->sb.block_size) != 0u ? 1u : 0u);
+                if (allocated_bytes != inode.allocated_bytes ||
+                    logical_end > logical_blocks) {
+                    rc = -10004;
+                    fail_line = __LINE__;
+                    goto consistency_out;
+                }
             }
         }
     }
