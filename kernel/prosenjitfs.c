@@ -6920,6 +6920,78 @@ int prosenjitfs_selftest(void)
         }
 
         /*
+         * A checksum-valid extent with a block count larger than the remaining
+         * logical volume range must fail before the checker iterates over the
+         * claimed blocks. This is both a bounds check and a denial-of-service
+         * regression: malformed counts must not drive volume-sized work.
+         */
+        {
+            uint8_t original_extent_block[4096];
+            uint8_t corrupt_extent_block[4096];
+            struct pros_prosenjitfs_extent corrupt_extent;
+            uint64_t extent_lba = first_extent.next;
+            uint64_t max_logical_blocks =
+                fs.sb.total_blocks - fs.sb.data_start;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (pfs_read_block(fs.mount.device, extent_lba,
+                               original_extent_block) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            pfs_copy(corrupt_extent_block, original_extent_block,
+                     fs.sb.block_size);
+            pfs_copy(&corrupt_extent, corrupt_extent_block,
+                     sizeof(corrupt_extent));
+            if (corrupt_extent.logical_block >= max_logical_blocks) {
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            corrupt_extent.block_count =
+                max_logical_blocks - corrupt_extent.logical_block + 1u;
+            corrupt_extent.checksum = 0u;
+            pfs_copy(corrupt_extent_block, &corrupt_extent,
+                     sizeof(corrupt_extent));
+            corrupt_extent.checksum = pfs_crc_with_zero32(
+                corrupt_extent_block, sizeof(corrupt_extent),
+                (uint32_t)offsetof(struct pros_prosenjitfs_extent, checksum));
+            pfs_copy(corrupt_extent_block, &corrupt_extent,
+                     sizeof(corrupt_extent));
+
+            if (pfs_write_block(fs.mount.device, extent_lba,
+                                corrupt_extent_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, extent_lba,
+                                      original_extent_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, extent_lba,
+                                      original_extent_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, extent_lba,
+                                original_extent_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
          * A checksum-valid inode size beyond the volume's maximum file range
          * is corruption even if every individual extent is in range. Inject
          * this malformed inode and prove the scanner itself remains read-only.
