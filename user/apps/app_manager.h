@@ -46,6 +46,9 @@ enum pros_app_trust_state {
  * This is a registry manifest, not an executable loader or package installer.
  * entry_point is a relative package path and is never opened or executed here.
  * A backend may run only after a separate, policy-enforcing launch path exists.
+ * trust_state is a decision supplied by the trusted manager only after package
+ * provenance verification; this registry does not verify signatures/hashes and
+ * must never accept manifests directly from an untrusted package or app.
  */
 struct pros_app_manifest {
     uint32_t struct_size;
