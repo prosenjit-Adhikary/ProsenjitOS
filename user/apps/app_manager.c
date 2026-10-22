@@ -1,0 +1,249 @@
+#include "app_manager.h"
+
+static int manager_valid(const struct pros_app_manager *manager)
+{
+    return manager && manager->magic == PROS_APP_MANAGER_MAGIC &&
+           manager->count <= PROS_APP_MAX_ENTRIES;
+}
+
+static int id_valid(const char *id)
+{
+    uint32_t length = 0u;
+
+    if (!id || id[0] == '\0')
+        return 0;
+    for (; length < PROS_APP_ID_MAX; ++length) {
+        char c = id[length];
+        if (c == '\0')
+            break;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'))
+            return 0;
+    }
+    if (length == 0u || length >= PROS_APP_ID_MAX)
+        return 0;
+    return !(length == 1u && id[0] == '.') &&
+           !(length == 2u && id[0] == '.' && id[1] == '.');
+}
+
+static int component_is_dot(const char *path, uint32_t start, uint32_t end)
+{
+    uint32_t length = end - start;
+    return (length == 1u && path[start] == '.') ||
+           (length == 2u && path[start] == '.' && path[start + 1u] == '.');
+}
+
+static int entry_path_valid(const char *path)
+{
+    uint32_t length = 0u;
+    uint32_t component_start = 0u;
+
+    if (!path || path[0] == '\0' || path[0] == '/')
+        return 0;
+    for (; length < PROS_APP_ENTRY_MAX; ++length) {
+        char c = path[length];
+        if (c == '\0')
+            break;
+        if (c == '\\' || c == ':')
+            return 0;
+        if (c == '/') {
+            if (length == component_start ||
+                component_is_dot(path, component_start, length))
+                return 0;
+            component_start = length + 1u;
+            continue;
+        }
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'))
+            return 0;
+    }
+    if (length == 0u || length >= PROS_APP_ENTRY_MAX ||
+        length == component_start ||
+        component_is_dot(path, component_start, length))
+        return 0;
+    return 1;
+}
+
+static int id_equal(const char *a, const char *b)
+{
+    uint32_t i = 0u;
+
+    if (!a || !b)
+        return 0;
+    while (i < PROS_APP_ID_MAX && a[i] != '\0' && b[i] != '\0') {
+        if (a[i] != b[i])
+            return 0;
+        ++i;
+    }
+    return i < PROS_APP_ID_MAX && a[i] == b[i];
+}
+
+static int backend_valid(uint32_t backend)
+{
+    return backend == PROS_APP_BACKEND_NATIVE ||
+           backend == PROS_APP_BACKEND_LINUX ||
+           backend == PROS_APP_BACKEND_WINDOWS;
+}
+
+static int manager_find(const struct pros_app_manager *manager,
+                        const char *app_id)
+{
+    if (!manager_valid(manager) || !id_valid(app_id))
+        return -1;
+    for (uint32_t i = 0u; i < manager->count; ++i) {
+        if (manager->entries[i].registered &&
+            id_equal(manager->entries[i].manifest.id, app_id))
+            return (int)i;
+    }
+    return -1;
+}
+
+static int manifest_validate(const struct pros_app_manager *manager,
+                             const struct pros_app_manifest *manifest)
+{
+    if (!manager || !manifest)
+        return PROS_APP_EINVAL;
+    if (manifest->struct_size < sizeof(*manifest) ||
+        manifest->abi_version != PROS_APP_ABI_VERSION)
+        return PROS_APP_EABI;
+    if (!id_valid(manifest->id) || !entry_path_valid(manifest->entry_point) ||
+        manifest->dependency_count > PROS_APP_MAX_DEPENDENCIES)
+        return PROS_APP_EINVAL;
+    if (!backend_valid(manifest->backend))
+        return PROS_APP_EBACKEND;
+    if (manifest->install_state != PROS_APP_STAGED &&
+        manifest->install_state != PROS_APP_INSTALLED &&
+        manifest->install_state != PROS_APP_DISABLED)
+        return PROS_APP_ESTATE;
+    if (manifest->trust_state != PROS_APP_TRUST_UNKNOWN &&
+        manifest->trust_state != PROS_APP_TRUST_VERIFIED)
+        return PROS_APP_ETRUST;
+    if ((manifest->required_features & ~manager->supported_features) != 0u)
+        return PROS_APP_EFEATURE;
+
+    for (uint32_t d = 0u; d < manifest->dependency_count; ++d) {
+        if (!id_valid(manifest->dependencies[d]) ||
+            id_equal(manifest->id, manifest->dependencies[d]))
+            return PROS_APP_EINVAL;
+        for (uint32_t previous = 0u; previous < d; ++previous) {
+            if (id_equal(manifest->dependencies[d],
+                         manifest->dependencies[previous]))
+                return PROS_APP_EINVAL;
+        }
+    }
+    return PROS_APP_OK;
+}
+
+static int check_dependencies(const struct pros_app_manager *manager,
+                              uint32_t index,
+                              uint8_t visiting[PROS_APP_MAX_ENTRIES],
+                              uint8_t visited[PROS_APP_MAX_ENTRIES])
+{
+    const struct pros_app_manifest *manifest;
+
+    if (!manager_valid(manager) || index >= manager->count ||
+        index >= PROS_APP_MAX_ENTRIES || !visiting || !visited ||
+        !manager->entries[index].registered)
+        return PROS_APP_EINVAL;
+    if (visiting[index])
+        return PROS_APP_ELOOP;
+    if (visited[index])
+        return PROS_APP_OK;
+
+    manifest = &manager->entries[index].manifest;
+    if (manifest->trust_state != PROS_APP_TRUST_VERIFIED)
+        return PROS_APP_ETRUST;
+    if (manifest->install_state != PROS_APP_INSTALLED)
+        return PROS_APP_ESTATE;
+
+    visiting[index] = 1u;
+    for (uint32_t d = 0u; d < manifest->dependency_count; ++d) {
+        int dependency = manager_find(manager, manifest->dependencies[d]);
+        int rc;
+
+        if (dependency < 0) {
+            visiting[index] = 0u;
+            return PROS_APP_ENODEP;
+        }
+        rc = check_dependencies(manager, (uint32_t)dependency,
+                                visiting, visited);
+        if (rc != PROS_APP_OK) {
+            visiting[index] = 0u;
+            return rc;
+        }
+    }
+    visiting[index] = 0u;
+    visited[index] = 1u;
+    return PROS_APP_OK;
+}
+
+int pros_app_init(struct pros_app_manager *manager,
+                  uint32_t supported_features)
+{
+    if (!manager)
+        return PROS_APP_EINVAL;
+    for (uint32_t i = 0u; i < PROS_APP_MAX_ENTRIES; ++i)
+        manager->entries[i] = (struct pros_app_entry){0};
+    manager->count = 0u;
+    manager->supported_features = supported_features;
+    manager->magic = PROS_APP_MANAGER_MAGIC;
+    return PROS_APP_OK;
+}
+
+int pros_app_register(struct pros_app_manager *manager,
+                      const struct pros_app_manifest *manifest)
+{
+    int rc;
+
+    if (!manager_valid(manager))
+        return PROS_APP_EINVAL;
+    rc = manifest_validate(manager, manifest);
+    if (rc != PROS_APP_OK)
+        return rc;
+    if (manager_find(manager, manifest->id) >= 0)
+        return PROS_APP_EEXIST;
+    if (manager->count >= PROS_APP_MAX_ENTRIES)
+        return PROS_APP_ENOSPC;
+
+    manager->entries[manager->count].manifest = *manifest;
+    manager->entries[manager->count].registered = 1u;
+    ++manager->count;
+    return PROS_APP_OK;
+}
+
+int pros_app_preflight(const struct pros_app_manager *manager,
+                       const char *app_id)
+{
+    uint8_t visiting[PROS_APP_MAX_ENTRIES] = {0};
+    uint8_t visited[PROS_APP_MAX_ENTRIES] = {0};
+    int index;
+
+    if (!manager_valid(manager) || !id_valid(app_id))
+        return PROS_APP_EINVAL;
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+    return check_dependencies(manager, (uint32_t)index, visiting, visited);
+}
+
+int pros_app_get(const struct pros_app_manager *manager,
+                 const char *app_id,
+                 struct pros_app_manifest *out_manifest)
+{
+    int index;
+
+    if (!manager_valid(manager) || !out_manifest || !id_valid(app_id))
+        return PROS_APP_EINVAL;
+    index = manager_find(manager, app_id);
+    if (index < 0)
+        return PROS_APP_ENOENT;
+    *out_manifest = manager->entries[index].manifest;
+    return PROS_APP_OK;
+}
+
+uint32_t pros_app_count(const struct pros_app_manager *manager)
+{
+    if (!manager_valid(manager))
+        return 0u;
+    return manager->count;
+}
