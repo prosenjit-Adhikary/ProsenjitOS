@@ -5246,6 +5246,9 @@ struct pfs_test_disk {
     uint8_t dirty[512u / 8u];
     /* Fail the selected future block read to test I/O error classification. */
     uint32_t fail_read_countdown;
+    /* Fail one read of a selected LBA, targeting recovery journal boundaries. */
+    uint64_t fail_read_lba;
+    uint8_t fail_read_lba_once;
     /* Fail a selected future flush to model a device durability error. */
     uint32_t fail_flush_countdown;
     /* Persist the selected flush, then report an ambiguous I/O failure. */
@@ -5285,6 +5288,12 @@ static int pfs_test_read(struct pros_block_device *device, uint64_t lba,
         --disk->fail_read_countdown;
         if (disk->fail_read_countdown == 0u)
             return PROS_BLOCK_EIO;
+    }
+    if (disk->fail_read_lba_once &&
+        lba <= disk->fail_read_lba &&
+        disk->fail_read_lba < lba + count) {
+        disk->fail_read_lba_once = 0u;
+        return PROS_BLOCK_EIO;
     }
     for (uint32_t i = 0u; i < count; ++i) {
         uint64_t current = lba + i;
