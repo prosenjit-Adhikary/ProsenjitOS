@@ -316,8 +316,19 @@ int pros_hw_audio_write(uint32_t id, const struct pros_hw_audio_format *f,
     return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_AUDIO,samples,length);
 }
 struct selftest_context { int init_rc, transfer_rc, shutdown_rc; uint32_t calls; };
+static uint8_t selftest_reenter_unregister;
+static int selftest_reenter_unregister_rc;
 static int selftest_init(void *p) { struct selftest_context *c=p; if(!c)return PROS_DRIVER_EINVAL; ++c->calls; return c->init_rc; }
-static int selftest_transfer(void *p,const void *b,uint32_t n) { struct selftest_context *c=p; if(!c||!b||!n)return PROS_DRIVER_EINVAL; ++c->calls; return c->transfer_rc; }
+static int selftest_transfer(void *p,const void *b,uint32_t n) {
+    struct selftest_context *c=p;
+    if(!c||!b||!n)return PROS_DRIVER_EINVAL;
+    ++c->calls;
+    if (selftest_reenter_unregister) {
+        selftest_reenter_unregister=0u;
+        selftest_reenter_unregister_rc=pros_hw_endpoint_unregister(1u,PROS_HW_ENDPOINT_INPUT);
+    }
+    return c->transfer_rc;
+}
 static int selftest_shutdown(void *p) { struct selftest_context *c=p; if(!c)return PROS_DRIVER_EINVAL; ++c->calls; return c->shutdown_rc; }
 int pros_hw_stack_selftest(void) {
     static const struct pros_hw_endpoint_ops ops={selftest_init,selftest_transfer,selftest_shutdown};
@@ -363,12 +374,16 @@ int pros_hw_stack_selftest(void) {
     c.init_rc=0; c.calls=0u;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=0)return -11;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EBUSY)return -12;
+    if(pros_hw_stack_init()!=PROS_DRIVER_EBUSY)return -33;
+    selftest_reenter_unregister=1u; selftest_reenter_unregister_rc=PROS_DRIVER_OK;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_INPUT,payload,sizeof(payload))!=0)return -13;
+    if(selftest_reenter_unregister_rc!=PROS_DRIVER_EBUSY)return -32;
     if(pros_hw_input_send(1u,&event)!=0)return -30;
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=0||!st.initialized||st.last_error!=0)return -14;
     c.shutdown_rc=PROS_DRIVER_EIO;
     if(pros_hw_endpoint_unregister(1u,PROS_HW_ENDPOINT_INPUT)!=PROS_DRIVER_EIO)return -15;
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=0||st.initialized||st.last_error!=PROS_DRIVER_EIO)return -16;
+    if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_INPUT,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -34;
     c.shutdown_rc=0; if(pros_hw_endpoint_unregister(1u,PROS_HW_ENDPOINT_INPUT)!=0)return -17;
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=PROS_DRIVER_ENODEV)return -18;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_AUDIO,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -19;
