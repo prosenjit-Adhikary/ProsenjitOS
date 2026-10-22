@@ -113,6 +113,23 @@ static inline int pros_desktop_message_header_valid(
 }
 
 /* Reject zero-sized, oversized, and signed-coordinate overflow rectangles. */
+/*
+ * Validate the received transport buffer as well as the declared lengths.
+ * Call this before reading any type-specific fields or payload bytes.
+ */
+static inline int pros_desktop_message_fits(
+    const struct pros_desktop_message_header *header,
+    uint64_t received_bytes)
+{
+    uint64_t declared_bytes;
+
+    if (!pros_desktop_message_header_valid(header))
+        return 0;
+    declared_bytes = (uint64_t)header->struct_size +
+                     (uint64_t)header->payload_size;
+    return declared_bytes <= received_bytes;
+}
+
 static inline int pros_desktop_rect_valid(const struct pros_desktop_rect *rect)
 {
     int64_t right;
