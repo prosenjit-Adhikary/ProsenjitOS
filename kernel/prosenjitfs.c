@@ -5393,6 +5393,7 @@ static int pfs_selftest_consistency(
     int rc = PROSENJITFS_EIO;
     uint32_t fail_line = 0u;
     uint64_t orphaned_blocks = 0u;
+    uint64_t orphaned_inodes = 0u;
 
     if (report) {
         report->status = PROSENJITFS_EIO;
@@ -5401,6 +5402,8 @@ static int pfs_selftest_consistency(
         report->block_bitmap_bits_checked = 0u;
         report->orphaned_blocks_reported = 0u;
         report->first_orphaned_block = 0u;
+        report->orphaned_inodes_reported = 0u;
+        report->first_orphaned_inode = 0u;
     }
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
@@ -5783,10 +5786,10 @@ static int pfs_selftest_consistency(
         allocated = pfs_bitmap_bit(bitmap, within);
         if (allocated && prosenjitfs_read_inode(fs, inode_number, &inode) ==
                             PROSENJITFS_OK &&
-            dir_refs[inode_number] != 1u) {
+            dir_refs[inode_number] > 1u) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
-                        goto consistency_out;
+            goto consistency_out;
         }
     }
 
@@ -5811,6 +5814,20 @@ static int pfs_selftest_consistency(
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
             goto consistency_out;
+        }
+        /*
+         * Report an allocated inode with no directory-entry reference only
+         * after its inode metadata and parent chain have passed validation.
+         * This is a conservative candidate, not permission to reclaim it.
+         */
+        if (report && dir_refs[inode_number] == 0u) {
+            if (orphaned_inodes == 0u) {
+                report->first_orphaned_inode = inode_number;
+                if (fail_line == 0u)
+                    fail_line = __LINE__;
+            }
+            ++orphaned_inodes;
+            report->orphaned_inodes_reported = orphaned_inodes;
         }
     }
 
@@ -5883,7 +5900,8 @@ static int pfs_selftest_consistency(
      * candidates exist. Preserve the corruption result after the scan rather
      * than overwriting it with the clean-path success status.
      */
-    rc = orphaned_blocks != 0u ? PROSENJITFS_ECORRUPT : PROSENJITFS_OK;
+    rc = (orphaned_blocks != 0u || orphaned_inodes != 0u)
+       ? PROSENJITFS_ECORRUPT : PROSENJITFS_OK;
 
 consistency_out:
     kfree(owner);
@@ -5915,6 +5933,8 @@ int prosenjitfs_check_integrity_report(
         report->block_bitmap_bits_checked = 0u;
         report->orphaned_blocks_reported = 0u;
         report->first_orphaned_block = 0u;
+        report->orphaned_inodes_reported = 0u;
+        report->first_orphaned_inode = 0u;
     }
     if (!fs || !fs->mount.device || !fs->mount.active) {
         if (report)
