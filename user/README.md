@@ -31,9 +31,10 @@ When a suitable development environment is available, run:
 make app-unit-test
 ```
 
-The test target has been added to the self-hosted CI workflow but has not yet
-been run successfully for this branch. Do not infer a passing result from the
-workflow definition or queued jobs.
+The test target is intentionally not wired into the current Linux
+self-hosted workflow because the project requires the OfficeWindows runner for
+this work. It has not yet been compiled or run for this branch. Do not infer a
+passing result from a workflow definition or queued jobs.
 
 ## Desktop Management Layer (DML) — initial code
 
