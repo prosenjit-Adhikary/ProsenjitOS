@@ -5843,6 +5843,30 @@ consistency_out:
     return rc;
 }
 
+
+/*
+ * Public kernel-only read-only integrity scan. Mount performs journal replay
+ * before exposing an active filesystem, so callers must invoke this only on
+ * an active mount and serialize it against concurrent filesystem mutations.
+ * The underlying checker only reads on-disk metadata; it never repairs or
+ * reclaims blocks. Internal line-coded checker failures are normalized to
+ * the stable filesystem error code at this boundary.
+ */
+int prosenjitfs_check_integrity(const struct pros_prosenjitfs *fs)
+{
+    int rc;
+
+    if (!fs || !fs->mount.device || !fs->mount.active)
+        return PROSENJITFS_EINVAL;
+
+    rc = pfs_selftest_consistency(fs);
+    if (rc == PROSENJITFS_OK || rc == PROSENJITFS_EOVERFLOW ||
+        rc == PROSENJITFS_EINVAL || rc == PROSENJITFS_EIO ||
+        rc == PROSENJITFS_ECORRUPT)
+        return rc;
+    return PROSENJITFS_ECORRUPT;
+}
+
 int prosenjitfs_selftest(void)
 {
     pfs_selftest_diag_stage = 0xF001u; /* entered */
