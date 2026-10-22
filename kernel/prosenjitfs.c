@@ -5379,7 +5379,9 @@ static int pfs_parent_chain_reaches_root(
     return PROSENJITFS_OK;
 }
 
-static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
+static int pfs_selftest_consistency(
+    const struct pros_prosenjitfs *fs,
+    struct pros_prosenjitfs_integrity_report *report)
 {
     uint64_t bits_per_block;
     uint64_t owner_bytes;
@@ -5390,6 +5392,13 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
     uint32_t name_length = 0u;
     int rc = PROSENJITFS_EIO;
     uint32_t fail_line = 0u;
+
+    if (report) {
+        report->status = PROSENJITFS_EIO;
+        report->first_error_location = 0u;
+        report->inodes_checked = 0u;
+        report->block_bitmap_bits_checked = 0u;
+    }
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
         fs->sb.block_size == 0u || fs->sb.block_size > sizeof(bitmap) ||
@@ -5484,6 +5493,8 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
      */
     for (uint64_t inode_number = 0u;
          inode_number < fs->sb.inode_count; ++inode_number) {
+        if (report)
+            ++report->inodes_checked;
         uint64_t bi = inode_number / bits_per_block;
         uint64_t within = inode_number % bits_per_block;
         uint64_t lba;
@@ -5816,6 +5827,8 @@ static int pfs_selftest_consistency(const struct pros_prosenjitfs *fs)
                         goto consistency_out;
         }
         for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
+            if (report)
+                ++report->block_bitmap_bits_checked;
             uint64_t block = first_bit + bit;
             int set = pfs_bitmap_bit(bitmap, bit);
             int owned = block < fs->sb.total_blocks
@@ -5852,19 +5865,44 @@ consistency_out:
  * reclaims blocks. Internal line-coded checker failures are normalized to
  * the stable filesystem error code at this boundary.
  */
-int prosenjitfs_check_integrity(const struct pros_prosenjitfs *fs)
+int prosenjitfs_check_integrity_report(
+    const struct pros_prosenjitfs *fs,
+    struct pros_prosenjitfs_integrity_report *report)
 {
     int rc;
 
-    if (!fs || !fs->mount.device || !fs->mount.active)
+    if (report) {
+        report->status = PROSENJITFS_EINVAL;
+        report->first_error_location = 0u;
+        report->inodes_checked = 0u;
+        report->block_bitmap_bits_checked = 0u;
+    }
+    if (!fs || !fs->mount.device || !fs->mount.active) {
+        if (report)
+            report->status = PROSENJITFS_EINVAL;
         return PROSENJITFS_EINVAL;
+    }
 
-    rc = pfs_selftest_consistency(fs);
-    if (rc == PROSENJITFS_OK || rc == PROSENJITFS_EOVERFLOW ||
-        rc == PROSENJITFS_EINVAL || rc == PROSENJITFS_EIO ||
-        rc == PROSENJITFS_ECORRUPT)
-        return rc;
-    return PROSENJITFS_ECORRUPT;
+    rc = pfs_selftest_consistency(fs, report);
+    if (rc <= -10000) {
+        if (report) {
+            report->first_error_location = (uint32_t)(-10000 - rc);
+            report->status = PROSENJITFS_ECORRUPT;
+        }
+        return PROSENJITFS_ECORRUPT;
+    }
+    if (rc != PROSENJITFS_OK && rc != PROSENJITFS_EOVERFLOW &&
+        rc != PROSENJITFS_EINVAL && rc != PROSENJITFS_EIO &&
+        rc != PROSENJITFS_ECORRUPT)
+        rc = PROSENJITFS_ECORRUPT;
+    if (report)
+        report->status = rc;
+    return rc;
+}
+
+int prosenjitfs_check_integrity(const struct pros_prosenjitfs *fs)
+{
+    return prosenjitfs_check_integrity_report(fs, 0);
 }
 
 int prosenjitfs_selftest(void)
