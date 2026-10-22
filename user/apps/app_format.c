@@ -1,4 +1,5 @@
 #include "app_format.h"
+#include "app_manager.h"
 
 #define APP_FORMAT_EINVAL (-1)
 #define APP_FORMAT_EFORMAT (-2)
@@ -105,5 +106,18 @@ int pros_app_detect_format(const uint8_t *data,
         return 0;
     }
 
+    return 0;
+}
+
+int pros_app_format_compatible_with_backend(uint32_t backend,
+                                            enum pros_app_file_format format)
+{
+    if (backend == PROS_APP_BACKEND_WINDOWS)
+        return format == PROS_APP_FORMAT_PE32 ||
+               format == PROS_APP_FORMAT_PE32_PLUS;
+    if (backend == PROS_APP_BACKEND_NATIVE ||
+        backend == PROS_APP_BACKEND_LINUX)
+        return format == PROS_APP_FORMAT_ELF32 ||
+               format == PROS_APP_FORMAT_ELF64;
     return 0;
 }
