@@ -151,3 +151,8 @@ The native VFS/filesystem boundary now has additional fail-closed checks for:
 - checked file extent ordering and logical-range validation.
 
 The consistency checker is diagnostic-only and must never be used as a silent repair mechanism. Local Debian compilation and QEMU execution remain required before any runtime PASS is claimed.
+
+
+## ProsenjitFS unknown-feature fail-closed regression — 2026-10-22
+
+The v1 superblock feature field has no optional/incompatible feature split. Mount must therefore reject any bit outside the explicitly defined v1 feature mask, even when both redundant copies agree and their CRCs are valid. The native self-test sets an unknown high feature bit in both copies, recomputes both checksums, requires mount to fail with corruption, and restores the fixture before continuing.
