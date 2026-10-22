@@ -2,8 +2,8 @@
 
 ## Pending verification — PR #196
 
-- PR #196 adds a deterministic integrity-scan read-fault sweep: each successive mock block-device read is failed in turn, and the regression requires `PROSENJITFS_EIO`, a zero source-error location, and unchanged durable, volatile, and dirty media state. The first countdown beyond the scanner's read sequence must complete as a clean scan.
-- This expands coverage beyond the previous single inode-bitmap read-failure injection and is intended to exercise the other read-propagation paths without hard-coding metadata-read order.
+- PR #196 adds deterministic integrity-scan read-fault sweeps over each successive mock block-device read on both a freshly formatted filesystem and a populated filesystem containing a file, directory entry, inode and data extent. Each injected failure must return `PROSENJITFS_EIO`, keep the source-error location zero, and leave durable, volatile, and dirty media unchanged; the first countdown beyond each scan's read sequence must complete as a clean scan.
+- This expands coverage beyond the previous single inode-bitmap read-failure injection. The populated fixture exercises more of the directory and extent traversal paths, while still not proving every corruption-specific path or physical-device behavior.
 - **Pending:** the sweep has not been run through CI or boot tests yet. Do not count it as passing until the authorized Linux x64 runner is online and the exact PR head passes filesystem diagnostics, build/boot, and security checks.
 
 
