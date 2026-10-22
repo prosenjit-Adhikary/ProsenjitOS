@@ -14,6 +14,10 @@
 - Fail-closed preflight for entries not marked installed/trusted; dependency graph checks cover missing dependencies, cycles, and cross-ecosystem dependency rejection.
 - Host-side regression tests via `make app-unit-test` (added transaction success and rollback cases).
 
+## VFS integration gate
+
+The next integration boundary and acceptance checklist are documented in [`docs/APPS-HANDLER-VFS-INTEGRATION.md`](../../docs/APPS-HANDLER-VFS-INTEGRATION.md). Source audit confirms the public syscall ABI does not yet expose filesystem access; do not wire this userspace registry directly to private kernel VFS APIs.
+
 ## Important limits
 
 The transaction coordinator is an adapter contract, not a concrete filesystem installer. The adapter must implement isolated staging, atomic publication, rollback/cleanup, and any required durability barriers. No ProsenjitFS/VFS-backed package installation is wired into this branch yet.
