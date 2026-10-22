@@ -106,6 +106,17 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
 {
     uint32_t bytes_seen = 0u;
     int submitted = 0;
+    struct pros_hw_endpoint_status endpoint_status;
+    if (input_endpoint_id == 0u)
+        return PROS_DRIVER_EINVAL;
+    int endpoint_rc = pros_hw_endpoint_status(input_endpoint_id,
+                                               PROS_HW_ENDPOINT_INPUT,
+                                               &endpoint_status);
+    if (endpoint_rc != PROS_DRIVER_OK)
+        return endpoint_rc;
+    if (endpoint_status.initialized == 0u)
+        return PROS_DRIVER_ENODEV;
+
     while (bytes_seen < PS2_POLL_BUDGET) {
         uint8_t status = ps2_in8(PS2_STATUS_PORT);
         if ((status & PS2_STATUS_OUTPUT_FULL) == 0u)
