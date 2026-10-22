@@ -160,3 +160,11 @@ Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded s
 - Host tests compile the same production allocator source with only the privileged interrupt-save instructions omitted under `PROSENJIT_MEMORY_HOST_TEST`; atomic lock semantics and allocator logic remain shared with the kernel build.
 - Limitations: this is a spin lock, so allocator critical sections must remain short and must not be called from NMI context. Physical hardware, UEFI, and true multi-core kernel execution have not been tested. CI must pass on the final commit before this change is considered verified.
 - Overall Part 1 remains PARTIAL because the wider page-table rollback, stack/IST, DMA/IOMMU, UEFI and physical-hardware acceptance gates are outside this allocator-focused change.
+
+
+## Follow-up — paging mapping/ownership regression checks
+
+- Commit `e8f93f7a359d3eb40b0183ae6425bd2063b1a99a` strengthens `paging_selftest()`.
+- A rejected duplicate mapping now explicitly verifies that the original virtual-to-physical translation remains unchanged and allocator free-page accounting does not drift.
+- Unmapping now has an explicit regression assertion that the caller-owned leaf physical page remains allocated; page-table unmapping does not imply ownership transfer.
+- These checks run as part of the existing QEMU paging deep-invariant self-test. They do not yet replace deterministic allocation-failure injection for every intermediate page-table allocation branch. Final CI for this follow-up must be checked before claiming verification.
