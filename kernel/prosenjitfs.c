@@ -5887,6 +5887,9 @@ int prosenjitfs_selftest(void)
     /* Avoid a compiler-generated aggregate initializer obscuring early
      * crash diagnostics; make this initialization an explicit checkpoint. */
     pfs_zero(&fs, (uint32_t)sizeof(fs));
+    if (prosenjitfs_check_integrity(0) != PROSENJITFS_EINVAL ||
+        prosenjitfs_check_integrity(&fs) != PROSENJITFS_EINVAL)
+        return pfs_selftest_fail(__LINE__, -1);
     PFS_SELFTEST_CHECKPOINT(0xF003u); /* local filesystem state zeroed */
     PFS_SELFTEST_CHECKPOINT(0xF004u); /* immediately before block-device init */
     if (block_device_init(&device, 512u, 512u, pfs_test_read,
@@ -5920,6 +5923,8 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_format(&device) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -3);
     if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        return pfs_selftest_fail(__LINE__, -4);
+    if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -4);
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
