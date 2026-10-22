@@ -113,6 +113,53 @@ int pros_hw_endpoint_status(uint32_t id, enum pros_hw_endpoint_type type,
     out->device_id=s->device_id; out->initialized=s->initialized; out->last_error=s->last_error;
     return PROS_DRIVER_OK;
 }
+int pros_hw_display_present(uint32_t id, uint32_t width, uint32_t height,
+                            uint32_t stride, uint32_t format,
+                            const void *pixels, uint32_t length) {
+    uint64_t row_bytes, expected;
+    if (!pixels || width==0u || height==0u ||
+        width>PROS_HW_FRAME_MAX_WIDTH || height>PROS_HW_FRAME_MAX_HEIGHT ||
+        format!=PROS_HW_DISPLAY_XRGB8888)
+        return PROS_DRIVER_EINVAL;
+    row_bytes=(uint64_t)width*4u;
+    if ((uint64_t)stride<row_bytes || height>UINT64_MAX/(uint64_t)stride)
+        return PROS_DRIVER_EINVAL;
+    expected=(uint64_t)stride*height;
+    if (expected>PROS_HW_TRANSFER_MAX || expected!=length)
+        return PROS_DRIVER_EINVAL;
+    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_DISPLAY,pixels,length);
+}
+int pros_hw_input_send(uint32_t id, const struct pros_hw_input_event *e) {
+    uint32_t edge;
+    if (!e || e->version!=PROS_HW_STACK_ABI_VERSION || e->reserved!=0u ||
+        (e->flags&~(PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE|PROS_HW_INPUT_RELATIVE))!=0u)
+        return PROS_DRIVER_EINVAL;
+    edge=e->flags&(PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE);
+    if (e->type==PROS_HW_INPUT_KEY) {
+        if ((edge!=PROS_HW_INPUT_PRESS && edge!=PROS_HW_INPUT_RELEASE) ||
+            (e->flags&PROS_HW_INPUT_RELATIVE)!=0u)
+            return PROS_DRIVER_EINVAL;
+    } else if (e->type==PROS_HW_INPUT_POINTER) {
+        if (edge==(PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE))
+            return PROS_DRIVER_EINVAL;
+    } else return PROS_DRIVER_EINVAL;
+    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_INPUT,e,(uint32_t)sizeof(*e));
+}
+int pros_hw_audio_write(uint32_t id, const struct pros_hw_audio_format *f,
+                        const void *samples, uint32_t length) {
+    uint32_t bytes_per_sample, frame_bytes;
+    if (!f || f->version!=PROS_HW_STACK_ABI_VERSION || !samples ||
+        f->sample_rate<8000u || f->sample_rate>192000u ||
+        f->channels==0u || f->channels>8u || length==0u ||
+        length>PROS_HW_TRANSFER_MAX)
+        return PROS_DRIVER_EINVAL;
+    if (f->sample_format==PROS_HW_AUDIO_S16_LE) bytes_per_sample=2u;
+    else if (f->sample_format==PROS_HW_AUDIO_S32_LE) bytes_per_sample=4u;
+    else return PROS_DRIVER_ENOTSUP;
+    frame_bytes=f->channels*bytes_per_sample;
+    if (length%frame_bytes!=0u) return PROS_DRIVER_EINVAL;
+    return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_AUDIO,samples,length);
+}
 int pros_hw_endpoint_unregister(uint32_t id, enum pros_hw_endpoint_type type) {
     if (!stack_ready || id==0u || !valid_type(type)) return PROS_DRIVER_EINVAL;
     int n=endpoint_find(id,type);
