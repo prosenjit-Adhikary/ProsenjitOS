@@ -1,12 +1,13 @@
 #ifndef PROSENJIT_SHARED_DESKTOP_H
 #define PROSENJIT_SHARED_DESKTOP_H
 #include <stdint.h>
+#include "abi/desktop.h"
 #define PROS_SD_ABI_VERSION 1u
 #define PROS_SD_MAX_PROCESSES 16u
 #define PROS_SD_MAX_WINDOWS 32u
 #define PROS_SD_CLIPBOARD_MAX 256u
 #define PROS_SD_AUDIO_MAX_SESSIONS 16u
-enum pros_sd_status { PROS_SD_OK=0, PROS_SD_EINVAL=-1, PROS_SD_EFULL=-2, PROS_SD_ENOENT=-3, PROS_SD_EPERM=-4, PROS_SD_ESTATE=-5, PROS_SD_ESTALE=-6, PROS_SD_EDISCONNECTED=-7, PROS_SD_EBOUNDS=-8 };
+enum pros_sd_status { PROS_SD_OK=0, PROS_SD_EINVAL=-1, PROS_SD_EFULL=-2, PROS_SD_ENOENT=-3, PROS_SD_EPERM=-4, PROS_SD_ESTATE=-5, PROS_SD_ESTALE=-6, PROS_SD_EDISCONNECTED=-7, PROS_SD_EBOUNDS=-8, PROS_SD_ENOTSUP=-9 };
 enum pros_sd_subsystem { PROS_SD_NATIVE=1, PROS_SD_WINDOWS=2 };
 enum pros_sd_process_state { PROS_SD_PROC_UNUSED=0, PROS_SD_PROC_CONNECTED, PROS_SD_PROC_DISCONNECTED, PROS_SD_PROC_EXITED };
 enum pros_sd_window_state { PROS_SD_WIN_UNUSED=0, PROS_SD_WIN_LIVE };
@@ -37,4 +38,6 @@ int pros_sd_clipboard_read(struct pros_sd_context *, uint64_t, void *, uint32_t,
 int pros_sd_audio_open(struct pros_sd_context *, uint64_t, uint64_t *);
 int pros_sd_audio_close(struct pros_sd_context *, uint64_t, uint64_t);
 int pros_sd_validate_event(const struct pros_sd_event *);
+/* Validates the existing Part 1 wire ABI before state/ownership checks. */
+int pros_sd_validate_request(const struct pros_desktop_message_header *, uint64_t);
 #endif
