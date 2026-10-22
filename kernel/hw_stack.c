@@ -35,11 +35,16 @@ int pros_hw_classify_pci(const struct pros_pci_device *d, enum pros_device_class
 }
 int pros_hw_resource_validate(const struct pros_hw_resource *r) {
     if (!r || r->version!=PROS_HW_STACK_ABI_VERSION || r->flags!=0u ||
-        r->length==0u || r->length>PROS_HW_RESOURCE_MAX || r->base>UINT64_MAX-r->length)
+        r->length==0u || r->length>PROS_HW_RESOURCE_MAX ||
+        r->length-1u>UINT64_MAX-r->base)
         return PROS_DRIVER_EINVAL;
     switch (r->type) {
     case PROS_HW_RESOURCE_MMIO:
-        return ((r->base&0xFFFu)==0u && r->irq==0u) ? PROS_DRIVER_OK : PROS_DRIVER_EINVAL;
+        if ((r->base&0xFFFu)!=0u || r->irq!=0u ||
+            r->base>0x000FFFFFFFFFFFFFULL ||
+            r->length-1u>0x000FFFFFFFFFFFFFULL-r->base)
+            return PROS_DRIVER_EINVAL;
+        return PROS_DRIVER_OK;
     case PROS_HW_RESOURCE_IOPORT:
         return (r->base<=0xFFFFu && r->length<=0x10000u-r->base && r->irq==0u)
             ? PROS_DRIVER_OK : PROS_DRIVER_EINVAL;
@@ -192,7 +197,9 @@ int pros_hw_stack_selftest(void) {
     d.vendor_id=0xFFFFu; if(pros_hw_classify_pci(&d,&cls)!=PROS_DRIVER_EINVAL)return -3;
     if(pros_hw_resource_validate(&r)!=0)return -4;
     r.base=UINT64_MAX-7u; if(pros_hw_resource_validate(&r)!=PROS_DRIVER_EINVAL)return -5;
-    r.base=0x1000u; r.type=PROS_HW_RESOURCE_DMA;
+    r.base=0x000FFFFFFFFFF000ULL; r.length=0x2000u;
+    if(pros_hw_resource_validate(&r)!=PROS_DRIVER_EINVAL)return -31;
+    r.base=0x1000u; r.length=4096u; r.type=PROS_HW_RESOURCE_DMA;
     if(pros_hw_resource_validate(&r)!=PROS_DRIVER_ENOTSUP)return -6;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_INPUT,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -7;
     if(pros_hw_display_present(1u,640u,480u,2560u,PROS_HW_DISPLAY_XRGB8888,
