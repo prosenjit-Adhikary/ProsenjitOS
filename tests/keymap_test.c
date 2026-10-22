@@ -50,6 +50,16 @@ int main(void)
     assert(pros_keymap_translate(&s, &e) == 0u);
     e.version = 999u;
     assert(pros_keymap_translate(&s, &e) == 0u);
+
+    /* Reject malformed raw scan codes and ABI flags, not just unknown versions. */
+    e = ev((uint32_t)-1, PROS_INPUT_FLAG_PRESS);
+    assert(pros_keymap_translate(&s, &e) == 0u);
+    e = ev(0x200u, PROS_INPUT_FLAG_PRESS);
+    assert(pros_keymap_translate(&s, &e) == 0u);
+    e = ev(0x1Eu, PROS_INPUT_FLAG_PRESS | PROS_INPUT_FLAG_RELATIVE);
+    assert(pros_keymap_translate(&s, &e) == 0u);
+    e = ev(0x1Eu, 0x80000000u | PROS_INPUT_FLAG_PRESS);
+    assert(pros_keymap_translate(&s, &e) == 0u);
     pros_keymap_reset(0);
     return 0;
 }
