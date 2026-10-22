@@ -5393,6 +5393,7 @@ static int pfs_selftest_consistency(
     int rc = PROSENJITFS_EIO;
     uint32_t fail_line = 0u;
     uint64_t orphaned_blocks = 0u;
+    uint64_t orphaned_inodes = 0u;
 
     if (report) {
         report->status = PROSENJITFS_EIO;
@@ -5401,6 +5402,8 @@ static int pfs_selftest_consistency(
         report->block_bitmap_bits_checked = 0u;
         report->orphaned_blocks_reported = 0u;
         report->first_orphaned_block = 0u;
+        report->orphaned_inodes_reported = 0u;
+        report->first_orphaned_inode = 0u;
     }
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
@@ -5783,10 +5786,10 @@ static int pfs_selftest_consistency(
         allocated = pfs_bitmap_bit(bitmap, within);
         if (allocated && prosenjitfs_read_inode(fs, inode_number, &inode) ==
                             PROSENJITFS_OK &&
-            dir_refs[inode_number] != 1u) {
+            dir_refs[inode_number] > 1u) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
-                        goto consistency_out;
+            goto consistency_out;
         }
     }
 
@@ -5811,6 +5814,25 @@ static int pfs_selftest_consistency(
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
             goto consistency_out;
+        }
+        /*
+         * Report an allocated inode with no directory-entry reference only
+         * after its inode metadata and parent chain have passed validation.
+         * This is a conservative candidate, not permission to reclaim it.
+         */
+        if (dir_refs[inode_number] == 0u) {
+            if (!report) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            if (orphaned_inodes == 0u) {
+                report->first_orphaned_inode = inode_number;
+                if (fail_line == 0u)
+                    fail_line = __LINE__;
+            }
+            ++orphaned_inodes;
+            report->orphaned_inodes_reported = orphaned_inodes;
         }
     }
 
@@ -5863,7 +5885,8 @@ static int pfs_selftest_consistency(
                 }
                 if (orphaned_blocks == 0u) {
                     report->first_orphaned_block = block;
-                    fail_line = __LINE__;
+                    if (fail_line == 0u)
+                        fail_line = __LINE__;
                 }
                 ++orphaned_blocks;
                 report->orphaned_blocks_reported = orphaned_blocks;
@@ -5883,7 +5906,8 @@ static int pfs_selftest_consistency(
      * candidates exist. Preserve the corruption result after the scan rather
      * than overwriting it with the clean-path success status.
      */
-    rc = orphaned_blocks != 0u ? PROSENJITFS_ECORRUPT : PROSENJITFS_OK;
+    rc = (orphaned_blocks != 0u || orphaned_inodes != 0u)
+       ? PROSENJITFS_ECORRUPT : PROSENJITFS_OK;
 
 consistency_out:
     kfree(owner);
@@ -5915,6 +5939,8 @@ int prosenjitfs_check_integrity_report(
         report->block_bitmap_bits_checked = 0u;
         report->orphaned_blocks_reported = 0u;
         report->first_orphaned_block = 0u;
+        report->orphaned_inodes_reported = 0u;
+        report->first_orphaned_inode = 0u;
     }
     if (!fs || !fs->mount.device || !fs->mount.active) {
         if (report)
@@ -6106,6 +6132,124 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_OK ||
             integrity_report.orphaned_blocks_reported != 0u ||
             integrity_report.first_orphaned_block != 0u)
+            return pfs_selftest_fail(__LINE__, -4);
+    }
+    /*
+     * Report-only orphan inode regression: allocate a valid, empty inode whose
+     * parent chain reaches root but which has no directory-entry reference.
+     * The report must identify it without changing durable or cached media.
+     */
+    {
+        struct pros_prosenjitfs_inode orphan_inode;
+        uint64_t orphan_inode_number = 0u;
+        uint64_t generation = 0u;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        if (prosenjitfs_alloc_inode(&fs, &orphan_inode_number) !=
+                PROSENJITFS_OK ||
+            pfs_allocate_generation(&fs, orphan_inode_number, &generation) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+        pfs_zero(&orphan_inode, sizeof(orphan_inode));
+        orphan_inode.type = PROSENJITFS_INODE_FILE;
+        orphan_inode.mode = 0644u;
+        orphan_inode.links = 1u;
+        orphan_inode.generation = generation;
+        orphan_inode.parent_inode = fs.sb.root_inode;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                    &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_inodes_reported != 1u ||
+            integrity_report.first_orphaned_inode != orphan_inode_number ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_error_location == 0u ||
+            /* Repeated report scans must be deterministic and read-only. */
+            prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_inodes_reported != 1u ||
+            integrity_report.first_orphaned_inode != orphan_inode_number ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_error_location == 0u ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_zero(&orphan_inode, sizeof(orphan_inode));
+            orphan_inode.type = PROSENJITFS_INODE_FREE;
+            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                          &orphan_inode);
+            (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
+            return pfs_selftest_fail(__LINE__, -4);
+        }
+
+        /*
+         * A malformed parent must fail closed, not be counted as a valid
+         * orphan candidate. Use a self-parented file inode, snapshot media
+         * after deliberately injecting it, and prove the scan itself is
+         * still read-only before restoring the valid parent.
+         */
+        orphan_inode.parent_inode = orphan_inode_number;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                    &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            orphan_inode.parent_inode = fs.sb.root_inode;
+            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                          &orphan_inode);
+            pfs_zero(&orphan_inode, sizeof(orphan_inode));
+            orphan_inode.type = PROSENJITFS_INODE_FREE;
+            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                          &orphan_inode);
+            (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
+            return pfs_selftest_fail(__LINE__, -4);
+        }
+        orphan_inode.parent_inode = fs.sb.root_inode;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                    &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+
+        pfs_zero(&orphan_inode, sizeof(orphan_inode));
+        orphan_inode.type = PROSENJITFS_INODE_FREE;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number, &orphan_inode) !=
+                PROSENJITFS_OK ||
+            pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u) !=
+                PROSENJITFS_OK ||
+            prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_OK ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u)
             return pfs_selftest_fail(__LINE__, -4);
     }
     if (fs.sb.root_inode != 0u ||
