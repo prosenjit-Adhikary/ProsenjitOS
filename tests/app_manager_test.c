@@ -151,12 +151,14 @@ int main(void)
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 34);
     CHECK(pros_app_mark_verified(&manager, "cycle-b") == PROS_APP_OK, 47);
     CHECK(pros_app_commit_install(&manager, "cycle-b") == PROS_APP_ESTATE, 48);
-    /* Add a reverse edge to exercise cycle detection during staged commit. */
+    /* Simulate a corrupt persisted registry to exercise preflight cycle defense. */
     manager.entries[0].manifest.dependency_count = 1u;
     (void)snprintf(manager.entries[0].manifest.dependencies[0],
                    sizeof(manager.entries[0].manifest.dependencies[0]),
                    "%s", "cycle-b");
-    CHECK(pros_app_commit_install(&manager, "cycle-a") == PROS_APP_ELOOP, 35);
+    manager.entries[0].manifest.install_state = PROS_APP_INSTALLED;
+    manager.entries[1].manifest.install_state = PROS_APP_INSTALLED;
+    CHECK(pros_app_preflight(&manager, "cycle-a") == PROS_APP_ELOOP, 35);
 
     CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 36);
     for (uint32_t i = 0u; i < PROS_APP_MAX_ENTRIES; ++i) {
