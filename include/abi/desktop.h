@@ -158,13 +158,14 @@ static inline int pros_desktop_clipboard_size_valid(uint32_t bytes)
 }
 
 static inline int pros_desktop_audio_request_valid(
-    const struct pros_desktop_audio_request *request)
+    const struct pros_desktop_audio_request *request,
+    uint64_t received_bytes)
 {
     uint64_t bytes_per_sample;
     uint64_t total_bytes;
 
-    if (request == 0 ||
-        !pros_desktop_message_header_valid(&request->header) ||
+    if (request == 0 || received_bytes < sizeof(*request) ||
+        !pros_desktop_message_fits(&request->header, received_bytes) ||
         request->header.type != PROS_DESKTOP_MSG_AUDIO_SUBMIT ||
         request->header.struct_size < sizeof(*request) ||
         request->reserved != 0u ||
