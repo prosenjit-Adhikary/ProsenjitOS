@@ -1167,10 +1167,10 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                 serial_hex64(info.height);
                 serial_write("\n");
                 if (pros_framebuffer_selftest() != PROS_DRIVER_OK) {
-                    serial_write("ProsenjitOS: ERROR framebuffer endpoint presentation self-test failed\\n");
+                    serial_write("ProsenjitOS: ERROR framebuffer endpoint presentation self-test failed\n");
                     for (;;) __asm__ volatile ("cli; hlt");
                 }
-                serial_write("ProsenjitOS: framebuffer endpoint presentation self-test passed\\n");
+                serial_write("ProsenjitOS: framebuffer endpoint presentation self-test passed\n");
             }
         } else if (framebuffer_rc == PROS_DRIVER_ENOTSUP) {
             serial_write("ProsenjitOS: no supported boot framebuffer; legacy text console retained\n");
