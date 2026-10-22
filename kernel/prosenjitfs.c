@@ -6018,6 +6018,8 @@ int prosenjitfs_selftest(void)
         integrity_report.first_error_location != 0u ||
         integrity_report.inodes_checked != fs.sb.inode_count ||
         integrity_report.block_bitmap_bits_checked == 0u ||
+        integrity_report.orphaned_blocks_reported != 0u ||
+        integrity_report.first_orphaned_block != 0u ||
         integrity_durable_crc != prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data)) ||
         integrity_volatile_crc != prosenjitfs_crc32c(
@@ -6025,6 +6027,54 @@ int prosenjitfs_selftest(void)
         integrity_dirty_crc != prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty)))
         return pfs_selftest_fail(__LINE__, -4);
+    /*
+     * Report-only orphan regression: flip one free data-block allocation bit
+     * directly on the durable mock medium. The scan must report the candidate,
+     * return corruption, and leave all medium/cache state untouched.
+     */
+    {
+        uint64_t orphan_block = fs.sb.data_start;
+        uint64_t bitmap_lba = fs.sb.block_bitmap_start +
+                              orphan_block / ((uint64_t)fs.sb.block_size * 8u);
+        uint64_t byte_offset = bitmap_lba * fs.sb.block_size +
+                               (orphan_block % ((uint64_t)fs.sb.block_size * 8u)) / 8u;
+        uint8_t mask = (uint8_t)(1u << (orphan_block & 7u));
+        uint8_t original_byte = disk.data[byte_offset];
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+
+        if ((original_byte & mask) != 0u)
+            return pfs_selftest_fail(__LINE__, -4);
+        disk.data[byte_offset] = (uint8_t)(original_byte | mask);
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_blocks_reported != 1u ||
+            integrity_report.first_orphaned_block != orphan_block ||
+            integrity_report.first_error_location == 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            disk.data[byte_offset] = original_byte;
+            return pfs_selftest_fail(__LINE__, -4);
+        }
+        disk.data[byte_offset] = original_byte;
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_OK ||
+            integrity_report.orphaned_blocks_reported != 0u ||
+            integrity_report.first_orphaned_block != 0u)
+            return pfs_selftest_fail(__LINE__, -4);
+    }
     if (fs.sb.root_inode != 0u ||
         prosenjitfs_read_inode(&fs, 0u, &inode) != PROSENJITFS_OK ||
         inode.type != PROSENJITFS_INODE_DIR ||
