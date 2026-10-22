@@ -184,6 +184,9 @@ int pros_hw_stack_selftest(void) {
     enum pros_device_class cls=PROS_DEVICE_CLASS_OTHER;
     uint8_t payload[8]={0};
     struct pros_hw_resource r={PROS_HW_STACK_ABI_VERSION,PROS_HW_RESOURCE_MMIO,0xF0000000u,4096u,0u,0u};
+    struct pros_hw_input_event event={PROS_HW_STACK_ABI_VERSION,PROS_HW_INPUT_KEY,
+        PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE,0u,0u,0,0};
+    struct pros_hw_audio_format audio={PROS_HW_STACK_ABI_VERSION,48000u,2u,PROS_HW_AUDIO_S16_LE};
     if(pros_hw_stack_init()!=0)return -1;
     if(pros_hw_classify_pci(&d,&cls)!=0||cls!=PROS_DEVICE_CLASS_DISPLAY)return -2;
     d.vendor_id=0xFFFFu; if(pros_hw_classify_pci(&d,&cls)!=PROS_DRIVER_EINVAL)return -3;
@@ -192,6 +195,16 @@ int pros_hw_stack_selftest(void) {
     r.base=0x1000u; r.type=PROS_HW_RESOURCE_DMA;
     if(pros_hw_resource_validate(&r)!=PROS_DRIVER_ENOTSUP)return -6;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_INPUT,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -7;
+    if(pros_hw_display_present(1u,640u,480u,2560u,PROS_HW_DISPLAY_XRGB8888,
+                               payload,sizeof(payload))!=PROS_DRIVER_EINVAL)return -24;
+    if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_EINVAL)return -25;
+    event.flags=PROS_HW_INPUT_PRESS;
+    if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_ENODEV)return -26;
+    audio.sample_rate=1000u;
+    if(pros_hw_audio_write(1u,&audio,payload,sizeof(payload))!=PROS_DRIVER_EINVAL)return -27;
+    audio.sample_rate=48000u;
+    if(pros_hw_audio_write(1u,&audio,payload,3u)!=PROS_DRIVER_EINVAL)return -28;
+    if(pros_hw_audio_write(1u,&audio,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -29;
     if(pros_hw_endpoint_register(0u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EINVAL)return -8;
     c.init_rc=PROS_DRIVER_EIO;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EIO||c.calls!=2u)return -9;
@@ -206,6 +219,7 @@ int pros_hw_stack_selftest(void) {
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=0)return -11;
     if(pros_hw_endpoint_register(1u,PROS_HW_ENDPOINT_INPUT,&ops,&c)!=PROS_DRIVER_EBUSY)return -12;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_INPUT,payload,sizeof(payload))!=0)return -13;
+    if(pros_hw_input_send(1u,&event)!=0)return -30;
     if(pros_hw_endpoint_status(1u,PROS_HW_ENDPOINT_INPUT,&st)!=0||!st.initialized||st.last_error!=0)return -14;
     c.shutdown_rc=PROS_DRIVER_EIO;
     if(pros_hw_endpoint_unregister(1u,PROS_HW_ENDPOINT_INPUT)!=PROS_DRIVER_EIO)return -15;
