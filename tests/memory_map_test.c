@@ -1,7 +1,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <pthread.h>
 
+#define PROSENJIT_MEMORY_HOST_TEST 1
 #include "../kernel/memory.c"
 
 /* These linker symbols are outside the allocator's 1 GiB managed range. */
@@ -67,6 +69,30 @@ static int check(int condition, const char *message) {
     }
     printf("PASS: %s\n", message);
     return 0;
+}
+
+#define ALLOC_THREADS 8
+#define ALLOCS_PER_THREAD 64
+
+struct concurrent_worker {
+    uint64_t pages[ALLOCS_PER_THREAD];
+    int failed;
+};
+
+static void *concurrent_allocate(void *opaque) {
+    struct concurrent_worker *worker = (struct concurrent_worker *)opaque;
+    for (uint32_t i = 0; i < ALLOCS_PER_THREAD; ++i) {
+        worker->pages[i] = physical_page_alloc();
+        if (worker->pages[i] == 0) worker->failed = 1;
+    }
+    return NULL;
+}
+
+static void *concurrent_free(void *opaque) {
+    struct concurrent_worker *worker = (struct concurrent_worker *)opaque;
+    for (uint32_t i = 0; i < ALLOCS_PER_THREAD; ++i)
+        if (worker->pages[i] != 0) physical_page_free(worker->pages[i]);
+    return NULL;
 }
 
 int main(void) {
@@ -145,6 +171,48 @@ int main(void) {
     physical_page_free(first_page);
     failures += check(physical_memory_free_pages() == physical_memory_total_pages(),
                       "repeated allocation/free cycle restores all managed pages");
+
+    /*
+     * Concurrent allocation must never hand the same page to two callers.
+     * Keep every page allocated until all workers have joined, then free in
+     * parallel and verify exact accounting recovery.
+     */
+    {
+        pthread_t threads[ALLOC_THREADS];
+        struct concurrent_worker workers[ALLOC_THREADS];
+        uint64_t baseline = physical_memory_free_pages();
+        memset(workers, 0, sizeof(workers));
+        for (uint32_t i = 0; i < ALLOC_THREADS; ++i)
+            if (pthread_create(&threads[i], NULL, concurrent_allocate,
+                               &workers[i]) != 0) return 2;
+        for (uint32_t i = 0; i < ALLOC_THREADS; ++i)
+            if (pthread_join(threads[i], NULL) != 0) return 2;
+
+        int unique = 1;
+        int all_allocated = 1;
+        for (uint32_t i = 0; i < ALLOC_THREADS; ++i) {
+            if (workers[i].failed) all_allocated = 0;
+            for (uint32_t j = 0; j < ALLOCS_PER_THREAD; ++j) {
+                uint64_t page = workers[i].pages[j];
+                if (page == 0 || !physical_page_is_allocated(page))
+                    all_allocated = 0;
+                for (uint32_t k = 0; k <= i; ++k) {
+                    uint32_t limit = (k == i) ? j : ALLOCS_PER_THREAD;
+                    for (uint32_t n = 0; n < limit; ++n)
+                        if (workers[k].pages[n] == page) unique = 0;
+                }
+            }
+        }
+        failures += check(all_allocated, "concurrent allocation returns valid allocated pages");
+        failures += check(unique, "concurrent allocation never returns duplicate pages");
+        for (uint32_t i = 0; i < ALLOC_THREADS; ++i)
+            if (pthread_create(&threads[i], NULL, concurrent_free,
+                               &workers[i]) != 0) return 2;
+        for (uint32_t i = 0; i < ALLOC_THREADS; ++i)
+            if (pthread_join(threads[i], NULL) != 0) return 2;
+        failures += check(physical_memory_free_pages() == baseline,
+                          "concurrent free restores exact free-page accounting");
+    }
 
     begin_info();
     struct test_mmap_tag *oversized =
