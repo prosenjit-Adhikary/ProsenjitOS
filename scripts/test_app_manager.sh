@@ -13,4 +13,12 @@ trap 'rm -rf "$TMP_DIR"' EXIT
   "$ROOT/tests/app_manager_test.c" \
   -o "$TMP_DIR/app_manager_test"
 
+"$CC_BIN" \
+  -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+  -I"$ROOT/user/apps" \
+  "$ROOT/user/apps/app_format.c" \
+  "$ROOT/tests/app_format_test.c" \
+  -o "$TMP_DIR/app_format_test"
+
 "$TMP_DIR/app_manager_test"
+"$TMP_DIR/app_format_test"
