@@ -39,6 +39,34 @@ static uint64_t free_pages;
 static uint64_t failed_allocations;
 static int allocator_initialized;
 
+/*
+ * IRQ-save spin lock: disabling local maskable interrupts prevents an IRQ on
+ * this CPU from recursively taking the allocator lock; the atomic exchange
+ * serializes other CPUs. NMI handlers must not call this allocator.
+ */
+static volatile uint32_t allocator_lock;
+
+static inline uint64_t allocator_lock_acquire(void) {
+    uint64_t flags = 0;
+#ifndef PROSENJIT_MEMORY_HOST_TEST
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+#endif
+    while (__atomic_exchange_n(&allocator_lock, 1u, __ATOMIC_ACQUIRE) != 0u) {
+        __asm__ volatile ("pause" ::: "memory");
+    }
+    return flags;
+}
+
+static inline void allocator_lock_release(uint64_t flags) {
+    __atomic_store_n(&allocator_lock, 0u, __ATOMIC_RELEASE);
+#ifndef PROSENJIT_MEMORY_HOST_TEST
+    if ((flags & (1ULL << 9)) != 0)
+        __asm__ volatile ("sti" ::: "memory");
+#else
+    (void)flags;
+#endif
+}
+
 static inline void bitmap_set(uint64_t page) {
     page_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
 }
@@ -170,8 +198,13 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     }
     if (!saw_end_tag) return -3;
 
+    /* Serialize initialization against allocators and other init callers. */
+    uint64_t lock_flags = allocator_lock_acquire();
     /* Validate malformed input first, but never reset a live allocator. */
-    if (allocator_initialized) return -6;
+    if (allocator_initialized) {
+        allocator_lock_release(lock_flags);
+        return -6;
+    }
 
     /* Only mutate allocator state after the complete boot tag chain validates. */
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
@@ -269,13 +302,19 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         total_pages = 0;
         free_pages = 0;
         failed_allocations = 0;
+        allocator_lock_release(lock_flags);
         return -5;
     }
     allocator_initialized = 1;
+    allocator_lock_release(lock_flags);
     return 0;
 }
 
-uint64_t physical_page_alloc(void) {
+static uint64_t physical_page_alloc_locked(void) {
+    if (!allocator_initialized) {
+        ++failed_allocations;
+        return 0;
+    }
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word) {
         uint64_t bits = page_bitmap[word];
         if (bits != 0) {
@@ -302,53 +341,88 @@ uint64_t physical_page_alloc(void) {
     return 0;
 }
 
+uint64_t physical_page_alloc(void) {
+    uint64_t flags = allocator_lock_acquire();
+    uint64_t physical = physical_page_alloc_locked();
+    allocator_lock_release(flags);
+    return physical;
+}
+
 uint64_t physical_page_alloc_user(void) {
-    uint64_t physical = physical_page_alloc();
-    if (!physical) return 0;
-    uint64_t page = physical / PROSENJIT_PAGE_SIZE;
-    user_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+    uint64_t flags = allocator_lock_acquire();
+    uint64_t physical = physical_page_alloc_locked();
+    if (physical != 0) {
+        uint64_t page = physical / PROSENJIT_PAGE_SIZE;
+        user_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+    }
+    allocator_lock_release(flags);
     return physical;
 }
 
 int physical_page_is_allocated(uint64_t physical_address) {
-    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
-        return 0;
-    uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page))
-        return 0;
-    return !bitmap_test(page);
+    uint64_t flags = allocator_lock_acquire();
+    int result = 0;
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) == 0) {
+        uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
+        if (allocator_initialized && page < MAX_PAGES && managed_test(page))
+            result = !bitmap_test(page);
+    }
+    allocator_lock_release(flags);
+    return result;
 }
 
 int physical_page_is_user_mappable(uint64_t physical_address) {
-    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
-        return 0;
-    uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
-        return 0;
-    return (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+    uint64_t flags = allocator_lock_acquire();
+    int result = 0;
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) == 0) {
+        uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
+        if (allocator_initialized && page < MAX_PAGES && managed_test(page) &&
+            !bitmap_test(page))
+            result = (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+    }
+    allocator_lock_release(flags);
+    return result;
 }
 
 void physical_page_free(uint64_t physical_address) {
-    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
+    uint64_t flags = allocator_lock_acquire();
+    if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) {
+        allocator_lock_release(flags);
+        return;
+    }
 
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page)) return;
+    if (!allocator_initialized || page >= MAX_PAGES ||
+        !managed_test(page) || bitmap_test(page)) {
+        allocator_lock_release(flags);
+        return;
+    }
 
     user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
     bitmap_set(page);
     ++free_pages;
+    allocator_lock_release(flags);
 }
 
 uint64_t physical_memory_total_pages(void) {
-    return total_pages;
+    uint64_t flags = allocator_lock_acquire();
+    uint64_t value = total_pages;
+    allocator_lock_release(flags);
+    return value;
 }
 
 uint64_t physical_memory_free_pages(void) {
-    return free_pages;
+    uint64_t flags = allocator_lock_acquire();
+    uint64_t value = free_pages;
+    allocator_lock_release(flags);
+    return value;
 }
 
 uint64_t physical_memory_failed_allocations(void) {
-    return failed_allocations;
+    uint64_t flags = allocator_lock_acquire();
+    uint64_t value = failed_allocations;
+    allocator_lock_release(flags);
+    return value;
 }
 
 
