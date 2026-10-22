@@ -11,7 +11,7 @@
 - Disable and uninstall registry transitions; uninstall refuses to remove a package still referenced by another registered package.
 - Callback-driven install transaction coordinator: preflight dependencies, stage package data, atomically publish through a storage adapter, then commit registry state; failed stage/publish requests rollback and reports rollback failure distinctly.
 - Fail-closed preflight for entries not marked installed/trusted; dependency graph checks cover missing dependencies, cycles, and cross-ecosystem dependency rejection.
-- Host-side regression tests via `make app-unit-test`.
+- Host-side regression tests via `make app-unit-test` (added transaction success and rollback cases).
 
 ## Important limits
 
