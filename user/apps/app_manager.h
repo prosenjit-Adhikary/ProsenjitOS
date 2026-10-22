@@ -101,7 +101,8 @@ struct pros_app_manager {
  * This interface coordinates a transaction; it does not implement a storage
  * provider, signature verification, or a durability barrier. The adapter must
  * provide those guarantees appropriate to its filesystem. Calls are
- * synchronous and must not re-enter or mutate this manager.
+ * synchronous; registry mutators reject reentrant calls during a transaction.
+ * This guard is not a thread-synchronization primitive; calls remain single-owner.
  */
 struct pros_app_install_ops {
     int (*stage)(void *context, const struct pros_app_manifest *manifest);
