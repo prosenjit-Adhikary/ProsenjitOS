@@ -292,8 +292,17 @@ enum pros_security_decision security_authorize(
         reason = PROS_REASON_PROCESS_INVALID;
         goto record;
     }
-    if (pros_security_hardening_ready() &&
-        pros_security_hardening_check_process(process) != 0) {
+    /*
+     * Authorization is fail-closed until the kernel hardening contract has
+     * successfully validated its page protections and process invariants.
+     * Treating "not initialized" as "skip the check" creates a startup window
+     * in which capabilities could be authorized without the security gate.
+     */
+    if (!pros_security_hardening_ready()) {
+        reason = PROS_REASON_POLICY_RESTRICTED;
+        goto record;
+    }
+    if (pros_security_hardening_check_process(process) != 0) {
         pros_security_hardening_note_violation(2u, process->pid);
         reason = PROS_REASON_POLICY_RESTRICTED;
         goto record;
@@ -303,7 +312,14 @@ enum pros_security_decision security_authorize(
         decision = PROS_DECISION_QUARANTINE;
         goto record;
     }
-    if (!intent || intent->id == 0 || intent->requested_rights == 0) {
+    if (!intent || intent->id == 0 || intent->requested_rights == 0 ||
+        intent->operation < PROS_INTENT_READ ||
+        intent->operation > PROS_INTENT_DUPLICATE ||
+        intent->object_type > UINT16_MAX) {
+        /*
+         * Do not truncate a caller-supplied 32-bit object type to 16 bits:
+         * values with forged high bits must not alias a real object type.
+         */
         reason = PROS_REASON_INTENT_INVALID;
         goto record;
     }
