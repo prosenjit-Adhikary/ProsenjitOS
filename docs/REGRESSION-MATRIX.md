@@ -80,16 +80,20 @@ and chains that exceed the bound fail closed as corruption. This check is
 read-only: it does not rewrite metadata or attempt orphan repair.
 
 Regression coverage and validation status:
-- A focused helper-level fixture creates two valid directory inode records,
-  injects a disconnected parent-pointer cycle while preserving inode checksums,
-  and requires the shared parent-chain validator to reject it as corruption.
-  The fixture restores the original parent pointers and requires the complete
-  consistency checker to pass afterward.
-- This fixture isolates the new traversal branch deliberately; it does not
-  claim that the entire consistency checker reaches that branch before its
-  earlier directory-entry/parent agreement checks.
-- The earlier PR #158 ISO and native BIOS QEMU run passed before this fixture
-  was added. The updated commit still requires fresh CI/QEMU verification.
+- A focused on-disk fixture creates two valid directories, repurposes the
+  root entry block as a child entry, removes the first directory from the root
+  index, and forms a two-directory parent cycle. Directory-entry checksums,
+  inode checksums, directory-reference counts, and block ownership remain
+  locally consistent, so the full consistency checker must reject the image
+  at the parent-chain reachability check rather than at an earlier check.
+- The test also calls the shared parent-chain validator directly, then
+  unmounts and reformats the mock medium and requires the clean consistency
+  check to pass.
+- Commit `95deb3e388b6b535e84f33193b8738745870606d` passed Security architecture
+  checks, ISO QEMU boot, native BIOS QEMU boot, ProsenjitFS format/mount/
+  allocation/journal/recovery self-test, ATA PIO real-disk block-path test,
+  and the persistent MBR -> ProsenjitFS mount assertion. These are automated
+  QEMU/software-model checks, not physical power-loss validation.
 
 ## Completion principle
 
