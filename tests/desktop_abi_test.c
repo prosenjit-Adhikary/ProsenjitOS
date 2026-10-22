@@ -5,7 +5,7 @@
 
 #define CHECK(condition, code) do { \
     if (!(condition)) { \
-        (void)fprintf(stderr, "FAIL line %d: %s\\n", __LINE__, #condition); \
+        (void)fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); \
         return (code); \
     } \
 } while (0)
