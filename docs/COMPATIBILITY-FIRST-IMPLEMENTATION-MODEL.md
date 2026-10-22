@@ -115,18 +115,35 @@ Never select a driver by filename alone. Match hardware IDs, architecture, depen
 
 An MSI being detected as an OLE compound container does not prove it is a valid MSI. Format validation and executing installer actions are separate milestones.
 
-## 7. Shared Desktop Integration
+## 7. Shared Desktop Integration — preserve and extend existing work
 
-Both native and Windows-compatible applications use the existing versioned Shared Desktop ABI. Minimum contracts: window create/destroy and ownership; focus; keyboard/pointer events and keymap; bounded frame submission/presentation; clipboard with explicit permissions and size/type limits; audio sessions with owner identity and lifecycle cleanup; notifications/file dialogs; process-exit/disconnect cleanup; quotas and explicit unsupported-feature errors.
+**Decision: keep the Desktop Environment work already in progress. Do not delete it or replace it with a second desktop architecture.** The desktop is a required part of the target OS and becomes the common user experience for native and compatible applications.
+
+The existing Desktop Manager/DML, Shared Desktop Integration ABI, graphics/windowing foundation, and keyboard/mouse/clipboard/audio integration work are retained. Phase 0 must inspect their actual source, current branches/PRs, ABI versions, tests and integration state before changing them. Names or documentation alone do not establish that a component is implemented or complete.
+
+Both native and Windows-compatible applications must use the existing versioned Shared Desktop ABI. The Windows compatibility backend adapts Windows GUI/input/clipboard/audio expectations to this shared contract; it must not create a competing compositor, window protocol, or parallel desktop session.
+
+Minimum contracts: window create/destroy and ownership; focus; keyboard/pointer events and keymap; bounded frame submission/presentation; clipboard with explicit permissions and size/type limits; audio sessions with owner identity and lifecycle cleanup; notifications/file dialogs; process-exit/disconnect cleanup; quotas and explicit unsupported-feature errors.
 
 The compositor/window manager and desktop policy stay in user space. Host-side model tests do not prove a live compositor, guest input delivery, physical graphics or audio support.
+
+### Desktop integration acceptance gate
+
+1. Audit and preserve existing desktop code; identify reusable components and real gaps from source and tests.
+2. Define or confirm one versioned Shared Desktop ABI and document compatibility adapters against it.
+3. Keep the desktop independently testable with native applications before introducing Windows GUI support.
+4. Add one minimal compatible GUI application and prove window creation, frame presentation, keyboard/pointer delivery, resize and clean exit through the actual ProsenjitOS desktop path under QEMU.
+5. Test clipboard/audio permissions and invalid/disconnected client handling; do not report physical GPU/audio support unless tested on the relevant hardware.
+6. Extend existing components in place where practical. Introduce a replacement only after a documented technical reason, migration plan and regression coverage.
+
+Desktop milestones must be tracked separately from Windows API/runtime milestones: a desktop ABI or host-side model can be complete while the live compositor or end-to-end guest integration is still incomplete.
 
 ## 8. Phased implementation and acceptance gates
 
 ### Phase 0 — Baseline and source audit
-Pin the base commit; inventory current code, docs, ABIs, tests, PRs and runner availability. Reconcile the existing application handler, desktop ABI, kernel syscall/IPC, security, VFS and package transaction code. Find duplicates/conflicts before adding interfaces.
+Pin the base commit; inventory current code, docs, ABIs, tests, PRs and runner availability. Reconcile the existing application handler, Desktop Manager/DML, Shared Desktop ABI, graphics/windowing foundation, keyboard/mouse/clipboard/audio work, kernel syscall/IPC, security, VFS and package transaction code. **Preserve existing desktop work by default**; identify its actual state from source and tests and find duplicates/conflicts before adding interfaces. Do not delete or replace the desktop foundation merely because the Windows compatibility architecture is being updated.
 
-Acceptance: a source-backed gap matrix labels each item missing, partial, implemented-unverified, verified, blocked or deferred. Current-head CI state is recorded.
+Acceptance: a source-backed gap matrix labels each item missing, partial, implemented-unverified, verified, blocked or deferred. Current-head CI state is recorded. The matrix explicitly separates (a) desktop ABI/model readiness, (b) live desktop/compositor readiness, (c) native application integration, and (d) Windows-compatible GUI integration.
 
 ### Phase 1 — Shared contracts and test harness
 Freeze versioned backend ABI and errors; define compatibility profiles and capability requirements; add positive/negative host tests, malformed-input tests and reproducible commands.
