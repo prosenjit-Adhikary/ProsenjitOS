@@ -7171,7 +7171,7 @@ int prosenjitfs_selftest(void)
             inode_rc = prosenjitfs_read_inode(&fs, rename_inode_before, &inode);
             if (inode_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -202);
-            int consistency_rc = pfs_selftest_consistency(&fs);
+            int consistency_rc = prosenjitfs_check_integrity(&fs);
             if (consistency_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, consistency_rc);
         }
@@ -7311,7 +7311,7 @@ int prosenjitfs_selftest(void)
                     }
                 }
                 if (vfs_file_close(&file) != PROS_VFS_OK ||
-                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                     return pfs_selftest_fail(__LINE__, -15);
             }
         }
@@ -7345,7 +7345,7 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_OK ||
             pfs_inode_bitmap_update(&fs, allocated_inode, 0u) !=
                 PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
@@ -7365,7 +7365,7 @@ int prosenjitfs_selftest(void)
         if (prosenjitfs_alloc_blocks(&fs, 2u, &first_block) !=
                 PROSENJITFS_OK ||
             prosenjitfs_free_blocks(&fs, first_block, 2u) != PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
@@ -7458,7 +7458,7 @@ int prosenjitfs_selftest(void)
                 prosenjitfs_read_inode(&fs, file_data->inode_number,
                                        &before_inode) != PROSENJITFS_OK ||
                 before_inode.size != before_size ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 vfs_unlink(&fs.mount, "/truncate-bound.bin") != PROS_VFS_OK)
                 return pfs_selftest_fail(__LINE__, -15);
         }
@@ -7604,7 +7604,7 @@ int prosenjitfs_selftest(void)
                     PROSENJITFS_OK ||
                 pfs_parent_chain_reaches_root(&fs, a_number) !=
                     PROSENJITFS_ECORRUPT ||
-                pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
+                prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -161);
 
             /* Reset the mock medium so later corruption tests start clean. */
@@ -7613,7 +7613,7 @@ int prosenjitfs_selftest(void)
             pfs_zero(&disk, sizeof(disk));
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -161);
         }
 
@@ -7658,7 +7658,7 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
 
-        if (pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
+        if (prosenjitfs_check_integrity(&fs) == PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
 
         /*
@@ -7671,7 +7671,7 @@ int prosenjitfs_selftest(void)
         pfs_zero(&disk, sizeof(disk));
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
     }
 
@@ -7806,7 +7806,7 @@ int prosenjitfs_selftest(void)
 
         if (prosenjitfs_mount(&small_fs, &small_device, 0u) !=
                 PROSENJITFS_OK ||
-            pfs_selftest_consistency(&small_fs) != PROSENJITFS_OK ||
+            prosenjitfs_check_integrity(&small_fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&small_fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -17);
     }
@@ -8186,10 +8186,10 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -16);
 
             if (vfs_unlink(&fs.mount, "/cycle.bin") != PROS_VFS_OK ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -16);
         }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
