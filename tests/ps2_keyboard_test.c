@@ -65,7 +65,9 @@ int main(void)
     /* Exercise the actual polling and endpoint-delivery path with a fake FIFO. */
     pros_ps2_keyboard_reset_decoder();
     pros_ps2_keyboard_test_reset_fifo();
+    assert(pros_ps2_keyboard_poll(0u) == PROS_DRIVER_EINVAL);
     assert(pros_hw_stack_init() == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_ENODEV);
     assert(pros_hw_endpoint_register(77u, PROS_HW_ENDPOINT_INPUT, &ops, &captured) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == 1);
