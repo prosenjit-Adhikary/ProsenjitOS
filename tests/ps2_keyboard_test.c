@@ -99,13 +99,25 @@ int main(void)
     assert(pros_ps2_keyboard_poll(77u) == 1); /* clears partial prefix on parity error */
     assert(captured.count == 5u && captured.events[4].value0 == 0x1E);
 
+    /* An AUX byte must not cancel the remainder of a Pause sequence. */
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xE1u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x33u) == PROS_DRIVER_OK); /* mouse/AUX */
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Du) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x45u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xE1u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x9Du) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xC5u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == 1);
+    assert(captured.count == 6u && captured.events[5].value0 == 0x1E);
+
     /* Polling is bounded: a 33rd byte remains for the next invocation. */
     for (uint32_t i = 0u; i < 32u; ++i)
         assert(pros_ps2_keyboard_test_push(0x01u, 0xE0u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == 0);
     assert(pros_ps2_keyboard_poll(77u) == 1);
-    assert(captured.count == 6u && captured.events[5].value0 == 0x11E);
+    assert(captured.count == 7u && captured.events[6].value0 == 0x11E);
 
     assert(pros_ps2_keyboard_test_push(0x01u, 0x00u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_EIO);
