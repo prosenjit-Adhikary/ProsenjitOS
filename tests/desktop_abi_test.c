@@ -21,6 +21,12 @@ int main(void)
     struct pros_desktop_audio_request audio;
 
     CHECK(pros_desktop_message_header_valid(&header), 1);
+    CHECK(pros_desktop_message_fits(&header, sizeof(header)), 21);
+    CHECK(!pros_desktop_message_fits(&header, sizeof(header) - 1u), 22);
+    header.payload_size = 16u;
+    CHECK(!pros_desktop_message_fits(&header, sizeof(header)), 23);
+    CHECK(pros_desktop_message_fits(&header, sizeof(header) + 16u), 24);
+    header.payload_size = 0u;
     CHECK(!pros_desktop_message_header_valid(0), 2);
     header.version++;
     CHECK(!pros_desktop_message_header_valid(&header), 3);
