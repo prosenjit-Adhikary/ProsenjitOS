@@ -6837,6 +6837,109 @@ int prosenjitfs_selftest(void)
             cross_inode.extent_head == 0u)
             return pfs_selftest_fail(__LINE__, -14);
 
+        /*
+         * Directory-chain cycle regression: make a checksum-valid entry point
+         * back to itself. The checker must reject the repeated metadata block
+         * without mutating any mock-media view, then pass after restoration.
+         */
+        {
+            static const char target_name[] = "sparse-delalloc-cross.bin";
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_index root_index;
+            struct pros_prosenjitfs_dir_entry candidate;
+            uint8_t original_entry_block[4096];
+            uint8_t corrupt_entry_block[4096];
+            uint64_t current;
+            uint64_t target_lba = 0u;
+            uint64_t steps = 0u;
+            uint32_t bucket;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_read_dir_index(&fs, &root_inode, &root_index) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            bucket = pfs_name_hash((const uint8_t *)target_name,
+                                   (uint32_t)(sizeof(target_name) - 1u)) %
+                     PROSENJITFS_DIR_BUCKETS;
+            current = root_index.heads[bucket];
+            while (current != 0u && ++steps <= fs.sb.total_blocks) {
+                uint8_t entry_block[4096];
+                uint32_t same = 0u;
+                if (current < fs.sb.data_start ||
+                    current >= fs.sb.total_blocks ||
+                    pfs_read_block(fs.mount.device, current, entry_block) !=
+                        PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -14);
+                pfs_copy(&candidate, entry_block, sizeof(candidate));
+                if (candidate.name_length == sizeof(target_name) - 1u) {
+                    same = 1u;
+                    for (uint32_t ni = 0u;
+                         ni < sizeof(target_name) - 1u; ++ni) {
+                        if (candidate.name[ni] != (uint8_t)target_name[ni]) {
+                            same = 0u;
+                            break;
+                        }
+                    }
+                }
+                if (same != 0u) {
+                    target_lba = current;
+                    pfs_copy(original_entry_block, entry_block,
+                             fs.sb.block_size);
+                    break;
+                }
+                current = candidate.next;
+            }
+            if (target_lba == 0u)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            pfs_copy(corrupt_entry_block, original_entry_block,
+                     fs.sb.block_size);
+            pfs_copy(&candidate, corrupt_entry_block, sizeof(candidate));
+            candidate.next = target_lba;
+            candidate.checksum = 0u;
+            pfs_copy(corrupt_entry_block, &candidate, sizeof(candidate));
+            candidate.checksum = pfs_crc_with_zero32(
+                corrupt_entry_block, sizeof(candidate),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
+            pfs_copy(corrupt_entry_block, &candidate, sizeof(candidate));
+            if (pfs_write_block(fs.mount.device, target_lba,
+                                corrupt_entry_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, target_lba,
+                                      original_entry_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, target_lba,
+                                      original_entry_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, target_lba,
+                                original_entry_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
         if (pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
                 PROSENJITFS_OK ||
             first_extent.logical_block != low_block ||
