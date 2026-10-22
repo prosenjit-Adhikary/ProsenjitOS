@@ -56,6 +56,8 @@ int main(void)
     assert(pros_keymap_translate(&s, &e) == 0u);
     e = ev(0x200u, PROS_INPUT_FLAG_PRESS);
     assert(pros_keymap_translate(&s, &e) == 0u);
+    e = ev(0x180u, PROS_INPUT_FLAG_PRESS); /* break bit must be stripped by decoder */
+    assert(pros_keymap_translate(&s, &e) == 0u);
     e = ev(0x1Eu, PROS_INPUT_FLAG_PRESS | PROS_INPUT_FLAG_RELATIVE);
     assert(pros_keymap_translate(&s, &e) == 0u);
     e = ev(0x1Eu, 0x80000000u | PROS_INPUT_FLAG_PRESS);
