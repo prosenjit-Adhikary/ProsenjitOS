@@ -12,6 +12,7 @@ struct pros_keymap_state {
     uint8_t left_shift;
     uint8_t right_shift;
     uint8_t caps_lock;
+    uint8_t caps_pressed;
     uint8_t control;
     uint8_t alt;
 };
