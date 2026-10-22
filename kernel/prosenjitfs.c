@@ -5665,6 +5665,7 @@ static int pfs_selftest_consistency(
                         entry.next >= fs->sb.total_blocks ||
                         (entry.next != 0u &&
                          entry.next < fs->sb.data_start) ||
+                        entry.name_hash % PROSENJITFS_DIR_BUCKETS != bucket ||
                         pfs_utf8_name_valid((const char *)entry.name,
                                             &name_length) != PROSENJITFS_OK ||
                         name_length != entry.name_length ||
@@ -6941,10 +6942,9 @@ int prosenjitfs_selftest(void)
         }
 
         /*
-         * Duplicate namespace-name regression: find two valid entries in one
-         * directory hash bucket, rewrite the second to the first name, and
-         * recompute its checksum. Integrity scanning must reject ambiguous
-         * lookup semantics without performing repair or other media writes.
+         * Directory hash-bucket membership regression: move a valid entry's
+         * name/hash to match an entry stored in another bucket. The checker
+         * must reject the misplaced entry without mutating mock media.
          */
         {
             struct pros_prosenjitfs_inode root_inode;
@@ -6954,7 +6954,9 @@ int prosenjitfs_selftest(void)
             uint8_t first_entry_block[4096];
             uint8_t original_second_block[4096];
             uint8_t corrupt_second_block[4096];
+            uint64_t first_lba = 0u;
             uint64_t second_lba = 0u;
+            uint32_t first_bucket = 0u;
             uint32_t durable_before;
             uint32_t volatile_before;
             uint32_t dirty_before;
@@ -6968,35 +6970,38 @@ int prosenjitfs_selftest(void)
             for (uint32_t bucket = 0u;
                  bucket < PROSENJITFS_DIR_BUCKETS && second_lba == 0u;
                  ++bucket) {
-                uint64_t first_lba = root_index.heads[bucket];
-                if (first_lba == 0u ||
-                    pfs_read_block(fs.mount.device, first_lba,
-                                   first_entry_block) != PROSENJITFS_OK)
+                uint64_t current = root_index.heads[bucket];
+                if (current == 0u)
                     continue;
-                pfs_copy(&first_entry, first_entry_block,
-                         sizeof(first_entry));
-                if (first_entry.next == 0u ||
-                    first_entry.next < fs.sb.data_start ||
-                    first_entry.next >= fs.sb.total_blocks)
-                    continue;
-                second_lba = first_entry.next;
-                if (pfs_read_block(fs.mount.device, second_lba,
-                                   original_second_block) != PROSENJITFS_OK) {
-                    second_lba = 0u;
+                if (current < fs.sb.data_start ||
+                    current >= fs.sb.total_blocks)
+                    return pfs_selftest_fail(__LINE__, -14);
+                if (first_lba == 0u) {
+                    first_lba = current;
+                    first_bucket = bucket;
+                    if (pfs_read_block(fs.mount.device, first_lba,
+                                       first_entry_block) != PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -14);
+                    pfs_copy(&first_entry, first_entry_block,
+                             sizeof(first_entry));
                     continue;
                 }
+                if (bucket == first_bucket)
+                    continue;
+                second_lba = current;
+                if (pfs_read_block(fs.mount.device, second_lba,
+                                   original_second_block) != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -14);
                 pfs_copy(&second_entry, original_second_block,
                          sizeof(second_entry));
             }
-            if (second_lba == 0u ||
+            if (first_lba == 0u || second_lba == 0u ||
                 first_entry.name_length == 0u ||
                 first_entry.name_length > PROSENJITFS_MAX_NAME)
                 return pfs_selftest_fail(__LINE__, -14);
 
             pfs_copy(corrupt_second_block, original_second_block,
                      fs.sb.block_size);
-            pfs_copy(&second_entry, corrupt_second_block,
-                     sizeof(second_entry));
             pfs_zero(second_entry.name, sizeof(second_entry.name));
             pfs_copy(second_entry.name, first_entry.name,
                      first_entry.name_length);
