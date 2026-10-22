@@ -512,7 +512,11 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
 int prosenjitfs_probe(struct pros_block_device *device)
 {
     uint8_t *block;
-    struct pros_prosenjitfs_superblock sb;
+    struct pros_prosenjitfs_superblock primary;
+    struct pros_prosenjitfs_superblock backup;
+    int primary_ok;
+    int backup_ok;
+
     if (!device || device->sector_size < 512u ||
         device->sector_size > 4096u ||
         (device->sector_size & (device->sector_size - 1u)) != 0u ||
@@ -521,24 +525,37 @@ int prosenjitfs_probe(struct pros_block_device *device)
     block = (uint8_t *)kmalloc(device->sector_size);
     if (!block)
         return PROSENJITFS_EIO;
+
     if (pfs_read_block(device, 0u, block) != PROSENJITFS_OK) {
         kfree(block);
         return PROSENJITFS_EIO;
     }
-    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_OK;
-    }
+    primary_ok =
+        pfs_superblock_valid(block, device->sector_size, &primary) ==
+        PROSENJITFS_OK;
+
     if (pfs_read_block(device, 1u, block) != PROSENJITFS_OK) {
         kfree(block);
         return PROSENJITFS_EIO;
     }
-    if (pfs_superblock_valid(block, device->sector_size, &sb) == PROSENJITFS_OK) {
-        kfree(block);
-        return PROSENJITFS_OK;
-    }
+    backup_ok =
+        pfs_superblock_valid(block, device->sector_size, &backup) ==
+        PROSENJITFS_OK;
+
     kfree(block);
-    return PROSENJITFS_ENOTSUP;
+    if (!primary_ok && !backup_ok)
+        return PROSENJITFS_ENOTSUP;
+
+    /*
+     * Probe and mount must agree on whether a volume is usable. Two individually
+     * valid but conflicting superblocks are corruption, not a supported volume.
+     * A single valid copy remains discoverable; mount will expose it read-only.
+     */
+    if (primary_ok && backup_ok &&
+        !pfs_superblocks_equal(&primary, &backup))
+        return PROSENJITFS_ECORRUPT;
+
+    return PROSENJITFS_OK;
 }
 
 int prosenjitfs_format(struct pros_block_device *device)
@@ -8169,7 +8186,8 @@ int prosenjitfs_selftest(void)
                   disk.data + 512u,
                   (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
                   (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
-    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT ||
+        prosenjitfs_probe(&device) != PROSENJITFS_ECORRUPT)
         return pfs_selftest_fail(__LINE__, -17);
     disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)] = saved;
     pfs_put32(disk.data + 512u +
