@@ -25,3 +25,7 @@ The paging self-test now maps a reserved APIC/PCI-style MMIO address range witho
 ## Framebuffer endpoint integration check
 
 On a bootloader-provided supported RGB framebuffer, the kernel now checks that the registered display endpoint is active and submits a full-frame descriptor through the public presentation API. The mapped framebuffer is used as the source, so the check is visually neutral and avoids allocating a duplicate frame. The QEMU ISO acceptance gate requires this milestone. This confirms endpoint dispatch and descriptor validation in the emulator; it does not prove visible pixel correctness, GPU modesetting, or physical display compatibility. Native BIOS boot without a Multiboot framebuffer continues to use the legacy text console.
+
+## Userspace keyboard layout foundation
+
+`user/desktop/keymap.c` adds a stateful US-QWERTY translation helper for the shared input ABI: set-1 letter/digit/punctuation keys, left/right Shift, Caps Lock, Control and Alt state. It ignores key releases, unsupported extended keys, malformed ABI versions, and ambiguous press/release edges. `make keymap-test` exercises the hosted translator. This is a userspace library component only: it is not yet connected to a running input service, does not provide non-US layouts or Unicode/IME support, and does not close the missing capability-checked kernel-to-userspace event route.

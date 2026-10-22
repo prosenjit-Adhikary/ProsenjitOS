@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test input-service-test
+.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test input-service-test keymap-test
 
 all: iso
 
@@ -42,3 +42,7 @@ ps2-keyboard-test:
 # Hosted test for the kernel input queue and PS/2 endpoint delivery.
 input-service-test:
 	bash scripts/test_input_service.sh
+
+# Host-side test for the user-space US keyboard layout translator.
+keymap-test:
+	bash scripts/test_keymap.sh
