@@ -193,8 +193,11 @@ int pros_app_init(struct pros_app_manager *manager,
 {
     if (!manager)
         return PROS_APP_EINVAL;
-    if (manager_valid(manager) && manager->transaction_active != 0u)
-        return PROS_APP_ESTATE;
+    /*
+     * Initialization must accept an uninitialized caller-owned object, so it
+     * cannot inspect transaction_active before establishing manager state.
+     * Storage callbacks are trusted adapters and must never call init().
+     */
     for (uint32_t i = 0u; i < PROS_APP_MAX_ENTRIES; ++i)
         manager->entries[i] = (struct pros_app_entry){0};
     manager->count = 0u;
