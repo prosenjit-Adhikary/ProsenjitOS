@@ -9,10 +9,13 @@
 - Registry capacity limits, duplicate detection, ABI and required-feature checks.
 - Explicit lifecycle: registration accepts only staged/unverified manifests; a trusted verifier caller must mark trust; install commit requires trusted metadata and installed same-backend dependencies.
 - Disable and uninstall registry transitions; uninstall refuses to remove a package still referenced by another registered package.
+- Callback-driven install transaction coordinator: preflight dependencies, stage package data, atomically publish through a storage adapter, then commit registry state; failed stage/publish requests rollback and reports rollback failure distinctly.
 - Fail-closed preflight for entries not marked installed/trusted; dependency graph checks cover missing dependencies, cycles, and cross-ecosystem dependency rejection.
 - Host-side regression tests via `make app-unit-test`.
 
 ## Important limits
+
+The transaction coordinator is an adapter contract, not a concrete filesystem installer. The adapter must implement isolated staging, atomic publication, rollback/cleanup, and any required durability barriers. No ProsenjitFS/VFS-backed package installation is wired into this branch yet.
 
 This is an initial **registry, format-detection, and metadata preflight**, not a complete Apps Handler. The format detector does not validate the full binary format or signatures and does not authorize execution; OLE detection is not MSI validation. The registry uninstall only removes an in-memory entry. It does not download or verify packages, install/update/remove filesystem objects, launch processes, implement a PE/ELF loader, provide Linux or Windows API compatibility, create a sandbox, or integrate with the desktop launcher.
 
