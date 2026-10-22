@@ -28,4 +28,15 @@ int pros_app_detect_format(const uint8_t *data,
 int pros_app_format_compatible_with_backend(uint32_t backend,
                                             enum pros_app_file_format format);
 
+/*
+ * Detect bytes and enforce the backend's executable format family.
+ * Returns 0 on family match, -1 for invalid arguments, -2 for malformed
+ * recognized headers, and -3 for unknown formats or backend mismatch.
+ * This is not full binary validation or permission to execute.
+ */
+int pros_app_check_binary_backend(uint32_t backend,
+                                  const uint8_t *data,
+                                  uint32_t length,
+                                  enum pros_app_file_format *format_out);
+
 #endif
