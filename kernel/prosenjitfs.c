@@ -5592,6 +5592,8 @@ static int pfs_selftest_consistency(
 
         allocated = pfs_bitmap_bit(bitmap, within);
         rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+        if (rc == PROSENJITFS_EIO)
+            goto consistency_out;
         if (!allocated) {
             if (rc != PROSENJITFS_ENOENT) {
                 rc = PROSENJITFS_ECORRUPT;
@@ -5631,6 +5633,8 @@ static int pfs_selftest_consistency(
         if (inode_number != fs->sb.root_inode) {
             struct pros_prosenjitfs_inode parent_inode;
             rc = prosenjitfs_read_inode(fs, inode.parent_inode, &parent_inode);
+            if (rc == PROSENJITFS_EIO)
+                goto consistency_out;
             if (rc != PROSENJITFS_OK || parent_inode.type != PROSENJITFS_INODE_DIR) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
@@ -5644,11 +5648,18 @@ static int pfs_selftest_consistency(
                 inode.dir_index < fs->sb.data_start ||
                 inode.dir_index >= fs->sb.total_blocks ||
                 pfs_consistency_mark(owner, fs->sb.total_blocks,
-                                     inode.dir_index) != PROSENJITFS_OK ||
-                pfs_read_dir_index(fs, &inode, &index) != PROSENJITFS_OK) {
+                                     inode.dir_index) != PROSENJITFS_OK) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
-                        goto consistency_out;
+                goto consistency_out;
+            }
+            rc = pfs_read_dir_index(fs, &inode, &index);
+            if (rc != PROSENJITFS_OK) {
+                if (rc != PROSENJITFS_EIO) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    fail_line = __LINE__;
+                }
+                goto consistency_out;
             }
 
             for (uint32_t bucket = 0u;
@@ -5664,11 +5675,14 @@ static int pfs_selftest_consistency(
                         current < fs->sb.data_start ||
                         current >= fs->sb.total_blocks ||
                         pfs_consistency_mark(owner, fs->sb.total_blocks,
-                                             current) != PROSENJITFS_OK ||
-                        pfs_read_block(fs->mount.device, current,
-                                       entry_block) != PROSENJITFS_OK) {
+                                             current) != PROSENJITFS_OK) {
                         rc = PROSENJITFS_ECORRUPT;
                         fail_line = __LINE__;
+                        goto consistency_out;
+                    }
+                    if (pfs_read_block(fs->mount.device, current,
+                                       entry_block) != PROSENJITFS_OK) {
+                        rc = PROSENJITFS_EIO;
                         goto consistency_out;
                     }
                     pfs_copy(&entry, entry_block, sizeof(entry));
@@ -5719,13 +5733,16 @@ static int pfs_selftest_consistency(
 
                             if (++prior_steps > fs->sb.total_blocks ||
                                 prior < fs->sb.data_start ||
-                                prior >= fs->sb.total_blocks ||
-                                pfs_read_block(fs->mount.device, prior,
-                                               prior_block) !=
-                                    PROSENJITFS_OK) {
+                                prior >= fs->sb.total_blocks) {
                                 rc = PROSENJITFS_ECORRUPT;
                                 fail_line = __LINE__;
-                        goto consistency_out;
+                                goto consistency_out;
+                            }
+                            if (pfs_read_block(fs->mount.device, prior,
+                                               prior_block) !=
+                                    PROSENJITFS_OK) {
+                                rc = PROSENJITFS_EIO;
+                                goto consistency_out;
                             }
                             pfs_copy(&prior_entry, prior_block,
                                      sizeof(prior_entry));
@@ -5752,6 +5769,10 @@ static int pfs_selftest_consistency(
                         struct pros_prosenjitfs_inode child;
                         int child_rc = prosenjitfs_read_inode(
                             fs, entry.inode, &child);
+                        if (child_rc == PROSENJITFS_EIO) {
+                            rc = PROSENJITFS_EIO;
+                            goto consistency_out;
+                        }
                         if (child_rc != PROSENJITFS_OK ||
                             child.parent_inode != inode_number ||
                             ((entry.type == PROSENJITFS_INODE_DIR) !=
@@ -5785,11 +5806,18 @@ static int pfs_selftest_consistency(
 
                 if (++steps > fs->sb.total_blocks ||
                     pfs_consistency_mark(owner, fs->sb.total_blocks,
-                                         current) != PROSENJITFS_OK ||
-                    pfs_read_extent(fs, current, &extent) != PROSENJITFS_OK) {
-                    rc = -10001;
+                                         current) != PROSENJITFS_OK) {
+                    rc = PROSENJITFS_ECORRUPT;
                     fail_line = __LINE__;
-                        goto consistency_out;
+                    goto consistency_out;
+                }
+                rc = pfs_read_extent(fs, current, &extent);
+                if (rc != PROSENJITFS_OK) {
+                    if (rc != PROSENJITFS_EIO) {
+                        rc = PROSENJITFS_ECORRUPT;
+                        fail_line = __LINE__;
+                    }
+                    goto consistency_out;
                 }
                 /*
                  * Validate the complete logical and physical ranges before
@@ -5860,11 +5888,14 @@ static int pfs_selftest_consistency(
     for (uint64_t bi = 0u; bi < fs->sb.inode_bitmap_blocks; ++bi) {
         uint64_t lba;
         if (pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK ||
-            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+                        bi, &lba) != PROSENJITFS_OK) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
-                        goto consistency_out;
+            goto consistency_out;
+        }
+        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+            rc = PROSENJITFS_EIO;
+            goto consistency_out;
         }
         for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
             uint64_t inode_number = bi * bits_per_block + bit;
@@ -5891,11 +5922,14 @@ static int pfs_selftest_consistency(
 
         if (bi >= fs->sb.inode_bitmap_blocks ||
             pfs_lba_add(fs->mount.device, fs->sb.inode_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK ||
-            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+                        bi, &lba) != PROSENJITFS_OK) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
-                        goto consistency_out;
+            goto consistency_out;
+        }
+        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+            rc = PROSENJITFS_EIO;
+            goto consistency_out;
         }
         allocated = pfs_bitmap_bit(bitmap, within);
         if (allocated && prosenjitfs_read_inode(fs, inode_number, &inode) ==
@@ -5925,8 +5959,12 @@ static int pfs_selftest_consistency(
         if (parent_rc == PROSENJITFS_ENOENT)
             continue;
         if (parent_rc != PROSENJITFS_OK) {
-            rc = PROSENJITFS_ECORRUPT;
-            fail_line = __LINE__;
+            if (parent_rc == PROSENJITFS_EIO)
+                rc = PROSENJITFS_EIO;
+            else {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+            }
             goto consistency_out;
         }
         /*
@@ -5959,11 +5997,14 @@ static int pfs_selftest_consistency(
         uint64_t lba;
         uint64_t first_bit = bi * bits_per_block;
         if (pfs_lba_add(fs->mount.device, fs->sb.block_bitmap_start,
-                        bi, &lba) != PROSENJITFS_OK ||
-            pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+                        bi, &lba) != PROSENJITFS_OK) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
-                        goto consistency_out;
+            goto consistency_out;
+        }
+        if (pfs_read_block(fs->mount.device, lba, bitmap) != PROSENJITFS_OK) {
+            rc = PROSENJITFS_EIO;
+            goto consistency_out;
         }
         for (uint64_t bit = 0u; bit < bits_per_block; ++bit) {
             if (report)
