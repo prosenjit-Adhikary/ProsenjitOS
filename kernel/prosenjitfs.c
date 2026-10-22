@@ -5820,7 +5820,12 @@ static int pfs_selftest_consistency(
          * after its inode metadata and parent chain have passed validation.
          * This is a conservative candidate, not permission to reclaim it.
          */
-        if (report && dir_refs[inode_number] == 0u) {
+        if (dir_refs[inode_number] == 0u) {
+            if (!report) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
             if (orphaned_inodes == 0u) {
                 report->first_orphaned_inode = inode_number;
                 if (fail_line == 0u)
