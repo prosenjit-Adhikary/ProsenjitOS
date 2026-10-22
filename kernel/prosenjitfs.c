@@ -355,6 +355,27 @@ static int pfs_superblock_decode(const uint8_t *block,
     return PROSENJITFS_OK;
 }
 
+/* Redundant superblocks must agree byte-for-byte after each copy has
+ * independently passed checksum and structural validation. Choosing one of
+ * two valid but conflicting layouts could redirect metadata I/O or allocation. */
+static int pfs_superblocks_equal(
+    const struct pros_prosenjitfs_superblock *a,
+    const struct pros_prosenjitfs_superblock *b)
+{
+    const uint8_t *pa;
+    const uint8_t *pb;
+
+    if (!a || !b)
+        return 0;
+    pa = (const uint8_t *)a;
+    pb = (const uint8_t *)b;
+    for (uint32_t i = 0u; i < sizeof(*a); ++i) {
+        if (pa[i] != pb[i])
+            return 0;
+    }
+    return 1;
+}
+
 static int pfs_superblock_valid(const uint8_t *block,
                                 uint32_t block_size,
                                 struct pros_prosenjitfs_superblock *sb)
@@ -5078,8 +5099,15 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
     }
+    /* Both copies passed their own checksums, but conflicting metadata layouts
+     * are still unsafe. Fail closed rather than arbitrarily trusting the primary. */
+    if (primary_ok && backup_ok && !pfs_superblocks_equal(&primary, &backup)) {
+        kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
+        return PROSENJITFS_ECORRUPT;
+    }
     fs->sb = primary_ok ? primary : backup;
-    fs->degraded_superblock = primary_ok ? 0u : 1u;
+    /* Either missing redundant copy is degraded, regardless of which one survived. */
+    fs->degraded_superblock = (primary_ok != backup_ok) ? 1u : 0u;
     if (fs->sb.total_blocks > device->sector_count) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
@@ -8125,6 +8153,65 @@ int prosenjitfs_selftest(void)
         }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
+    }
+
+    /*
+     * Both superblocks remain individually valid (including their CRCs), but
+     * a different UUID in the backup must be rejected as conflicting metadata.
+     * Restore the original byte and checksum before the remaining corruption
+     * regression so this test leaves the durable image unchanged.
+     */
+    saved = disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)];
+    disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)] ^= 0x01u;
+    pfs_put32(disk.data + 512u +
+              offsetof(struct pros_prosenjitfs_superblock, checksum),
+              pfs_crc_with_zero32(
+                  disk.data + 512u,
+                  (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
+    if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+        return pfs_selftest_fail(__LINE__, -17);
+    disk.data[512u + offsetof(struct pros_prosenjitfs_superblock, uuid)] = saved;
+    pfs_put32(disk.data + 512u +
+              offsetof(struct pros_prosenjitfs_superblock, checksum),
+              pfs_crc_with_zero32(
+                  disk.data + 512u,
+                  (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                  (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
+
+    /*
+     * A single surviving superblock is a degraded mount in either direction.
+     * It must be exposed read-only and the mount must not rewrite either copy.
+     */
+    {
+        uint32_t checksum_offset =
+            (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum);
+        uint8_t saved_checksum = disk.data[checksum_offset];
+
+        /* Primary invalid, backup valid: recover from backup read-only. */
+        disk.data[checksum_offset] ^= 0x01u;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+        if (!fs.read_only || !fs.degraded_superblock) {
+            (void)prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -18);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+        disk.data[checksum_offset] = saved_checksum;
+
+        /* Backup invalid, primary valid: this must also be read-only. */
+        saved_checksum = disk.data[512u + checksum_offset];
+        disk.data[512u + checksum_offset] ^= 0x01u;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        if (!fs.read_only || !fs.degraded_superblock) {
+            (void)prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -19);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        disk.data[512u + checksum_offset] = saved_checksum;
     }
 
     saved = disk.data[0];
