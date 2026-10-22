@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Host-only regression suite; no kernel image or runner-specific APIs required.
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CC_BIN="${CC:-cc}"
 TMP_DIR="$(mktemp -d)"
