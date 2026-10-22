@@ -1,13 +1,15 @@
 # Part 3 — Shared Desktop Integration Layer Work Log
 
-Date: 2026-10-22. Repository: prosenjit-Adhikary/ProsenjitOS. Branch: feature/shared-desktop-integration-part3.
+Date: 2026-10-22. Repository: prosenjit-Adhikary/ProsenjitOS. Branch: feature/shared-desktop-integration-part3-stacked.
 
 ## Parts 1 and 2 prerequisite verification
 - [x] Re-read the desktop plan, roadmap, user-mode status, display/input ABI headers and existing DML API.
 - [x] Confirmed DML is a bounded registry/preflight component, not a session launcher.
 - [x] Confirmed kernel display contract has a backend/present foundation and display/input headers define versioned structures.
 - [x] Confirmed the documented userspace exec/service-launch path, userspace display/input service, Xorg/Wayland runtime and XFCE runtime are not verified.
-- [ ] Parts 1/2 end-to-end acceptance: NOT MET; no runtime evidence in this source inspection.
+- [x] Part 1 ABI/architecture foundation: PR #169 exact head a1e7a3d3e96cb4fb4d5ac5341d849b059ea2c373 reported host ABI tests, ISO/QEMU, native BIOS QEMU and security checks PASS. Full desktop remains partial by its own acceptance matrix.
+- [x] Part 2 graphics/hardware stack: PR #171 exact head f73a0f2ae210b24e9813c8b22cf860a6646a9695 reported host tests, ISO/QEMU, native BIOS QEMU and security checks PASS.
+- [ ] Part 2 acceptance remains NOT MET: its PR explicitly lists userspace input IPC delivery, USB HID/keymap, concrete audio backend, device arbitration/IRQ routing and physical hardware as outstanding.
 
 ## Part 3 changes
 - [x] Added a shared Native/Windows contract and bounded host state model.
@@ -25,7 +27,7 @@ Date: 2026-10-22. Repository: prosenjit-Adhikary/ProsenjitOS. Branch: feature/sh
 
 ## Verification
 - Repository/source inspection: completed.
-- make desktop-shared-test: pending CI.
+- make desktop-shared-test and desktop-tests: pending CI on the Part 2 stacked branch.
 - Full OS build/QEMU: not triggered; change is host-side model/docs and does not alter kernel source/ABI.
 - Part 4 has not started.
 
