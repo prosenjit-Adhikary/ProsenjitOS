@@ -38,7 +38,9 @@ void pros_keymap_reset(struct pros_keymap_state *state)
     state->caps_lock = 0u;
     state->caps_pressed = 0u;
     state->control = 0u;
+    state->right_control = 0u;
     state->alt = 0u;
+    state->right_alt = 0u;
 }
 
 uint32_t pros_keymap_translate(struct pros_keymap_state *state,
@@ -79,9 +81,18 @@ uint32_t pros_keymap_translate(struct pros_keymap_state *state,
         state->caps_pressed = pressed;
         return 0u;
     }
-    if (!extended && code == 0x1Du) { state->control = pressed; return 0u; }
-    if (!extended && code == 0x38u) { state->alt = pressed; return 0u; }
-    if (!pressed || extended || state->control || state->alt)
+    if (code == 0x1Du) {
+        if (extended) state->right_control = pressed;
+        else state->control = pressed;
+        return 0u;
+    }
+    if (code == 0x38u) {
+        if (extended) state->right_alt = pressed;
+        else state->alt = pressed;
+        return 0u;
+    }
+    if (!pressed || extended || state->control || state->right_control ||
+        state->alt || state->right_alt)
         return 0u;
 
     shifted = (uint8_t)(state->left_shift || state->right_shift);
