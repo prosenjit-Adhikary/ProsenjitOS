@@ -24,4 +24,8 @@ int pros_app_detect_format(const uint8_t *data,
                            uint32_t length,
                            enum pros_app_file_format *format_out);
 
+/* Format-family check only; this does not prove ABI/runtime compatibility. */
+int pros_app_format_compatible_with_backend(uint32_t backend,
+                                            enum pros_app_file_format format);
+
 #endif
