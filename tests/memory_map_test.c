@@ -214,6 +214,52 @@ int main(void) {
                           "concurrent free restores exact free-page accounting");
     }
 
+    /* Exhaust the finite managed pool and prove failure is non-destructive. */
+    {
+        uint64_t pages[2048];
+        uint64_t baseline = physical_memory_free_pages();
+        uint64_t failed_before = physical_memory_failed_allocations();
+        uint32_t count = 0;
+        while (count < (uint32_t)(sizeof(pages) / sizeof(pages[0]))) {
+            uint64_t page = physical_page_alloc();
+            if (page == 0) break;
+            pages[count++] = page;
+        }
+        failures += check(count == baseline && physical_memory_free_pages() == 0,
+                          "allocator exhausts exactly the remaining managed pages");
+        failures += check(physical_page_alloc() == 0 &&
+                          physical_memory_failed_allocations() > failed_before,
+                          "exhaustion fails safely and records failed allocation");
+        physical_page_free(0);
+        physical_page_free(1);
+        physical_page_free(0x40000000ULL);
+        failures += check(physical_memory_free_pages() == 0,
+                          "reserved, unaligned and out-of-range frees are ignored");
+        for (uint32_t i = 0; i < count; ++i) physical_page_free(pages[i]);
+        failures += check(physical_memory_free_pages() == baseline,
+                          "freeing the exhausted pool restores exact accounting");
+    }
+
+    /* Repeated cycles must not leak pages or drift accounting. */
+    {
+        uint64_t baseline = physical_memory_free_pages();
+        int cycles_ok = 1;
+        for (uint32_t i = 0; i < 1000; ++i) {
+            uint64_t page = physical_page_alloc();
+            if (page == 0 || !physical_page_is_allocated(page)) {
+                cycles_ok = 0;
+                break;
+            }
+            physical_page_free(page);
+            if (physical_page_is_allocated(page)) {
+                cycles_ok = 0;
+                break;
+            }
+        }
+        failures += check(cycles_ok && physical_memory_free_pages() == baseline,
+                          "repeated allocation/free cycles preserve accounting");
+    }
+
     begin_info();
     struct test_mmap_tag *oversized =
         (struct test_mmap_tag *)(info + sizeof(struct test_info_header));
