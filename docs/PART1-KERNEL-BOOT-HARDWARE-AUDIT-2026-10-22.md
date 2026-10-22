@@ -1,59 +1,66 @@
 # Part 1 — Kernel, Boot & Hardware Foundation Audit
 
 Date: 2026-10-22
-Audit base: `cf67eea520ae9ff4d48b0ce5c62f8d5a847ca519` (reported latest repository commit at audit start)
 Audit branch: `audit/part1-kernel-boot-foundation-20261022`
+Audit commit: `4affca7da947b096147a274f9008eb8d6b70dc07`
+PR merge-test commit: `05c4f1ee184a2a485f65dbe5eb6b36c01b1b935c`
 
 ## Scope and evidence boundary
 
-This is a source-backed remote audit record, not a claim that a local compiler, self-hosted runner, or QEMU guest was executed in this session. Repository files and open PR metadata were inspected through GitHub. No shell access to the user's Debian runner was available here, so no build/test exit code or fresh boot log is claimed. The report is intentionally docs-only until the current kernel boot failure can be reproduced on the exact head.
+This is a remote source audit supplemented by actual GitHub Actions logs. CI evidence below is for the PR merge-test commit, not the standalone branch head. No physical hardware or UEFI test was performed. Source presence is not proof that all feature paths are production-ready.
 
 ## Findings
 
-| Area | Status | Evidence / next action |
+| Area | Status | Evidence / remaining work |
 |---|---|---|
-| Repository baseline | COMPLETE (inspection) | Audit base SHA recorded above; default branch is `main`. |
-| Existing architecture docs | PARTIAL | Read `README.md`, `docs/ROADMAP.md`, `docs/DEBUG_LOG.md`, and `docs/REGRESSION-MATRIX.md`. These document x86-64 boot, memory, syscall/process/security foundations, native BIOS loader, and QEMU regression gates. |
-| Boot protocol and loader | PARTIAL | `boot/entry.asm` is referenced by the debug log for early boot/security labels; `scripts/build.sh` is invoked by the top-level `Makefile`. Roadmap marks native legacy BIOS loader hardening and its QEMU regression implemented, but stable native boot protocol, native UEFI loader, boot-device discovery and kernel/module validation remain unchecked. Exact boot-source inventory still needs full tree traversal. |
-| Link/build configuration | PARTIAL | `Makefile` uses `gcc`, `ld`, `nasm`; C flags include `-m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2`; link flags include `-nostdlib -z max-page-size=0x1000`. `make iso` calls `scripts/build.sh`. Build not executed in this session. |
-| Physical memory | PARTIAL | `kernel/memory.c`: `physical_memory_init`, `physical_page_alloc`, `physical_page_alloc_user`, `physical_page_is_allocated`, `physical_page_is_user_mappable`, `physical_page_free`. Multiboot2 mmap parser checks overall size, tag bounds and entry size; available pages are bounded by `PROSENJIT_PHYS_LIMIT`; low memory, kernel and Multiboot info are reserved. Needs current-head build/guest regression and complete edge-case audit (malformed mmap iteration, overlapping available/reserved ranges, allocator concurrency assumptions). |
-| Virtual memory | PARTIAL | `kernel/paging.c`: `paging_map_page`, `paging_unmap_page`, `paging_switch_kernel`, `paging_kernel_root`, `ensure_table`; four-level x86-64 page tables, canonical VA and physical-limit checks, duplicate-map rejection and rollback logic are present. Mapping/allocator ownership and concurrent mutation still need a full function-by-function audit; source presence is not runtime proof. |
-| Kernel heap | BLOCKED (boot gate) | `kernel/heap.c`: `heap_init`, `heap_grow`, `kmalloc`, `kfree`, `heap_used_bytes`, `heap_selftest`. `kernel/kernel.c` explicitly halts on `heap_selftest() != 0` with `ProsenjitOS: ERROR kernel heap deep self-test failed`. Historical conversation also records this boot failure. Root cause is not established by the inspected source alone; do not change allocator semantics speculatively. Reproduce on exact HEAD, add stage-specific diagnostic return logging, then fix the demonstrated invariant violation and rerun all gates. |
-| Interrupt/CPU setup | PARTIAL | `kernel/kernel.c` contains IDT setup and exception/IRQ gates; symbols include `idt_init`, `idt_set_gate`, `isr128`, `isr32`, `cpu_load_tss`, and `enter_user_mode`. IDT uses dedicated IST for double fault, page fault and syscall entry. `docs/DEBUG_LOG.md` notes open risks around shared IST1 syscall-frame lifetime. Full ISR assembly, GDT/TSS, PIC/PIT and exception-frame audit remains. |
-| Scheduler/process | PARTIAL | `kernel/process.c`: process lifecycle/registration/teardown; `kernel/thread.c`: `thread_manager_init`, `thread_init`, run queue and process-thread termination. Source comments enforce that blocked/quarantined processes do not run. Debug log flags scheduler eligibility, no-successor handling and IPC wait/wakeup synchronization as open risks. |
-| Syscall ABI and IPC | PARTIAL | `kernel/syscall.c`, `include/abi/syscall.h`, and `kernel/kernel.c` provide the syscall dispatcher and CPL3 tests. Dispatch applies per-process syscall allowlists and capability checks. Prior debug log reports an IPC test fix and successful earlier QEMU run, but that does not prove current-head boot. Shared IST1 frame lifetime and IPC wait/wakeup synchronization remain audit items. |
-| DMA and device enumeration | PARTIAL | Roadmap reports PCI enumeration foundation implemented; `kernel/kernel.c` includes `pci.h`, `driver.h`, `device_broker.h`, `ata_pio.h`, `partition.h`, and `storage.h`. Part 2 PR #171 explicitly says DMA allocator/IOMMU path, IRQ routing and device ownership arbitration are outstanding. Do not claim DMA support. |
-| Open PR dependencies | PARTIAL | PR #169 is the Part 1 shared desktop ABI foundation, while PR #171 is stacked on it. These are not substitutes for the kernel/boot foundation audit or a current-head boot pass. Preserve unrelated branches and do not merge either PR as part of this task. |
-| Host tests | NOT TESTED | No host test command was executed in this session. Existing self-tests and Makefile targets must be inspected and run on the exact candidate head. |
-| ISO/QEMU and native BIOS QEMU | NOT TESTED | No guest was started in this session. Prior CI descriptions are commit-specific and must not be reused as evidence for this audit head. |
-| Physical hardware / UEFI | NOT TESTED | No physical device or UEFI loader test was performed; roadmap still marks native UEFI pending. |
+| Repository/build baseline | COMPLETE for inspected CI snapshot | Default branch is main. `Makefile` calls `scripts/build.sh`; freestanding x86-64 GCC/NASM build uses warnings-as-errors. ISO build passed in workflow #7792. |
+| Boot paths | PARTIAL | `boot/entry.asm` records Multiboot2 EAX/EBX, builds identity maps for the first 1 GiB using 2 MiB pages, enables PAE/long mode/paging and transfers to 64-bit code. ISO and native BIOS QEMU marker gates passed on merge-test commit. Full loader/linker/source inventory and boot-protocol audit remain. Native UEFI remains unverified. |
+| Physical memory | PARTIAL | `kernel/memory.c` provides physical allocation/free and user-mappable page tracking; Multiboot2 mmap parsing has bounds checks. Physical-memory invariant self-test and page allocation/free markers passed in ISO QEMU. Malformed/overlapping memory map and concurrency edge cases still need dedicated tests. |
+| Virtual memory | PARTIAL | `kernel/paging.c` has four-level x86-64 page tables, canonical-address checks, map/unmap and kernel-root switching. Paging deep invariant and address-space isolation tests passed in ISO QEMU. Complete ownership/rollback/concurrency audit remains. |
+| Kernel heap | COMPLETE for current CI test; historical cause unknown | `kernel/heap.c` exposes `heap_init`, `kmalloc`, `kfree`, `heap_used_bytes`, `heap_selftest`. Both heap allocation/free and deep invariant markers passed in ISO QEMU. This run did not reproduce the previously reported failure; it does not establish the historical root cause. Keep the self-test enabled. |
+| Interrupt/CPU setup | PARTIAL | `kernel/idt.asm` implements exception, syscall and timer entry paths; `kernel/kernel.c` integrates IDT/TSS setup. The QEMU logs show TSS load and CPL3 syscall/IPC tests passed. Still audit IST stack lifetime, frame layouts, privilege transitions, timer preemption and error paths function by function. |
+| Scheduler/process | PARTIAL | Process/thread lifecycle, run queue, interrupt-frame scheduling and teardown paths exist. QEMU markers passed for thread lifecycle/run queue, IPC wait-queue block/wakeup, scheduler frame save/restore, and address-space switch/reap. This does not prove SMP safety or all race cases. |
+| Syscall ABI/IPC | PARTIAL | `include/abi/syscall.h`, `kernel/syscall.c`, and IPC implementation are existing interfaces. QEMU CPL3 syscall/IPC and security runtime markers passed. Preserve syscall numbers, calling convention, capability checks and frame layout; add deeper negative/race tests before declaring complete. |
+| PCI/device enumeration | PARTIAL | PCI enumeration and device broker self-tests passed in QEMU; six PCI devices were enumerated in the recorded ISO run. This does not establish safe DMA or production drivers for all devices. |
+| DMA/IOMMU | BLOCKED / NOT ESTABLISHED | Available source/docs do not establish a complete safe DMA allocator/IOMMU path. Do not claim DMA support from headers alone. Define address width, pinning, ownership, coherency, interrupt routing and teardown before implementing bus-mastering drivers. |
+| Host unit tests | COMPLETE for the workflow's desktop-manager target | Workflow #7792 reports “desktop manager tests passed”. Other host-test coverage must be inventoried separately. |
+| ISO QEMU | COMPLETE for required workflow markers | Workflow #7792 exited QEMU with status 124 at the configured 20-second timeout, then validated required serial markers; job passed. Required markers included physical memory, paging, heap, address-space isolation, syscall/CPL3 IPC, scheduler, storage and device tests. |
+| Native BIOS QEMU | COMPLETE for required workflow markers | Same workflow: timeout status 124, followed by successful checks for native handoff, ATA PIO block path, LBA boundary diagnostic and ATA -> MBR -> ProsenjitFS persistent mount. |
+| Security architecture contract | COMPLETE for CI contract check | Workflow #7328 passed the repository's security-document marker/contract check. This is not a full security proof. |
+| Physical hardware / UEFI | NOT TESTED | No physical device test or UEFI boot was performed. |
+| Full source/dependency audit | PARTIAL | The following files were inspected: `Makefile`, `scripts/build.sh`, `boot/entry.asm`, `kernel/kernel.c`, `kernel/memory.c`, `kernel/paging.c`, `kernel/heap.c`, `kernel/idt.asm`, `docs/ROADMAP.md`, `docs/DEBUG_LOG.md`, `docs/REGRESSION-MATRIX.md`. A complete declaration-by-declaration dependency and symbol map is still needed. |
 
-## Known dependencies and interfaces to preserve
+## Exact CI evidence
 
-- Build entry point: `make iso` -> `scripts/build.sh`; clean target: `make clean`.
-- Architecture: freestanding x86-64 kernel; avoid libc/libgcc assumptions and preserve current calling conventions.
-- Boot inputs: Multiboot2 path and native BIOS handoff coexist. Do not silently replace either path.
-- Memory: `memory.h` / `paging.h` interfaces are consumed by heap, address-space and process code. Preserve page ownership and user-mappable-page rules.
-- Privilege boundary: `include/abi/syscall.h`, syscall number/argument conventions, per-process syscall allowlist and capability checks must remain stable absent a documented migration.
-- Scheduler/IPC: `thread.h`, `process.h`, `ipc.h` lifetimes and wait/wakeup semantics are coupled; do not patch a single side without regression tests.
-- Native storage boot tests depend on ATA PIO -> partition -> ProsenjitFS; retain those markers and tests while diagnosing earlier boot failures.
+- Build and boot-test workflow: [run #7792](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39775661349), runner `Office1` (Linux), job conclusion success.
+- Security architecture workflow: [run #7328](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39775661242), job conclusion success.
+- Tested merge commit: `05c4f1ee184a2a485f65dbe5eb6b36c01b1b935c`.
+- ISO QEMU exit status: 124 due to configured timeout; required serial markers were checked and passed before the workflow succeeded.
+- Native BIOS QEMU exit status: 124 due to configured timeout; required native boot/storage serial markers were checked and passed before the workflow succeeded.
 
-## Required next verification sequence
+## Interfaces and dependencies to preserve
 
-1. On the configured Linux x64 self-hosted runner, record `git rev-parse HEAD`, `git status --short`, and runner service/job identity before running anything. Do not assume that a configured service means a workflow executed.
-2. Run `make clean` and `make iso`; capture complete logs and exact exit codes.
-3. Run the repository's focused host tests and security architecture workflow on this exact commit.
-4. Run ISO QEMU and native BIOS disk-image QEMU separately. For each, capture serial output and require the workflow's expected markers; timeout exit 124 is acceptable only if the test script verifies every required marker before treating it as a pass.
-5. Diagnose the heap self-test by reporting the exact failing return stage, without weakening or skipping the self-test. Fix only a demonstrated cause.
-6. Rerun all host, build, ISO QEMU, native BIOS QEMU and security checks after the fix. Record resulting commit SHA and workflow run URLs.
-7. Continue the interrupt/scheduler/IPC/DMA audit only after the earliest boot gate is green, so later failures are not masked by the heap halt.
+- Build entry: `make iso` -> `scripts/build.sh`; clean target: `make clean`.
+- Keep the freestanding x86-64 calling conventions and avoid libc/runtime assumptions.
+- Preserve both Multiboot2 and native BIOS boot paths.
+- Preserve `memory.h` / `paging.h` ownership and user-mappable-page rules.
+- Preserve `include/abi/syscall.h`, syscall numbers/arguments, capability checks and user/kernel frame layout unless a documented migration is tested.
+- Scheduler, ISR frames, `process.h`, `thread.h` and `ipc.h` lifetimes/wakeup semantics are coupled.
+- Keep ATA PIO -> partition -> ProsenjitFS regression markers.
 
-## Change and acceptance status
+## Remaining work and acceptance
 
-This PR adds only this audit report. It deliberately makes no kernel source changes because the reported heap failure has not been reproduced against a fresh exact-head log in this execution environment. That restraint preserves working components and avoids an unsupported allocator redesign.
+1. Complete a full-tree symbol and dependency map, including linker scripts, native BIOS loader, interrupt/exception definitions, scheduler, IPC and DMA-related files.
+2. Add focused deterministic tests for malformed Multiboot2 memory maps, overlapping memory ranges, allocation ownership, page-table rollback and allocator failure paths.
+3. Audit interrupt stack/frame invariants, IST use, syscall privilege transitions, timer scheduling, IPC wait/wakeup ordering and teardown races.
+4. Establish safe DMA/IOMMU and device resource ownership before claiming DMA support.
+5. Re-run the required build, host tests, ISO QEMU, native BIOS QEMU and security checks after any source change; record the resulting exact SHA and logs.
+6. Validate native UEFI and physical hardware separately when supported.
 
-- Audit report: COMPLETE (source/document review; limited by remote-only inspection).
-- Kernel source fix: BLOCKED (heap self-test root cause not yet proven).
-- Build/tests/QEMU: NOT TESTED in this session.
+- Audit report: COMPLETE for remote review plus recorded CI evidence; source inventory remains partial.
+- Build/host target/ISO QEMU/native BIOS QEMU/security contract: COMPLETE for merge-test commit above.
+- Kernel source fix: no kernel source was changed in this documentation-only PR. The historical heap failure was not reproduced in this run; its root cause remains unknown.
+- Interrupt/scheduler/IPC/memory edge-case audit: PARTIAL.
+- DMA/IOMMU: BLOCKED / not established.
 - Physical hardware/UEFI: NOT TESTED.
 - Overall Part 1 acceptance: NOT COMPLETE.
