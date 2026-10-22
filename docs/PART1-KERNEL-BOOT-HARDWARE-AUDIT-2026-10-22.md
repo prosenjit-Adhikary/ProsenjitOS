@@ -99,3 +99,13 @@ This is a remote source audit supplemented by actual GitHub Actions logs. CI evi
 - CI [Security architecture run #7350](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39779291128): SUCCESS.
 - Both QEMU invocations exited with status 124 at the configured 20-second timeout. Required boot/runtime markers were present and verified before CI passed. This is not a physical-hardware, UEFI, SMP, or unlimited-runtime test.
 - Remaining acceptance blockers: full interrupt/IST/register-sentinel test coverage; page-table rollback/ownership and concurrency review; DMA/IOMMU safety is not established; UEFI and physical hardware are not tested. Overall Part 1 remains PARTIAL until these gates are addressed or explicitly accepted as out-of-scope.
+
+
+## Addendum — syscall IST alignment and final verification (2026-10-22)
+
+- Latest tested kernel/interrupt source commit: `a9dbc3315701f4ceed42719eee00f8988c5cc185`.
+- `isr128` now keeps the saved GPR frame and CPU IRET frame addressed independently of the active stack alignment, dynamically aligns RSP before calling `syscall_dispatch` and `thread_schedule_interrupt`, and restores the original register-frame pointer before returning. This complements the earlier exception and timer entry alignment/register-preservation fixes.
+- Build and boot-test workflow [#7815](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39779827776): SUCCESS on Linux self-hosted runner. Host desktop-manager and Multiboot2 memory-map tests passed; ISO build passed; ISO and native BIOS QEMU required-marker gates passed.
+- Security architecture workflow [#7351](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39779827869): SUCCESS.
+- ISO QEMU and native BIOS QEMU each exited with status 124 at the configured 20-second timeout; the required serial markers (including memory/paging invariants, security runtime, scheduler/IPC, filesystem/storage and CPL3 syscall tests) were present and verified before the job passed.
+- Overall Part 1 remains PARTIAL: page-table rollback/ownership and allocator concurrency still need deeper tests; explicit register-sentinel/IST tests remain desirable; DMA/IOMMU safety is not established; UEFI and physical hardware are not tested.
