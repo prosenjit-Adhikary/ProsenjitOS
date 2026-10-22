@@ -8208,7 +8208,8 @@ int prosenjitfs_selftest(void)
 
         /* Primary invalid, backup valid: recover from backup read-only. */
         disk.data[checksum_offset] ^= 0x01u;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        if (prosenjitfs_probe(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
         if (!fs.read_only || !fs.degraded_superblock) {
             (void)prosenjitfs_unmount(&fs);
@@ -8221,7 +8222,8 @@ int prosenjitfs_selftest(void)
         /* Backup invalid, primary valid: this must also be read-only. */
         saved_checksum = disk.data[512u + checksum_offset];
         disk.data[512u + checksum_offset] ^= 0x01u;
-        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+        if (prosenjitfs_probe(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -19);
         if (!fs.read_only || !fs.degraded_superblock) {
             (void)prosenjitfs_unmount(&fs);
