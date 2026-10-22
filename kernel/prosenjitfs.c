@@ -402,14 +402,9 @@ static int pfs_superblock_valid(const uint8_t *block,
         sb->inode_count < PFS_MIN_INODES ||
         sb->inode_count > PFS_MAX_INODES ||
         sb->max_name != PROSENJITFS_MAX_NAME ||
-        (sb->features & (PROSENJITFS_FEATURE_CRC32C |
-                         PROSENJITFS_FEATURE_JOURNAL |
-                         PROSENJITFS_FEATURE_EXTENTS |
-                         PROSENJITFS_FEATURE_UTF8)) !=
-                         (PROSENJITFS_FEATURE_CRC32C |
-                          PROSENJITFS_FEATURE_JOURNAL |
-                          PROSENJITFS_FEATURE_EXTENTS |
-                          PROSENJITFS_FEATURE_UTF8))
+        (sb->features & PROSENJITFS_FEATURE_KNOWN_MASK) !=
+            PROSENJITFS_FEATURE_KNOWN_MASK ||
+        (sb->features & ~PROSENJITFS_FEATURE_KNOWN_MASK) != 0u
         return PROSENJITFS_ECORRUPT;
     checksum = pfs_crc_with_zero32(block, sb->header_size,
                                    (uint32_t)offsetof(
@@ -10298,6 +10293,47 @@ int prosenjitfs_selftest(void)
         }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
+    }
+
+    /*
+     * Unknown v1 feature bits must fail closed even when both superblocks
+     * agree and each has a valid checksum. Restore the fixture before the
+     * following independent redundant-superblock consistency regression.
+     */
+    {
+        uint32_t feature_offset =
+            (uint32_t)offsetof(struct pros_prosenjitfs_superblock, features);
+        uint32_t checksum_offset =
+            (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum);
+        uint8_t saved_primary = disk.data[feature_offset + 3u];
+        uint8_t saved_backup = disk.data[512u + feature_offset + 3u];
+
+        disk.data[feature_offset + 3u] |= 0x80u;
+        disk.data[512u + feature_offset + 3u] |= 0x80u;
+        pfs_put32(disk.data + checksum_offset,
+                  pfs_crc_with_zero32(
+                      disk.data,
+                      (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                      checksum_offset));
+        pfs_put32(disk.data + 512u + checksum_offset,
+                  pfs_crc_with_zero32(
+                      disk.data + 512u,
+                      (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                      checksum_offset));
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -20);
+        disk.data[feature_offset + 3u] = saved_primary;
+        disk.data[512u + feature_offset + 3u] = saved_backup;
+        pfs_put32(disk.data + checksum_offset,
+                  pfs_crc_with_zero32(
+                      disk.data,
+                      (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                      checksum_offset));
+        pfs_put32(disk.data + 512u + checksum_offset,
+                  pfs_crc_with_zero32(
+                      disk.data + 512u,
+                      (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
+                      checksum_offset));
     }
 
     /*
