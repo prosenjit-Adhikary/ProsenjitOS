@@ -10,6 +10,7 @@
 - Explicit lifecycle: registration accepts only staged/unverified manifests; a trusted verifier caller must mark trust; install commit requires trusted metadata and installed same-backend dependencies.
 - Disable and uninstall registry transitions; uninstall refuses to remove a package still referenced by another registered package.
 - Callback-driven install transaction coordinator: preflight dependencies, stage package data, atomically publish through a storage adapter, then commit registry state; failed stage/publish requests rollback and reports rollback failure distinctly.
+- Reentrancy guard rejects registry mutation attempts from storage callbacks during staging/publication/rollback; this is not a lock and does not make concurrent calls thread-safe.
 - Fail-closed preflight for entries not marked installed/trusted; dependency graph checks cover missing dependencies, cycles, and cross-ecosystem dependency rejection.
 - Host-side regression tests via `make app-unit-test` (added transaction success and rollback cases).
 
