@@ -5106,7 +5106,8 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
         return PROSENJITFS_ECORRUPT;
     }
     fs->sb = primary_ok ? primary : backup;
-    fs->degraded_superblock = primary_ok ? 0u : 1u;
+    /* Either missing redundant copy is degraded, regardless of which one survived. */
+    fs->degraded_superblock = (primary_ok != backup_ok) ? 1u : 0u;
     if (fs->sb.total_blocks > device->sector_count) {
         kfree(fs->tx.images); kfree(fs->scratch); fs->tx.images = 0; fs->scratch = 0;
         return PROSENJITFS_ECORRUPT;
@@ -7961,6 +7962,41 @@ int prosenjitfs_selftest(void)
                   disk.data + 512u,
                   (uint32_t)sizeof(struct pros_prosenjitfs_superblock),
                   (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
+
+    /*
+     * A single surviving superblock is a degraded mount in either direction.
+     * It must be exposed read-only and the mount must not rewrite either copy.
+     */
+    {
+        uint32_t checksum_offset =
+            (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum);
+        uint8_t saved_checksum = disk.data[checksum_offset];
+
+        /* Primary invalid, backup valid: recover from backup read-only. */
+        disk.data[checksum_offset] ^= 0x01u;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+        if (!fs.read_only || !fs.degraded_superblock) {
+            (void)prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -18);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+        disk.data[checksum_offset] = saved_checksum;
+
+        /* Backup invalid, primary valid: this must also be read-only. */
+        saved_checksum = disk.data[512u + checksum_offset];
+        disk.data[512u + checksum_offset] ^= 0x01u;
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        if (!fs.read_only || !fs.degraded_superblock) {
+            (void)prosenjitfs_unmount(&fs);
+            return pfs_selftest_fail(__LINE__, -19);
+        }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -19);
+        disk.data[512u + checksum_offset] = saved_checksum;
+    }
 
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
