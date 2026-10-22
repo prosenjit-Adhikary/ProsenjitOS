@@ -14,6 +14,27 @@ The repository has kernel-side process/address-space/syscall foundations, a kern
 
 Documentation and ABI files are never treated as completion. Every milestone requires source recheck, warnings-as-errors build, QEMU runtime verification, regression coverage, and a recheck that no desktop stack entered `kernel/`.
 
+## Application Handler — initial code
+
+The first userspace application-management pieces are in `user/apps/`: a bounded
+manifest registry with staged/trusted/installed/disabled lifecycle transitions,
+dependency-aware preflight, and content-based ELF/PE/OLE header classification.
+These are metadata/control-plane foundations only. They do not install or remove
+files, cryptographically verify publishers, launch processes, load PE binaries,
+provide Linux/Windows API compatibility, or integrate with the desktop launcher.
+The application registry APIs require a trusted verifier boundary; package data
+must never be allowed to mark itself trusted.
+
+When a suitable development environment is available, run:
+
+```sh
+make app-unit-test
+```
+
+The test target has been added to the self-hosted CI workflow but has not yet
+been run successfully for this branch. Do not infer a passing result from the
+workflow definition or queued jobs.
+
 ## Desktop Management Layer (DML) — initial code
 
 The first host-testable DML component is in `user/desktop/desktop_manager.c` and
