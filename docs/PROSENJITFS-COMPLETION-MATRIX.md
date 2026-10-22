@@ -95,3 +95,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The unknown-feature regression rejects unsupported v1 feature bits even when both redundant superblocks have valid CRCs, then restores the fixture.
 - This is a green build/security/boot milestone, not a declaration of production-complete filesystem behavior. Remaining acceptance work includes broader injected read/write/flush failures, persistence/remount and rollback testing for each mutation path, report initialization/error-classification checks, adversarial namespace/link semantics, caller serialization review, and physical-device durability validation.
 - Automatic orphan repair/reclamation remains deferred. QEMU and mock-device tests do not prove physical power-loss durability. PR #142's own branch remains unverified/failing independently even though descendant `main` boots successfully.
+
+
+## Verification update — 2026-10-22 13:35 UTC
+
+- PR #194 merged as `3d8a40d0a6ee5fa1189abe3e1b9bda774350d140`. Exact PR-head build/boot-test #39786642331 and security architecture #39786642131 passed. It added mock-device read fault injection and verified that an inode-bitmap read failure is reported as `PROSENJITFS_EIO`, with durable/volatile/dirty mock-media state unchanged.
+- PR #195 merged as `02063bac9d92dad5781230c7898d27b73544c191`. Exact final PR head `8ed82f7bf1ee074cdae9e40be7362519671935e5` passed build/boot-test #39787466192 and security architecture #39787466220. Main merge commit build job #39787804429 and security #39787804339 also completed successfully; build included ISO QEMU and native BIOS QEMU boot.
+- Integrity scan now preserves `PROSENJITFS_EIO` across inode bitmap, inode, parent-chain, directory-index/entry, extent and block-bitmap reads instead of collapsing device failures into corruption.
+- Test-coverage limitation: the deterministic injected read-failure regression directly targets the inode-bitmap read path. The other propagated read paths still need focused injected fault cases. Broader write/flush fault coverage, mutation rollback/remount, adversarial namespace/link cases, caller serialization and physical-device durability remain acceptance work.
+- Automatic orphan repair/reclamation remains deferred. Mock-device and QEMU tests do not prove physical power-loss durability. This is incremental hardening, not a claim of production-complete filesystem behavior.
