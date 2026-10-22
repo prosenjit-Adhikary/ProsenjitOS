@@ -193,6 +193,8 @@ int pros_app_init(struct pros_app_manager *manager,
 {
     if (!manager)
         return PROS_APP_EINVAL;
+    if (manager_valid(manager) && manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
     for (uint32_t i = 0u; i < PROS_APP_MAX_ENTRIES; ++i)
         manager->entries[i] = (struct pros_app_entry){0};
     manager->count = 0u;
@@ -208,6 +210,8 @@ int pros_app_register(struct pros_app_manager *manager,
 
     if (!manager_valid(manager))
         return PROS_APP_EINVAL;
+    if (manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
     rc = manifest_validate(manager, manifest);
     if (rc != PROS_APP_OK)
         return rc;
@@ -279,6 +283,8 @@ int pros_app_mark_verified(struct pros_app_manager *manager,
 
     if (!manager_valid(manager) || !id_valid(app_id))
         return PROS_APP_EINVAL;
+    if (manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
     index = manager_find(manager, app_id);
     if (index < 0)
         return PROS_APP_ENOENT;
@@ -298,6 +304,8 @@ int pros_app_commit_install(struct pros_app_manager *manager,
 
     if (!manager_valid(manager) || !id_valid(app_id))
         return PROS_APP_EINVAL;
+    if (manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
     index = manager_find(manager, app_id);
     if (index < 0)
         return PROS_APP_ENOENT;
@@ -322,6 +330,8 @@ int pros_app_disable(struct pros_app_manager *manager, const char *app_id)
 
     if (!manager_valid(manager) || !id_valid(app_id))
         return PROS_APP_EINVAL;
+    if (manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
     index = manager_find(manager, app_id);
     if (index < 0)
         return PROS_APP_ENOENT;
@@ -351,6 +361,8 @@ int pros_app_uninstall(struct pros_app_manager *manager, const char *app_id)
 
     if (!manager_valid(manager) || !id_valid(app_id))
         return PROS_APP_EINVAL;
+    if (manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
     index = manager_find(manager, app_id);
     if (index < 0)
         return PROS_APP_ENOENT;
@@ -456,14 +468,28 @@ int pros_app_install_transaction(struct pros_app_manager *manager,
      * The storage adapter owns temporary files and atomic publication. This
      * coordinator commits registry state only after publish() succeeds.
      */
-    if (ops->stage(ops->context, &manifest) != 0)
-        return install_rollback(ops, &manifest) == PROS_APP_OK
-                   ? PROS_APP_EIO : PROS_APP_EROLLBACK;
+    /*
+     * Guard registry mutations while external storage callbacks execute.
+     * The registry is single-owner; this flag is a reentrancy guard, not a
+     * substitute for synchronization between concurrent threads.
+     */
+    if (manager->transaction_active != 0u)
+        return PROS_APP_ESTATE;
+    manager->transaction_active = 1u;
 
-    if (ops->publish(ops->context, &manifest) != 0)
-        return install_rollback(ops, &manifest) == PROS_APP_OK
-                   ? PROS_APP_EIO : PROS_APP_EROLLBACK;
+    if (ops->stage(ops->context, &manifest) != 0) {
+        rc = install_rollback(ops, &manifest);
+        manager->transaction_active = 0u;
+        return rc == PROS_APP_OK ? PROS_APP_EIO : PROS_APP_EROLLBACK;
+    }
 
+    if (ops->publish(ops->context, &manifest) != 0) {
+        rc = install_rollback(ops, &manifest);
+        manager->transaction_active = 0u;
+        return rc == PROS_APP_OK ? PROS_APP_EIO : PROS_APP_EROLLBACK;
+    }
+
+    manager->transaction_active = 0u;
     rc = pros_app_commit_install(manager, app_id);
     if (rc != PROS_APP_OK) {
         if (install_rollback(ops, &manifest) != PROS_APP_OK)
