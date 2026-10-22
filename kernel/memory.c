@@ -37,6 +37,7 @@ static uint64_t user_bitmap[BITMAP_WORDS];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
+static int allocator_initialized;
 
 static inline void bitmap_set(uint64_t page) {
     page_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
@@ -126,15 +127,8 @@ static void mark_available(uint64_t base, uint64_t length) {
 }
 
 int physical_memory_init(uint64_t multiboot_info_address) {
-    for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
-        page_bitmap[i] = 0;
-        managed_bitmap[i] = 0;
-        user_bitmap[i] = 0;
-    }
-    total_pages = 0;
-    free_pages = 0;
-    failed_allocations = 0;
-
+    /* Initialization is one-shot: never silently invalidate live allocations. */
+    if (allocator_initialized) return -6;
     if (multiboot_info_address == 0) return -1;
 
     uint32_t total_size = *(const uint32_t *)(uintptr_t)multiboot_info_address;
@@ -177,6 +171,16 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         current = (next + 7ULL) & ~7ULL;
     }
     if (!saw_end_tag) return -3;
+
+    /* Only mutate allocator state after the complete boot tag chain validates. */
+    for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
+        page_bitmap[i] = 0;
+        managed_bitmap[i] = 0;
+        user_bitmap[i] = 0;
+    }
+    total_pages = 0;
+    free_pages = 0;
+    failed_allocations = 0;
 
     /*
      * Second pass: admit only complete, validated available ranges. Reserved
@@ -255,7 +259,19 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     total_pages = 0;
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word)
         total_pages += bitmap_popcount64(managed_bitmap[word]);
-    return free_pages != 0 ? 0 : -5;
+    if (free_pages == 0) {
+        for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
+            page_bitmap[i] = 0;
+            managed_bitmap[i] = 0;
+            user_bitmap[i] = 0;
+        }
+        total_pages = 0;
+        free_pages = 0;
+        failed_allocations = 0;
+        return -5;
+    }
+    allocator_initialized = 1;
+    return 0;
 }
 
 uint64_t physical_page_alloc(void) {
@@ -264,12 +280,19 @@ uint64_t physical_page_alloc(void) {
         if (bits != 0) {
             uint64_t bit = bitmap_ctz64(bits);
             uint64_t page = (word << 6) + bit;
-            if (page >= MAX_PAGES) {
+            if (page >= MAX_PAGES || !managed_test(page)) {
+                /* A free bit outside managed RAM is metadata corruption: fail closed. */
                 ++failed_allocations;
                 return 0;
             }
 
             bitmap_clear(page);
+            user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+            if (free_pages == 0) {
+                bitmap_set(page);
+                ++failed_allocations;
+                return 0;
+            }
             --free_pages;
             return page * PROSENJIT_PAGE_SIZE;
         }
