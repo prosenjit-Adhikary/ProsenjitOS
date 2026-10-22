@@ -42,6 +42,8 @@ jobs:
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_memory_map.sh
+          bash -n scripts/test_interrupt_vectors.sh
+          bash scripts/test_interrupt_vectors.sh
           make desktop-unit-test memory-map-unit-test
 
       - name: Build ISO
