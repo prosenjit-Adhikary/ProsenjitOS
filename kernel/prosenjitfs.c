@@ -7396,21 +7396,33 @@ int prosenjitfs_selftest(void)
 
         pfs_selftest_diag_stage = __LINE__;
         /*
-         * Exercise the parent-chain validator with two valid directory
-         * inodes whose parent pointers form a disconnected cycle. The normal
-         * directory mutation API correctly forbids creating this state, so
-         * inject it into checksummed inode records, test the isolated helper,
-         * and restore the clean parent pointers before the full checker runs.
+         * Build a locally consistent but root-disconnected directory cycle.
+         * Normal VFS mutations correctly forbid this state, so repurpose the
+         * just-created root->A entry block as B->A, remove A from the root
+         * index, retain A->B, and update both checksummed parent pointers.
+         * This keeps directory references, checksums, and block ownership
+         * valid until the parent-chain reachability check runs.
          */
         {
             struct pros_vfs_vnode *a_node = 0;
             struct pros_vfs_vnode *b_node = 0;
             struct pfs_vnode_data *a_data;
             struct pfs_vnode_data *b_data;
+            struct pros_prosenjitfs_inode root_inode;
             struct pros_prosenjitfs_inode a_inode;
             struct pros_prosenjitfs_inode b_inode;
+            struct pros_prosenjitfs_dir_index root_index;
+            struct pros_prosenjitfs_dir_index b_index;
+            struct pros_prosenjitfs_dir_entry root_entry;
+            uint8_t root_index_block[4096];
+            uint8_t b_index_block[4096];
+            uint8_t entry_block[4096];
             uint64_t a_number;
             uint64_t b_number;
+            uint64_t entry_lba = 0u;
+            uint64_t previous_lba = 0u;
+            uint32_t root_bucket;
+            uint32_t cycle_bucket;
 
             if (vfs_mkdir(&fs.mount, "/parent-cycle-a") != PROS_VFS_OK ||
                 vfs_mkdir(&fs.mount, "/parent-cycle-a/b") != PROS_VFS_OK ||
@@ -7435,42 +7447,105 @@ int prosenjitfs_selftest(void)
             b_number = b_data->inode_number;
             if (vfs_vnode_put(a_node) != PROS_VFS_OK ||
                 vfs_vnode_put(b_node) != PROS_VFS_OK ||
+                prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
                 prosenjitfs_read_inode(&fs, a_number, &a_inode) !=
                     PROSENJITFS_OK ||
                 prosenjitfs_read_inode(&fs, b_number, &b_inode) !=
                     PROSENJITFS_OK ||
                 a_inode.type != PROSENJITFS_INODE_DIR ||
-                b_inode.type != PROSENJITFS_INODE_DIR)
+                b_inode.type != PROSENJITFS_INODE_DIR ||
+                pfs_read_dir_index(&fs, &root_inode, &root_index) !=
+                    PROSENJITFS_OK ||
+                pfs_read_dir_index(&fs, &b_inode, &b_index) !=
+                    PROSENJITFS_OK ||
+                pfs_find_dir_entry_lba(&fs, &root_inode, "parent-cycle-a",
+                                       &root_entry, &entry_lba,
+                                       &previous_lba) != PROSENJITFS_OK ||
+                previous_lba != 0u ||
+                pfs_read_block(&device, root_inode.dir_index,
+                               root_index_block) != PROSENJITFS_OK ||
+                pfs_read_block(&device, b_inode.dir_index,
+                               b_index_block) != PROSENJITFS_OK ||
+                pfs_read_block(&device, entry_lba, entry_block) !=
+                    PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -161);
 
-            {
-                uint64_t saved_a_parent = a_inode.parent_inode;
-                uint64_t saved_b_parent = b_inode.parent_inode;
-                a_inode.parent_inode = b_number;
-                b_inode.parent_inode = a_number;
-                if (prosenjitfs_write_inode(&fs, a_number, &a_inode) !=
-                        PROSENJITFS_OK ||
-                    prosenjitfs_write_inode(&fs, b_number, &b_inode) !=
-                        PROSENJITFS_OK ||
-                    pfs_parent_chain_reaches_root(&fs, a_number) !=
-                        PROSENJITFS_ECORRUPT) {
-                    a_inode.parent_inode = saved_a_parent;
-                    b_inode.parent_inode = saved_b_parent;
-                    (void)prosenjitfs_write_inode(&fs, a_number, &a_inode);
-                    (void)prosenjitfs_write_inode(&fs, b_number, &b_inode);
-                    return pfs_selftest_fail(__LINE__, -161);
-                }
-                a_inode.parent_inode = saved_a_parent;
-                b_inode.parent_inode = saved_b_parent;
-                if (prosenjitfs_write_inode(&fs, a_number, &a_inode) !=
-                        PROSENJITFS_OK ||
-                    prosenjitfs_write_inode(&fs, b_number, &b_inode) !=
-                        PROSENJITFS_OK ||
-                    pfs_parent_chain_reaches_root(&fs, a_number) !=
-                        PROSENJITFS_OK ||
-                    pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
-                    return pfs_selftest_fail(__LINE__, -161);
-            }
+            root_bucket = root_entry.name_hash % PROSENJITFS_DIR_BUCKETS;
+            cycle_bucket = pfs_name_hash((const uint8_t *)"a", 1u) %
+                           PROSENJITFS_DIR_BUCKETS;
+            if (root_index.heads[root_bucket] != entry_lba ||
+                b_index.heads[cycle_bucket] != 0u ||
+                root_entry.inode != a_number ||
+                root_entry.type != PROSENJITFS_INODE_DIR ||
+                root_entry.next >= fs.sb.total_blocks)
+                return pfs_selftest_fail(__LINE__, -161);
+
+            /* Detach A from root while preserving the rest of that bucket. */
+            root_index.heads[root_bucket] = root_entry.next;
+            pfs_copy(root_index_block, &root_index, sizeof(root_index));
+            pfs_put32(root_index_block +
+                          offsetof(struct pros_prosenjitfs_dir_index, checksum),
+                      pfs_crc_with_zero32(
+                          root_index_block, sizeof(root_index),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_dir_index, checksum)));
+
+            /* Reuse the detached entry block as B -> A, preserving ownership. */
+            pfs_zero(root_entry.name, sizeof(root_entry.name));
+            root_entry.name[0] = (uint8_t)'a';
+            root_entry.name[1] = 0u;
+            root_entry.name_length = 1u;
+            root_entry.name_hash = pfs_name_hash(
+                (const uint8_t *)root_entry.name, root_entry.name_length);
+            root_entry.inode = a_number;
+            root_entry.type = PROSENJITFS_INODE_DIR;
+            root_entry.next = b_index.heads[cycle_bucket];
+            root_entry.checksum = 0u;
+            b_index.heads[cycle_bucket] = entry_lba;
+            pfs_copy(b_index_block, &b_index, sizeof(b_index));
+            pfs_put32(b_index_block +
+                          offsetof(struct pros_prosenjitfs_dir_index, checksum),
+                      pfs_crc_with_zero32(
+                          b_index_block, sizeof(b_index),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_dir_index, checksum)));
+            pfs_copy(entry_block, &root_entry, sizeof(root_entry));
+            pfs_put32(entry_block +
+                          offsetof(struct pros_prosenjitfs_dir_entry, checksum),
+                      pfs_crc_with_zero32(
+                          entry_block, sizeof(root_entry),
+                          (uint32_t)offsetof(
+                              struct pros_prosenjitfs_dir_entry, checksum)));
+
+            if (pfs_tx_reset(&fs) != PROSENJITFS_OK ||
+                pfs_tx_add(&fs, root_inode.dir_index, root_index_block) !=
+                    PROSENJITFS_OK ||
+                pfs_tx_add(&fs, b_inode.dir_index, b_index_block) !=
+                    PROSENJITFS_OK ||
+                pfs_tx_add(&fs, entry_lba, entry_block) != PROSENJITFS_OK ||
+                pfs_tx_commit(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -161);
+
+            a_inode.parent_inode = b_number;
+            b_inode.parent_inode = a_number;
+            if (prosenjitfs_write_inode(&fs, a_number, &a_inode) !=
+                    PROSENJITFS_OK ||
+                prosenjitfs_write_inode(&fs, b_number, &b_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_parent_chain_reaches_root(&fs, a_number) !=
+                    PROSENJITFS_ECORRUPT ||
+                pfs_selftest_consistency(&fs) == PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -161);
+
+            /* Reset the mock medium so later corruption tests start clean. */
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -161);
+            pfs_zero(&disk, sizeof(disk));
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                pfs_selftest_consistency(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -161);
         }
 
         pfs_selftest_diag_stage = __LINE__;
