@@ -9973,6 +9973,67 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
+        /*
+         * Repeat the integrity read-fault sweep with a real directory entry,
+         * inode and data extent present. The earlier empty-filesystem sweep
+         * cannot exercise every directory/extent read path.
+         */
+        {
+            uint32_t read_position;
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            uint8_t reached_end = 0u;
+
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK ||
+                integrity_report.first_error_location != 0u ||
+                integrity_report.orphaned_blocks_reported != 0u ||
+                integrity_report.orphaned_inodes_reported != 0u)
+                return pfs_selftest_fail(__LINE__, -13);
+
+            for (read_position = 1u; read_position <= 256u; ++read_position) {
+                int scan_rc;
+                disk.fail_read_countdown = read_position;
+                scan_rc = prosenjitfs_check_integrity_report(
+                    &fs, &integrity_report);
+
+                if (disk.fail_read_countdown != 0u) {
+                    disk.fail_read_countdown = 0u;
+                    if (scan_rc != PROSENJITFS_OK ||
+                        integrity_report.status != PROSENJITFS_OK ||
+                        integrity_report.first_error_location != 0u)
+                        return pfs_selftest_fail(__LINE__, -13);
+                    reached_end = 1u;
+                    break;
+                }
+
+                if (scan_rc != PROSENJITFS_EIO ||
+                    integrity_report.status != PROSENJITFS_EIO ||
+                    integrity_report.first_error_location != 0u ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    return pfs_selftest_fail(__LINE__, -13);
+            }
+
+            if (!reached_end || disk.fail_read_countdown != 0u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+
         disk.fail_flush_countdown = 1u;
         done = 0u;
         if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
