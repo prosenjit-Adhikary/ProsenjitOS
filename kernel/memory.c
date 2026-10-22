@@ -127,8 +127,6 @@ static void mark_available(uint64_t base, uint64_t length) {
 }
 
 int physical_memory_init(uint64_t multiboot_info_address) {
-    /* Initialization is one-shot: never silently invalidate live allocations. */
-    if (allocator_initialized) return -6;
     if (multiboot_info_address == 0) return -1;
 
     uint32_t total_size = *(const uint32_t *)(uintptr_t)multiboot_info_address;
@@ -171,6 +169,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         current = (next + 7ULL) & ~7ULL;
     }
     if (!saw_end_tag) return -3;
+
+    /* Validate malformed input first, but never reset a live allocator. */
+    if (allocator_initialized) return -6;
 
     /* Only mutate allocator state after the complete boot tag chain validates. */
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
