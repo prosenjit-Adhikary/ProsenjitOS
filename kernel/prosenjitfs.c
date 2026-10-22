@@ -6237,7 +6237,7 @@ int prosenjitfs_selftest(void)
             disk.dirty, (uint32_t)sizeof(disk.dirty));
         uint8_t reached_end = 0u;
 
-        for (read_position = 1u; read_position <= 256u; ++read_position) {
+        for (read_position = 1u; read_position <= 4096u; ++read_position) {
             int scan_rc;
             disk.fail_read_countdown = read_position;
             scan_rc = prosenjitfs_check_integrity_report(
@@ -6248,7 +6248,13 @@ int prosenjitfs_selftest(void)
                 disk.fail_read_countdown = 0u;
                 if (scan_rc != PROSENJITFS_OK ||
                     integrity_report.status != PROSENJITFS_OK ||
-                    integrity_report.first_error_location != 0u)
+                    integrity_report.first_error_location != 0u ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
                     return pfs_selftest_fail(__LINE__, -4);
                 reached_end = 1u;
                 break;
@@ -6266,7 +6272,13 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -4);
         }
 
-        if (!reached_end || disk.fail_read_countdown != 0u)
+        if (!reached_end || disk.fail_read_countdown != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
             return pfs_selftest_fail(__LINE__, -4);
     }
 
@@ -9996,7 +10008,7 @@ int prosenjitfs_selftest(void)
                 integrity_report.orphaned_inodes_reported != 0u)
                 return pfs_selftest_fail(__LINE__, -13);
 
-            for (read_position = 1u; read_position <= 256u; ++read_position) {
+            for (read_position = 1u; read_position <= 4096u; ++read_position) {
                 int scan_rc;
                 disk.fail_read_countdown = read_position;
                 scan_rc = prosenjitfs_check_integrity_report(
