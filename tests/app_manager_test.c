@@ -112,6 +112,30 @@ int main(void)
             fake_stage, fake_publish, fake_rollback, &storage
         };
 
+        CHECK(pros_app_install_transaction(&manager, "editor", NULL) ==
+              PROS_APP_EINVAL, 80);
+        CHECK(pros_app_install_transaction(&manager, "does-not-exist", &ops) ==
+              PROS_APP_ENOENT, 81);
+
+        manifest = make_manifest("transaction-untrusted", "bin/app");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 82);
+        CHECK(pros_app_install_transaction(&manager, "transaction-untrusted",
+                                           &ops) == PROS_APP_ETRUST, 83);
+        CHECK(storage.stage_calls == 0u && storage.publish_calls == 0u &&
+              storage.rollback_calls == 0u, 84);
+
+        manifest = make_manifest("transaction-missing-dep", "bin/app");
+        manifest.dependency_count = 1u;
+        (void)snprintf(manifest.dependencies[0],
+                       sizeof(manifest.dependencies[0]), "%s", "not-installed");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 85);
+        CHECK(pros_app_mark_verified(&manager, "transaction-missing-dep") ==
+              PROS_APP_OK, 86);
+        CHECK(pros_app_install_transaction(&manager, "transaction-missing-dep",
+                                           &ops) == PROS_APP_ENODEP, 87);
+        CHECK(storage.stage_calls == 0u && storage.publish_calls == 0u &&
+              storage.rollback_calls == 0u, 88);
+
         manifest = make_manifest("transaction-ok", "bin/app");
         CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 60);
         CHECK(pros_app_mark_verified(&manager, "transaction-ok") ==
