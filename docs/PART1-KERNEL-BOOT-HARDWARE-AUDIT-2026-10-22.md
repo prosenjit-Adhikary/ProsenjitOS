@@ -118,3 +118,22 @@ This is a remote source audit supplemented by actual GitHub Actions logs. CI evi
 - Added `scripts/test_interrupt_vectors.sh` and wired it into the build workflow to guard the error-code vector list. This is a source-contract regression check; it does not simulate CET/SEV-ES hardware exceptions.
 - Latest build/security CI for this exact follow-up commit must pass before treating it as verified.
 - Part 1 remains PARTIAL: this static correction does not replace register-sentinel tests, IST stack tests, page-table/allocator concurrency tests, DMA/IOMMU validation, UEFI testing or physical hardware testing.
+
+## Follow-up verification and exception-frame correction (2026-10-22)
+
+This addendum supersedes the older CI snapshot links above for the latest source head. The current branch head at the time of verification was `01a72c908cdd8d09539e23f461eb25aa1056adff`.
+
+- [Build and boot-test run #7837](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39780970730): **SUCCESS** on the Linux `Office1` runner. The workflow ran `bash -n` on the memory-map and interrupt-vector scripts, the exception-vector mapping regression, and the Multiboot2 memory-map regression. The ISO built successfully. ISO and native BIOS QEMU runs reached all required serial markers.
+- [Security architecture run](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39780970729): **SUCCESS**.
+- QEMU's exit status 124 is the configured 20-second timeout. Passing is based on the required serial markers being present before timeout; it is not a claim of unlimited-runtime stability.
+- Exception-vector review corrected vectors 21 (#CP), 29 (#VC), and 30 (#SX) to use the hardware-error-code stub macro. `scripts/test_interrupt_vectors.sh` asserts the error-code classification for vectors 8, 10, 11, 12, 13, 14, 17, 21, 29, and 30. CI output includes: `PASS: all modern x86-64 error-code exception stubs use consistent frames`.
+
+## Explicit remaining gaps
+
+- **Allocator concurrency:** physical allocation/free and bitmap accounting are not protected by locks. Current test evidence does not establish SMP-safe allocator operation; do not enable concurrent allocator callers without a synchronization design and tests.
+- **Page-table ownership/rollback:** map failure paths have rollback logic and QEMU address-space self-tests exist, but there is no exhaustive injected-allocation-failure test proving every partial page-table allocation is reclaimed. Treat this as partial, not proven complete.
+- **Thread kernel-stack ownership:** thread initialization receives a caller-supplied stack top; the audit has not established a uniform per-thread stack allocation, guard-page, lifetime and teardown contract for multiple concurrent user threads. Dedicated register-sentinel and IST-stack tests remain needed.
+- **DMA/IOMMU:** no complete DMA ownership/address-width/IOMMU safety path was established. PCI enumeration is not proof of safe bus mastering.
+- **Platform coverage:** no physical-hardware or UEFI boot validation was performed. SMP/race behavior remains unverified.
+
+Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded source/CI audit, not a complete kernel correctness or security proof.
