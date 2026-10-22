@@ -78,6 +78,8 @@ int main(void)
     CHECK(pros_desktop_audio_request_valid(
               &audio, sizeof(audio) + audio.header.payload_size), 15);
     CHECK(!pros_desktop_audio_request_valid(&audio, sizeof(audio) - 1u), 26);
+    CHECK(!pros_desktop_audio_request_valid(
+              &audio, sizeof(audio) + audio.header.payload_size - 1u), 27);
     audio.channels = 9u;
     CHECK(!pros_desktop_audio_request_valid(
               &audio, sizeof(audio) + audio.header.payload_size), 16);
