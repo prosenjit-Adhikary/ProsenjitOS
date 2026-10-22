@@ -165,6 +165,15 @@ static int check_dependencies(const struct pros_app_manager *manager,
             visiting[index] = 0u;
             return PROS_APP_ENODEP;
         }
+        /*
+         * Dependency IDs belong to one package ecosystem. Do not silently
+         * combine native, Linux, and Windows dependency namespaces.
+         */
+        if (manager->entries[dependency].manifest.backend !=
+            manifest->backend) {
+            visiting[index] = 0u;
+            return PROS_APP_EBACKEND;
+        }
         rc = check_dependencies(manager, (uint32_t)dependency,
                                 visiting, visited);
         if (rc != PROS_APP_OK) {
