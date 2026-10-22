@@ -7580,9 +7580,15 @@ int prosenjitfs_selftest(void)
             inode_rc = prosenjitfs_read_inode(&fs, rename_inode_before, &inode);
             if (inode_rc != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -202);
-            int consistency_rc = prosenjitfs_check_integrity(&fs);
+            struct pros_prosenjitfs_integrity_report consistency_report;
+            int consistency_rc = prosenjitfs_check_integrity_report(
+                &fs, &consistency_report);
             if (consistency_rc != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, consistency_rc);
+                return pfs_selftest_fail(
+                    __LINE__,
+                    consistency_report.first_error_location != 0u
+                        ? -(int)consistency_report.first_error_location
+                        : consistency_rc);
         }
         if (vfs_path_lookup(&fs.mount, "/persist/config/sub/tree.bin",
                             &node) != PROS_VFS_OK)
