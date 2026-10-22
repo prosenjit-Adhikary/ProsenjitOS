@@ -18,12 +18,25 @@ static struct pros_app_manifest make_manifest(const char *id,
     manifest.struct_size = (uint32_t)sizeof(manifest);
     manifest.abi_version = PROS_APP_ABI_VERSION;
     manifest.backend = PROS_APP_BACKEND_NATIVE;
-    manifest.install_state = PROS_APP_INSTALLED;
-    manifest.trust_state = PROS_APP_TRUST_VERIFIED;
+    manifest.install_state = PROS_APP_STAGED;
+    manifest.trust_state = PROS_APP_TRUST_UNKNOWN;
     (void)snprintf(manifest.id, sizeof(manifest.id), "%s", id);
     (void)snprintf(manifest.entry_point, sizeof(manifest.entry_point), "%s",
                    entry_point);
     return manifest;
+}
+
+
+static int register_installed(struct pros_app_manager *manager,
+                              struct pros_app_manifest *manifest)
+{
+    manifest->install_state = PROS_APP_STAGED;
+    manifest->trust_state = PROS_APP_TRUST_UNKNOWN;
+    if (pros_app_register(manager, manifest) != PROS_APP_OK)
+        return -1;
+    if (pros_app_mark_verified(manager, manifest->id) != PROS_APP_OK)
+        return -1;
+    return pros_app_commit_install(manager, manifest->id);
 }
 
 int main(void)
@@ -43,7 +56,10 @@ int main(void)
     manifest = make_manifest("editor", "bin/editor");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 6);
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EEXIST, 7);
-    CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_OK, 8);
+    CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_ESTATE, 8);
+    CHECK(pros_app_mark_verified(&manager, "editor") == PROS_APP_OK, 40);
+    CHECK(pros_app_commit_install(&manager, "editor") == PROS_APP_OK, 41);
+    CHECK(pros_app_preflight(&manager, "editor") == PROS_APP_OK, 42);
     CHECK(pros_app_get(&manager, "editor", &output) == PROS_APP_OK, 9);
     CHECK(strcmp(output.id, "editor") == 0, 10);
     CHECK(output.backend == PROS_APP_BACKEND_NATIVE, 11);
@@ -82,17 +98,14 @@ int main(void)
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_EABI, 18);
 
     manifest = make_manifest("untrusted", "bin/app");
-    manifest.trust_state = PROS_APP_TRUST_UNKNOWN;
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 19);
-    CHECK(pros_app_preflight(&manager, "untrusted") == PROS_APP_ETRUST, 20);
-    manifest = make_manifest("staged", "bin/app");
-    manifest.install_state = PROS_APP_STAGED;
-    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 21);
-    CHECK(pros_app_preflight(&manager, "staged") == PROS_APP_ESTATE, 22);
-    manifest = make_manifest("disabled", "bin/app");
+    CHECK(pros_app_commit_install(&manager, "untrusted") == PROS_APP_ETRUST, 20);
+    manifest = make_manifest("bad-trust-injection", "bin/app");
+    manifest.trust_state = PROS_APP_TRUST_VERIFIED;
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_ETRUST, 21);
+    manifest = make_manifest("bad-state", "bin/app");
     manifest.install_state = PROS_APP_DISABLED;
-    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 23);
-    CHECK(pros_app_preflight(&manager, "disabled") == PROS_APP_ESTATE, 24);
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_ESTATE, 22);
 
     CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 25);
     manifest = make_manifest("dependent", "bin/app");
@@ -100,17 +113,20 @@ int main(void)
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "base");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 26);
-    CHECK(pros_app_preflight(&manager, "dependent") == PROS_APP_ENODEP, 27);
+    CHECK(pros_app_mark_verified(&manager, "dependent") == PROS_APP_OK, 43);
+    CHECK(pros_app_commit_install(&manager, "dependent") == PROS_APP_ENODEP, 27);
     manifest = make_manifest("base", "bin/base");
-    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 28);
-    CHECK(pros_app_preflight(&manager, "dependent") == PROS_APP_OK, 29);
+    CHECK(register_installed(&manager, &manifest) == PROS_APP_OK, 28);
+    CHECK(pros_app_commit_install(&manager, "dependent") == PROS_APP_OK, 29);
+    CHECK(pros_app_preflight(&manager, "dependent") == PROS_APP_OK, 44);
     manifest = make_manifest("linux-dependent", "bin/app");
     manifest.backend = PROS_APP_BACKEND_LINUX;
     manifest.dependency_count = 1u;
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "base");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 30);
-    CHECK(pros_app_preflight(&manager, "linux-dependent") ==
+    CHECK(pros_app_mark_verified(&manager, "linux-dependent") == PROS_APP_OK, 45);
+    CHECK(pros_app_commit_install(&manager, "linux-dependent") ==
           PROS_APP_EBACKEND, 31);
 
     CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 32);
@@ -119,19 +135,27 @@ int main(void)
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "cycle-b");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 33);
+    CHECK(pros_app_mark_verified(&manager, "cycle-a") == PROS_APP_OK, 46);
     manifest = make_manifest("cycle-b", "bin/b");
     manifest.dependency_count = 1u;
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "cycle-a");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 34);
-    CHECK(pros_app_preflight(&manager, "cycle-a") == PROS_APP_ELOOP, 35);
+    CHECK(pros_app_mark_verified(&manager, "cycle-b") == PROS_APP_OK, 47);
+    CHECK(pros_app_commit_install(&manager, "cycle-b") == PROS_APP_ESTATE, 48);
+    /* Add a reverse edge to exercise cycle detection during staged commit. */
+    manager.entries[0].manifest.dependency_count = 1u;
+    (void)snprintf(manager.entries[0].manifest.dependencies[0],
+                   sizeof(manager.entries[0].manifest.dependencies[0]),
+                   "%s", "cycle-b");
+    CHECK(pros_app_commit_install(&manager, "cycle-a") == PROS_APP_ELOOP, 35);
 
     CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 36);
     for (uint32_t i = 0u; i < PROS_APP_MAX_ENTRIES; ++i) {
         char id[PROS_APP_ID_MAX];
         (void)snprintf(id, sizeof(id), "app-%u", i);
         manifest = make_manifest(id, "bin/app");
-        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 37);
+        CHECK(register_installed(&manager, &manifest) == PROS_APP_OK, 37);
     }
     manifest = make_manifest("registry-overflow", "bin/app");
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_ENOSPC, 38);
