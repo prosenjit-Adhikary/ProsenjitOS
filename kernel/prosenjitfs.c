@@ -5234,6 +5234,8 @@ struct pfs_test_disk {
     uint8_t dirty[512u / 8u];
     /* Fail a selected future flush to model a device durability error. */
     uint32_t fail_flush_countdown;
+    /* Persist the selected flush, then report an ambiguous I/O failure. */
+    uint32_t fail_flush_after_persist_countdown;
 };
 
 static int pfs_test_dirty(const struct pfs_test_disk *disk, uint64_t lba)
@@ -5290,10 +5292,16 @@ static int pfs_test_flush(struct pros_block_device *device)
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk)
         return PROS_BLOCK_EINVAL;
+    int fail_after_persist = 0;
     if (disk->fail_flush_countdown != 0u) {
         --disk->fail_flush_countdown;
         if (disk->fail_flush_countdown == 0u)
             return PROS_BLOCK_EIO;
+    }
+    if (disk->fail_flush_after_persist_countdown != 0u) {
+        --disk->fail_flush_after_persist_countdown;
+        if (disk->fail_flush_after_persist_countdown == 0u)
+            fail_after_persist = 1;
     }
     for (uint64_t lba = 0u; lba < 512u; ++lba) {
         if (pfs_test_dirty(disk, lba)) {
@@ -5302,7 +5310,7 @@ static int pfs_test_flush(struct pros_block_device *device)
             pfs_test_clear_dirty(disk, lba);
         }
     }
-    return PROS_BLOCK_OK;
+    return fail_after_persist ? PROS_BLOCK_EIO : PROS_BLOCK_OK;
 }
 
 static void pfs_test_power_loss(struct pfs_test_disk *disk)
@@ -8292,6 +8300,96 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -13);
         for (uint32_t i = 0u; i < sizeof(read_data); ++i)
             if (read_data[i] != old_data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
+     * Ambiguous commit flush: the device persists the commit record but
+     * reports an I/O error. The mount must still freeze writes; after power
+     * loss, remount must replay the durable committed transaction.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x68u ^ (uint8_t)(i * 9u));
+            new_data[i] = (uint8_t)(0xB7u ^ (uint8_t)(i * 15u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_flush_after_persist_countdown = 3u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_flush_after_persist_countdown != 0u ||
+            !fs.read_only || !fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        {
+            uint32_t durable_crc = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_crc = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_crc = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int retry_rc = vfs_file_open(
+                &fs.mount, "/ambiguous-flush.bin", PROS_VFS_O_WRITE, &file);
+
+            done = 0u;
+            if (retry_rc == PROS_VFS_OK) {
+                retry_rc = vfs_file_write(
+                    &file, old_data, sizeof(old_data), &done);
+                if (vfs_file_close(&file) != PROS_VFS_OK)
+                    return pfs_selftest_fail(__LINE__, -13);
+            }
+            if (retry_rc == PROS_VFS_OK || done != 0u ||
+                durable_crc != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_crc != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_crc != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != new_data[i]) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -13);
             }
