@@ -7383,6 +7383,156 @@ int prosenjitfs_selftest(void)
         }
 
         /*
+         * Duplicate-name regression: create two distinct names that hash to
+         * the same directory bucket, then rewrite the second entry to the
+         * first name with a valid checksum. The checker must reject the
+         * ambiguous namespace and leave mock media unchanged while scanning.
+         */
+        {
+            static const char first_name[] = "bucket-collision-1";
+            static const char second_name[] = "bucket-collision-10";
+            static const char first_path[] = "/bucket-collision-1";
+            static const char second_path[] = "/bucket-collision-10";
+            struct pros_vfs_file create_file;
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_index root_index;
+            struct pros_prosenjitfs_dir_entry first_entry;
+            struct pros_prosenjitfs_dir_entry second_entry;
+            uint8_t entry_block[4096];
+            uint8_t original_second_block[4096];
+            uint8_t corrupt_second_block[4096];
+            uint64_t first_lba = 0u;
+            uint64_t second_lba = 0u;
+            uint64_t current;
+            uint64_t steps = 0u;
+            uint32_t bucket;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (pfs_name_hash((const uint8_t *)first_name,
+                              (uint32_t)(sizeof(first_name) - 1u)) %
+                    PROSENJITFS_DIR_BUCKETS !=
+                pfs_name_hash((const uint8_t *)second_name,
+                              (uint32_t)(sizeof(second_name) - 1u)) %
+                    PROSENJITFS_DIR_BUCKETS)
+                return pfs_selftest_fail(__LINE__, -14);
+            if (vfs_file_open(&fs.mount, first_path,
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &create_file) != PROS_VFS_OK ||
+                vfs_file_close(&create_file) != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, second_path,
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE,
+                              &create_file) != PROS_VFS_OK ||
+                vfs_file_close(&create_file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_read_dir_index(&fs, &root_inode, &root_index) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+            bucket = pfs_name_hash((const uint8_t *)first_name,
+                                   (uint32_t)(sizeof(first_name) - 1u)) %
+                     PROSENJITFS_DIR_BUCKETS;
+            current = root_index.heads[bucket];
+            while (current != 0u && ++steps <= fs.sb.total_blocks) {
+                uint32_t is_first = 1u;
+                uint32_t is_second = 1u;
+                if (current < fs.sb.data_start ||
+                    current >= fs.sb.total_blocks ||
+                    pfs_read_block(fs.mount.device, current, entry_block) !=
+                        PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -14);
+                pfs_copy(&first_entry, entry_block, sizeof(first_entry));
+                if (first_entry.name_length == sizeof(first_name) - 1u) {
+                    for (uint32_t ni = 0u;
+                         ni < sizeof(first_name) - 1u; ++ni) {
+                        if (first_entry.name[ni] != (uint8_t)first_name[ni]) {
+                            is_first = 0u;
+                            break;
+                        }
+                    }
+                    if (is_first != 0u)
+                        first_lba = current;
+                } else {
+                    is_first = 0u;
+                }
+                if (first_entry.name_length == sizeof(second_name) - 1u) {
+                    for (uint32_t ni = 0u;
+                         ni < sizeof(second_name) - 1u; ++ni) {
+                        if (first_entry.name[ni] != (uint8_t)second_name[ni]) {
+                            is_second = 0u;
+                            break;
+                        }
+                    }
+                    if (is_second != 0u) {
+                        second_lba = current;
+                        pfs_copy(original_second_block, entry_block,
+                                 fs.sb.block_size);
+                        second_entry = first_entry;
+                    }
+                }
+                current = first_entry.next;
+            }
+            if (first_lba == 0u || second_lba == 0u ||
+                first_lba == second_lba)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            pfs_copy(corrupt_second_block, original_second_block,
+                     fs.sb.block_size);
+            pfs_zero(second_entry.name, sizeof(second_entry.name));
+            pfs_copy(second_entry.name, first_name,
+                     (uint32_t)(sizeof(first_name) - 1u));
+            second_entry.name[sizeof(first_name) - 1u] = 0u;
+            second_entry.name_length = (uint32_t)(sizeof(first_name) - 1u);
+            second_entry.name_hash = pfs_name_hash(
+                (const uint8_t *)first_name,
+                (uint32_t)(sizeof(first_name) - 1u));
+            second_entry.checksum = 0u;
+            pfs_copy(corrupt_second_block, &second_entry,
+                     sizeof(second_entry));
+            second_entry.checksum = pfs_crc_with_zero32(
+                corrupt_second_block, sizeof(second_entry),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
+            pfs_copy(corrupt_second_block, &second_entry,
+                     sizeof(second_entry));
+
+            if (pfs_write_block(fs.mount.device, second_lba,
+                                corrupt_second_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, second_lba,
+                                      original_second_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, second_lba,
+                                      original_second_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, second_lba,
+                                original_second_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
+        /*
          * Cross-inode ownership regression: create a second file, then point
          * its checksum-valid extent at a block already owned by
          * sparse-delalloc-cross.bin. The global owner map must reject aliasing
