@@ -128,6 +128,13 @@ int main(void)
     CHECK(pros_app_mark_verified(&manager, "linux-dependent") == PROS_APP_OK, 45);
     CHECK(pros_app_commit_install(&manager, "linux-dependent") ==
           PROS_APP_EBACKEND, 31);
+    CHECK(pros_app_uninstall(&manager, "linux-dependent") == PROS_APP_OK, 49);
+    CHECK(pros_app_disable(&manager, "dependent") == PROS_APP_OK, 50);
+    CHECK(pros_app_preflight(&manager, "dependent") == PROS_APP_ESTATE, 51);
+    CHECK(pros_app_uninstall(&manager, "base") == PROS_APP_EBUSY, 52);
+    CHECK(pros_app_uninstall(&manager, "dependent") == PROS_APP_OK, 53);
+    CHECK(pros_app_uninstall(&manager, "base") == PROS_APP_OK, 54);
+    CHECK(pros_app_uninstall(&manager, "base") == PROS_APP_ENOENT, 55);
 
     CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 32);
     manifest = make_manifest("cycle-a", "bin/a");
