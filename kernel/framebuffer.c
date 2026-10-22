@@ -140,6 +140,13 @@ int pros_framebuffer_init(uint32_t boot_magic, uint64_t boot_info_address)
     if (map_length == 0u || map_length > (256ULL * 1024ULL * 1024ULL))
         return PROS_DRIVER_EINVAL;
 
+    /*
+     * This is a boot-time kernel-device initialization path. A previous
+     * address-space self-test may have left a process root active; the MMIO
+     * mapping is installed in the kernel root, so restore that root before
+     * touching the new virtual mapping.
+     */
+    if (paging_switch_kernel() != 0) return PROS_DRIVER_EIO;
     rc = paging_map_mmio_range(FRAMEBUFFER_VIRTUAL_BASE, page_base, map_length);
     if (rc != 0) return PROS_DRIVER_EIO;
 
