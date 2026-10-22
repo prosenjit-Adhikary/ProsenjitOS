@@ -5775,22 +5775,38 @@ static int pfs_selftest_consistency(
                     fail_line = __LINE__;
                         goto consistency_out;
                 }
-                if (extent.logical_block < logical_end ||
-                    extent.logical_block >
-                        UINT64_MAX - extent.block_count ||
-                    extent.block_count > UINT64_MAX / fs->sb.block_size ||
-                    allocated_bytes >
-                        UINT64_MAX -
-                        extent.block_count * fs->sb.block_size) {
-                    rc = -10002;
-                    fail_line = __LINE__;
+                /*
+                 * Validate the complete logical and physical ranges before
+                 * iterating. Besides preventing integer wrap, this bounds the
+                 * work by the actual volume size: a checksum-valid corrupt
+                 * block_count must not turn a read-only scan into an enormous
+                 * loop. Subtraction-based checks avoid overflowing end values.
+                 */
+                {
+                    uint64_t max_logical_blocks =
+                        fs->sb.total_blocks - fs->sb.data_start;
+                    if (extent.block_count == 0u ||
+                        extent.logical_block < logical_end ||
+                        extent.logical_block >= max_logical_blocks ||
+                        extent.block_count >
+                            max_logical_blocks - extent.logical_block ||
+                        extent.physical_block < fs->sb.data_start ||
+                        extent.physical_block >= fs->sb.total_blocks ||
+                        extent.block_count >
+                            fs->sb.total_blocks - extent.physical_block ||
+                        extent.block_count >
+                            UINT64_MAX / fs->sb.block_size ||
+                        allocated_bytes >
+                            UINT64_MAX -
+                            extent.block_count * fs->sb.block_size) {
+                        rc = -10002;
+                        fail_line = __LINE__;
                         goto consistency_out;
+                    }
                 }
                 for (uint64_t n = 0u; n < extent.block_count; ++n) {
                     physical = extent.physical_block + n;
-                    if (physical < fs->sb.data_start ||
-                        physical >= fs->sb.total_blocks ||
-                        pfs_consistency_mark(owner, fs->sb.total_blocks,
+                    if (pfs_consistency_mark(owner, fs->sb.total_blocks,
                                              physical) != PROSENJITFS_OK) {
                         rc = -10003;
                         fail_line = __LINE__;
