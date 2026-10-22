@@ -6,13 +6,12 @@ This is a source-grounded tracking document, not a declaration that ProsenjitFS 
 `hardening/prosenjitfs-report-only-orphan-inodes` (source file SHA observed during inspection:
 `ed78325c8539de09daca7968a9b18d73323a162c` for `kernel/prosenjitfs.c`).
 
-Relevant review work is still unmerged:
-- PR #170: report-only orphan data-block candidates.
-- PR #172: report-only orphan inode candidates; stacked on #170.
-- PR #173: contradictory journal commit rejection and recovery hardening. This is a separate review branch and is **not assumed to be present** in the #172 source baseline.
-- Issue #166: conservative integrity scan and staged self-healing.
+Integration status as of 2026-10-22:
+- PR #170 (orphan block reporting) was merged into `main`.
+- The combined integrity/inode/extent validation and journal recovery hardening was merged through PR #179.
+- Issue #166 remains open for follow-up on the repair roadmap; automatic orphan reclamation is deliberately deferred.
 
-Do not merge PRs, reclaim orphan objects, or describe unrun tests as passing as part of this work.
+Do not reclaim orphan objects or describe unrun tests as passing.
 
 ## Completion matrix
 
@@ -50,8 +49,9 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 ## Verification record
 
-- Live repository and Issue #166 inspected on 2026-10-22.
-- PR #170, #172 and #173 remain open/unmerged; PR #177 is a draft stacked on #172.
-- PR #177 head `6bafe8ae8b2d95155bc0b6ffe5c037bb1694ca60` passed [build and boot-test #7770](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39770985792) and [security architecture #7306](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39770985864). The build workflow passed desktop/DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot.
-- These results are tied to PR #177's branch atop #172, not to a final commit combining the separate journal-hardening PR #173.
-- No production repair or orphan reclamation is implemented or claimed. Full completion remains gated on branch reconciliation, final combined-commit verification, and a reviewed crash-safe repair design if repair remains in scope.
+- Consolidated change PR #179 was merged to `main` as commit `4bb5a241054b8e7b661672fc9ee64b0a30919756`.
+- Exact pre-merge head `3cb91f739a839bf05461b754b698b4f3c7341b18` passed [build and boot-test #7775](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39772556092) and [security architecture #7311](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39772555954).
+- The build/boot workflow passed desktop/DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot.
+- Integrity regressions cover report-only orphan blocks/inodes, checksum-valid out-of-capacity extents and oversized inode sizes, deterministic reports, and read-only media invariance. Journal regressions cover reused commit slots, contradictory commit metadata, write/flush failure boundaries, and recovery restart.
+- Mock-device/QEMU tests do not prove physical hardware power-loss durability.
+- Automatic repair and orphan reclamation remain deliberately deferred; a report-only candidate is not safe to free without a separately reviewed, crash-safe and resumable repair design.
