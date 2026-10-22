@@ -5746,7 +5746,10 @@ static int pfs_selftest_consistency(
                 if (allocated_bytes != inode.allocated_bytes ||
                     logical_end > logical_blocks) {
                     rc = -10004;
-                    fail_line = __LINE__;
+                    /* Temporary diagnostic encoding for the CI self-test. */
+                    fail_line = logical_end > logical_blocks
+                              ? (uint32_t)(10000u + inode_number)
+                              : __LINE__;
                     goto consistency_out;
                 }
             }
