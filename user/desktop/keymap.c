@@ -36,6 +36,7 @@ void pros_keymap_reset(struct pros_keymap_state *state)
     state->left_shift = 0u;
     state->right_shift = 0u;
     state->caps_lock = 0u;
+    state->caps_pressed = 0u;
     state->control = 0u;
     state->alt = 0u;
 }
@@ -72,7 +73,10 @@ uint32_t pros_keymap_translate(struct pros_keymap_state *state,
         return 0u;
     }
     if (!extended && code == 0x3Au) {
-        if (pressed) state->caps_lock = (uint8_t)!state->caps_lock;
+        /* Typematic make codes must not toggle Caps Lock repeatedly. */
+        if (pressed && !state->caps_pressed)
+            state->caps_lock = (uint8_t)!state->caps_lock;
+        state->caps_pressed = pressed;
         return 0u;
     }
     if (!extended && code == 0x1Du) { state->control = pressed; return 0u; }
