@@ -92,7 +92,7 @@ int main(void) {
     struct test_mmap_tag *oversized =
         (struct test_mmap_tag *)(info + sizeof(struct test_info_header));
     oversized->type = 6u;
-    oversized->size = 16u;
+    oversized->size = 40u;
     oversized->entry_size = (uint32_t)sizeof(struct test_mmap_entry);
     oversized->entry_version = 0u;
     ((struct test_info_header *)info)->total_size = 32u;
