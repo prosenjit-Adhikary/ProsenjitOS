@@ -6,7 +6,7 @@ Status: **protocol and host-side state model only**. This is not a display serve
 
 Native and Windows application subsystems use one service contract. A future IPC adapter must bind caller identity to kernel-provided IPC peer identity; clients must not self-assert a process ID or subsystem. The current host model accepts IDs directly for deterministic testing and is not a security boundary.
 
-- ABI version is PROS_SD_ABI_VERSION (currently 1); pros_sd_event carries abi_version and struct_size.
+- The wire protocol is the existing Part 1 ABI in include/abi/desktop.h (PROSENJIT_DESKTOP_ABI_VERSION); this layer calls its size/type/operation validators before state changes. pros_sd_event is an internal routed-event record, not a replacement wire ABI.
 - Handles are opaque nonzero IDs checked against live records. A production implementation must use generation-tagged kernel capability handles to prevent stale-handle reuse; the host model is not a substitute.
 - Process ownership is authoritative. Only a window owner may destroy it. Focus/input routing accepts only live connected processes and windows.
 - Window lifecycle: connect -> create -> focus -> route input -> destroy. Disconnect/exit revokes owned windows/audio handles and clears focus.
@@ -31,7 +31,7 @@ Native and Windows application subsystems use one service contract. A future IPC
 
 ## Tests and acceptance
 
-The host state model in user/desktop/shared_desktop.[ch] covers focus/input routing, window destruction and ownership, clipboard permissions and size limits, invalid/stale handles, audio ownership, process exit and disconnect cleanup. Run make desktop-shared-test. This is not connected to kernel IPC, include/abi/display.h, include/abi/input.h, real devices or a process manager.
+The host state model in user/desktop/shared_desktop.[ch] consumes the existing Part 1 wire contract through pros_sd_validate_request() and covers focus/input routing, window destruction and ownership, clipboard permissions and size limits, invalid/stale handles, audio ownership, process exit and disconnect cleanup. It does not add a second public wire protocol. Run make desktop-shared-test. This is not connected to kernel IPC, include/abi/display.h, include/abi/input.h, real devices or a process manager.
 
 | Criterion | Evidence/status |
 |---|---|
