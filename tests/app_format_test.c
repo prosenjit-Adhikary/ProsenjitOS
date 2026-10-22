@@ -1,4 +1,5 @@
 #include "app_format.h"
+#include "app_manager.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -76,19 +77,19 @@ int main(void)
     CHECK(format == PROS_APP_FORMAT_OLE_CONTAINER, 19);
 
     CHECK(pros_app_format_compatible_with_backend(
-              1u, PROS_APP_FORMAT_ELF64) == 1, 20);
+              PROS_APP_BACKEND_NATIVE, PROS_APP_FORMAT_ELF64) == 1, 20);
     CHECK(pros_app_format_compatible_with_backend(
-              2u, PROS_APP_FORMAT_ELF32) == 1, 21);
+              PROS_APP_BACKEND_LINUX, PROS_APP_FORMAT_ELF32) == 1, 21);
     CHECK(pros_app_format_compatible_with_backend(
-              3u, PROS_APP_FORMAT_PE32_PLUS) == 1, 22);
+              PROS_APP_BACKEND_WINDOWS, PROS_APP_FORMAT_PE32_PLUS) == 1, 22);
     CHECK(pros_app_format_compatible_with_backend(
-              3u, PROS_APP_FORMAT_ELF64) == 0, 23);
+              PROS_APP_BACKEND_WINDOWS, PROS_APP_FORMAT_ELF64) == 0, 23);
     CHECK(pros_app_format_compatible_with_backend(
-              1u, PROS_APP_FORMAT_PE32) == 0, 24);
+              PROS_APP_BACKEND_NATIVE, PROS_APP_FORMAT_PE32) == 0, 24);
     CHECK(pros_app_format_compatible_with_backend(
               99u, PROS_APP_FORMAT_ELF64) == 0, 25);
     CHECK(pros_app_format_compatible_with_backend(
-              3u, PROS_APP_FORMAT_OLE_CONTAINER) == 0, 26);
+              PROS_APP_BACKEND_WINDOWS, PROS_APP_FORMAT_OLE_CONTAINER) == 0, 26);
 
     (void)puts("application format tests passed");
     return 0;
