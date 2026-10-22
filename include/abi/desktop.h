@@ -203,8 +203,17 @@ static inline int pros_desktop_window_request_valid(
         return 0;
 
     type = request->header.type;
-    if (type == PROS_DESKTOP_MSG_WINDOW_CREATE ||
-        type == PROS_DESKTOP_MSG_WINDOW_MOVE ||
+    if (type == PROS_DESKTOP_MSG_WINDOW_CREATE) {
+        /* The service allocates window IDs; clients cannot choose one. */
+        return request->window_id == 0u &&
+               pros_desktop_rect_valid(&request->bounds);
+    }
+
+    /* Non-create operations must name an existing window. */
+    if (request->window_id == 0u)
+        return 0;
+
+    if (type == PROS_DESKTOP_MSG_WINDOW_MOVE ||
         type == PROS_DESKTOP_MSG_WINDOW_RESIZE)
         return pros_desktop_rect_valid(&request->bounds);
     return 1;
