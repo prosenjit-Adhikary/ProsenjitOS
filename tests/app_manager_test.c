@@ -174,6 +174,9 @@ int main(void)
                                            &ops) == PROS_APP_EROLLBACK, 91);
         CHECK(storage.stage_calls == 1u && storage.publish_calls == 0u &&
               storage.rollback_calls == 1u, 92);
+        CHECK(pros_app_get(&manager, "transaction-stage-rollback-fail",
+                           &output) == PROS_APP_OK &&
+              output.install_state == PROS_APP_STAGED, 93);
 
         storage = (struct fake_storage){0};
         storage.publish_result = -1;
