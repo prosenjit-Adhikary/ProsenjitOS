@@ -85,7 +85,8 @@ int main(void) {
                       "reserved overlap overrides available range");
     failures += check(physical_memory_free_pages() == 1536u,
                       "free-page accounting excludes reserved overlap");
-    failures += check(physical_page_alloc() == 0x00100000ULL,
+    uint64_t first_page = physical_page_alloc();
+    failures += check(first_page == 0x00100000ULL,
                       "allocator returns first available page");
 
     uint64_t before_reinit = physical_memory_free_pages();
@@ -116,6 +117,34 @@ int main(void) {
         failures += check(physical_memory_free_pages() == before_user_free + 1u,
                           "double free does not inflate free-page accounting");
     }
+
+    uint64_t free_before_invalid = physical_memory_free_pages();
+    physical_page_free(0);
+    physical_page_free(0x1000ULL);
+    physical_page_free(0x00100001ULL);
+    physical_page_free(0x40000000ULL);
+    failures += check(physical_memory_free_pages() == free_before_invalid,
+                      "page-zero, reserved, unaligned and out-of-range frees are ignored");
+
+    uint64_t allocated[2048];
+    uint64_t allocated_count = 0;
+    uint64_t page;
+    while ((page = physical_page_alloc()) != 0 &&
+           allocated_count < (sizeof(allocated) / sizeof(allocated[0]))) {
+        allocated[allocated_count++] = page;
+    }
+    failures += check(physical_memory_free_pages() == 0,
+                      "allocator exhausts available pages without underflow");
+    uint64_t failed_before = physical_memory_failed_allocations();
+    failures += check(physical_page_alloc() == 0 &&
+                      physical_memory_free_pages() == 0 &&
+                      physical_memory_failed_allocations() == failed_before + 1u,
+                      "allocation failure preserves accounting");
+    for (uint64_t i = 0; i < allocated_count; ++i)
+        physical_page_free(allocated[i]);
+    physical_page_free(first_page);
+    failures += check(physical_memory_free_pages() == physical_memory_total_pages(),
+                      "repeated allocation/free cycle restores all managed pages");
 
     begin_info();
     struct test_mmap_tag *oversized =
