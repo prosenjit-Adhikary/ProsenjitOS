@@ -23,4 +23,4 @@ All backends remain metadata identities until their respective runtime, package-
 
 ## Verification gate
 
-Run `make app-unit-test` in the approved development environment. This branch has not yet been verified on the required OfficeWindows runner. Do not use the existing Debian/Linux self-hosted workflow as a substitute for that runner requirement. Before merging, run the unit tests on OfficeWindows and complete a source review; boot/runtime compatibility is outside this module's claim.
+Run `make app-unit-test` on the project-designated OfficeWindows/self-hosted runner. This branch has not yet been verified because the runner is currently unavailable. A queued or not-started workflow is not a pass, and an unrelated local build must not be reported as runner verification. Before merging, inspect the test logs from the required runner and complete a source review; boot/runtime compatibility is outside this module's claim.
