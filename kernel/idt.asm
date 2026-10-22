@@ -97,11 +97,10 @@ isr128:
 
 isr32:
     cli
-    ; IRQ0 is a returning interrupt, so preserve the complete general
-    ; register state before entering C code. This is the minimum safe
-    ; foundation for later timer-driven context switching.
-    ; Build pros_interrupt_frame in memory order:
-    ; rax..r15, vector, error_code, then the CPU iret frame.
+    ; IRQ0 is a returning interrupt. Save all GPRs and keep the logical frame
+    ; pointer separate from the C-call stack alignment; the interrupted kernel
+    ; RSP can be at any alignment because the timer may fire at any instruction.
+    ; Frame layout at r12: vector,error,RAX..R15,RIP,CS,RFLAGS.
     push r15
     push r14
     push r13
@@ -119,28 +118,32 @@ isr32:
     push rax
     push qword 0
     push qword 32
-    ; After the CPU's kernel-mode iret frame and 17 qwords above, RSP is
-    ; 0 mod 16. Align the C ABI without changing the logical frame pointer.
-    sub rsp, 8
-    lea rdi, [rsp + 24]
+
+    mov r12, rsp
+    and rsp, -16
+    lea rdi, [r12 + 16]
     call timer_dispatch
     call timer_should_preempt
     test eax, eax
     jz .timer_no_switch
-    lea rdi, [rsp + 24]
+
+    lea rdi, [r12 + 16]
     call thread_schedule_interrupt
     test rax, rax
     jz .timer_no_switch
 
-    ; A switched thread supplies a saved pros_interrupt_frame whose layout
-    ; is RAX..R15, RIP, CS, RFLAGS. It has no synthetic vector/error pair.
-    mov rsp, rax
+    ; The returned frame belongs to the next thread. Preserve that pointer
+    ; across the C EOI helper, which may clobber caller-saved registers.
+    mov r12, rax
+    call pic_eoi_master
+    mov rsp, r12
     jmp .timer_restore_switched
 
 .timer_no_switch:
-    ; The current IRQ frame still contains vector/error below RAX..R15.
-    ; Restore the GPRs first, then skip those two words before IRET.
-    add rsp, 24
+    ; Send EOI while the interrupted register frame is still intact.
+    call pic_eoi_master
+    mov rsp, r12
+    add rsp, 16
     pop rax
     pop rbx
     pop rcx
@@ -156,7 +159,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 .timer_restore_switched:
@@ -175,7 +177,6 @@ isr32:
     pop r13
     pop r14
     pop r15
-    call pic_eoi_master
     iretq
 
 %macro ISR_NO_ERROR 1
