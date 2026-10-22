@@ -6940,6 +6940,112 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -14);
         }
 
+        /*
+         * Duplicate namespace-name regression: find two valid entries in one
+         * directory hash bucket, rewrite the second to the first name, and
+         * recompute its checksum. Integrity scanning must reject ambiguous
+         * lookup semantics without performing repair or other media writes.
+         */
+        {
+            struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_dir_index root_index;
+            struct pros_prosenjitfs_dir_entry first_entry;
+            struct pros_prosenjitfs_dir_entry second_entry;
+            uint8_t first_entry_block[4096];
+            uint8_t original_second_block[4096];
+            uint8_t corrupt_second_block[4096];
+            uint64_t second_lba = 0u;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                    PROSENJITFS_OK ||
+                pfs_read_dir_index(&fs, &root_inode, &root_index) !=
+                    PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            for (uint32_t bucket = 0u;
+                 bucket < PROSENJITFS_DIR_BUCKETS && second_lba == 0u;
+                 ++bucket) {
+                uint64_t first_lba = root_index.heads[bucket];
+                if (first_lba == 0u ||
+                    pfs_read_block(fs.mount.device, first_lba,
+                                   first_entry_block) != PROSENJITFS_OK)
+                    continue;
+                pfs_copy(&first_entry, first_entry_block,
+                         sizeof(first_entry));
+                if (first_entry.next == 0u ||
+                    first_entry.next < fs.sb.data_start ||
+                    first_entry.next >= fs.sb.total_blocks)
+                    continue;
+                second_lba = first_entry.next;
+                if (pfs_read_block(fs.mount.device, second_lba,
+                                   original_second_block) != PROSENJITFS_OK) {
+                    second_lba = 0u;
+                    continue;
+                }
+                pfs_copy(&second_entry, original_second_block,
+                         sizeof(second_entry));
+            }
+            if (second_lba == 0u ||
+                first_entry.name_length == 0u ||
+                first_entry.name_length > PROSENJITFS_MAX_NAME)
+                return pfs_selftest_fail(__LINE__, -14);
+
+            pfs_copy(corrupt_second_block, original_second_block,
+                     fs.sb.block_size);
+            pfs_copy(&second_entry, corrupt_second_block,
+                     sizeof(second_entry));
+            pfs_zero(second_entry.name, sizeof(second_entry.name));
+            pfs_copy(second_entry.name, first_entry.name,
+                     first_entry.name_length);
+            second_entry.name[first_entry.name_length] = 0u;
+            second_entry.name_length = first_entry.name_length;
+            second_entry.name_hash = first_entry.name_hash;
+            second_entry.checksum = 0u;
+            pfs_copy(corrupt_second_block, &second_entry,
+                     sizeof(second_entry));
+            second_entry.checksum = pfs_crc_with_zero32(
+                corrupt_second_block, sizeof(second_entry),
+                (uint32_t)offsetof(struct pros_prosenjitfs_dir_entry, checksum));
+            pfs_copy(corrupt_second_block, &second_entry,
+                     sizeof(second_entry));
+
+            if (pfs_write_block(fs.mount.device, second_lba,
+                                corrupt_second_block) != PROSENJITFS_OK) {
+                (void)pfs_write_block(fs.mount.device, second_lba,
+                                      original_second_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)pfs_write_block(fs.mount.device, second_lba,
+                                      original_second_block);
+                return pfs_selftest_fail(__LINE__, -14);
+            }
+            if (pfs_write_block(fs.mount.device, second_lba,
+                                original_second_block) != PROSENJITFS_OK ||
+                prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_OK ||
+                integrity_report.status != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -14);
+        }
+
         if (pfs_read_extent(&fs, cross_inode.extent_head, &first_extent) !=
                 PROSENJITFS_OK ||
             first_extent.logical_block != low_block ||
