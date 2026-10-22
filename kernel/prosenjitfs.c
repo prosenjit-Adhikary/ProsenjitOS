@@ -6198,6 +6198,48 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -4);
         }
 
+        /*
+         * A malformed parent must fail closed, not be counted as a valid
+         * orphan candidate. Use a self-parented file inode, snapshot media
+         * after deliberately injecting it, and prove the scan itself is
+         * still read-only before restoring the valid parent.
+         */
+        orphan_inode.parent_inode = orphan_inode_number;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                    &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                PROSENJITFS_ECORRUPT ||
+            integrity_report.status != PROSENJITFS_ECORRUPT ||
+            integrity_report.orphaned_inodes_reported != 0u ||
+            integrity_report.first_orphaned_inode != 0u ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            orphan_inode.parent_inode = fs.sb.root_inode;
+            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                          &orphan_inode);
+            pfs_zero(&orphan_inode, sizeof(orphan_inode));
+            orphan_inode.type = PROSENJITFS_INODE_FREE;
+            (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                          &orphan_inode);
+            (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
+            return pfs_selftest_fail(__LINE__, -4);
+        }
+        orphan_inode.parent_inode = fs.sb.root_inode;
+        if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                    &orphan_inode) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -4);
+
         pfs_zero(&orphan_inode, sizeof(orphan_inode));
         orphan_inode.type = PROSENJITFS_INODE_FREE;
         if (prosenjitfs_write_inode(&fs, orphan_inode_number, &orphan_inode) !=
