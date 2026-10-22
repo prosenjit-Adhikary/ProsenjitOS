@@ -14,7 +14,9 @@ struct pros_keymap_state {
     uint8_t caps_lock;
     uint8_t caps_pressed;
     uint8_t control;
+    uint8_t right_control;
     uint8_t alt;
+    uint8_t right_alt;
 };
 
 void pros_keymap_reset(struct pros_keymap_state *state);
