@@ -75,3 +75,15 @@ This is a remote source audit supplemented by actual GitHub Actions logs. CI evi
 - Native BIOS QEMU exited with status 124 because the configured timeout terminated QEMU; required serial markers were checked and passed before the workflow concluded success. This is not an unlimited-duration boot or physical-hardware test.
 - Security architecture workflow [run #7332](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39776529531): SUCCESS for the audit head.
 - These CI results improve confidence in the existing boot/test path but do not close the remaining memory-map edge cases, full interrupt/scheduler/IPC audit, DMA/IOMMU safety, UEFI, or physical-hardware validation. No kernel source change was made.
+
+
+## Addendum — memory-map hardening and CI verification (2026-10-22)
+
+- Source change: `kernel/memory.c` commit `90dc0130fae6794dfd662efebf2823afbd1c79c8`.
+- Changes: Multiboot2 tag bounds use subtract-before-add validation; malformed/missing end tags are rejected; memory-map payload must fit within the parent tag; entry version/stride/payload size are validated; non-available firmware ranges are reserved after available ranges so overlapping descriptions fail closed.
+- Build and boot-test workflow [#7804](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39777558176): SUCCESS on the authorized Linux self-hosted runner. Desktop manager unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU marker checks, and native BIOS QEMU marker checks passed.
+- Native BIOS serial evidence includes physical memory deep invariant, page allocation/free, paging and heap deep invariants, address-space isolation, syscall ABI/policy, security runtime W^X/NX, process/thread/scheduler/IPC regressions, ProsenjitFS format/mount/journal/recovery, ATA PIO -> MBR -> persistent ProsenjitFS mount, PCI enumeration (six devices in this QEMU run), and CPL3 syscall/IPC.
+- Native BIOS QEMU exit status was 124 at the configured 20-second timeout; all required serial milestones were present and checked by CI. This is a bounded QEMU marker test, not physical-hardware or unlimited-runtime validation.
+- Security architecture workflow [#7336](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39777558161): SUCCESS.
+- Remaining: add a focused host-side synthetic Multiboot2 parser test (including truncated tag, oversized mmap payload, missing end tag, and overlapping available/reserved ranges); complete function-level interrupt/scheduler/IPC and page-table ownership/concurrency review; DMA/IOMMU, UEFI and physical hardware remain unverified.
+- Overall Part 1 acceptance remains NOT COMPLETE until the new parser change has focused malformed-input regression coverage and the remaining hardware/security audit gates are resolved.
