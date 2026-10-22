@@ -79,9 +79,15 @@ int main(void)
     CHECK(!pros_desktop_window_request_valid(&window, sizeof(window) - 1u), 29);
     window.header.type = PROS_DESKTOP_MSG_WINDOW_FOCUS;
     window.bounds.width = 0u;
+    window.window_id = 1u;
     CHECK(pros_desktop_window_request_valid(&window, sizeof(window)), 30);
+    window.window_id = 0u;
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 47);
     window.header.type = PROS_DESKTOP_MSG_WINDOW_CREATE;
     CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 31);
+    window.window_id = 1u; /* Clients cannot choose the server-owned ID. */
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 48);
+    window.window_id = 0u;
     window.bounds = rect;
     window.reserved = 1u;
     CHECK(!pros_desktop_window_request_valid(&window, sizeof(window)), 32);
