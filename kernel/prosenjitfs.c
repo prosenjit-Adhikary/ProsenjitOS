@@ -8214,6 +8214,74 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * A failure before the journal header is published is retryable. Fail
+     * the first transaction flush (commit-slot invalidation), verify the
+     * mount remains writable and no bytes are reported written, then retry
+     * successfully on the same mount and verify the new contents.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x24u ^ (uint8_t)(i * 5u));
+            new_data[i] = (uint8_t)(0xC2u ^ (uint8_t)(i * 7u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/precommit-flush.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_flush_countdown = 1u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_flush_countdown != 0u ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, new_data, sizeof(new_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(new_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/precommit-flush.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != new_data[i])
+                return pfs_selftest_fail(__LINE__, -13);
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * Device-flush failure at the commit durability boundary.
      *
      * The first two transaction flushes retire the reused commit slot and
