@@ -278,7 +278,7 @@ static inline int pros_desktop_clipboard_request_valid(
 {
     if (request == 0 || received_bytes < sizeof(*request) ||
         !pros_desktop_message_fits(&request->header, received_bytes) ||
-        request->header.struct_size < sizeof(*request) ||
+        request->header.struct_size != sizeof(*request) ||
         (request->header.type != PROS_DESKTOP_MSG_CLIPBOARD_READ &&
          request->header.type != PROS_DESKTOP_MSG_CLIPBOARD_WRITE) ||
         request->reserved != 0u ||
