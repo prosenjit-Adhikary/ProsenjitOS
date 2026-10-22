@@ -1205,7 +1205,20 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         uint32_t registered_count = 0u;
         uint32_t classified_count = 0u;
         uint32_t unsupported_class_count = 0u;
+        uint32_t assigned_bar_count = 0u;
+        uint32_t unsupported_bar_count = 0u;
         for (uint32_t i = 0u; i < pci_count; ++i) {
+            /* Read BAR bases only; do not write sizing masks or enable bus mastering. */
+            for (uint8_t bar_index = 0u; bar_index < PROS_PCI_BAR_COUNT_MAX; ++bar_index) {
+                struct pros_pci_bar bar;
+                int bar_rc = pci_read_bar(&pci_devices[i], bar_index, &bar);
+                if (bar_rc == PROS_PCI_OK) {
+                    ++assigned_bar_count;
+                    if (bar.type == PROS_PCI_BAR_MMIO64) ++bar_index;
+                } else if (bar_rc == PROS_PCI_ENOTSUP) {
+                    ++unsupported_bar_count;
+                }
+            }
             enum pros_device_class discovered_class = PROS_DEVICE_CLASS_OTHER;
             int class_rc = pros_hw_classify_pci(&pci_devices[i], &discovered_class);
             if (class_rc == PROS_DRIVER_OK) ++classified_count;
@@ -1235,6 +1248,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("\n");
         serial_write("ProsenjitOS: PCI devices with unsupported/unknown class = ");
         serial_hex64(unsupported_class_count);
+        serial_write("\n");
+        serial_write("ProsenjitOS: PCI BAR inspection passed; assigned BARs = ");
+        serial_hex64(assigned_bar_count);
+        serial_write("; unsupported BARs = ");
+        serial_hex64(unsupported_bar_count);
         serial_write("\n");
     }
 
