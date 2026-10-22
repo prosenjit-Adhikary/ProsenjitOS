@@ -89,6 +89,13 @@ int pros_app_init(struct pros_app_manager *manager,
                   uint32_t supported_features);
 int pros_app_register(struct pros_app_manager *manager,
                       const struct pros_app_manifest *manifest);
+/* Only a trusted package-verification service may call mark_verified. */
+int pros_app_mark_verified(struct pros_app_manager *manager,
+                           const char *app_id);
+int pros_app_commit_install(struct pros_app_manager *manager,
+                            const char *app_id);
+int pros_app_disable(struct pros_app_manager *manager, const char *app_id);
+int pros_app_uninstall(struct pros_app_manager *manager, const char *app_id);
 int pros_app_preflight(const struct pros_app_manager *manager,
                        const char *app_id);
 int pros_app_get(const struct pros_app_manager *manager,
