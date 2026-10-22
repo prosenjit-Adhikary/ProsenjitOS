@@ -10175,6 +10175,69 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Journal-image write failure: write #1 retires the old commit slot,
+     * write #2 stages the new journal header, and write #3 rejects the first
+     * journal image before bytes are accepted. Simulated power loss must
+     * discard the unflushed header and preserve the old committed file data.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x42u ^ (uint8_t)(i * 5u));
+            new_data[i] = (uint8_t)(0xC1u ^ (uint8_t)(i * 7u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/journal-image-failure.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_write_countdown = 3u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/journal-image-failure.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_write_countdown != 0u)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/journal-image-failure.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != old_data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * Commit-record write failure: the device rejects the commit block before
      * accepting any bytes. Since a partial device write is still possible on
      * real hardware, the conservative policy freezes this mount read-only;
