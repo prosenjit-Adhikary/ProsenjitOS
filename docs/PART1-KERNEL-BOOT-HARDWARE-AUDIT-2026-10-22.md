@@ -109,3 +109,12 @@ This is a remote source audit supplemented by actual GitHub Actions logs. CI evi
 - Security architecture workflow [#7351](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39779827869): SUCCESS.
 - ISO QEMU and native BIOS QEMU each exited with status 124 at the configured 20-second timeout; the required serial markers (including memory/paging invariants, security runtime, scheduler/IPC, filesystem/storage and CPL3 syscall tests) were present and verified before the job passed.
 - Overall Part 1 remains PARTIAL: page-table rollback/ownership and allocator concurrency still need deeper tests; explicit register-sentinel/IST tests remain desirable; DMA/IOMMU safety is not established; UEFI and physical hardware are not tested.
+
+
+## Addendum — exception error-code frame correction (2026-10-22)
+
+- Source commit: `67c2ee44e87382048a54e7234a797c501d2ec79f`.
+- Audit found that exception vectors 21 (#CP), 29 (#VC on AMD SEV-ES), and 30 (#SX) were using no-error-code stubs. CPUs implementing these exceptions push a hardware error code; adding a synthetic zero would shift the common frame and misreport the vector/error/RIP layout. These vectors now use `ISR_WITH_ERROR`, matching vectors 8, 10–14 and 17.
+- Added `scripts/test_interrupt_vectors.sh` and wired it into the build workflow to guard the error-code vector list. This is a source-contract regression check; it does not simulate CET/SEV-ES hardware exceptions.
+- Latest build/security CI for this exact follow-up commit must pass before treating it as verified.
+- Part 1 remains PARTIAL: this static correction does not replace register-sentinel tests, IST stack tests, page-table/allocator concurrency tests, DMA/IOMMU validation, UEFI testing or physical hardware testing.
