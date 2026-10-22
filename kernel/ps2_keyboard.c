@@ -113,8 +113,13 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
 
         uint8_t byte = ps2_in8(PS2_DATA_PORT);
         ++bytes_seen;
-        /* Drop controller parity/timeout errors and auxiliary (mouse) bytes. */
-        if ((status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY | PS2_STATUS_AUX_DATA)) != 0u)
+        /* A corrupted byte invalidates any partial E0/Pause sequence. */
+        if ((status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) != 0u) {
+            pros_ps2_keyboard_reset_decoder();
+            continue;
+        }
+        /* Keyboard and mouse share the controller; never decode AUX bytes. */
+        if ((status & PS2_STATUS_AUX_DATA) != 0u)
             continue;
 
         struct pros_hw_input_event event;
