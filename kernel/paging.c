@@ -404,7 +404,7 @@ int paging_selftest(void) {
      * must leave the address unmapped and return all temporary table pages.
      */
     {
-        static const uint64_t fault_va = 0xFFFF800040000000ULL;
+        static const uint64_t fault_va = 0xFFFF808000000000ULL;
         for (int fail_after = 0; fail_after < 3; ++fail_after) {
             uint64_t free_before = physical_memory_free_pages();
             if (paging_translate(fault_va) != 0)
