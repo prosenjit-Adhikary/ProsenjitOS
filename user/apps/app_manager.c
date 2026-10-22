@@ -203,6 +203,7 @@ int pros_app_init(struct pros_app_manager *manager,
     manager->count = 0u;
     manager->supported_features = supported_features;
     manager->magic = PROS_APP_MANAGER_MAGIC;
+    manager->transaction_active = 0u;
     return PROS_APP_OK;
 }
 
