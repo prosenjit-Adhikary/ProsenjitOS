@@ -5232,6 +5232,8 @@ struct pfs_test_disk {
     uint8_t data[512u * 512u];
     uint8_t volatile_data[512u * 512u];
     uint8_t dirty[512u / 8u];
+    /* Fail a selected future flush to model a device durability error. */
+    uint32_t fail_flush_countdown;
 };
 
 static int pfs_test_dirty(const struct pfs_test_disk *disk, uint64_t lba)
@@ -5288,6 +5290,11 @@ static int pfs_test_flush(struct pros_block_device *device)
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk)
         return PROS_BLOCK_EINVAL;
+    if (disk->fail_flush_countdown != 0u) {
+        --disk->fail_flush_countdown;
+        if (disk->fail_flush_countdown == 0u)
+            return PROS_BLOCK_EIO;
+    }
     for (uint64_t lba = 0u; lba < 512u; ++lba) {
         if (pfs_test_dirty(disk, lba)) {
             pfs_copy(disk->data + lba * 512u,
@@ -8196,6 +8203,100 @@ int prosenjitfs_selftest(void)
             if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
         }
+    }
+
+    /*
+     * Device-flush failure at the commit durability boundary.
+     *
+     * The first two transaction flushes retire the reused commit slot and
+     * persist the journal header/images. Fail the third flush, which is the
+     * commit-record flush. The mount must become read-only, reject retries
+     * without changing media, and after power loss recover the old contents
+     * because the failed flush did not make the commit durable.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x57u ^ (uint8_t)(i * 3u));
+            new_data[i] = (uint8_t)(0xA9u ^ (uint8_t)(i * 13u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/flush-failure.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_flush_countdown = 3u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/flush-failure.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_flush_countdown != 0u ||
+            !fs.read_only || !fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        {
+            uint32_t durable_crc = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_crc = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_crc = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int retry_rc = vfs_file_open(
+                &fs.mount, "/flush-failure.bin", PROS_VFS_O_WRITE, &file);
+
+            done = 0u;
+            if (retry_rc == PROS_VFS_OK) {
+                retry_rc = vfs_file_write(
+                    &file, old_data, sizeof(old_data), &done);
+                if (vfs_file_close(&file) != PROS_VFS_OK)
+                    return pfs_selftest_fail(__LINE__, -13);
+            }
+            if (retry_rc == PROS_VFS_OK || done != 0u ||
+                durable_crc != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_crc != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_crc != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/flush-failure.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != old_data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
     }
 
     pfs_selftest_diag_stage = __LINE__;
