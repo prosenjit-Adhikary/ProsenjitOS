@@ -6175,6 +6175,7 @@ int prosenjitfs_selftest(void)
             integrity_report.first_orphaned_inode != orphan_inode_number ||
             integrity_report.orphaned_blocks_reported != 0u ||
             integrity_report.first_error_location == 0u ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
