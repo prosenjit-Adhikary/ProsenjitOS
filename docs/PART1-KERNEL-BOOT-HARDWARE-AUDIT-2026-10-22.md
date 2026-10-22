@@ -137,3 +137,15 @@ This addendum supersedes the older CI snapshot links above for the latest source
 - **Platform coverage:** no physical-hardware or UEFI boot validation was performed. SMP/race behavior remains unverified.
 
 Overall status remains **PARTIAL / NOT COMPLETE**. This is an evidence-bounded source/CI audit, not a complete kernel correctness or security proof.
+
+
+## Physical allocator hardening addendum (2026-10-22)
+
+- Branch commit: `3efa3ac1503210e0120b49b466e320a510fe5a6e` (allocator changes are in its ancestors).
+- `kernel/memory.c`: boot-tag validation now completes before allocator state is mutated. A malformed map leaves the existing allocator state untouched; after successful initialization, a second valid initialization returns `-6` rather than silently clearing live allocation ownership and counters. If initialization finds no free managed pages, its partially built bitmap/accounting state is cleared before returning `-5`.
+- Allocation now fails closed if a free bitmap bit is inconsistent with the managed bitmap, and checks accounting before decrementing. Ordinary allocation clears any stale user classification defensively.
+- `tests/memory_map_test.c`: added checks for repeated initialization preserving live free-page accounting, user-page allocation classification, invalid/unaligned user-mapping queries, free clearing classification, and double-free accounting.
+- Allocator design: fixed bitmap over the identity-mapped physical range below 1 GiB, 4 KiB pages. The page bitmap marks available pages; the managed bitmap distinguishes allocatable pages from permanently reserved pages; the user bitmap classifies only explicitly user-allocated pages. Page zero, low 1 MiB, kernel image, and Multiboot information are reserved. Non-available firmware entries override overlapping available entries.
+- Ownership contract in current API: `physical_page_alloc()` returns an allocated managed page to its caller; `physical_page_alloc_user()` additionally marks it user-mappable; callers must free only pages they own and must not free a page merely because a mapping was removed. `physical_page_free()` rejects unaligned, unmanaged, out-of-range, already-free, and double-free addresses. Address-space and page-table teardown still require the broader caller/rollback audit.
+- Synchronization limitation: allocator metadata is not protected by a lock. Existing code and current QEMU coverage do not establish that all calls are single-CPU/non-concurrent, so concurrent and SMP safety remain **NOT ESTABLISHED**. Do not treat this addendum as an SMP guarantee.
+- Verification status: GitHub Actions were queued for the final head when this note was authored; their conclusions must be checked against the exact final SHA before declaring the allocator complete. Physical hardware, UEFI, injected page-table allocation failures, and exhaustive exhaustion/boundary tests remain unverified.
