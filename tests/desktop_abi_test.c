@@ -30,6 +30,7 @@ int main(void)
     header.payload_size = 16u;
     CHECK(!pros_desktop_message_fits(&header, sizeof(header)), 23);
     CHECK(pros_desktop_message_fits(&header, sizeof(header) + 16u), 24);
+    CHECK(!pros_desktop_message_fits(&header, sizeof(header) + 17u), 49);
     header.payload_size = 0u;
     CHECK(!pros_desktop_message_header_valid(0), 2);
     header.version++;
@@ -77,6 +78,9 @@ int main(void)
     window.bounds = rect;
     CHECK(pros_desktop_window_request_valid(&window, sizeof(window)), 28);
     CHECK(!pros_desktop_window_request_valid(&window, sizeof(window) - 1u), 29);
+    window.header.struct_size = (uint32_t)sizeof(window) + 1u;
+    CHECK(!pros_desktop_window_request_valid(&window, sizeof(window) + 1u), 50);
+    window.header.struct_size = sizeof(window);
     window.header.type = PROS_DESKTOP_MSG_WINDOW_FOCUS;
     window.bounds.width = 0u;
     window.window_id = 1u;
@@ -123,6 +127,7 @@ int main(void)
     clipboard.header.version = PROSENJIT_DESKTOP_ABI_VERSION;
     clipboard.header.struct_size = sizeof(clipboard);
     clipboard.header.type = PROS_DESKTOP_MSG_CLIPBOARD_READ;
+    clipboard.mime_type = PROS_DESKTOP_CLIPBOARD_MIME_TEXT_UTF8;
     CHECK(pros_desktop_clipboard_request_valid(&clipboard,
                                                 sizeof(clipboard)), 38);
     clipboard.header.payload_size = 1u;
@@ -132,6 +137,10 @@ int main(void)
     clipboard.header.payload_size = 4u;
     CHECK(pros_desktop_clipboard_request_valid(
               &clipboard, sizeof(clipboard) + 4u), 40);
+    clipboard.mime_type = 99u;
+    CHECK(!pros_desktop_clipboard_request_valid(
+              &clipboard, sizeof(clipboard) + 4u), 51);
+    clipboard.mime_type = PROS_DESKTOP_CLIPBOARD_MIME_TEXT_UTF8;
     clipboard.reserved = 1u;
     CHECK(!pros_desktop_clipboard_request_valid(
               &clipboard, sizeof(clipboard) + 4u), 41);
