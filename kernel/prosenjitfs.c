@@ -5587,10 +5587,16 @@ static int pfs_selftest_consistency(
             continue;
         }
         if (rc == PROSENJITFS_ENOENT) {
-            /* Diagnostic: encode the allocated-but-empty inode number so
-             * the failing allocation/namespace transition can be isolated. */
-            rc = -20000 - (int)inode_number;
-            fail_line = 0u;
+            /*
+             * The inode bitmap claims this record is allocated, but the
+             * inode reader sees a free/empty record. Report this as ordinary
+             * corruption with a real source location. Do not encode the inode
+             * number in the negative return value: the public report wrapper
+             * reserves that encoding for source-line diagnostics and would
+             * otherwise publish a bogus location (10000 + inode number).
+             */
+            rc = PROSENJITFS_ECORRUPT;
+            fail_line = __LINE__;
             goto consistency_out;
         }
         if (rc != PROSENJITFS_OK ||
@@ -6290,6 +6296,38 @@ int prosenjitfs_selftest(void)
                                           &orphan_inode);
             (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
             return pfs_selftest_fail(__LINE__, -4);
+        }
+
+        /*
+         * An allocated inode bitmap bit with a FREE inode record is corruption,
+         * not an orphan candidate. Its report must expose a source-line
+         * location rather than a synthetic 10000 + inode-number value.
+         */
+        {
+            struct pros_prosenjitfs_inode empty_record = orphan_inode;
+            empty_record.type = PROSENJITFS_INODE_FREE;
+            if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                        &empty_record) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -4);
+            if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
+                    PROSENJITFS_ECORRUPT ||
+                integrity_report.status != PROSENJITFS_ECORRUPT ||
+                integrity_report.first_error_location == 0u ||
+                integrity_report.first_error_location >= 10000u ||
+                integrity_report.orphaned_inodes_reported != 0u ||
+                integrity_report.first_orphaned_inode != 0u) {
+                (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                              &orphan_inode);
+                pfs_zero(&orphan_inode, sizeof(orphan_inode));
+                orphan_inode.type = PROSENJITFS_INODE_FREE;
+                (void)prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                              &orphan_inode);
+                (void)pfs_inode_bitmap_update(&fs, orphan_inode_number, 0u);
+                return pfs_selftest_fail(__LINE__, -4);
+            }
+            if (prosenjitfs_write_inode(&fs, orphan_inode_number,
+                                        &orphan_inode) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -4);
         }
 
         /*
