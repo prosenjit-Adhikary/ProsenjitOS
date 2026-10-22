@@ -92,6 +92,12 @@ int main(void)
     input.header.type = PROS_DESKTOP_MSG_INPUT_KEY;
     input.input_flags = PROS_DESKTOP_INPUT_PRESS;
     CHECK(pros_desktop_input_event_valid(&input, sizeof(input)), 33);
+    input.input_flags = 0u;
+    CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 42);
+    input.input_flags = PROS_DESKTOP_INPUT_REPEAT;
+    CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 43);
+    input.input_flags = PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_REPEAT;
+    CHECK(pros_desktop_input_event_valid(&input, sizeof(input)), 44);
     input.input_flags = PROS_DESKTOP_INPUT_RELATIVE;
     CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 34);
     input.input_flags = PROS_DESKTOP_INPUT_PRESS | PROS_DESKTOP_INPUT_RELEASE;
@@ -99,6 +105,8 @@ int main(void)
     input.header.type = PROS_DESKTOP_MSG_INPUT_POINTER;
     input.input_flags = PROS_DESKTOP_INPUT_RELATIVE;
     CHECK(pros_desktop_input_event_valid(&input, sizeof(input)), 36);
+    input.input_flags = PROS_DESKTOP_INPUT_REPEAT;
+    CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 45);
     input.input_flags = 0x80000000u;
     CHECK(!pros_desktop_input_event_valid(&input, sizeof(input)), 37);
 
