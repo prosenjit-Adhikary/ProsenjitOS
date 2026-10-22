@@ -25,16 +25,12 @@ provide Linux/Windows API compatibility, or integrate with the desktop launcher.
 The application registry APIs require a trusted verifier boundary; package data
 must never be allowed to mark itself trusted.
 
-When a suitable development environment is available, run:
-
-```sh
-make app-unit-test
-```
-
-The test target is intentionally not wired into the current Linux
-self-hosted workflow because the project requires the OfficeWindows runner for
-this work. It has not yet been compiled or run for this branch. Do not infer a
-passing result from a workflow definition or queued jobs.
+The dedicated workflow `.github/workflows/app-handler-tests.yml` runs
+`make app-unit-test` on the `[self-hosted, linux, x64]` runner pool. The
+permanently closed OfficeWindows runner must never be used. The latest workflow
+result must be inspected before claiming runtime verification; queued jobs are
+not passes, and this implementation continuation has not independently run
+the tests.
 
 ## Desktop Management Layer (DML) — initial code
 
