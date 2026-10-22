@@ -5392,12 +5392,15 @@ static int pfs_selftest_consistency(
     uint32_t name_length = 0u;
     int rc = PROSENJITFS_EIO;
     uint32_t fail_line = 0u;
+    uint64_t orphaned_blocks = 0u;
 
     if (report) {
         report->status = PROSENJITFS_EIO;
         report->first_error_location = 0u;
         report->inodes_checked = 0u;
         report->block_bitmap_bits_checked = 0u;
+        report->orphaned_blocks_reported = 0u;
+        report->first_orphaned_block = 0u;
     }
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
@@ -5835,13 +5838,42 @@ static int pfs_selftest_consistency(
                       ? (owner[block >> 3] &
                          (uint8_t)(1u << (block & 7u))) != 0
                       : 0;
-            if ((block < fs->sb.data_start && !set) ||
-                (block >= fs->sb.total_blocks && set) ||
-                (block >= fs->sb.data_start && block < fs->sb.total_blocks &&
-                 set != owned)) {
+            if (block < fs->sb.data_start && !set) {
                 rc = PROSENJITFS_ECORRUPT;
                 fail_line = __LINE__;
-                        goto consistency_out;
+                goto consistency_out;
+            }
+            if (block >= fs->sb.total_blocks && set) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            if (block >= fs->sb.data_start &&
+                block < fs->sb.total_blocks && set && !owned) {
+                /*
+                 * An allocated data block with no reachable metadata owner is
+                 * an orphan candidate. In report mode, record it and finish
+                 * the bounded scan without modifying the volume. The legacy
+                 * status-only API retains its fail-fast behavior.
+                 */
+                if (!report) {
+                    rc = PROSENJITFS_ECORRUPT;
+                    fail_line = __LINE__;
+                    goto consistency_out;
+                }
+                if (orphaned_blocks == 0u) {
+                    report->first_orphaned_block = block;
+                    fail_line = __LINE__;
+                }
+                ++orphaned_blocks;
+                report->orphaned_blocks_reported = orphaned_blocks;
+                continue;
+            }
+            if (block >= fs->sb.data_start &&
+                block < fs->sb.total_blocks && !set && owned) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
             }
         }
     }
@@ -5876,6 +5908,8 @@ int prosenjitfs_check_integrity_report(
         report->first_error_location = 0u;
         report->inodes_checked = 0u;
         report->block_bitmap_bits_checked = 0u;
+        report->orphaned_blocks_reported = 0u;
+        report->first_orphaned_block = 0u;
     }
     if (!fs || !fs->mount.device || !fs->mount.active) {
         if (report)
