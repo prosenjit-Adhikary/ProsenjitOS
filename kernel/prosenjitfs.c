@@ -5331,7 +5331,7 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
                  512u);
         pfs_test_mark_dirty(disk, current);
     }
-    if (disk->fail_home_write_after_commit_once && count == 1u) {
+    if (disk->fail_home_write_after_commit_countdown != 0u && count == 1u) {
         uint32_t magic = 0u;
         pfs_copy(&magic, buffer, sizeof(magic));
         if (magic == PROSENJITFS_JOURNAL_COMMIT)
