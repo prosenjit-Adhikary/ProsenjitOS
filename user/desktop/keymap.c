@@ -47,7 +47,13 @@ uint32_t pros_keymap_translate(struct pros_keymap_state *state,
         event->type != PROS_INPUT_KEY)
         return 0u;
 
-    uint32_t edge = event->flags & (PROS_INPUT_FLAG_PRESS | PROS_INPUT_FLAG_RELEASE);
+    /* Reject unknown ABI flags and out-of-range scan codes before decoding. */
+    const uint32_t allowed_flags = PROS_INPUT_FLAG_PRESS | PROS_INPUT_FLAG_RELEASE;
+    if ((event->flags & ~allowed_flags) != 0u ||
+        event->value0 < 0 || (uint32_t)event->value0 > 0x1FFu)
+        return 0u;
+
+    uint32_t edge = event->flags & allowed_flags;
     if (edge != PROS_INPUT_FLAG_PRESS && edge != PROS_INPUT_FLAG_RELEASE)
         return 0u;
 
