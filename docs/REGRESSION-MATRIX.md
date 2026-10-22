@@ -79,15 +79,17 @@ bound. Out-of-range parents, unreadable parent inodes, non-directory parents,
 and chains that exceed the bound fail closed as corruption. This check is
 read-only: it does not rewrite metadata or attempt orphan repair.
 
-Current validation status:
-- Existing ProsenjitFS format/mount/allocation/journal/recovery self-test passed
-  in the PR #158 ISO and native BIOS QEMU CI run.
-- ISO build and both QEMU boot paths passed in that run.
-- A dedicated corruption fixture that creates an otherwise locally consistent
-  disconnected parent cycle is still pending. The existing generic filesystem
-  self-test must not be interpreted as proof that this exact new branch ran.
-- Do not mark this hardening complete or merge solely on the existing boot
-  markers; add the focused fixture and rerun the required CI gate first.
+Regression coverage and validation status:
+- A focused helper-level fixture creates two valid directory inode records,
+  injects a disconnected parent-pointer cycle while preserving inode checksums,
+  and requires the shared parent-chain validator to reject it as corruption.
+  The fixture restores the original parent pointers and requires the complete
+  consistency checker to pass afterward.
+- This fixture isolates the new traversal branch deliberately; it does not
+  claim that the entire consistency checker reaches that branch before its
+  earlier directory-entry/parent agreement checks.
+- The earlier PR #158 ISO and native BIOS QEMU run passed before this fixture
+  was added. The updated commit still requires fresh CI/QEMU verification.
 
 ## Completion principle
 
