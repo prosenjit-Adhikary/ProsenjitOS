@@ -23,6 +23,19 @@ struct pros_prosenjitfs {
     volatile uint32_t io_lock;
 };
 
+/*
+ * Bounded summary from a read-only integrity scan. first_error_location is
+ * the source location identifier captured by the checker for the first
+ * detected consistency failure; it is zero when no such failure was found.
+ * Counts describe work completed before the scan returned.
+ */
+struct pros_prosenjitfs_integrity_report {
+    int status;
+    uint32_t first_error_location;
+    uint64_t inodes_checked;
+    uint64_t block_bitmap_bits_checked;
+};
+
 /* Kernel-only diagnostics and self-test entry points. */
 void prosenjitfs_write_diag_reset(void);
 void prosenjitfs_write_diag_begin_read(void);
@@ -39,6 +52,9 @@ int prosenjitfs_tx_diag_get(uint32_t *stage, uint32_t *count,
 void prosenjitfs_selftest_diag_get(uint32_t *stage, int *rc);
 /* Read-only integrity scan for an active mount; caller serializes mutations. */
 int prosenjitfs_check_integrity(const struct pros_prosenjitfs *fs);
+int prosenjitfs_check_integrity_report(
+    const struct pros_prosenjitfs *fs,
+    struct pros_prosenjitfs_integrity_report *report);
 int prosenjitfs_selftest(void);
 
 #endif
