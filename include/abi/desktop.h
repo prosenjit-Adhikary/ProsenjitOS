@@ -101,7 +101,9 @@ static inline int pros_desktop_message_header_valid(
         return 0;
     if (header->version != PROSENJIT_DESKTOP_ABI_VERSION ||
         header->struct_size < sizeof(*header) ||
-        header->payload_size > PROS_DESKTOP_MAX_MESSAGE_BYTES ||
+        header->struct_size > PROS_DESKTOP_MAX_MESSAGE_BYTES ||
+        (uint64_t)header->struct_size + (uint64_t)header->payload_size >
+            PROS_DESKTOP_MAX_MESSAGE_BYTES ||
         header->reserved != 0u || header->flags != 0u)
         return 0;
     if (header->type < PROS_DESKTOP_MSG_WINDOW_CREATE ||
