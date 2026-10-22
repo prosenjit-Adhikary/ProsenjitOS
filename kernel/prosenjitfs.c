@@ -4020,15 +4020,17 @@ static int pfs_journal_recover(struct pros_prosenjitfs *fs)
     }
     pfs_copy(&c, commit, sizeof(c));
     /*
-     * A missing/invalid commit marker means the transaction never reached
-     * the durable commit point, so its header/images may be discarded. Once
-     * the commit marker itself is present, however, mismatched identity or
-     * record count is contradictory committed metadata and must fail closed.
+     * A missing commit marker or a transaction-ID mismatch means the journal
+     * does not contain the commit for this header. The commit slot is reused
+     * and can still contain the previous transaction's valid record if power
+     * fails before the new commit is written, so those cases are discarded.
+     * A matching transaction ID with a contradictory record count is instead
+     * inconsistent committed metadata and must fail closed.
      */
-    if (c.magic != PROSENJITFS_JOURNAL_COMMIT)
+    if (c.magic != PROSENJITFS_JOURNAL_COMMIT ||
+        c.transaction_id != h.transaction_id)
         return pfs_journal_clear(fs);
-    if (c.transaction_id != h.transaction_id ||
-        c.record_count != h.record_count)
+    if (c.record_count != h.record_count)
         return PROSENJITFS_ECORRUPT;
     expected = pfs_journal_checksum(header, images, fs->sb.block_size,
                                     h.record_count, commit);
@@ -7859,63 +7861,58 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -12);
 
         /*
-         * A commit marker with contradictory transaction identity or record
-         * count is not an uncommitted/torn transaction. Both cases must fail
-         * closed even when the commit checksum matches the bytes on disk.
+         * A valid commit marker with a matching transaction ID but a
+         * contradictory record count must fail closed, even with a checksum
+         * that matches the bytes on disk. A stale transaction ID is covered
+         * by the torn-transaction case above because commit slots are reused.
          */
-        for (uint32_t mismatch_case = 0u; mismatch_case < 2u;
-             ++mismatch_case) {
-            pfs_zero(header, sizeof(header));
-            pfs_zero(commit, sizeof(commit));
-            pfs_zero(&h, sizeof(h));
-            h.magic = PROSENJITFS_JOURNAL_MAGIC;
-            h.record_count = 1u;
-            h.transaction_id = 0xAABBCCDD12344321ULL;
-            h.targets[0] = recovery_block;
-            pfs_copy(header, &h, sizeof(h));
-            h.checksum = pfs_crc_with_zero32(
-                header, sizeof(header),
-                (uint32_t)offsetof(
-                    struct pros_prosenjitfs_journal_header, checksum));
-            pfs_copy(header, &h, sizeof(h));
+        pfs_zero(header, sizeof(header));
+        pfs_zero(commit, sizeof(commit));
+        pfs_zero(&h, sizeof(h));
+        h.magic = PROSENJITFS_JOURNAL_MAGIC;
+        h.record_count = 1u;
+        h.transaction_id = 0xAABBCCDD12344321ULL;
+        h.targets[0] = recovery_block;
+        pfs_copy(header, &h, sizeof(h));
+        h.checksum = pfs_crc_with_zero32(
+            header, sizeof(header),
+            (uint32_t)offsetof(
+                struct pros_prosenjitfs_journal_header, checksum));
+        pfs_copy(header, &h, sizeof(h));
 
-            pfs_zero(&jc, sizeof(jc));
-            jc.magic = PROSENJITFS_JOURNAL_COMMIT;
-            jc.transaction_id = mismatch_case == 0u
-                              ? (h.transaction_id ^ 1u)
-                              : h.transaction_id;
-            jc.record_count = mismatch_case == 0u ? 1u : 2u;
-            pfs_copy(commit, &jc, sizeof(jc));
-            jc.checksum = pfs_journal_checksum(
-                header, image, 512u, h.record_count, commit);
-            pfs_copy(commit, &jc, sizeof(jc));
+        pfs_zero(&jc, sizeof(jc));
+        jc.magic = PROSENJITFS_JOURNAL_COMMIT;
+        jc.transaction_id = h.transaction_id;
+        jc.record_count = 2u;
+        pfs_copy(commit, &jc, sizeof(jc));
+        jc.checksum = pfs_journal_checksum(
+            header, image, 512u, h.record_count, commit);
+        pfs_copy(commit, &jc, sizeof(jc));
 
-            if (pfs_write_block(&device, journal_start, header) !=
-                    PROSENJITFS_OK ||
-                pfs_write_block(&device, journal_start + 1u, image) !=
-                    PROSENJITFS_OK ||
-                pfs_write_block(&device, journal_start + 2u, commit) !=
-                    PROSENJITFS_OK ||
-                pfs_flush(&device) != PROSENJITFS_OK ||
-                prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) !=
-                    PROSENJITFS_ECORRUPT)
+        if (pfs_write_block(&device, journal_start, header) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, image) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u, commit) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_ECORRUPT)
+            return pfs_selftest_fail(__LINE__, -12);
+
+        pfs_zero(header, sizeof(header));
+        for (uint32_t i = 0u; i < journal_blocks; ++i)
+            if (pfs_write_block(&device, journal_start + i, header) !=
+                PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -12);
-
-            pfs_zero(header, sizeof(header));
-            for (uint32_t i = 0u; i < journal_blocks; ++i)
-                if (pfs_write_block(&device, journal_start + i, header) !=
-                    PROSENJITFS_OK)
-                    return pfs_selftest_fail(__LINE__, -12);
-            if (pfs_flush(&device) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                pfs_read_block(&device, recovery_block, verify) !=
-                    PROSENJITFS_OK)
+        if (pfs_flush(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            pfs_read_block(&device, recovery_block, verify) !=
+                PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -12);
+        for (uint32_t i = 0u; i < sizeof(verify); ++i)
+            if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
                 return pfs_selftest_fail(__LINE__, -12);
-            for (uint32_t i = 0u; i < sizeof(verify); ++i)
-                if (verify[i] != (uint8_t)(0xC3u ^ (uint8_t)i))
-                    return pfs_selftest_fail(__LINE__, -12);
-        }
 
         /* Corrupt commit checksum must fail closed. */
         pfs_zero(header, sizeof(header));
