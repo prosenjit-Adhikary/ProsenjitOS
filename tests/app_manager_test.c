@@ -39,6 +39,43 @@ static int register_installed(struct pros_app_manager *manager,
     return pros_app_commit_install(manager, manifest->id);
 }
 
+
+struct fake_storage {
+    int stage_result;
+    int publish_result;
+    int rollback_result;
+    uint32_t stage_calls;
+    uint32_t publish_calls;
+    uint32_t rollback_calls;
+};
+
+static int fake_stage(void *context,
+                      const struct pros_app_manifest *manifest)
+{
+    struct fake_storage *storage = (struct fake_storage *)context;
+    (void)manifest;
+    ++storage->stage_calls;
+    return storage->stage_result;
+}
+
+static int fake_publish(void *context,
+                        const struct pros_app_manifest *manifest)
+{
+    struct fake_storage *storage = (struct fake_storage *)context;
+    (void)manifest;
+    ++storage->publish_calls;
+    return storage->publish_result;
+}
+
+static int fake_rollback(void *context,
+                         const struct pros_app_manifest *manifest)
+{
+    struct fake_storage *storage = (struct fake_storage *)context;
+    (void)manifest;
+    ++storage->rollback_calls;
+    return storage->rollback_result;
+}
+
 int main(void)
 {
     struct pros_app_manager manager;
@@ -64,6 +101,65 @@ int main(void)
     CHECK(pros_app_get(&manager, "editor", &output) == PROS_APP_OK, 9);
     CHECK(strcmp(output.id, "editor") == 0, 10);
     CHECK(output.backend == PROS_APP_BACKEND_NATIVE, 11);
+
+    /*
+     * Transaction coordinator contract: storage publication precedes registry
+     * commit; any failed stage/publish asks the adapter to clean up.
+     */
+    {
+        struct fake_storage storage = {0};
+        struct pros_app_install_ops ops = {
+            fake_stage, fake_publish, fake_rollback, &storage
+        };
+
+        manifest = make_manifest("transaction-ok", "bin/app");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 60);
+        CHECK(pros_app_mark_verified(&manager, "transaction-ok") ==
+              PROS_APP_OK, 61);
+        CHECK(pros_app_install_transaction(&manager, "transaction-ok", &ops)
+              == PROS_APP_OK, 62);
+        CHECK(storage.stage_calls == 1u, 63);
+        CHECK(storage.publish_calls == 1u, 64);
+        CHECK(storage.rollback_calls == 0u, 65);
+        CHECK(pros_app_preflight(&manager, "transaction-ok") == PROS_APP_OK,
+              66);
+
+        storage = (struct fake_storage){0};
+        storage.stage_result = -1;
+        manifest = make_manifest("transaction-stage-fail", "bin/app");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 67);
+        CHECK(pros_app_mark_verified(&manager, "transaction-stage-fail") ==
+              PROS_APP_OK, 68);
+        CHECK(pros_app_install_transaction(&manager, "transaction-stage-fail",
+                                           &ops) == PROS_APP_EIO, 69);
+        CHECK(storage.stage_calls == 1u && storage.publish_calls == 0u &&
+              storage.rollback_calls == 1u, 70);
+        CHECK(pros_app_get(&manager, "transaction-stage-fail", &output) ==
+              PROS_APP_OK && output.install_state == PROS_APP_STAGED, 71);
+
+        storage = (struct fake_storage){0};
+        storage.publish_result = -1;
+        manifest = make_manifest("transaction-publish-fail", "bin/app");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 72);
+        CHECK(pros_app_mark_verified(&manager, "transaction-publish-fail") ==
+              PROS_APP_OK, 73);
+        CHECK(pros_app_install_transaction(&manager, "transaction-publish-fail",
+                                           &ops) == PROS_APP_EIO, 74);
+        CHECK(storage.stage_calls == 1u && storage.publish_calls == 1u &&
+              storage.rollback_calls == 1u, 75);
+        CHECK(pros_app_get(&manager, "transaction-publish-fail", &output) ==
+              PROS_APP_OK && output.install_state == PROS_APP_STAGED, 76);
+
+        storage = (struct fake_storage){0};
+        storage.publish_result = -1;
+        storage.rollback_result = -1;
+        manifest = make_manifest("transaction-rollback-fail", "bin/app");
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 77);
+        CHECK(pros_app_mark_verified(&manager, "transaction-rollback-fail") ==
+              PROS_APP_OK, 78);
+        CHECK(pros_app_install_transaction(&manager, "transaction-rollback-fail",
+                                           &ops) == PROS_APP_EROLLBACK, 79);
+    }
 
     {
         const char *const bad_paths[] = {
