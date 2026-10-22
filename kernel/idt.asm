@@ -32,15 +32,17 @@ isr128:
     push rcx
     push rbx
     push rax
-    ; The CPL3 iret frame plus 15 saved GPRs leaves RSP 0 mod 16.
-    ; Keep the C ABI aligned while passing the original frame addresses.
-    sub rsp, 8
-    lea rdi, [rsp + 8]
-    lea rsi, [rsp + 128]
+    ; Keep the register frame and CPU IRET frame addressed independently of
+    ; the interrupted stack alignment. IST entry is robust to stack damage, but
+    ; C calls still require 16-byte alignment at the CALL instruction.
+    mov r12, rsp
+    and rsp, -16
+    lea rdi, [r12]
+    lea rsi, [r12 + 120]
     call syscall_dispatch
-    cmp qword [rsp + 8], 0xFFFFFFFFFFFFFF01
+    cmp qword [r12], 0xFFFFFFFFFFFFFF01
     jne .syscall_return
-    lea rdi, [rsp + 8]
+    mov rdi, r12
     call thread_schedule_interrupt
     test rax, rax
     jz .syscall_return
@@ -48,7 +50,7 @@ isr128:
     jmp .syscall_restore_switched
 
 .syscall_return:
-    add rsp, 8
+    mov rsp, r12
     pop rax
     pop rbx
     pop rcx
