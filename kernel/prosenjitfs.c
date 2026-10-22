@@ -6033,19 +6033,34 @@ int prosenjitfs_selftest(void)
      * return corruption, and leave all medium/cache state untouched.
      */
     {
-        uint64_t orphan_block = fs.sb.data_start + 1u;
-        uint64_t bitmap_lba = fs.sb.block_bitmap_start +
-                              orphan_block / ((uint64_t)fs.sb.block_size * 8u);
-        uint64_t byte_offset = bitmap_lba * fs.sb.block_size +
-                               (orphan_block % ((uint64_t)fs.sb.block_size * 8u)) / 8u;
-        uint8_t mask = (uint8_t)(1u << (orphan_block & 7u));
-        uint8_t original_byte = disk.data[byte_offset];
+        uint64_t orphan_block = fs.sb.data_start;
+        uint64_t bitmap_lba;
+        uint64_t byte_offset;
+        uint8_t mask = 0u;
+        uint8_t original_byte;
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
 
-        if ((original_byte & mask) != 0u)
+        /*
+         * Pick a genuinely free data block rather than assuming a fixed
+         * offset is unowned; the root index and other metadata can occupy
+         * early data blocks depending on the formatted layout.
+         */
+        for (; orphan_block < fs.sb.total_blocks; ++orphan_block) {
+            bitmap_lba = fs.sb.block_bitmap_start +
+                         orphan_block / ((uint64_t)fs.sb.block_size * 8u);
+            byte_offset = bitmap_lba * fs.sb.block_size +
+                          (orphan_block % ((uint64_t)fs.sb.block_size * 8u)) / 8u;
+            if (byte_offset >= sizeof(disk.data))
+                return pfs_selftest_fail(__LINE__, -4);
+            mask = (uint8_t)(1u << (orphan_block & 7u));
+            if ((disk.data[byte_offset] & mask) == 0u)
+                break;
+        }
+        if (orphan_block >= fs.sb.total_blocks)
             return pfs_selftest_fail(__LINE__, -4);
+        original_byte = disk.data[byte_offset];
         disk.data[byte_offset] = (uint8_t)(original_byte | mask);
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
