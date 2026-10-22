@@ -6,6 +6,8 @@
 - This expands coverage beyond the previous single inode-bitmap read-failure injection. The populated fixture exercises more of the directory and extent traversal paths, while still not proving every corruption-specific path or physical-device behavior.
 - Both sweeps now use a 4096-position guard and verify durable, volatile, and dirty media remain unchanged on the terminal successful scan as well as on every injected failure. This is defensive test coverage, not a runtime pass claim.
 - **Pending:** the sweep has not been run through CI or boot tests yet. Do not count it as passing until the authorized Linux x64 runner is online and the exact PR head passes filesystem diagnostics, build/boot, and security checks.
+- **Next fault-injection gap:** current mutation regressions exercise a pre-commit flush failure, journal commit-record write failure, commit-flush failure, and ambiguous commit-flush failure with remount/recovery assertions. They do not yet inject a generic failure into arbitrary journal-image or ordinary metadata/data block writes. Add that coverage only with a deterministic mock-device failure hook and explicit old-or-new committed-state expectations; do not assume all write failures are safely retryable.
+- **Read-sweep boundary:** the new sweep checks successive reads on clean empty and populated fixtures. It verifies error propagation and scan-side media immutability, but it is not a substitute for corruption-specific fixtures where a prior metadata defect short-circuits traversal, nor for physical-device testing.
 
 
 ## Latest verification update — 2026-10-22 13:07 UTC
