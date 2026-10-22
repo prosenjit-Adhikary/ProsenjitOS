@@ -84,6 +84,7 @@ Status meanings: **Implemented** = concrete code exists for the stated scope; **
 - Shared ABI headers must use fixed-width integer types, explicit version and size fields, bounded counts/lengths, documented ownership, and reserved fields that must be zero for version 1.
 - Preserve published syscall numbers and ABI field meanings. Incompatible changes require a new version or explicit size/version negotiation; unknown flags/types must fail closed.
 - Treat IPC payloads as untrusted at both endpoints. Validate version, exact/minimum structure size, payload bounds, enum values, arithmetic overflow, handles, and caller authorization before state mutation.
+- For `include/abi/desktop.h` messages, every receiver must first prove the transport contains the complete fixed header, then validate the declared `struct_size + payload_size` against the actual received byte count (for example, with `pros_desktop_message_fits()`); only then may it read message-specific fields or payload bytes. The current header helper is a contract, not proof that a production receiver already enforces it.
 - The shared desktop ABI is an IPC message contract, not a direct kernel syscall. Add kernel interfaces only when a missing primitive is proven necessary and has a narrowly scoped security review.
 
 ### 4.3 Lifecycle contract
