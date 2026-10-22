@@ -58,6 +58,9 @@ uint32_t pros_keymap_translate(struct pros_keymap_state *state,
         return 0u;
 
     uint32_t raw = (uint32_t)event->value0;
+    /* The PS/2 decoder strips the break bit; it must never reach this ABI. */
+    if ((raw & 0x80u) != 0u)
+        return 0u;
     uint8_t extended = (raw & 0x100u) != 0u;
     uint8_t code = (uint8_t)(raw & 0x7Fu);
     uint8_t pressed = edge == PROS_INPUT_FLAG_PRESS;
