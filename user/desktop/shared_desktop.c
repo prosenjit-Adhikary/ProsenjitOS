@@ -18,3 +18,48 @@ int pros_sd_clipboard_read(struct pros_sd_context*c,uint64_t reader,void*out,uin
 int pros_sd_audio_open(struct pros_sd_context*c,uint64_t owner,uint64_t*out){uint32_t i;if(!c||!out)return PROS_SD_EINVAL;*out=0;if(!pl(c,owner))return PROS_SD_ENOENT;for(i=0;i<PROS_SD_AUDIO_MAX_SESSIONS;i++)if(!c->audio[i].active){c->audio[i].generation++;c->audio[i].handle=hn(c);c->audio[i].owner_process=owner;c->audio[i].active=1;*out=c->audio[i].handle;return 0;}return PROS_SD_EFULL;}
 int pros_sd_audio_close(struct pros_sd_context*c,uint64_t owner,uint64_t h){struct pros_sd_audio_session*a;if(!c||!h)return PROS_SD_EINVAL;if(!(a=af(c,h)))return PROS_SD_ESTALE;if(a->owner_process!=owner)return PROS_SD_EPERM;a->active=0;a->handle=0;a->owner_process=0;return 0;}
 int pros_sd_validate_event(const struct pros_sd_event*e){if(!e||e->abi_version!=PROS_SD_ABI_VERSION||e->struct_size!=sizeof(*e))return PROS_SD_EINVAL;if(e->type<PROS_SD_EVENT_FOCUS||e->type>PROS_SD_EVENT_SUBSYSTEM_LOST)return PROS_SD_EINVAL;if((e->type==PROS_SD_EVENT_KEY||e->type==PROS_SD_EVENT_POINTER)&&(!e->target_handle||!e->owner_process))return PROS_SD_EINVAL;return 0;}
+
+int pros_sd_validate_request(const struct pros_desktop_message_header *h, uint64_t bytes)
+{
+    if (!h || !pros_desktop_message_fits(h, bytes))
+        return PROS_SD_EINVAL;
+    switch (h->type) {
+    case PROS_DESKTOP_MSG_WINDOW_CREATE:
+    case PROS_DESKTOP_MSG_WINDOW_DESTROY:
+    case PROS_DESKTOP_MSG_WINDOW_MOVE:
+    case PROS_DESKTOP_MSG_WINDOW_RESIZE:
+    case PROS_DESKTOP_MSG_WINDOW_FOCUS:
+        return pros_desktop_window_request_valid(
+            (const struct pros_desktop_window_request *)h, bytes)
+            ? PROS_SD_OK : PROS_SD_EINVAL;
+    case PROS_DESKTOP_MSG_INPUT_KEY:
+    case PROS_DESKTOP_MSG_INPUT_POINTER:
+        return pros_desktop_input_event_valid(
+            (const struct pros_desktop_input_event *)h, bytes)
+            ? PROS_SD_OK : PROS_SD_EINVAL;
+    case PROS_DESKTOP_MSG_CLIPBOARD_READ:
+    case PROS_DESKTOP_MSG_CLIPBOARD_WRITE: {
+        const struct pros_desktop_clipboard_request *r =
+            (const struct pros_desktop_clipboard_request *)h;
+        if (h->struct_size != sizeof(*r) || bytes < sizeof(*r) ||
+            r->reserved != 0u ||
+            r->mime_type < PROS_DESKTOP_CLIPBOARD_MIME_TEXT_UTF8 ||
+            r->mime_type > PROS_DESKTOP_CLIPBOARD_MIME_OCTET_STREAM ||
+            !pros_desktop_clipboard_size_valid(h->payload_size))
+            return PROS_SD_EINVAL;
+        if (h->type == PROS_DESKTOP_MSG_CLIPBOARD_READ && h->payload_size != 0u)
+            return PROS_SD_EINVAL;
+        return PROS_SD_OK;
+    }
+    case PROS_DESKTOP_MSG_AUDIO_SUBMIT:
+        return pros_desktop_audio_request_valid(
+            (const struct pros_desktop_audio_request *)h, bytes)
+            ? PROS_SD_OK : PROS_SD_EINVAL;
+    case PROS_DESKTOP_MSG_FRAME_PRESENT:
+    case PROS_DESKTOP_MSG_AUDIO_CONTROL:
+        /* Part 1 defines these message types but no complete v1 typed payload. */
+        return PROS_SD_ENOTSUP;
+    default:
+        return PROS_SD_EINVAL;
+    }
+}
