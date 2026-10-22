@@ -232,10 +232,50 @@ idt_load:
 
 isr_common:
     cli
-    mov rdi, rsp
-    sub rsp, 8
+    ; Exceptions can be recovered (for example, a usercopy page fault), so
+    ; preserve every interrupted GPR rather than treating the exception as a
+    ; normal C call. The C frame remains vector,error,RIP,CS,RFLAGS,...
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+
+    lea rdi, [rsp + 120]
+    ; Interrupts can arrive at any instruction, so do not assume the interrupted
+    ; stack has C-call alignment. Keep the saved-frame pointer in callee-saved
+    ; r12 (its interrupted value is already on the stack), align for the call,
+    ; then restore the exact pre-alignment RSP.
+    mov r12, rsp
+    and rsp, -16
     call exception_dispatch
-    add rsp, 8
+    mov rsp, r12
+
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
     add rsp, 16
     iretq
 
