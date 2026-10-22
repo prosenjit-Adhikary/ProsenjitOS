@@ -102,33 +102,40 @@ int main(void)
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 26);
     CHECK(pros_app_preflight(&manager, "dependent") == PROS_APP_ENODEP, 27);
     manifest = make_manifest("base", "bin/base");
-    manifest.backend = PROS_APP_BACKEND_LINUX;
     CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 28);
     CHECK(pros_app_preflight(&manager, "dependent") == PROS_APP_OK, 29);
+    manifest = make_manifest("linux-dependent", "bin/app");
+    manifest.backend = PROS_APP_BACKEND_LINUX;
+    manifest.dependency_count = 1u;
+    (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
+                   "%s", "base");
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 30);
+    CHECK(pros_app_preflight(&manager, "linux-dependent") ==
+          PROS_APP_EBACKEND, 31);
 
-    CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 30);
+    CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 32);
     manifest = make_manifest("cycle-a", "bin/a");
     manifest.dependency_count = 1u;
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "cycle-b");
-    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 31);
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 33);
     manifest = make_manifest("cycle-b", "bin/b");
     manifest.dependency_count = 1u;
     (void)snprintf(manifest.dependencies[0], sizeof(manifest.dependencies[0]),
                    "%s", "cycle-a");
-    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 32);
-    CHECK(pros_app_preflight(&manager, "cycle-a") == PROS_APP_ELOOP, 33);
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 34);
+    CHECK(pros_app_preflight(&manager, "cycle-a") == PROS_APP_ELOOP, 35);
 
-    CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 34);
+    CHECK(pros_app_init(&manager, 0u) == PROS_APP_OK, 36);
     for (uint32_t i = 0u; i < PROS_APP_MAX_ENTRIES; ++i) {
         char id[PROS_APP_ID_MAX];
         (void)snprintf(id, sizeof(id), "app-%u", i);
         manifest = make_manifest(id, "bin/app");
-        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 35);
+        CHECK(pros_app_register(&manager, &manifest) == PROS_APP_OK, 37);
     }
     manifest = make_manifest("registry-overflow", "bin/app");
-    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_ENOSPC, 36);
-    CHECK(pros_app_count(&manager) == PROS_APP_MAX_ENTRIES, 37);
+    CHECK(pros_app_register(&manager, &manifest) == PROS_APP_ENOSPC, 38);
+    CHECK(pros_app_count(&manager) == PROS_APP_MAX_ENTRIES, 39);
 
     (void)puts("application manager tests passed");
     return 0;
