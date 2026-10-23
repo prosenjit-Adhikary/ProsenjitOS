@@ -12,6 +12,11 @@
 int pros_ps2_keyboard_decode_byte(uint8_t byte, struct pros_hw_input_event *out);
 void pros_ps2_keyboard_reset_decoder(void);
 
+/* Publish synthetic mouse-button releases after an explicit transport reset or
+ * disconnect, then clear decoder state. If delivery fails, retain decoder state
+ * so a caller can retry. This does not probe or reset the physical controller. */
+int pros_ps2_keyboard_recover(uint32_t input_endpoint_id);
+
 /* Poll up to 32 controller bytes and submit decoded events to an input endpoint.
  * Returns the number of events submitted, zero if no event is ready, or a
  * negative PROS_DRIVER_* error. Call from a safe kernel polling context.
