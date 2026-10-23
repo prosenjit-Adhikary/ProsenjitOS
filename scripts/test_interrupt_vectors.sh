@@ -4,6 +4,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ASM="$ROOT/kernel/idt.asm"
 PIC="$ROOT/kernel/pic.c"
+KERNEL="$ROOT/kernel/kernel.c"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -70,4 +71,15 @@ if grep -Fq 'master_mask' "$PIC"; then
   fail "PIC initialization must not inherit firmware master IRQ mask"
 fi
 
-echo "PASS: exception frames, GPR save/restore, stack alignment, and safe PIC masks"
+# Require each runtime probe to use its dedicated IST index.
+grep -Fq 'idt_set_gate(0xF1u, isr_ist1_probe, 1u);' "$KERNEL" ||
+  fail "IST1 probe vector must use IST1"
+grep -Fq 'idt_set_gate(0xF2u, isr_ist2_probe, 2u);' "$KERNEL" ||
+  fail "IST2 probe vector must use IST2"
+grep -Fq 'idt_set_gate(0xF3u, isr_ist3_probe, 3u);' "$KERNEL" ||
+  fail "IST3 probe vector must use IST3"
+grep -Fq 'isr_ist1_probe:' "$ASM" || fail "missing IST1 handler"
+grep -Fq 'isr_ist2_probe:' "$ASM" || fail "missing IST2 handler"
+grep -Fq 'isr_ist3_probe:' "$ASM" || fail "missing IST3 handler"
+
+echo "PASS: exception frames, GPR save/restore, stack alignment, PIC masks, and IST probes"

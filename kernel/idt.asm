@@ -14,6 +14,7 @@ extern pic_eoi_master
 extern user_mode_exit_trampoline
 extern paging_switch_kernel
 extern stack_top
+extern pros_ist_stack_probe_rsp
 
 isr128:
     cli
@@ -418,5 +419,32 @@ timer_gpr_sentinel_selftest:
     pop rbp
     pop rbx
     ret
+
+; Reserved software-test vectors exercise real IST stack switching without
+; calling C from the handlers. Record the CPU-generated frame pointer, restore
+; RAX unchanged, and return through the exact hardware interrupt frame.
+global isr_ist1_probe
+isr_ist1_probe:
+    push rax
+    lea rax, [rsp + 8]
+    mov [rel pros_ist_stack_probe_rsp], rax
+    pop rax
+    iretq
+
+global isr_ist2_probe
+isr_ist2_probe:
+    push rax
+    lea rax, [rsp + 8]
+    mov [rel pros_ist_stack_probe_rsp + 8], rax
+    pop rax
+    iretq
+
+global isr_ist3_probe
+isr_ist3_probe:
+    push rax
+    lea rax, [rsp + 8]
+    mov [rel pros_ist_stack_probe_rsp + 16], rax
+    pop rax
+    iretq
 
 section .note.GNU-stack noalloc noexec nowrite progbits

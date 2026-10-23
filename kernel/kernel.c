@@ -48,6 +48,9 @@ static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
 static struct pros_user_interrupt_frame scheduler_user_frame_probe;
 
+/* Captured by IST runtime-probe stubs in kernel/idt.asm. */
+volatile uint64_t pros_ist_stack_probe_rsp[3];
+
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
 static volatile uint64_t health_exception_count;
@@ -165,6 +168,12 @@ extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
 extern int interrupt_gpr_sentinel_selftest(void);
 extern int timer_gpr_sentinel_selftest(void);
+extern void isr_ist1_probe(void);
+extern void isr_ist2_probe(void);
+extern void isr_ist3_probe(void);
+extern char ist1_stack_guard_bottom[], ist1_stack_bottom[], ist1_stack_top[];
+extern char ist2_stack_guard_bottom[], ist2_stack_bottom[], ist2_stack_top[];
+extern char ist3_stack_guard_bottom[], ist3_stack_bottom[], ist3_stack_top[];
 
 /* INT3 may return only during the tightly scoped GPR-preservation probe. */
 volatile uint8_t pros_interrupt_gpr_selftest_active;
@@ -237,9 +246,52 @@ void idt_init(void) {
      * mappings. */
     idt_set_gate(128, isr128, 1);
     idt[128].type_attr = 0xEE;
+    /* Reserved software-test vectors exercise the configured IST stacks. */
+    idt_set_gate(0xF1u, isr_ist1_probe, 1u);
+    idt_set_gate(0xF2u, isr_ist2_probe, 2u);
+    idt_set_gate(0xF3u, isr_ist3_probe, 3u);
     struct idt_pointer ptr = { (uint16_t)(sizeof(idt) - 1u), (uint64_t)idt };
     idt_load(&ptr);
 }
+/* Validate a real hardware IST frame against the intended stack and page policy. */
+static int ist_probe_frame_valid(uint64_t frame, char *guard_symbol,
+                                 char *bottom_symbol, char *top_symbol) {
+    uint64_t guard = (uint64_t)(uintptr_t)guard_symbol;
+    uint64_t bottom = (uint64_t)(uintptr_t)bottom_symbol;
+    uint64_t top = (uint64_t)(uintptr_t)top_symbol;
+    uint64_t flags = 0;
+    if (top <= bottom || top - bottom < 5u * sizeof(uint64_t) ||
+        frame < bottom || frame > top - 5u * sizeof(uint64_t))
+        return 0;
+    if (paging_query_page(guard, &flags) == 0)
+        return 0;
+    if (paging_query_page(frame, &flags) != 0 ||
+        !(flags & PROSENJIT_PAGE_PRESENT) ||
+        !(flags & PROSENJIT_PAGE_WRITABLE) ||
+        !(flags & PROSENJIT_PAGE_NX) ||
+        (flags & PROSENJIT_PAGE_USER))
+        return 0;
+    return 1;
+}
+
+static int ist_stack_runtime_selftest(void) {
+    pros_ist_stack_probe_rsp[0] = 0;
+    pros_ist_stack_probe_rsp[1] = 0;
+    pros_ist_stack_probe_rsp[2] = 0;
+    __asm__ volatile ("int $0xF1" ::: "memory");
+    __asm__ volatile ("int $0xF2" ::: "memory");
+    __asm__ volatile ("int $0xF3" ::: "memory");
+    return ist_probe_frame_valid(pros_ist_stack_probe_rsp[0],
+                                 ist1_stack_guard_bottom,
+                                 ist1_stack_bottom, ist1_stack_top) &&
+           ist_probe_frame_valid(pros_ist_stack_probe_rsp[1],
+                                 ist2_stack_guard_bottom,
+                                 ist2_stack_bottom, ist2_stack_top) &&
+           ist_probe_frame_valid(pros_ist_stack_probe_rsp[2],
+                                 ist3_stack_guard_bottom,
+                                 ist3_stack_bottom, ist3_stack_top) ? 0 : -1;
+}
+
 uint64_t kernel_exception_count(void) { return health_exception_count; }
 uint64_t kernel_page_fault_count(void) { return health_page_fault_count; }
 uint64_t kernel_recovered_page_fault_count(void) { return health_recovered_page_fault_count; }
@@ -457,6 +509,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: paging deep invariant self-test passed\n");
+    if (ist_stack_runtime_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR IST stack runtime probe failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IST1/IST2/IST3 stack runtime probes passed\n");
 
     if (heap_init() != 0) {
         serial_write("ProsenjitOS: ERROR kernel heap initialization failed\n");
