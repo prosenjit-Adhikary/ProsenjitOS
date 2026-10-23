@@ -4,12 +4,6 @@ static inline void pic_out8(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
 
-static inline uint8_t pic_in8(uint16_t port) {
-    uint8_t value;
-    __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
-    return value;
-}
-
 static void pic_io_wait(void) {
     pic_out8(0x80, 0);
 }
