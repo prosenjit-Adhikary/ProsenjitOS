@@ -265,3 +265,10 @@ The read-only capability parser now computes the complete doorbell and runtime-r
 ## Extended-capability start-offset validation — 2026-10-23
 
 Both xHCI extended-capability validators now require a nonzero list start offset to be at or beyond CAPLENGTH, not merely beyond the fixed 0x20-byte capability header. This prevents a malformed xECP/list argument from interpreting capability-register bytes as linked extended-capability records. Hosted regression coverage verifies both validators reject offset 0x20 when CAPLENGTH is 0x40 and preserve the caller's output count on failure. This remains read-only snapshot validation; live MMIO access and controller initialization are not implemented.
+
+
+## xHCI operational-register window bounds — 2026-10-23
+
+The read-only xHCI capability parser now requires the BAR snapshot to contain the complete minimum 0x40-byte operational-register block beginning at CAPLENGTH. Checking only CAPLENGTH itself is insufficient because controller registers such as DCBAAP and CONFIG are located beyond the first 0x20 bytes. A regression test constructs a snapshot where the doorbell and runtime windows are individually in-bounds but the operational-register block is truncated; parsing must reject it without publishing a partial result.
+
+This is parser hardening only. It does not map BARs, access live registers, reset/start a controller, or enable bus mastering/DMA. Exact-head CI is required before treating the change as verified.
