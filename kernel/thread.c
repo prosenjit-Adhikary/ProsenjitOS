@@ -73,6 +73,15 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
                 uint64_t tid, uint64_t entry, uint64_t stack_top) {
     if (!thread || !process || tid == 0 || entry == 0 || stack_top == 0)
         return -1;
+    /*
+     * The bootstrap trampoline enters thread_bootstrap() via CALL after RET
+     * from the synthetic context. A 16-byte-aligned stack top preserves the
+     * SysV x86-64 function-entry alignment expected by that call sequence.
+     * Stack ownership/bounds are a separate contract and are not inferred
+     * from this alignment check.
+     */
+    if (stack_top & 0xFULL)
+        return -1;
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
         return -1;
