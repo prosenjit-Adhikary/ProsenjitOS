@@ -344,3 +344,16 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - These tests exercise GPR preservation for the returning INT3 and timer entry paths in QEMU. They do not test every hardware exception, IST nesting, all interrupted privilege/stack transitions, true SMP concurrency, or physical hardware.
 - **Still open:** dynamically allocated per-thread kernel-stack ownership/bounds/guard/reclamation; IST/nested-exception runtime tests; deeper scheduler/IPC race coverage; complete memory/page-table dependency audit; DMA/IOMMU; UEFI and physical hardware.
 - **Overall Part 1 remains PARTIAL / NOT COMPLETE.**
+
+
+## Verification result — safe PIC masks and runtime IST stack probes (2026-10-23)
+
+- Final tested source/test head: `409a5e4a84a1c85ca5217e61a50c8a6eadc98601`.
+- PIC initialization change from `f44e08ced6a6b00b1e041a0356c3047f08ca3762` explicitly enables only master IRQ0 and masks all slave PIC IRQs; the static interrupt-vector test enforces those values. Build/boot run [#7985](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39916210038) and Security architecture run [#7521](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39916210007) both completed successfully for that exact source head.
+- Commit `3d615dd7d0160cbf85fef68aa9402e2416846a41` added real software-interrupt probes on vectors F1/F2/F3, mapped to IST1/IST2/IST3. Each handler records the CPU-generated frame pointer and returns via `iretq`; C checks that the frame lies inside the corresponding stack bounds, its page is supervisor RW+NX, and the named guard page is absent from the active kernel page tables.
+- The first run [#7986](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39917699914) failed before build/QEMU because the static test helper used a quiet `grep -Eq` in an `awk | grep` pipeline under `pipefail`; the early pipe close caused awk's broken-pipe status to be reported as a false failure. Commit `409a5e4a84a1c85ca5217e61a50c8a6eadc98601` changed the helper to read the full input and fixed this harness defect.
+- Final exact-head build/boot run [#7987](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39917932680): **SUCCESS**. The static interrupt regression test, host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU markers and native BIOS QEMU markers all passed. Both ISO and native BIOS serial logs include `ProsenjitOS: IST1/IST2/IST3 stack runtime probes passed`; QEMU exit status 124 is the configured bounded timeout and required markers were checked before the job succeeded.
+- Final exact-head Security architecture run [#7523](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39917932846): **SUCCESS**.
+- Coverage boundary: the probes prove that these three test vectors select their configured IST stack and that the captured frame page/guard mapping meets the checked policy in QEMU. They do not simulate a nested double fault/page fault, exhaustively validate all exception/privilege transitions, or prove real hardware behavior, UEFI or SMP correctness.
+
+**Overall Part 1 remains PARTIAL / NOT COMPLETE.** Dynamic per-thread kernel-stack ownership/bounds/guard/reclamation, broader scheduler/IPC race testing, full memory/page-table dependency review, DMA/IOMMU safety, UEFI and physical-hardware validation remain open.
