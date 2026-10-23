@@ -299,7 +299,9 @@ int pros_hw_input_send(uint32_t id, const struct pros_hw_input_event *e) {
             (e->flags&PROS_HW_INPUT_RELATIVE)!=0u)
             return PROS_DRIVER_EINVAL;
     } else if (e->type==PROS_HW_INPUT_POINTER) {
-        if (edge==(PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE))
+        /* Pointer motion and button transitions are distinct event forms. */
+        if (edge==(PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE) ||
+            (edge!=0u && (e->flags&PROS_HW_INPUT_RELATIVE)!=0u))
             return PROS_DRIVER_EINVAL;
     } else return PROS_DRIVER_EINVAL;
     return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_INPUT,e,(uint32_t)sizeof(*e));
@@ -362,6 +364,11 @@ int pros_hw_stack_selftest(void) {
     if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_EINVAL)return -25;
     event.flags=PROS_HW_INPUT_PRESS;
     if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_ENODEV)return -26;
+    event.type=PROS_HW_INPUT_POINTER;
+    event.flags=PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELATIVE;
+    if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_EINVAL)return -35;
+    event.type=PROS_HW_INPUT_KEY;
+    event.flags=PROS_HW_INPUT_PRESS;
     audio.sample_rate=1000u;
     if(pros_hw_audio_write(1u,&audio,payload,sizeof(payload))!=PROS_DRIVER_EINVAL)return -27;
     audio.sample_rate=48000u;
