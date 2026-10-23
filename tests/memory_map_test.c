@@ -97,6 +97,24 @@ static void *concurrent_free(void *opaque) {
 
 int main(void) {
     int failures = 0;
+
+    failures += check(!multiboot_info_header_address_valid(0),
+                      "null Multiboot2 physical address is rejected before dereference");
+    failures += check(!multiboot_info_header_address_valid(PROSENJIT_PHYS_LIMIT),
+                      "header outside the initial 1 GiB identity map is rejected");
+    failures += check(!multiboot_info_header_address_valid(PROSENJIT_PHYS_LIMIT - 4ULL),
+                      "header that straddles the identity-map limit is rejected");
+    failures += check(!multiboot_info_header_address_valid(0x100001ULL),
+                      "unaligned Multiboot2 info header is rejected");
+    failures += check(multiboot_info_range_valid(PROSENJIT_PHYS_LIMIT - 16ULL, 16u),
+                      "complete Multiboot2 structure at identity-map boundary is accepted");
+    failures += check(!multiboot_info_range_valid(PROSENJIT_PHYS_LIMIT - 8ULL, 16u),
+                      "Multiboot2 structure extending beyond identity map is rejected");
+    failures += check(!multiboot_info_range_valid(0x1000ULL, 15u) &&
+                      !multiboot_info_range_valid(0x1000ULL, 16u * 1024u * 1024u + 1u),
+                      "undersized and oversized Multiboot2 structures are rejected");
+    failures += check(!multiboot_info_range_valid(UINT64_MAX - 7ULL, 16u),
+                      "overflowing Multiboot2 info range is rejected");
     const struct test_mmap_entry overlapping[] = {
         { 0x00100000ULL, 0x00700000ULL, 1u, 0u },
         { 0x00200000ULL, 0x00100000ULL, 2u, 0u }

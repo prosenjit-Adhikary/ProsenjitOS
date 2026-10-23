@@ -26,6 +26,25 @@ struct multiboot_mmap_entry {
     uint32_t reserved;
 };
 
+/*
+ * The current bootstrap maps only physical addresses below 1 GiB. Validate
+ * the boot-info header before dereferencing it, then require the entire tagged
+ * structure to remain inside that identity-mapped range.
+ */
+static int multiboot_info_header_address_valid(uint64_t address) {
+    return address != 0 &&
+           (address & 7ULL) == 0 &&
+           address <= PROSENJIT_PHYS_LIMIT - 8ULL;
+}
+
+static int multiboot_info_range_valid(uint64_t address, uint32_t total_size) {
+    if (!multiboot_info_header_address_valid(address) ||
+        total_size < 16u || total_size > (16u * 1024u * 1024u) ||
+        address > UINT64_MAX - (uint64_t)total_size)
+        return 0;
+    return (uint64_t)total_size <= PROSENJIT_PHYS_LIMIT - address;
+}
+
 extern char __kernel_start[];
 extern char __kernel_end[];
 
@@ -156,11 +175,21 @@ static void mark_available(uint64_t base, uint64_t length) {
 
 int physical_memory_init(uint64_t multiboot_info_address) {
     if (multiboot_info_address == 0) return -1;
+#ifndef PROSENJIT_MEMORY_HOST_TEST
+    /* Never dereference a physical boot-info pointer before range-checking it. */
+    if (!multiboot_info_header_address_valid(multiboot_info_address))
+        return -2;
+#endif
 
     uint32_t total_size = *(const uint32_t *)(uintptr_t)multiboot_info_address;
     if (total_size < 16u || total_size > (16u * 1024u * 1024u)) return -2;
     if (multiboot_info_address > UINT64_MAX - (uint64_t)total_size)
         return -2;
+#ifndef PROSENJIT_MEMORY_HOST_TEST
+    /* The complete tag chain must be readable through the bootstrap identity map. */
+    if (!multiboot_info_range_valid(multiboot_info_address, total_size))
+        return -2;
+#endif
 
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
