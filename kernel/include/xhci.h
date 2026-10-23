@@ -20,4 +20,12 @@ struct pros_xhci_capabilities {
 int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
                                  struct pros_xhci_capabilities *out);
 
+/* Validate the complete xHCI extended-capability linked list in a BAR
+ * snapshot. first_offset == 0 means no list. count_out is written only on
+ * success. This routine never accesses live MMIO. */
+int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
+                                             uint32_t bar_length,
+                                             uint32_t first_offset,
+                                             uint32_t *count_out);
+
 #endif
