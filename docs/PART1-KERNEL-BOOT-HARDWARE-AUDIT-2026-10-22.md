@@ -293,3 +293,16 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Both QEMU stages are bounded marker tests (the workflow validates required serial markers); this does not prove unlimited runtime, real SMP behavior, physical hardware, UEFI, DMA/IOMMU safety, or complete IST/register-sentinel correctness.
 - **Verified for configured CI gates:** the latest source head above builds and passes the configured host, ISO-QEMU, native-BIOS-QEMU, and security-contract gates.
 - **Overall Part 1 remains PARTIAL / NOT COMPLETE.** Remaining substantive gates include stack ownership/bounds/guard/reclamation, runtime ISR/IST register-sentinel testing, deeper scheduler/IPC lifecycle race coverage, complete source/dependency inventory, safe DMA/IOMMU design, UEFI, and physical hardware.
+
+
+## Verification result — user-mapping physical-page admission and TLB invalidation (2026-10-23)
+
+- Source head tested: `561544d22074c9660552e070d276532f1b509bad`.
+- `kernel/address_space.c`: `address_space_map_user_page_owned()` now applies the same `physical_page_is_user_mappable()` admission check as the non-owned mapping API. Without this, the owned API could admit an allocated kernel-only page into a user mapping and later treat it as owned user memory during teardown.
+- `address_space_selftest()` now explicitly requires both owned and non-owned user mapping APIs to reject a generic kernel allocation that is not marked user-mappable. Cleanup paths unmap before freeing if a regression unexpectedly succeeds.
+- `address_space_map_user_page()` now executes `invlpg` for the mapped VA after publishing the leaf entry, so an active address space does not retain a stale translation for that VA.
+- Build and boot-test workflow [#7958](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39909044629): **SUCCESS**. Static interrupt-vector checks, desktop-manager and Multiboot2 memory-map host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU required-marker checks and native BIOS QEMU required-marker checks all passed.
+- Security architecture workflow [#7494](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39909044655): **SUCCESS**.
+- The QEMU tests are bounded serial-marker gates, not proof of physical-hardware behavior, UEFI, true SMP concurrency, unlimited runtime, or DMA/IOMMU safety.
+- **Verified for configured CI gates:** user-mapping page admission and mapping-path changes in the exact source head above.
+- **Overall Part 1 remains PARTIAL / NOT COMPLETE.** Stack ownership/guard/reclamation, runtime GPR/IST and nested-exception tests, deeper scheduler/IPC race coverage, complete dependency inventory, DMA/IOMMU, UEFI and physical-hardware validation remain open.
