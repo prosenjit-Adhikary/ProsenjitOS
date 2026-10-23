@@ -61,6 +61,17 @@ int main(void)
     assert(events[1].flags == PROS_HW_INPUT_PRESS && events[1].value0 == 1);
     assert(events[2].flags == PROS_HW_INPUT_PRESS && events[2].value0 == 2);
 
+    /* Worst-case standard packet: motion plus all three button edges (4 events). */
+    pros_ps2_mouse_reset(&decoder);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x0Fu, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 1u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
+    assert(count == PROS_PS2_MOUSE_MAX_EVENTS);
+    assert(events[0].flags == PROS_HW_INPUT_RELATIVE && events[0].value0 == 1);
+    assert(events[1].flags == PROS_HW_INPUT_PRESS && events[1].value0 == 1);
+    assert(events[2].flags == PROS_HW_INPUT_PRESS && events[2].value0 == 2);
+    assert(events[3].flags == PROS_HW_INPUT_PRESS && events[3].value0 == 3);
+
     assert(pros_ps2_mouse_decode_byte(&decoder, 0x08u, 0, &count) == PROS_DRIVER_EINVAL);
     assert(pros_ps2_mouse_decode_byte(&decoder, 0x08u, events, 0) == PROS_DRIVER_EINVAL);
     pros_ps2_mouse_reset(&decoder);
