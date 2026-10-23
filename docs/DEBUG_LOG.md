@@ -430,3 +430,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### Result / boundary
 - Current callsite review found no production integrity-scan caller that violates the documented serialization precondition.
 - This does **not** establish general concurrent VFS safety. When timer preemption, SMP, or concurrent production scan callers are introduced, add a reviewed operation-locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion before enabling them.
+
+## 2026-10-23 — ProsenjitFS repeated directory-reference regression
+
+- Added a self-test that creates two independent files, mutates the second directory entry to point at the first file's inode, and recomputes the entry checksum so the integrity scanner must detect duplicate inode references rather than rely on a checksum failure.
+- The test asserts corruption rejection, report-only scan immutability for durable/volatile/dirty media, restoration of the original entry, and a clean rescan.
+- Status: source and documentation committed to a dedicated branch; Build/ISO QEMU/native BIOS QEMU and Security architecture results are pending. No pass is claimed until CI reports success.
+
