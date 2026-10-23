@@ -351,3 +351,17 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build and boot-test run [#8194](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938083): **PASS** on self-hosted runner `office`. ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
 - Security architecture run [#7730](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938090): **PASS**.
 - This verifies one unlink commit-write failure and recovery path under the mock block device. It does not prove physical-device power-loss durability or cover every mutation/failure boundary.
+
+
+## 2026-10-23 — ProsenjitFS unlink read-error classification
+
+### Root cause and fix
+- Source audit found `pfs_vnode_unlink()` combined an invalid directory-entry LBA and a failed `pfs_read_block()` into the same `PROSENJITFS_ECORRUPT` result.
+- Split the checks: invalid bounds remain corruption; actual block-device errors now propagate through the existing VFS error mapping as I/O failures.
+- Added a fault-injection regression targeting the root directory-entry read. It requires `PROS_VFS_EIO`, unchanged durable/volatile/dirty media, a writable mount, intact file bytes, and a successful integrity scan.
+- Change: commit `1c051dc7f4d2561352e7728e1b0da86cadfa3c54`, PR [#199](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/199).
+
+### Verification
+- Build and boot-test run [#8199](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947309841): **PASS** on self-hosted runner `office`; ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security architecture run [#7735](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947309844): **PASS**.
+- This fixes and verifies the specific unlink directory-entry read-error classification path; it is not a claim that all concurrency or physical-device durability requirements are closed.

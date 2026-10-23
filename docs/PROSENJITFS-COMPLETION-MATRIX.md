@@ -138,3 +138,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The test simulates power loss and remount, checks the original path and payload remain intact, and runs the report-only integrity scan.
 - Exact PR code head `ed197bf77328ae419f8f45480640da0063641537` passed build/boot-test [#8194](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938083), including ISO build, ISO QEMU boot and native BIOS QEMU boot. Security architecture [#7730](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938090) also passed.
 - Scope: this closes one focused unlink rollback/remount case under the mock block device. Other mutation classes and read-error classification still need review; mock-device/QEMU coverage is not proof of physical power-loss durability.
+
+
+## Verification update — 2026-10-23: unlink read-error classification
+
+- Fixed `pfs_vnode_unlink()` so an invalid entry LBA returns corruption while a block-device read failure propagates as `PROS_VFS_EIO`.
+- Added a deterministic fault-injection case for the directory-entry read; it verifies unchanged durable/volatile/dirty media, preserved file bytes, a writable mount, and a clean integrity scan.
+- Exact code head `1c051dc7f4d2561352e7728e1b0da86cadfa3c54` passed build/boot-test [#8199](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947309841), including ISO and native BIOS QEMU boot. Security architecture [#7735](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947309844) also passed.
+- This closes one specific I/O-error-classification defect. Caller-side scan/mutation serialization, broader mutation rollback coverage, and physical-device durability remain open acceptance work.

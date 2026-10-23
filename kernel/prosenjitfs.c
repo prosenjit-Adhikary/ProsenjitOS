@@ -2752,12 +2752,14 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
             goto out;
         }
         if (current < parent_data->fs->sb.data_start ||
-            current >= parent_data->fs->sb.total_blocks ||
-            pfs_read_block(parent_data->fs->mount.device, current,
-                           entry_block) != PROSENJITFS_OK) {
+            current >= parent_data->fs->sb.total_blocks) {
             rc = PROSENJITFS_ECORRUPT;
             goto out;
         }
+        rc = pfs_read_block(parent_data->fs->mount.device, current,
+                            entry_block);
+        if (rc != PROSENJITFS_OK)
+            goto out;
         pfs_copy(&entry, entry_block, sizeof(entry));
         if (entry.magic != PROSENJITFS_ENTRY_MAGIC ||
             entry.name_length == 0u ||
@@ -10016,6 +10018,78 @@ int prosenjitfs_selftest(void)
             if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -13);
         }
+    }
+
+    /*
+     * Unlink must preserve device I/O errors while reading a directory entry.
+     * The third read in this root-directory path is the selected entry block;
+     * a failed read must not be mislabeled as metadata corruption or mutate
+     * any durable, volatile, or dirty mock-media state.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t data[64];
+        uint8_t read_data[64];
+        uint32_t done = 0u;
+        uint32_t durable_before, volatile_before, dirty_before;
+        int unlink_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(data); ++i)
+            data[i] = (uint8_t)(0x5Cu ^ (uint8_t)(i * 29u));
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/unlink-read-error.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, data, sizeof(data), &done) != PROS_VFS_OK ||
+            done != sizeof(data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        disk.fail_read_countdown = 3u;
+        unlink_rc = vfs_unlink(&fs.mount, "/unlink-read-error.bin");
+        if (unlink_rc != PROS_VFS_EIO ||
+            disk.fail_read_countdown != 0u ||
+            fs.read_only || fs.mount.read_only ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/unlink-read-error.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            if (read_data[i] != data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        }
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
     }
 
     /*
