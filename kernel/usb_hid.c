@@ -40,6 +40,10 @@ int pros_usb_hid_keyboard_report(
     if (!state || !report || !out || !out_count) return PROS_DRIVER_EINVAL;
     *out_count = 0u;
 
+    /* Boot-protocol byte 1 is reserved and must remain zero. Reject malformed
+     * reports before deriving transitions or mutating the previous key state. */
+    if (report[1] != 0u) return PROS_DRIVER_EINVAL;
+
     uint8_t next_keys[6];
     for (uint32_t i = 0u; i < 6u; ++i) {
         uint8_t usage = report[2u + i];
