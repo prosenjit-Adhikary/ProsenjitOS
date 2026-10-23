@@ -754,6 +754,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread worker_thread;
     struct pros_thread misaligned_stack_probe;
     struct pros_thread undersized_stack_probe;
+    struct pros_thread overlapping_stack_probe;
     if (thread_manager_init() != 0 ||
         /* Reject a misaligned stack top before registering a thread object. */
         thread_init(&misaligned_stack_probe, &init_process, 77,
@@ -776,6 +777,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
                     (uint64_t)(uintptr_t)worker_thread_stack,
                     (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
+        /* A distinct thread must not alias any live thread's kernel stack. */
+        thread_init(&overlapping_stack_probe, &init_process, 79,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack + 16u),
+                    (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) == 0 ||
         init_thread.kernel_stack_bottom != (uint64_t)(uintptr_t)init_thread_stack ||
         init_thread.kernel_stack_top != (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack)) ||
         init_thread.context.rsp != init_thread.kernel_stack_top - 7u * sizeof(uint64_t) ||

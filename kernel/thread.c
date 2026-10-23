@@ -99,6 +99,10 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
          * detach the remainder of the registry (or create a self-cycle). */
         if (existing == thread)
             return -1;
+        if (existing->state != PROS_THREAD_DEAD &&
+            stack_bottom < existing->kernel_stack_top &&
+            existing->kernel_stack_bottom < stack_top)
+            return -1;
         if (existing->tid == tid && existing->state != PROS_THREAD_DEAD)
             return -1;
     }

@@ -381,3 +381,11 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Overall Part 1 remains **PARTIAL / NOT COMPLETE**.
 - Follow-up CI finding: Build run #8059 exposed one remaining `thread_init()` call in the scheduler switch-failure regression setup that still used the old signature. Updated that call to pass the lifecycle stack's explicit bottom and top. The failed build's host tests passed; ISO build and both QEMU boot steps were skipped because compilation stopped at this call. A fresh CI run is required.
 - Follow-up regression coverage: the scheduler foundation test now checks that both initialized threads retain the exact caller-supplied stack bounds and that their initial saved RSP is exactly seven 64-bit words below stack top. This tests the metadata/context contract as well as rejection of undersized ranges.
+
+## Addendum — reject overlapping live kernel stacks (2026-10-23)
+
+- Finding: explicit bounds prevented writes below a caller-supplied stack range, but two distinct live threads could still be initialized with overlapping ranges. This could let one thread's context/trap frames overwrite another thread's stack.
+- Change: `thread_init()` now rejects overlap with every registered non-dead thread stack before writing the initial context or linking the new thread into the registry. Dead thread records may be retained for registry history without permanently reserving their old stack range.
+- Regression: the scheduler foundation boot test attempts to initialize a distinct thread on a range overlapping the live init thread's stack and requires rejection. Existing exact-bound/RSP assertions remain in place.
+- Scope limit: this detects overlap between registered live threads; it does not allocate stacks, validate page mappings/guard pages, or establish safe reclamation. The current static stack backing remains a bootstrap design.
+- Verification required: exact-head host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU, native BIOS QEMU and security architecture checks must pass for the new commit before considering this change verified.
