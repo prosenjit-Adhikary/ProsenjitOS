@@ -250,3 +250,8 @@ During follow-up source review, corrected the PSI count extraction to read the P
 ## Additional xHCI bounds regressions — 2026-10-23
 
 Extended the Supported Protocol tests to reject next-capability pointers into the fixed 16-byte structure and to reject a maximum-size PSI array when the BAR snapshot truncates it. Both failure cases verify that the caller's output count is unchanged. These are hosted malformed-input tests; they do not exercise a physical xHCI controller.
+
+
+## xECP capability-region separation — 2026-10-23
+
+The xHCI capability parser now rejects a nonzero xECP offset that points inside the CAPLENGTH-defined capability-register region. The parser also checks that the pointed-to dword lies within the supplied BAR snapshot. A regression case covers an xECP pointer that overlaps the capability registers. This remains static snapshot validation, not MMIO mapping or controller startup.
