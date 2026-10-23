@@ -197,3 +197,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; toolchain checks, desktop/DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed. Both QEMU logs contain the ProsenjitFS format/mount/allocation/journal/recovery success marker; the native BIOS log also contains the ATA PIO, LBA-boundary, and ATA → MBR → ProsenjitFS persistent-mount markers.
 - Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This validates the test cleanup and current automated gates only; it does not establish physical-device power-loss durability or production completion.
+
+
+## mkdir preflight read-failure sweep — 2026-10-23
+
+- Adds three injected read-failure positions across parent inode validation, directory-index validation, and duplicate-name lookup during `vfs_mkdir`.
+- Each case requires `PROS_VFS_EIO`, consumed fault injection, unchanged durable/volatile/dirty mock-media CRCs, writable mount state, absent new path, and a clean integrity scan.
+- Exact-head Build/boot-test and Security architecture checks remain required; no runtime pass is claimed.
