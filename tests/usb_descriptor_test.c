@@ -44,6 +44,10 @@ int main(void)
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
     copy_config(bad);
+    bad[4] = 2u; /* configuration declares two interfaces but contains one */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
     bad[20] = 0x01u; /* endpoint OUT, not interrupt-IN */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_ENODEV);
 
