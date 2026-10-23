@@ -132,6 +132,9 @@ int main(void)
     assert(pros_usb_hid_keyboard_submit_report(
                PROS_INPUT_SERVICE_ENDPOINT_ID, &keyboard, report) == PROS_DRIVER_ENOSPC);
     assert(keyboard.keys[0] == 4u); /* previous report state preserved */
+    assert(pros_usb_hid_keyboard_submit_recovery(
+               PROS_INPUT_SERVICE_ENDPOINT_ID, &keyboard) == PROS_DRIVER_ENOSPC);
+    assert(keyboard.keys[0] == 4u); /* held key retained until release is queued */
     queue_result = PROS_DRIVER_OK;
     assert(pros_usb_hid_keyboard_submit_recovery(
                PROS_INPUT_SERVICE_ENDPOINT_ID, &keyboard) == PROS_DRIVER_OK);
