@@ -52,6 +52,20 @@ int main(void)
     assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
     assert(count == 1u && events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 1);
 
+    /* Corrupt/partial transport packets must not forget held buttons. */
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x09u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
+    assert(count == 1u && events[0].flags == PROS_HW_INPUT_PRESS && events[0].value0 == 1);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x08u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_ENOTSUP);
+    pros_ps2_mouse_discard_packet(&decoder);
+    assert(decoder.packet_used == 0u && decoder.buttons == 1u);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x08u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
+    assert(count == 1u && events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 1);
+
     /* Motion and two button transitions fit within the bounded event array. */
     assert(pros_ps2_mouse_decode_byte(&decoder, 0x0Bu, events, &count) == PROS_DRIVER_ENOTSUP);
     assert(pros_ps2_mouse_decode_byte(&decoder, 1u, events, &count) == PROS_DRIVER_ENOTSUP);
