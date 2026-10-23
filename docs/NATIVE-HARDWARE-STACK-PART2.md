@@ -230,3 +230,8 @@ PIC and dispatcher hosted suites are now scheduled in CI, but the current branch
 Added a read-only snapshot validator for xHCI Supported Protocol extended capabilities (capability ID 2). It checks that each such capability's full 16-byte structure is inside the supplied BAR snapshot and that its one-based first-port/count range stays within the caller-provided MaxPorts. Unknown extended capability types are skipped using the linked-list next pointer. The result count is written only on success. Hosted tests cover a valid range, an out-of-range protocol port span, a malformed capability header, and an empty list.
 
 This is still parser/contract work only: it does not read live MMIO, initialize an xHCI controller, allocate DMA rings, enumerate USB devices, or perform USB transfers. Exact-head CI must pass before this change is treated as verified.
+
+
+## Supported Protocol structure bounds hardening — 2026-10-23
+
+The xHCI Supported Protocol validator now checks the PSI (Protocol Speed ID) count and verifies that the complete structure—fixed 16-byte body plus four bytes per PSI entry—fits inside the supplied BAR snapshot. Added a regression test for a truncated PSI array and for the same structure when fully present. This is still a read-only snapshot validator, not live MMIO access or xHCI initialization.
