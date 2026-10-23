@@ -15,6 +15,7 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
     uint16_t distinct_interfaces = 0u;
     uint8_t current_interface = 0u, current_alt = 0u;
     uint8_t expected_endpoints = 0u, observed_endpoints = 0u;
+    uint32_t seen_endpoint_addresses = 0u;
     uint8_t in_interface = 0u;
     enum pros_usb_hid_kind current_kind = PROS_USB_HID_NONE;
     struct pros_usb_hid_endpoint candidate = {0};
@@ -43,6 +44,7 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             }
             expected_endpoints = blob[offset + 4u];
             observed_endpoints = 0u;
+            seen_endpoint_addresses = 0u;
             in_interface = 1u;
             current_kind = PROS_USB_HID_NONE;
             if (blob[offset + 5u] == PROS_USB_CLASS_HID &&
@@ -69,6 +71,12 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             if ((address & 0x70u) != 0u || (address & 0x0Fu) == 0u ||
                 (attributes & 0xC0u) != 0u || packet_size == 0u)
                 return PROS_DRIVER_EIO;
+            uint32_t endpoint_index = (uint32_t)(address & 0x0Fu);
+            if ((address & PROS_USB_ENDPOINT_IN) != 0u) endpoint_index += 16u;
+            uint32_t endpoint_bit = 1u << endpoint_index;
+            if ((seen_endpoint_addresses & endpoint_bit) != 0u)
+                return PROS_DRIVER_EIO;
+            seen_endpoint_addresses |= endpoint_bit;
 
             if (transfer_type == PROS_USB_ENDPOINT_INTERRUPT) {
                 if (blob[offset + 6u] == 0u || (packet & 0xF800u) != 0u)
