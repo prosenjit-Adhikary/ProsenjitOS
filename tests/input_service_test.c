@@ -85,6 +85,20 @@ int main(void)
                                    PROS_HW_ENDPOINT_INPUT, &event,
                                    sizeof(event)) == PROS_DRIVER_EINVAL);
 
+    /* Pointer events must be either motion-only or a single button edge. */
+    event.type = PROS_HW_INPUT_POINTER;
+    event.flags = 0u;
+    assert(pros_hw_endpoint_submit(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                   PROS_HW_ENDPOINT_INPUT, &event,
+                                   sizeof(event)) == PROS_DRIVER_EINVAL);
+    event.flags = PROS_HW_INPUT_RELATIVE;
+    assert(pros_hw_endpoint_submit(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                   PROS_HW_ENDPOINT_INPUT, &event,
+                                   sizeof(event)) == PROS_DRIVER_OK);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_POINTER &&
+           event.flags == PROS_HW_INPUT_RELATIVE);
+
     /* Fill the queue through the same public endpoint used by the PS/2 poller. */
     event.version = PROS_HW_STACK_ABI_VERSION;
     event.type = PROS_HW_INPUT_KEY;
