@@ -310,3 +310,18 @@ The native BIOS image reserves an MBR partition (type `0xDA`, LBA 2048, 512 sect
 The completed change adds a host formatter that reuses the kernel's existing `prosenjitfs_format()` implementation on the freshly-created disposable image, plus a native-boot-only ATA/MBR/partition test that writes a file, unmounts, remounts read-only, and verifies persisted bytes. The kernel never auto-formats an unknown disk.
 
 Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39555440828) passed on self-hosted runner `Office1`. ISO build and QEMU boot passed; native BIOS QEMU boot passed; the log contained the ATA PIO, LBA boundary, and ATA→MBR→ProsenjitFS persistence success markers. The native test verified `/native-persist.bin` after unmount/remount. Security architecture run `7009` also passed. Final verification: build run [7472](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39555737435) passed on commit `de7e740` (ISO build, ISO QEMU, native BIOS QEMU, Windows runner smoke); security architecture run [7010](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39555737412) passed. The native ATA/MBR/ProsenjitFS persistence markers were required by the workflow and the native boot step succeeded.
+
+
+## 2026-10-23 — Populated-namespace ProsenjitFS integrity I/O-failure sweep
+
+### Investigation and result
+
+- Commit `e14e0c1` first separated the populated-namespace integrity sweep's generic failure into distinct diagnostics. Its ISO QEMU boot failed at self-test stage `0x227F` (source line 8831), which identified the `scan_rc != PROSENJITFS_EIO` assertion as the failing check; the same run's build and DML checks passed, but the required filesystem success milestone was missing.
+- Commit `4bdaf54` improved this diagnostic further: if the scan return value is unexpected, the self-test now encodes the actual `scan_rc` into its failure code (`-3000 + scan_rc`). It does not change the integrity scan or error propagation itself.
+- Full Build run [39930150534](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39930150534) passed after the diagnostic commit: ISO QEMU boot and native BIOS QEMU boot both reached the required ProsenjitFS format/mount/allocation/journal/recovery milestone; both QEMU steps exited with the expected timeout status 124 after the required milestones. Security architecture run [39930150525](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39930150525) passed.
+- The same Build run was re-run independently and passed again. Both ISO and native BIOS QEMU boot tests passed, and the ProsenjitFS milestone appeared in both serial logs.
+
+### Status / next action
+
+- Current verification is green on commit `4bdaf54fb1911a7c04f8bc914c7c0263444b65e9` for Build/QEMU and Security architecture checks.
+- The earlier `scan_rc` mismatch was not reproduced on two runs after adding diagnostics. Because the diagnostic change does not alter filesystem runtime behavior, treat the original failure as an intermittent/unresolved test anomaly rather than claiming the underlying cause is fixed. Preserve the stronger return-code diagnostic and investigate further if it recurs.
