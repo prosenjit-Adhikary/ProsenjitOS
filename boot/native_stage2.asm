@@ -192,6 +192,11 @@ load_kernel:
     mov ah, 0x42
     int 0x13
     jc .fail
+    ; The BIOS may lower the DAP count on a partial transfer even if carry
+    ; was not set. Do not copy/execute a truncated kernel image.
+    mov ax, [chunk_sectors]
+    cmp word [dap_count], ax
+    jne .fail
 
     mov ax, [chunk_sectors]
     sub [remaining], ax

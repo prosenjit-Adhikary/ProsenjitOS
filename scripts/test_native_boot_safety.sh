@@ -28,6 +28,11 @@ require_literal 'cmp ecx, 24' "must distinguish legacy and extended E820 respons
 require_literal 'test dword [es:di + 20], 1' "must skip disabled extended E820 entries"
 require_literal 'mov dword [es:di + 20], 0' "must clear the Multiboot2 reserved dword"
 require_literal 'jc .fail' "must fail closed on E820 BIOS errors"
+# EDD reads must complete every requested sector before execution/copy.
+require_literal 'cmp word [dap_count], STAGE2_SECTORS' "stage 1 must reject short stage-2 reads"
+require_literal 'cmp word [dap_count], ax' "stage 2 must reject short kernel reads"
+require_literal 'jne disk_error' "stage 1 short reads must enter the disk-error halt path"
+require_literal 'jne .fail' "stage 2 short reads must enter the fatal boot path"
 require_literal 'cmp bp, 32' "must enforce the E820 entry-buffer capacity"
 require_literal 'jae .fail' "must reject truncated E820 maps"
 require_literal 'test ebx, ebx' "must follow the E820 continuation token"

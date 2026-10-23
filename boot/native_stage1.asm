@@ -34,6 +34,10 @@ start:
     mov ah, 0x42
     int 0x13
     jc disk_error
+    ; BIOS EDD may report a short transfer by updating the DAP count.
+    ; Never jump into a partially loaded stage-2 image.
+    cmp word [dap_count], STAGE2_SECTORS
+    jne disk_error
 
     jmp 0x0000:0x8000
 
