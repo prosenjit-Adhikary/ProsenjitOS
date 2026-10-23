@@ -197,3 +197,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; toolchain checks, desktop/DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed. Both QEMU logs contain the ProsenjitFS format/mount/allocation/journal/recovery success marker; the native BIOS log also contains the ATA PIO, LBA-boundary, and ATA → MBR → ProsenjitFS persistent-mount markers.
 - Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This validates the test cleanup and current automated gates only; it does not establish physical-device power-loss durability or production completion.
+
+
+## Sparse truncate read-failure regression — 2026-10-23
+
+- Added a self-test for sparse file growth from a short, allocated file to beyond its first block.
+- Injected read failures at three pre-publication reads: inode validation, extent lookup, and reading the existing tail block before zeroing it.
+- Each case requires `PROS_VFS_EIO`, unchanged durable/volatile/dirty mock-media CRCs, a writable mount, original EOF/data still readable, and a clean integrity scan.
+- This is a source-level test addition; the exact branch/commit still requires Build/boot-test and Security workflow results. It does not establish physical-device durability or general concurrent mutation safety.
