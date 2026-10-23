@@ -67,56 +67,72 @@ static int input_endpoint_init(void *context)
     return PROS_DRIVER_OK;
 }
 
-static int input_endpoint_transfer(void *context, const void *buffer,
-                                   uint32_t length)
+static int input_event_valid(const struct pros_hw_input_event *event)
 {
-    if (context != &input_state || !buffer ||
-        length != (uint32_t)sizeof(struct pros_hw_input_event))
-        return PROS_DRIVER_EINVAL;
-
-    const struct pros_hw_input_event *event =
-        (const struct pros_hw_input_event *)buffer;
-    if (event->version != PROS_HW_STACK_ABI_VERSION ||
+    if (!event || event->version != PROS_HW_STACK_ABI_VERSION ||
         event->reserved != 0u ||
         (event->flags & ~(PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE |
                           PROS_HW_INPUT_RELATIVE)) != 0u)
-        return PROS_DRIVER_EINVAL;
+        return 0;
 
-    /* Enforce the ABI again at the queue boundary. Callers can reach this
-     * callback through the generic endpoint submit API without going through
-     * pros_hw_input_send(), so the queue must not trust that wrapper alone. */
     uint32_t edge = event->flags & (PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE);
-    if (event->type == PROS_HW_INPUT_KEY) {
-        if ((edge != PROS_HW_INPUT_PRESS && edge != PROS_HW_INPUT_RELEASE) ||
-            (event->flags & PROS_HW_INPUT_RELATIVE) != 0u)
-            return PROS_DRIVER_EINVAL;
-    } else if (event->type == PROS_HW_INPUT_POINTER) {
-        if ((event->flags & PROS_HW_INPUT_RELATIVE) != 0u) {
-            if (edge != 0u) return PROS_DRIVER_EINVAL;
-        } else if (edge != PROS_HW_INPUT_PRESS &&
-                   edge != PROS_HW_INPUT_RELEASE) {
-            return PROS_DRIVER_EINVAL;
-        }
-    } else {
-        return PROS_DRIVER_EINVAL;
+    if (event->type == PROS_HW_INPUT_KEY)
+        return (edge == PROS_HW_INPUT_PRESS || edge == PROS_HW_INPUT_RELEASE) &&
+               (event->flags & PROS_HW_INPUT_RELATIVE) == 0u;
+    if (event->type == PROS_HW_INPUT_POINTER) {
+        if ((event->flags & PROS_HW_INPUT_RELATIVE) != 0u)
+            return edge == 0u;
+        return edge == PROS_HW_INPUT_PRESS || edge == PROS_HW_INPUT_RELEASE;
     }
+    return 0;
+}
+
+/* Publish an entire decoded device packet atomically. If there is not enough
+ * room for every event, none are queued; this prevents partial mouse packets
+ * from losing button edges while retaining movement events (or vice versa). */
+int pros_input_service_send_batch(uint32_t endpoint_id,
+                                  const struct pros_hw_input_event *events,
+                                  uint32_t count)
+{
+    if (endpoint_id != PROS_INPUT_SERVICE_ENDPOINT_ID || !events ||
+        count == 0u || count > PROS_INPUT_SERVICE_QUEUE_CAPACITY)
+        return PROS_DRIVER_EINVAL;
+    for (uint32_t i = 0u; i < count; ++i)
+        if (!input_event_valid(&events[i])) return PROS_DRIVER_EINVAL;
 
     uint64_t flags = input_lock_acquire();
     if (!input_state.ready) {
         input_lock_release(flags);
         return PROS_DRIVER_ENODEV;
     }
-    if ((uint32_t)(input_state.head - input_state.tail) >=
-        PROS_INPUT_SERVICE_QUEUE_CAPACITY) {
-        ++input_state.dropped;
+    uint32_t queued = (uint32_t)(input_state.head - input_state.tail);
+    if (queued > PROS_INPUT_SERVICE_QUEUE_CAPACITY ||
+        count > PROS_INPUT_SERVICE_QUEUE_CAPACITY - queued) {
+        if (UINT32_MAX - input_state.dropped < count)
+            input_state.dropped = UINT32_MAX;
+        else
+            input_state.dropped += count;
         input_lock_release(flags);
         return PROS_DRIVER_ENOSPC;
     }
 
-    input_state.events[input_state.head & INPUT_QUEUE_MASK] = *event;
-    ++input_state.head;
+    for (uint32_t i = 0u; i < count; ++i) {
+        input_state.events[input_state.head & INPUT_QUEUE_MASK] = events[i];
+        ++input_state.head;
+    }
     input_lock_release(flags);
     return PROS_DRIVER_OK;
+}
+
+static int input_endpoint_transfer(void *context, const void *buffer,
+                                   uint32_t length)
+{
+    if (context != &input_state || !buffer ||
+        length != (uint32_t)sizeof(struct pros_hw_input_event))
+        return PROS_DRIVER_EINVAL;
+    return pros_input_service_send_batch(
+        PROS_INPUT_SERVICE_ENDPOINT_ID,
+        (const struct pros_hw_input_event *)buffer, 1u);
 }
 
 static int input_endpoint_shutdown(void *context)
