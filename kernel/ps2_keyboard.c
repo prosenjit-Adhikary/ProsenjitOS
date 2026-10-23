@@ -1,4 +1,5 @@
 #include "ps2_keyboard.h"
+#include "timer.h"
 
 #define PS2_STATUS_PORT 0x64u
 #define PS2_DATA_PORT   0x60u
@@ -148,6 +149,9 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
             continue;
         if (rc != PROS_DRIVER_OK)
             return rc;
+        /* Stamp events at the bounded hardware-poll point using the
+         * monotonic PIT tick source, never device-provided time. */
+        event.timestamp = timer_ticks();
         rc = pros_hw_input_send(input_endpoint_id, &event);
         if (rc != PROS_DRIVER_OK)
             return rc;
