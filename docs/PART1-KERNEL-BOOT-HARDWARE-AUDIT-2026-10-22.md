@@ -225,3 +225,11 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - `paging_selftest()` now checks that a user mapping at `0xFFFF800000001000` is rejected and remains untranslated.
 - Rationale: on four-level x86-64 paging, a user-accessible mapping must not be admitted in the canonical kernel half. This guard complements page-table permission checks; it does not replace the user address-space isolation audit.
 - Verification state at this log update: commit exists on the audit branch, diff was re-fetched and reviewed, but the workflow lookup returned no runs for this source-changing commit. **Build/QEMU verification is pending; this change is NOT marked tested or complete.** Re-run the repository's host tests, build, ISO QEMU, native BIOS QEMU, and security workflow against this exact commit before acceptance.
+
+
+## Follow-up — avoid false assumption in paging regression (2026-10-23)
+
+- Source commit `acbc41742fab399d39fa0ccb2848ba69c7176ceb` removes a fragile assertion that the kernel-root translation of `0xFFFF800000001000` must be absent. That address belongs to the canonical high half and could legitimately already be mapped by a kernel configuration; this test should validate rejection of the attempted USER mapping, not assert that a kernel VA is unmapped.
+- The core negative regression remains: `paging_map_page(0xFFFF800000001000, ..., PROSENJIT_PAGE_USER | ...)` must fail.
+- CI at the time of this log update: build/boot run #7932 (for the preceding source commit) was in progress at the native BIOS QEMU step; build/boot run #7933 for the latest audit-head update was pending. Security architecture run #7469 succeeded for the prior audit head. These are not yet passing results for this latest source commit.
+- Latest source commit build/host tests/ISO QEMU/native BIOS QEMU: **PENDING / NOT VERIFIED**. Overall acceptance remains **PARTIAL**.
