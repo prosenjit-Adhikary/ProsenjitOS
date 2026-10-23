@@ -2,6 +2,21 @@
 #include <stdint.h>
 #include "input_service.h"
 #include "ps2_keyboard.h"
+#include "process.h"
+
+/* Host test isolates the queue from the kernel process manager. */
+int process_grant_handle(struct pros_process *process, struct pros_object *object,
+                         uint64_t rights, uint64_t *handle_out)
+{
+    (void)process; (void)object; (void)rights; (void)handle_out;
+    return -1;
+}
+int process_check_handle(const struct pros_process *process, uint64_t handle,
+                         uint64_t required_rights, uint16_t expected_type)
+{
+    (void)process; (void)handle; (void)required_rights; (void)expected_type;
+    return -1;
+}
 
 int main(void)
 {
@@ -9,7 +24,7 @@ int main(void)
     pros_ps2_keyboard_test_reset_fifo();
     pros_ps2_keyboard_reset_decoder();
 
-    assert(pros_input_service_is_ready() == 0);
+    assert(pros_input_service_is_ready() == 0);\n    assert(pros_input_service_grant_read(0, 0) == PROS_DRIVER_EINVAL);\n    assert(pros_input_service_read_capability(0, 1u, &event) == PROS_DRIVER_EINVAL);
     assert(pros_hw_stack_init() == PROS_DRIVER_OK);
     assert(pros_input_service_init() == PROS_DRIVER_OK);
     assert(pros_input_service_is_ready() == 1);
