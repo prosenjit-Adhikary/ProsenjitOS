@@ -92,13 +92,13 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
         return -1;
 
     /*
-     * In four-level x86-64 paging, user-accessible virtual addresses must
-     * be in the lower canonical half. Allowing USER on a high-half address
-     * would expose a kernel-range mapping to CPL3 if all paging levels permit
-     * user access. Keep this guard at the mapping API boundary.
+     * This API mutates the shared kernel root. User mappings belong in a
+     * process-specific root through address_space_map_user_page(); admitting
+     * USER here could make a low-half mapping visible in the kernel root and
+     * weaken the process/kernel address-space boundary. Reject USER for every
+     * virtual address, including both lower and upper canonical halves.
      */
-    if ((flags & PROSENJIT_PAGE_USER) &&
-        virtual_address >= 0x0000800000000000ULL)
+    if (flags & PROSENJIT_PAGE_USER)
         return -1;
 
     uint64_t table_flags = PROSENJIT_PAGE_WRITABLE;
@@ -434,8 +434,14 @@ int paging_selftest(void) {
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -6;
-    /* CPL3 mappings must never be admitted into the canonical kernel half. */
+    /*
+     * The kernel-root mapper must never create user-accessible mappings in
+     * either canonical half. User pages are installed only in process roots.
+     */
     if (paging_map_page(0xFFFF800000001000ULL, physical,
+                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
+                         PROSENJIT_PAGE_NX) == 0 ||
+        paging_map_page(0x0000008000001000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
                          PROSENJIT_PAGE_NX) == 0)
         return -10;
