@@ -274,6 +274,10 @@ The read-only xHCI capability parser now requires the BAR snapshot to contain th
 This is parser hardening only. It does not map BARs, access live registers, reset/start a controller, or enable bus mastering/DMA. Exact-head CI is required before treating the change as verified.
 
 
+## xHCI extended-capability start alias validation — 2026-10-23
+
+The capability snapshot parser now rejects an xECP first-header offset that aliases the operational register block, doorbell array, or runtime/interrupter register window. The xECP pointer is BAR-relative, so the first header must be in a valid, non-overlapping register region. Regression cases cover xECP at the doorbell and runtime bases. This validates only the first header's location; the complete extended-capability chain still requires separate bounded-list validation.
+
 ## xHCI Supported Protocol port ownership validation — 2026-10-23
 
 The snapshot validator now tracks ports claimed by each Supported Protocol capability and rejects overlapping port ranges. A physical xHCI port must not be described as belonging to multiple protocol ranges; accepting such a snapshot could misclassify a port during later enumeration. A hosted regression test verifies overlapping ranges fail without changing the output count, while adjacent non-overlapping ranges are accepted. This remains parser-only validation and does not establish live controller support.
