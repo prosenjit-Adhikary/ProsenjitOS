@@ -137,11 +137,11 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
             pros_ps2_keyboard_reset_decoder();
             continue;
         }
-        /* Mouse/AUX bytes may interleave with keyboard bytes. Do not let a
-         * pending E0 or Pause prefix leak across that unrelated byte stream. */
+        /* Mouse/AUX bytes are a separate byte stream and must never be
+         * consumed as keyboard scan-code data. Drop a pending E0 prefix,
+         * but preserve Pause progress: only keyboard bytes advance that
+         * sequence, as verified by the AUX-interleaving regression test. */
         if ((status & PS2_STATUS_AUX_DATA) != 0u) {
-            /* Mouse/AUX data has its own packet decoder. Drop a partial E0
-             * key prefix so bytes from the two devices never share state. */
             extended_prefix = 0u;
             struct pros_hw_input_event mouse_events[PROS_PS2_MOUSE_MAX_EVENTS];
             uint32_t mouse_count = 0u;
