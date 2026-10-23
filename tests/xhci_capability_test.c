@@ -74,6 +74,26 @@ int main(void)
     assert(pros_xhci_validate_extended_capabilities(
                0, sizeof(bar), 0u, &ext_count) == PROS_DRIVER_EINVAL);
 
+
+    /* Supported Protocol capability: USB 2 protocol, ports 1..4. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000002u);
+    put32(&bar[0xC8], 1u | (4u << 8));
+    uint32_t protocol_count = 99u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
+    assert(protocol_count == 1u);
+    protocol_count = 99u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 3u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 99u);
+    put32(&bar[0xC0], 0x00000000u);
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0u, 6u, &protocol_count) == PROS_DRIVER_OK);
+    assert(protocol_count == 0u);
+
     assert(pros_xhci_parse_capabilities(0, sizeof(bar), &caps) == PROS_DRIVER_EINVAL);
     assert(pros_xhci_parse_capabilities(bar, 0x1Fu, &caps) == PROS_DRIVER_EINVAL);
     struct pros_xhci_capabilities saved = caps;
