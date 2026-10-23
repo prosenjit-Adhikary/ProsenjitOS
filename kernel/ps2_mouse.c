@@ -36,7 +36,7 @@ int pros_ps2_mouse_decode_byte(struct pros_ps2_mouse_decoder *decoder,
     if (!decoder || !out || !out_count) return PROS_DRIVER_EINVAL;
     *out_count = 0u;
     if (decoder->packet_used >= PROS_PS2_MOUSE_PACKET_BYTES) {
-        pros_ps2_mouse_reset(decoder);
+        pros_ps2_mouse_discard_packet(decoder);
         return PROS_DRIVER_EIO;
     }
 
@@ -54,8 +54,10 @@ int pros_ps2_mouse_decode_byte(struct pros_ps2_mouse_decoder *decoder,
     decoder->packet_used = 0u;
 
     /* Overflow means the device lost motion information; never fabricate it. */
-    if ((flags & 0xC0u) != 0u)
+    if ((flags & 0xC0u) != 0u) {
+        pros_ps2_mouse_discard_packet(decoder);
         return PROS_DRIVER_EIO;
+    }
 
     /* Reject inconsistent sign-extension metadata rather than misdecode. */
     if ((((flags & 0x10u) != 0u) != ((raw_x & 0x80u) != 0u)) ||
