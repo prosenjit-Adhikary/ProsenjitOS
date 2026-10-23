@@ -113,3 +113,10 @@ Latest code verification before this documentation follow-up: PR head `f4dc640c2
 - [Security architecture checks, run 39935984813](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39935984813) — **passed**.
 
 These results apply to the cited code commit, before this documentation-only follow-up. The parser still consumes a copied snapshot only: no live MMIO access, controller reset/start, DMA rings, USB enumeration, or USB transfers are implemented.
+
+
+## PCI configuration serialization audit — 2026-10-23
+
+An audit found that legacy PCI configuration mechanism #1 uses a shared address/data port pair, but individual reads previously had no transaction lock. Concurrent callers could interleave the write to 0xCF8 and read from 0xCFC, returning a value from the wrong BDF/register. pci_config_read32() now serializes that pair with an atomic lock and masks local interrupts while the lock is held, preventing same-CPU interrupt re-entry deadlock; hosted builds avoid privileged interrupt instructions. This protects each address/data transaction, not an entire multi-register scan, and does not add PCIe ECAM support or change the read-only BAR policy.
+
+Code commit: fddb9742553f1f16a4e25f4ad3e3e2e801c30258. The exact latest branch head and CI results must be checked after this change before treating it as verified. No hardware behavior is claimed from this serialization fix alone.
