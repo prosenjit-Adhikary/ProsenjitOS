@@ -11176,8 +11176,8 @@ int prosenjitfs_selftest(void)
         struct pros_vfs_file second_file;
         struct pros_prosenjitfs_inode root_inode;
         struct pros_prosenjitfs_dir_index root_index;
-        struct pros_prosenjitfs_dir_entry first_entry;
-        struct pros_prosenjitfs_dir_entry second_entry;
+        struct pros_prosenjitfs_dir_entry first_entry = { 0 };
+        struct pros_prosenjitfs_dir_entry second_entry = { 0 };
         static uint8_t original_first_block[4096];
         static uint8_t original_second_block[4096];
         static uint8_t corrupt_second_block[4096];
