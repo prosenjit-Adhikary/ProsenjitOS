@@ -96,6 +96,9 @@ int pros_usb_hid_mouse_report(
 {
     if (!state || !report || !out || !out_count) return PROS_DRIVER_EINVAL;
     *out_count = 0u;
+    /* Boot mouse report bits 3..7 are reserved. Reject before state mutation
+     * so malformed packets cannot be interpreted as valid button transitions. */
+    if ((report[0] & 0xF8u) != 0u) return PROS_DRIVER_EINVAL;
     uint8_t buttons = (uint8_t)(report[0] & 0x07u);
     int32_t dx = (int32_t)(int8_t)report[1];
     int32_t dy = -(int32_t)(int8_t)report[2];
