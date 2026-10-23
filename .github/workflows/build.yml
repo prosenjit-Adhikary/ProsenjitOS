@@ -44,6 +44,8 @@ jobs:
           bash -n scripts/test_memory_map.sh
           bash -n scripts/test_interrupt_vectors.sh
           bash scripts/test_interrupt_vectors.sh
+          bash -n scripts/test_native_boot_safety.sh
+          bash scripts/test_native_boot_safety.sh
           make desktop-unit-test memory-map-unit-test
 
       - name: Build ISO

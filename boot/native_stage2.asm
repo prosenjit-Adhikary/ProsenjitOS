@@ -57,19 +57,48 @@ collect_e820:
     mov di, E820_BUFFER + 4
     xor bp, bp
 .next:
+    ; ACPI 3.0 E820 callers must set the extended-attribute input bit.
+    ; Keep the returned memory map entry densely packed at ES:DI.
+    mov dword [es:di + 20], 1
     mov eax, 0xE820
     mov edx, 0x534D4150
     mov ecx, 24
+    ; Preserve state the BIOS interface does not return (notably BP/DI and
+    ; segment registers), while keeping EAX/EBX/ECX as the E820 outputs.
+    push ds
+    push es
+    push di
+    push bp
     int 0x15
-    jc .done
+    pop bp
+    pop di
+    pop es
+    pop ds
+    jc .fail
     cmp eax, 0x534D4150
     jne .fail
+    cmp ecx, 20
+    jb .fail
+    cmp ecx, 24
+    jb .accept_entry
+    ; A 24-byte E820 response supplies the ACPI enabled bit. Ignore disabled
+    ; ranges; a 20-byte legacy response has no attributes and is accepted.
+    test dword [es:di + 20], 1
+    jz .next_entry
+.accept_entry:
+    ; Multiboot2 uses the final dword as reserved, not E820 attributes.
+    mov dword [es:di + 20], 0
     inc bp
     add di, 24
-    cmp bp, 32
-    jae .done
+.next_entry:
+    ; A continuing E820 map beyond the 32-entry buffer is unsafe to truncate:
+    ; fail closed rather than accidentally treating an omitted reserved range
+    ; as free RAM in the kernel allocator.
     test ebx, ebx
-    jnz .next
+    jz .done
+    cmp bp, 32
+    jae .fail
+    jmp .next
 .done:
     mov [E820_BUFFER], bp
     cmp bp, 0
