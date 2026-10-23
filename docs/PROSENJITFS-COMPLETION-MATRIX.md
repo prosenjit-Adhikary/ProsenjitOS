@@ -1,3 +1,31 @@
+## Latest source audit — 2026-10-23
+
+This section records incremental evidence gathered after the 2026-10-22 matrix baseline. It does not promote ProsenjitFS to production-complete.
+
+### New regression evidence to carry forward
+
+- PR #198 covers a populated-file `vfs_rename` journal commit-record write failure, simulated power loss, remount, original payload/path preservation, absent destination, and report-only integrity scan. Its recorded build/boot and security runs passed on the exact tested change.
+- PR #199 fixes unlink's directory-entry read-error classification: invalid LBA remains corruption, while a real block-device read error propagates as I/O failure. The regression asserts no durable/volatile/dirty media mutation, writable mount preservation, intact payload, and a clean integrity scan. Its recorded build/boot and security runs passed on the exact tested change.
+- PRs #200–#203 add commit-record write-failure/remount cases for truncate, mkdir, rmdir, and file create. Their recorded build/boot and security runs passed on the exact tested changes.
+- PR #205 hardens interrupted recovery cleanup. PR #206 adds duplicate directory inode-reference rejection. PR #207 adds duplicate directory-name rejection after checksum-valid corruption. PR #208 adds recovery read-failure coverage at the journal header, first journal image, and commit-record read. These are open PRs at the time of this audit; do not count them as merged into `main` merely because their individual CI runs pass.
+
+### Source-grounded concurrency boundary
+
+The current kernel structure contains a filesystem `io_lock`, but source inspection shows it is acquired by the append-write wrapper, not by every VFS operation. The integrity API separately documents caller-side serialization against mutations. Therefore:
+
+- Do not describe ProsenjitFS as generally thread-safe or SMP-safe.
+- Do not add a naive global lock around callbacks without reviewing nested calls, lock ordering, recursive VFS paths, and all early-return cleanup.
+- Before enabling concurrent production VFS operations, define an explicit operation-locking model and add interleaving tests for write/append/truncate, rename/unlink, mount/unmount, and integrity scan versus mutation.
+- Current source-callsite inspection found integrity report/status calls in the filesystem self-test, not a separate production kernel caller. This is a callsite observation, not a guarantee about future callers.
+
+### Remaining completion gates
+
+1. Review the open filesystem regression PRs against the current base and merge only after confirming base compatibility and exact-head CI.
+2. Continue source-backed failure-injection coverage for block read/write/flush and resource cleanup, including error classification and no unintended media mutation.
+3. Run the full filesystem self-test, warning-clean build, ISO QEMU boot, native BIOS QEMU boot, and security workflow on the exact final candidate SHA; retain links to the actual runs.
+4. Keep physical-device power-loss durability separate from mock-device/QEMU evidence. A passing simulated cache-loss test does not establish device firmware or real-media flush guarantees.
+5. Keep repair/orphan reclamation deferred until a separately reviewed crash-safe repair design and interruption/resume tests exist.
+
 # ProsenjitFS Completion Matrix — 2026-10-22
 
 ## Latest verification update — 2026-10-22 13:07 UTC
