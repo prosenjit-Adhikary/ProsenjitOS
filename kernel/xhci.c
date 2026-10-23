@@ -59,6 +59,9 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
         (doorbell & 3u) != 0u || (runtime & 0x1Fu) != 0u ||
         parsed.doorbell_offset < parsed.capability_length ||
         parsed.runtime_offset < parsed.capability_length ||
+        /* Operational registers include DCBAAP and CONFIG, beyond the first
+         * 0x20 bytes. Validate the whole minimum 0x40-byte register block. */
+        !range_valid(parsed.capability_length, 0x40u, bar_length) ||
         !range_valid(parsed.doorbell_offset, doorbell_length, bar_length) ||
         !range_valid(parsed.runtime_offset, runtime_length, bar_length))
         return PROS_DRIVER_EIO;
