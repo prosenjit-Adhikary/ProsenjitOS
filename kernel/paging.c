@@ -91,6 +91,16 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
                    PROSENJIT_PAGE_NX)) != 0)
         return -1;
 
+    /*
+     * In four-level x86-64 paging, user-accessible virtual addresses must
+     * be in the lower canonical half. Allowing USER on a high-half address
+     * would expose a kernel-range mapping to CPL3 if all paging levels permit
+     * user access. Keep this guard at the mapping API boundary.
+     */
+    if ((flags & PROSENJIT_PAGE_USER) &&
+        virtual_address >= 0x0000800000000000ULL)
+        return -1;
+
     uint64_t table_flags = PROSENJIT_PAGE_WRITABLE;
     if (flags & PROSENJIT_PAGE_USER) table_flags |= PROSENJIT_PAGE_USER;
 
@@ -424,6 +434,13 @@ int paging_selftest(void) {
     if (paging_map_page(0x0000800000000000ULL, physical,
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -6;
+    /* CPL3 mappings must never be admitted into the canonical kernel half. */
+    if (paging_map_page(0xFFFF800000001000ULL, physical,
+                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
+                         PROSENJIT_PAGE_NX) == 0)
+        return -10;
+    if (paging_translate(0xFFFF800000001000ULL) != 0)
+        return -10;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -7;
