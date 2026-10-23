@@ -96,7 +96,12 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
         if (count >= max_headers || !range_valid(offset, 4u, bar_length))
             return PROS_DRIVER_EIO;
         uint32_t header = read_le32(&bar[offset]);
+        uint32_t capability_id = header & 0xFFu;
         uint32_t next_dwords = (header >> 8) & 0xFFu;
+        /* Capability ID zero is reserved; do not treat zero-filled BAR space
+         * as a valid extended-capability header. */
+        if (capability_id == 0u)
+            return PROS_DRIVER_EIO;
         ++count;
         if (next_dwords == 0u)
             break;
