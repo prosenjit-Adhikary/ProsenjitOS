@@ -164,3 +164,14 @@ Exact current code head verified: `3d0f9b8d2a24c8b26279e3cc8a72eb07af7762c4`.
 - [Security architecture checks, run 39942918377](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39942918377) — **passed**.
 
 These checks validate the software regression suite and QEMU boot paths only. They do not demonstrate live USB enumeration/transfers, GPU modesetting, hardware audio, interrupt-driven input, DMA/cache coherency, IOMMU integration, or physical-hardware compatibility. The contiguous allocator remains only a memory-allocation primitive; PCI bus mastering and xHCI/audio DMA must remain disabled until device-specific DMA addressability, ownership, lifetime, cache-coherency and rollback contracts are implemented and tested.
+
+
+## Exact rejected-allocation accounting follow-up — 2026-10-23
+
+The contiguous allocator regression suite now isolates the failure counter around each rejected request instead of using one aggregate assertion. It verifies that the exclusive address ceiling, non-power-of-two alignment, zero-page request, and oversized request each increment the failure count by exactly one, while preserving the free-page count. This avoids counting a deliberately earlier rejection in a later aggregate expectation and makes failures identify the specific contract that regressed.
+
+Exact code head: `75726a3956bf0de18e76cdd5092e3f7dd685ce6e`.
+- [Build and boot-test, run 39943739266](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39943739266) — **passed**, including hosted contract tests, ISO build, ISO QEMU boot-test, and native BIOS QEMU boot-test.
+- [Security architecture checks, run 39943739381](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39943739381) — **passed**.
+
+These checks are software/hosted and QEMU validations only; they do not certify physical hardware, live xHCI transfers, DMA coherency, GPU modesetting, or hardware audio. PCI bus mastering and controller DMA remain disabled until per-device addressability, buffer lifetime/ownership, cache coherency, and rollback behavior are explicitly implemented and tested.
