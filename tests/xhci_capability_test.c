@@ -125,6 +125,24 @@ int main(void)
                bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
     assert(protocol_count == 1u);
 
+    /* A next pointer into the fixed 16-byte body is invalid even without PSI. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000302u); /* next capability at +12 bytes */
+    protocol_count = 87u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 87u);
+
+    /* Maximum PSIC is rejected if the snapshot truncates its PSI array. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000002u);
+    put32(&bar[0xC8], 1u | (2u << 8));
+    put32(&bar[0xCC], 15u << 28);
+    protocol_count = 86u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, 0x100u, 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 86u);
+
     /* A next pointer may not land inside the current capability's PSI array. */
     make_bar(bar, sizeof(bar));
     put32(&bar[0xC0], 0x00000102u); /* next pointer at +4 bytes */
