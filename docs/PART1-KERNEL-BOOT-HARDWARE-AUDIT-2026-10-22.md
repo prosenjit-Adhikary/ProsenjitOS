@@ -217,3 +217,11 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Earlier source-changing commit `4006900fbcfb229ba69786be3787b6e2a78a6cf8` has successful build/boot run [#7874](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841682) and security run [#7410](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841777). The workflow reports include host/script checks, ISO build, and ISO/native-BIOS QEMU required-marker checks. QEMU status 124 is the configured timeout and was accepted only after required markers were validated.
 - No workflow result here proves runtime register-sentinel coverage, IST stack safety, all scheduler/IPC races, complete page-table/allocator concurrency safety, DMA/IOMMU correctness, UEFI, physical hardware, or SMP safety.
 - **Status:** existing audit PR remains **PARTIAL / NOT COMPLETE**. No new kernel source modification is claimed in this addendum. Remaining gates stay explicit: finish the full-tree dependency/symbol inventory; add runtime interrupt/IST and stronger concurrency/ownership tests; establish a designed and tested DMA/IOMMU/resource-ownership path before claiming DMA support; and test UEFI/physical hardware when available.
+
+
+## Follow-up — user/kernel virtual-address boundary (2026-10-23)
+
+- Commit `a2adb87c3af8a6cf84539e6ced428f08207604d4` hardens `paging_map_page()`: requests with `PROSENJIT_PAGE_USER` in the canonical high half are rejected before any page-table allocation or mutation.
+- `paging_selftest()` now checks that a user mapping at `0xFFFF800000001000` is rejected and remains untranslated.
+- Rationale: on four-level x86-64 paging, a user-accessible mapping must not be admitted in the canonical kernel half. This guard complements page-table permission checks; it does not replace the user address-space isolation audit.
+- Verification state at this log update: commit exists on the audit branch, diff was re-fetched and reviewed, but the workflow lookup returned no runs for this source-changing commit. **Build/QEMU verification is pending; this change is NOT marked tested or complete.** Re-run the repository's host tests, build, ISO QEMU, native BIOS QEMU, and security workflow against this exact commit before acceptance.
