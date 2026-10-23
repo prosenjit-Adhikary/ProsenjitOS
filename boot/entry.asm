@@ -210,6 +210,7 @@ global user_test_entry
 user_test_entry:
     ; Preserve the initial IPC capability before exercising syscall arguments.
     mov r12, rdi
+    mov r15, rsi                ; separately granted READ-only input capability
 
     ; Write a marker through the isolated user mapping.
     mov rdx, 0x0000008000001000
