@@ -33,10 +33,10 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             return PROS_DRIVER_EIO;
 
         if (offset == 0u) {
-            if (type != PROS_USB_DESC_CONFIGURATION || length < 9u)
+            if (type != PROS_USB_DESC_CONFIGURATION || length != 9u)
                 return PROS_DRIVER_EIO;
         } else if (type == PROS_USB_DESC_INTERFACE) {
-            if (length < 9u) return PROS_DRIVER_EIO;
+            if (length != 9u) return PROS_DRIVER_EIO;
             if (in_interface && observed_endpoints != expected_endpoints)
                 return PROS_DRIVER_EIO;
             current_interface = blob[offset + 2u];
@@ -58,7 +58,7 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                     current_kind = PROS_USB_HID_MOUSE;
             }
         } else if (type == PROS_USB_DESC_ENDPOINT) {
-            if (length < 7u || !in_interface) return PROS_DRIVER_EIO;
+            if (length != 7u || !in_interface) return PROS_DRIVER_EIO;
             if (observed_endpoints == UINT8_MAX) return PROS_DRIVER_EIO;
             ++observed_endpoints;
 
