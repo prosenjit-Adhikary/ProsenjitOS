@@ -1005,6 +1005,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&switch_failure_thread, &switch_failure_process, 11,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)lifecycle_thread_stack,
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack +
                                           sizeof(lifecycle_thread_stack))) != 0 ||
         thread_set_state(&switch_failure_thread, PROS_THREAD_READY) != 0 ||
