@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test ps2-mouse-test input-service-test keymap-test pci-test
+.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test ps2-mouse-test usb-hid-test input-service-test keymap-test pci-test
 
 all: iso
 
@@ -43,6 +43,10 @@ ps2-keyboard-test:
 # This validates a pure decoder only; it does not enable a physical mouse.
 ps2-mouse-test:
 	bash scripts/test_ps2_mouse.sh
+
+# Hosted tests for USB HID boot-protocol keyboard/mouse report decoding.
+usb-hid-test:
+	bash scripts/test_usb_hid.sh
 
 # Hosted test for the kernel input queue and PS/2 endpoint delivery.
 input-service-test:
