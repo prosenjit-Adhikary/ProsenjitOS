@@ -18,8 +18,11 @@ struct pros_ps2_mouse_decoder {
     uint8_t buttons;
 };
 
-/* Reset partial packet state after transport errors or device reset. */
+/* Reset packet and button state when starting a fresh decoder/device. */
 void pros_ps2_mouse_reset(struct pros_ps2_mouse_decoder *decoder);
+
+/* Discard a partial/corrupted packet without losing last known button state. */
+void pros_ps2_mouse_discard_packet(struct pros_ps2_mouse_decoder *decoder);
 
 /*
  * Consume one raw byte. Returns ENOTSUP while awaiting a complete packet.
