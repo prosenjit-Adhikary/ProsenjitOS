@@ -43,6 +43,33 @@ int main(void)
     assert(event.value0 == 0x1E && event.flags == PROS_HW_INPUT_RELEASE);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
 
+    /* The callback must reject malformed events even when a caller bypasses
+     * pros_hw_input_send() and submits directly through the generic endpoint. */
+    event.version = PROS_HW_STACK_ABI_VERSION;
+    event.type = PROS_HW_INPUT_KEY;
+    event.flags = PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE;
+    event.reserved = 0u;
+    event.timestamp = 0u;
+    event.value0 = 0x20;
+    event.value1 = 0;
+    assert(pros_hw_endpoint_submit(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                   PROS_HW_ENDPOINT_INPUT, &event,
+                                   sizeof(event)) == PROS_DRIVER_EINVAL);
+    event.flags = PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELATIVE;
+    assert(pros_hw_endpoint_submit(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                   PROS_HW_ENDPOINT_INPUT, &event,
+                                   sizeof(event)) == PROS_DRIVER_EINVAL);
+    event.flags = PROS_HW_INPUT_PRESS;
+    event.reserved = 1u;
+    assert(pros_hw_endpoint_submit(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                   PROS_HW_ENDPOINT_INPUT, &event,
+                                   sizeof(event)) == PROS_DRIVER_EINVAL);
+    event.reserved = 0u;
+    event.flags = 0x80000000u;
+    assert(pros_hw_endpoint_submit(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                   PROS_HW_ENDPOINT_INPUT, &event,
+                                   sizeof(event)) == PROS_DRIVER_EINVAL);
+
     /* Fill the queue through the same public endpoint used by the PS/2 poller. */
     event.version = PROS_HW_STACK_ABI_VERSION;
     event.type = PROS_HW_INPUT_KEY;
