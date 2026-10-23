@@ -223,6 +223,14 @@ user_test_entry:
     cmp rax, 0x0000000000010000
     jne .user_halt
 
+    ; A forged endpoint handle must be denied without consuming the event.
+    mov rax, 8                  ; PROSENJIT_SYS_INPUT_READ
+    mov rdi, 0xFFFFFFFFFFFFFF01 ; stale/forged generation for slot 1
+    lea rsi, [r14 + 64]
+    int 0x80
+    cmp rax, -13                ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
     ; Read one kernel-queued input event using the separately provisioned
     ; READ-only input endpoint handle. The kernel validates this user buffer.
     mov rax, 8                  ; PROSENJIT_SYS_INPUT_READ
@@ -238,6 +246,14 @@ user_test_entry:
     cmp dword [r14 + 80], 0x20  ; injected scan code
     jne .user_halt
     cmp dword [r14 + 88], 1     ; PROS_INPUT_FLAG_PRESS
+    jne .user_halt
+
+    ; Reject an invalid userspace output pointer before touching the queue.
+    mov rax, 8
+    mov rdi, r15
+    xor rsi, rsi
+    int 0x80
+    cmp rax, -10                ; PROSENJIT_SYSCALL_EBADF
     jne .user_halt
 
     ; Release the input capability after the CPL3 delivery assertion.
