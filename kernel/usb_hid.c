@@ -1,4 +1,6 @@
 #include "usb_hid.h"
+#include "input_service.h"
+#include "timer.h"
 
 static void input_event(struct pros_hw_input_event *event, uint32_t type,
                         uint32_t flags, int32_t value0, int32_t value1)
@@ -68,6 +70,76 @@ int pros_usb_hid_mouse_recover(
     }
     pros_usb_hid_mouse_reset(state);
     return PROS_DRIVER_OK;
+}
+
+static int submit_usb_input_batch(uint32_t endpoint_id,
+                                    struct pros_hw_input_event *events,
+                                    uint32_t count)
+{
+    if (endpoint_id != PROS_INPUT_SERVICE_ENDPOINT_ID)
+        return PROS_DRIVER_EINVAL;
+    if (count == 0u) return PROS_DRIVER_OK;
+    for (uint32_t i = 0u; i < count; ++i)
+        events[i].timestamp = timer_ticks();
+    return pros_input_service_send_batch(endpoint_id, events, count);
+}
+
+int pros_usb_hid_keyboard_submit_report(
+    uint32_t endpoint_id, struct pros_usb_hid_keyboard_state *state,
+    const uint8_t report[PROS_USB_HID_KEYBOARD_REPORT_BYTES])
+{
+    if (!state || !report) return PROS_DRIVER_EINVAL;
+    struct pros_usb_hid_keyboard_state previous = *state;
+    struct pros_hw_input_event events[PROS_USB_HID_KEYBOARD_MAX_EVENTS];
+    uint32_t count = 0u;
+    int rc = pros_usb_hid_keyboard_report(state, report, events, &count);
+    if (rc != PROS_DRIVER_OK) return rc;
+    rc = submit_usb_input_batch(endpoint_id, events, count);
+    if (rc != PROS_DRIVER_OK) *state = previous;
+    return rc;
+}
+
+int pros_usb_hid_mouse_submit_report(
+    uint32_t endpoint_id, struct pros_usb_hid_mouse_state *state,
+    const uint8_t report[PROS_USB_HID_MOUSE_REPORT_BYTES])
+{
+    if (!state || !report) return PROS_DRIVER_EINVAL;
+    struct pros_usb_hid_mouse_state previous = *state;
+    struct pros_hw_input_event events[PROS_USB_HID_MOUSE_MAX_EVENTS];
+    uint32_t count = 0u;
+    int rc = pros_usb_hid_mouse_report(state, report, events, &count);
+    if (rc != PROS_DRIVER_OK) return rc;
+    rc = submit_usb_input_batch(endpoint_id, events, count);
+    if (rc != PROS_DRIVER_OK) *state = previous;
+    return rc;
+}
+
+int pros_usb_hid_keyboard_submit_recovery(
+    uint32_t endpoint_id, struct pros_usb_hid_keyboard_state *state)
+{
+    if (!state) return PROS_DRIVER_EINVAL;
+    struct pros_usb_hid_keyboard_state previous = *state;
+    struct pros_hw_input_event events[PROS_USB_HID_KEYBOARD_MAX_EVENTS];
+    uint32_t count = 0u;
+    int rc = pros_usb_hid_keyboard_recover(state, events, &count);
+    if (rc != PROS_DRIVER_OK) return rc;
+    rc = submit_usb_input_batch(endpoint_id, events, count);
+    if (rc != PROS_DRIVER_OK) *state = previous;
+    return rc;
+}
+
+int pros_usb_hid_mouse_submit_recovery(
+    uint32_t endpoint_id, struct pros_usb_hid_mouse_state *state)
+{
+    if (!state) return PROS_DRIVER_EINVAL;
+    struct pros_usb_hid_mouse_state previous = *state;
+    struct pros_hw_input_event events[PROS_USB_HID_MOUSE_MAX_EVENTS];
+    uint32_t count = 0u;
+    int rc = pros_usb_hid_mouse_recover(state, events, &count);
+    if (rc != PROS_DRIVER_OK) return rc;
+    rc = submit_usb_input_batch(endpoint_id, events, count);
+    if (rc != PROS_DRIVER_OK) *state = previous;
+    return rc;
 }
 
 static int key_present(const uint8_t keys[6], uint8_t usage)
