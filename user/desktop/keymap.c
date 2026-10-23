@@ -1,6 +1,16 @@
 #include "keymap.h"
 
-static const char plain_map[128] = {
+/* In the freestanding kernel build, this code/data is copied into the CPL3
+ * test image. Hosted unit tests keep normal sections and remain independent. */
+#if defined(__STDC_HOSTED__) && __STDC_HOSTED__
+#define PROS_USER_CODE
+#define PROS_USER_DATA
+#else
+#define PROS_USER_CODE __attribute__((section(".user_text"), used))
+#define PROS_USER_DATA __attribute__((section(".user_text"), used))
+#endif
+
+static const char plain_map[128] PROS_USER_DATA = {
     [0x02]='1', [0x03]='2', [0x04]='3', [0x05]='4', [0x06]='5',
     [0x07]='6', [0x08]='7', [0x09]='8', [0x0A]='9', [0x0B]='0',
     [0x0C]='-', [0x0D]='=', [0x0E]='\b', [0x0F]='\t',
@@ -15,7 +25,7 @@ static const char plain_map[128] = {
     [0x33]=',', [0x34]='.', [0x35]='/', [0x39]=' '
 };
 
-static const char shifted_map[128] = {
+static const char shifted_map[128] PROS_USER_DATA = {
     [0x02]='!', [0x03]='@', [0x04]='#', [0x05]='$', [0x06]='%',
     [0x07]='^', [0x08]='&', [0x09]='*', [0x0A]='(', [0x0B]=')',
     [0x0C]='_', [0x0D]='+', [0x0E]='\b', [0x0F]='\t',
@@ -30,7 +40,7 @@ static const char shifted_map[128] = {
     [0x33]='<', [0x34]='>', [0x35]='?', [0x39]=' '
 };
 
-void pros_keymap_reset(struct pros_keymap_state *state)
+PROS_USER_CODE void pros_keymap_reset(struct pros_keymap_state *state)
 {
     if (!state) return;
     state->left_shift = 0u;
@@ -43,7 +53,7 @@ void pros_keymap_reset(struct pros_keymap_state *state)
     state->right_alt = 0u;
 }
 
-uint32_t pros_keymap_translate(struct pros_keymap_state *state,
+PROS_USER_CODE uint32_t pros_keymap_translate(struct pros_keymap_state *state,
                                const struct pros_input_event *event)
 {
     if (!state || !event || event->version != PROSENJIT_INPUT_ABI_VERSION ||
