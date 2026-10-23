@@ -40,6 +40,22 @@ int main(void)
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
     copy_config(bad);
+    bad[0] = 10u; /* standard configuration header length is exactly nine */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[5] = 0u; /* bConfigurationValue must be nonzero */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[7] = 0x60u; /* reserved bmAttributes bit 7 must be set; low bits reserved */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[7] = 0x81u; /* reserved bmAttributes low bit */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
     bad[18] = 1u;
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
