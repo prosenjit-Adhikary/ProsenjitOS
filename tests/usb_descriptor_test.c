@@ -183,14 +183,14 @@ int main(void)
     copy_config(bad_bulk_packet);
     bad_bulk_packet[2] = 32u;
     bad_bulk_packet[13] = 2u;
-    bad_bulk_packet[21] = 0x02u; /* bulk OUT endpoint */
-    bad_bulk_packet[23] = 0x08u; /* unsupported high-bandwidth/reserved bits */
+    /* Keep the selected interrupt-IN endpoint valid; make the added,
+     * unselected endpoint a bulk OUT endpoint with reserved packet bits. */
     bad_bulk_packet[25] = 7u;
     bad_bulk_packet[26] = PROS_USB_DESC_ENDPOINT;
     bad_bulk_packet[27] = 0x02u;
     bad_bulk_packet[28] = 0x02u;
     bad_bulk_packet[29] = 8u;
-    bad_bulk_packet[30] = 0u;
+    bad_bulk_packet[30] = 0x08u; /* unsupported packet-size high bits */
     bad_bulk_packet[31] = 0u;
     assert(pros_usb_find_boot_hid_endpoint(bad_bulk_packet,
            sizeof(bad_bulk_packet), &out) == PROS_DRIVER_EIO);
