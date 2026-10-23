@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test ps2-mouse-test usb-hid-test usb-host-test input-service-test keymap-test pci-test
+.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test ps2-mouse-test usb-hid-test usb-host-test usb-descriptor-test input-service-test keymap-test pci-test
 
 all: iso
 
