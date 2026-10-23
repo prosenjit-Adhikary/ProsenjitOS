@@ -187,3 +187,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - `pfs_io_lock()` only serializes append writes; it is not a filesystem-wide lock. `boot/entry.asm` keeps IF clear for CPL3 because timer preemption is not yet scheduler-safe.
 - Current callsite audit is complete, but **general concurrent VFS safety remains unproven**. Before enabling timer preemption/SMP or production concurrent scans, add a reviewed locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion.
 - No automatic repair/reclamation was added. Physical-device power-loss durability remains outside mock-device/QEMU proof.
+
+## Verification update — 2026-10-23: repeated directory-inode reference regression (pending CI)
+
+- Added a self-test fixture with two separately created root entries, then rewrites the second entry's inode field to reference the first entry's inode while preserving valid name/bucket placement and recomputing the entry checksum.
+- The acceptance check requires the report-only integrity scan to reject the duplicate inode reference, leave durable/volatile/dirty mock-media state unchanged during scanning, then pass after the original entry is restored.
+- This is a source change awaiting Build/ISO QEMU/native BIOS QEMU and Security architecture workflow results; it is not yet counted as passed.
+- Physical-device power-loss durability and general concurrent VFS safety remain separate acceptance gates. Automatic orphan repair/reclamation remains disabled.
+
