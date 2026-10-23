@@ -101,3 +101,15 @@ Since the earlier verification record, input validation rejects pointer events t
 Added `kernel/xhci.c` and `kernel/include/xhci.h` to parse a bounded, read-only byte snapshot of an xHCI BAR's capability registers. The parser validates the capability-header length/alignment, xHCI interface version, nonzero structural limits, doorbell/runtime offsets and minimum spans, and optional extended-capability pointer before publishing output. Hosted regression tests cover truncated/malformed values and ensure failed parsing does not partially update the output structure. The test is wired into `make xhci-capability-test` and the build workflow.
 
 **Scope boundary:** this is not an xHCI driver. No PCI BAR is mapped by this helper, no controller registers are read from live MMIO, no reset/run state transition is attempted, and no DMA rings, command/event processing, port enumeration or USB transfers are implemented. The parser only accepts an already-copied register snapshot; physical-controller bring-up remains an open acceptance gate.
+
+## xHCI capability inspection follow-up — 2026-10-23
+
+The extended-capability snapshot validator now treats xECP as a BAR-relative offset; it is not incorrectly constrained to the range below CAPLENGTH. The parser validates that the xECP header fits in the supplied BAR snapshot, and the linked-list walker checks each capability header and positive DWORD-relative Next pointer against the BAR bounds, rejects reserved capability ID zero, and publishes the count only after the whole chain validates. The capability parser also validates the minimum runtime-register span for the reported interrupter count rather than checking only the first runtime-register block.
+
+Hosted regression coverage includes a valid extended-capability chain beyond CAPLENGTH, a valid multi-entry chain, a reserved capability ID, invalid alignment, a pointer escaping the BAR, a truncated runtime region, and output atomicity on errors.
+
+Latest code verification before this documentation follow-up: PR head `f4dc640c2c02636136c3e89106c2e0075c8af1f7`.
+- [Build and boot-test, run 39935984771](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39935984771) — **passed**, including ISO and native-BIOS QEMU boot tests.
+- [Security architecture checks, run 39935984813](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39935984813) — **passed**.
+
+These results apply to the cited code commit, before this documentation-only follow-up. The parser still consumes a copied snapshot only: no live MMIO access, controller reset/start, DMA rings, USB enumeration, or USB transfers are implemented.
