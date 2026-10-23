@@ -10702,8 +10702,7 @@ int prosenjitfs_selftest(void)
              * device-cache blocks and losing the failed mount's CPU state.
              */
             pfs_crash_inject_stage = 0u;
-            pfs_test_power_loss(&disk);
-            pfs_zero(&fs, sizeof(fs));
+            pfs_test_crash_reset(&fs, &disk);
 
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
@@ -10793,8 +10792,7 @@ int prosenjitfs_selftest(void)
             }
 
             /* The one-shot fault is consumed; recovery must be retryable. */
-            pfs_test_power_loss(&disk);
-            pfs_zero(&fs, sizeof(fs));
+            pfs_test_crash_reset(&fs, &disk);
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -14);
@@ -10872,8 +10870,7 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
         }
 
-        pfs_test_power_loss(&disk);
-        pfs_zero(&fs, sizeof(fs));
+        pfs_test_crash_reset(&fs, &disk);
         if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -14);
