@@ -7,6 +7,8 @@
 #include "intent.h"
 #include "ipc.h"
 #include "usercopy.h"
+#include "input_service.h"
+#include "../include/abi/input.h"
 #include "../include/abi/syscall.h"
 
 #define COM1_PORT 0x3F8u
@@ -333,6 +335,48 @@ void syscall_dispatch(volatile uint64_t *registers, volatile uint64_t *cpu_frame
                 return;
             }
             registers[0] = received;
+            return;
+        }
+
+        case PROSENJIT_SYS_INPUT_READ: {
+            struct pros_process *process = process_current();
+            uint64_t handle = registers[5];
+            uint64_t user_buffer = registers[4];
+
+            if (!process ||
+                address_space_validate_user_range(&process->address_space,
+                                                  user_buffer,
+                                                  sizeof(struct pros_input_event),
+                                                  1) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+
+            struct pros_hw_input_event hardware_event;
+            int rc = pros_input_service_read_capability(process, handle,
+                                                        &hardware_event);
+            if (rc == PROS_DRIVER_EBUSY) {
+                registers[0] = PROSENJIT_SYSCALL_EAGAIN;
+                return;
+            }
+            if (rc != PROS_DRIVER_OK) {
+                registers[0] = PROSENJIT_SYSCALL_EPERM;
+                return;
+            }
+
+            struct pros_input_event event;
+            event.version = PROSENJIT_INPUT_ABI_VERSION;
+            event.type = hardware_event.type;
+            event.timestamp = hardware_event.timestamp;
+            event.value0 = hardware_event.value0;
+            event.value1 = hardware_event.value1;
+            event.flags = hardware_event.flags;
+            if (copy_to_user(&process->address_space, user_buffer,
+                             &event, sizeof(event)) != 0) {
+                registers[0] = PROSENJIT_SYSCALL_EBADF;
+                return;
+            }
+            registers[0] = PROSENJIT_SYSCALL_OK;
             return;
         }
 
