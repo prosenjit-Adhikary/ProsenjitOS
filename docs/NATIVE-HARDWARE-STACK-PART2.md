@@ -94,3 +94,10 @@ The current Part 2 PR head `99ece4de28db55bb44be5d691ef302129a4ea07a` has both r
 - PR: [#171](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/171), currently open and mergeable at the time of this record.
 
 Since the earlier verification record, input validation rejects pointer events that combine relative-motion flags with press/release transitions, both at the hardware-stack API and the input-service queue boundary. USB boot-keyboard reports with a nonzero reserved byte are rejected before state mutation. The current green workflows cover the current PR head; they do not establish physical USB transport, real xHCI initialization, DMA, or hardware audio support.
+
+
+## xHCI capability inspection foundation — 2026-10-23
+
+Added `kernel/xhci.c` and `kernel/include/xhci.h` to parse a bounded, read-only byte snapshot of an xHCI BAR's capability registers. The parser validates the capability-header length/alignment, xHCI interface version, nonzero structural limits, doorbell/runtime offsets and minimum spans, and optional extended-capability pointer before publishing output. Hosted regression tests cover truncated/malformed values and ensure failed parsing does not partially update the output structure. The test is wired into `make xhci-capability-test` and the build workflow.
+
+**Scope boundary:** this is not an xHCI driver. No PCI BAR is mapped by this helper, no controller registers are read from live MMIO, no reset/run state transition is attempted, and no DMA rings, command/event processing, port enumeration or USB transfers are implemented. The parser only accepts an already-copied register snapshot; physical-controller bring-up remains an open acceptance gate.
