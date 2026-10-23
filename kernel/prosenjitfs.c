@@ -10734,8 +10734,12 @@ int prosenjitfs_selftest(void)
      * the complete committed replacement.
      */
     {
-        static const uint64_t recovery_read_offsets[] = { 0u, 1u };
+        /* 0 = journal header, 1 = first image, UINT64_MAX = commit record. */
+        static const uint64_t recovery_read_offsets[] = {
+            0u, 1u, UINT64_MAX
+        };
         struct pros_vfs_file file;
+        struct pros_prosenjitfs_journal_header journal_header;
         uint8_t old_data[512];
         uint8_t new_data[512];
         uint8_t read_data[512];
@@ -10751,6 +10755,7 @@ int prosenjitfs_selftest(void)
                           sizeof(recovery_read_offsets[0]);
              ++case_index) {
             uint32_t done = 0u;
+            uint64_t read_fault_offset = recovery_read_offsets[case_index];
             int write_rc;
 
             pfs_zero(&disk, sizeof(disk));
@@ -10783,7 +10788,20 @@ int prosenjitfs_selftest(void)
             }
 
             pfs_test_crash_reset(&fs, &disk);
-            disk.fail_read_lba = journal_start + recovery_read_offsets[case_index];
+            if (read_fault_offset == UINT64_MAX) {
+                /* Resolve the commit slot from the durable transaction header. */
+                pfs_copy(&journal_header,
+                         disk.data + journal_start * 512u,
+                         sizeof(journal_header));
+                if (journal_header.magic != PROSENJITFS_JOURNAL_MAGIC ||
+                    journal_header.record_count == 0u ||
+                    journal_header.record_count > PROSENJITFS_MAX_TX_BLOCKS) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -14);
+                }
+                read_fault_offset = 1u + journal_header.record_count;
+            }
+            disk.fail_read_lba = journal_start + read_fault_offset;
             disk.fail_read_lba_once = 1u;
             if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_EIO ||
                 disk.fail_read_lba_once != 0u) {
