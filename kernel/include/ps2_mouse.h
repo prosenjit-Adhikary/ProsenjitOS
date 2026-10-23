@@ -4,29 +4,32 @@
 #include <stdint.h>
 #include "hw_stack.h"
 
+#define PROS_PS2_MOUSE_PACKET_BYTES 3u
+#define PROS_PS2_MOUSE_MAX_EVENTS 4u
+
 /*
- * Pure decoder for the standard three-byte PS/2 mouse packet format.
+ * Pure decoder for standard three-byte PS/2 mouse packets.
  * This does not enable the controller, route IRQs, or claim physical-device
  * support. Feed bytes from a separately validated polling/IRQ transport.
  */
-#define PROS_PS2_MOUSE_PACKET_BYTES 3u
-
 struct pros_ps2_mouse_decoder {
     uint8_t packet[PROS_PS2_MOUSE_PACKET_BYTES];
     uint8_t packet_used;
+    uint8_t buttons;
 };
 
 /* Reset partial packet state after transport errors or device reset. */
 void pros_ps2_mouse_reset(struct pros_ps2_mouse_decoder *decoder);
 
 /*
- * Consume one raw PS/2 mouse byte.
- * Returns PROS_DRIVER_ENOTSUP while waiting for a complete packet,
- * PROS_DRIVER_OK with a relative pointer event for a complete valid packet,
- * or a negative PROS_DRIVER_* error for invalid arguments/transport data.
+ * Consume one raw byte. Returns ENOTSUP while awaiting a complete packet.
+ * On a complete valid packet, returns OK and sets *out_count to 0..4 events:
+ * relative movement plus any left/right/middle button state transitions.
+ * Button event value0 is 1=left, 2=right, 3=middle; value1 is zero.
  */
 int pros_ps2_mouse_decode_byte(struct pros_ps2_mouse_decoder *decoder,
                                uint8_t byte,
-                               struct pros_hw_input_event *out);
+                               struct pros_hw_input_event out[PROS_PS2_MOUSE_MAX_EVENTS],
+                               uint32_t *out_count);
 
 #endif
