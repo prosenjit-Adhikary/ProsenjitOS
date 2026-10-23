@@ -58,6 +58,30 @@ int main(void) {
     }
 
     uint64_t before = physical_memory_free_pages();
+    uint64_t run = physical_pages_alloc_contiguous(4u, 4u, 8ULL * 1024ULL * 1024ULL);
+    if (!run || (run & ((4u * PROSENJIT_PAGE_SIZE) - 1ULL)) != 0 ||
+        run + 4u * PROSENJIT_PAGE_SIZE > 8ULL * 1024ULL * 1024ULL ||
+        physical_memory_free_pages() != before - 4u) {
+        fputs("allocator test: contiguous allocation alignment/limit/count failed\n", stderr);
+        return 10;
+    }
+    for (uint64_t i = 0; i < 4u; ++i) {
+        if (!physical_page_is_allocated(run + i * PROSENJIT_PAGE_SIZE)) {
+            fputs("allocator test: contiguous page was not allocated\n", stderr);
+            return 11;
+        }
+    }
+    if (physical_pages_free_contiguous(run, 4u) != 0 ||
+        physical_memory_free_pages() != before) {
+        fputs("allocator test: contiguous release did not restore free count\n", stderr);
+        return 12;
+    }
+    if (physical_pages_free_contiguous(run, 4u) == 0 ||
+        physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0 ||
+        physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0) {
+        fputs("allocator test: invalid contiguous request was accepted\n", stderr);
+        return 13;
+    }
     pthread_t threads[THREADS];
     for (uint32_t i = 0; i < THREADS; ++i) {
         if (pthread_create(&threads[i], NULL, allocator_worker, NULL) != 0) {
