@@ -64,10 +64,6 @@ int main(void)
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0x20u, &ext_count) == PROS_DRIVER_EIO);
     assert(ext_count == 76u);
-    protocol_count = 75u;
-    assert(pros_xhci_validate_supported_protocols(
-               bar, sizeof(bar), 0x20u, 6u, &protocol_count) == PROS_DRIVER_EIO);
-    assert(protocol_count == 75u);
     ext_count = 77u;
     put32(&bar[0xC0], 0x0000FF01u);
     assert(pros_xhci_validate_extended_capabilities(
@@ -89,6 +85,11 @@ int main(void)
     put32(&bar[0xC0], 0x00000002u);
     put32(&bar[0xC8], 1u | (4u << 8));
     uint32_t protocol_count = 99u;
+    protocol_count = 75u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0x20u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 75u);
+    protocol_count = 99u;
     assert(pros_xhci_validate_supported_protocols(
                bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
     assert(protocol_count == 1u);
