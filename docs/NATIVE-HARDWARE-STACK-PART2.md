@@ -274,6 +274,10 @@ The read-only xHCI capability parser now requires the BAR snapshot to contain th
 This is parser hardening only. It does not map BARs, access live registers, reset/start a controller, or enable bus mastering/DMA. Exact-head CI is required before treating the change as verified.
 
 
+## xHCI extended-capability chain register-window validation — 2026-10-23
+
+Both extended-capability walkers now validate every linked-list header location against the operational, doorbell, and runtime/interrupter register windows derived from the BAR snapshot. This prevents a malformed next pointer from causing register values to be interpreted as capability headers. Regression tests cover a list start inside the doorbell and runtime windows. The checks remain snapshot-only; they do not enable bus mastering, map MMIO, or initialize hardware.
+
 ## xHCI extended-capability start alias validation — 2026-10-23
 
 The capability snapshot parser now rejects an xECP first-header offset that aliases the operational register block, doorbell array, or runtime/interrupter register window. The xECP pointer is BAR-relative, so the first header must be in a valid, non-overlapping register region. Regression cases cover xECP at the doorbell and runtime bases. This validates only the first header's location; the complete extended-capability chain still requires separate bounded-list validation.
