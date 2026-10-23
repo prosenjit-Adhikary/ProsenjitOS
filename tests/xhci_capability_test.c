@@ -169,6 +169,9 @@ int main(void)
     put32(&bar[4], 0u);
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
+    put32(&bar[0x14], 0x140u); /* aliases the runtime-register window */
+    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+    make_bar(bar, sizeof(bar));
     put32(&bar[0x14], 0x1FCu);
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
