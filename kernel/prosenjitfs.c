@@ -5969,9 +5969,13 @@ static int pfs_selftest_consistency(
             goto consistency_out;
         }
         allocated = pfs_bitmap_bit(bitmap, within);
-        if (allocated && prosenjitfs_read_inode(fs, inode_number, &inode) ==
-                            PROSENJITFS_OK &&
-            dir_refs[inode_number] > 1u) {
+        /*
+         * The primary inode pass above has already validated every allocated
+         * inode and built dir_refs. Do not reread inode records here: ignoring
+         * a failed read would let an injected/device I/O error masquerade as
+         * a successful integrity scan.
+         */
+        if (allocated && dir_refs[inode_number] > 1u) {
             rc = PROSENJITFS_ECORRUPT;
             fail_line = __LINE__;
             goto consistency_out;
