@@ -187,3 +187,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - `pfs_io_lock()` only serializes append writes; it is not a filesystem-wide lock. `boot/entry.asm` keeps IF clear for CPL3 because timer preemption is not yet scheduler-safe.
 - Current callsite audit is complete, but **general concurrent VFS safety remains unproven**. Before enabling timer preemption/SMP or production concurrent scans, add a reviewed locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion.
 - No automatic repair/reclamation was added. Physical-device power-loss durability remains outside mock-device/QEMU proof.
+
+## Verification update — 2026-10-23: duplicate directory-name corruption test (CI pending)
+
+- Added a self-test that creates two distinct files whose names hash to the same directory bucket, then changes the second entry's name to duplicate the first while recomputing its hash and checksum.
+- The test requires the read-only integrity scan to reject namespace ambiguity without changing durable, volatile, or dirty mock-media state; restoring the original entry must yield a clean scan.
+- This is a new source change on branch `test/prosenjitfs-duplicate-directory-name-20261023`; Build/ISO QEMU/native BIOS QEMU and Security architecture results are pending. Do not count it as passed until CI reports success.
+- This mock-device test does not establish physical power-loss durability or general concurrent VFS safety. Automatic orphan repair/reclamation remains disabled.
+
