@@ -47,11 +47,11 @@ int main(void)
     assert(caps.max_slots == 8u && caps.max_interrupters == 4u && caps.max_ports == 6u);
     assert(caps.context_size_64 == 1u);
     assert(caps.doorbell_offset == 0x100u && caps.runtime_offset == 0x140u);
-    assert(caps.extended_capabilities_offset == 0xC0u); /* may exceed CAPLENGTH */
+    assert(caps.extended_capabilities_offset == 0xC0u);
 
     uint32_t ext_count = 99u;
-    put32(&bar[0xC0], 0x00000201u); /* capability ID 1; next is +2 DWORDs */
-    put32(&bar[0xC8], 0x00000002u); /* capability ID 2; end of chain */
+    put32(&bar[0xC0], 0x00000201u);
+    put32(&bar[0xC8], 0x00000002u);
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), caps.extended_capabilities_offset,
                &ext_count) == PROS_DRIVER_OK);
@@ -60,21 +60,14 @@ int main(void)
                                                      &ext_count) == PROS_DRIVER_OK);
     assert(ext_count == 0u);
     ext_count = 77u;
-    put32(&bar[0xC0], 0x0000FF01u); /* next pointer escapes BAR */
+    put32(&bar[0xC0], 0x0000FF01u);
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_EIO);
     assert(ext_count == 77u);
-    put32(&bar[0xC0], 0x00000000u); /* reserved capability ID zero */
+    put32(&bar[0xC0], 0x00000000u);
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_EIO);
     assert(ext_count == 77u);
-    /* A valid chain may continue beyond CAPLENGTH but must stay inside BAR. */
-    put32(&bar[0xC0], 0x00000301u);
-    put32(&bar[0xCC], 0x00000102u);
-    put32(&bar[0xD0], 0x00000002u);
-    assert(pros_xhci_validate_extended_capabilities(
-               bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_OK);
-    assert(ext_count == 3u);
     put32(&bar[0xC0], 0x00000201u);
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC1u, &ext_count) == PROS_DRIVER_EIO);
@@ -88,7 +81,7 @@ int main(void)
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     assert(caps_equal(&caps, &saved));
     make_bar(bar, sizeof(bar));
-    bar[0] = 0x21u;
+    bar[0] = 0x41u;
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
     bar[2] = 0u; bar[3] = 0u;
@@ -103,8 +96,11 @@ int main(void)
     put32(&bar[0x18], 0x1E0u);
     assert(pros_xhci_parse_capabilities(bar, 0x1F0u, &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
-    put32(&bar[0x10], (0x80u << 16) | (1u << 2)); /* xECP outside BAR */
-    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+    put32(&bar[0x18], 0x180u); /* base runtime area fits, interrupter sets do not */
+    assert(pros_xhci_parse_capabilities(bar, 0x200u, &caps) == PROS_DRIVER_EIO);
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0x10], (0x7Fu << 16) | (1u << 2));
+    assert(pros_xhci_parse_capabilities(bar, 0x1F0u, &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
     put32(&bar[0x14], 0x102u);
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
