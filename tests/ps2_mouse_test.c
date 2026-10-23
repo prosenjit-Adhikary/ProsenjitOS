@@ -87,7 +87,6 @@ int main(void)
     assert(pros_ps2_mouse_decode_byte(&decoder, 0x0Bu, events, &count) == PROS_DRIVER_ENOTSUP);
     assert(pros_ps2_mouse_decode_byte(&decoder, 1u, events, &count) == PROS_DRIVER_ENOTSUP);
     assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
-    if (count != 3u) fprintf(stderr, "mouse batch diagnostic: count=%u buttons=%u packet_used=%u\n", count, decoder.buttons, decoder.packet_used);
     assert(count == 3u);
     assert(events[0].flags == PROS_HW_INPUT_RELATIVE && events[0].value0 == 1);
     assert(events[1].flags == PROS_HW_INPUT_PRESS && events[1].value0 == 1);
