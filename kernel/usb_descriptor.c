@@ -41,6 +41,18 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                 return PROS_DRIVER_EIO;
             current_interface = blob[offset + 2u];
             current_alt = blob[offset + 3u];
+            /* Interface number + alternate setting must be unique. Scan only
+             * the already-validated prefix to avoid a large kernel stack
+             * bitmap and avoid global mutable parser state. */
+            for (uint32_t prior = 9u; prior < offset;) {
+                uint8_t prior_length = blob[prior];
+                uint8_t prior_type = blob[prior + 1u];
+                if (prior_type == PROS_USB_DESC_INTERFACE &&
+                    blob[prior + 2u] == current_interface &&
+                    blob[prior + 3u] == current_alt)
+                    return PROS_DRIVER_EIO;
+                prior += prior_length;
+            }
             if (!seen_interfaces[current_interface]) {
                 seen_interfaces[current_interface] = 1u;
                 ++distinct_interfaces;
