@@ -1,4 +1,5 @@
 #include "ps2_keyboard.h"
+#include "ps2_mouse.h"
 #include "timer.h"
 
 #define PS2_STATUS_PORT 0x64u
@@ -11,6 +12,7 @@
 
 static uint8_t extended_prefix;
 static uint8_t pause_bytes_remaining;
+static struct pros_ps2_mouse_decoder mouse_decoder;
 
 #if __STDC_HOSTED__
 #define PS2_TEST_FIFO_CAPACITY 64u
@@ -60,6 +62,7 @@ void pros_ps2_keyboard_reset_decoder(void)
 {
     extended_prefix = 0u;
     pause_bytes_remaining = 0u;
+    pros_ps2_mouse_reset(&mouse_decoder);
 }
 
 int pros_ps2_keyboard_decode_byte(uint8_t byte, struct pros_hw_input_event *out)
@@ -137,9 +140,22 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
         /* Mouse/AUX bytes may interleave with keyboard bytes. Do not let a
          * pending E0 or Pause prefix leak across that unrelated byte stream. */
         if ((status & PS2_STATUS_AUX_DATA) != 0u) {
-            /* Drop a partial E0 key prefix, but keep an in-progress Pause
-             * sequence: its remaining keyboard bytes still belong to it. */
+            /* Mouse/AUX data has its own packet decoder. Drop a partial E0
+             * key prefix so bytes from the two devices never share state. */
             extended_prefix = 0u;
+            struct pros_hw_input_event mouse_events[PROS_PS2_MOUSE_MAX_EVENTS];
+            uint32_t mouse_count = 0u;
+            int mouse_rc = pros_ps2_mouse_decode_byte(&mouse_decoder, byte,
+                                                       mouse_events, &mouse_count);
+            if (mouse_rc != PROS_DRIVER_OK)
+                continue; /* Incomplete or malformed packet; recover on next byte. */
+            for (uint32_t i = 0u; i < mouse_count; ++i) {
+                mouse_events[i].timestamp = timer_ticks();
+                mouse_rc = pros_hw_input_send(input_endpoint_id, &mouse_events[i]);
+                if (mouse_rc != PROS_DRIVER_OK)
+                    return mouse_rc;
+                ++submitted;
+            }
             continue;
         }
 
