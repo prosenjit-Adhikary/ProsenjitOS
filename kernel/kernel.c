@@ -33,7 +33,6 @@
 #include "syscall.h"
 #include "security_hardening.h"
 #include "../include/abi/syscall.h"
-#include "../include/abi/input.h"
 
 #define MULTIBOOT2_BOOT_MAGIC 0x36D76289u
 #define PROSENJIT_NATIVE_BOOT_MAGIC 0x534F5250u
