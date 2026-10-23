@@ -177,6 +177,24 @@ int main(void)
     assert(out.endpoint_address == 97u && out.interval == 96u);
     assert(out.max_packet_size == 95u && out.kind == PROS_USB_HID_MOUSE);
 
+    /* Reserved/high-bandwidth packet bits must fail closed even on an
+     * unselected bulk endpoint, rather than being silently accepted. */
+    uint8_t bad_bulk_packet[32];
+    copy_config(bad_bulk_packet);
+    bad_bulk_packet[2] = 32u;
+    bad_bulk_packet[13] = 2u;
+    bad_bulk_packet[21] = 0x02u; /* bulk OUT endpoint */
+    bad_bulk_packet[23] = 0x08u; /* unsupported high-bandwidth/reserved bits */
+    bad_bulk_packet[25] = 7u;
+    bad_bulk_packet[26] = PROS_USB_DESC_ENDPOINT;
+    bad_bulk_packet[27] = 0x02u;
+    bad_bulk_packet[28] = 0x02u;
+    bad_bulk_packet[29] = 8u;
+    bad_bulk_packet[30] = 0u;
+    bad_bulk_packet[31] = 0u;
+    assert(pros_usb_find_boot_hid_endpoint(bad_bulk_packet,
+           sizeof(bad_bulk_packet), &out) == PROS_DRIVER_EIO);
+
     /* A boot keyboard needs its complete eight-byte report in one packet. */
     copy_config(bad);
     bad[22] = 7u;
