@@ -365,3 +365,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build and boot-test run [#8199](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947309841): **PASS** on self-hosted runner `office`; ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
 - Security architecture run [#7735](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947309844): **PASS**.
 - This fixes and verifies the specific unlink directory-entry read-error classification path; it is not a claim that all concurrency or physical-device durability requirements are closed.
+
+
+## 2026-10-23 — ProsenjitFS truncate commit-write failure across remount
+
+### Regression added
+- Added a populated-file regression that injects failure at the journal commit-record write while shrinking a file to zero bytes.
+- The test requires the truncate to fail with `PROS_VFS_EIO`, the mount to become read-only, then simulates power loss and remounts to verify the original EOF and all payload bytes remain intact; the report-only integrity scan must pass.
+- Change: commit `2c8409065afb624f6bf115fb0aece5095f777355`, PR [#200](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/200).
+
+### Verification
+- Build and boot-test run [#8205](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947772776): **PASS** on self-hosted runner `office`; ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security architecture run [#7741](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947772767): **PASS**.
+- This verifies one truncate rollback/remount case under the mock block device; it does not establish physical-device power-loss durability.
