@@ -89,6 +89,11 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             if (current_kind != PROS_USB_HID_NONE &&
                 (address & PROS_USB_ENDPOINT_IN) != 0u &&
                 transfer_type == PROS_USB_ENDPOINT_INTERRUPT) {
+                /* Boot reports are fixed-size: keyboard 8 bytes, mouse 3. */
+                uint16_t minimum_report_size =
+                    current_kind == PROS_USB_HID_KEYBOARD ? 8u : 3u;
+                if (packet_size < minimum_report_size)
+                    return PROS_DRIVER_EIO;
                 candidate.interface_number = current_interface;
                 candidate.alternate_setting = current_alt;
                 candidate.endpoint_address = address;
