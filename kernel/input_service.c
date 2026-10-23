@@ -201,13 +201,29 @@ int pros_input_service_read_capability(const struct pros_process *process,
 
 int pros_input_service_shutdown(void)
 {
-    /* Let the endpoint registry serialize teardown against in-flight transfers.
-     * Its shutdown callback marks the queue unavailable only after transfers
-     * have drained; callers must not unregister this endpoint behind the
-     * service's lifecycle API. */
-    if (!pros_input_service_is_ready()) return PROS_DRIVER_ENODEV;
-    return pros_hw_endpoint_unregister(PROS_INPUT_SERVICE_ENDPOINT_ID,
-                                      PROS_HW_ENDPOINT_INPUT);
+    /*
+     * Keep capability validity tied to the lifetime of this service object.
+     * The object is static and reused on reinitialization, so stopping while
+     * any process still holds a READ handle would let that old handle become
+     * valid again after restart. On this single-CPU kernel, disable local
+     * interrupts across the reference-count check and endpoint teardown so
+     * grant_read cannot race the check. The endpoint registry still rejects
+     * teardown while a transfer is in flight.
+     */
+    uint64_t flags = input_irq_save();
+    if (!input_state.ready) {
+        input_irq_restore(flags);
+        return PROS_DRIVER_ENODEV;
+    }
+    if (input_object_initialized && input_object.refcount > 1u) {
+        input_irq_restore(flags);
+        return PROS_DRIVER_EBUSY;
+    }
+
+    int rc = pros_hw_endpoint_unregister(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                         PROS_HW_ENDPOINT_INPUT);
+    input_irq_restore(flags);
+    return rc;
 }
 
 int pros_input_service_poll_hardware(void)
