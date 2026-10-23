@@ -549,8 +549,13 @@ int address_space_selftest(void) {
     if (address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA,
                                           shared_candidate,
                                           PROSENJIT_PAGE_WRITABLE |
-                                          PROSENJIT_PAGE_NX) != 0 ||
-        address_space_map_user_page_owned(&other_space, PROSENJIT_USER_TEST_VA,
+                                          PROSENJIT_PAGE_NX) != 0) {
+        physical_page_free(shared_candidate);
+        address_space_destroy(&space);
+        address_space_destroy(&other_space);
+        return -7;
+    }
+    if (address_space_map_user_page_owned(&other_space, PROSENJIT_USER_TEST_VA,
                                           shared_candidate,
                                           PROSENJIT_PAGE_WRITABLE |
                                           PROSENJIT_PAGE_NX) == 0) {
@@ -562,7 +567,6 @@ int address_space_selftest(void) {
         address_space_destroy(&other_space);
         return -7;
     }
-    physical_page_free(shared_candidate);
     if (address_space_destroy(&other_space) != 0)
         return -7;
 
