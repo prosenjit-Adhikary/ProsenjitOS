@@ -61,10 +61,12 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
         !range_valid(parsed.runtime_offset, XHCI_RUNTIME_MIN_SIZE, bar_length))
         return PROS_DRIVER_EIO;
 
+    /* xECP points into the capability-register area, before operational regs. */
     if (parsed.extended_capabilities_offset != 0u &&
         ((parsed.extended_capabilities_offset & 3u) != 0u ||
-         parsed.extended_capabilities_offset < parsed.capability_length ||
-         !range_valid(parsed.extended_capabilities_offset, 4u, bar_length)))
+         parsed.extended_capabilities_offset < XHCI_CAP_HEADER_MIN ||
+         !range_valid(parsed.extended_capabilities_offset, 4u,
+                      parsed.capability_length)))
         return PROS_DRIVER_EIO;
 
     *out = parsed;
@@ -98,8 +100,6 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
         uint32_t header = read_le32(&bar[offset]);
         uint32_t capability_id = header & 0xFFu;
         uint32_t next_dwords = (header >> 8) & 0xFFu;
-        /* Capability ID zero is reserved; do not treat zero-filled BAR space
-         * as a valid extended-capability header. */
         if (capability_id == 0u)
             return PROS_DRIVER_EIO;
         ++count;
