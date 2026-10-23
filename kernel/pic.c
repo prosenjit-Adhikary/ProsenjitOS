@@ -19,10 +19,6 @@ int pic_init_for_timer(void) {
      * Remap the 8259 PIC so hardware IRQ vectors do not overlap CPU
      * exceptions. Keep every IRQ masked except IRQ0 until a driver enables it.
      */
-    /* Do not inherit firmware/untrusted bootloader IRQ mask state. */
-    (void)pic_in8(0x21);
-    (void)pic_in8(0xA1);
-
     pic_out8(0x20, 0x11);
     pic_io_wait();
     pic_out8(0xA0, 0x11);
