@@ -41,7 +41,9 @@ require_stage1_literal 'cmp word [dap_count], STAGE2_SECTORS' "stage 1 must reje
 require_literal 'cmp word [dap_count], ax' "stage 2 must reject short kernel reads"
 require_stage1_literal 'jne disk_error' "stage 1 short reads must enter the disk-error halt path"
 require_literal 'jne .fail' "stage 2 short reads must enter the fatal boot path"
-require_literal 'cmp bp, 32' "must enforce the E820 entry-buffer capacity"
+require_literal 'mov word [e820_calls], 0' "must reset the raw E820-response counter"
+require_literal 'inc word [e820_calls]' "must count disabled and enabled E820 responses"
+require_literal 'cmp word [e820_calls], 32' "must bound all E820 responses, not only accepted entries"
 require_literal 'jae .fail' "must reject truncated E820 maps"
 require_literal 'test ebx, ebx' "must follow the E820 continuation token"
 

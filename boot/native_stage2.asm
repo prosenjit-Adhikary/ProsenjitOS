@@ -56,6 +56,7 @@ collect_e820:
     xor ebx, ebx
     mov di, E820_BUFFER + 4
     xor bp, bp
+    mov word [e820_calls], 0
 .next:
     ; ACPI 3.0 E820 callers must set the extended-attribute input bit.
     ; Keep the returned memory map entry densely packed at ES:DI.
@@ -79,6 +80,9 @@ collect_e820:
     jne .fail
     cmp ecx, 20
     jb .fail
+    ; Bound BIOS responses, not just enabled records: disabled E820 ranges
+    ; do not advance DI/BP but still consume the BIOS continuation token.
+    inc word [e820_calls]
     cmp ecx, 24
     jb .accept_entry
     ; A 24-byte E820 response supplies the ACPI enabled bit. Ignore disabled
@@ -96,7 +100,7 @@ collect_e820:
     ; as free RAM in the kernel allocator.
     test ebx, ebx
     jz .done
-    cmp bp, 32
+    cmp word [e820_calls], 32
     jae .fail
     jmp .next
 .done:
@@ -269,6 +273,7 @@ boot_drive db 0
 remaining dw 0
 chunk_sectors dw 0
 load_segment dw 0
+e820_calls dw 0
 current_lba_low dd 0
 current_lba_high dd 0
 
