@@ -410,3 +410,10 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Startup paging initialization uses a 4 KiB identity map over the supported physical range and then applies section permissions and removes bootstrap/IST guard pages. Error paths in early `paging_init()` are boot-fatal in the current startup flow; retry-safe rollback is not yet implemented and must not be assumed.
 - No new kernel code change in this pass: the reviewed gaps cross scheduler handoff, CPU/TLB synchronization, and boot-fatal recovery; a narrow untested patch would risk introducing a worse boot or security failure.
 - Current status remains **PARTIAL / NOT COMPLETE** pending dedicated lifecycle handoff tests, secondary-CPU/TLB protocol, failure-injection coverage for early paging initialization, and hardware/platform validation beyond QEMU.
+
+
+## Latest audit-report CI confirmation (2026-10-23 08:57 UTC)
+
+- The audit-report commit `f8ef0100718b7c65b5ff399abf65188042c517a7` passed Build/boot-test [run #39928198648](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39928198648). Confirmed successful: toolchain verification, DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot.
+- Security architecture checks passed [run #39928198593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39928198593).
+- This closes CI verification for the report-only change, not the full Part 1 mission. Current explicit boundaries remain: process-exit scheduler contract, SMP TLB shootdown, early paging-init rollback/failure injection, per-thread stack allocation/reclamation, and non-QEMU hardware/platform validation.
