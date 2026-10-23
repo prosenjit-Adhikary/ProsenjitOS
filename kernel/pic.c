@@ -48,7 +48,7 @@ int pic_init_for_timer(void) {
     pic_out8(PIC_SLAVE_DATA, 0x01u);
     pic_io_wait();
 
-    master_mask = 0xFEu; /* IRQ0 only */
+    master_mask = 0xFAu; /* IRQ0 only; cascade IRQ2 stays masked until a slave IRQ is enabled. */
     slave_mask = 0xFFu;
     pic_write_masks();
     return 0;
@@ -59,9 +59,6 @@ int pic_mask_irq(uint8_t irq) {
         return -1;
 
     if (irq < 8u) {
-        /* Do not sever the cascade while any slave IRQ remains enabled. */
-        if (irq == 2u && slave_mask != 0xFFu)
-            return -1;
         master_mask = (uint8_t)(master_mask | (uint8_t)(1u << irq));
     } else {
         slave_mask = (uint8_t)(slave_mask | (uint8_t)(1u << (irq - 8u)));
