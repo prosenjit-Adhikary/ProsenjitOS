@@ -8792,6 +8792,58 @@ int prosenjitfs_selftest(void)
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -15);
 
+        /*
+         * Repeat the integrity-scan read-failure sweep with a populated
+         * namespace, a multi-block file, and a renamed entry. The clean-format
+         * sweep above cannot exercise all directory, extent and parent-chain
+         * reads; this pass ensures those paths also preserve EIO and that the
+         * report-only scan leaves every mock-media view unchanged.
+         */
+        {
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            uint32_t injected = 0u;
+            uint32_t read_position;
+
+            for (read_position = 1u; read_position <= 512u;
+                 ++read_position) {
+                int scan_rc;
+                disk.fail_read_countdown = read_position;
+                scan_rc = prosenjitfs_check_integrity_report(
+                    &fs, &integrity_report);
+                if (disk.fail_read_countdown != 0u) {
+                    if (scan_rc != PROSENJITFS_OK ||
+                        integrity_report.status != PROSENJITFS_OK)
+                        return pfs_selftest_fail(__LINE__, -203);
+                    break;
+                }
+                if (scan_rc != PROSENJITFS_EIO ||
+                    integrity_report.status != PROSENJITFS_EIO ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data,
+                        (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                    return pfs_selftest_fail(__LINE__, -203);
+                ++injected;
+            }
+            disk.fail_read_countdown = 0u;
+            if (read_position > 512u || injected < 2u ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -203);
+        }
+
         {
             int inode_rc = prosenjitfs_read_inode(&fs, inode_before, &inode);
             if (inode_rc != PROSENJITFS_OK)
