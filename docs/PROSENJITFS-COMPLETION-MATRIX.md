@@ -188,10 +188,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Current callsite audit is complete, but **general concurrent VFS safety remains unproven**. Before enabling timer preemption/SMP or production concurrent scans, add a reviewed locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion.
 - No automatic repair/reclamation was added. Physical-device power-loss durability remains outside mock-device/QEMU proof.
 
-## Verification update — 2026-10-23: repeated directory-inode reference regression (pending CI)
+## Verification update — 2026-10-23: repeated directory-inode reference regression
 
 - Added a self-test fixture with two separately created root entries, then rewrites the second entry's inode field to reference the first entry's inode while preserving valid name/bucket placement and recomputing the entry checksum.
 - The acceptance check requires the report-only integrity scan to reject the duplicate inode reference, leave durable/volatile/dirty mock-media state unchanged during scanning, then pass after the original entry is restored.
-- This is a source change awaiting Build/ISO QEMU/native BIOS QEMU and Security architecture workflow results; it is not yet counted as passed.
-- Physical-device power-loss durability and general concurrent VFS safety remain separate acceptance gates. Automatic orphan repair/reclamation remains disabled.
+- Exact final source commit `51e9b254ff1d180720f87bd30df9f3338b866e0e` passed Build/boot-test run [#8235](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39959250509): desktop/DML tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS QEMU boot all passed on the self-hosted `office` runner.
+- Exact final source commit passed Security architecture checks [#7771](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39959250389).
+- This closes the repeated-inode-reference regression on the mock device. Physical-device power-loss durability and general concurrent VFS safety remain separate acceptance gates. Automatic orphan repair/reclamation remains disabled.
 
