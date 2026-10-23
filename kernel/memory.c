@@ -47,7 +47,8 @@ static uint64_t page_bitmap[BITMAP_WORDS];
 static uint64_t managed_bitmap[BITMAP_WORDS];
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
 static uint64_t user_bitmap[BITMAP_WORDS];
-/* A nonzero entry at a run head records its exact contiguous allocation length. */
+/* Marks every page in a contiguous allocation, not just its run head. */
+static uint64_t contiguous_bitmap[BITMAP_WORDS];
 static uint16_t contiguous_run_length[MAX_PAGES];
 static uint64_t total_pages;
 static uint64_t free_pages;
@@ -104,6 +105,15 @@ static inline void managed_clear(uint64_t page) {
 
 static inline int managed_test(uint64_t page) {
     return (managed_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+}
+static inline void contiguous_set(uint64_t page) {
+    contiguous_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+}
+static inline void contiguous_clear(uint64_t page) {
+    contiguous_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+}
+static inline int contiguous_test(uint64_t page) {
+    return (contiguous_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
 }
 
 /*
@@ -174,7 +184,10 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         page_bitmap[i] = 0;
         managed_bitmap[i] = 0;
         user_bitmap[i] = 0;
+        contiguous_bitmap[i] = 0;
     }
+    for (uint64_t i = 0; i < MAX_PAGES; ++i)
+        contiguous_run_length[i] = 0;
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
@@ -351,8 +364,10 @@ uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
             ++i;
         }
         if (i == page_count) {
-            for (uint64_t j = 0; j < page_count; ++j)
+            for (uint64_t j = 0; j < page_count; ++j) {
                 bitmap_clear(candidate + j);
+                contiguous_set(candidate + j);
+            }
             contiguous_run_length[candidate] = (uint16_t)page_count;
             free_pages -= page_count;
             page_allocator_lock_release(flags);
@@ -386,7 +401,7 @@ int physical_pages_free_contiguous(uint64_t physical_address,
     }
     for (uint64_t i = 0; i < page_count; ++i) {
         uint64_t page = first + i;
-        if (!managed_test(page) || bitmap_test(page)) {
+        if (!managed_test(page) || bitmap_test(page) || !contiguous_test(page)) {
             page_allocator_lock_release(flags);
             return -2;
         }
@@ -395,6 +410,7 @@ int physical_pages_free_contiguous(uint64_t physical_address,
     for (uint64_t i = 0; i < page_count; ++i) {
         uint64_t page = first + i;
         user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+        contiguous_clear(page);
         bitmap_set(page);
     }
     free_pages += page_count;
@@ -442,9 +458,7 @@ void physical_page_free(uint64_t physical_address) {
     if (page >= MAX_PAGES) return;
 
     uint64_t flags = page_allocator_lock_acquire();
-    if (managed_test(page) && !bitmap_test(page)) {
-        /* Prevent stale run metadata from freeing a later unrelated allocation. */
-        contiguous_run_length[page] = 0;
+    if (managed_test(page) && !bitmap_test(page) && !contiguous_test(page)) {
         user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
         bitmap_set(page);
         ++free_pages;
