@@ -64,6 +64,11 @@ int main(void)
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_EIO);
     assert(ext_count == 77u); /* no partial output on malformed chain */
+    put32(&bar[0xC0], 0x00000000u); /* reserved capability ID zero */
+    assert(pros_xhci_validate_extended_capabilities(
+               bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_EIO);
+    assert(ext_count == 77u); /* invalid header must not publish a count */
+    put32(&bar[0xC0], 0x00000201u);
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC1u, &ext_count) == PROS_DRIVER_EIO);
     assert(pros_xhci_validate_extended_capabilities(
