@@ -162,6 +162,8 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
+extern void isr33(void);
+extern void isr44(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle, uint64_t input_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
@@ -227,6 +229,10 @@ void idt_init(void) {
      * cannot recursively destroy the first fault report. */
     idt_set_gate(14, handlers[14], 3);
     idt_set_gate(32, isr32, 0);
+    /* PS/2 IRQ gates are installed, but PIC lines remain masked until the
+     * controller transport and interrupt-driven path are fully validated. */
+    idt_set_gate(33, isr33, 0);
+    idt_set_gate(44, isr44, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
      * keeping syscall entry on IST1 makes the privilege transition robust
