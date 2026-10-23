@@ -101,6 +101,13 @@ int main(void) {
             return 11;
         }
     }
+    /* Individual free must not break ownership of a contiguous run. */
+    physical_page_free(run + PROSENJIT_PAGE_SIZE);
+    if (!physical_page_is_allocated(run + PROSENJIT_PAGE_SIZE) ||
+        physical_memory_free_pages() != before - 4u) {
+        fputs("allocator test: individual free broke contiguous ownership\\n", stderr);
+        return 16;
+    }
     /* Invalid release requests must be rejected atomically. */
     if (physical_pages_free_contiguous(run + PROSENJIT_PAGE_SIZE, 3u) == 0 ||
         physical_pages_free_contiguous(run, 5u) == 0 ||
