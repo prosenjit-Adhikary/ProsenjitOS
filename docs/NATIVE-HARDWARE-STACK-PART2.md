@@ -245,3 +245,8 @@ The xHCI Supported Protocol validator now also rejects a nonzero next-capability
 ## PSI field-layout correction — 2026-10-23
 
 During follow-up source review, corrected the PSI count extraction to read the PSIC field from the Supported Protocol capability's Protocol Information DWORD (bits 31:28), rather than from the compatible-port DWORD. Regression cases now encode PSIC in the correct field. The validator checks both the full PSI array bounds and rejects a next pointer overlapping that array.
+
+
+## Additional xHCI bounds regressions — 2026-10-23
+
+Extended the Supported Protocol tests to reject next-capability pointers into the fixed 16-byte structure and to reject a maximum-size PSI array when the BAR snapshot truncates it. Both failure cases verify that the caller's output count is unchanged. These are hosted malformed-input tests; they do not exercise a physical xHCI controller.
