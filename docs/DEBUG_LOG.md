@@ -435,5 +435,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Added an adversarial self-test for two distinct inode references in the same directory hash bucket whose validly checksummed entries are corrupted to contain the same name/hash.
 - The test asserts read-only integrity-scan rejection, unchanged durable/volatile/dirty mock-media state during scanning, restoration, and a clean rescan.
-- Source commit: `2de89f37763ceeee9907d24502a9006b9f726b69`. CI status pending; no pass claimed until Build/ISO QEMU/native BIOS QEMU and Security architecture checks finish.
+- Final source head `038a0a3c23e69f813f10c9227b78e8ca1bbc4587` passed Build/boot-test [#8240](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39960339257), including ISO and native BIOS QEMU, and Security architecture [#7776](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39960339262).
 
