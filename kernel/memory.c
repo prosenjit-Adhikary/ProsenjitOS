@@ -191,8 +191,6 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
-    for (uint64_t page = 0; page < MAX_PAGES; ++page)
-        contiguous_run_length[page] = 0;
 
     if (multiboot_info_address == 0) return -1;
 
