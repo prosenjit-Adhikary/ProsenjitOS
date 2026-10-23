@@ -22,6 +22,17 @@ struct pros_usb_hid_mouse_state {
 void pros_usb_hid_keyboard_reset(struct pros_usb_hid_keyboard_state *state);
 void pros_usb_hid_mouse_reset(struct pros_usb_hid_mouse_state *state);
 
+/* Disconnect/error recovery: synthesize releases for held controls, then
+ * clear decoder state. Output arrays must have the capacities below. */
+int pros_usb_hid_keyboard_recover(
+    struct pros_usb_hid_keyboard_state *state,
+    struct pros_hw_input_event out[PROS_USB_HID_KEYBOARD_MAX_EVENTS],
+    uint32_t *out_count);
+int pros_usb_hid_mouse_recover(
+    struct pros_usb_hid_mouse_state *state,
+    struct pros_hw_input_event out[PROS_USB_HID_MOUSE_MAX_EVENTS],
+    uint32_t *out_count);
+
 /*
  * Boot keyboard report: modifier bitmap, reserved byte, six key usages.
  * Emits usage-code press/release events (modifier usages E0..E7 included).
