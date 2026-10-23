@@ -417,3 +417,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build and boot-test run [#8221](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39949042895): **PASS** on self-hosted runner `office`; ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
 - Security architecture run [#7757](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39949043002): **PASS**.
 - This verifies one file-create commit-write rollback/remount case under mock-device fault injection, not physical-device power-loss durability.
+
+
+## 2026-10-23 — ProsenjitFS integrity-scan caller-serialization audit
+
+### Checked
+- Inspected `kernel/prosenjitfs.c`, `kernel/include/prosenjitfs.h`, `docs/PROSENJITFS.md`, and the CPL3 entry path in `boot/entry.asm`.
+- The integrity API explicitly requires callers to serialize scans against mutations. All in-source calls to the report/status APIs are within `prosenjitfs_selftest()`; repository search found no separate production kernel callsite.
+- `pfs_io_lock()` is currently used by the append-write wrapper only. It is not a filesystem-wide lock and must not be described as making all VFS operations thread-safe.
+- `boot/entry.asm` masks IF in the CPL3 interrupt frame because user-mode timer preemption is not yet scheduler-safe.
+
+### Result / boundary
+- Current callsite review found no production integrity-scan caller that violates the documented serialization precondition.
+- This does **not** establish general concurrent VFS safety. When timer preemption, SMP, or concurrent production scan callers are introduced, add a reviewed operation-locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion before enabling them.
