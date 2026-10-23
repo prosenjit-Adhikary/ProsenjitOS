@@ -112,6 +112,18 @@ int main(void)
                bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
     assert(protocol_count == 1u);
 
+    /* PSI count expands the capability beyond its fixed 16-byte structure. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000002u);
+    put32(&bar[0xC8], 1u | (2u << 8) | (3u << 16)); /* three PSI dwords */
+    protocol_count = 44u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, 0xD0u, 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 44u);
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
+    assert(protocol_count == 1u);
+
     assert(pros_xhci_parse_capabilities(0, sizeof(bar), &caps) == PROS_DRIVER_EINVAL);
     assert(pros_xhci_parse_capabilities(bar, 0x1Fu, &caps) == PROS_DRIVER_EINVAL);
     struct pros_xhci_capabilities saved = caps;
