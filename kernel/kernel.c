@@ -753,17 +753,28 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
     struct pros_thread misaligned_stack_probe;
+    struct pros_thread undersized_stack_probe;
     if (thread_manager_init() != 0 ||
         /* Reject a misaligned stack top before registering a thread object. */
         thread_init(&misaligned_stack_probe, &init_process, 77,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)init_thread_stack,
                     (uint64_t)(uintptr_t)(init_thread_stack +
                                           sizeof(init_thread_stack) - 8u)) == 0 ||
+        /* Reject a correctly aligned but undersized range before writing it. */
+        thread_init(&undersized_stack_probe, &init_process, 78,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack) - 8u),
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack))) == 0 ||
         thread_init(&init_thread, &init_process, 1,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)init_thread_stack,
                     (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) != 0 ||
         thread_init(&worker_thread, &init_process, 2,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)worker_thread_stack,
                     (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
         thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
@@ -791,6 +802,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * without changing its scheduler state or registry linkage. */
     if (thread_init(&init_thread, &init_process, 99,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)init_thread_stack,
                     (uint64_t)(uintptr_t)(init_thread_stack +
                                           sizeof(init_thread_stack))) == 0 ||
         thread_current() != &init_thread ||
@@ -868,6 +880,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (process_create(&init_process, &thread_lifecycle_process, 10, PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&thread_lifecycle, &thread_lifecycle_process, 10,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)lifecycle_thread_stack,
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack + sizeof(lifecycle_thread_stack))) != 0 ||
         thread_set_state(&thread_lifecycle, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&thread_lifecycle) != 0 ||

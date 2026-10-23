@@ -75,17 +75,20 @@ int thread_manager_init(void) {
 }
 
 int thread_init(struct pros_thread *thread, struct pros_process *process,
-                uint64_t tid, uint64_t entry, uint64_t stack_top) {
-    if (!thread || !process || tid == 0 || entry == 0 || stack_top == 0)
+                uint64_t tid, uint64_t entry, uint64_t stack_bottom,
+                uint64_t stack_top) {
+    if (!thread || !process || tid == 0 || entry == 0 ||
+        stack_bottom == 0 || stack_top == 0 || stack_bottom >= stack_top)
         return -1;
     /*
-     * The bootstrap trampoline enters thread_bootstrap() via CALL after RET
-     * from the synthetic context. A 16-byte-aligned stack top preserves the
-     * SysV x86-64 function-entry alignment expected by that call sequence.
-     * Stack ownership/bounds are a separate contract and are not inferred
-     * from this alignment check.
+     * The bootstrap context writes seven 64-bit words below stack_top.
+     * Require the caller to provide an explicit half-open [bottom, top)
+     * range so context construction cannot underflow the supplied stack.
+     * This validates the range supplied by the caller; it does not allocate
+     * the stack or prove its physical ownership/mapping.
      */
-    if (stack_top & 0xFULL)
+    if ((stack_top & 0xFULL) ||
+        stack_top - stack_bottom < 7u * sizeof(uint64_t))
         return -1;
     if (process_state(process) == PROS_PROCESS_DEAD ||
         process_state(process) == PROS_PROCESS_ZOMBIE)
@@ -105,6 +108,8 @@ int thread_init(struct pros_thread *thread, struct pros_process *process,
     thread->state = PROS_THREAD_NEW;
     thread->priority = 0;
     thread->entry = entry;
+    thread->kernel_stack_bottom = stack_bottom;
+    thread->kernel_stack_top = stack_top;
     thread->interrupt_frame = 0;
     thread->wait_channel = 0;
     thread->blocked_syscall = 0;

@@ -58,11 +58,15 @@ struct pros_thread {
     struct pros_thread *next;
     struct pros_thread *prev;
     struct pros_thread *registry_next;
+    /* Caller-supplied kernel-stack bounds; ownership/reclamation is separate. */
+    uint64_t kernel_stack_bottom;
+    uint64_t kernel_stack_top;
 };
 
 int thread_manager_init(void);
 int thread_init(struct pros_thread *thread, struct pros_process *process,
-                uint64_t tid, uint64_t entry, uint64_t stack_top);
+                uint64_t tid, uint64_t entry, uint64_t stack_bottom,
+                uint64_t stack_top);
 int thread_set_state(struct pros_thread *thread, uint32_t state);
 int thread_process_is_current(const struct pros_process *process);
 int thread_process_has_live(const struct pros_process *process);
