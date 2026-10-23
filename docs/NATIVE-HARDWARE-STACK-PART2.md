@@ -240,3 +240,8 @@ The xHCI Supported Protocol validator now checks the PSI (Protocol Speed ID) cou
 ## Supported Protocol overlap rejection — 2026-10-23
 
 The xHCI Supported Protocol validator now also rejects a nonzero next-capability pointer that lands inside the current capability's PSI array. This prevents overlapping capability records from being accepted as a valid linked list. A regression test checks that the output count remains unchanged on this malformed input. Validation remains limited to caller-provided BAR snapshots; no live controller initialization is performed.
+
+
+## PSI field-layout correction — 2026-10-23
+
+During follow-up source review, corrected the PSI count extraction to read the PSIC field from the Supported Protocol capability's Protocol Information DWORD (bits 31:28), rather than from the compatible-port DWORD. Regression cases now encode PSIC in the correct field. The validator checks both the full PSI array bounds and rejects a next pointer overlapping that array.
