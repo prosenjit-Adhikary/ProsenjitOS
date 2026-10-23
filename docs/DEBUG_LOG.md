@@ -338,3 +338,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build and boot-test run [#8188](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946623102): **PASS** on self-hosted runner `office`. ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
 - Security architecture run [#7724](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946623071): **PASS**.
 - This verifies the injected mock-device commit-write failure and namespace recovery path under QEMU. It does not prove physical-device power-loss durability or cover every namespace mutation/failure boundary.
+
+
+## 2026-10-23 — ProsenjitFS unlink commit-write failure across remount
+
+### Regression added
+- Added a populated-file namespace regression that injects a failure when the journal commit record is written during `vfs_unlink`.
+- The test requires the unlink to fail and the mount to become read-only, simulates power loss, remounts, verifies the original path and every payload byte remain intact, and runs the report-only integrity check.
+- Change: commit `ed197bf77328ae419f8f45480640da0063641537`, PR [#198](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/198).
+
+### Verification
+- Build and boot-test run [#8192](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938083): **PASS** on self-hosted runner `office`. ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security architecture run [#7727](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938090): **PASS**.
+- This verifies one unlink commit-write failure and recovery path under the mock block device. It does not prove physical-device power-loss durability or cover every mutation/failure boundary.
