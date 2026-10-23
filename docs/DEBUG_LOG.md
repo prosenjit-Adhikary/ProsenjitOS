@@ -348,6 +348,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Change: commit `ed197bf77328ae419f8f45480640da0063641537`, PR [#198](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/198).
 
 ### Verification
-- Build and boot-test run [#8192](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938083): **PASS** on self-hosted runner `office`. ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
-- Security architecture run [#7727](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938090): **PASS**.
+- Build and boot-test run [#8194](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938083): **PASS** on self-hosted runner `office`. ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security architecture run [#7730](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938090): **PASS**.
 - This verifies one unlink commit-write failure and recovery path under the mock block device. It does not prove physical-device power-loss durability or cover every mutation/failure boundary.
