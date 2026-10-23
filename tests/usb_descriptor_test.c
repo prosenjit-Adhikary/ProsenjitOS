@@ -63,6 +63,20 @@ int main(void)
     bad[13] = 2u; /* interface declares two endpoints but contains one */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
+    uint8_t malformed_out_endpoint[32];
+    copy_config(malformed_out_endpoint);
+    malformed_out_endpoint[2] = 32u;
+    malformed_out_endpoint[13] = 2u;
+    malformed_out_endpoint[25] = 7u;
+    malformed_out_endpoint[26] = 5u;
+    malformed_out_endpoint[27] = 0x02u; /* OUT endpoint, not selected */
+    malformed_out_endpoint[28] = 0x43u; /* reserved attribute bits */
+    malformed_out_endpoint[29] = 8u;
+    malformed_out_endpoint[30] = 0u;
+    malformed_out_endpoint[31] = 10u;
+    assert(pros_usb_find_boot_hid_endpoint(malformed_out_endpoint,
+           sizeof(malformed_out_endpoint), &out) == PROS_DRIVER_EIO);
+
     uint8_t duplicate_endpoint[32];
     copy_config(duplicate_endpoint);
     duplicate_endpoint[2] = 32u;
