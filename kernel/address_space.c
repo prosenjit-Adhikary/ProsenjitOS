@@ -556,7 +556,11 @@ int address_space_selftest(void) {
         address_space_destroy(&other_space);
         return -7;
     }
-    if (address_space_map_user_page_owned(&other_space, PROSENJIT_USER_TEST_VA,
+    if (address_space_map_user_page(&other_space,
+                                    PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                    shared_candidate,
+                                    PROSENJIT_PAGE_NX) == 0 ||
+        address_space_map_user_page_owned(&other_space, PROSENJIT_USER_TEST_VA,
                                           shared_candidate,
                                           PROSENJIT_PAGE_WRITABLE |
                                           PROSENJIT_PAGE_NX) == 0) {
