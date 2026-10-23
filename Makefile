@@ -52,6 +52,10 @@ usb-hid-test:
 usb-host-test:
 	bash scripts/test_usb_host.sh
 
+# Hosted test for bounded USB configuration/HID endpoint descriptor parsing.
+usb-descriptor-test:
+	bash scripts/test_usb_descriptor.sh
+
 # Hosted test for the kernel input queue and PS/2 endpoint delivery.
 input-service-test:
 	bash scripts/test_input_service.sh
