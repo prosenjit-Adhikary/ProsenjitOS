@@ -333,3 +333,14 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Together with the previous per-thread user-frame fix, the configured boot gates now cover the guard-page checks and the scheduler snapshot/resume regression.
 - **Still open:** dynamically allocated per-thread kernel stacks with explicit ownership/reclamation; guard/bounds coverage for arbitrary caller-provided thread stacks; actual ISR/IST GPR-sentinel and nested-exception delivery tests; deeper scheduler/IPC race coverage; complete memory/page-table dependency audit; DMA/IOMMU; UEFI and physical hardware.
 - **Overall Part 1 remains PARTIAL / NOT COMPLETE.** These changes improve stack isolation but do not establish a general thread-stack lifecycle.
+
+
+## Verification result — runtime interrupt register preservation (2026-10-23)
+
+- Source change: `dc6189e9442ace74108b2835e2900d7ef325ca3c` adds runtime GPR sentinel probes for the exception path (recoverable INT3) and timer interrupt path (software INT 0x20), and emits a serial success marker only after both return with all tested GPRs intact.
+- CI enforcement change: `1826a022981c3b55f380f7b6ae07429c5164fc66` makes both ISO and native BIOS QEMU runs require the runtime-interrupt marker, in addition to the previously required guard/security milestones.
+- Build and boot-test workflow [#7979](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39915850981): runner/toolchain validation, static/host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU, and native BIOS QEMU steps all report **success**. Both QEMU serial logs contain `ProsenjitOS: interrupt/timer GPR preservation runtime tests passed`; each QEMU run ended with expected timeout status 124 after its bounded test window. The workflow API had not yet finalized the overall run status when this report was updated, despite all listed job steps being completed successfully.
+- Security architecture workflow [#7515](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39915850890): **SUCCESS**.
+- These tests exercise GPR preservation for the returning INT3 and timer entry paths in QEMU. They do not test every hardware exception, IST nesting, all interrupted privilege/stack transitions, true SMP concurrency, or physical hardware.
+- **Still open:** dynamically allocated per-thread kernel-stack ownership/bounds/guard/reclamation; IST/nested-exception runtime tests; deeper scheduler/IPC race coverage; complete memory/page-table dependency audit; DMA/IOMMU; UEFI and physical hardware.
+- **Overall Part 1 remains PARTIAL / NOT COMPLETE.**
