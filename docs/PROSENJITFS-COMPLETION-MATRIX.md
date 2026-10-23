@@ -205,3 +205,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The tests require the report-only integrity scan to reject the targeted corruption without changing durable, volatile, or dirty mock-media state; after restoring the original entry, a clean rescan is required.
 - The changes are now combined against current `main` to avoid relying on stale branch bases. Build/boot-test and Security architecture checks must pass on this new exact PR head before merge.
 - These regressions do not prove physical-device power-loss durability or general concurrent VFS safety.
+
+
+## Source re-check — 2026-10-23: integrity-scan read-failure coverage
+
+- Current `kernel/prosenjitfs.c` self-test iterates read-failure countdown positions 1 through 512 and injects failure at every block-device read position reached by a clean integrity scan.
+- Each injected failure must produce `PROSENJITFS_EIO` in both function return and report status, while durable, volatile, and dirty mock-media state remains unchanged. The first countdown not reached ends the scan's read sequence.
+- This is broader than a single inode-bitmap read injection; older debug wording describing only that path is historical, not the current coverage summary.
+- Scope remains limited to integrity-scan reads on a clean mounted image. Mount/recovery reads, all mutation callback reads, corrupted-metadata paths, and physical-device failure modes remain separate acceptance work.
+- PR #205 recovery-test cleanup is merged as `deb42bf408d202f683beabd8eaf58ab93abe4ec2`; PR #208 journal recovery read-failure coverage is merged as `fa424bdb47016cb6dde4c52f8ffe66360277d9e8`. Namespace corruption tests are carried on this PR's current-main branch and still require exact-head CI.
