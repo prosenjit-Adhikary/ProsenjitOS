@@ -9,6 +9,12 @@ static const uint8_t keyboard_config[] = {
     7, 5, 0x81, 3, 8, 0, 10
 };
 
+static void copy_config(uint8_t *dst)
+{
+    for (uint32_t i = 0; i < sizeof(keyboard_config); ++i)
+        dst[i] = keyboard_config[i];
+}
+
 int main(void)
 {
     struct pros_usb_hid_endpoint out = {0};
@@ -19,7 +25,7 @@ int main(void)
     assert(out.interval == 10u && out.kind == PROS_USB_HID_KEYBOARD);
 
     uint8_t mouse[sizeof(keyboard_config)];
-    for (uint32_t i = 0; i < sizeof(mouse); ++i) mouse[i] = keyboard_config[i];
+    copy_config(mouse);
     mouse[16] = 2; /* boot mouse protocol */
     mouse[22] = 4; /* endpoint max packet size */
     assert(pros_usb_find_boot_hid_endpoint(mouse, sizeof(mouse), &out) == PROS_DRIVER_OK);
@@ -29,17 +35,54 @@ int main(void)
     assert(pros_usb_find_boot_hid_endpoint(keyboard_config, 8u, &out) == PROS_DRIVER_EINVAL);
 
     uint8_t bad[sizeof(keyboard_config)];
-    for (uint32_t i = 0; i < sizeof(bad); ++i) bad[i] = keyboard_config[i];
+    copy_config(bad);
     bad[2] = 0xFFu; bad[3] = 0xFFu;
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
-    for (uint32_t i = 0; i < sizeof(bad); ++i) bad[i] = keyboard_config[i];
+
+    copy_config(bad);
     bad[18] = 1u;
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
-    for (uint32_t i = 0; i < sizeof(bad); ++i) bad[i] = keyboard_config[i];
+
+    copy_config(bad);
     bad[20] = 0x01u; /* endpoint OUT, not interrupt-IN */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_ENODEV);
-    for (uint32_t i = 0; i < sizeof(bad); ++i) bad[i] = keyboard_config[i];
+
+    copy_config(bad);
     bad[9] = 1u; /* descriptor shorter than interface minimum */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[20] = 0x91u; /* reserved endpoint-address bits */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[20] = 0x80u; /* endpoint zero is not a valid interrupt endpoint */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[21] = 0x43u; /* interrupt endpoint has reserved attribute bits */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[24] = 0u; /* bInterval must be nonzero */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[23] = 0x08u; /* unsupported high-bandwidth transaction encoding */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    /* Failure must not partially overwrite the caller's endpoint structure. */
+    out.interface_number = 99u;
+    out.alternate_setting = 98u;
+    out.endpoint_address = 97u;
+    out.interval = 96u;
+    out.max_packet_size = 95u;
+    out.kind = PROS_USB_HID_MOUSE;
+    copy_config(bad);
+    bad[24] = 0u;
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+    assert(out.interface_number == 99u && out.alternate_setting == 98u);
+    assert(out.endpoint_address == 97u && out.interval == 96u);
+    assert(out.max_packet_size == 95u && out.kind == PROS_USB_HID_MOUSE);
     return 0;
 }
