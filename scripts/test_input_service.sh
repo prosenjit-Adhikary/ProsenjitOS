@@ -7,6 +7,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 "$CC_BIN" -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
   -I"$ROOT/kernel/include" \
   "$ROOT/tests/input_service_test.c" "$ROOT/kernel/input_service.c" \
-  "$ROOT/kernel/ps2_keyboard.c" "$ROOT/kernel/hw_stack.c" "$ROOT/kernel/object.c" \
+  "$ROOT/kernel/ps2_keyboard.c" "$ROOT/kernel/ps2_mouse.c" \
+  "$ROOT/kernel/hw_stack.c" "$ROOT/kernel/object.c" \
   -o "$TMP_DIR/input_service_test"
 "$TMP_DIR/input_service_test"
