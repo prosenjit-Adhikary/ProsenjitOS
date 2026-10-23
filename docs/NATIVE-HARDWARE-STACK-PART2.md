@@ -223,3 +223,10 @@ This validates the software mask/EOI contract, not live hardware interrupt deliv
 Added `tests/ps2_irq_dispatch_test.c` and `scripts/test_ps2_irq_dispatch.sh`, wired as `make ps2-irq-dispatch-test` in the build workflow. It checks that unrelated vectors do not trigger polling/EOI, that IRQ1/IRQ12 always take the dispatcher's EOI path, and that hardware polling is gated on input-service readiness. This test uses stubs and validates dispatcher control flow only; it does not simulate PIC ISR/IRR registers, device-byte timing, interrupt nesting, or real IRQ delivery.
 
 PIC and dispatcher hosted suites are now scheduled in CI, but the current branch's latest workflow runs remain queued because the workflow targets a self-hosted Linux x64 runner. Do not count these newly added suites as passed until their logs show the exact branch head succeeded.
+
+
+## xHCI Supported Protocol port-range validation — 2026-10-23
+
+Added a read-only snapshot validator for xHCI Supported Protocol extended capabilities (capability ID 2). It checks that each such capability's full 16-byte structure is inside the supplied BAR snapshot and that its one-based first-port/count range stays within the caller-provided MaxPorts. Unknown extended capability types are skipped using the linked-list next pointer. The result count is written only on success. Hosted tests cover a valid range, an out-of-range protocol port span, a malformed capability header, and an empty list.
+
+This is still parser/contract work only: it does not read live MMIO, initialize an xHCI controller, allocate DMA rings, enumerate USB devices, or perform USB transfers. Exact-head CI must pass before this change is treated as verified.
