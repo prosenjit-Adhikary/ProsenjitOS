@@ -23,6 +23,10 @@ The aggregate target and workflow edits are committed at `a5263cf422953eb39a9cfe
 
 Added decoder-level `pros_usb_hid_keyboard_recover()` and `pros_usb_hid_mouse_recover()` APIs. They synthesize release events for currently held modifier/key/button state and then reset the decoder state; repeated recovery is idempotent. Hosted regression coverage checks the emitted releases and clean second recovery. These APIs are primitives only: they do not detect USB disconnects, submit recovery events to the input-service queue, or replace a real host-controller transport. The existing `usb-hid-test` target exercises this path; exact-head CI is pending.
 
+## USB HID-to-input-service bridge — 2026-10-23
+
+Added keyboard/mouse report-submit helpers that decode boot-protocol reports and publish the resulting events through `pros_input_service_send_batch()` as one atomic batch. Events receive the current kernel tick timestamp. If the queue rejects a batch (including `ENOSPC`), the decoder state is restored so the same report or recovery releases can be retried without losing transitions. Matching recovery-submit helpers publish synthetic release events through the same queue. Hosted `usb-hid-test` coverage now checks timestamps, successful delivery, queue-full rollback, and retryable key/button release. This closes the decoder-to-kernel-queue adapter contract only; no USB host-controller transport, enumeration, polling/interrupt transfer, or disconnect detection is implemented by these helpers.
+
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
 - [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
