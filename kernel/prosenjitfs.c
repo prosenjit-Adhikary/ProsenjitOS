@@ -10219,6 +10219,68 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sweep mkdir's read-only preflight: inode validation, parent directory
+     * index validation, and duplicate-name lookup. No transaction should be
+     * published if any of these reads fails.
+     */
+    {
+        for (uint32_t read_position = 1u; read_position <= 3u;
+             ++read_position) {
+            struct pros_vfs_dir directory;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int mkdir_rc;
+            int lookup_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            mkdir_rc = vfs_mkdir(&fs.mount, "/mkdir-read-sweep");
+            if (mkdir_rc != PROS_VFS_EIO ||
+                disk.fail_read_countdown != 0u ||
+                fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            lookup_rc = vfs_dir_open(&fs.mount, "/mkdir-read-sweep",
+                                     &directory);
+            if (lookup_rc == PROS_VFS_OK) {
+                (void)vfs_dir_close(&directory);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+            if (lookup_rc != PROS_VFS_ENOENT ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+        }
+    }
+
+    /*
      * A failed rmdir commit must not remove the directory's namespace entry
      * or leave a partially freed child inode after simulated power loss.
      */
