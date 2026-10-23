@@ -7,7 +7,7 @@ uint64_t timer_ticks(void) { return 1234u; }
 
 struct capture {
     uint32_t count;
-    struct pros_hw_input_event events[8];
+    struct pros_hw_input_event events[16];
 };
 static int capture_init(void *context)
 {
@@ -18,7 +18,7 @@ static int capture_transfer(void *context, const void *buffer, uint32_t length)
     struct capture *c = (struct capture *)context;
     if (!c || !buffer || length != sizeof(struct pros_hw_input_event))
         return PROS_DRIVER_EINVAL;
-    if (c->count >= 8u) return PROS_DRIVER_ENOSPC;
+    if (c->count >= 16u) return PROS_DRIVER_ENOSPC;
     c->events[c->count++] = *(const struct pros_hw_input_event *)buffer;
     return PROS_DRIVER_OK;
 }
@@ -121,6 +121,27 @@ int main(void)
     assert(pros_ps2_keyboard_poll(77u) == 0);
     assert(pros_ps2_keyboard_poll(77u) == 1);
     assert(captured.count == 7u && captured.events[6].value0 == 0x11E);
+
+    /* Complete AUX packet must produce a pointer event through the same endpoint. */
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x08u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x02u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x01u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == 1);
+    assert(captured.count == 8u);
+    assert(captured.events[7].type == PROS_HW_INPUT_POINTER);
+    assert(captured.events[7].flags == PROS_HW_INPUT_RELATIVE);
+    assert(captured.events[7].value0 == 2 && captured.events[7].value1 == -1);
+    assert(captured.events[7].timestamp == 1234u);
+
+    /* AUX button edge is also routed, independently of movement. */
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x09u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x00u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x00u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == 1);
+    assert(captured.count == 9u);
+    assert(captured.events[8].type == PROS_HW_INPUT_POINTER);
+    assert(captured.events[8].flags == PROS_HW_INPUT_PRESS);
+    assert(captured.events[8].value0 == 1);
 
     assert(pros_ps2_keyboard_test_push(0x01u, 0x00u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_EIO);
