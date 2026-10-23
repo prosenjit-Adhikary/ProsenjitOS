@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test ps2-mouse-test usb-hid-test usb-host-test usb-descriptor-test input-service-test keymap-test pci-test xhci-capability-test
+.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test ps2-mouse-test usb-hid-test usb-host-test usb-descriptor-test input-service-test keymap-test pci-test xhci-capability-test memory-allocator-test
 
 all: iso
 
@@ -71,3 +71,7 @@ pci-test:
 # Hosted validation of xHCI capability-register snapshots; no MMIO or controller start.
 xhci-capability-test:
 	bash scripts/test_xhci_capability.sh
+
+# Hosted concurrent tests for the physical-page allocator; does not boot the OS.
+memory-allocator-test:
+	bash scripts/test_memory_allocator.sh
