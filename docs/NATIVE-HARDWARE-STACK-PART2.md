@@ -69,3 +69,8 @@ Implementation sequence before claiming usable USB input:
 6. Connect parsed events to the authorized input-service queue and userspace keymap. Add QEMU and physical-device tests for each declared controller/device combination.
 7. Keep Bluetooth HID as a separate later transport; do not imply USB HID support covers Bluetooth.
 
+
+
+## PCI USB host-controller discovery groundwork
+
+Added a pure classifier for PCI serial-bus/USB host-controller functions (base class 0x0C, subclass 0x03). It recognizes UHCI (prog-if 0x00), OHCI (0x10), EHCI (0x20), xHCI (0x30), and generic/other (0x80); unknown programming interfaces are reported as unsupported. Hosted tests cover each classification and invalid inputs. This helper does not scan hardware itself, enable PCI bus mastering, map controller registers, reset a controller, allocate DMA, enumerate USB devices, or perform transfers. The next driver stage should target xHCI first, after implementing safe DMA allocation and BAR aperture validation.
