@@ -10162,6 +10162,54 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * mkdir spans several metadata images (inode allocation, child inode,
+     * directory entry/index). A failed journal commit must leave no reachable
+     * half-created directory after a simulated power loss and remount.
+     */
+    {
+        struct pros_vfs_dir directory;
+        int mkdir_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_commit_write_once = 1u;
+        mkdir_rc = vfs_mkdir(&fs.mount, "/mkdir-atomic-probe");
+        if (mkdir_rc != PROS_VFS_EIO ||
+            disk.fail_commit_write_once != 0u ||
+            !fs.read_only || !fs.mount.read_only) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        {
+            int directory_rc = vfs_dir_open(
+                &fs.mount, "/mkdir-atomic-probe", &directory);
+            if (directory_rc == PROS_VFS_OK) {
+                (void)vfs_dir_close(&directory);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+            if (directory_rc != PROS_VFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        }
+
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * A failure before the journal header is published is retryable. Fail
      * the first transaction flush (commit-slot invalidation), verify the
      * mount remains writable and no bytes are reported written, then retry

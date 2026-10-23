@@ -154,3 +154,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The test verifies `PROS_VFS_EIO`, fail-closed read-only state, simulated power loss/remount, preservation of the original file length and bytes, and a clean report-only integrity scan.
 - Exact PR code head `2c8409065afb624f6bf115fb0aece5095f777355` passed build/boot-test [#8205](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947772776), including ISO and native BIOS QEMU boot. Security architecture [#7741](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947772767) also passed.
 - Scope: this closes one focused truncate rollback/remount case under mock-device fault injection. Broader mutation-path coverage and physical-device durability remain separate acceptance work.
+
+
+## Verification update — 2026-10-23: mkdir commit-write failure and remount
+
+- PR #201 adds a commit-record write-failure regression for `vfs_mkdir` across its multi-image metadata update.
+- The test verifies `PROS_VFS_EIO`, fail-closed read-only state, simulated power-loss remount, absence of the uncommitted directory, and a clean report-only integrity scan.
+- Exact PR code head `af7cbf0187aa717d483d146878051bd5c2cf584a` passed build/boot-test [#8211](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948217344), including ISO and native BIOS QEMU boot. Security architecture [#7747](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948217395) also passed.
+- Scope: this closes one focused mkdir rollback/remount case under mock-device fault injection. Other mutation cases and physical-device durability remain separate acceptance work.

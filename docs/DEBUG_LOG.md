@@ -378,3 +378,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build and boot-test run [#8205](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947772776): **PASS** on self-hosted runner `office`; ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
 - Security architecture run [#7741](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39947772767): **PASS**.
 - This verifies one truncate rollback/remount case under the mock block device; it does not establish physical-device power-loss durability.
+
+
+## 2026-10-23 — ProsenjitFS mkdir commit-write failure across remount
+
+### Regression added
+- Added a journal commit-record write-failure test for `vfs_mkdir`, which updates multiple metadata images.
+- The test requires the operation to fail with `PROS_VFS_EIO` and the mount to become read-only, simulates power loss, remounts, verifies the new directory is absent, and runs the report-only integrity scan.
+- Change: commit `af7cbf0187aa717d483d146878051bd5c2cf584a`, PR [#201](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/201).
+
+### Verification
+- Build and boot-test run [#8211](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948217344): **PASS** on self-hosted runner `office`; ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security architecture run [#7747](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948217395): **PASS**.
+- This verifies one mkdir commit-write rollback/remount case under mock-device fault injection, not physical-device power-loss durability.
