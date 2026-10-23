@@ -153,6 +153,7 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
         uint32_t header = read_le32(&bar[offset]);
         uint32_t id = header & 0xFFu;
         uint32_t next_dwords = (header >> 8) & 0xFFu;
+        uint32_t minimum_next_offset = offset + 4u;
         if (id == 0u)
             return PROS_DRIVER_EIO;
         if (id == 2u) {
@@ -171,6 +172,7 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
                 first_port > max_ports ||
                 port_count > (uint32_t)max_ports - first_port + 1u)
                 return PROS_DRIVER_EIO;
+            minimum_next_offset = offset + structure_length;
             ++supported;
         }
         ++visited;
@@ -180,7 +182,8 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
         if (delta > UINT32_MAX - offset)
             return PROS_DRIVER_EIO;
         uint32_t next = offset + delta;
-        if (next <= offset || !range_valid(next, 4u, bar_length))
+        if (next <= offset || next < minimum_next_offset ||
+            !range_valid(next, 4u, bar_length))
             return PROS_DRIVER_EIO;
         offset = next;
     }
