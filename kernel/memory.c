@@ -337,19 +337,29 @@ uint64_t physical_page_alloc(void) {
  * This API does not itself make a buffer DMA-safe: cache coherency,
  * pinning, device ownership and IOMMU/address-mask handling remain separate.
  */
+static void physical_page_record_failed_allocation(void) {
+    uint64_t flags = page_allocator_lock_acquire();
+    ++failed_allocations;
+    page_allocator_lock_release(flags);
+}
+
 uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
                                          uint64_t alignment_pages,
                                          uint64_t max_address_exclusive) {
     if (page_count == 0 || page_count > UINT16_MAX || alignment_pages == 0 ||
         (alignment_pages & (alignment_pages - 1ULL)) != 0 ||
-        max_address_exclusive < PROSENJIT_PAGE_SIZE)
+        max_address_exclusive < PROSENJIT_PAGE_SIZE) {
+        physical_page_record_failed_allocation();
         return 0;
+    }
 
     if (max_address_exclusive > PROSENJIT_PHYS_LIMIT)
         max_address_exclusive = PROSENJIT_PHYS_LIMIT;
     uint64_t limit_pages = max_address_exclusive / PROSENJIT_PAGE_SIZE;
-    if (page_count > limit_pages)
+    if (page_count > limit_pages) {
+        physical_page_record_failed_allocation();
         return 0;
+    }
 
     uint64_t flags = page_allocator_lock_acquire();
     uint64_t candidate = alignment_pages;
