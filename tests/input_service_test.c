@@ -168,8 +168,35 @@ int main(void)
     assert(pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &event) == PROS_DRIVER_ENOSPC);
     assert(pros_input_service_dropped_events() == 1u);
 
-    for (uint32_t i = 0u; i < PROS_INPUT_SERVICE_QUEUE_CAPACITY; ++i)
+    /* With one slot free, a two-event mouse packet must be all-or-nothing.
+     * Neither half may leak into the queue when the packet cannot fit. */
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    struct pros_hw_input_event packet[2] = {event, event};
+    packet[0].type = PROS_HW_INPUT_POINTER;
+    packet[0].flags = PROS_HW_INPUT_RELATIVE;
+    packet[0].value0 = 7;
+    packet[0].value1 = -2;
+    packet[1].type = PROS_HW_INPUT_POINTER;
+    packet[1].flags = PROS_HW_INPUT_PRESS;
+    packet[1].value0 = 1;
+    packet[1].value1 = 0;
+    assert(pros_input_service_send_batch(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                         packet, 2u) == PROS_DRIVER_ENOSPC);
+    assert(pros_input_service_dropped_events() == 3u);
+
+    for (uint32_t i = 0u; i < PROS_INPUT_SERVICE_QUEUE_CAPACITY - 1u; ++i)
         assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+
+    /* A batch that fits is delivered in order without splitting the packet. */
+    assert(pros_input_service_send_batch(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                         packet, 2u) == PROS_DRIVER_OK);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_POINTER &&
+           event.flags == PROS_HW_INPUT_RELATIVE && event.value0 == 7);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_POINTER &&
+           event.flags == PROS_HW_INPUT_PRESS && event.value0 == 1);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
 
     /* A live READ capability pins this service object's lifetime. Stopping
