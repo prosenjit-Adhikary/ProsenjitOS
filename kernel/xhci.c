@@ -26,15 +26,14 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
     if (!bar || !out || bar_length < XHCI_CAP_HEADER_MIN)
         return PROS_DRIVER_EINVAL;
 
-    /* Do not publish partial data on malformed or truncated BAR snapshots. */
     struct pros_xhci_capabilities parsed = {0};
     parsed.capability_length = bar[0];
     parsed.interface_version = read_le16(&bar[2]);
 
-    uint32_t structural = read_le32(&bar[4]);    /* HCSPARAMS1 */
-    uint32_t capability = read_le32(&bar[0x10]); /* HCCPARAMS1 */
-    uint32_t doorbell = read_le32(&bar[0x14]);   /* DBOFF */
-    uint32_t runtime = read_le32(&bar[0x18]);    /* RTSOFF */
+    uint32_t structural = read_le32(&bar[4]);
+    uint32_t capability = read_le32(&bar[0x10]);
+    uint32_t doorbell = read_le32(&bar[0x14]);
+    uint32_t runtime = read_le32(&bar[0x18]);
 
     if (parsed.capability_length < XHCI_CAP_HEADER_MIN ||
         (parsed.capability_length & 3u) != 0u ||
@@ -48,8 +47,7 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
     parsed.context_size_64 = (uint8_t)((capability >> 2) & 1u);
     parsed.doorbell_offset = doorbell & ~3u;
     parsed.runtime_offset = runtime & ~0x1Fu;
-    uint32_t xecp_dwords = capability >> 16;
-    parsed.extended_capabilities_offset = xecp_dwords * 4u;
+    parsed.extended_capabilities_offset = (capability >> 16) * 4u;
 
     if (parsed.max_slots == 0u || parsed.max_interrupters == 0u ||
         parsed.max_ports == 0u ||
@@ -61,10 +59,9 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
         !range_valid(parsed.runtime_offset, XHCI_RUNTIME_MIN_SIZE, bar_length))
         return PROS_DRIVER_EIO;
 
-    /* xECP points into the capability-register area, before operational regs. */
+    /* xECP points into capability registers, before operational registers. */
     if (parsed.extended_capabilities_offset != 0u &&
-        ((parsed.extended_capabilities_offset & 3u) != 0u ||
-         parsed.extended_capabilities_offset < XHCI_CAP_HEADER_MIN ||
+        (parsed.extended_capabilities_offset < XHCI_CAP_HEADER_MIN ||
          !range_valid(parsed.extended_capabilities_offset, 4u,
                       parsed.capability_length)))
         return PROS_DRIVER_EIO;
@@ -80,22 +77,26 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
 {
     if (!bar || !count_out)
         return PROS_DRIVER_EINVAL;
+    if (bar_length < XHCI_CAP_HEADER_MIN)
+        return PROS_DRIVER_EINVAL;
+
+    uint32_t cap_length = bar[0];
+    if (cap_length < XHCI_CAP_HEADER_MIN || (cap_length & 3u) != 0u ||
+        cap_length > bar_length)
+        return PROS_DRIVER_EIO;
     if (first_offset == 0u) {
         *count_out = 0u;
         return PROS_DRIVER_OK;
     }
     if ((first_offset & 3u) != 0u || first_offset < XHCI_CAP_HEADER_MIN ||
-        !range_valid(first_offset, 4u, bar_length))
+        !range_valid(first_offset, 4u, cap_length))
         return PROS_DRIVER_EIO;
 
     uint32_t offset = first_offset;
     uint32_t count = 0u;
-    /* Each nonzero Next pointer is a positive DWORD delta, so valid traversal
-     * advances monotonically. Bound by the BAR's maximum possible header count
-     * as a defensive guard against malformed snapshots. */
-    uint32_t max_headers = bar_length / 4u;
+    uint32_t max_headers = cap_length / 4u;
     while (offset != 0u) {
-        if (count >= max_headers || !range_valid(offset, 4u, bar_length))
+        if (count >= max_headers || !range_valid(offset, 4u, cap_length))
             return PROS_DRIVER_EIO;
         uint32_t header = read_le32(&bar[offset]);
         uint32_t capability_id = header & 0xFFu;
@@ -109,7 +110,7 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
         if (delta > UINT32_MAX - offset)
             return PROS_DRIVER_EIO;
         uint32_t next = offset + delta;
-        if (next <= offset || !range_valid(next, 4u, bar_length))
+        if (next <= offset || !range_valid(next, 4u, cap_length))
             return PROS_DRIVER_EIO;
         offset = next;
     }
