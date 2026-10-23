@@ -55,7 +55,7 @@ int main(void)
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
     put32(&bar[0x18], 0xE0u); /* runtime minimum range does not fit */
-    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+    assert(pros_xhci_parse_capabilities(bar, 0xF0u, &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
     put32(&bar[0x10], (0x7Fu << 16) | (1u << 2)); /* xECP at 0x1FC, truncated */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
