@@ -1,11 +1,13 @@
 #include <assert.h>
 #include <stdint.h>
 #include "ps2_keyboard.h"
+#include "input_service.h"
 
 /* The keyboard-poller test uses a generic endpoint, not the kernel input queue.
  * The input-service suite links and tests the real atomic batch implementation. */
 static int batch_result = PROS_DRIVER_OK;
 static uint32_t batch_count;
+static uint32_t batch_calls;
 static struct pros_hw_input_event batch_events[3];
 
 int pros_input_service_send_batch(uint32_t endpoint_id,
@@ -15,6 +17,7 @@ int pros_input_service_send_batch(uint32_t endpoint_id,
     if (endpoint_id != PROS_INPUT_SERVICE_ENDPOINT_ID || !events || count > 3u)
         return PROS_DRIVER_EINVAL;
     if (batch_result != PROS_DRIVER_OK) return batch_result;
+    ++batch_calls;
     batch_count = count;
     for (uint32_t i = 0u; i < count; ++i) batch_events[i] = events[i];
     return PROS_DRIVER_OK;
@@ -179,8 +182,9 @@ int main(void)
     assert(batch_events[0].type == PROS_HW_INPUT_POINTER);
     assert(batch_events[0].flags == PROS_HW_INPUT_RELEASE);
     assert(batch_events[0].value0 == 1 && batch_events[0].timestamp == 1234u);
+    uint32_t calls_after_release = batch_calls;
     assert(pros_ps2_keyboard_recover(PROS_INPUT_SERVICE_ENDPOINT_ID) == PROS_DRIVER_OK);
-    assert(batch_count == 0u);
+    assert(batch_calls == calls_after_release);
     assert(pros_ps2_keyboard_recover(77u) == PROS_DRIVER_EINVAL);
 
     assert(pros_ps2_keyboard_test_push(0x01u, 0x00u) == PROS_DRIVER_OK);
