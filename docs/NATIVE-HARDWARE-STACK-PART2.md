@@ -4,14 +4,14 @@ Status: **contract/lifecycle foundation implemented; concrete hardware drivers r
 
 ## Verification record — 2026-10-23
 
-Latest verified Part 2 PR head: `7beb387034fe22bcc1345a1cfc29d7737599703f`.
-- Build and boot-test: [run 39946387481](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946387481) — **passed**, including desktop/hardware hosted contract suites, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
-- Security architecture checks: [run 39946387353](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946387353) — **passed**.
-- Regression fixes verified in this run: AUX bytes no longer cancel the keyboard Pause sequence; mouse decoder state-retention tests now reset the simulated device before an independent batch-size case. The test suite also keeps a diagnostic on unexpected mouse-event counts.
-- These remain host/emulator tests; no live USB controller transport or physical hardware was tested. USB descriptor validation rejects duplicate interface-number/alternate-setting pairs while accepting the same interface number with distinct alternate settings; USB host-controller classification tests cover named, generic and unsupported values.
+Latest verified Part 2 PR head: `33ba7bc4cc2406ab99b66aa61273d05495c7a11a`.
+- Build and boot-test: [run 39948413192](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948413192) — **passed**, including desktop/hardware hosted contract suites, PS/2 keyboard/mouse and input-service tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
+- Security architecture checks: [run 39948413296](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948413296) — **passed**.
+- PS/2 mouse packets are now queued atomically when using the kernel input-service endpoint, so a queue-capacity failure cannot enqueue motion without its button edges. Generic registered endpoints retain their existing per-event delivery contract.
+- Mouse decoder transport-recovery API discards partial packets and emits release edges for previously held buttons. It is a decoder-level recovery contract; controller reset/disconnect detection and physical recovery remain unimplemented.
+- These remain host/emulator tests; no live USB controller transport or physical hardware was tested.
 
 These results verify the automated checks attached to the exact commit above only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
-
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
 - [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
