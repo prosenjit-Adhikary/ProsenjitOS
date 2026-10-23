@@ -50,6 +50,7 @@ int main(void)
     assert(caps.extended_capabilities_offset == 0xC0u);
 
     uint32_t ext_count = 99u;
+    uint32_t protocol_count = 99u;
     put32(&bar[0xC0], 0x00000201u);
     put32(&bar[0xC8], 0x00000002u);
     assert(pros_xhci_validate_extended_capabilities(
@@ -96,7 +97,6 @@ int main(void)
     make_bar(bar, sizeof(bar));
     put32(&bar[0xC0], 0x00000002u);
     put32(&bar[0xC8], 1u | (4u << 8));
-    uint32_t protocol_count = 99u;
     protocol_count = 75u;
     assert(pros_xhci_validate_supported_protocols(
                bar, sizeof(bar), 0x20u, 6u, &protocol_count) == PROS_DRIVER_EIO);
