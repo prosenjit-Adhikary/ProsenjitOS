@@ -272,3 +272,10 @@ Both xHCI extended-capability validators now require a nonzero list start offset
 The read-only xHCI capability parser now requires the BAR snapshot to contain the complete minimum 0x40-byte operational-register block beginning at CAPLENGTH. Checking only CAPLENGTH itself is insufficient because controller registers such as DCBAAP and CONFIG are located beyond the first 0x20 bytes. A regression test constructs a snapshot where the doorbell and runtime windows are individually in-bounds but the operational-register block is truncated; parsing must reject it without publishing a partial result.
 
 This is parser hardening only. It does not map BARs, access live registers, reset/start a controller, or enable bus mastering/DMA. Exact-head CI is required before treating the change as verified.
+
+
+## xHCI register-window separation hardening — 2026-10-23
+
+Follow-up review found that validating the full operational-register block was not enough: the doorbell and runtime windows also must start after that block, not merely after CAPLENGTH. The parser now rejects either window when it begins before CAPLENGTH + 0x40, preventing register-bank aliasing. Regression tests cover both a doorbell offset and a runtime offset inside the operational-register region.
+
+The parser still consumes only a supplied snapshot. This does not establish the real BAR aperture size or enable live MMIO/DMA. Exact-head CI must pass before verification is claimed.
