@@ -272,3 +272,13 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Purpose: fail the build immediately if a C structure edit silently changes offsets consumed by handwritten assembly. These checks do not prove runtime register preservation, stack safety, or correct IST delivery.
 - Verification status: **PENDING** until build/host tests/ISO QEMU/native BIOS QEMU and security checks finish for this source commit or a later head containing it.
 - Thread-stack allocation/ownership/guard/reclamation remains a separate unresolved design gate; this change intentionally does not invent a stack allocator or alter lifecycle semantics.
+
+
+## Follow-up — thread stack-top alignment validation (2026-10-23)
+
+- Source commits: `361e5102d9dcd7d0f4682bff7e6ebfef345eb6e9` (compile-time C/assembly layout assertions), `f35ece2d8d0abd57be320078dfc5b16bed66b799` (reject non-16-byte-aligned stack tops), and `2a825a7243a2e09bf27479420d53423447593523` (boot scheduler regression setup).
+- `thread_init()` now rejects stack tops that are not 16-byte aligned, matching the bootstrap trampoline's x86-64 SysV call alignment. The boot scheduler test supplies a deliberately misaligned stack top and requires rejection before normal test-thread registration.
+- Compile-time assertions keep the C `pros_thread.context.rsp` offset synchronized with the hard-coded offset in `context_switch.asm`, and assert the interrupt frame's RIP offset and total size.
+- These are narrow ABI/validation hardening changes. They do **not** establish stack memory bounds, ownership, guard pages, overflow detection, deferred reclamation, runtime GPR sentinels, or IST correctness.
+- Verification for these source changes: **PENDING** exact-head build/host tests/ISO QEMU/native BIOS QEMU/security workflow.
+- Overall Part 1 remains **PARTIAL / NOT COMPLETE**.
