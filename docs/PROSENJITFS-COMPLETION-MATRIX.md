@@ -7,7 +7,11 @@ This section records incremental evidence gathered after the 2026-10-22 matrix b
 - PR #198 covers a populated-file `vfs_rename` journal commit-record write failure, simulated power loss, remount, original payload/path preservation, absent destination, and report-only integrity scan. Its recorded build/boot and security runs passed on the exact tested change.
 - PR #199 fixes unlink's directory-entry read-error classification: invalid LBA remains corruption, while a real block-device read error propagates as I/O failure. The regression asserts no durable/volatile/dirty media mutation, writable mount preservation, intact payload, and a clean integrity scan. Its recorded build/boot and security runs passed on the exact tested change.
 - PRs #200–#203 add commit-record write-failure/remount cases for truncate, mkdir, rmdir, and file create. Their recorded build/boot and security runs passed on the exact tested changes.
-- PR #205 hardens interrupted recovery cleanup. PR #206 adds duplicate directory inode-reference rejection. PR #207 adds duplicate directory-name rejection after checksum-valid corruption. PR #208 adds recovery read-failure coverage at the journal header, first journal image, and commit-record read. These are open PRs at the time of this audit; do not count them as merged into `main` merely because their individual CI runs pass.
+- PR #205 hardens interrupted recovery cleanup; its exact current head still needs to be identified and checked for both required workflows before merge.
+- PR #206 adds duplicate directory inode-reference rejection. Its source commit `51e9b254ff1d180720f87bd30df9f3338b866e0e` has completed Build/boot-test and Security architecture workflows successfully.
+- PR #207 adds duplicate directory-name rejection after checksum-valid corruption. Its source commit `038a0a3c23e69f813f10c9227b78e8ca1bbc4587` has completed Build/boot-test and Security architecture workflows successfully.
+- PR #208 adds recovery read-failure coverage at the journal header, first journal image, and commit-record read. Its source commit `d03b5b848a61d851a96fdb0a9dcd8a5feee45d13` has completed Build/boot-test and Security architecture workflows successfully.
+- PRs #205–#208 remain open at this audit point. Passing checks on the named source commits are not proof that later documentation commits or a merged `main` candidate are green; verify exact current PR heads before merge.
 
 ### Source-grounded concurrency boundary
 
