@@ -55,22 +55,28 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             uint8_t attributes = blob[offset + 3u];
             uint16_t packet = (uint16_t)blob[offset + 4u] |
                               ((uint16_t)blob[offset + 5u] << 8);
+            uint16_t packet_size = (uint16_t)(packet & 0x07FFu);
+            uint8_t transfer_type =
+                (uint8_t)(attributes & PROS_USB_ENDPOINT_TRANSFER_MASK);
+
+            /*
+             * Validate every endpoint descriptor, not just the candidate:
+             * endpoint zero/reserved address bits and reserved attribute
+             * bits are malformed regardless of direction or transfer type.
+             */
+            if ((address & 0x70u) != 0u || (address & 0x0Fu) == 0u ||
+                (attributes & 0xC0u) != 0u || packet_size == 0u)
+                return PROS_DRIVER_EIO;
+
+            if (transfer_type == PROS_USB_ENDPOINT_INTERRUPT) {
+                if (blob[offset + 6u] == 0u) return PROS_DRIVER_EIO;
+                if ((packet & 0xF800u) != 0u)
+                    return PROS_DRIVER_EIO;
+            }
 
             if (current_kind != PROS_USB_HID_NONE &&
                 (address & PROS_USB_ENDPOINT_IN) != 0u &&
-                (attributes & PROS_USB_ENDPOINT_TRANSFER_MASK) ==
-                    PROS_USB_ENDPOINT_INTERRUPT) {
-                uint16_t packet_size = (uint16_t)(packet & 0x07FFu);
-                /*
-                 * This endpoint contract does not model high-bandwidth
-                 * transaction multipliers, so reject those descriptors.
-                 * Reject reserved address/attribute bits and endpoint zero.
-                 */
-                if ((address & 0x70u) != 0u || (address & 0x0Fu) == 0u ||
-                    (attributes & 0xFCu) != 0u || packet_size == 0u ||
-                    (packet & 0xF800u) != 0u || blob[offset + 6u] == 0u)
-                    return PROS_DRIVER_EIO;
-
+                transfer_type == PROS_USB_ENDPOINT_INTERRUPT) {
                 candidate.interface_number = current_interface;
                 candidate.alternate_setting = current_alt;
                 candidate.endpoint_address = address;
