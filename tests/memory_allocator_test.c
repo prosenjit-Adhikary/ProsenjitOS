@@ -106,6 +106,9 @@ int main(void) {
     if (physical_pages_free_contiguous(run, 4u) == 0 ||
         physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0 ||
         physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0 ||
+        physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_pages_alloc_contiguous((uint64_t)UINT16_MAX + 1u, 1u,
+                                        PROSENJIT_PHYS_LIMIT) != 0 ||
         physical_memory_free_pages() != before ||
         physical_memory_failed_allocations() < failed_before) {
         fputs("allocator test: invalid contiguous request was accepted\n", stderr);
