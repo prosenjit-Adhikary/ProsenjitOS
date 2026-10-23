@@ -94,6 +94,24 @@ int main(void)
                bar, sizeof(bar), 0u, 6u, &protocol_count) == PROS_DRIVER_OK);
     assert(protocol_count == 0u);
 
+    /* A Supported Protocol header at the end of the snapshot must not read
+       its remaining three dwords beyond the supplied BAR bounds. */
+    put32(&bar[508], 0x00000002u);
+    protocol_count = 55u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 508u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 55u);
+
+    /* Unknown capability IDs are skipped via the linked-list next pointer. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000403u); /* ID 3, next capability at +16 */
+    put32(&bar[0xD0], 0x00000002u); /* Supported Protocol */
+    put32(&bar[0xD8], 2u | (2u << 8)); /* ports 2..3 */
+    protocol_count = 0u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
+    assert(protocol_count == 1u);
+
     assert(pros_xhci_parse_capabilities(0, sizeof(bar), &caps) == PROS_DRIVER_EINVAL);
     assert(pros_xhci_parse_capabilities(bar, 0x1Fu, &caps) == PROS_DRIVER_EINVAL);
     struct pros_xhci_capabilities saved = caps;
