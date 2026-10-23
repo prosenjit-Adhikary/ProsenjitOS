@@ -19,9 +19,6 @@ int pic_init_for_timer(void) {
      * Remap the 8259 PIC so hardware IRQ vectors do not overlap CPU
      * exceptions. Keep every IRQ masked except IRQ0 until a driver enables it.
      */
-    uint8_t master_mask = pic_in8(0x21);
-    (void)pic_in8(0xA1);
-
     pic_out8(0x20, 0x11);
     pic_io_wait();
     pic_out8(0xA0, 0x11);
@@ -42,8 +39,12 @@ int pic_init_for_timer(void) {
     pic_out8(0xA1, 0x01);
     pic_io_wait();
 
-    /* IRQ0 enabled; all other legacy IRQs remain masked. */
-    pic_out8(0x21, (uint8_t)(master_mask & 0xFEu));
+    /*
+     * Do not inherit firmware/bootloader PIC masks: an IRQ may be unmasked
+     * even though ProsenjitOS has not installed a device-specific handler.
+     * Enable only IRQ0 for the PIT; keep IRQ1..IRQ7 and every slave IRQ masked.
+     */
+    pic_out8(0x21, 0xFEu);
     pic_out8(0xA1, 0xFFu);
     return 0;
 }
