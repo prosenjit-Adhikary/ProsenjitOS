@@ -5936,12 +5936,28 @@ static int pfs_selftest_consistency(
             goto consistency_out;
         }
         allocated = pfs_bitmap_bit(bitmap, within);
-        if (allocated && prosenjitfs_read_inode(fs, inode_number, &inode) ==
-                            PROSENJITFS_OK &&
-            dir_refs[inode_number] > 1u) {
-            rc = PROSENJITFS_ECORRUPT;
-            fail_line = __LINE__;
-            goto consistency_out;
+        if (allocated) {
+            int inode_rc = prosenjitfs_read_inode(fs, inode_number, &inode);
+            /*
+             * This is a second read of allocated inode metadata after the
+             * directory-reference count has been built. Do not silently
+             * ignore device failures here: otherwise an injected/real I/O
+             * error can be reported as a successful integrity scan.
+             */
+            if (inode_rc == PROSENJITFS_EIO) {
+                rc = PROSENJITFS_EIO;
+                goto consistency_out;
+            }
+            if (inode_rc != PROSENJITFS_OK) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
+            if (dir_refs[inode_number] > 1u) {
+                rc = PROSENJITFS_ECORRUPT;
+                fail_line = __LINE__;
+                goto consistency_out;
+            }
         }
     }
 
