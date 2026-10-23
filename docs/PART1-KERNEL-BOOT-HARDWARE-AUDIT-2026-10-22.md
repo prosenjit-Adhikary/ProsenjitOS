@@ -282,3 +282,14 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - These are narrow ABI/validation hardening changes. They do **not** establish stack memory bounds, ownership, guard pages, overflow detection, deferred reclamation, runtime GPR sentinels, or IST correctness.
 - Verification for these source changes: **PENDING** exact-head build/host tests/ISO QEMU/native BIOS QEMU/security workflow.
 - Overall Part 1 remains **PARTIAL / NOT COMPLETE**.
+
+
+## Verification result — scheduler/ISR ABI and stack-top checks (2026-10-23)
+
+- Tested PR head: `c99f20d9fd0725957ea8c32989a8276dd3afd518`.
+- Build and boot-test workflow [run #7955](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39908712948): **SUCCESS**. Runner/toolchain checks, static interrupt-vector checks, desktop-manager and memory-map host tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU required markers, and native BIOS QEMU required markers all passed.
+- Security architecture workflow [run #7491](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39908712958): **SUCCESS**.
+- The tested head includes the compile-time C/assembly layout assertions, 16-byte stack-top validation in `thread_init()`, the deliberately misaligned-stack rejection regression, and the shared-kernel-root USER mapping restriction.
+- Both QEMU stages are bounded marker tests (the workflow validates required serial markers); this does not prove unlimited runtime, real SMP behavior, physical hardware, UEFI, DMA/IOMMU safety, or complete IST/register-sentinel correctness.
+- **Verified for configured CI gates:** the latest source head above builds and passes the configured host, ISO-QEMU, native-BIOS-QEMU, and security-contract gates.
+- **Overall Part 1 remains PARTIAL / NOT COMPLETE.** Remaining substantive gates include stack ownership/bounds/guard/reclamation, runtime ISR/IST register-sentinel testing, deeper scheduler/IPC lifecycle race coverage, complete source/dependency inventory, safe DMA/IOMMU design, UEFI, and physical hardware.
