@@ -260,6 +260,14 @@ user_test_entry:
     cmp eax, 'd'
     jne .user_halt
 
+    ; The successful read consumed the only queued event; empty reads return EAGAIN.
+    mov rax, 8
+    mov rdi, r15
+    lea rsi, [r14 + 64]
+    int 0x80
+    cmp rax, -11                ; PROSENJIT_SYSCALL_EAGAIN
+    jne .user_halt
+
     ; Reject an invalid userspace output pointer before touching the queue.
     mov rax, 8
     mov rdi, r15
