@@ -33,6 +33,16 @@ int main(void)
     assert(pros_usb_hid_keyboard_report(&keyboard, report, events, &count) == PROS_DRIVER_EINVAL);
     report[3] = 0u;
 
+    /* A nonzero boot-protocol reserved byte is malformed and must not change
+     * the tracked modifiers/keys or emit any partial transition. */
+    uint8_t saved_modifiers = keyboard.modifiers;
+    saved_key = keyboard.keys[0];
+    report[1] = 1u;
+    assert(pros_usb_hid_keyboard_report(&keyboard, report, events, &count) == PROS_DRIVER_EINVAL);
+    assert(count == 0u);
+    assert(keyboard.modifiers == saved_modifiers && keyboard.keys[0] == saved_key);
+    report[1] = 0u;
+
     uint8_t mouse_report[3] = {0u, 10u, 5u};
     assert(pros_usb_hid_mouse_report(&mouse, mouse_report, events, &count) == PROS_DRIVER_OK);
     assert(count == 1u && events[0].flags == PROS_HW_INPUT_RELATIVE);
