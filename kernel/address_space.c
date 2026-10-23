@@ -205,6 +205,13 @@ int address_space_map_user_page(struct pros_address_space *space,
         PROSENJIT_PAGE_PRESENT |
         PROSENJIT_PAGE_USER |
         (flags & (PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX));
+
+    /*
+     * The address space may currently be active. Invalidate this VA after
+     * installing the leaf and any new paging-structure entries so a cached
+     * translation cannot outlive the page-table update.
+     */
+    __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
 
