@@ -90,8 +90,11 @@ int main(void)
     for (uint32_t i = 0u; i < PROS_INPUT_SERVICE_QUEUE_CAPACITY; ++i)
         assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
-    assert(pros_hw_endpoint_unregister(PROS_INPUT_SERVICE_ENDPOINT_ID,
-                                      PROS_HW_ENDPOINT_INPUT) == PROS_DRIVER_OK);
+    assert(pros_input_service_shutdown() == PROS_DRIVER_OK);
     assert(pros_input_service_is_ready() == 0);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_ENODEV);
+    assert(pros_input_service_poll_hardware() == PROS_DRIVER_ENODEV);
+    assert(pros_input_service_grant_read(0, 0) == PROS_DRIVER_EINVAL);
+    assert(pros_input_service_shutdown() == PROS_DRIVER_ENODEV);
     return 0;
 }
