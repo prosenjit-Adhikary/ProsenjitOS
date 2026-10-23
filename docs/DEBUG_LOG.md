@@ -435,5 +435,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Added a self-test that creates two independent files, mutates the second directory entry to point at the first file's inode, and recomputes the entry checksum so the integrity scanner must detect duplicate inode references rather than rely on a checksum failure.
 - The test asserts corruption rejection, report-only scan immutability for durable/volatile/dirty media, restoration of the original entry, and a clean rescan.
-- Status: source and documentation committed to a dedicated branch; Build/ISO QEMU/native BIOS QEMU and Security architecture results are pending. No pass is claimed until CI reports success.
+- Exact source commit `51e9b254ff1d180720f87bd30df9f3338b866e0e` passed Build/boot-test [#8235](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39959250509), including ISO QEMU and native BIOS QEMU, and Security architecture [#7771](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39959250389) on the self-hosted `office` runner.
 
