@@ -184,3 +184,14 @@ The PIC layer now exposes bounded IRQ mask/unmask helpers and a per-IRQ EOI help
 Initialization now leaves only IRQ0 enabled and keeps IRQ2 masked until a slave IRQ is explicitly enabled. These APIs are preparatory infrastructure only: this change does **not** install IDT gates or assembly stubs for IRQ1/IRQ12, does not route bytes from interrupt context, and does not unmask either PS/2 IRQ. The existing timer-driven polling backend remains the active input path. Hardware IRQ activation must wait for complete register-preserving entry/exit code, bounded status/data handling, correct interrupt-frame alignment, IRQ-specific EOI, and tests for both master and slave paths.
 
 Exact code commits: `a63bed351c03f5614668939a08c7ed3ce3800374`, `3e83a494a3d279353a100f032970b8d0d0488f23`, `f78f33d54face6657698a949d0dc9be8dc99094c`. Exact-head CI is required; these commits do not claim physical hardware validation.
+
+
+## PS/2 IRQ entry and IDT wiring foundation — 2026-10-23
+
+- Added register-preserving assembly entry stubs for IRQ1 (vector 33) and IRQ12 (vector 44). The stubs dynamically align the stack before calling C, rather than assuming an interrupt can only arrive at a particular instruction-level RSP alignment.
+- Registered the two gates in `idt_init()`.
+- Added a shared bounded dispatcher in `kernel/timer.c`: for IRQ1/IRQ12 it reuses the existing status-aware PS/2 poller and sends the IRQ-specific PIC EOI (including slave-before-master ordering for IRQ12).
+- **Both IRQ lines remain masked.** The new stubs/gates/dispatcher are not proof of interrupt-driven hardware input; the polling path remains active. Do not unmask IRQ1/IRQ12 until exact-head build/boot tests pass and the controller path has been tested for scan-code/AUX interleaving, queue pressure, spurious IRQs, and safe interrupt-context behavior.
+- Physical PS/2 hardware has not been validated.
+
+Code commits: `e14fbc5b6f12ad47571d2c67478e4d3453b94467`, `e18068c8fb18624b7430eaea3988aff4bc35c55a`, `0891d94f387cdfcc08d690157b14aeb782759b66`. Exact current-head CI is pending; do not infer success from earlier PIC-only runs.
