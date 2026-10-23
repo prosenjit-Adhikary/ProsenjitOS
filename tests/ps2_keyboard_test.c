@@ -4,14 +4,20 @@
 
 /* The keyboard-poller test uses a generic endpoint, not the kernel input queue.
  * The input-service suite links and tests the real atomic batch implementation. */
+static int batch_result = PROS_DRIVER_OK;
+static uint32_t batch_count;
+static struct pros_hw_input_event batch_events[3];
+
 int pros_input_service_send_batch(uint32_t endpoint_id,
                                   const struct pros_hw_input_event *events,
                                   uint32_t count)
 {
-    (void)endpoint_id;
-    (void)events;
-    (void)count;
-    return PROS_DRIVER_ENOTSUP;
+    if (endpoint_id != PROS_INPUT_SERVICE_ENDPOINT_ID || !events || count > 3u)
+        return PROS_DRIVER_EINVAL;
+    if (batch_result != PROS_DRIVER_OK) return batch_result;
+    batch_count = count;
+    for (uint32_t i = 0u; i < count; ++i) batch_events[i] = events[i];
+    return PROS_DRIVER_OK;
 }
 
 /* Deterministic hosted stub for the kernel timer dependency. */
@@ -46,6 +52,7 @@ int main(void)
     };
     struct pros_hw_input_event event;
     struct capture captured = {0};
+    struct capture recovery_endpoint = {0};
     pros_ps2_keyboard_reset_decoder();
 
     assert(pros_ps2_keyboard_decode_byte(0x1Eu, &event) == PROS_DRIVER_OK);
@@ -88,6 +95,9 @@ int main(void)
     assert(pros_hw_stack_init() == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_ENODEV);
     assert(pros_hw_endpoint_register(77u, PROS_HW_ENDPOINT_INPUT, &ops, &captured) == PROS_DRIVER_OK);
+    assert(pros_hw_endpoint_register(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                    PROS_HW_ENDPOINT_INPUT, &ops,
+                                    &recovery_endpoint) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == 1);
     assert(pros_ps2_keyboard_test_push(0x01u, 0x9Eu) == PROS_DRIVER_OK);
@@ -155,8 +165,28 @@ int main(void)
     assert(captured.events[8].flags == PROS_HW_INPUT_PRESS);
     assert(captured.events[8].value0 == 1);
 
+    /* Explicit transport recovery publishes held-button RELEASE atomically.
+     * Queue failure must preserve state so the caller can retry. */
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x09u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x00u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x00u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_poll(77u) == 1);
+    batch_result = PROS_DRIVER_ENOSPC;
+    assert(pros_ps2_keyboard_recover(PROS_INPUT_SERVICE_ENDPOINT_ID) == PROS_DRIVER_ENOSPC);
+    batch_result = PROS_DRIVER_OK;
+    assert(pros_ps2_keyboard_recover(PROS_INPUT_SERVICE_ENDPOINT_ID) == PROS_DRIVER_OK);
+    assert(batch_count == 1u);
+    assert(batch_events[0].type == PROS_HW_INPUT_POINTER);
+    assert(batch_events[0].flags == PROS_HW_INPUT_RELEASE);
+    assert(batch_events[0].value0 == 1 && batch_events[0].timestamp == 1234u);
+    assert(pros_ps2_keyboard_recover(PROS_INPUT_SERVICE_ENDPOINT_ID) == PROS_DRIVER_OK);
+    assert(batch_count == 0u);
+    assert(pros_ps2_keyboard_recover(77u) == PROS_DRIVER_EINVAL);
+
     assert(pros_ps2_keyboard_test_push(0x01u, 0x00u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_poll(77u) == PROS_DRIVER_EIO);
     assert(pros_hw_endpoint_unregister(77u, PROS_HW_ENDPOINT_INPUT) == PROS_DRIVER_OK);
+    assert(pros_hw_endpoint_unregister(PROS_INPUT_SERVICE_ENDPOINT_ID,
+                                       PROS_HW_ENDPOINT_INPUT) == PROS_DRIVER_OK);
     return 0;
 }
