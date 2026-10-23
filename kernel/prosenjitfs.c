@@ -10862,7 +10862,7 @@ int prosenjitfs_selftest(void)
             if (mount_rc != PROSENJITFS_EIO ||
                 pfs_crash_injected == 0u) {
                 pfs_crash_inject_stage = 0u;
-                pfs_zero(&fs, sizeof(fs));
+                pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -14);
             }
 

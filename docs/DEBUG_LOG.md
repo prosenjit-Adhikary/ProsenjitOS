@@ -430,3 +430,17 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### Result / boundary
 - Current callsite review found no production integrity-scan caller that violates the documented serialization precondition.
 - This does **not** establish general concurrent VFS safety. When timer preemption, SMP, or concurrent production scan callers are introduced, add a reviewed operation-locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion before enabling them.
+
+
+## 2026-10-23 — ProsenjitFS recovery-test failure cleanup
+
+### Source audit and change
+- Reviewed the current `kernel/prosenjitfs.c` recovery-restart regression and its `pfs_test_crash_reset()` helper.
+- Found one unexpected-failure branch in the stage-10/11 recovery interruption test that cleared `fs` directly with `pfs_zero(&fs, sizeof(fs))`. That bypassed the helper's volatile-device reset, mount deactivation, and transaction-buffer cleanup.
+- Changed only that branch to call `pfs_test_crash_reset(&fs, &disk)` before returning the same self-test failure. No expected assertion or runtime filesystem behavior was weakened.
+
+### Verification
+- Source change commit: `ce2d39f71aaf1f33545b67e4f3cb18c3fb3b611d`.
+- Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; ISO and native BIOS QEMU reached the required ProsenjitFS recovery and persistence markers. Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
+- Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This is self-test cleanup verification, not physical-device power-loss durability.
+- This is a self-test failure-path cleanup; it is not a claim of production filesystem completion or physical-device power-loss durability.

@@ -187,3 +187,13 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - `pfs_io_lock()` only serializes append writes; it is not a filesystem-wide lock. `boot/entry.asm` keeps IF clear for CPL3 because timer preemption is not yet scheduler-safe.
 - Current callsite audit is complete, but **general concurrent VFS safety remains unproven**. Before enabling timer preemption/SMP or production concurrent scans, add a reviewed locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion.
 - No automatic repair/reclamation was added. Physical-device power-loss durability remains outside mock-device/QEMU proof.
+
+
+## Pending verification — recovery-test failure cleanup (2026-10-23)
+
+- Source audit found an unexpected-failure branch in the stage-10/11 recovery interruption regression that zeroed `fs` directly rather than using `pfs_test_crash_reset()`. The helper also discards volatile mock-device writes, deactivates the mount, and frees transaction/scratch buffers.
+- Commit `ce2d39f71aaf1f33545b67e4f3cb18c3fb3b611d` changes only that failure path to use the helper; it preserves the same failing assertion and does not weaken the regression.
+- Follow-up documentation commit `372ed6eed56d3b7f8323753a08900160616a4c4d` records the source finding in `docs/DEBUG_LOG.md`.
+- Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; toolchain checks, desktop/DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed. Both QEMU logs contain the ProsenjitFS format/mount/allocation/journal/recovery success marker; the native BIOS log also contains the ATA PIO, LBA-boundary, and ATA → MBR → ProsenjitFS persistent-mount markers.
+- Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
+- Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This validates the test cleanup and current automated gates only; it does not establish physical-device power-loss durability or production completion.
