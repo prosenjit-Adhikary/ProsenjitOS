@@ -175,3 +175,12 @@ Exact code head: `75726a3956bf0de18e76cdd5092e3f7dd685ce6e`.
 - [Security architecture checks, run 39943739381](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39943739381) — **passed**.
 
 These checks are software/hosted and QEMU validations only; they do not certify physical hardware, live xHCI transfers, DMA coherency, GPU modesetting, or hardware audio. PCI bus mastering and controller DMA remain disabled until per-device addressability, buffer lifetime/ownership, cache coherency, and rollback behavior are explicitly implemented and tested.
+
+
+## Legacy 8259 PIC routing primitives — 2026-10-23
+
+The PIC layer now exposes bounded IRQ mask/unmask helpers and a per-IRQ EOI helper for the legacy 8259 pair. The mask state is maintained in software; unmasking a slave IRQ also enables the master cascade, and masking the final slave IRQ masks the cascade again. IRQ2 is reserved for cascade management. Slave IRQ completion sends EOI to the slave PIC before the master PIC.
+
+Initialization now leaves only IRQ0 enabled and keeps IRQ2 masked until a slave IRQ is explicitly enabled. These APIs are preparatory infrastructure only: this change does **not** install IDT gates or assembly stubs for IRQ1/IRQ12, does not route bytes from interrupt context, and does not unmask either PS/2 IRQ. The existing timer-driven polling backend remains the active input path. Hardware IRQ activation must wait for complete register-preserving entry/exit code, bounded status/data handling, correct interrupt-frame alignment, IRQ-specific EOI, and tests for both master and slave paths.
+
+Exact code commits: `a63bed351c03f5614668939a08c7ed3ce3800374`, `3e83a494a3d279353a100f032970b8d0d0488f23`, `f78f33d54face6657698a949d0dc9be8dc99094c`. Exact-head CI is required; these commits do not claim physical hardware validation.
