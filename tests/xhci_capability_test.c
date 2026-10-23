@@ -22,6 +22,20 @@ static void make_bar(uint8_t *bar, uint32_t size)
     put32(&bar[0x18], 0x80u); /* runtime registers */
 }
 
+static int caps_equal(const struct pros_xhci_capabilities *a,
+                      const struct pros_xhci_capabilities *b)
+{
+    return a->interface_version == b->interface_version &&
+           a->capability_length == b->capability_length &&
+           a->max_slots == b->max_slots &&
+           a->max_interrupters == b->max_interrupters &&
+           a->max_ports == b->max_ports &&
+           a->context_size_64 == b->context_size_64 &&
+           a->doorbell_offset == b->doorbell_offset &&
+           a->runtime_offset == b->runtime_offset &&
+           a->extended_capabilities_offset == b->extended_capabilities_offset;
+}
+
 int main(void)
 {
     uint8_t bar[256];
@@ -60,7 +74,7 @@ int main(void)
     struct pros_xhci_capabilities saved = caps;
     bar[0] = 0x1Cu; /* capability header too short */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
-    assert(caps.capability_length == saved.capability_length); /* no partial output */
+    assert(caps_equal(&caps, &saved)); /* no field may be partially published */
     make_bar(bar, sizeof(bar));
     bar[0] = 0x21u; /* not dword aligned */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
