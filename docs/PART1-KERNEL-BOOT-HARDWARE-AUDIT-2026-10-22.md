@@ -369,3 +369,13 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Concurrency boundary: kernel-root table reclamation currently assumes the existing uniprocessor execution model. Before SMP support, this path needs a remote TLB/page-walk-cache shootdown protocol and stress tests.
 
 **Overall Part 1 remains PARTIAL / NOT COMPLETE.** Dynamic per-thread kernel-stack ownership/bounds/guard/reclamation, broader scheduler/IPC lifecycle-race coverage, complete memory/page-table dependency review, DMA/IOMMU/device ownership, UEFI, SMP and physical-hardware validation remain open.
+
+## Addendum — explicit thread kernel-stack bounds (2026-10-23)
+
+- Source commit: `a18ff7a2a2af1812df839f89df1f82de99e809e9`.
+- Finding: `thread_init()` previously accepted only `stack_top` and wrote seven 64-bit context words below it. Alignment alone did not establish that those writes remained inside the caller's stack buffer.
+- Change: the API now receives a half-open `[stack_bottom, stack_top)` range, validates nonzero ordered bounds, 16-byte top alignment, and at least 56 bytes before writing the initial context; the bounds are retained in `struct pros_thread`. Existing bootstrap scheduler/lifecycle test call sites now supply explicit bounds.
+- Regression coverage: retained the misaligned-top rejection and added an aligned-but-eight-byte-range rejection before the context write.
+- Scope limit: this is bounds validation for caller-supplied memory, not a kernel-stack allocator. It does not prove that the caller's range is mapped, uniquely owned, protected by a guard page, or safe to reclaim. Dynamic stack allocation, guard setup, lifecycle ownership, and teardown/reclamation remain open.
+- CI: queued by pushing the source commit to the PR branch. Build/host/ISO QEMU/native BIOS QEMU and security results must be checked for this exact commit before the change is considered verified.
+- Overall Part 1 remains **PARTIAL / NOT COMPLETE**.
