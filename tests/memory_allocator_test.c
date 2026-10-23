@@ -77,10 +77,12 @@ int main(void) {
     uint64_t before = physical_memory_free_pages();
     uint64_t failed_before = physical_memory_failed_allocations();
     if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
-        physical_memory_free_pages() != before) {
-        fputs("allocator test: exclusive address ceiling admitted an out-of-range page\n", stderr);
+        physical_memory_free_pages() != before ||
+        physical_memory_failed_allocations() != failed_before + 1u) {
+        fputs("allocator test: exclusive address ceiling rejection contract failed\n", stderr);
         return 17;
     }
+    failed_before = physical_memory_failed_allocations();
     uint64_t run = physical_pages_alloc_contiguous(4u, 4u, 8ULL * 1024ULL * 1024ULL);
     if (!run || (run & ((4u * PROSENJIT_PAGE_SIZE) - 1ULL)) != 0 ||
         run + 4u * PROSENJIT_PAGE_SIZE > 8ULL * 1024ULL * 1024ULL ||
@@ -124,30 +126,33 @@ int main(void) {
         fputs("allocator test: double release of contiguous run was accepted\n", stderr);
         return 16;
     }
-    if (physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0) {
-        fputs("allocator test: non-power-of-two alignment was accepted\n", stderr);
+    if (physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0 ||
+        physical_memory_failed_allocations() != failed_before + 1u) {
+        fputs("allocator test: non-power-of-two alignment rejection contract failed\n", stderr);
         return 25;
     }
-    if (physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0) {
-        fputs("allocator test: zero-page allocation was accepted\n", stderr);
+    failed_before = physical_memory_failed_allocations();
+    if (physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0 ||
+        physical_memory_failed_allocations() != failed_before + 1u) {
+        fputs("allocator test: zero-page rejection contract failed\n", stderr);
         return 26;
     }
-    if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0) {
-        fputs("allocator test: exclusive physical address ceiling was violated\n", stderr);
+    failed_before = physical_memory_failed_allocations();
+    if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_memory_failed_allocations() != failed_before + 1u) {
+        fputs("allocator test: exclusive ceiling rejection contract failed\n", stderr);
         return 27;
     }
+    failed_before = physical_memory_failed_allocations();
     if (physical_pages_alloc_contiguous((uint64_t)UINT16_MAX + 1u, 1u,
-                                        PROSENJIT_PHYS_LIMIT) != 0) {
-        fputs("allocator test: oversized contiguous allocation was accepted\n", stderr);
+                                        PROSENJIT_PHYS_LIMIT) != 0 ||
+        physical_memory_failed_allocations() != failed_before + 1u) {
+        fputs("allocator test: oversized allocation rejection contract failed\n", stderr);
         return 28;
     }
     if (physical_memory_free_pages() != before) {
         fputs("allocator test: rejected request changed free-page count\n", stderr);
         return 29;
-    }
-    if (physical_memory_failed_allocations() != failed_before + 5u) {
-        fputs("allocator test: rejected allocation requests were not counted exactly\n", stderr);
-        return 30;
     }
     pthread_t threads[THREADS];
     for (uint32_t i = 0; i < THREADS; ++i) {
