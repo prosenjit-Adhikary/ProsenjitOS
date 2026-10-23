@@ -10528,6 +10528,41 @@ int prosenjitfs_selftest(void)
             (void)prosenjitfs_unmount(&fs);
             return pfs_selftest_fail(__LINE__, -18);
         }
+        /*
+         * Degraded recovery is read-only, not merely labelled read-only.
+         * Mutating VFS operations must fail before changing any media/cache
+         * state, for either surviving-superblock direction.
+         */
+        {
+            struct pros_vfs_file rejected_file;
+            uint32_t durable_crc = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_crc = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_crc = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int create_rc = vfs_file_open(
+                &fs.mount, "/degraded-create-probe",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &rejected_file);
+            int mkdir_rc = vfs_mkdir(&fs.mount, "/degraded-mkdir-probe");
+
+            if (create_rc == PROS_VFS_OK) {
+                (void)vfs_file_close(&rejected_file);
+                (void)prosenjitfs_unmount(&fs);
+                return pfs_selftest_fail(__LINE__, -18);
+            }
+            if (create_rc != PROS_VFS_EPERM ||
+                mkdir_rc != PROS_VFS_EPERM ||
+                durable_crc != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_crc != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_crc != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)prosenjitfs_unmount(&fs);
+                return pfs_selftest_fail(__LINE__, -18);
+            }
+        }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -18);
         disk.data[checksum_offset] = saved_checksum;
@@ -10541,6 +10576,36 @@ int prosenjitfs_selftest(void)
         if (!fs.read_only || !fs.degraded_superblock) {
             (void)prosenjitfs_unmount(&fs);
             return pfs_selftest_fail(__LINE__, -19);
+        }
+        {
+            struct pros_vfs_file rejected_file;
+            uint32_t durable_crc = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_crc = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_crc = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int create_rc = vfs_file_open(
+                &fs.mount, "/degraded-create-probe",
+                PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &rejected_file);
+            int mkdir_rc = vfs_mkdir(&fs.mount, "/degraded-mkdir-probe");
+
+            if (create_rc == PROS_VFS_OK) {
+                (void)vfs_file_close(&rejected_file);
+                (void)prosenjitfs_unmount(&fs);
+                return pfs_selftest_fail(__LINE__, -19);
+            }
+            if (create_rc != PROS_VFS_EPERM ||
+                mkdir_rc != PROS_VFS_EPERM ||
+                durable_crc != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_crc != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_crc != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                (void)prosenjitfs_unmount(&fs);
+                return pfs_selftest_fail(__LINE__, -19);
+            }
         }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -19);
