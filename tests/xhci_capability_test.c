@@ -35,6 +35,26 @@ int main(void)
     assert(caps.doorbell_offset == 0x40u && caps.runtime_offset == 0x80u);
     assert(caps.extended_capabilities_offset == 0xC0u);
 
+    uint32_t ext_count = 99u;
+    put32(&bar[0xC0], 0x00000201u); /* capability ID 1; next is +2 DWORDs */
+    put32(&bar[0xC8], 0x00000002u); /* capability ID 2; end of chain */
+    assert(pros_xhci_validate_extended_capabilities(
+               bar, sizeof(bar), caps.extended_capabilities_offset,
+               &ext_count) == PROS_DRIVER_OK);
+    assert(ext_count == 2u);
+    assert(pros_xhci_validate_extended_capabilities(bar, sizeof(bar), 0u,
+                                                     &ext_count) == PROS_DRIVER_OK);
+    assert(ext_count == 0u);
+    ext_count = 77u;
+    put32(&bar[0xC0], 0x0000FF01u); /* next pointer escapes BAR */
+    assert(pros_xhci_validate_extended_capabilities(
+               bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_EIO);
+    assert(ext_count == 77u); /* no partial output on malformed chain */
+    assert(pros_xhci_validate_extended_capabilities(
+               bar, sizeof(bar), 0xC1u, &ext_count) == PROS_DRIVER_EIO);
+    assert(pros_xhci_validate_extended_capabilities(
+               0, sizeof(bar), 0u, &ext_count) == PROS_DRIVER_EINVAL);
+
     assert(pros_xhci_parse_capabilities(0, sizeof(bar), &caps) == PROS_DRIVER_EINVAL);
     assert(pros_xhci_parse_capabilities(bar, 0x1Fu, &caps) == PROS_DRIVER_EINVAL);
     struct pros_xhci_capabilities saved = caps;
