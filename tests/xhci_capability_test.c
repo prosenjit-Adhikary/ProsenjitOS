@@ -115,7 +115,8 @@ int main(void)
     /* PSI count expands the capability beyond its fixed 16-byte structure. */
     make_bar(bar, sizeof(bar));
     put32(&bar[0xC0], 0x00000002u);
-    put32(&bar[0xC8], 1u | (2u << 8) | (3u << 16)); /* three PSI dwords */
+    put32(&bar[0xC8], 1u | (2u << 8));
+    put32(&bar[0xCC], 3u << 28); /* three PSI dwords */
     protocol_count = 44u;
     assert(pros_xhci_validate_supported_protocols(
                bar, 0xD0u, 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
@@ -127,7 +128,8 @@ int main(void)
     /* A next pointer may not land inside the current capability's PSI array. */
     make_bar(bar, sizeof(bar));
     put32(&bar[0xC0], 0x00000102u); /* next pointer at +4 bytes */
-    put32(&bar[0xC8], 1u | (2u << 8) | (2u << 16));
+    put32(&bar[0xC8], 1u | (2u << 8));
+    put32(&bar[0xCC], 2u << 28);
     protocol_count = 88u;
     assert(pros_xhci_validate_supported_protocols(
                bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
