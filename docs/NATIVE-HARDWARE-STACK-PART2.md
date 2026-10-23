@@ -145,3 +145,12 @@ Exact code verification at PR head `ec52d10633f3f7c8aec712934782e591c864eaf7`:
 - [Security architecture checks, run 39940906838](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39940906838) — passed.
 
 These are software/QEMU checks, not physical-hardware validation. USB enumeration/transfers, a live xHCI driver, DMA, interrupt-driven device I/O, and hardware audio remain unimplemented acceptance gates.
+
+
+## Contiguous physical-page allocator foundation — 2026-10-23
+
+- Added `physical_pages_alloc_contiguous(page_count, alignment_pages, max_address_exclusive)` for bounded, aligned contiguous page runs, with the existing allocator lock protecting the complete allocation decision and bitmap update.
+- Added `physical_pages_free_contiguous(physical_address, page_count)`; it validates the whole run before changing any bitmap state, so invalid or partially unavailable ranges do not partially free pages.
+- Hosted allocator regression coverage checks page alignment, the exclusive physical-address ceiling, allocated-page state, free-page accounting, double release, invalid non-power-of-two alignment, and zero-length requests.
+- This is an allocator primitive only. It does **not** establish DMA safety: no cache-coherency contract, pin/reference ownership, device ownership handoff, IOMMU mapping, or per-device DMA address mask is provided. Do not enable PCI bus mastering or start xHCI/audio DMA based on this change.
+- Validation for code head `a604981dcd94227eeaef99463f529cc1ab06e05c` is pending in GitHub Actions; do not treat this record as a passing CI result until the run finishes.
