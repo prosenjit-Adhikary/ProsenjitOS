@@ -66,7 +66,7 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
 
     /* xECP is a BAR-relative pointer and may lie beyond CAPLENGTH. */
     if (parsed.extended_capabilities_offset != 0u &&
-        (parsed.extended_capabilities_offset < XHCI_CAP_HEADER_MIN ||
+        (parsed.extended_capabilities_offset < parsed.capability_length ||
          !range_valid(parsed.extended_capabilities_offset, 4u, bar_length)))
         return PROS_DRIVER_EIO;
 
