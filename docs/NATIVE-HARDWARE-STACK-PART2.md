@@ -4,10 +4,11 @@ Status: **contract/lifecycle foundation implemented; concrete hardware drivers r
 
 ## Verification record — 2026-10-23
 
-Latest verified Part 2 PR head: `db74b85094adb6c5cc24728d8fe586199c4a709e`.
-- Build and boot-test: [run 39929034669](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39929034669) — **passed**, including hosted desktop/hardware contract tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
-- Security architecture checks: [run 39929034644](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39929034644) — **passed**.
-- USB descriptor validation now rejects duplicate interface-number/alternate-setting pairs while accepting the same interface number with distinct alternate settings. Hosted regression tests cover both cases.
+Latest verified Part 2 PR head: `c2fb43c309f244eb270908f6cba30cb75261d8f9`.
+- Build and boot-test: [run 39930236271](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39930236271) — **passed**, including hosted desktop/hardware contract tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
+- Security architecture checks: [run 39930236155](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39930236155) — **passed**.
+- USB descriptor validation rejects duplicate interface-number/alternate-setting pairs while accepting the same interface number with distinct alternate settings. Hosted regression tests cover both cases.
+- USB host-controller classification tests now also exercise all controller-name mappings, including generic and unsupported values.
 
 These results verify the automated checks attached to this exact commit only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
 
