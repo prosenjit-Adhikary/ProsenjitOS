@@ -89,6 +89,8 @@ static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) 
     return table;
 }
 
+static void paging_unmap_page_unlocked(uint64_t virtual_address);
+
 static int paging_map_page_internal(uint64_t virtual_address, uint64_t physical_address,
                                     uint64_t flags, int mmio) {
     if (!kernel_pml4 ||
