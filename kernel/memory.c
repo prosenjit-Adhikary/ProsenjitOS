@@ -315,6 +315,84 @@ uint64_t physical_page_alloc(void) {
     return physical;
 }
 
+/*
+ * Allocate a physically contiguous run for future DMA-capable consumers.
+ * max_address_exclusive is a physical-address ceiling; zero is invalid.
+ * Alignment is expressed in pages and must be a power of two.
+ * This API does not itself make a buffer DMA-safe: cache coherency,
+ * pinning, device ownership and IOMMU/address-mask handling remain separate.
+ */
+uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
+                                         uint64_t alignment_pages,
+                                         uint64_t max_address_exclusive) {
+    if (page_count == 0 || alignment_pages == 0 ||
+        (alignment_pages & (alignment_pages - 1ULL)) != 0 ||
+        max_address_exclusive < PROSENJIT_PAGE_SIZE)
+        return 0;
+
+    if (max_address_exclusive > PROSENJIT_PHYS_LIMIT)
+        max_address_exclusive = PROSENJIT_PHYS_LIMIT;
+    uint64_t limit_pages = max_address_exclusive / PROSENJIT_PAGE_SIZE;
+    if (page_count > limit_pages)
+        return 0;
+
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t candidate = alignment_pages;
+    if (candidate == 0) candidate = alignment_pages;
+    while (candidate <= limit_pages - page_count) {
+        uint64_t i = 0;
+        while (i < page_count) {
+            uint64_t page = candidate + i;
+            if (!managed_test(page) || !bitmap_test(page))
+                break;
+            ++i;
+        }
+        if (i == page_count) {
+            for (uint64_t j = 0; j < page_count; ++j)
+                bitmap_clear(candidate + j);
+            free_pages -= page_count;
+            page_allocator_lock_release(flags);
+            return candidate * PROSENJIT_PAGE_SIZE;
+        }
+        /* Skip past the first unavailable page, then realign. */
+        candidate += i + 1ULL;
+        uint64_t remainder = candidate & (alignment_pages - 1ULL);
+        if (remainder != 0)
+            candidate += alignment_pages - remainder;
+    }
+    ++failed_allocations;
+    page_allocator_lock_release(flags);
+    return 0;
+}
+
+/* Release only a wholly allocated, managed run; invalid runs change nothing. */
+int physical_pages_free_contiguous(uint64_t physical_address,
+                                   uint64_t page_count) {
+    if (page_count == 0 ||
+        (physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
+        return -1;
+    uint64_t first = physical_address / PROSENJIT_PAGE_SIZE;
+    if (first == 0 || first >= MAX_PAGES || page_count > MAX_PAGES - first)
+        return -1;
+
+    uint64_t flags = page_allocator_lock_acquire();
+    for (uint64_t i = 0; i < page_count; ++i) {
+        uint64_t page = first + i;
+        if (!managed_test(page) || bitmap_test(page)) {
+            page_allocator_lock_release(flags);
+            return -2;
+        }
+    }
+    for (uint64_t i = 0; i < page_count; ++i) {
+        uint64_t page = first + i;
+        user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+        bitmap_set(page);
+    }
+    free_pages += page_count;
+    page_allocator_lock_release(flags);
+    return 0;
+}
+
 uint64_t physical_page_alloc_user(void) {
     uint64_t flags = page_allocator_lock_acquire();
     uint64_t physical = physical_page_alloc_locked();
