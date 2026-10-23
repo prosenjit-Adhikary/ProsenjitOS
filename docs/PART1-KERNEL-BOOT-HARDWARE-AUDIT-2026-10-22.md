@@ -243,3 +243,13 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - The tested source ancestry includes `acbc41742fab399d39fa0ccb2848ba69c7176ceb`, which rejects USER mappings in the canonical high half and avoids assuming that a kernel high-half VA must be unmapped. The current head adds audit documentation after that source change.
 - QEMU gates are bounded marker tests. They do not establish unlimited-runtime stability, physical hardware, UEFI, true SMP safety, runtime register-sentinel/IST correctness, or DMA/IOMMU safety.
 - **Updated status:** current PR-head build/host tests/ISO QEMU/native BIOS QEMU/security contract are **COMPLETE for the configured CI gates**. Overall Part 1 remains **PARTIAL / NOT COMPLETE** because the stack ownership/guard/reclamation contract, complete scheduler/IPC race review, full-tree dependency inventory, DMA/IOMMU, UEFI and physical-hardware gates remain open.
+
+
+## Follow-up — restrict shared kernel-root mapping API (2026-10-23)
+
+- Source commit: `b5c42ae4485a39adb07530931ff8a9948bae6018`.
+- Review found that `paging_map_page()` mutates the shared kernel PML4 but accepted `PROSENJIT_PAGE_USER` for lower-half addresses if it could create a new USER-enabled hierarchy. The prior guard rejected only high-half USER mappings. That left an unnecessary way to create user-accessible mappings through the kernel-root API.
+- Hardened the API boundary: `paging_map_page()` now rejects `PROSENJIT_PAGE_USER` regardless of virtual address. User mappings must go through `address_space_map_user_page()` in a process-specific root.
+- Expanded `paging_selftest()` to assert rejection of both a canonical high-half and a lower-half USER mapping.
+- This is a source-level security hardening; do not mark it verified until the exact latest-head build, host tests, ISO QEMU, native BIOS QEMU and security workflow conclude successfully.
+- Overall Part 1 remains **PARTIAL / NOT COMPLETE** pending latest-head CI and the previously listed stack/IST, lifecycle/race, DMA/IOMMU, UEFI and physical-hardware gates.
