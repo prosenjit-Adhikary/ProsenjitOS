@@ -47,6 +47,8 @@ static uint64_t page_bitmap[BITMAP_WORDS];
 static uint64_t managed_bitmap[BITMAP_WORDS];
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
 static uint64_t user_bitmap[BITMAP_WORDS];
+/* A nonzero entry at a run head records its exact contiguous allocation length. */
+static uint16_t contiguous_run_length[MAX_PAGES];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
@@ -176,6 +178,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
+    for (uint64_t page = 0; page < MAX_PAGES; ++page)
+        contiguous_run_length[page] = 0;
 
     if (multiboot_info_address == 0) return -1;
 
@@ -325,7 +329,7 @@ uint64_t physical_page_alloc(void) {
 uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
                                          uint64_t alignment_pages,
                                          uint64_t max_address_exclusive) {
-    if (page_count == 0 || alignment_pages == 0 ||
+    if (page_count == 0 || page_count > UINT16_MAX || alignment_pages == 0 ||
         (alignment_pages & (alignment_pages - 1ULL)) != 0 ||
         max_address_exclusive < PROSENJIT_PAGE_SIZE)
         return 0;
@@ -338,7 +342,6 @@ uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
 
     uint64_t flags = page_allocator_lock_acquire();
     uint64_t candidate = alignment_pages;
-    if (candidate == 0) candidate = alignment_pages;
     while (candidate <= limit_pages - page_count) {
         uint64_t i = 0;
         while (i < page_count) {
@@ -350,6 +353,7 @@ uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
         if (i == page_count) {
             for (uint64_t j = 0; j < page_count; ++j)
                 bitmap_clear(candidate + j);
+            contiguous_run_length[candidate] = (uint16_t)page_count;
             free_pages -= page_count;
             page_allocator_lock_release(flags);
             return candidate * PROSENJIT_PAGE_SIZE;
@@ -376,6 +380,10 @@ int physical_pages_free_contiguous(uint64_t physical_address,
         return -1;
 
     uint64_t flags = page_allocator_lock_acquire();
+    if (contiguous_run_length[first] != page_count) {
+        page_allocator_lock_release(flags);
+        return -3;
+    }
     for (uint64_t i = 0; i < page_count; ++i) {
         uint64_t page = first + i;
         if (!managed_test(page) || bitmap_test(page)) {
@@ -383,6 +391,7 @@ int physical_pages_free_contiguous(uint64_t physical_address,
             return -2;
         }
     }
+    contiguous_run_length[first] = 0;
     for (uint64_t i = 0; i < page_count; ++i) {
         uint64_t page = first + i;
         user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
@@ -434,6 +443,8 @@ void physical_page_free(uint64_t physical_address) {
 
     uint64_t flags = page_allocator_lock_acquire();
     if (managed_test(page) && !bitmap_test(page)) {
+        /* Prevent stale run metadata from freeing a later unrelated allocation. */
+        contiguous_run_length[page] = 0;
         user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
         bitmap_set(page);
         ++free_pages;
