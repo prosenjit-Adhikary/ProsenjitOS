@@ -444,3 +444,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; ISO and native BIOS QEMU reached the required ProsenjitFS recovery and persistence markers. Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This is self-test cleanup verification, not physical-device power-loss durability.
 - This is a self-test failure-path cleanup; it is not a claim of production filesystem completion or physical-device power-loss durability.
+
+
+## 2026-10-23 — Namespace integrity regressions carried forward to current main
+
+- After merging the recovery-test cleanup and journal recovery read-failure coverage, the older duplicate-inode-reference and duplicate-directory-name branches no longer had a mergeable base.
+- Reapplied their test-only corruption fixtures onto the current source while preserving the merged recovery cleanup and sector-targeted journal read-failure injection.
+- Both tests recompute valid entry checksums, expect report-only integrity rejection with no durable/volatile/dirty media mutation, restore the original entry, and require a clean rescan.
+- Exact-current-head build/boot-test and Security architecture verification is pending; prior green results on older PR heads are not substituted for this new head.
