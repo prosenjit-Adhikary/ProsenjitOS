@@ -93,10 +93,15 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                 return PROS_DRIVER_EIO;
             seen_endpoint_addresses |= endpoint_bit;
 
-            if (transfer_type == PROS_USB_ENDPOINT_INTERRUPT) {
-                if (blob[offset + 6u] == 0u || (packet & 0xF800u) != 0u)
-                    return PROS_DRIVER_EIO;
-            }
+            /* The current endpoint contract has no high-bandwidth
+             * transaction multiplier field. Fail closed for reserved bits
+             * on control/bulk endpoints and for unsupported multipliers on
+             * isochronous/interrupt endpoints. */
+            if ((packet & 0xF800u) != 0u)
+                return PROS_DRIVER_EIO;
+            if (transfer_type == PROS_USB_ENDPOINT_INTERRUPT &&
+                blob[offset + 6u] == 0u)
+                return PROS_DRIVER_EIO;
 
             if (current_kind != PROS_USB_HID_NONE &&
                 (address & PROS_USB_ENDPOINT_IN) != 0u &&
