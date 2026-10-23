@@ -197,3 +197,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; toolchain checks, desktop/DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed. Both QEMU logs contain the ProsenjitFS format/mount/allocation/journal/recovery success marker; the native BIOS log also contains the ATA PIO, LBA-boundary, and ATA → MBR → ProsenjitFS persistent-mount markers.
 - Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This validates the test cleanup and current automated gates only; it does not establish physical-device power-loss durability or production completion.
+
+
+## Additional regression coverage in review — 2026-10-23
+
+- PR #211 adds two adversarial namespace integrity tests: duplicate inode references across distinct directory entries, and duplicate valid names across distinct inodes. Both tests recompute valid entry checksums, require `PROSENJITFS_ECORRUPT`, verify durable/volatile/dirty mock-media CRCs are unchanged by the report-only scan, restore the original entry, and require a clean rescan.
+- PR #212 adds a bounded read-failure countdown sweep around `vfs_rename`. For each read position reached, it requires rename failure, unchanged durable/volatile/dirty media CRCs, a writable mount, intact original path/payload, absent destination, and a clean integrity scan. The sweep stops at the first countdown not reached.
+- At documentation time, PRs #211 and #212 are open; Build/boot-test and Security architecture workflows for their exact current heads are queued. Do not mark either regression as passed until those runs complete successfully.
+- These are mock-device regression tests. They do not prove physical-device power-loss durability, full concurrent VFS safety, or production filesystem completion.
