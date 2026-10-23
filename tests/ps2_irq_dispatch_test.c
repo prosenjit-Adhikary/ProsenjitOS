@@ -12,9 +12,10 @@ static int input_ready;
 static unsigned poll_calls;
 static unsigned eoi_calls;
 static uint8_t last_eoi;
+static int poll_result;
 
 int pros_input_service_is_ready(void) { return input_ready; }
-int pros_input_service_poll_hardware(void) { ++poll_calls; return 0; }
+int pros_input_service_poll_hardware(void) { ++poll_calls; return poll_result; }
 int pic_init_for_timer(void) { return 0; }
 void pic_eoi_irq(uint8_t irq) { ++eoi_calls; last_eoi = irq; }
 void pic_eoi_master(void) {}
@@ -39,6 +40,11 @@ int main(void)
     assert(poll_calls == 1u && eoi_calls == 3u && last_eoi == 1u);
     ps2_irq_dispatch(12u);
     assert(poll_calls == 2u && eoi_calls == 4u && last_eoi == 12u);
+
+    /* Even a bounded-poller failure must not skip interrupt acknowledgement. */
+    poll_result = PROS_DRIVER_ENOSPC;
+    ps2_irq_dispatch(1u);
+    assert(poll_calls == 3u && eoi_calls == 5u && last_eoi == 1u);
 
     puts("PS/2 IRQ dispatcher hosted contract tests passed");
     return 0;
