@@ -76,11 +76,17 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
         parsed.runtime_offset < doorbell_end)
         return PROS_DRIVER_EIO;
 
-    /* xECP is a BAR-relative pointer and may lie beyond CAPLENGTH. */
-    if (parsed.extended_capabilities_offset != 0u &&
-        (parsed.extended_capabilities_offset < parsed.capability_length ||
-         !range_valid(parsed.extended_capabilities_offset, 4u, bar_length)))
-        return PROS_DRIVER_EIO;
+    /* xECP is a BAR-relative pointer and may lie beyond CAPLENGTH, but its
+     * first header must not alias operational, doorbell, or runtime registers. */
+    if (parsed.extended_capabilities_offset != 0u) {
+        uint32_t xecp = parsed.extended_capabilities_offset;
+        uint32_t operational_end = (uint32_t)parsed.capability_length + 0x40u;
+        if (xecp < operational_end ||
+            !range_valid(xecp, 4u, bar_length) ||
+            (xecp < doorbell_end && xecp + 4u > parsed.doorbell_offset) ||
+            (xecp < runtime_end && xecp + 4u > parsed.runtime_offset))
+            return PROS_DRIVER_EIO;
+    }
 
     *out = parsed;
     return PROS_DRIVER_OK;
