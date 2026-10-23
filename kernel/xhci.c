@@ -161,7 +161,13 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
             uint32_t ports = read_le32(&bar[offset + 8u]);
             uint32_t first_port = ports & 0xFFu;
             uint32_t port_count = (ports >> 8) & 0xFFu;
-            if (first_port == 0u || port_count == 0u ||
+            uint32_t psi_count = (ports >> 16) & 0xFFu;
+            /* Each PSI entry is one additional dword after the fixed 16-byte
+             * Supported Protocol structure. Validate the entire structure,
+             * not merely the fixed header, before a caller consumes it. */
+            uint32_t structure_length = 16u + psi_count * 4u;
+            if (!range_valid(offset, structure_length, bar_length) ||
+                first_port == 0u || port_count == 0u ||
                 first_port > max_ports ||
                 port_count > (uint32_t)max_ports - first_port + 1u)
                 return PROS_DRIVER_EIO;
