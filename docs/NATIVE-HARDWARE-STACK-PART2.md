@@ -4,14 +4,13 @@ Status: **contract/lifecycle foundation implemented; concrete hardware drivers r
 
 ## Verification record — 2026-10-23
 
-Latest verified Part 2 PR head at this record: `35236f5d5060304b5e53510c860d4cf1fb4e3c11`.
-- Build and boot-test: [run 39930667435](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39930667435) — **passed**, including all hosted desktop/hardware contract suites, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
-- Security architecture checks: [run 39930667462](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39930667462) — **passed**.
-- This commit extends CI syntax checks and runs for USB descriptor, USB HID report decoder, USB host-controller classification, PS/2 decoder, input-service queue, keymap, and PCI BAR contract tests. These remain host/emulator tests; no live USB controller transport or physical hardware was tested.
-- USB descriptor validation rejects duplicate interface-number/alternate-setting pairs while accepting the same interface number with distinct alternate settings. Hosted regression tests cover both cases.
-- USB host-controller classification tests now also exercise all controller-name mappings, including generic and unsupported values.
+Latest verified Part 2 PR head: `7beb387034fe22bcc1345a1cfc29d7737599703f`.
+- Build and boot-test: [run 39946387481](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946387481) — **passed**, including desktop/hardware hosted contract suites, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
+- Security architecture checks: [run 39946387353](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946387353) — **passed**.
+- Regression fixes verified in this run: AUX bytes no longer cancel the keyboard Pause sequence; mouse decoder state-retention tests now reset the simulated device before an independent batch-size case. The test suite also keeps a diagnostic on unexpected mouse-event counts.
+- These remain host/emulator tests; no live USB controller transport or physical hardware was tested. USB descriptor validation rejects duplicate interface-number/alternate-setting pairs while accepting the same interface number with distinct alternate settings; USB host-controller classification tests cover named, generic and unsupported values.
 
-These results verify the automated checks attached to this exact commit only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
+These results verify the automated checks attached to the exact commit above only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
 
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 

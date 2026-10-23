@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <stdint.h>
-#include <stdio.h>
 #include "ps2_mouse.h"
 
 int main(void)
@@ -82,9 +81,6 @@ int main(void)
     assert(count == 0u); /* no duplicate press edge after resynchronization */
 
     /* Start a fresh simulated device before the independent batch-size case. */
-    pros_ps2_mouse_reset(&decoder);
-
-    /* Isolate this packet from the held-button recovery test above. */
     pros_ps2_mouse_reset(&decoder);
 
     /* Motion and two button transitions fit within the bounded event array. */
