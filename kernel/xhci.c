@@ -31,7 +31,7 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
     parsed.capability_length = bar[0];
     parsed.interface_version = read_le16(&bar[2]);
 
-    uint32_t structural = read_le32(&bar[4]);   /* HCSPARAMS1 */
+    uint32_t structural = read_le32(&bar[4]);    /* HCSPARAMS1 */
     uint32_t capability = read_le32(&bar[0x10]); /* HCCPARAMS1 */
     uint32_t doorbell = read_le32(&bar[0x14]);   /* DBOFF */
     uint32_t runtime = read_le32(&bar[0x18]);    /* RTSOFF */
@@ -68,5 +68,46 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
         return PROS_DRIVER_EIO;
 
     *out = parsed;
+    return PROS_DRIVER_OK;
+}
+
+int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
+                                             uint32_t bar_length,
+                                             uint32_t first_offset,
+                                             uint32_t *count_out)
+{
+    if (!bar || !count_out)
+        return PROS_DRIVER_EINVAL;
+    if (first_offset == 0u) {
+        *count_out = 0u;
+        return PROS_DRIVER_OK;
+    }
+    if ((first_offset & 3u) != 0u || first_offset < XHCI_CAP_HEADER_MIN ||
+        !range_valid(first_offset, 4u, bar_length))
+        return PROS_DRIVER_EIO;
+
+    uint32_t offset = first_offset;
+    uint32_t count = 0u;
+    /* Each nonzero Next pointer is a positive DWORD delta, so valid traversal
+     * advances monotonically. Bound by the BAR's maximum possible header count
+     * as a defensive guard against malformed snapshots. */
+    uint32_t max_headers = bar_length / 4u;
+    while (offset != 0u) {
+        if (count >= max_headers || !range_valid(offset, 4u, bar_length))
+            return PROS_DRIVER_EIO;
+        uint32_t header = read_le32(&bar[offset]);
+        uint32_t next_dwords = (header >> 8) & 0xFFu;
+        ++count;
+        if (next_dwords == 0u)
+            break;
+        uint32_t delta = next_dwords * 4u;
+        if (delta > UINT32_MAX - offset)
+            return PROS_DRIVER_EIO;
+        uint32_t next = offset + delta;
+        if (next <= offset || !range_valid(next, 4u, bar_length))
+            return PROS_DRIVER_EIO;
+        offset = next;
+    }
+    *count_out = count;
     return PROS_DRIVER_OK;
 }
