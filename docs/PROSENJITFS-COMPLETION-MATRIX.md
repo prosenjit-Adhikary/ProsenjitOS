@@ -219,3 +219,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - `pfs_io_lock()` only serializes append writes; it is not a filesystem-wide lock. `boot/entry.asm` keeps IF clear for CPL3 because timer preemption is not yet scheduler-safe.
 - Current callsite audit is complete, but **general concurrent VFS safety remains unproven**. Before enabling timer preemption/SMP or production concurrent scans, add a reviewed locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion.
 - No automatic repair/reclamation was added. Physical-device power-loss durability remains outside mock-device/QEMU proof.
+
+
+## Source re-check — 2026-10-23: integrity-scan read-failure coverage
+
+- Re-read the current `kernel/prosenjitfs.c` implementation around `prosenjitfs_selftest()` (clean-scan setup and read-failure sweep, source lines 6238–6287 in the audited version).
+- The self-test iterates read-failure countdown positions from 1 through 512. For every read actually reached by the clean integrity scan, it requires both the function result and report status to be `PROSENJITFS_EIO`, and checks durable, volatile, and dirty mock-media state remains unchanged. The first countdown not reached marks the end of that scan's read sequence.
+- This is broader than a single inode-bitmap read injection; older debug wording that described only the inode-bitmap path is historical and should not be used as the current coverage summary.
+- Boundary: this sweep covers reads made by the integrity scan on the clean mounted image. It does not by itself cover every mount/recovery read, mutation callback read, corrupted-metadata path, or physical-device failure mode. Keep those as separate acceptance items.
+- The recovery-test cleanup in PR #205 and namespace/recovery regressions in PRs #206–#208 are separate changes; exact-head CI must be checked independently from this documentation branch.
