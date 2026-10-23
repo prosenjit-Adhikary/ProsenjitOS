@@ -306,3 +306,17 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - The QEMU tests are bounded serial-marker gates, not proof of physical-hardware behavior, UEFI, true SMP concurrency, unlimited runtime, or DMA/IOMMU safety.
 - **Verified for configured CI gates:** user-mapping page admission and mapping-path changes in the exact source head above.
 - **Overall Part 1 remains PARTIAL / NOT COMPLETE.** Stack ownership/guard/reclamation, runtime GPR/IST and nested-exception tests, deeper scheduler/IPC race coverage, complete dependency inventory, DMA/IOMMU, UEFI and physical-hardware validation remain open.
+
+
+## Verification result — per-thread user interrupt-frame lifetime (2026-10-23)
+
+- Source commit tested: `d8e7b7571e4e618d038c93e8b60e736e7ea6ad6c`.
+- Root cause addressed: user-origin timer interrupts use the shared TSS RSP0 stack, and `INT 0x80` uses shared IST1. Keeping a pointer into either transient stack after switching threads risks resuming a frame that a later interrupt has overwritten.
+- `kernel/include/thread.h` now defines a complete 20-word user interrupt frame (15 saved GPRs plus RIP/CS/RFLAGS/RSP/SS) and embeds stable storage in each thread.
+- `thread_schedule_interrupt()` snapshots all 20 words when the saved CS indicates CPL3; CPL0 frames continue to reference the interrupted thread's own kernel stack. The common assembly restore layout remains the first 18 words.
+- Boot regression coverage checks that the incoming user frame is copied into the current thread's storage, RSP/SS and register sentinels survive, and a later scheduler selection returns the stable saved frame.
+- Build and boot-test workflow [#7967](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39914674318): **SUCCESS** for this exact source commit. Runner/toolchain validation, host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU required markers and native BIOS QEMU required markers passed.
+- Security architecture workflow [#7503](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39914674395): **SUCCESS** for the same commit.
+- These are bounded QEMU/CI gates; they do not establish physical hardware, UEFI, SMP, unlimited runtime, or DMA/IOMMU safety.
+- **Remaining acceptance gates:** stack ownership/bounds/guard/reclamation; actual ISR/IST register-sentinel and nested-exception delivery beyond the source-level/scheduler-frame regression; deeper scheduler/IPC race coverage; complete memory/page-table dependency audit; DMA/IOMMU; UEFI and physical hardware.
+- **Overall Part 1 remains PARTIAL / NOT COMPLETE.**
