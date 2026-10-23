@@ -197,3 +197,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; toolchain checks, desktop/DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed. Both QEMU logs contain the ProsenjitFS format/mount/allocation/journal/recovery success marker; the native BIOS log also contains the ATA PIO, LBA-boundary, and ATA → MBR → ProsenjitFS persistent-mount markers.
 - Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This validates the test cleanup and current automated gates only; it does not establish physical-device power-loss durability or production completion.
+
+
+## Namespace corruption regression carry-forward — 2026-10-23
+
+- Carried forward the checksum-valid duplicate-directory-inode-reference regression from prior PR #206 and duplicate-directory-name regression from prior PR #207 onto the current `main` baseline after the recovery cleanup and journal read-failure changes were merged.
+- The tests require the report-only integrity scan to reject the targeted corruption without changing durable, volatile, or dirty mock-media state; after restoring the original entry, a clean rescan is required.
+- The changes are now combined against current `main` to avoid relying on stale branch bases. Build/boot-test and Security architecture checks must pass on this new exact PR head before merge.
+- These regressions do not prove physical-device power-loss durability or general concurrent VFS safety.
