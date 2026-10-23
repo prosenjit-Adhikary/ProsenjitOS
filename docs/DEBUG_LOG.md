@@ -430,3 +430,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### Result / boundary
 - Current callsite review found no production integrity-scan caller that violates the documented serialization precondition.
 - This does **not** establish general concurrent VFS safety. When timer preemption, SMP, or concurrent production scan callers are introduced, add a reviewed operation-locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion before enabling them.
+
+
+## 2026-10-23 — Current-source re-check: integrity-scan read failures
+
+- Re-read `kernel/prosenjitfs.c` around the integrity self-test (the current audited source lines 6238–6287). The test iterates read-failure countdown positions from 1 through 512 and injects a failure at each block-device read position reached by a clean integrity scan.
+- Each injected failure must produce `PROSENJITFS_EIO` in both the function return and report status, while durable data, volatile data, and dirty-block bitmap CRCs remain unchanged. The first countdown not reached ends the sweep.
+- This corrects the scope of older notes that described the test as targeting only the inode-bitmap read: current source sweeps the integrity scan's observed read sequence.
+- Scope is limited to integrity-scan reads on the clean mounted image; it does not imply all mount/recovery or mutation-path reads are covered, nor does it prove physical-device durability.
