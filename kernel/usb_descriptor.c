@@ -5,7 +5,10 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                                     struct pros_usb_hid_endpoint *out)
 {
     if (!blob || !out || blob_length < 9u) return PROS_DRIVER_EINVAL;
-    if (blob[0] < 9u || blob[1] != PROS_USB_DESC_CONFIGURATION)
+    /* USB 2.0 configuration descriptors have a fixed nine-byte header. */
+    if (blob[0] != 9u || blob[1] != PROS_USB_DESC_CONFIGURATION ||
+        blob[4] == 0u || blob[5] == 0u ||
+        (blob[7] & 0x80u) == 0u || (blob[7] & 0x1Fu) != 0u)
         return PROS_DRIVER_EIO;
 
     uint32_t total = (uint32_t)blob[2] | ((uint32_t)blob[3] << 8);
