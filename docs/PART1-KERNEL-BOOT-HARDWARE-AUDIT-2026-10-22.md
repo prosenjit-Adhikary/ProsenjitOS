@@ -233,3 +233,13 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - The core negative regression remains: `paging_map_page(0xFFFF800000001000, ..., PROSENJIT_PAGE_USER | ...)` must fail.
 - CI at the time of this log update: build/boot run #7932 (for the preceding source commit) was in progress at the native BIOS QEMU step; build/boot run #7933 for the latest audit-head update was pending. Security architecture run #7469 succeeded for the prior audit head. These are not yet passing results for this latest source commit.
 - Latest source commit build/host tests/ISO QEMU/native BIOS QEMU: **PENDING / NOT VERIFIED**. Overall acceptance remains **PARTIAL**.
+
+
+## Addendum — current audit-head CI result (2026-10-23)
+
+- Current PR head: `9580e3f3d65026491283575d52ee5603b1d6776d`.
+- Build and boot-test workflow [run #7936](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39907555272): **SUCCESS**. The job passed runner/toolchain verification, shell syntax and static interrupt-vector tests, desktop and Multiboot2 memory-map host tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU required-marker checks, and native BIOS QEMU required-marker checks.
+- Security architecture workflow [run #7472](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39907555224): **SUCCESS**.
+- The tested source ancestry includes `acbc41742fab399d39fa0ccb2848ba69c7176ceb`, which rejects USER mappings in the canonical high half and avoids assuming that a kernel high-half VA must be unmapped. The current head adds audit documentation after that source change.
+- QEMU gates are bounded marker tests. They do not establish unlimited-runtime stability, physical hardware, UEFI, true SMP safety, runtime register-sentinel/IST correctness, or DMA/IOMMU safety.
+- **Updated status:** current PR-head build/host tests/ISO QEMU/native BIOS QEMU/security contract are **COMPLETE for the configured CI gates**. Overall Part 1 remains **PARTIAL / NOT COMPLETE** because the stack ownership/guard/reclamation contract, complete scheduler/IPC race review, full-tree dependency inventory, DMA/IOMMU, UEFI and physical-hardware gates remain open.
