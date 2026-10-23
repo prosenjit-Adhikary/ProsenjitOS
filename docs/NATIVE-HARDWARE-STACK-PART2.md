@@ -260,3 +260,8 @@ The xHCI capability parser now rejects a nonzero xECP offset that points inside 
 ## xHCI register-window alias rejection — 2026-10-23
 
 The read-only capability parser now computes the complete doorbell and runtime-register windows after validating each range against the supplied BAR snapshot, then rejects snapshots where those windows overlap. A regression case sets the doorbell offset equal to the runtime offset and expects failure. This protects future code from interpreting the same BAR bytes as two register banks; it does not map MMIO or initialize an xHCI controller.
+
+
+## Extended-capability start-offset validation — 2026-10-23
+
+Both xHCI extended-capability validators now require a nonzero list start offset to be at or beyond CAPLENGTH, not merely beyond the fixed 0x20-byte capability header. This prevents a malformed xECP/list argument from interpreting capability-register bytes as linked extended-capability records. Hosted regression coverage verifies both validators reject offset 0x20 when CAPLENGTH is 0x40 and preserve the caller's output count on failure. This remains read-only snapshot validation; live MMIO access and controller initialization are not implemented.
