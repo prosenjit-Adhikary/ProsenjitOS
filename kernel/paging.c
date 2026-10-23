@@ -24,6 +24,28 @@ extern char ist2_stack_top[];
 
 static uint64_t *kernel_pml4;
 
+/*
+ * Serialize page-table walks and mutations. Disabling local interrupts avoids
+ * deadlock if an interrupt-side path attempts a mapping while this CPU holds
+ * the lock. This protects shared page-table structures; it is not an SMP TLB
+ * shootdown mechanism, so changing active mappings on multiple CPUs still
+ * requires a higher-level stop-the-world/single-CPU contract.
+ */
+static uint32_t paging_lock;
+
+static uint64_t paging_lock_acquire(void) {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    while (__atomic_exchange_n(&paging_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+        __asm__ volatile ("pause");
+    return flags;
+}
+
+static void paging_lock_release(uint64_t flags) {
+    __atomic_store_n(&paging_lock, 0u, __ATOMIC_RELEASE);
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+}
+
 static int canonical_address(uint64_t address) {
     uint64_t upper = address >> 48;
     uint64_t sign = (address >> 47) & 1ULL;
@@ -145,7 +167,7 @@ static int paging_map_page_internal(uint64_t virtual_address, uint64_t physical_
     return 0;
 }
 
-int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+static int paging_map_page_unlocked(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
     return paging_map_page_internal(virtual_address, physical_address, flags, 0);
 }
 
@@ -154,7 +176,7 @@ int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_
  * owns the virtual range and must unmap it before releasing the device.
  * This maps page tables only; it does not probe or enable the device.
  */
-int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
+static int paging_map_mmio_range_unlocked(uint64_t virtual_address, uint64_t physical_address,
                           uint64_t length) {
     if (!kernel_pml4 || length == 0u ||
         (virtual_address & 0xFFFULL) != 0u ||
@@ -181,7 +203,7 @@ int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
         if (rc != 0) {
             while (mapped != 0u) {
                 mapped -= 0x1000ULL;
-                paging_unmap_page(virtual_address + mapped);
+                paging_unmap_page_unlocked(virtual_address + mapped);
             }
             return rc;
         }
@@ -189,7 +211,7 @@ int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
     return 0;
 }
 
-void paging_unmap_mmio_range(uint64_t virtual_address, uint64_t length) {
+static void paging_unmap_mmio_range_unlocked(uint64_t virtual_address, uint64_t length) {
     if (!kernel_pml4 || (virtual_address & 0xFFFULL) != 0u ||
         length == 0u || (length & 0xFFFULL) != 0u ||
         length > (256ULL * 1024ULL * 1024ULL) ||
@@ -203,7 +225,7 @@ void paging_unmap_mmio_range(uint64_t virtual_address, uint64_t length) {
         paging_unmap_page(virtual_address + offset);
 }
 
-void paging_unmap_page(uint64_t virtual_address) {
+static void paging_unmap_page_unlocked(uint64_t virtual_address) {
     if (!kernel_pml4 || (virtual_address & 0xFFFULL) ||
         !canonical_address(virtual_address)) return;
     uint64_t pml4e = kernel_pml4[PML4_INDEX(virtual_address)];
@@ -220,7 +242,7 @@ void paging_unmap_page(uint64_t virtual_address) {
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
 }
 
-uint64_t paging_translate(uint64_t virtual_address) {
+static uint64_t paging_translate_unlocked(uint64_t virtual_address) {
     if (!kernel_pml4 || !canonical_address(virtual_address)) return 0;
     uint64_t entry = kernel_pml4[PML4_INDEX(virtual_address)];
     if (!(entry & PROSENJIT_PAGE_PRESENT)) return 0;
@@ -243,7 +265,7 @@ extern char __kernel_text_end[];
 extern char __kernel_rodata_start[];
 extern char __kernel_rodata_end[];
 
-int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
+static int paging_query_page_unlocked(uint64_t virtual_address, uint64_t *flags_out) {
     if (!kernel_pml4 || !flags_out || !canonical_address(virtual_address))
         return -1;
 
@@ -282,6 +304,51 @@ int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
                           PROSENJIT_PAGE_PWT |
                           PROSENJIT_PAGE_PCD);
     return 0;
+}
+
+
+/* Public page-table APIs serialize the entire operation, including MMIO
+ * range rollback, so concurrent mappers cannot free or overwrite each
+ * other's intermediate tables. */
+int paging_map_page(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
+    uint64_t irq_flags = paging_lock_acquire();
+    int rc = paging_map_page_unlocked(virtual_address, physical_address, flags);
+    paging_lock_release(irq_flags);
+    return rc;
+}
+
+int paging_map_mmio_range(uint64_t virtual_address, uint64_t physical_address,
+                          uint64_t length) {
+    uint64_t irq_flags = paging_lock_acquire();
+    int rc = paging_map_mmio_range_unlocked(virtual_address, physical_address, length);
+    paging_lock_release(irq_flags);
+    return rc;
+}
+
+void paging_unmap_mmio_range(uint64_t virtual_address, uint64_t length) {
+    uint64_t irq_flags = paging_lock_acquire();
+    paging_unmap_mmio_range_unlocked(virtual_address, length);
+    paging_lock_release(irq_flags);
+}
+
+void paging_unmap_page(uint64_t virtual_address) {
+    uint64_t irq_flags = paging_lock_acquire();
+    paging_unmap_page_unlocked(virtual_address);
+    paging_lock_release(irq_flags);
+}
+
+uint64_t paging_translate(uint64_t virtual_address) {
+    uint64_t irq_flags = paging_lock_acquire();
+    uint64_t result = paging_translate_unlocked(virtual_address);
+    paging_lock_release(irq_flags);
+    return result;
+}
+
+int paging_query_page(uint64_t virtual_address, uint64_t *flags_out) {
+    uint64_t irq_flags = paging_lock_acquire();
+    int rc = paging_query_page_unlocked(virtual_address, flags_out);
+    paging_lock_release(irq_flags);
+    return rc;
 }
 
 static int map_identity_4k(uint64_t virtual_address, uint64_t physical_address, uint64_t flags) {
