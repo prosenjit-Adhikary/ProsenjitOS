@@ -143,5 +143,16 @@ int main(void)
     assert(out.interface_number == 99u && out.alternate_setting == 98u);
     assert(out.endpoint_address == 97u && out.interval == 96u);
     assert(out.max_packet_size == 95u && out.kind == PROS_USB_HID_MOUSE);
+
+    /* A boot keyboard needs its complete eight-byte report in one packet. */
+    copy_config(bad);
+    bad[22] = 7u;
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    /* A boot mouse report needs at least three bytes. */
+    copy_config(bad);
+    bad[16] = PROS_USB_PROTOCOL_MOUSE;
+    bad[22] = 2u;
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
     return 0;
 }
