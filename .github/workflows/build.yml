@@ -46,7 +46,8 @@ jobs:
           bash scripts/test_interrupt_vectors.sh
           bash -n scripts/test_native_boot_safety.sh
           bash scripts/test_native_boot_safety.sh
-          make desktop-unit-test memory-map-unit-test
+          bash -n scripts/test_heap_growth.sh
+          make desktop-unit-test memory-map-unit-test heap-unit-test
 
       - name: Build ISO
         run: |

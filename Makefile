@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test memory-map-unit-test
+.PHONY: all iso clean run desktop-unit-test memory-map-unit-test heap-unit-test
 
 all: iso
 
@@ -26,3 +26,6 @@ desktop-unit-test:
 
 memory-map-unit-test:
 	bash scripts/test_memory_map.sh
+
+heap-unit-test:
+	bash scripts/test_heap_growth.sh

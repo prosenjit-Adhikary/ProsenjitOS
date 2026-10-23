@@ -174,6 +174,7 @@ extern void isr_ist3_probe(void);
 extern char ist1_stack_guard_bottom[], ist1_stack_bottom[], ist1_stack_top[];
 extern char ist2_stack_guard_bottom[], ist2_stack_bottom[], ist2_stack_top[];
 extern char ist3_stack_guard_bottom[], ist3_stack_bottom[], ist3_stack_top[];
+extern char stack_guard_bottom[], stack_bottom[];
 
 /* INT3 may return only during the tightly scoped GPR-preservation probe. */
 volatile uint8_t pros_interrupt_gpr_selftest_active;
@@ -754,6 +755,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_thread worker_thread;
     struct pros_thread misaligned_stack_probe;
     struct pros_thread undersized_stack_probe;
+    struct pros_thread unmapped_stack_probe;
     struct pros_thread overlapping_stack_probe;
     if (thread_manager_init() != 0 ||
         /* Reject a misaligned stack top before registering a thread object. */
@@ -769,6 +771,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                           sizeof(init_thread_stack) - 8u),
                     (uint64_t)(uintptr_t)(init_thread_stack +
                                           sizeof(init_thread_stack))) == 0 ||
+        /* The dedicated bootstrap guard page is unmapped and cannot be a stack. */
+        thread_init(&unmapped_stack_probe, &init_process, 79,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)stack_guard_bottom,
+                    (uint64_t)(uintptr_t)stack_bottom) == 0 ||
         thread_init(&init_thread, &init_process, 1,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
                     (uint64_t)(uintptr_t)init_thread_stack,
