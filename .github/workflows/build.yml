@@ -54,6 +54,7 @@ jobs:
           bash -n scripts/test_xhci_capability.sh
           bash -n scripts/test_memory_allocator.sh
           bash -n scripts/test_pic.sh
+          bash -n scripts/test_ps2_irq_dispatch.sh
           make desktop-tests
           make hw-stack-test
           make ps2-keyboard-test
@@ -67,6 +68,7 @@ jobs:
           make xhci-capability-test
           make memory-allocator-test
           make pic-test
+          make ps2-irq-dispatch-test
 
       - name: Build ISO
         run: |
