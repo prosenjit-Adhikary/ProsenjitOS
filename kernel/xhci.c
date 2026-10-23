@@ -21,6 +21,48 @@ static int range_valid(uint32_t offset, uint32_t length, uint32_t limit)
     return offset <= limit && length <= limit - offset;
 }
 
+/* Extended-capability walkers must never interpret ordinary controller
+ * registers as linked-list headers. This derives the three register windows
+ * from the same read-only capability snapshot and checks a four-byte header. */
+static int extended_header_region_valid(const uint8_t *bar,
+                                        uint32_t bar_length,
+                                        uint32_t offset)
+{
+    uint32_t cap_length = bar[0];
+    uint32_t structural = read_le32(&bar[4]);
+    uint32_t doorbell = read_le32(&bar[0x14]) & ~3u;
+    uint32_t runtime = read_le32(&bar[0x18]) & ~0x1Fu;
+    uint32_t max_slots = structural & 0xFFu;
+    uint32_t max_interrupters = (structural >> 8) & 0x7FFu;
+    uint32_t doorbell_length = (max_slots + 1u) * 4u;
+    uint32_t runtime_length = XHCI_RUNTIME_BASE_SIZE +
+                              max_interrupters * XHCI_RUNTIME_INTERRUPTER_SIZE;
+    uint32_t operational_start = cap_length;
+    uint32_t operational_end = cap_length + 0x40u;
+
+    if (cap_length < XHCI_CAP_HEADER_MIN || (cap_length & 3u) != 0u ||
+        cap_length > bar_length || max_slots == 0u ||
+        max_interrupters == 0u ||
+        !range_valid(operational_start, 0x40u, bar_length) ||
+        (read_le32(&bar[0x14]) & 3u) != 0u ||
+        (read_le32(&bar[0x18]) & 0x1Fu) != 0u ||
+        doorbell < operational_end || runtime < operational_end ||
+        !range_valid(doorbell, doorbell_length, bar_length) ||
+        !range_valid(runtime, runtime_length, bar_length))
+        return 0;
+
+    uint32_t header_end = offset + 4u;
+    if (offset < operational_end && header_end > operational_start)
+        return 0;
+    uint32_t doorbell_end = doorbell + doorbell_length;
+    if (offset < doorbell_end && header_end > doorbell)
+        return 0;
+    uint32_t runtime_end = runtime + runtime_length;
+    if (offset < runtime_end && header_end > runtime)
+        return 0;
+    return 1;
+}
+
 int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
                                  struct pros_xhci_capabilities *out)
 {
@@ -117,7 +159,8 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
     uint32_t count = 0u;
     uint32_t max_headers = bar_length / 4u;
     while (offset != 0u) {
-        if (count >= max_headers || !range_valid(offset, 4u, bar_length))
+        if (count >= max_headers || !range_valid(offset, 4u, bar_length) ||
+            !extended_header_region_valid(bar, bar_length, offset))
             return PROS_DRIVER_EIO;
         uint32_t header = read_le32(&bar[offset]);
         uint32_t capability_id = header & 0xFFu;
@@ -171,7 +214,8 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
     uint8_t claimed_ports[32] = {0};
     uint32_t max_headers = bar_length / 4u;
     while (offset != 0u) {
-        if (visited >= max_headers || !range_valid(offset, 4u, bar_length))
+        if (visited >= max_headers || !range_valid(offset, 4u, bar_length) ||
+            !extended_header_region_valid(bar, bar_length, offset))
             return PROS_DRIVER_EIO;
         uint32_t header = read_le32(&bar[offset]);
         uint32_t id = header & 0xFFu;
