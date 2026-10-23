@@ -124,6 +124,15 @@ int main(void)
                bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
     assert(protocol_count == 1u);
 
+    /* A next pointer may not land inside the current capability's PSI array. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000102u); /* next pointer at +4 bytes */
+    put32(&bar[0xC8], 1u | (2u << 8) | (2u << 16));
+    protocol_count = 88u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 88u);
+
     assert(pros_xhci_parse_capabilities(0, sizeof(bar), &caps) == PROS_DRIVER_EINVAL);
     assert(pros_xhci_parse_capabilities(bar, 0x1Fu, &caps) == PROS_DRIVER_EINVAL);
     struct pros_xhci_capabilities saved = caps;
