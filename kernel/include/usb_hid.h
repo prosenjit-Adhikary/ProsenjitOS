@@ -33,6 +33,19 @@ int pros_usb_hid_mouse_recover(
     struct pros_hw_input_event out[PROS_USB_HID_MOUSE_MAX_EVENTS],
     uint32_t *out_count);
 
+/* Decode and atomically publish a USB HID report to the kernel input queue.
+ * State is rolled back if the queue rejects the complete event batch. */
+int pros_usb_hid_keyboard_submit_report(
+    uint32_t endpoint_id, struct pros_usb_hid_keyboard_state *state,
+    const uint8_t report[PROS_USB_HID_KEYBOARD_REPORT_BYTES]);
+int pros_usb_hid_mouse_submit_report(
+    uint32_t endpoint_id, struct pros_usb_hid_mouse_state *state,
+    const uint8_t report[PROS_USB_HID_MOUSE_REPORT_BYTES]);
+int pros_usb_hid_keyboard_submit_recovery(
+    uint32_t endpoint_id, struct pros_usb_hid_keyboard_state *state);
+int pros_usb_hid_mouse_submit_recovery(
+    uint32_t endpoint_id, struct pros_usb_hid_mouse_state *state);
+
 /*
  * Boot keyboard report: modifier bitmap, reserved byte, six key usages.
  * Emits usage-code press/release events (modifier usages E0..E7 included).
