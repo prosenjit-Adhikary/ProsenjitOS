@@ -12,6 +12,8 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
     if (total < 9u || total > blob_length) return PROS_DRIVER_EIO;
 
     uint8_t current_interface = 0u, current_alt = 0u;
+    uint8_t expected_endpoints = 0u, observed_endpoints = 0u;
+    uint8_t in_interface = 0u;
     enum pros_usb_hid_kind current_kind = PROS_USB_HID_NONE;
     struct pros_usb_hid_endpoint candidate = {0};
     uint8_t found = 0u;
@@ -29,8 +31,13 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                 return PROS_DRIVER_EIO;
         } else if (type == PROS_USB_DESC_INTERFACE) {
             if (length < 9u) return PROS_DRIVER_EIO;
+            if (in_interface && observed_endpoints != expected_endpoints)
+                return PROS_DRIVER_EIO;
             current_interface = blob[offset + 2u];
             current_alt = blob[offset + 3u];
+            expected_endpoints = blob[offset + 4u];
+            observed_endpoints = 0u;
+            in_interface = 1u;
             current_kind = PROS_USB_HID_NONE;
             if (blob[offset + 5u] == PROS_USB_CLASS_HID &&
                 blob[offset + 6u] == PROS_USB_SUBCLASS_BOOT) {
@@ -40,7 +47,10 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                     current_kind = PROS_USB_HID_MOUSE;
             }
         } else if (type == PROS_USB_DESC_ENDPOINT) {
-            if (length < 7u) return PROS_DRIVER_EIO;
+            if (length < 7u || !in_interface) return PROS_DRIVER_EIO;
+            if (observed_endpoints == UINT8_MAX) return PROS_DRIVER_EIO;
+            ++observed_endpoints;
+
             uint8_t address = blob[offset + 2u];
             uint8_t attributes = blob[offset + 3u];
             uint16_t packet = (uint16_t)blob[offset + 4u] |
@@ -74,6 +84,8 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
     }
 
     if (offset != total) return PROS_DRIVER_EIO;
+    if (in_interface && observed_endpoints != expected_endpoints)
+        return PROS_DRIVER_EIO;
     if (!found) return PROS_DRIVER_ENODEV;
     *out = candidate;
     return PROS_DRIVER_OK;
