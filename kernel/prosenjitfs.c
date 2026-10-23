@@ -10253,6 +10253,53 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * File creation must also be atomic at the namespace boundary. If the
+     * journal commit record cannot be written, remount must not expose a
+     * partially initialized inode or a directory entry for the new file.
+     */
+    {
+        struct pros_vfs_file file;
+        int create_rc;
+        int lookup_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_commit_write_once = 1u;
+        create_rc = vfs_file_open(
+            &fs.mount, "/create-atomic-probe.bin",
+            PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file);
+        if (create_rc != PROS_VFS_EIO ||
+            disk.fail_commit_write_once != 0u ||
+            !fs.read_only || !fs.mount.read_only) {
+            if (create_rc == PROS_VFS_OK)
+                (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        lookup_rc = vfs_file_open(&fs.mount, "/create-atomic-probe.bin",
+                                  PROS_VFS_O_READ, &file);
+        if (lookup_rc == PROS_VFS_OK) {
+            (void)vfs_file_close(&file);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        if (lookup_rc != PROS_VFS_ENOENT ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * A failure before the journal header is published is retryable. Fail
      * the first transaction flush (commit-slot invalidation), verify the
      * mount remains writable and no bytes are reported written, then retry

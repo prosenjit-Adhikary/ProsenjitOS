@@ -170,3 +170,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The test verifies `PROS_VFS_EIO`, fail-closed read-only state, simulated power-loss remount, persistence/openability of the original directory, and a clean report-only integrity scan.
 - Exact PR code head `f137d83af1df8fdfbff9f3c21672d65827d198a9` passed build/boot-test [#8216](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948709380), including ISO and native BIOS QEMU boot. Security architecture [#7752](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948709352) also passed.
 - Scope: this closes one focused rmdir rollback/remount case under mock-device fault injection. Other mutation cases and physical-device durability remain separate acceptance work.
+
+
+## Verification update — 2026-10-23: file-create commit-write failure and remount
+
+- PR #203 adds a commit-record write-failure regression during file creation through `vfs_file_open(..., PROS_VFS_O_CREATE)`.
+- The test verifies `PROS_VFS_EIO`, fail-closed read-only state, simulated power-loss remount, absence of the uncommitted file, and a clean report-only integrity scan.
+- Exact PR code head `4f25d7d711d799bac1974049dc7972e57eb52378` passed build/boot-test [#8221](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39949042895), including ISO and native BIOS QEMU boot. Security architecture [#7757](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39949043002) also passed.
+- Scope: this closes one focused file-create rollback/remount case under mock-device fault injection. Physical-device durability and other mutation/failure combinations remain separate acceptance work.
