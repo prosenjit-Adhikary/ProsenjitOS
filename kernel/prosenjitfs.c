@@ -10942,12 +10942,29 @@ int prosenjitfs_selftest(void)
             struct pros_vfs_file file;
             done = 0u;
             if (vfs_file_open(&fs.mount, "/cycle.bin",
-                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) != PROS_VFS_OK ||
-                vfs_file_write(&file, cycle_data, sizeof(cycle_data), &done) != PROS_VFS_OK ||
-                done != sizeof(cycle_data) || vfs_file_close(&file) != PROS_VFS_OK ||
-                prosenjitfs_unmount(&fs) != PROSENJITFS_OK ||
-                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
-                return pfs_selftest_fail(__LINE__, -16);
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -161);
+            }
+            if (vfs_file_write(&file, cycle_data, sizeof(cycle_data), &done) !=
+                    PROS_VFS_OK || done != sizeof(cycle_data)) {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -162);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -163);
+            }
+            if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -164);
+            }
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -165);
+            }
 
             done = 0u;
             if (vfs_file_open(&fs.mount, "/cycle.bin", PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
