@@ -58,6 +58,31 @@ int main(void)
     assert(event.value0 == 0x1E && event.flags == PROS_HW_INPUT_RELEASE);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
 
+    /* AUX bytes from the shared PS/2 controller must reach the pointer queue,
+     * not be mistaken for keyboard scancodes or silently discarded. */
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x08u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 10u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 5u) == PROS_DRIVER_OK);
+    assert(pros_input_service_poll_hardware() == 1);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_POINTER);
+    assert(event.flags == PROS_HW_INPUT_RELATIVE);
+    assert(event.value0 == 10 && event.value1 == -5);
+    assert(event.timestamp == 1234u);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+
+    /* Button state transitions use the same queue and keep keyboard events
+     * separate from pointer events. */
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x09u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_input_service_poll_hardware() == 1);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_POINTER);
+    assert(event.flags == PROS_HW_INPUT_PRESS && event.value0 == 1);
+    assert(event.timestamp == 1234u);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+
     /* The callback must reject malformed events even when a caller bypasses
      * pros_hw_input_send() and submits directly through the generic endpoint. */
     event.version = PROS_HW_STACK_ABI_VERSION;
