@@ -21,7 +21,7 @@ int main(void)
     uint8_t mouse[sizeof(keyboard_config)];
     for (uint32_t i = 0; i < sizeof(mouse); ++i) mouse[i] = keyboard_config[i];
     mouse[16] = 2; /* boot mouse protocol */
-    mouse[21] = 4; /* endpoint max packet size */
+    mouse[22] = 4; /* endpoint max packet size */
     assert(pros_usb_find_boot_hid_endpoint(mouse, sizeof(mouse), &out) == PROS_DRIVER_OK);
     assert(out.kind == PROS_USB_HID_MOUSE && out.max_packet_size == 4u);
 
@@ -39,7 +39,7 @@ int main(void)
     bad[20] = 0x01u; /* endpoint OUT, not interrupt-IN */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_ENODEV);
     for (uint32_t i = 0; i < sizeof(bad); ++i) bad[i] = keyboard_config[i];
-    bad[11] = 2u; /* descriptor shorter than interface minimum */
+    bad[9] = 1u; /* descriptor shorter than interface minimum */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
     return 0;
 }
