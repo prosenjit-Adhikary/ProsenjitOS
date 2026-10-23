@@ -253,3 +253,13 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Expanded `paging_selftest()` to assert rejection of both a canonical high-half and a lower-half USER mapping.
 - This is a source-level security hardening; do not mark it verified until the exact latest-head build, host tests, ISO QEMU, native BIOS QEMU and security workflow conclude successfully.
 - Overall Part 1 remains **PARTIAL / NOT COMPLETE** pending latest-head CI and the previously listed stack/IST, lifecycle/race, DMA/IOMMU, UEFI and physical-hardware gates.
+
+
+## Verification result — shared kernel-root USER mapping restriction (2026-10-23)
+
+- Source change tested: `b5c42ae4485a39adb07530931ff8a9948bae6018`; tested PR head: `8e52e645d34eb21254dec02bed860e684beb5120`.
+- Build and boot-test workflow [run #7942](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39907995238): **SUCCESS**. The exact-head job passed runner/toolchain checks, static interrupt-vector and host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU required markers, and native BIOS QEMU required markers.
+- Security architecture workflow [run #7477](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39907995286): **SUCCESS**.
+- The new paging self-test's lower-half and upper-half USER-mapping rejection checks were included in the built kernel and passed the configured QEMU marker gates.
+- QEMU was terminated by the configured bounded test timeout after the required serial markers were checked. This does not establish unlimited-runtime stability or physical hardware, UEFI, or real SMP correctness.
+- **Verified for configured CI gates:** kernel-root USER mapping restriction. **Overall Part 1 remains PARTIAL / NOT COMPLETE**; outstanding gates include full-tree dependency inventory, runtime register-sentinel/IST and lifecycle race tests, thread stack ownership/guard/reclamation, and DMA/IOMMU, UEFI, physical-hardware validation.
