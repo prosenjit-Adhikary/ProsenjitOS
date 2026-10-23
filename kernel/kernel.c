@@ -670,7 +670,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
 
     struct pros_thread init_thread;
     struct pros_thread worker_thread;
+    struct pros_thread misaligned_stack_probe;
     if (thread_manager_init() != 0 ||
+        /* Reject a misaligned stack top before registering a thread object. */
+        thread_init(&misaligned_stack_probe, &init_process, 77,
+                    (uint64_t)(uintptr_t)scheduler_test_init_entry,
+                    (uint64_t)(uintptr_t)(init_thread_stack +
+                                          sizeof(init_thread_stack) - 8u)) == 0 ||
         thread_init(&init_thread, &init_process, 1,
                     (uint64_t)(uintptr_t)scheduler_test_init_entry,
                     (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack))) != 0 ||
