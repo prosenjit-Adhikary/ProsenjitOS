@@ -19,6 +19,10 @@ Added `make part2-host-tests` as a single entry point for the Part 2 hosted suit
 
 The aggregate target and workflow edits are committed at `a5263cf422953eb39a9cfe050b0c85a8cad9a221` and `2390c28cc5638d338d256ce696cbb9eb3d62e149`, respectively. Exact-head CI for the updated workflow remains unverified until the self-hosted Linux x64 runner executes the latest commit.
 
+## USB HID held-input recovery — 2026-10-23
+
+Added decoder-level `pros_usb_hid_keyboard_recover()` and `pros_usb_hid_mouse_recover()` APIs. They synthesize release events for currently held modifier/key/button state and then reset the decoder state; repeated recovery is idempotent. Hosted regression coverage checks the emitted releases and clean second recovery. These APIs are primitives only: they do not detect USB disconnects, submit recovery events to the input-service queue, or replace a real host-controller transport. The existing `usb-hid-test` target exercises this path; exact-head CI is pending.
+
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
 - [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
