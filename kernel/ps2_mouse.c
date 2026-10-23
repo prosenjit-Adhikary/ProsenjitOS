@@ -28,6 +28,27 @@ static void mouse_event_init(struct pros_hw_input_event *event,
     event->value1 = value1;
 }
 
+int pros_ps2_mouse_recover(struct pros_ps2_mouse_decoder *decoder,
+                           struct pros_hw_input_event out[3],
+                           uint32_t *out_count)
+{
+    if (!decoder || !out || !out_count) return PROS_DRIVER_EINVAL;
+    *out_count = 0u;
+    pros_ps2_mouse_discard_packet(decoder);
+
+    /* A transport reset makes the prior button state unknowable. Emit
+     * synthetic releases so consumers cannot retain a permanently held key. */
+    for (uint32_t button = 0u; button < 3u; ++button) {
+        uint8_t mask = (uint8_t)(1u << button);
+        if ((decoder->buttons & mask) == 0u) continue;
+        mouse_event_init(&out[*out_count], PROS_HW_INPUT_RELEASE,
+                         (int32_t)(button + 1u), 0);
+        ++*out_count;
+    }
+    decoder->buttons = 0u;
+    return PROS_DRIVER_OK;
+}
+
 int pros_ps2_mouse_decode_byte(struct pros_ps2_mouse_decoder *decoder,
                                uint8_t byte,
                                struct pros_hw_input_event out[PROS_PS2_MOUSE_MAX_EVENTS],
