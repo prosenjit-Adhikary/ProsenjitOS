@@ -10,9 +10,17 @@
 static uint8_t master_mask = 0xFFu;
 static uint8_t slave_mask = 0xFFu;
 
+#if defined(PROS_PIC_HOSTED_TEST)
+/* Test-only port-write seam; production builds always use the real x86 I/O instruction. */
+extern void pros_pic_test_out8(uint16_t port, uint8_t value);
+static inline void pic_out8(uint16_t port, uint8_t value) {
+    pros_pic_test_out8(port, value);
+}
+#else
 static inline void pic_out8(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
 }
+#endif
 
 static void pic_io_wait(void) {
     pic_out8(0x80u, 0u);
