@@ -66,6 +66,20 @@ int main(void)
     assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
     assert(count == 1u && events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 1);
 
+    /* A malformed packet discards packet bytes but preserves last button state. */
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x09u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
+    assert(count == 1u && events[0].flags == PROS_HW_INPUT_PRESS && events[0].value0 == 1);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x18u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_EIO);
+    assert(decoder.buttons == 1u && decoder.packet_used == 0u);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x09u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
+    assert(count == 0u); /* no duplicate press edge after resynchronization */
+
     /* Motion and two button transitions fit within the bounded event array. */
     assert(pros_ps2_mouse_decode_byte(&decoder, 0x0Bu, events, &count) == PROS_DRIVER_ENOTSUP);
     assert(pros_ps2_mouse_decode_byte(&decoder, 1u, events, &count) == PROS_DRIVER_ENOTSUP);
