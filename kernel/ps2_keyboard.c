@@ -1,5 +1,6 @@
 #include "ps2_keyboard.h"
 #include "ps2_mouse.h"
+#include "input_service.h"
 #include "timer.h"
 
 #define PS2_STATUS_PORT 0x64u
@@ -155,12 +156,15 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
                                                        mouse_events, &mouse_count);
             if (mouse_rc != PROS_DRIVER_OK)
                 continue; /* Incomplete or malformed packet; recover on next byte. */
-            for (uint32_t i = 0u; i < mouse_count; ++i) {
-                mouse_events[i].timestamp = timer_ticks();
-                mouse_rc = pros_hw_input_send(input_endpoint_id, &mouse_events[i]);
+            if (mouse_count != 0u) {
+                for (uint32_t i = 0u; i < mouse_count; ++i)
+                    mouse_events[i].timestamp = timer_ticks();
+                mouse_rc = pros_input_service_send_batch(input_endpoint_id,
+                                                           mouse_events,
+                                                           mouse_count);
                 if (mouse_rc != PROS_DRIVER_OK)
                     return mouse_rc;
-                ++submitted;
+                submitted += (int)mouse_count;
             }
             continue;
         }
