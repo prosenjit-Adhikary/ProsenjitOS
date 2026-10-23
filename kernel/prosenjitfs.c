@@ -10262,6 +10262,63 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sweep rmdir's pre-transaction reads, from parent validation through
+     * child validation and metadata-image staging reads. A failed read must
+     * leave the existing empty directory and all media views unchanged.
+     */
+    {
+        for (uint32_t read_position = 1u; read_position <= 7u;
+             ++read_position) {
+            struct pros_vfs_dir directory;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int rmdir_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_mkdir(&fs.mount, "/rmdir-read-sweep") != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -26);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-read-sweep");
+            if (rmdir_rc != PROS_VFS_EIO ||
+                disk.fail_read_countdown != 0u ||
+                fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -26);
+            }
+
+            if (vfs_dir_open(&fs.mount, "/rmdir-read-sweep", &directory) !=
+                    PROS_VFS_OK ||
+                vfs_dir_close(&directory) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -26);
+            }
+        }
+    }
+
+    /*
      * File creation must also be atomic at the namespace boundary. If the
      * journal commit record cannot be written, remount must not expose a
      * partially initialized inode or a directory entry for the new file.
