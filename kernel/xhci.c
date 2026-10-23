@@ -49,8 +49,6 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
     parsed.doorbell_offset = doorbell & ~3u;
     parsed.runtime_offset = runtime & ~0x1Fu;
     uint32_t xecp_dwords = capability >> 16;
-    if (xecp_dwords > UINT32_MAX / 4u)
-        return PROS_DRIVER_EIO;
     parsed.extended_capabilities_offset = xecp_dwords * 4u;
 
     if (parsed.max_slots == 0u || parsed.max_interrupters == 0u ||
