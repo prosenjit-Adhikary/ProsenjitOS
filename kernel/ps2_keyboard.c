@@ -147,7 +147,8 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
          * sequence, as verified by the AUX-interleaving regression test. */
         if ((status & PS2_STATUS_AUX_DATA) != 0u) {
             extended_prefix = 0u;
-            pause_bytes_remaining = 0u;
+            /* Pause bytes belong to the keyboard stream; AUX bytes must not
+             * consume or cancel that independent multi-byte sequence. */
             struct pros_hw_input_event mouse_events[PROS_PS2_MOUSE_MAX_EVENTS];
             uint32_t mouse_count = 0u;
             int mouse_rc = pros_ps2_mouse_decode_byte(&mouse_decoder, byte,
