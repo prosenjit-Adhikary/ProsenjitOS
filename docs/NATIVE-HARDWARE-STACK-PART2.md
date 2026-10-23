@@ -2,6 +2,27 @@
 
 Status: **contract/lifecycle foundation implemented; concrete hardware drivers remain partial or unverified.**
 
+## Verification record — 2026-10-23
+
+The current Part 2 PR head `b82ad212f5778fb197286d97e42eadf8c8b53412` has successful GitHub Actions runs:
+- Build and boot-test: [run 39919645708](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39919645708) — completed successfully.
+- Security architecture checks: [run 39919645637](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39919645637) — completed successfully.
+
+These results verify the automated checks attached to that commit only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
+
+## Remaining acceptance gates (must pass before Part 2 is complete)
+
+- [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
+- [ ] Add and test PS/2 mouse and USB HID keyboard/mouse support, including bounded parsing and device disconnect/error handling.
+- [ ] Define and test keyboard/mouse IRQ routing and interrupt acknowledgement; do not claim IRQ-driven input while the current backend is polling.
+- [ ] Design safe DMA allocation, cache/coherency rules, device ownership and IOMMU isolation before enabling bus mastering or implementing a DMA-backed audio driver.
+- [ ] Implement a real supported audio backend (for example, a narrowly scoped HDA or AC'97 target) with failure-safe initialization, bounded buffers, shutdown and tests.
+- [ ] Run all host suites and both boot modes on the authorized Linux x64 runner for the exact final commit; record physical-hardware results separately for each tested device.
+- [ ] Re-audit Part 1 allocator/page-table ownership and concurrency blockers before treating the hardware stack as safe for SMP or broader device use.
+
+Until every applicable gate is checked with evidence, keep this PR draft and do not begin Part 3.
+
+
 ## Boundaries
 
 - PCI configuration-space discovery remains read-only. The scanner inventories PCI BDF, vendor/device IDs, class/subclass and programming interface. Boot now reads each discovered device's BARs and reports assigned/unsupported BAR counts. `pci_read_bar()` decodes assigned I/O, 32-bit MMIO and 64-bit MMIO BAR base addresses without writing configuration registers; reserved BAR types, unsupported I/O addresses and addresses outside the x86-64 physical-address mask fail closed. BAR aperture sizing and PCI command-register enablement are deliberately not performed. The Part 2 classifier is exercised on discovered PCI records; unknown devices remain OTHER/unsupported.
