@@ -68,6 +68,14 @@ int main(void)
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_ENODEV);
 
     copy_config(bad);
+    bad[9] = 10u; /* standard interface descriptor length must be exactly nine */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[18] = 8u; /* standard endpoint descriptor length must be exactly seven */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
     bad[9] = 1u; /* descriptor shorter than interface minimum */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
