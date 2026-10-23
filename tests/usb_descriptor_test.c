@@ -205,5 +205,23 @@ int main(void)
     bad[16] = PROS_USB_PROTOCOL_MOUSE;
     bad[22] = 2u;
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    /*
+     * Every truncation boundary must fail closed. The parser must not publish
+     * a partially parsed endpoint when the descriptor stream is incomplete.
+     */
+    for (uint32_t length = 0u; length < sizeof(keyboard_config); ++length) {
+        out.interface_number = 99u;
+        out.alternate_setting = 98u;
+        out.endpoint_address = 97u;
+        out.interval = 96u;
+        out.max_packet_size = 95u;
+        out.kind = PROS_USB_HID_MOUSE;
+        int expected = length < 9u ? PROS_DRIVER_EINVAL : PROS_DRIVER_EIO;
+        assert(pros_usb_find_boot_hid_endpoint(keyboard_config, length, &out) == expected);
+        assert(out.interface_number == 99u && out.alternate_setting == 98u);
+        assert(out.endpoint_address == 97u && out.interval == 96u);
+        assert(out.max_packet_size == 95u && out.kind == PROS_USB_HID_MOUSE);
+    }
     return 0;
 }
