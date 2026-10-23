@@ -212,6 +212,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
             const struct multiboot_tag_mmap *mmap =
                 (const struct multiboot_tag_mmap *)tag;
             if (mmap->size < 16u || mmap->entry_size < 24u) return -4;
+            /* A memory-map tag must contain whole entries, never a truncated tail. */
+            if (((mmap->size - 16u) % mmap->entry_size) != 0u) return -4;
 
             uint64_t entries_start = current + 16ULL;
             uint64_t entries_end = current + mmap->size;
