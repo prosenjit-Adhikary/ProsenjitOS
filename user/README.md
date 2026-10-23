@@ -14,6 +14,24 @@ The repository has kernel-side process/address-space/syscall foundations, a kern
 
 Documentation and ABI files are never treated as completion. Every milestone requires source recheck, warnings-as-errors build, QEMU runtime verification, regression coverage, and a recheck that no desktop stack entered `kernel/`.
 
+## Application Handler — initial code
+
+The first userspace application-management pieces are in `user/apps/`: a bounded
+manifest registry with staged/trusted/installed/disabled lifecycle transitions,
+dependency-aware preflight, and content-based ELF/PE/OLE header classification.
+These are metadata/control-plane foundations only. They do not install or remove
+files, cryptographically verify publishers, launch processes, load PE binaries,
+provide Linux/Windows API compatibility, or integrate with the desktop launcher.
+The application registry APIs require a trusted verifier boundary; package data
+must never be allowed to mark itself trusted.
+
+The dedicated workflow `.github/workflows/app-handler-tests.yml` runs
+`make app-unit-test` on the `[self-hosted, linux, x64]` runner pool. The
+permanently closed OfficeWindows runner must never be used. The latest workflow
+result must be inspected before claiming runtime verification; queued jobs are
+not passes, and this implementation continuation has not independently run
+the tests.
+
 ## Desktop Management Layer (DML) — initial code
 
 The first host-testable DML component is in `user/desktop/desktop_manager.c` and

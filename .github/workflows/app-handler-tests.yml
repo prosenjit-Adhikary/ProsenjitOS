@@ -1,0 +1,46 @@
+name: Apps Handler Unit Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "user/apps/**"
+      - "tests/app_manager_test.c"
+      - "tests/app_format_test.c"
+      - "scripts/test_app_manager.sh"
+      - "Makefile"
+      - ".github/workflows/app-handler-tests.yml"
+  push:
+    branches:
+      - "feature/native-app-registry-*"
+    paths:
+      - "user/apps/**"
+      - "tests/app_manager_test.c"
+      - "tests/app_format_test.c"
+      - "scripts/test_app_manager.sh"
+      - "Makefile"
+      - ".github/workflows/app-handler-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-handler-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-unit-tests:
+    name: Compile and run bounded Apps Handler tests
+    # Use the project's Linux x64 self-hosted runner pool, never the retired OfficeWindows runner.
+    # The Linux labels exclude a Windows-only runner.
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show compiler version
+        run: cc --version
+
+      - name: Compile and run Apps Handler unit tests
+        run: make app-unit-test
