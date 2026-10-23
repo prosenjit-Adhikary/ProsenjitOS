@@ -1,5 +1,15 @@
 #include "thread.h"
 #include "ipc.h"
+#include <stddef.h>
+
+/* Keep the C context layout synchronized with kernel/context_switch.asm. */
+_Static_assert(offsetof(struct pros_thread, context) +
+               offsetof(struct pros_cpu_context, rsp) == 80,
+               "thread_context_switch expects context.rsp at byte offset 80");
+_Static_assert(offsetof(struct pros_interrupt_frame, rip) == 15 * sizeof(uint64_t),
+               "interrupt frame RIP offset must match ISR assembly");
+_Static_assert(sizeof(struct pros_interrupt_frame) == 18 * sizeof(uint64_t),
+               "interrupt frame size must match ISR assembly");
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
