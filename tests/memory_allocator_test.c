@@ -24,6 +24,23 @@ struct multiboot_fixture {
 static uint64_t allocated[TOTAL_ALLOCATIONS];
 static uint32_t next_slot;
 static int allocation_failed;
+static uint64_t contiguous_allocated[THREADS];
+static uint32_t contiguous_next_slot;
+static int contiguous_allocation_failed;
+
+static void *contiguous_allocator_worker(void *unused) {
+    (void)unused;
+    uint64_t run = physical_pages_alloc_contiguous(4u, 4u,
+                                                    8ULL * 1024ULL * 1024ULL);
+    uint32_t slot = __atomic_fetch_add(&contiguous_next_slot, 1u, __ATOMIC_RELAXED);
+    if (!run || slot >= THREADS) {
+        __atomic_store_n(&contiguous_allocation_failed, 1, __ATOMIC_RELAXED);
+        if (run) (void)physical_pages_free_contiguous(run, 4u);
+        return NULL;
+    }
+    contiguous_allocated[slot] = run;
+    return NULL;
+}
 
 static void *allocator_worker(void *unused) {
     (void)unused;
@@ -150,6 +167,57 @@ int main(void) {
         fputs("allocator test: free-page count did not recover\n", stderr);
         return 8;
     }
+
+    /* Concurrent contiguous allocations must be aligned, unique and releasable. */
+    pthread_t contiguous_threads[THREADS];
+    contiguous_next_slot = 0;
+    contiguous_allocation_failed = 0;
+    for (uint32_t i = 0; i < THREADS; ++i) {
+        if (pthread_create(&contiguous_threads[i], NULL,
+                           contiguous_allocator_worker, NULL) != 0) {
+            fputs("allocator test: contiguous pthread_create failed\n", stderr);
+            return 18;
+        }
+    }
+    for (uint32_t i = 0; i < THREADS; ++i) {
+        if (pthread_join(contiguous_threads[i], NULL) != 0) {
+            fputs("allocator test: contiguous pthread_join failed\n", stderr);
+            return 19;
+        }
+    }
+    if (contiguous_allocation_failed || contiguous_next_slot != THREADS ||
+        physical_memory_free_pages() != before - (THREADS * 4u)) {
+        fputs("allocator test: concurrent contiguous allocation failed\n", stderr);
+        return 20;
+    }
+    for (uint32_t i = 0; i < THREADS; ++i) {
+        uint64_t a0 = contiguous_allocated[i];
+        uint64_t a1 = a0 + 4u * PROSENJIT_PAGE_SIZE;
+        if ((a0 & ((4u * PROSENJIT_PAGE_SIZE) - 1ULL)) != 0 ||
+            a1 > 8ULL * 1024ULL * 1024ULL) {
+            fputs("allocator test: concurrent run alignment/limit failed\n", stderr);
+            return 21;
+        }
+        for (uint32_t j = i + 1u; j < THREADS; ++j) {
+            uint64_t b0 = contiguous_allocated[j];
+            uint64_t b1 = b0 + 4u * PROSENJIT_PAGE_SIZE;
+            if (a0 < b1 && b0 < a1) {
+                fputs("allocator test: concurrent contiguous runs overlap\n", stderr);
+                return 22;
+            }
+        }
+    }
+    for (uint32_t i = 0; i < THREADS; ++i) {
+        if (physical_pages_free_contiguous(contiguous_allocated[i], 4u) != 0) {
+            fputs("allocator test: concurrent contiguous release failed\n", stderr);
+            return 23;
+        }
+    }
+    if (physical_memory_free_pages() != before) {
+        fputs("allocator test: contiguous concurrent free count did not recover\n", stderr);
+        return 24;
+    }
+
     /* Reject a memory-map tag whose payload ends with a partial entry. */
     fixture.mmap.entry_size = 25u;
     if (physical_memory_init((uint64_t)(uintptr_t)&fixture) != -4) {
