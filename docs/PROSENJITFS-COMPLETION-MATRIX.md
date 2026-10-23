@@ -178,3 +178,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The test verifies `PROS_VFS_EIO`, fail-closed read-only state, simulated power-loss remount, absence of the uncommitted file, and a clean report-only integrity scan.
 - Exact PR code head `4f25d7d711d799bac1974049dc7972e57eb52378` passed build/boot-test [#8221](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39949042895), including ISO and native BIOS QEMU boot. Security architecture [#7757](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39949043002) also passed.
 - Scope: this closes one focused file-create rollback/remount case under mock-device fault injection. Physical-device durability and other mutation/failure combinations remain separate acceptance work.
+
+
+## Verification update — 2026-10-23: integrity-scan caller serialization audit
+
+- Reviewed the integrity API declarations/documentation, all in-source scan callsites, and the CPL3 entry interrupt-flag contract.
+- All in-source calls to `prosenjitfs_check_integrity_report()`/`prosenjitfs_check_integrity()` are within `prosenjitfs_selftest()`; repository search found no separate production kernel caller. The documented caller-serialization precondition is therefore not currently exercised by a production callsite.
+- `pfs_io_lock()` only serializes append writes; it is not a filesystem-wide lock. `boot/entry.asm` keeps IF clear for CPL3 because timer preemption is not yet scheduler-safe.
+- Current callsite audit is complete, but **general concurrent VFS safety remains unproven**. Before enabling timer preemption/SMP or production concurrent scans, add a reviewed locking boundary and tests for lock ordering/recursion and mutation-versus-scan exclusion.
+- No automatic repair/reclamation was added. Physical-device power-loss durability remains outside mock-device/QEMU proof.
