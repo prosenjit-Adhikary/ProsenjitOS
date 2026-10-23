@@ -120,3 +120,10 @@ These results apply to the cited code commit, before this documentation-only fol
 An audit found that legacy PCI configuration mechanism #1 uses a shared address/data port pair, but individual reads previously had no transaction lock. Concurrent callers could interleave the write to 0xCF8 and read from 0xCFC, returning a value from the wrong BDF/register. pci_config_read32() now serializes that pair with an atomic lock and masks local interrupts while the lock is held, preventing same-CPU interrupt re-entry deadlock; hosted builds avoid privileged interrupt instructions. This protects each address/data transaction, not an entire multi-register scan, and does not add PCIe ECAM support or change the read-only BAR policy.
 
 Code commit: fddb9742553f1f16a4e25f4ad3e3e2e801c30258. The exact latest branch head and CI results must be checked after this change before treating it as verified. No hardware behavior is claimed from this serialization fix alone.
+
+
+## Physical memory-map reservation audit — 2026-10-23
+
+The allocator previously marked available Multiboot2 memory ranges but did not explicitly apply non-available map entries. Firmware maps are expected to be non-overlapping, but if an overlapping/contradictory map described a reserved page as available, allocator safety depended on entry ordering. Initialization now performs a second pass over the already-validated map and reserves every non-available range after available ranges have been collected, so reserved entries win regardless of ordering. This does not replace validation of firmware-provided map quality and does not expand the managed physical range beyond the existing 1 GiB limit.
+
+Code commit: 5e152af95b0423f3057fa13f85828a88e75bbd9b. Await the exact-head build/ISO/native-BIOS QEMU and security workflows before treating the change as verified.
