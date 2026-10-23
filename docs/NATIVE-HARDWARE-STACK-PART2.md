@@ -127,3 +127,21 @@ Code commit: fddb9742553f1f16a4e25f4ad3e3e2e801c30258. The exact latest branch h
 The allocator previously marked available Multiboot2 memory ranges but did not explicitly apply non-available map entries. Firmware maps are expected to be non-overlapping, but if an overlapping/contradictory map described a reserved page as available, allocator safety depended on entry ordering. Initialization now performs a second pass over the already-validated map and reserves every non-available range after available ranges have been collected, so reserved entries win regardless of ordering. This does not replace validation of firmware-provided map quality and does not expand the managed physical range beyond the existing 1 GiB limit.
 
 Code commit: 5e152af95b0423f3057fa13f85828a88e75bbd9b. Await the exact-head build/ISO/native-BIOS QEMU and security workflows before treating the change as verified.
+
+
+## MMIO paging lock and DMA readiness audit — 2026-10-23
+
+A QEMU boot test exposed a real deadlock in the MMIO unmap path. The public `paging_unmap_mmio_range()` acquired the page-table lock and its internal helper called the public `paging_unmap_page()`, attempting to acquire the same non-recursive lock again. The internal range helper now calls `paging_unmap_page_unlocked()` while the outer lock is held. This also keeps the range operation serialized as intended. Regression evidence is the exact-head ISO and native-BIOS QEMU workflow below.
+
+The same follow-up rejects Multiboot2 memory-map tags whose payload contains a partial trailing entry; a regression test covers the malformed size. The forward declaration for the internal unmap helper was also added so the freestanding build succeeds with `-Werror`.
+
+DMA readiness audit:
+- The current physical allocator returns one 4 KiB page at a time and manages physical addresses only up to 1 GiB. It has no contiguous multi-page allocation contract, DMA address mask/limit parameter, pin/reference ownership, cache-coherency API, IOMMU mapping, or device ownership handoff.
+- Page-table MMIO mapping is for supervisor device-register windows; it is not a DMA buffer mapping API. Uncached MMIO PTE flags must not be mistaken for a complete DMA cache-coherency contract.
+- Therefore, do not enable PCI bus mastering or start xHCI/audio DMA yet. The safe next implementation unit is a separately tested contiguous-page allocator with explicit alignment and maximum-address constraints, followed by documented cache/ownership semantics and rollback tests. Hardware start must remain gated until platform-specific coherency and DMA addressability are established.
+
+Exact code verification at PR head `ec52d10633f3f7c8aec712934782e591c864eaf7`:
+- [Build and boot-test, run 39940906836](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39940906836) — passed, including ISO and native-BIOS QEMU boot tests.
+- [Security architecture checks, run 39940906838](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39940906838) — passed.
+
+These are software/QEMU checks, not physical-hardware validation. USB enumeration/transfers, a live xHCI driver, DMA, interrupt-driven device I/O, and hardware audio remain unimplemented acceptance gates.
