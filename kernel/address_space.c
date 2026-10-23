@@ -217,6 +217,7 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
         (physical_address & ~PAGE_MASK) != 0 ||
         physical_address == 0 ||
         physical_address >= PROSENJIT_PHYS_LIMIT ||
+        !physical_page_is_user_mappable(physical_address) ||
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
@@ -512,7 +513,11 @@ int address_space_selftest(void) {
     if (!kernel_physical ||
         physical_page_is_user_mappable(kernel_physical) ||
         address_space_map_user_page(&space, PROSENJIT_USER_TEST_VA,
-                                    kernel_physical, PROSENJIT_PAGE_NX) == 0) {
+                                    kernel_physical, PROSENJIT_PAGE_NX) == 0 ||
+        address_space_map_user_page_owned(&space,
+                                          PROSENJIT_USER_TEST_VA + 0x1000ULL,
+                                          kernel_physical,
+                                          PROSENJIT_PAGE_NX) == 0) {
         if (kernel_physical) physical_page_free(kernel_physical);
         address_space_destroy(&space);
         return -7;
