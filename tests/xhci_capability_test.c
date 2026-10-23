@@ -122,6 +122,25 @@ int main(void)
                bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
     assert(protocol_count == 1u);
 
+    /* Distinct Supported Protocol records may not claim the same port.
+       The failure must not publish a partial protocol count. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0xC0], 0x00000802u); /* next record at +32 bytes */
+    put32(&bar[0xC8], 1u | (2u << 8)); /* ports 1..2 */
+    put32(&bar[0xE0], 0x00000002u);
+    put32(&bar[0xE8], 2u | (2u << 8)); /* ports 2..3 overlaps port 2 */
+    protocol_count = 91u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 91u);
+
+    /* Adjacent, non-overlapping ranges remain valid. */
+    put32(&bar[0xE8], 3u | (2u << 8)); /* ports 3..4 */
+    protocol_count = 0u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0xC0u, 6u, &protocol_count) == PROS_DRIVER_OK);
+    assert(protocol_count == 2u);
+
     /* PSI count expands the capability beyond its fixed 16-byte structure. */
     make_bar(bar, sizeof(bar));
     put32(&bar[0xC0], 0x00000002u);
