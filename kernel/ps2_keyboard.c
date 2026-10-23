@@ -66,6 +66,39 @@ void pros_ps2_keyboard_reset_decoder(void)
     pros_ps2_mouse_reset(&mouse_decoder);
 }
 
+int pros_ps2_keyboard_recover(uint32_t input_endpoint_id)
+{
+    struct pros_ps2_mouse_decoder previous = mouse_decoder;
+    struct pros_hw_input_event events[3];
+    struct pros_hw_endpoint_status endpoint_status;
+    uint32_t count = 0u;
+
+    /* Recovery events must be queued atomically or button state must remain
+     * available for retry. The generic endpoint API has no batch guarantee. */
+    if (input_endpoint_id != PROS_INPUT_SERVICE_ENDPOINT_ID)
+        return PROS_DRIVER_EINVAL;
+    int rc = pros_hw_endpoint_status(input_endpoint_id, PROS_HW_ENDPOINT_INPUT,
+                                     &endpoint_status);
+    if (rc != PROS_DRIVER_OK) return rc;
+    if (endpoint_status.initialized == 0u) return PROS_DRIVER_ENODEV;
+
+    rc = pros_ps2_mouse_recover(&mouse_decoder, events, &count);
+    if (rc != PROS_DRIVER_OK) return rc;
+    if (count != 0u) {
+        for (uint32_t i = 0u; i < count; ++i)
+            events[i].timestamp = timer_ticks();
+        rc = pros_input_service_send_batch(input_endpoint_id, events, count);
+        if (rc != PROS_DRIVER_OK) {
+            mouse_decoder = previous;
+            return rc;
+        }
+    }
+
+    extended_prefix = 0u;
+    pause_bytes_remaining = 0u;
+    return PROS_DRIVER_OK;
+}
+
 int pros_ps2_keyboard_decode_byte(uint8_t byte, struct pros_hw_input_event *out)
 {
     uint8_t extended;
