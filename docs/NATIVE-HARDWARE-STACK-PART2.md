@@ -4,10 +4,11 @@ Status: **contract/lifecycle foundation implemented; concrete hardware drivers r
 
 ## Verification record — 2026-10-23
 
-Latest verified Part 2 PR head: `33ba7bc4cc2406ab99b66aa61273d05495c7a11a`.
-- Build and boot-test: [run 39948413192](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948413192) — **passed**, including desktop/hardware hosted contract suites, PS/2 keyboard/mouse and input-service tests, ISO build, ProsenjitFS block-init diagnostics, ISO QEMU boot, and native BIOS image QEMU boot.
-- Security architecture checks: [run 39948413296](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39948413296) — **passed**.
-- PS/2 mouse packets are now queued atomically when using the kernel input-service endpoint, so a queue-capacity failure cannot enqueue motion without its button edges. Generic registered endpoints retain their existing per-event delivery contract.
+Latest verified Part 2 PR head: `2a094e8b3c3c0925e9910504078526a5757eda08`.
+- Build and boot-test: [run 39959560396](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39959560396) — **passed**.
+- Security architecture checks: [run 39959560429](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39959560429) — **passed**.
+- The previous build run [39958843572](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39958843572) failed on a test expectation that incorrectly expected a second mouse-button press event while the button was already held. The test now correctly expects zero new events for that unchanged button state; both workflows pass on the corrected commit.
+- PS/2 mouse packets are queued atomically when using the kernel input-service endpoint, so a queue-capacity failure cannot enqueue motion without its button edges. Generic registered endpoints retain their existing per-event delivery contract.
 - Mouse decoder transport-recovery API discards partial packets and emits release edges for previously held buttons. It is a decoder-level recovery contract; controller reset/disconnect detection and physical recovery remain unimplemented.
 - These remain host/emulator tests; no live USB controller transport or physical hardware was tested.
 
