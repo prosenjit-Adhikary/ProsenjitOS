@@ -10210,6 +10210,49 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * A failed rmdir commit must not remove the directory's namespace entry
+     * or leave a partially freed child inode after simulated power loss.
+     */
+    {
+        struct pros_vfs_dir directory;
+        int rmdir_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_mkdir(&fs.mount, "/rmdir-atomic-probe") != PROS_VFS_OK ||
+            vfs_dir_open(&fs.mount, "/rmdir-atomic-probe", &directory) !=
+                PROS_VFS_OK ||
+            vfs_dir_close(&directory) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_commit_write_once = 1u;
+        rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-atomic-probe");
+        if (rmdir_rc != PROS_VFS_EIO ||
+            disk.fail_commit_write_once != 0u ||
+            !fs.read_only || !fs.mount.read_only) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        if (vfs_dir_open(&fs.mount, "/rmdir-atomic-probe", &directory) !=
+                PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        if (vfs_dir_close(&directory) != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * A failure before the journal header is published is retryable. Fail
      * the first transaction flush (commit-slot invalidation), verify the
      * mount remains writable and no bytes are reported written, then retry
