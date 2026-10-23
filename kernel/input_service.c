@@ -77,9 +77,25 @@ static int input_endpoint_transfer(void *context, const void *buffer,
     const struct pros_hw_input_event *event =
         (const struct pros_hw_input_event *)buffer;
     if (event->version != PROS_HW_STACK_ABI_VERSION ||
-        (event->type != PROS_HW_INPUT_KEY &&
-         event->type != PROS_HW_INPUT_POINTER))
+        event->reserved != 0u ||
+        (event->flags & ~(PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE |
+                          PROS_HW_INPUT_RELATIVE)) != 0u)
         return PROS_DRIVER_EINVAL;
+
+    /* Enforce the ABI again at the queue boundary. Callers can reach this
+     * callback through the generic endpoint submit API without going through
+     * pros_hw_input_send(), so the queue must not trust that wrapper alone. */
+    uint32_t edge = event->flags & (PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE);
+    if (event->type == PROS_HW_INPUT_KEY) {
+        if ((edge != PROS_HW_INPUT_PRESS && edge != PROS_HW_INPUT_RELEASE) ||
+            (event->flags & PROS_HW_INPUT_RELATIVE) != 0u)
+            return PROS_DRIVER_EINVAL;
+    } else if (event->type == PROS_HW_INPUT_POINTER) {
+        if (edge == (PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE))
+            return PROS_DRIVER_EINVAL;
+    } else {
+        return PROS_DRIVER_EINVAL;
+    }
 
     uint64_t flags = input_lock_acquire();
     if (!input_state.ready) {
