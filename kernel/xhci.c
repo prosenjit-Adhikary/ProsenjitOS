@@ -2,7 +2,8 @@
 #include "driver.h"
 
 #define XHCI_CAP_HEADER_MIN 0x20u
-#define XHCI_RUNTIME_MIN_SIZE 0x20u
+#define XHCI_RUNTIME_BASE_SIZE 0x20u
+#define XHCI_RUNTIME_INTERRUPTER_SIZE 0x20u
 
 static uint32_t read_le32(const uint8_t *p)
 {
@@ -56,7 +57,11 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
         parsed.runtime_offset < parsed.capability_length ||
         !range_valid(parsed.doorbell_offset,
                      ((uint32_t)parsed.max_slots + 1u) * 4u, bar_length) ||
-        !range_valid(parsed.runtime_offset, XHCI_RUNTIME_MIN_SIZE, bar_length))
+        !range_valid(parsed.runtime_offset,
+                     XHCI_RUNTIME_BASE_SIZE +
+                         (uint32_t)parsed.max_interrupters *
+                             XHCI_RUNTIME_INTERRUPTER_SIZE,
+                     bar_length))
         return PROS_DRIVER_EIO;
 
     /* xECP points into capability registers, before operational registers. */
