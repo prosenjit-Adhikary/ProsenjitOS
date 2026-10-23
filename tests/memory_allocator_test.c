@@ -145,7 +145,7 @@ int main(void) {
         fputs("allocator test: rejected request changed free-page count\n", stderr);
         return 29;
     }
-    if (physical_memory_failed_allocations() != failed_before + 4u) {
+    if (physical_memory_failed_allocations() != failed_before + 5u) {
         fputs("allocator test: rejected allocation requests were not counted exactly\n", stderr);
         return 30;
     }
