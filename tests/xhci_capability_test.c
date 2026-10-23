@@ -80,6 +80,18 @@ int main(void)
                0, sizeof(bar), 0u, &ext_count) == PROS_DRIVER_EINVAL);
 
 
+    /* Linked-list walkers must not parse doorbell/runtime registers as
+       extended-capability headers, even if the BAR snapshot is in bounds. */
+    make_bar(bar, sizeof(bar));
+    ext_count = 63u;
+    assert(pros_xhci_validate_extended_capabilities(
+               bar, sizeof(bar), 0x100u, &ext_count) == PROS_DRIVER_EIO);
+    assert(ext_count == 63u);
+    protocol_count = 64u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0x140u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 64u);
+
     /* Supported Protocol capability: USB 2 protocol, ports 1..4. */
     make_bar(bar, sizeof(bar));
     put32(&bar[0xC0], 0x00000002u);
