@@ -776,6 +776,12 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
                     (uint64_t)(uintptr_t)worker_thread_stack,
                     (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack))) != 0 ||
+        init_thread.kernel_stack_bottom != (uint64_t)(uintptr_t)init_thread_stack ||
+        init_thread.kernel_stack_top != (uint64_t)(uintptr_t)(init_thread_stack + sizeof(init_thread_stack)) ||
+        init_thread.context.rsp != init_thread.kernel_stack_top - 7u * sizeof(uint64_t) ||
+        worker_thread.kernel_stack_bottom != (uint64_t)(uintptr_t)worker_thread_stack ||
+        worker_thread.kernel_stack_top != (uint64_t)(uintptr_t)(worker_thread_stack + sizeof(worker_thread_stack)) ||
+        worker_thread.context.rsp != worker_thread.kernel_stack_top - 7u * sizeof(uint64_t) ||
         thread_set_state(&init_thread, PROS_THREAD_READY) != 0 ||
         thread_set_state(&worker_thread, PROS_THREAD_READY) != 0 ||
         thread_enqueue(&init_thread) != 0 ||
