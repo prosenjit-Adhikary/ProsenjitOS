@@ -96,5 +96,12 @@ int main(void)
     assert(pros_input_service_poll_hardware() == PROS_DRIVER_ENODEV);
     assert(pros_input_service_grant_read(0, 0) == PROS_DRIVER_EINVAL);
     assert(pros_input_service_shutdown() == PROS_DRIVER_ENODEV);
+
+    /* The same managed service can be initialized again after clean teardown. */
+    assert(pros_input_service_init() == PROS_DRIVER_OK);
+    assert(pros_input_service_is_ready() == 1);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+    assert(pros_input_service_shutdown() == PROS_DRIVER_OK);
+    assert(pros_input_service_is_ready() == 0);
     return 0;
 }
