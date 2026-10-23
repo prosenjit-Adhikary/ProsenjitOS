@@ -67,8 +67,7 @@ jobs:
           make pci-test
           make xhci-capability-test
           make memory-allocator-test
-          make pic-test
-          make ps2-irq-dispatch-test
+          make part2-host-tests
 
       - name: Build ISO
         run: |
