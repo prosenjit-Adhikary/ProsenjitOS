@@ -46,6 +46,7 @@ static uint8_t worker_thread_stack[4096] __attribute__((aligned(16)));
 static uint8_t lifecycle_thread_stack[4096] __attribute__((aligned(16)));
 static struct pros_interrupt_frame scheduler_init_frame;
 static struct pros_interrupt_frame scheduler_worker_frame;
+static struct pros_user_interrupt_frame scheduler_user_frame_probe;
 
 static volatile uint64_t scheduler_test_init_progress;
 static volatile uint64_t scheduler_test_worker_progress;
@@ -864,6 +865,42 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: interrupt-frame scheduler save/restore test passed\n");
+
+    /*
+     * User-origin IRQ/syscall frames include RSP/SS and may originate on a
+     * shared TSS stack. Verify the scheduler snapshots all 20 words into
+     * per-thread storage and later selects that stable copy.
+     */
+    scheduler_user_frame_probe.frame.rax = 0x3333333333333333ULL;
+    scheduler_user_frame_probe.frame.rip = 0xCCCCCCCCCCCCCCCCULL;
+    scheduler_user_frame_probe.frame.cs = 0x23;
+    scheduler_user_frame_probe.frame.rflags = 0x202;
+    scheduler_user_frame_probe.rsp = 0x00007FFFFFFFE000ULL;
+    scheduler_user_frame_probe.ss = 0x1B;
+    struct pros_interrupt_frame *user_first_switch =
+        thread_schedule_interrupt(&scheduler_user_frame_probe.frame);
+    if (thread_current() != &worker_thread ||
+        user_first_switch != worker_thread.interrupt_frame ||
+        init_thread.interrupt_frame != &init_thread.user_interrupt_frame.frame ||
+        init_thread.interrupt_frame == &scheduler_user_frame_probe.frame ||
+        init_thread.user_interrupt_frame.frame.rax != 0x3333333333333333ULL ||
+        init_thread.user_interrupt_frame.frame.rip != 0xCCCCCCCCCCCCCCCCULL ||
+        init_thread.user_interrupt_frame.rsp != 0x00007FFFFFFFE000ULL ||
+        init_thread.user_interrupt_frame.ss != 0x1B) {
+        serial_write("ProsenjitOS: ERROR user interrupt-frame snapshot regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
+    struct pros_interrupt_frame *user_second_switch =
+        thread_schedule_interrupt(&scheduler_worker_frame);
+    if (thread_current() != &init_thread ||
+        user_second_switch != &init_thread.user_interrupt_frame.frame ||
+        init_thread.user_interrupt_frame.rsp != 0x00007FFFFFFFE000ULL ||
+        init_thread.user_interrupt_frame.ss != 0x1B) {
+        serial_write("ProsenjitOS: ERROR user interrupt-frame resume regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: user interrupt-frame ownership/resume test passed\n");
 
     /* A failed CR3/address-space switch must not leave the still-executing
      * thread marked READY and linked in the run queue. */

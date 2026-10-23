@@ -10,6 +10,11 @@ _Static_assert(offsetof(struct pros_interrupt_frame, rip) == 15 * sizeof(uint64_
                "interrupt frame RIP offset must match ISR assembly");
 _Static_assert(sizeof(struct pros_interrupt_frame) == 18 * sizeof(uint64_t),
                "interrupt frame size must match ISR assembly");
+_Static_assert(offsetof(struct pros_user_interrupt_frame, rsp) ==
+               sizeof(struct pros_interrupt_frame),
+               "user IRET RSP must immediately follow the common interrupt frame");
+_Static_assert(sizeof(struct pros_user_interrupt_frame) == 20 * sizeof(uint64_t),
+               "user interrupt frame must preserve the full five-word IRET frame");
 
 static struct pros_thread *runq_head;
 static struct pros_thread *runq_tail;
@@ -294,8 +299,24 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
      * interruptible idle loop because no runnable thread existed. In that
      * case this frame belongs to the idle loop, not to a blocked thread.
      */
-    if (prev)
-        prev->interrupt_frame = current_frame;
+    if (prev) {
+        if ((current_frame->cs & 0x3u) != 0) {
+            /*
+             * CPL3 entries contain RSP/SS after the common 18-word frame.
+             * Both INT 0x80 (IST1) and user-origin timer IRQs can land on a
+             * shared TSS stack; never retain that transient stack pointer
+             * across a context switch. Copy all 20 words into the thread.
+             */
+            const uint64_t *source = (const uint64_t *)current_frame;
+            uint64_t *destination = (uint64_t *)&prev->user_interrupt_frame;
+            for (size_t word = 0; word < 20; ++word)
+                destination[word] = source[word];
+            prev->interrupt_frame = &prev->user_interrupt_frame.frame;
+        } else {
+            /* CPL0 timer frames already reside on the thread's own kernel stack. */
+            prev->interrupt_frame = current_frame;
+        }
+    }
     struct pros_thread *next;
     do {
         next = thread_dequeue();

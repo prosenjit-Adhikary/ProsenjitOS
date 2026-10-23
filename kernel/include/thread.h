@@ -30,6 +30,19 @@ struct pros_interrupt_frame {
     uint64_t rip, cs, rflags;
 };
 
+/*
+ * User-mode interrupts push a five-word IRET frame (RIP, CS, RFLAGS, RSP,
+ * SS). Timer/syscall entries may use shared TSS stacks, so this complete
+ * frame must be copied into storage owned by the interrupted thread before
+ * scheduling away. Keep the first 18 words layout-compatible with
+ * pros_interrupt_frame for the common register restore assembly.
+ */
+struct pros_user_interrupt_frame {
+    struct pros_interrupt_frame frame;
+    uint64_t rsp;
+    uint64_t ss;
+};
+
 struct pros_thread {
     uint64_t tid;
     struct pros_process *process;
@@ -38,6 +51,8 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
+    /* Stable per-thread storage for user-mode IRQ/syscall frames from shared stacks. */
+    struct pros_user_interrupt_frame user_interrupt_frame;
     void *wait_channel;
     uint64_t blocked_syscall;
     struct pros_thread *next;
