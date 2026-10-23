@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ASM="$ROOT/kernel/idt.asm"
+PIC="$ROOT/kernel/pic.c"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -59,4 +60,14 @@ done
 # The timer must acknowledge the PIC on both switch and no-switch paths.
 block_has isr32 '%macro ISR_NO_ERROR' 'call pic_eoi_master' "timer path must acknowledge the master PIC"
 
-echo "PASS: exception error-code frames, GPR save/restore coverage, and interrupt stack-alignment structure"
+# Do not inherit BIOS/bootloader PIC masks: only IRQ0 may be enabled at
+# initialization, and all slave PIC IRQs must remain masked until registered.
+grep -Fq 'pic_out8(0x21, 0xFEu);' "$PIC" ||
+  fail "PIC initialization must enable only IRQ0"
+grep -Fq 'pic_out8(0xA1, 0xFFu);' "$PIC" ||
+  fail "PIC initialization must keep every slave IRQ masked"
+if grep -Fq 'master_mask' "$PIC"; then
+  fail "PIC initialization must not inherit firmware master IRQ mask"
+fi
+
+echo "PASS: exception frames, GPR save/restore, stack alignment, and safe PIC masks"
