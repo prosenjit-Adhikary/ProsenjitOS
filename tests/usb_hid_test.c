@@ -68,6 +68,33 @@ int main(void)
     assert(pros_usb_hid_keyboard_report(&keyboard, report, 0, &count) == PROS_DRIVER_EINVAL);
     assert(pros_usb_hid_keyboard_report(&keyboard, report, events, 0) == PROS_DRIVER_EINVAL);
     assert(pros_usb_hid_mouse_report(&mouse, mouse_report, 0, &count) == PROS_DRIVER_EINVAL);
+
+    /* Disconnect recovery must synthesize releases before clearing state. */
+    assert(pros_usb_hid_keyboard_recover(&keyboard, events, &count) == PROS_DRIVER_OK);
+    assert(count == 2u);
+    assert(events[0].type == PROS_HW_INPUT_KEY &&
+           events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 0xE1);
+    assert(events[1].type == PROS_HW_INPUT_KEY &&
+           events[1].flags == PROS_HW_INPUT_RELEASE && events[1].value0 == 5);
+    assert(keyboard.modifiers == 0u && keyboard.keys[0] == 0u);
+    assert(pros_usb_hid_keyboard_recover(&keyboard, events, &count) == PROS_DRIVER_OK);
+    assert(count == 0u);
+    assert(pros_usb_hid_keyboard_recover(0, events, &count) == PROS_DRIVER_EINVAL);
+
+    mouse_report[0] = 5u; mouse_report[1] = 0u; mouse_report[2] = 0u;
+    assert(pros_usb_hid_mouse_report(&mouse, mouse_report, events, &count) == PROS_DRIVER_OK);
+    assert(count == 2u);
+    assert(pros_usb_hid_mouse_recover(&mouse, events, &count) == PROS_DRIVER_OK);
+    assert(count == 2u);
+    assert(events[0].type == PROS_HW_INPUT_POINTER &&
+           events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 1);
+    assert(events[1].type == PROS_HW_INPUT_POINTER &&
+           events[1].flags == PROS_HW_INPUT_RELEASE && events[1].value0 == 3);
+    assert(mouse.buttons == 0u);
+    assert(pros_usb_hid_mouse_recover(&mouse, events, &count) == PROS_DRIVER_OK);
+    assert(count == 0u);
+    assert(pros_usb_hid_mouse_recover(0, events, &count) == PROS_DRIVER_EINVAL);
+
     pros_usb_hid_keyboard_reset(&keyboard);
     pros_usb_hid_mouse_reset(&mouse);
     assert(keyboard.modifiers == 0u && mouse.buttons == 0u);
