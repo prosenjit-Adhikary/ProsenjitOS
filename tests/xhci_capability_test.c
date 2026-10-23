@@ -178,6 +178,9 @@ int main(void)
     put32(&bar[0x18], 0x180u); /* base runtime area fits, interrupter sets do not */
     assert(pros_xhci_parse_capabilities(bar, 0x200u, &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
+    put32(&bar[0x10], (0x0Fu << 16) | (1u << 2)); /* xECP overlaps capability registers */
+    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+    make_bar(bar, sizeof(bar));
     put32(&bar[0x10], (0x7Fu << 16) | (1u << 2));
     assert(pros_xhci_parse_capabilities(bar, 0x1F0u, &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
