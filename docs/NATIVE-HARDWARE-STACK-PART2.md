@@ -13,7 +13,7 @@ These results verify the automated checks attached to that commit only. They do 
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
 - [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
-- [ ] Complete PS/2 mouse integration: the current three-byte movement decoder is compiled and unit-tested, but controller enablement, live transport/polling, button-state delivery, and device reset/disconnect handling are not integrated. USB HID keyboard/mouse support and disconnect/error handling also remain open.
+- [ ] Complete PS/2 mouse integration: the current three-byte movement decoder is compiled and unit-tested, but controller enablement, live transport/polling, button-state delivery, and device reset/disconnect handling are not integrated. USB HID boot-protocol keyboard/mouse report decoders now exist and are hosted-tested, but they are not connected to USB enumeration, host-controller transfers, live input service delivery, or disconnect/error recovery. USB host-controller support remains open.
 - [ ] Define and test keyboard/mouse IRQ routing and interrupt acknowledgement; do not claim IRQ-driven input while the current backend is polling.
 - [ ] Design safe DMA allocation, cache/coherency rules, device ownership and IOMMU isolation before enabling bus mastering or implementing a DMA-backed audio driver.
 - [ ] Implement a real supported audio backend (for example, a narrowly scoped HDA or AC'97 target) with failure-safe initialization, bounded buffers, shutdown and tests.
