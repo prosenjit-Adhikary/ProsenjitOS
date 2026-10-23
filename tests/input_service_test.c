@@ -24,7 +24,9 @@ int main(void)
     pros_ps2_keyboard_test_reset_fifo();
     pros_ps2_keyboard_reset_decoder();
 
-    assert(pros_input_service_is_ready() == 0);\n    assert(pros_input_service_grant_read(0, 0) == PROS_DRIVER_EINVAL);\n    assert(pros_input_service_read_capability(0, 1u, &event) == PROS_DRIVER_EINVAL);
+    assert(pros_input_service_is_ready() == 0);
+    assert(pros_input_service_grant_read(0, 0) == PROS_DRIVER_EINVAL);
+    assert(pros_input_service_read_capability(0, 1u, &event) == PROS_DRIVER_EINVAL);
     assert(pros_hw_stack_init() == PROS_DRIVER_OK);
     assert(pros_input_service_init() == PROS_DRIVER_OK);
     assert(pros_input_service_is_ready() == 1);
