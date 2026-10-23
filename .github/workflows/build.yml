@@ -47,6 +47,7 @@ jobs:
           bash -n scripts/test_ps2_mouse.sh
           bash -n scripts/test_usb_hid.sh
           bash -n scripts/test_usb_host.sh
+          bash -n scripts/test_usb_descriptor.sh
           bash -n scripts/test_input_service.sh
           bash -n scripts/test_keymap.sh
           bash -n scripts/test_pci.sh
@@ -56,6 +57,7 @@ jobs:
           make ps2-mouse-test
           make usb-hid-test
           make usb-host-test
+          make usb-descriptor-test
           make input-service-test
           make keymap-test
           make pci-test
