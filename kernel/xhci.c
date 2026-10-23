@@ -119,3 +119,65 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
     *count_out = count;
     return PROS_DRIVER_OK;
 }
+
+/* Validate Supported Protocol capabilities (ID 2) and their one-based port
+ * ranges against MaxPorts. Unknown capability types are skipped safely. */
+int pros_xhci_validate_supported_protocols(const uint8_t *bar,
+                                           uint32_t bar_length,
+                                           uint32_t first_offset,
+                                           uint8_t max_ports,
+                                           uint32_t *count_out)
+{
+    if (!bar || !count_out || max_ports == 0u)
+        return PROS_DRIVER_EINVAL;
+    if (bar_length < XHCI_CAP_HEADER_MIN ||
+        bar[0] < XHCI_CAP_HEADER_MIN || (bar[0] & 3u) != 0u ||
+        bar[0] > bar_length)
+        return PROS_DRIVER_EIO;
+    if (first_offset == 0u) {
+        *count_out = 0u;
+        return PROS_DRIVER_OK;
+    }
+    if ((first_offset & 3u) != 0u ||
+        first_offset < XHCI_CAP_HEADER_MIN ||
+        !range_valid(first_offset, 4u, bar_length))
+        return PROS_DRIVER_EIO;
+
+    uint32_t offset = first_offset;
+    uint32_t visited = 0u;
+    uint32_t supported = 0u;
+    uint32_t max_headers = bar_length / 4u;
+    while (offset != 0u) {
+        if (visited >= max_headers || !range_valid(offset, 4u, bar_length))
+            return PROS_DRIVER_EIO;
+        uint32_t header = read_le32(&bar[offset]);
+        uint32_t id = header & 0xFFu;
+        uint32_t next_dwords = (header >> 8) & 0xFFu;
+        if (id == 0u)
+            return PROS_DRIVER_EIO;
+        if (id == 2u) {
+            if (!range_valid(offset, 16u, bar_length))
+                return PROS_DRIVER_EIO;
+            uint32_t ports = read_le32(&bar[offset + 8u]);
+            uint32_t first_port = ports & 0xFFu;
+            uint32_t port_count = (ports >> 8) & 0xFFu;
+            if (first_port == 0u || port_count == 0u ||
+                first_port > max_ports ||
+                port_count > (uint32_t)max_ports - first_port + 1u)
+                return PROS_DRIVER_EIO;
+            ++supported;
+        }
+        ++visited;
+        if (next_dwords == 0u)
+            break;
+        uint32_t delta = next_dwords * 4u;
+        if (delta > UINT32_MAX - offset)
+            return PROS_DRIVER_EIO;
+        uint32_t next = offset + delta;
+        if (next <= offset || !range_valid(next, 4u, bar_length))
+            return PROS_DRIVER_EIO;
+        offset = next;
+    }
+    *count_out = supported;
+    return PROS_DRIVER_OK;
+}
