@@ -18,7 +18,7 @@ block_has() {
     $0 ~ ("^" start ":$") { active=1 }
     active { print }
     active && $0 ~ ("^" end) { exit }
-  ' "$ASM" | grep -Eq "$pattern"; then
+  ' "$ASM" | grep -E "$pattern" >/dev/null; then
     fail "$description"
   fi
 }
