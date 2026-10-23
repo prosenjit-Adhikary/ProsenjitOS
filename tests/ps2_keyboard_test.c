@@ -173,7 +173,8 @@ int main(void)
     assert(pros_ps2_keyboard_test_push(0x21u, 0x09u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x21u, 0x00u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x21u, 0x00u) == PROS_DRIVER_OK);
-    assert(pros_ps2_keyboard_poll(77u) == 1);
+    /* Button 1 is already held, so this packet has no new edge to publish. */
+    assert(pros_ps2_keyboard_poll(77u) == 0);
     batch_result = PROS_DRIVER_ENOSPC;
     assert(pros_ps2_keyboard_recover(PROS_INPUT_SERVICE_ENDPOINT_ID) == PROS_DRIVER_ENOSPC);
     batch_result = PROS_DRIVER_OK;
