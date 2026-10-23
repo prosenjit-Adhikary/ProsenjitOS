@@ -7,7 +7,7 @@
 #define PROS_USER_DATA
 #else
 #define PROS_USER_CODE __attribute__((section(".user_text"), used))
-#define PROS_USER_DATA __attribute__((section(".user_text"), used))
+#define PROS_USER_DATA __attribute__((section(".user_text.data"), used))
 #endif
 
 static const char plain_map[128] PROS_USER_DATA = {
