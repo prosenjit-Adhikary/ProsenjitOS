@@ -163,7 +163,7 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
-extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
+extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle, uint64_t input_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
 extern void user_test_entry(void);
@@ -1447,14 +1447,40 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR final user process/address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    /* End-to-end syscall-dispatch test with the target address space active. */
+    /* Provision a dedicated READ-only capability for the CPL3 input test. */
+    uint64_t input_read_handle = PROSENJIT_HANDLE_INVALID;
     {
         struct pros_hw_input_event probe;
-        struct pros_input_event observed;
-        uint64_t input_read_handle = PROSENJIT_HANDLE_INVALID;
-        uint64_t user_buffer = PROSENJIT_USER_STACK_TOP - sizeof(struct pros_input_event);
-        volatile uint64_t input_regs[6] = {0, 0, 0, 0, 0, 0};
-        volatile uint64_t input_frame[7] = {0, 0, 0, 0, 0, 0, 0};
+        struct pros_hw_input_event discarded;
+        uint64_t saved_flags;
+        int queue_empty = 0;
+
+        if (pros_input_service_grant_read(&init_process, &input_read_handle) != PROS_DRIVER_OK ||
+            input_read_handle == PROSENJIT_HANDLE_INVALID) {
+            serial_write("ProsenjitOS: ERROR input capability provisioning failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /* Freeze the timer poller while clearing stale boot-time input and
+         * enqueueing the deterministic event that the CPL3 test must receive. */
+        __asm__ volatile ("pushfq; popq %0; cli" : "=r"(saved_flags) : : "memory");
+        for (uint32_t i = 0u; i <= PROS_INPUT_SERVICE_QUEUE_CAPACITY; ++i) {
+            int rc = pros_input_service_read_capability(&init_process,
+                                                        input_read_handle,
+                                                        &discarded);
+            if (rc == PROS_DRIVER_EBUSY) {
+                queue_empty = 1;
+                break;
+            }
+            if (rc != PROS_DRIVER_OK) {
+                serial_write("ProsenjitOS: ERROR input queue drain failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+        if (!queue_empty) {
+            serial_write("ProsenjitOS: ERROR input queue did not drain within its bound\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
 
         probe.version = PROS_HW_STACK_ABI_VERSION;
         probe.type = PROS_HW_INPUT_KEY;
@@ -1463,40 +1489,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         probe.timestamp = 2u;
         probe.value0 = 0x20u;
         probe.value1 = 0;
-
-        if (pros_input_service_grant_read(&init_process, &input_read_handle) != PROS_DRIVER_OK ||
-            pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &probe) != PROS_DRIVER_OK) {
-            serial_write("ProsenjitOS: ERROR input syscall test setup failed\n");
+        if (pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &probe) != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR input syscall probe enqueue failed\n");
             for (;;) __asm__ volatile ("cli; hlt");
         }
-
-        input_regs[0] = PROSENJIT_SYS_INPUT_READ;
-        input_regs[4] = user_buffer;
-        input_regs[5] = 0xFFFFFFFFFFFFFF01ULL;
-        syscall_dispatch(input_regs, input_frame);
-        if (input_regs[0] != PROSENJIT_SYSCALL_EPERM) {
-            serial_write("ProsenjitOS: ERROR input syscall accepted a forged handle\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-
-        input_regs[0] = PROSENJIT_SYS_INPUT_READ;
-        input_regs[4] = user_buffer;
-        input_regs[5] = input_read_handle;
-        syscall_dispatch(input_regs, input_frame);
-        if (input_regs[0] != PROSENJIT_SYSCALL_OK ||
-            copy_from_user(&init_process.address_space, &observed, user_buffer,
-                           sizeof(observed)) != 0 ||
-            observed.version != PROSENJIT_INPUT_ABI_VERSION ||
-            observed.type != PROS_INPUT_KEY ||
-            observed.flags != PROS_INPUT_FLAG_PRESS ||
-            observed.value0 != 0x20 ||
-            process_close_handle(&init_process, input_read_handle) != 0) {
-            serial_write("ProsenjitOS: ERROR input syscall user-buffer delivery failed\n");
-            for (;;) __asm__ volatile ("cli; hlt");
-        }
-        serial_write("ProsenjitOS: capability-checked userspace input syscall self-test passed\n");
+        __asm__ volatile ("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
     }
 
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
-    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
+    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle, input_read_handle);
 }
