@@ -64,11 +64,10 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
                      bar_length))
         return PROS_DRIVER_EIO;
 
-    /* xECP points into capability registers, before operational registers. */
+    /* xECP is a BAR-relative pointer and may lie beyond CAPLENGTH. */
     if (parsed.extended_capabilities_offset != 0u &&
         (parsed.extended_capabilities_offset < XHCI_CAP_HEADER_MIN ||
-         !range_valid(parsed.extended_capabilities_offset, 4u,
-                      parsed.capability_length)))
+         !range_valid(parsed.extended_capabilities_offset, 4u, bar_length)))
         return PROS_DRIVER_EIO;
 
     *out = parsed;
@@ -84,24 +83,22 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
         return PROS_DRIVER_EINVAL;
     if (bar_length < XHCI_CAP_HEADER_MIN)
         return PROS_DRIVER_EINVAL;
-
-    uint32_t cap_length = bar[0];
-    if (cap_length < XHCI_CAP_HEADER_MIN || (cap_length & 3u) != 0u ||
-        cap_length > bar_length)
+    if (bar[0] < XHCI_CAP_HEADER_MIN || (bar[0] & 3u) != 0u ||
+        bar[0] > bar_length)
         return PROS_DRIVER_EIO;
     if (first_offset == 0u) {
         *count_out = 0u;
         return PROS_DRIVER_OK;
     }
     if ((first_offset & 3u) != 0u || first_offset < XHCI_CAP_HEADER_MIN ||
-        !range_valid(first_offset, 4u, cap_length))
+        !range_valid(first_offset, 4u, bar_length))
         return PROS_DRIVER_EIO;
 
     uint32_t offset = first_offset;
     uint32_t count = 0u;
-    uint32_t max_headers = cap_length / 4u;
+    uint32_t max_headers = bar_length / 4u;
     while (offset != 0u) {
-        if (count >= max_headers || !range_valid(offset, 4u, cap_length))
+        if (count >= max_headers || !range_valid(offset, 4u, bar_length))
             return PROS_DRIVER_EIO;
         uint32_t header = read_le32(&bar[offset]);
         uint32_t capability_id = header & 0xFFu;
@@ -115,7 +112,7 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
         if (delta > UINT32_MAX - offset)
             return PROS_DRIVER_EIO;
         uint32_t next = offset + delta;
-        if (next <= offset || !range_valid(next, 4u, cap_length))
+        if (next <= offset || !range_valid(next, 4u, bar_length))
             return PROS_DRIVER_EIO;
         offset = next;
     }
