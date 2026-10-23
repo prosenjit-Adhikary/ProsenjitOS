@@ -63,6 +63,15 @@ int main(void)
     bad[13] = 2u; /* interface declares two endpoints but contains one */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
+    uint8_t duplicate_endpoint[32];
+    copy_config(duplicate_endpoint);
+    duplicate_endpoint[2] = 32u;
+    duplicate_endpoint[13] = 2u;
+    for (uint32_t i = 0; i < 7u; ++i)
+        duplicate_endpoint[25u + i] = duplicate_endpoint[18u + i];
+    assert(pros_usb_find_boot_hid_endpoint(duplicate_endpoint,
+           sizeof(duplicate_endpoint), &out) == PROS_DRIVER_EIO);
+
     copy_config(bad);
     bad[20] = 0x91u; /* reserved endpoint-address bits */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
