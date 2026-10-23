@@ -200,6 +200,14 @@ int main(void)
     put32(&bar[0x14], 0x102u);
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
 
+    /* Neither doorbell nor runtime windows may alias operational registers. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0x14], 0x60u);
+    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0x18], 0x60u);
+    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+
     /* The operational register block must include DCBAAP and CONFIG. Here
        doorbell/runtime windows fit, but CAPLENGTH + 0x40 exceeds the BAR. */
     make_bar(bar, sizeof(bar));
