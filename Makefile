@@ -6,7 +6,7 @@ AS := nasm
 CFLAGS := -m64 -ffreestanding -fno-pie -fno-stack-protector -mno-red-zone -mno-sse -mno-mmx -Wall -Wextra -Werror -O2
 LDFLAGS := -nostdlib -z max-page-size=0x1000
 
-.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test input-service-test keymap-test
+.PHONY: all iso clean run desktop-unit-test desktop-abi-test desktop-tests hw-stack-test ps2-keyboard-test input-service-test keymap-test pci-test
 
 all: iso
 
@@ -46,3 +46,7 @@ input-service-test:
 # Host-side test for the user-space US keyboard layout translator.
 keymap-test:
 	bash scripts/test_keymap.sh
+
+# Hosted tests for read-only PCI BAR decoding and malformed descriptors.
+pci-test:
+	bash scripts/test_pci.sh
