@@ -108,5 +108,23 @@ int main(void)
     pros_ps2_mouse_reset(&decoder);
     assert(decoder.packet_used == 0u && decoder.buttons == 0u);
     assert(pros_ps2_mouse_decode_byte(0, 0u, events, &count) == PROS_DRIVER_EINVAL);
+
+    /* Transport recovery releases held buttons and discards partial packets. */
+    pros_ps2_mouse_reset(&decoder);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x0Bu, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 1u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
+    assert(decoder.buttons == 3u);
+    assert(pros_ps2_mouse_decode_byte(&decoder, 0x08u, events, &count) == PROS_DRIVER_ENOTSUP);
+    assert(pros_ps2_mouse_recover(&decoder, events, &count) == PROS_DRIVER_OK);
+    assert(count == 2u);
+    assert(events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 1);
+    assert(events[1].flags == PROS_HW_INPUT_RELEASE && events[1].value0 == 2);
+    assert(decoder.packet_used == 0u && decoder.buttons == 0u);
+    assert(pros_ps2_mouse_recover(&decoder, events, &count) == PROS_DRIVER_OK);
+    assert(count == 0u);
+    assert(pros_ps2_mouse_recover(0, events, &count) == PROS_DRIVER_EINVAL);
+    assert(pros_ps2_mouse_recover(&decoder, 0, &count) == PROS_DRIVER_EINVAL);
+    assert(pros_ps2_mouse_recover(&decoder, events, 0) == PROS_DRIVER_EINVAL);
     return 0;
 }
