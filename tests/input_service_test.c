@@ -96,12 +96,17 @@ int main(void)
     assert(event.timestamp == 1234u);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
 
-    /* AUX data must not consume a pending keyboard Pause sequence. The
-     * unrelated AUX packet terminates that prefix; the following key is real. */
+    /* AUX bytes are a separate stream: they must neither consume nor cancel
+     * the five remaining bytes of the keyboard Pause sequence. */
     assert(pros_ps2_keyboard_test_push(0x01u, 0xE1u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x21u, 0x08u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Du) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x45u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xE1u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x9Du) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xC5u) == PROS_DRIVER_OK);
     assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
     assert(pros_input_service_poll_hardware() == 1);
     assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
