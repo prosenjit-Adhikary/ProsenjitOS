@@ -162,7 +162,8 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
             uint32_t ports = read_le32(&bar[offset + 8u]);
             uint32_t first_port = ports & 0xFFu;
             uint32_t port_count = (ports >> 8) & 0xFFu;
-            uint32_t psi_count = (ports >> 16) & 0xFFu;
+            uint32_t protocol_info = read_le32(&bar[offset + 12u]);
+            uint32_t psi_count = (protocol_info >> 28) & 0x0Fu;
             /* Each PSI entry is one additional dword after the fixed 16-byte
              * Supported Protocol structure. Validate the entire structure,
              * not merely the fixed header, before a caller consumes it. */
