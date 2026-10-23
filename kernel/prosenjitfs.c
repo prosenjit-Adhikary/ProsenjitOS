@@ -10728,10 +10728,10 @@ int prosenjitfs_selftest(void)
     }
 
     /*
-     * Recovery read errors at the journal header and first journal image
-     * must abort mount without retiring the committed journal. After the
-     * transient fault and simulated power loss, a later mount must replay
-     * the complete committed replacement.
+     * Recovery read errors at the journal header, first journal image, and
+     * transaction commit record must abort mount without retiring the
+     * committed journal. After the transient fault and simulated power loss,
+     * a later mount must replay the complete committed replacement.
      */
     {
         /* 0 = journal header, 1 = first image, UINT64_MAX = commit record. */
