@@ -83,6 +83,32 @@ int main(void)
     assert(event.timestamp == 1234u);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
 
+    /* A parity error drops a partial packet but must not forget the held
+     * left button: the next clean packet reports its release edge. */
+    assert(pros_ps2_keyboard_test_push(0xA1u, 0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x08u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_input_service_poll_hardware() == 1);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_POINTER);
+    assert(event.flags == PROS_HW_INPUT_RELEASE && event.value0 == 1);
+    assert(event.timestamp == 1234u);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+
+    /* AUX data must not consume a pending keyboard Pause sequence. The
+     * unrelated AUX packet terminates that prefix; the following key is real. */
+    assert(pros_ps2_keyboard_test_push(0x01u, 0xE1u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0x08u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x21u, 0u) == PROS_DRIVER_OK);
+    assert(pros_ps2_keyboard_test_push(0x01u, 0x1Eu) == PROS_DRIVER_OK);
+    assert(pros_input_service_poll_hardware() == 1);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
+    assert(event.type == PROS_HW_INPUT_KEY);
+    assert(event.flags == PROS_HW_INPUT_PRESS && event.value0 == 0x1E);
+    assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+
     /* The callback must reject malformed events even when a caller bypasses
      * pros_hw_input_send() and submits directly through the generic endpoint. */
     event.version = PROS_HW_STACK_ABI_VERSION;
