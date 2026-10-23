@@ -9,6 +9,8 @@ global stack_top
 extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
+extern pros_keymap_reset
+extern pros_keymap_translate
 extern paging_switch_kernel
 
 _start:
@@ -246,6 +248,16 @@ user_test_entry:
     cmp dword [r14 + 80], 0x20  ; injected scan code
     jne .user_halt
     cmp dword [r14 + 88], 1     ; PROS_INPUT_FLAG_PRESS
+    jne .user_halt
+
+    ; Exercise the real C keymap implementation from the CPL3 image.
+    ; PS/2 set-1 scan code 0x20 is the US-QWERTY 'd' key.
+    lea rdi, [r14 + 128]        ; writable user keymap state
+    call pros_keymap_reset
+    lea rdi, [r14 + 128]
+    lea rsi, [r14 + 64]         ; userspace event received through syscall
+    call pros_keymap_translate
+    cmp eax, 'd'
     jne .user_halt
 
     ; Reject an invalid userspace output pointer before touching the queue.
