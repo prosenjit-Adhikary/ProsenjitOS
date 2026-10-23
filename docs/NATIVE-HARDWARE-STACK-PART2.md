@@ -13,7 +13,7 @@ These results verify the automated checks attached to that commit only. They do 
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
 - [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
-- [ ] Add and test PS/2 mouse and USB HID keyboard/mouse support, including bounded parsing and device disconnect/error handling.
+- [ ] Complete PS/2 mouse integration: the current three-byte movement decoder is compiled and unit-tested, but controller enablement, live transport/polling, button-state delivery, and device reset/disconnect handling are not integrated. USB HID keyboard/mouse support and disconnect/error handling also remain open.
 - [ ] Define and test keyboard/mouse IRQ routing and interrupt acknowledgement; do not claim IRQ-driven input while the current backend is polling.
 - [ ] Design safe DMA allocation, cache/coherency rules, device ownership and IOMMU isolation before enabling bus mastering or implementing a DMA-backed audio driver.
 - [ ] Implement a real supported audio backend (for example, a narrowly scoped HDA or AC'97 target) with failure-safe initialization, bounded buffers, shutdown and tests.
@@ -36,7 +36,7 @@ Until every applicable gate is checked with evidence, keep this PR draft and do 
 
 ## Acceptance evidence
 
-`make ps2-keyboard-test` exercises ordinary press/release codes, E0 extended keys, Pause-sequence filtering, fake Print Screen shifts, malformed-byte recovery, AUX interleaving, the 32-byte polling budget, and the hosted fake-controller FIFO path. `make input-service-test` exercises endpoint registration, PS/2-to-queue delivery, dequeue behavior, and overflow accounting. These are hosted contract tests; no physical PS/2 device or userspace input path was tested.
+`make ps2-keyboard-test` exercises ordinary press/release codes, E0 extended keys, Pause-sequence filtering, fake Print Screen shifts, malformed-byte recovery, AUX interleaving, the 32-byte polling budget, and the hosted fake-controller FIFO path. `make ps2-mouse-test` exercises a pure three-byte PS/2 relative-movement decoder, packet sync recovery, sign handling, overflow rejection, and malformed sign metadata. The mouse decoder is compiled into the kernel but is not yet connected to a controller transport; it does not deliver button state and is not evidence of physical mouse support. `make input-service-test` exercises endpoint registration, PS/2-to-queue delivery, dequeue behavior, and overflow accounting. These are hosted contract tests; no physical PS/2 device or userspace input path was tested.
 
 `make hw-stack-test` runs host-side tests for PCI class classification, malformed/overflowing resource descriptors, explicitly unsupported DMA, invalid device IDs, malformed display/input/audio requests, missing endpoints, duplicate registration, initialization-failure cleanup, failed shutdown/retry, status reporting and normal cleanup. Kernel boot also runs the same deterministic contract self-test and emits a milestone before existing display, PCI, storage and user-mode boot checks.
 
