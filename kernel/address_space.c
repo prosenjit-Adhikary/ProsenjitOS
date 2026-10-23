@@ -574,6 +574,10 @@ int address_space_selftest(void) {
     }
     if (address_space_destroy(&other_space) != 0)
         return -7;
+    /* The ownership-destruction test consumed both spaces; recreate the
+     * primary space before the remaining independent mapping tests. */
+    if (address_space_create(&space) != 0)
+        return -7;
 
     /* Generic kernel pages must never be accepted by the user mapper. */
     uint64_t kernel_physical = physical_page_alloc();
