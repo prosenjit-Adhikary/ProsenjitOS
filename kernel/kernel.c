@@ -1177,6 +1177,8 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         probe.value1 = 0;
         if (pros_input_service_grant_read(&init_process, &input_read_handle) != PROS_DRIVER_OK ||
             input_read_handle == PROSENJIT_HANDLE_INVALID ||
+            pros_input_service_shutdown() != PROS_DRIVER_EBUSY ||
+            !pros_input_service_is_ready() ||
             pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &probe) != PROS_DRIVER_OK ||
             pros_input_service_read_capability(&init_process, 0xFFFFFFFFFFFFFF01ULL,
                                                &received) != PROS_DRIVER_EPERM ||
