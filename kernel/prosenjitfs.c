@@ -10511,6 +10511,28 @@ int prosenjitfs_selftest(void)
                   (uint32_t)offsetof(struct pros_prosenjitfs_superblock, checksum)));
 
     /*
+     * Seed a file on a clean mount so degraded-mode tests can exercise write,
+     * unlink and rename rejection against an existing namespace entry.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t anchor[16];
+        uint32_t done = 0u;
+        for (uint32_t i = 0u; i < sizeof(anchor); ++i)
+            anchor[i] = (uint8_t)(0x5Du ^ (uint8_t)(i * 7u));
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/degraded-anchor.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, anchor, sizeof(anchor), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(anchor) ||
+            vfs_file_close(&file) != PROS_VFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -18);
+    }
+
+    /*
      * A single surviving superblock is a degraded mount in either direction.
      * It must be exposed read-only and the mount must not rewrite either copy.
      */
@@ -10541,18 +10563,31 @@ int prosenjitfs_selftest(void)
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int write_open_rc = vfs_file_open(
+                &fs.mount, "/degraded-anchor.bin", PROS_VFS_O_WRITE,
+                &rejected_file);
+            if (write_open_rc == PROS_VFS_OK)
+                (void)vfs_file_close(&rejected_file);
             int create_rc = vfs_file_open(
                 &fs.mount, "/degraded-create-probe",
                 PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &rejected_file);
             int mkdir_rc = vfs_mkdir(&fs.mount, "/degraded-mkdir-probe");
+            int unlink_rc = vfs_unlink(&fs.mount, "/degraded-anchor.bin");
+            int rename_rc = vfs_rename(&fs.mount, "/degraded-anchor.bin",
+                                        "/degraded-anchor-renamed.bin");
+            int rmdir_rc = vfs_rmdir(&fs.mount, "/degraded-dir-probe");
 
             if (create_rc == PROS_VFS_OK) {
                 (void)vfs_file_close(&rejected_file);
                 (void)prosenjitfs_unmount(&fs);
                 return pfs_selftest_fail(__LINE__, -18);
             }
-            if (create_rc != PROS_VFS_EPERM ||
+            if (write_open_rc != PROS_VFS_EPERM ||
+                create_rc != PROS_VFS_EPERM ||
                 mkdir_rc != PROS_VFS_EPERM ||
+                unlink_rc != PROS_VFS_EPERM ||
+                rename_rc != PROS_VFS_EPERM ||
+                rmdir_rc != PROS_VFS_EPERM ||
                 durable_crc != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_crc != prosenjitfs_crc32c(
@@ -10585,18 +10620,31 @@ int prosenjitfs_selftest(void)
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
             uint32_t dirty_crc = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
+            int write_open_rc = vfs_file_open(
+                &fs.mount, "/degraded-anchor.bin", PROS_VFS_O_WRITE,
+                &rejected_file);
+            if (write_open_rc == PROS_VFS_OK)
+                (void)vfs_file_close(&rejected_file);
             int create_rc = vfs_file_open(
                 &fs.mount, "/degraded-create-probe",
                 PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &rejected_file);
             int mkdir_rc = vfs_mkdir(&fs.mount, "/degraded-mkdir-probe");
+            int unlink_rc = vfs_unlink(&fs.mount, "/degraded-anchor.bin");
+            int rename_rc = vfs_rename(&fs.mount, "/degraded-anchor.bin",
+                                        "/degraded-anchor-renamed.bin");
+            int rmdir_rc = vfs_rmdir(&fs.mount, "/degraded-dir-probe");
 
             if (create_rc == PROS_VFS_OK) {
                 (void)vfs_file_close(&rejected_file);
                 (void)prosenjitfs_unmount(&fs);
                 return pfs_selftest_fail(__LINE__, -19);
             }
-            if (create_rc != PROS_VFS_EPERM ||
+            if (write_open_rc != PROS_VFS_EPERM ||
+                create_rc != PROS_VFS_EPERM ||
                 mkdir_rc != PROS_VFS_EPERM ||
+                unlink_rc != PROS_VFS_EPERM ||
+                rename_rc != PROS_VFS_EPERM ||
+                rmdir_rc != PROS_VFS_EPERM ||
                 durable_crc != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_crc != prosenjitfs_crc32c(
