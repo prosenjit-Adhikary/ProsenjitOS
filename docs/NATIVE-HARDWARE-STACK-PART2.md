@@ -274,6 +274,10 @@ The read-only xHCI capability parser now requires the BAR snapshot to contain th
 This is parser hardening only. It does not map BARs, access live registers, reset/start a controller, or enable bus mastering/DMA. Exact-head CI is required before treating the change as verified.
 
 
+## xHCI Supported Protocol port ownership validation — 2026-10-23
+
+The snapshot validator now tracks ports claimed by each Supported Protocol capability and rejects overlapping port ranges. A physical xHCI port must not be described as belonging to multiple protocol ranges; accepting such a snapshot could misclassify a port during later enumeration. A hosted regression test verifies overlapping ranges fail without changing the output count, while adjacent non-overlapping ranges are accepted. This remains parser-only validation and does not establish live controller support.
+
 ## xHCI register-window separation hardening — 2026-10-23
 
 Follow-up review found that validating the full operational-register block was not enough: the doorbell and runtime windows also must start after that block, not merely after CAPLENGTH. The parser now rejects either window when it begins before CAPLENGTH + 0x40, preventing register-bank aliasing. Regression tests cover both a doorbell offset and a runtime offset inside the operational-register region.
