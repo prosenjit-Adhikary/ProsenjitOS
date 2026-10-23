@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include "ps2_keyboard.h"
 
+/* Deterministic hosted stub for the kernel timer dependency. */
+uint64_t timer_ticks(void) { return 1234u; }
+
 struct capture {
     uint32_t count;
     struct pros_hw_input_event events[8];
