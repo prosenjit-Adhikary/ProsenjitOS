@@ -74,3 +74,10 @@ Implementation sequence before claiming usable USB input:
 ## PCI USB host-controller discovery groundwork
 
 Added a pure classifier for PCI serial-bus/USB host-controller functions (base class 0x0C, subclass 0x03). It recognizes UHCI (prog-if 0x00), OHCI (0x10), EHCI (0x20), xHCI (0x30), and generic/other (0x80); unknown programming interfaces are reported as unsupported. Hosted tests cover each classification and invalid inputs. This helper does not scan hardware itself, enable PCI bus mastering, map controller registers, reset a controller, allocate DMA, enumerate USB devices, or perform transfers. The next driver stage should target xHCI first, after implementing safe DMA allocation and BAR aperture validation.
+
+
+## Bounded USB configuration descriptor parsing
+
+Added `kernel/usb_descriptor.c` as a pure parser for a configuration-descriptor blob already obtained from a USB transport. It validates the configuration header and total length, walks descriptors only within that bound, rejects truncated interface/endpoint descriptors, and selects a boot-protocol HID interface with an interrupt-IN endpoint. The result reports interface/alternate setting, endpoint address, maximum packet size, polling interval, and keyboard/mouse kind. `make usb-descriptor-test` exercises keyboard/mouse selection, truncated input, impossible total length, malformed descriptor length, and endpoint direction/type.
+
+This is **not** USB enumeration or a live driver: no device request, configuration selection, HID class request, endpoint transfer, controller scheduling, DMA, interrupt handling, or disconnect recovery is implemented here. The parser must only receive a descriptor buffer whose actual received length is supplied by a trusted transport.
