@@ -207,3 +207,13 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - No source or CI evidence in this audit establishes per-thread stack guard pages, overflow detection, stack lifetime ownership, or safe reclamation after preemption.
 
 **Decision:** do not retrofit dynamic stack allocation as a one-off change in this interrupt-hardening patch. First define a stack descriptor/owner and lifecycle contract, then add allocation-failure, guard-page, switch-away-before-free, repeated create/terminate, and teardown tests. This remains an explicit acceptance gate, not a completed feature.
+-
+
+## Addendum — latest audit-head verification (2026-10-23)
+
+- Audit branch: `audit/part1-kernel-boot-foundation-20261022` (existing draft PR #183; this work remains separate from `main`).
+- Source-code head previously tested: `4006900fbcfb229ba69786be3787b6e2a78a6cf8`. Subsequent commits `e01777468d16f6e6443c0e407d6f64b76ae6dbcd` and `067596d1edaee2923d30824425d202e0896ae0a2` update audit documentation only, as recorded in the PR description.
+- Build and boot-test workflow [run #7877](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39797489341): **SUCCESS** (GitHub Actions API conclusion). Security architecture workflow [run #7413](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39797489339): **SUCCESS**. These runs are associated with documentation-only head `067596d1edaee2923d30824425d202e0896ae0a2`; they do not constitute a fresh compile of changed kernel source.
+- Earlier source-changing commit `4006900fbcfb229ba69786be3787b6e2a78a6cf8` has successful build/boot run [#7874](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841682) and security run [#7410](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39787841777). The workflow reports include host/script checks, ISO build, and ISO/native-BIOS QEMU required-marker checks. QEMU status 124 is the configured timeout and was accepted only after required markers were validated.
+- No workflow result here proves runtime register-sentinel coverage, IST stack safety, all scheduler/IPC races, complete page-table/allocator concurrency safety, DMA/IOMMU correctness, UEFI, physical hardware, or SMP safety.
+- **Status:** existing audit PR remains **PARTIAL / NOT COMPLETE**. No new kernel source modification is claimed in this addendum. Remaining gates stay explicit: finish the full-tree dependency/symbol inventory; add runtime interrupt/IST and stronger concurrency/ownership tests; establish a designed and tested DMA/IOMMU/resource-ownership path before claiming DMA support; and test UEFI/physical hardware when available.
