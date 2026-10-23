@@ -91,9 +91,12 @@ static int input_endpoint_transfer(void *context, const void *buffer,
             (event->flags & PROS_HW_INPUT_RELATIVE) != 0u)
             return PROS_DRIVER_EINVAL;
     } else if (event->type == PROS_HW_INPUT_POINTER) {
-        if (edge == (PROS_HW_INPUT_PRESS | PROS_HW_INPUT_RELEASE) ||
-            (edge != 0u && (event->flags & PROS_HW_INPUT_RELATIVE) != 0u))
+        if ((event->flags & PROS_HW_INPUT_RELATIVE) != 0u) {
+            if (edge != 0u) return PROS_DRIVER_EINVAL;
+        } else if (edge != PROS_HW_INPUT_PRESS &&
+                   edge != PROS_HW_INPUT_RELEASE) {
             return PROS_DRIVER_EINVAL;
+        }
     } else {
         return PROS_DRIVER_EINVAL;
     }
