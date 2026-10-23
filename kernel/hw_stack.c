@@ -366,6 +366,12 @@ int pros_hw_stack_selftest(void) {
     if(pros_hw_resource_validate(&r)!=PROS_DRIVER_EINVAL)return -39;
     r.irq=0u;
     if(pros_hw_resource_validate(&r)!=PROS_DRIVER_ENOTSUP)return -40;
+    r.flags=1u;
+    if(pros_hw_resource_validate(&r)!=PROS_DRIVER_EINVAL)return -41;
+    r.flags=0u; r.base=UINT64_MAX-7u; r.length=16u;
+    if(pros_hw_resource_validate(&r)!=PROS_DRIVER_EINVAL)return -42;
+    r.base=0x1000u; r.length=4096u;
+    if(pros_hw_resource_validate(&r)!=PROS_DRIVER_ENOTSUP)return -43;
     if(pros_hw_endpoint_submit(1u,PROS_HW_ENDPOINT_INPUT,payload,sizeof(payload))!=PROS_DRIVER_ENODEV)return -7;
     if(pros_hw_display_present(1u,640u,480u,2560u,PROS_HW_DISPLAY_XRGB8888,
                                payload,sizeof(payload))!=PROS_DRIVER_EINVAL)return -24;
