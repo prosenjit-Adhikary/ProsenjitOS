@@ -7,7 +7,32 @@ struct pros_owned_page {
     uint64_t virtual_address;
     uint64_t physical_address;
     struct pros_owned_page *next;
+    struct pros_owned_page *global_next;
 };
+
+/* Single-CPU ownership index: an owned user page may have only one owner. */
+static struct pros_owned_page *all_owned_pages;
+
+static int physical_owned_by_any_space(uint64_t physical_address) {
+    for (struct pros_owned_page *page = all_owned_pages;
+         page; page = page->global_next) {
+        if (page->physical_address == physical_address)
+            return 1;
+    }
+    return 0;
+}
+
+static void unregister_owned_page(struct pros_owned_page *owned) {
+    struct pros_owned_page **link = &all_owned_pages;
+    while (*link) {
+        if (*link == owned) {
+            *link = owned->global_next;
+            owned->global_next = 0;
+            return;
+        }
+        link = &(*link)->global_next;
+    }
+}
 
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
@@ -221,7 +246,8 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
         (flags & ~(PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX)) != 0 ||
         ((flags & PROSENJIT_PAGE_WRITABLE) && !(flags & PROSENJIT_PAGE_NX)))
         return -1;
-    if (physical_already_mapped(space, physical_address))
+    if (physical_already_mapped(space, physical_address) ||
+        physical_owned_by_any_space(physical_address))
         return -1;
     struct pros_owned_page *owned = (struct pros_owned_page *)kmalloc(sizeof(*owned));
     if (!owned)
@@ -234,6 +260,8 @@ int address_space_map_user_page_owned(struct pros_address_space *space,
     owned->physical_address = physical_address;
     owned->next = space->owned_pages;
     space->owned_pages = owned;
+    owned->global_next = all_owned_pages;
+    all_owned_pages = owned;
     return 0;
 }
 
@@ -282,6 +310,7 @@ int address_space_unmap_user_page(struct pros_address_space *space,
         if ((*link)->virtual_address == virtual_address) {
             struct pros_owned_page *owned = *link;
             *link = owned->next;
+            unregister_owned_page(owned);
             kfree(owned);
             break;
         }
@@ -346,6 +375,7 @@ int address_space_destroy(struct pros_address_space *space) {
     while (owned) {
         struct pros_owned_page *next = owned->next;
         /* Only still-mapped pages remain in the ownership list. */
+        unregister_owned_page(owned);
         physical_page_free(owned->physical_address);
         kfree(owned);
         owned = next;
@@ -507,6 +537,34 @@ int address_space_selftest(void) {
     }
 
     physical_page_free(physical);
+
+    /* Owned pages cannot be claimed by a second address space. */
+    struct pros_address_space other_space = { 0, 0 };
+    uint64_t shared_candidate = physical_page_alloc_user();
+    if (!shared_candidate || address_space_create(&other_space) != 0) {
+        if (shared_candidate) physical_page_free(shared_candidate);
+        address_space_destroy(&space);
+        return -7;
+    }
+    if (address_space_map_user_page_owned(&space, PROSENJIT_USER_TEST_VA,
+                                          shared_candidate,
+                                          PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) != 0 ||
+        address_space_map_user_page_owned(&other_space, PROSENJIT_USER_TEST_VA,
+                                          shared_candidate,
+                                          PROSENJIT_PAGE_WRITABLE |
+                                          PROSENJIT_PAGE_NX) == 0) {
+        address_space_destroy(&space);
+        address_space_destroy(&other_space);
+        return -7;
+    }
+    if (address_space_destroy(&space) != 0) {
+        address_space_destroy(&other_space);
+        return -7;
+    }
+    physical_page_free(shared_candidate);
+    if (address_space_destroy(&other_space) != 0)
+        return -7;
 
     /* Generic kernel pages must never be accepted by the user mapper. */
     uint64_t kernel_physical = physical_page_alloc();
