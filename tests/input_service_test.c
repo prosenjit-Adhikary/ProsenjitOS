@@ -11,19 +11,30 @@ uint64_t timer_ticks(void) { return 1234u; }
 int process_grant_handle(struct pros_process *process, struct pros_object *object,
                          uint64_t rights, uint64_t *handle_out)
 {
-    (void)process; (void)object; (void)rights; (void)handle_out;
-    return -1;
+    if (!process || !object || !handle_out) return -1;
+    uint64_t handle = handle_alloc(&process->handles, object, rights);
+    if (handle == PROSENJIT_HANDLE_INVALID) return -1;
+    *handle_out = handle;
+    return 0;
 }
 int process_check_handle(const struct pros_process *process, uint64_t handle,
                          uint64_t required_rights, uint16_t expected_type)
 {
-    (void)process; (void)handle; (void)required_rights; (void)expected_type;
-    return -1;
+    if (!process) return -1;
+    return handle_check(&process->handles, handle, required_rights, expected_type);
+}
+int process_close_handle(struct pros_process *process, uint64_t handle)
+{
+    if (!process) return -1;
+    return handle_close(&process->handles, handle);
 }
 
 int main(void)
 {
     struct pros_hw_input_event event;
+    struct pros_process process = {0};
+    uint64_t input_handle = PROSENJIT_HANDLE_INVALID;
+    handle_table_init(&process.handles);
     pros_ps2_keyboard_test_reset_fifo();
     pros_ps2_keyboard_reset_decoder();
 
@@ -90,6 +101,14 @@ int main(void)
     for (uint32_t i = 0u; i < PROS_INPUT_SERVICE_QUEUE_CAPACITY; ++i)
         assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
+
+    /* A live READ capability pins this service object's lifetime. Stopping
+     * and restarting it must never reactivate a handle held across teardown. */
+    assert(pros_input_service_grant_read(&process, &input_handle) == PROS_DRIVER_OK);
+    assert(input_handle != PROSENJIT_HANDLE_INVALID);
+    assert(pros_input_service_shutdown() == PROS_DRIVER_EBUSY);
+    assert(pros_input_service_is_ready() == 1);
+    assert(process_close_handle(&process, input_handle) == 0);
     assert(pros_input_service_shutdown() == PROS_DRIVER_OK);
     assert(pros_input_service_is_ready() == 0);
     assert(pros_input_service_read(&event) == PROS_DRIVER_ENODEV);
@@ -100,6 +119,7 @@ int main(void)
     /* The same managed service can be initialized again after clean teardown. */
     assert(pros_input_service_init() == PROS_DRIVER_OK);
     assert(pros_input_service_is_ready() == 1);
+    assert(pros_input_service_read_capability(&process, input_handle, &event) == PROS_DRIVER_EPERM);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
     assert(pros_input_service_shutdown() == PROS_DRIVER_OK);
     assert(pros_input_service_is_ready() == 0);
