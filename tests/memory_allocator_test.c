@@ -94,6 +94,13 @@ int main(void) {
         fputs("allocator test: free-page count did not recover\n", stderr);
         return 8;
     }
+    /* Reject a memory-map tag whose payload ends with a partial entry. */
+    fixture.mmap.entry_size = 25u;
+    if (physical_memory_init((uint64_t)(uintptr_t)&fixture) != -4) {
+        fputs("allocator test: malformed partial memory-map entry was accepted\\n", stderr);
+        return 9;
+    }
+
     puts("physical page allocator concurrency tests passed");
     return 0;
 }
