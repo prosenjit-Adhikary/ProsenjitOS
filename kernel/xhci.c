@@ -159,6 +159,10 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
     uint32_t offset = first_offset;
     uint32_t visited = 0u;
     uint32_t supported = 0u;
+    /* A physical xHCI port belongs to one Supported Protocol range only.
+     * Track port numbers in a compact bitmap so malformed overlapping ranges
+     * fail closed without allocating memory or publishing a partial count. */
+    uint8_t claimed_ports[32] = {0};
     uint32_t max_headers = bar_length / 4u;
     while (offset != 0u) {
         if (visited >= max_headers || !range_valid(offset, 4u, bar_length))
@@ -186,6 +190,14 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
                 first_port > max_ports ||
                 port_count > (uint32_t)max_ports - first_port + 1u)
                 return PROS_DRIVER_EIO;
+            for (uint32_t port = first_port;
+                 port < first_port + port_count; ++port) {
+                uint32_t bit = port - 1u;
+                uint8_t mask = (uint8_t)(1u << (bit & 7u));
+                if ((claimed_ports[bit >> 3] & mask) != 0u)
+                    return PROS_DRIVER_EIO;
+                claimed_ports[bit >> 3] |= mask;
+            }
             minimum_next_offset = offset + structure_length;
             ++supported;
         }
