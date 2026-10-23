@@ -130,3 +130,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The test simulates power loss and remount, checks that the original path and payload remain intact, confirms the destination path is absent, and runs the report-only integrity check.
 - Exact PR head `13cf8cc0201ba642be8960475f866d3a732029cb` passed build/boot-test [#39946623102](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946623102), including ISO build, ISO QEMU boot and native BIOS QEMU boot. Security architecture [#39946623071](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946623071) also passed.
 - Scope: this closes one focused namespace-rollback/remount acceptance case under the mock block device. Other mutation classes and write/flush failure boundaries still need a matrix-driven review; mock-device/QEMU coverage is not proof of physical power-loss durability.
+
+
+## Verification update — 2026-10-23: unlink commit-write failure and remount
+
+- PR #198 adds a regression for a failed journal commit-record write during `vfs_unlink` on a populated file.
+- The test simulates power loss and remount, checks the original path and payload remain intact, and runs the report-only integrity scan.
+- Exact PR code head `ed197bf77328ae419f8f45480640da0063641537` passed build/boot-test [#8194](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938083), including ISO build, ISO QEMU boot and native BIOS QEMU boot. Security architecture [#7730](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946938090) also passed.
+- Scope: this closes one focused unlink rollback/remount case under the mock block device. Other mutation classes and read-error classification still need review; mock-device/QEMU coverage is not proof of physical power-loss durability.
