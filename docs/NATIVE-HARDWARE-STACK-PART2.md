@@ -13,6 +13,12 @@ Latest verified Part 2 PR head: `2a094e8b3c3c0925e9910504078526a5757eda08`.
 - These remain host/emulator tests; no live USB controller transport or physical hardware was tested.
 
 These results verify the automated checks attached to the exact commit above only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
+## Hosted regression matrix integration — 2026-10-23
+
+Added `make part2-host-tests` as a single entry point for the Part 2 hosted suites: hardware-stack contracts, PS/2 keyboard/mouse, USB HID decoding, USB host classification, USB descriptor parsing, input-service queue/capability lifecycle, keymap, PCI BAR decoding, xHCI capability snapshots, physical-memory allocator regressions, PIC routing, and PS/2 IRQ dispatcher tests. The build workflow now runs this aggregate target instead of invoking only the two newest PIC/dispatcher suites. This broadens automated regression coverage but does not implement missing hardware transports or convert hosted parser/decoder tests into hardware tests.
+
+The aggregate target and workflow edits are committed at `a5263cf422953eb39a9cfe050b0c85a8cad9a221` and `2390c28cc5638d338d256ce696cbb9eb3d62e149`, respectively. Exact-head CI for the updated workflow remains unverified until the self-hosted Linux x64 runner executes the latest commit.
+
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
 - [ ] Establish an authorized, persistent userspace input-service lifecycle; provision its READ capability through the trusted service-launch path and connect the keymap to live events.
