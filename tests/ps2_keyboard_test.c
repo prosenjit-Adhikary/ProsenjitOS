@@ -2,6 +2,18 @@
 #include <stdint.h>
 #include "ps2_keyboard.h"
 
+/* The keyboard-poller test uses a generic endpoint, not the kernel input queue.
+ * The input-service suite links and tests the real atomic batch implementation. */
+int pros_input_service_send_batch(uint32_t endpoint_id,
+                                  const struct pros_hw_input_event *events,
+                                  uint32_t count)
+{
+    (void)endpoint_id;
+    (void)events;
+    (void)count;
+    return PROS_DRIVER_ENOTSUP;
+}
+
 /* Deterministic hosted stub for the kernel timer dependency. */
 uint64_t timer_ticks(void) { return 1234u; }
 

@@ -159,12 +159,24 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
             if (mouse_count != 0u) {
                 for (uint32_t i = 0u; i < mouse_count; ++i)
                     mouse_events[i].timestamp = timer_ticks();
-                mouse_rc = pros_input_service_send_batch(input_endpoint_id,
-                                                           mouse_events,
-                                                           mouse_count);
-                if (mouse_rc != PROS_DRIVER_OK)
-                    return mouse_rc;
-                submitted += (int)mouse_count;
+                if (input_endpoint_id == PROS_INPUT_SERVICE_ENDPOINT_ID) {
+                    /* The kernel input queue supports atomic packet enqueue. */
+                    mouse_rc = pros_input_service_send_batch(input_endpoint_id,
+                                                               mouse_events,
+                                                               mouse_count);
+                    if (mouse_rc != PROS_DRIVER_OK)
+                        return mouse_rc;
+                    submitted += (int)mouse_count;
+                } else {
+                    /* Preserve the generic endpoint contract used by drivers/tests. */
+                    for (uint32_t i = 0u; i < mouse_count; ++i) {
+                        mouse_rc = pros_hw_input_send(input_endpoint_id,
+                                                      &mouse_events[i]);
+                        if (mouse_rc != PROS_DRIVER_OK)
+                            return mouse_rc;
+                        ++submitted;
+                    }
+                }
             }
             continue;
         }
