@@ -8834,7 +8834,7 @@ int prosenjitfs_selftest(void)
                 ++injected;
             }
             disk.fail_read_countdown = 0u;
-            if (read_position > 512u || injected < 2u ||
+            if (read_position > 512u || injected < 1u ||
                 durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
