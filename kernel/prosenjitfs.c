@@ -8844,7 +8844,7 @@ int prosenjitfs_selftest(void)
                  * lost EIO propagation or mutated a media/cache view.
                  */
                 if (scan_rc != PROSENJITFS_EIO)
-                    return pfs_selftest_fail(__LINE__, -204);
+                    return pfs_selftest_fail(__LINE__, -3000 + scan_rc);
                 if (integrity_report.status != PROSENJITFS_EIO)
                     return pfs_selftest_fail(__LINE__, -205);
                 if (durable_before != prosenjitfs_crc32c(
