@@ -10179,6 +10179,87 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * A failed journal commit must not publish a namespace rename. Inject a
+     * commit-record write failure after creating the source file, discard all
+     * volatile state, and prove remount sees the original name and contents
+     * while the destination remains absent.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[64];
+        uint8_t read_data[64];
+        uint32_t done = 0u;
+        int rename_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0x39u ^ (uint8_t)(i * 23u));
+
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/rename-atomic-before.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_commit_write_once = 1u;
+        rename_rc = vfs_rename(&fs.mount, "/rename-atomic-before.bin",
+                               "/rename-atomic-after.bin");
+        if (rename_rc == PROS_VFS_OK ||
+            disk.fail_commit_write_once != 0u ||
+            !fs.read_only || !fs.mount.read_only) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/rename-atomic-before.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            if (read_data[i] != old_data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        }
+
+        {
+            int destination_rc = vfs_file_open(
+                &fs.mount, "/rename-atomic-after.bin", PROS_VFS_O_READ,
+                &file);
+            if (destination_rc == PROS_VFS_OK) {
+                (void)vfs_file_close(&file);
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+            if (destination_rc != PROS_VFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -13);
+            }
+        }
+
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * Device-flush failure at the commit durability boundary.
      *
      * The first two transaction flushes retire the reused commit slot and

@@ -325,3 +325,16 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Current verification is green on commit `4bdaf54fb1911a7c04f8bc914c7c0263444b65e9` for Build/QEMU and Security architecture checks.
 - The earlier `scan_rc` mismatch was not reproduced on two runs after adding diagnostics. Because the diagnostic change does not alter filesystem runtime behavior, treat the original failure as an intermittent/unresolved test anomaly rather than claiming the underlying cause is fixed. Preserve the stronger return-code diagnostic and investigate further if it recurs.
+
+
+## 2026-10-23 — ProsenjitFS rename commit-write failure across remount
+
+### Regression added
+- Added a populated-file namespace regression that injects a failure when the journal commit record is written during `vfs_rename`.
+- The test requires the operation to fail and the active mount to become read-only, simulates power loss, remounts, verifies the original path and all payload bytes remain intact, verifies the destination returns `PROS_VFS_ENOENT`, and runs the report-only integrity check.
+- Change: commit `13cf8cc0201ba642be8960475f866d3a732029cb`, PR [#197](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/197).
+
+### Verification
+- Build and boot-test run [#8188](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946623102): **PASS** on self-hosted runner `office`. ISO build, ISO QEMU boot, and native BIOS QEMU boot all passed.
+- Security architecture run [#7724](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39946623071): **PASS**.
+- This verifies the injected mock-device commit-write failure and namespace recovery path under QEMU. It does not prove physical-device power-loss durability or cover every namespace mutation/failure boundary.
