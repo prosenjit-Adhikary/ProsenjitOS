@@ -1163,6 +1163,35 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: kernel input queue registered; bounded PS/2 polling attached to timer heartbeat\n");
 
+    /* Verify that only a READ handle to this exact endpoint can dequeue input. */
+    {
+        struct pros_hw_input_event probe;
+        struct pros_hw_input_event received;
+        uint64_t input_read_handle = PROSENJIT_HANDLE_INVALID;
+        probe.version = PROS_HW_STACK_ABI_VERSION;
+        probe.type = PROS_HW_INPUT_KEY;
+        probe.flags = PROS_HW_INPUT_PRESS;
+        probe.reserved = 0u;
+        probe.timestamp = 1u;
+        probe.value0 = 0x1Eu;
+        probe.value1 = 0;
+        if (pros_input_service_grant_read(&init_process, &input_read_handle) != PROS_DRIVER_OK ||
+            input_read_handle == PROSENJIT_HANDLE_INVALID ||
+            pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &probe) != PROS_DRIVER_OK ||
+            pros_input_service_read_capability(&init_process, 0xFFFFFFFFFFFFFF01ULL,
+                                               &received) != PROS_DRIVER_EPERM ||
+            pros_input_service_read_capability(&init_process, input_read_handle,
+                                               &received) != PROS_DRIVER_OK ||
+            received.type != PROS_HW_INPUT_KEY ||
+            received.flags != PROS_HW_INPUT_PRESS ||
+            received.value0 != 0x1Eu ||
+            process_close_handle(&init_process, input_read_handle) != 0) {
+            serial_write("ProsenjitOS: ERROR capability-checked input endpoint self-test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: capability-checked input endpoint self-test passed\n");
+    }
+
     {
         int framebuffer_rc = pros_framebuffer_init(boot_magic, (uint64_t)boot_info);
         if (framebuffer_rc == PROS_DRIVER_OK) {
