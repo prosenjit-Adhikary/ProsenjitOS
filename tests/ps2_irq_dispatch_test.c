@@ -5,6 +5,9 @@
 #include "pic.h"
 #include "timer.h"
 
+/* Internal IDT callback; deliberately not part of the public timer API. */
+void ps2_irq_dispatch(uint64_t irq);
+
 static int input_ready;
 static unsigned poll_calls;
 static unsigned eoi_calls;
