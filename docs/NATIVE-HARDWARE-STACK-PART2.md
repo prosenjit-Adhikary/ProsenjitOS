@@ -4,12 +4,13 @@ Status: **contract/lifecycle foundation implemented; concrete hardware drivers r
 
 ## Verification record — 2026-10-23
 
-The verified Part 2 PR head at the time of this record was `09b15c01959d445b256b9efedcb7d73937e8a996` with successful GitHub Actions runs:
-- Build and boot-test, including ISO and native BIOS QEMU boot: [run 39925928713](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39925928713) — completed successfully.
-- Security architecture checks: [run 39925928622](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39925928622) — completed successfully.
-- The build workflow also executes the `usb-descriptor-test` target added at this head.
+Latest verified Part 2 PR head: `083feac4cb8e31a65f9bcd38895257833a4573ce`.
+- Build and boot-test, including ISO and native BIOS QEMU boot: [run 39928404573](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39928404573) — **passed**.
+- Security architecture checks: [run 39928404646](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39928404646) — **passed**.
+- The build workflow's ISO and native-BIOS QEMU boot stages both completed successfully.
+- Address-space ownership regression coverage now rejects mapping a physical user page already owned by another address space, and the self-test recreates its address space after teardown before continuing later checks.
 
-These results verify the automated checks attached to that commit only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
+These results verify the automated checks attached to this exact commit only. They do **not** close the Part 2 acceptance gates below and do not establish physical-hardware support.
 
 ## Remaining acceptance gates (must pass before Part 2 is complete)
 
