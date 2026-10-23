@@ -58,6 +58,12 @@ int main(void) {
     }
 
     uint64_t before = physical_memory_free_pages();
+    uint64_t failed_before = physical_memory_failed_allocations();
+    if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_memory_free_pages() != before) {
+        fputs("allocator test: exclusive address ceiling admitted an out-of-range page\\n", stderr);
+        return 17;
+    }
     uint64_t run = physical_pages_alloc_contiguous(4u, 4u, 8ULL * 1024ULL * 1024ULL);
     if (!run || (run & ((4u * PROSENJIT_PAGE_SIZE) - 1ULL)) != 0 ||
         run + 4u * PROSENJIT_PAGE_SIZE > 8ULL * 1024ULL * 1024ULL ||
@@ -99,7 +105,9 @@ int main(void) {
     }
     if (physical_pages_free_contiguous(run, 4u) == 0 ||
         physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0 ||
-        physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0) {
+        physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0 ||
+        physical_memory_free_pages() != before ||
+        physical_memory_failed_allocations() < failed_before) {
         fputs("allocator test: invalid contiguous request was accepted\n", stderr);
         return 16;
     }
