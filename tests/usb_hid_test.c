@@ -146,6 +146,10 @@ int main(void)
     assert(queued_count == 1u && queued[0].type == PROS_HW_INPUT_POINTER);
     assert(queued[0].flags == PROS_HW_INPUT_PRESS && queued[0].value0 == 1);
     queue_result = PROS_DRIVER_ENOSPC;
+    mouse_report[0] = 3u; /* second button transition must be retryable */
+    assert(pros_usb_hid_mouse_submit_report(
+               PROS_INPUT_SERVICE_ENDPOINT_ID, &mouse, mouse_report) == PROS_DRIVER_ENOSPC);
+    assert(mouse.buttons == 1u); /* rejected button edge was not committed */
     assert(pros_usb_hid_mouse_submit_recovery(
                PROS_INPUT_SERVICE_ENDPOINT_ID, &mouse) == PROS_DRIVER_ENOSPC);
     assert(mouse.buttons == 1u); /* release not lost when queue is full */
