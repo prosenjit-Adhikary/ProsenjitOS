@@ -11205,11 +11205,13 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -20);
 
         for (uint32_t bucket = 0u;
-             bucket < PROSENJITFS_DIR_BUCKETS && second_lba == 0u;
+             bucket < PROSENJITFS_DIR_BUCKETS &&
+                 (first_lba == 0u || second_lba == 0u);
              ++bucket) {
             uint64_t current = root_index.heads[bucket];
             uint64_t traversed = 0u;
-            while (current != 0u && second_lba == 0u) {
+            while (current != 0u &&
+                   (first_lba == 0u || second_lba == 0u)) {
                 struct pros_prosenjitfs_dir_entry entry = { 0 };
                 uint8_t block[4096];
                 uint32_t is_first = 0u;
