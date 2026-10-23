@@ -24,6 +24,52 @@ void pros_usb_hid_mouse_reset(struct pros_usb_hid_mouse_state *state)
     if (state) state->buttons = 0u;
 }
 
+int pros_usb_hid_keyboard_recover(
+    struct pros_usb_hid_keyboard_state *state,
+    struct pros_hw_input_event out[PROS_USB_HID_KEYBOARD_MAX_EVENTS],
+    uint32_t *out_count)
+{
+    if (!state || !out || !out_count) return PROS_DRIVER_EINVAL;
+    *out_count = 0u;
+
+    /* Release modifier usages first, then all held ordinary usages. The
+     * maximum is 8 modifier releases + 6 key releases, within the API cap. */
+    for (uint32_t bit = 0u; bit < 8u; ++bit) {
+        uint8_t mask = (uint8_t)(1u << bit);
+        if ((state->modifiers & mask) == 0u) continue;
+        input_event(&out[*out_count], PROS_HW_INPUT_KEY,
+                    PROS_HW_INPUT_RELEASE, (int32_t)(0xE0u + bit), 0);
+        ++*out_count;
+    }
+    for (uint32_t i = 0u; i < 6u; ++i) {
+        uint8_t usage = state->keys[i];
+        if (usage == 0u) continue;
+        input_event(&out[*out_count], PROS_HW_INPUT_KEY,
+                    PROS_HW_INPUT_RELEASE, usage, 0);
+        ++*out_count;
+    }
+    pros_usb_hid_keyboard_reset(state);
+    return PROS_DRIVER_OK;
+}
+
+int pros_usb_hid_mouse_recover(
+    struct pros_usb_hid_mouse_state *state,
+    struct pros_hw_input_event out[PROS_USB_HID_MOUSE_MAX_EVENTS],
+    uint32_t *out_count)
+{
+    if (!state || !out || !out_count) return PROS_DRIVER_EINVAL;
+    *out_count = 0u;
+    for (uint32_t bit = 0u; bit < 3u; ++bit) {
+        uint8_t mask = (uint8_t)(1u << bit);
+        if ((state->buttons & mask) == 0u) continue;
+        input_event(&out[*out_count], PROS_HW_INPUT_POINTER,
+                    PROS_HW_INPUT_RELEASE, (int32_t)(bit + 1u), 0);
+        ++*out_count;
+    }
+    pros_usb_hid_mouse_reset(state);
+    return PROS_DRIVER_OK;
+}
+
 static int key_present(const uint8_t keys[6], uint8_t usage)
 {
     for (uint32_t i = 0u; i < 6u; ++i)
