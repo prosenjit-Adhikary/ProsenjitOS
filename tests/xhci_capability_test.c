@@ -219,6 +219,14 @@ int main(void)
     put32(&bar[0x14], 0x102u);
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
 
+    /* The first xECP header may not alias the doorbell or runtime windows. */
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0x10], (0x40u << 16) | (1u << 2)); /* xECP at 0x100 */
+    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+    make_bar(bar, sizeof(bar));
+    put32(&bar[0x10], (0x50u << 16) | (1u << 2)); /* xECP at 0x140 */
+    assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+
     /* Neither doorbell nor runtime windows may alias operational registers. */
     make_bar(bar, sizeof(bar));
     put32(&bar[0x14], 0x60u);
