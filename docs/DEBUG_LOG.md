@@ -444,3 +444,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; ISO and native BIOS QEMU reached the required ProsenjitFS recovery and persistence markers. Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This is self-test cleanup verification, not physical-device power-loss durability.
 - This is a self-test failure-path cleanup; it is not a claim of production filesystem completion or physical-device power-loss durability.
+
+
+## 2026-10-23 — Unlink directory-read failure sweep added
+
+- Added three deterministic read-failure positions for unlink directory lookup before namespace publication.
+- Each case checks EIO propagation, unchanged durable/volatile/dirty mock-media CRCs, writable state, retained path and original payload, and successful integrity scan/unmount.
+- Branch: `test/prosenjitfs-unlink-read-failure-sweep-20261023`. Exact-head CI remains unverified; no runtime pass is claimed.
