@@ -1,5 +1,7 @@
 #include "input_service.h"
 #include "ps2_keyboard.h"
+#include "process.h"
+#include "object.h"
 
 #define INPUT_QUEUE_MASK (PROS_INPUT_SERVICE_QUEUE_CAPACITY - 1u)
 
@@ -15,6 +17,8 @@ struct input_service_state {
     uint8_t ready;
 };
 static struct input_service_state input_state;
+static struct pros_object input_object;
+static uint8_t input_object_initialized;
 static uint32_t input_lock;
 
 static uint64_t input_irq_save(void)
@@ -120,11 +124,63 @@ int pros_input_service_init(void)
     input_state.head = 0u;
     input_state.tail = 0u;
     input_state.dropped = 0u;
+    if (!input_object_initialized) {
+        object_init(&input_object, PROS_OBJECT_DEVICE);
+        input_object_initialized = 1u;
+    }
     input_lock_release(flags);
 
     return pros_hw_endpoint_register(PROS_INPUT_SERVICE_ENDPOINT_ID,
                                      PROS_HW_ENDPOINT_INPUT,
                                      &ops, &input_state);
+}
+
+int pros_input_service_grant_read(struct pros_process *process,
+                                  uint64_t *handle_out)
+{
+    if (!process || !handle_out) return PROS_DRIVER_EINVAL;
+    uint64_t flags = input_irq_save();
+    if (!input_state.ready || !input_object_initialized) {
+        input_irq_restore(flags);
+        return PROS_DRIVER_ENODEV;
+    }
+
+    /* Read-only authority: no write/admin/duplicate/transfer rights. */
+    int rc = process_grant_handle(process, &input_object,
+                                  PROSENJIT_CAP_READ, handle_out);
+    input_irq_restore(flags);
+    return rc == 0 ? PROS_DRIVER_OK : PROS_DRIVER_EPERM;
+}
+
+int pros_input_service_read_capability(const struct pros_process *process,
+                                       uint64_t handle,
+                                       struct pros_hw_input_event *out)
+{
+    if (!process || !out || handle == PROSENJIT_HANDLE_INVALID)
+        return PROS_DRIVER_EINVAL;
+
+    /* Prevent a timer preemption between handle validation and queue access.
+     * The current kernel is single-CPU; SMP will need process-handle locking. */
+    uint64_t irq_flags = input_irq_save();
+    if (!input_state.ready || !input_object_initialized ||
+        process_check_handle(process, handle, PROSENJIT_CAP_READ,
+                             PROS_OBJECT_DEVICE) != 0) {
+        input_irq_restore(irq_flags);
+        return PROS_DRIVER_EPERM;
+    }
+
+    uint32_t slot = (uint32_t)(handle & 0xFFULL);
+    uint16_t generation = (uint16_t)(handle >> 8);
+    if (slot == 0u || slot >= PROSENJIT_HANDLE_MAX || generation == 0u ||
+        process->handles.entries[slot].generation != generation ||
+        process->handles.entries[slot].object != &input_object) {
+        input_irq_restore(irq_flags);
+        return PROS_DRIVER_EPERM;
+    }
+
+    int rc = pros_input_service_read(out);
+    input_irq_restore(irq_flags);
+    return rc;
 }
 
 int pros_input_service_poll_hardware(void)
