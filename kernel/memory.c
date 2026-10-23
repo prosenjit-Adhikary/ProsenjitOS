@@ -234,6 +234,36 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     }
 
     /*
+     * Firmware memory-map entries should not overlap, but treat every
+     * non-available range as reserved even if a malformed/overlapping map
+     * also described the same pages as available. Do this in a second pass
+     * so the final result does not depend on entry ordering.
+     */
+    current = multiboot_info_address + 8ULL;
+    while (current <= end && end - current >= 8ULL) {
+        const struct multiboot_tag *tag =
+            (const struct multiboot_tag *)(uintptr_t)current;
+        if (tag->type == MULTIBOOT2_TAG_END) break;
+        if (tag->type == MULTIBOOT2_TAG_MMAP) {
+            const struct multiboot_tag_mmap *mmap =
+                (const struct multiboot_tag_mmap *)tag;
+            uint64_t entries_start = current + 16ULL;
+            uint64_t entries_end = current + mmap->size;
+            for (uint64_t p = entries_start;
+                 p <= entries_end &&
+                 entries_end - p >= mmap->entry_size;
+                 p += mmap->entry_size) {
+                const struct multiboot_mmap_entry *entry =
+                    (const struct multiboot_mmap_entry *)(uintptr_t)p;
+                if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE)
+                    reserve_range(entry->base_addr, entry->length);
+            }
+        }
+        uint64_t next = current + (uint64_t)tag->size;
+        current = (next + 7ULL) & ~7ULL;
+    }
+
+    /*
      * Keep low memory and all boot/kernel storage unavailable to the allocator.
      * The current bootstrap page tables identity-map only the first 1 GiB, so
      * this first allocator deliberately exposes only that range.
