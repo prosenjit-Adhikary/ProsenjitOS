@@ -72,6 +72,14 @@ static uint64_t *alloc_table(void) {
     return table;
 }
 
+static int page_table_empty(const uint64_t *table) {
+    if (!table) return 1;
+    for (uint32_t i = 0; i < ENTRIES; ++i)
+        if (table[i] & PROSENJIT_PAGE_PRESENT)
+            return 0;
+    return 1;
+}
+
 static uint64_t *ensure_table(uint64_t *parent, uint32_t index, uint64_t flags) {
     uint64_t entry = parent[index];
     if (entry & PROSENJIT_PAGE_PRESENT) {
@@ -181,9 +189,33 @@ void paging_unmap_page(uint64_t virtual_address) {
     uint64_t pde = pd[PD_INDEX(virtual_address)];
     if (!(pde & PROSENJIT_PAGE_PRESENT) || (pde & LARGE_PAGE_FLAG)) return;
     uint64_t *pt = (uint64_t *)(pde & PAGE_MASK);
-    if (!(pt[PT_INDEX(virtual_address)] & PROSENJIT_PAGE_PRESENT)) return;
-    pt[PT_INDEX(virtual_address)] = 0;
+    uint32_t pti = PT_INDEX(virtual_address);
+    uint32_t pdi = PD_INDEX(virtual_address);
+    uint32_t pdpti = PDPT_INDEX(virtual_address);
+    uint32_t pml4i = PML4_INDEX(virtual_address);
+    if (!(pt[pti] & PROSENJIT_PAGE_PRESENT)) return;
+    pt[pti] = 0;
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+
+    /*
+     * Reclaim only completely empty page-table pages owned by this root.
+     * Existing identity/kernel mappings keep their parent tables alive.
+     * The kernel currently runs without SMP page-table sharing; once secondary
+     * CPUs can execute, this path must be paired with remote TLB shootdowns
+     * before any table page is reclaimed.
+     */
+    if (page_table_empty(pt)) {
+        pd[pdi] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pt);
+    }
+    if (page_table_empty(pd)) {
+        pdpt[pdpti] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pd);
+    }
+    if (page_table_empty(pdpt)) {
+        kernel_pml4[pml4i] = 0;
+        physical_page_free((uint64_t)(uintptr_t)pdpt);
+    }
 }
 
 uint64_t paging_translate(uint64_t virtual_address) {
@@ -391,6 +423,7 @@ int paging_init(void) {
 
 int paging_selftest(void) {
     static const uint64_t va = PROSENJIT_KERNEL_TEST_VA + 0x1000ULL;
+    uint64_t free_before_map = physical_memory_free_pages();
     uint64_t physical = physical_page_alloc();
     if (!physical) return -1;
 
@@ -430,7 +463,7 @@ int paging_selftest(void) {
 
     paging_unmap_page(va);
     if (paging_translate(va) != 0 || paging_query_page(va, &flags) == 0 ||
-        physical_memory_free_pages() != free_before_duplicate) {
+        physical_memory_free_pages() != free_before_map - 1u) {
         physical_page_free(physical);
         return -5;
     }
@@ -441,6 +474,54 @@ int paging_selftest(void) {
     }
 
     physical_page_free(physical);
+    if (physical_memory_free_pages() != free_before_map)
+        return -11;
+
+    /*
+     * Two adjacent mappings share the same page-table hierarchy. Unmapping
+     * the first leaf must preserve the sibling translation; unmapping the
+     * final leaf must reclaim exactly the three now-empty intermediate tables.
+     */
+    {
+        static const uint64_t va_a = PROSENJIT_KERNEL_TEST_VA + 0x2000ULL;
+        static const uint64_t va_b = PROSENJIT_KERNEL_TEST_VA + 0x3000ULL;
+        uint64_t baseline = physical_memory_free_pages();
+        uint64_t page_a = physical_page_alloc();
+        uint64_t page_b = physical_page_alloc();
+        int shared_ok = page_a != 0 && page_b != 0;
+        uint64_t mapped_free = 0;
+
+        if (shared_ok &&
+            paging_map_page(va_a, page_a,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0 &&
+            paging_map_page(va_b, page_b,
+                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0) {
+            mapped_free = physical_memory_free_pages();
+            if (mapped_free != baseline - 5u)
+                shared_ok = 0;
+            paging_unmap_page(va_a);
+            if (paging_translate(va_a) != 0 ||
+                paging_translate(va_b) != page_b ||
+                physical_memory_free_pages() != mapped_free)
+                shared_ok = 0;
+            paging_unmap_page(va_b);
+            if (paging_translate(va_b) != 0 ||
+                physical_memory_free_pages() != baseline - 2u)
+                shared_ok = 0;
+        } else {
+            shared_ok = 0;
+        }
+
+        /* Cleanup is safe whether either mapping was successfully installed. */
+        paging_unmap_page(va_a);
+        paging_unmap_page(va_b);
+        if (page_a) physical_page_free(page_a);
+        if (page_b) physical_page_free(page_b);
+        if (physical_memory_free_pages() != baseline)
+            shared_ok = 0;
+        if (!shared_ok)
+            return -12;
+    }
 
     /*
      * Force failure at each of the three intermediate page-table allocations
