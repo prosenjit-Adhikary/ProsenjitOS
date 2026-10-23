@@ -1,12 +1,18 @@
 #include "ps2_mouse.h"
 
-void pros_ps2_mouse_reset(struct pros_ps2_mouse_decoder *decoder)
+void pros_ps2_mouse_discard_packet(struct pros_ps2_mouse_decoder *decoder)
 {
     if (!decoder) return;
     decoder->packet[0] = 0u;
     decoder->packet[1] = 0u;
     decoder->packet[2] = 0u;
     decoder->packet_used = 0u;
+}
+
+void pros_ps2_mouse_reset(struct pros_ps2_mouse_decoder *decoder)
+{
+    if (!decoder) return;
+    pros_ps2_mouse_discard_packet(decoder);
     decoder->buttons = 0u;
 }
 
