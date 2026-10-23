@@ -130,6 +130,39 @@ int main(void)
     bad[23] = 0x08u; /* unsupported high-bandwidth transaction encoding */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
+    /* Duplicate interface number + alternate-setting pairs are malformed. */
+    uint8_t duplicate_interface[34];
+    copy_config(duplicate_interface);
+    duplicate_interface[2] = 34u;
+    duplicate_interface[25] = 9u;
+    duplicate_interface[26] = PROS_USB_DESC_INTERFACE;
+    duplicate_interface[27] = 2u; /* same interface number */
+    duplicate_interface[28] = 0u; /* same alternate setting */
+    duplicate_interface[29] = 0u; /* no endpoints */
+    duplicate_interface[30] = PROS_USB_CLASS_HID;
+    duplicate_interface[31] = PROS_USB_SUBCLASS_BOOT;
+    duplicate_interface[32] = PROS_USB_PROTOCOL_KEYBOARD;
+    duplicate_interface[33] = 0u;
+    assert(pros_usb_find_boot_hid_endpoint(duplicate_interface,
+           sizeof(duplicate_interface), &out) == PROS_DRIVER_EIO);
+
+    /* The same interface number with a different alternate setting is legal. */
+    uint8_t distinct_alternate[34];
+    for (uint32_t i = 0; i < sizeof(keyboard_config); ++i)
+        distinct_alternate[i] = keyboard_config[i];
+    distinct_alternate[2] = 34u;
+    distinct_alternate[25] = 9u;
+    distinct_alternate[26] = PROS_USB_DESC_INTERFACE;
+    distinct_alternate[27] = 2u;
+    distinct_alternate[28] = 1u; /* different alternate setting */
+    distinct_alternate[29] = 0u;
+    distinct_alternate[30] = PROS_USB_CLASS_HID;
+    distinct_alternate[31] = PROS_USB_SUBCLASS_BOOT;
+    distinct_alternate[32] = PROS_USB_PROTOCOL_KEYBOARD;
+    distinct_alternate[33] = 0u;
+    assert(pros_usb_find_boot_hid_endpoint(distinct_alternate,
+           sizeof(distinct_alternate), &out) == PROS_DRIVER_OK);
+
     /* Failure must not partially overwrite the caller's endpoint structure. */
     out.interface_number = 99u;
     out.alternate_setting = 98u;
