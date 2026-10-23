@@ -300,9 +300,11 @@ int pros_hw_input_send(uint32_t id, const struct pros_hw_input_event *e) {
             return PROS_DRIVER_EINVAL;
     } else if (e->type==PROS_HW_INPUT_POINTER) {
         /* Pointer motion and button transitions are distinct event forms. */
-        if (edge==(PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELEASE) ||
-            (edge!=0u && (e->flags&PROS_HW_INPUT_RELATIVE)!=0u))
+        if ((e->flags&PROS_HW_INPUT_RELATIVE)!=0u) {
+            if (edge!=0u) return PROS_DRIVER_EINVAL;
+        } else if (edge!=PROS_HW_INPUT_PRESS && edge!=PROS_HW_INPUT_RELEASE) {
             return PROS_DRIVER_EINVAL;
+        }
     } else return PROS_DRIVER_EINVAL;
     return pros_hw_endpoint_submit(id,PROS_HW_ENDPOINT_INPUT,e,(uint32_t)sizeof(*e));
 }
