@@ -13,6 +13,10 @@ struct pros_process;
  * Call after pros_hw_stack_init() and before enabling hardware interrupts. */
 int pros_input_service_init(void);
 
+/* Unregister the input endpoint after in-flight transfers drain. Returns
+ * PROS_DRIVER_ENODEV when the service is already stopped. */
+int pros_input_service_shutdown(void);
+
 /* Kernel-only capability provisioning: grant a process a READ-only handle to
  * this input endpoint. Never expose the underlying object pointer to userspace. */
 int pros_input_service_grant_read(struct pros_process *process,
