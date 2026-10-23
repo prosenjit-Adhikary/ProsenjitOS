@@ -195,3 +195,10 @@ Exact code commits: `a63bed351c03f5614668939a08c7ed3ce3800374`, `3e83a494a3d2793
 - Physical PS/2 hardware has not been validated.
 
 Code commits: `e14fbc5b6f12ad47571d2c67478e4d3453b94467`, `e18068c8fb18624b7430eaea3988aff4bc35c55a`, `0891d94f387cdfcc08d690157b14aeb782759b66`. Exact current-head CI is pending; do not infer success from earlier PIC-only runs.
+
+
+## PIC routing regression coverage — 2026-10-23
+
+Added a hosted test seam around the PIC port-write primitive; it is compiled only when `PROS_PIC_HOSTED_TEST` is defined. Production builds continue to use the x86 `outb` instruction. The hosted suite verifies that initialization enables only IRQ0, rejects direct IRQ2 manipulation and out-of-range IRQs, checks master IRQ mask transitions, verifies slave IRQs enable/retain the cascade correctly, and asserts slave-before-master EOI ordering for IRQ12. The build workflow runs this suite through `make pic-test`.
+
+This validates the software mask/EOI contract, not live hardware interrupt delivery. IRQ1 and IRQ12 remain masked pending a controller-level test for scan-code/AUX interleaving, queue pressure, spurious IRQs and safe interrupt-context behavior. Exact-head build and security workflow results must be checked before considering this follow-up verified.
