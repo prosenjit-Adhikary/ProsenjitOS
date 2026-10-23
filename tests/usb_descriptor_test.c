@@ -65,7 +65,26 @@ int main(void)
 
     copy_config(bad);
     bad[20] = 0x01u; /* endpoint OUT, not interrupt-IN */
+    out.interface_number = 99u;
+    out.alternate_setting = 98u;
+    out.endpoint_address = 97u;
+    out.interval = 96u;
+    out.max_packet_size = 95u;
+    out.kind = PROS_USB_HID_MOUSE;
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_ENODEV);
+    assert(out.interface_number == 99u && out.alternate_setting == 98u);
+    assert(out.endpoint_address == 97u && out.interval == 96u);
+    assert(out.max_packet_size == 95u && out.kind == PROS_USB_HID_MOUSE);
+
+    /* total-length must include a complete configuration header and body. */
+    copy_config(bad);
+    bad[2] = 8u;
+    bad[3] = 0u;
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+    copy_config(bad);
+    bad[2] = 24u; /* cuts through the endpoint descriptor */
+    bad[3] = 0u;
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
     copy_config(bad);
     bad[9] = 10u; /* standard interface descriptor length must be exactly nine */
