@@ -13,6 +13,12 @@
 - **Read-sweep boundary:** the new sweep checks successive reads on clean empty and populated fixtures. It verifies error propagation and scan-side media immutability, but it is not a substitute for corruption-specific fixtures where a prior metadata defect short-circuits traversal, nor for physical-device testing.
 
 
+## Runtime-log diagnosis — 2026-10-23
+
+- The PR #196 build/boot run on merge commit `ef2c929c2bf87ce6a1f107aa1b44f0b2aa788e98` built the ISO successfully and booted QEMU, but the populated-filesystem integrity read-fault sweep failed at `kernel/prosenjitfs.c:10072` with self-test return `-13`. The required ProsenjitFS success milestone was therefore not emitted. The security architecture workflow passed on the associated PR head `7e69101b91e7b851a97fee7686e65e5cf8b27352`.
+- Source review found a second inode-validation pass that used `allocated && prosenjitfs_read_inode(...) == PROSENJITFS_OK && dir_refs[...] > 1`. That condition silently ignored `PROSENJITFS_EIO` on a reread, allowing a fault-injected integrity scan to appear successful. The primary inode pass already validates allocated inode records, so the redundant read was removed; duplicate directory-reference detection still uses the validated bitmap and reference counts.
+- This is a source-level fix only. Re-run the exact updated PR head through build/boot, ISO QEMU, native BIOS QEMU, and security checks before claiming the regression is fixed. Do not merge until the new exact head is green.
+
 ## Latest verification update — 2026-10-22 13:07 UTC
 
 - PR #193 fixed a diagnostic contract bug in the report-only integrity scanner: allocated inode bitmap + FREE inode record previously returned `-20000 - inode_number`, which the public wrapper incorrectly decoded as a source line. It now returns corruption with the actual checker source line and has a targeted regression. PR #193 merged as `0e61bc728f1eb0fe5cf3a701de806d98a04bfeb0`.
