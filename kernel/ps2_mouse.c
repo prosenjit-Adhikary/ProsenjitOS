@@ -45,7 +45,7 @@ int pros_ps2_mouse_decode_byte(struct pros_ps2_mouse_decoder *decoder,
     const uint8_t flags = decoder->packet[0];
     const uint8_t raw_x = decoder->packet[1];
     const uint8_t raw_y = decoder->packet[2];
-    pros_ps2_mouse_reset(decoder);
+    decoder->packet_used = 0u;
 
     /* Overflow means the device lost motion information; never fabricate it. */
     if ((flags & 0xC0u) != 0u)
