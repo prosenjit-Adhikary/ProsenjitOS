@@ -444,3 +444,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; ISO and native BIOS QEMU reached the required ProsenjitFS recovery and persistence markers. Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This is self-test cleanup verification, not physical-device power-loss durability.
 - This is a self-test failure-path cleanup; it is not a claim of production filesystem completion or physical-device power-loss durability.
+
+
+## 2026-10-23 — Shrink truncate preflight read-failure regression added
+
+- Added four deterministic read-failure cases for the shrink path. The cases target inode validation, the initial extent preflight, the second extent traversal, and the inode home-block read before transaction staging.
+- Every case checks `PROS_VFS_EIO`, no changes to durable/volatile/dirty mock-media CRCs, writable mount state, preserved original file bytes, and clean integrity scan/unmount.
+- Branch: `test/prosenjitfs-truncate-shrink-read-failures-20261023`. Runtime validation remains pending exact-head CI; no pass is claimed.
