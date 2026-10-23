@@ -235,3 +235,8 @@ This is still parser/contract work only: it does not read live MMIO, initialize 
 ## Supported Protocol structure bounds hardening — 2026-10-23
 
 The xHCI Supported Protocol validator now checks the PSI (Protocol Speed ID) count and verifies that the complete structure—fixed 16-byte body plus four bytes per PSI entry—fits inside the supplied BAR snapshot. Added a regression test for a truncated PSI array and for the same structure when fully present. This is still a read-only snapshot validator, not live MMIO access or xHCI initialization.
+
+
+## Supported Protocol overlap rejection — 2026-10-23
+
+The xHCI Supported Protocol validator now also rejects a nonzero next-capability pointer that lands inside the current capability's PSI array. This prevents overlapping capability records from being accepted as a valid linked list. A regression test checks that the output count remains unchanged on this malformed input. Validation remains limited to caller-provided BAR snapshots; no live controller initialization is performed.
