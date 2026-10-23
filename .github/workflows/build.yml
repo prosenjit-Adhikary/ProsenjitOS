@@ -53,6 +53,7 @@ jobs:
           bash -n scripts/test_pci.sh
           bash -n scripts/test_xhci_capability.sh
           bash -n scripts/test_memory_allocator.sh
+          bash -n scripts/test_pic.sh
           make desktop-tests
           make hw-stack-test
           make ps2-keyboard-test
@@ -65,6 +66,7 @@ jobs:
           make pci-test
           make xhci-capability-test
           make memory-allocator-test
+          make pic-test
 
       - name: Build ISO
         run: |
