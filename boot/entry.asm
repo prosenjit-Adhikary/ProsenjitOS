@@ -102,7 +102,7 @@ long_mode_entry:
     jmp .halt
 
 enter_user_mode:
-    ; RDI=entry, RSI=stack_top, RDX=initial capability handle.
+    ; RDI=entry, RSI=stack_top, RDX=initial IPC handle, RCX=input READ handle.
     ; Load CPL3-compatible data segments before IRET so the first user
     ; memory access does not inherit the CPL0 data-segment cache.
     mov ax, gdt64.user_data + 3
@@ -110,6 +110,7 @@ enter_user_mode:
     mov es, ax
     mov rax, rdi
     mov r8, rdx
+    mov r9, rcx
     mov rdx, rsi
     push qword 0x23
     push rdx
@@ -120,6 +121,7 @@ enter_user_mode:
     push qword 0x1B
     push rax
     mov rdi, r8
+    mov rsi, r9
     iretq
 
 user_mode_exit_trampoline:
@@ -219,6 +221,30 @@ user_test_entry:
     int 0x80
     cmp rax, 0x0000000000010000
     jne .user_halt
+
+    ; Read one kernel-queued input event using the separately provisioned
+    ; READ-only input endpoint handle. The kernel validates this user buffer.
+    mov rax, 8                  ; PROSENJIT_SYS_INPUT_READ
+    mov rdi, r15                ; input endpoint capability
+    lea rsi, [r14 + 64]         ; struct pros_input_event output buffer
+    int 0x80
+    test rax, rax
+    jnz .user_halt
+    cmp dword [r14 + 64], 1     ; PROSENJIT_INPUT_ABI_VERSION
+    jne .user_halt
+    cmp dword [r14 + 68], 1     ; PROS_INPUT_KEY
+    jne .user_halt
+    cmp dword [r14 + 80], 0x20  ; injected scan code
+    jne .user_halt
+    cmp dword [r14 + 88], 1     ; PROS_INPUT_FLAG_PRESS
+    jne .user_halt
+
+    ; Release the input capability after the CPL3 delivery assertion.
+    mov rax, 3
+    mov rdi, r15
+    int 0x80
+    test rax, rax
+    jnz .user_halt
 
     ; Unknown syscall numbers must fail closed with ENOSYS.
     mov rax, 0x7FFF
