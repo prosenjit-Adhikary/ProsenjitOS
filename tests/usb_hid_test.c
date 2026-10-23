@@ -58,6 +58,13 @@ int main(void)
     assert(events[0].flags == PROS_HW_INPUT_RELEASE && events[0].value0 == 1);
     assert(events[1].flags == PROS_HW_INPUT_RELEASE && events[1].value0 == 2);
 
+    /* Reserved boot-mouse button bits must not be silently ignored. */
+    uint8_t saved_buttons = mouse.buttons;
+    mouse_report[0] = 0x08u;
+    assert(pros_usb_hid_mouse_report(&mouse, mouse_report, events, &count) == PROS_DRIVER_EINVAL);
+    assert(count == 0u && mouse.buttons == saved_buttons);
+    mouse_report[0] = 0u;
+
     assert(pros_usb_hid_keyboard_report(&keyboard, report, 0, &count) == PROS_DRIVER_EINVAL);
     assert(pros_usb_hid_keyboard_report(&keyboard, report, events, 0) == PROS_DRIVER_EINVAL);
     assert(pros_usb_hid_mouse_report(&mouse, mouse_report, 0, &count) == PROS_DRIVER_EINVAL);
