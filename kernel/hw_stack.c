@@ -369,6 +369,10 @@ int pros_hw_stack_selftest(void) {
     event.type=PROS_HW_INPUT_POINTER;
     event.flags=PROS_HW_INPUT_PRESS|PROS_HW_INPUT_RELATIVE;
     if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_EINVAL)return -35;
+    event.flags=0u;
+    if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_EINVAL)return -36;
+    event.flags=PROS_HW_INPUT_RELATIVE;
+    if(pros_hw_input_send(1u,&event)!=PROS_DRIVER_ENODEV)return -37;
     event.type=PROS_HW_INPUT_KEY;
     event.flags=PROS_HW_INPUT_PRESS;
     audio.sample_rate=1000u;
