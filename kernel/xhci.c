@@ -50,18 +50,25 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
     parsed.runtime_offset = runtime & ~0x1Fu;
     parsed.extended_capabilities_offset = (capability >> 16) * 4u;
 
+    uint32_t doorbell_length = ((uint32_t)parsed.max_slots + 1u) * 4u;
+    uint32_t runtime_length = XHCI_RUNTIME_BASE_SIZE +
+                              (uint32_t)parsed.max_interrupters *
+                                  XHCI_RUNTIME_INTERRUPTER_SIZE;
     if (parsed.max_slots == 0u || parsed.max_interrupters == 0u ||
         parsed.max_ports == 0u ||
         (doorbell & 3u) != 0u || (runtime & 0x1Fu) != 0u ||
         parsed.doorbell_offset < parsed.capability_length ||
         parsed.runtime_offset < parsed.capability_length ||
-        !range_valid(parsed.doorbell_offset,
-                     ((uint32_t)parsed.max_slots + 1u) * 4u, bar_length) ||
-        !range_valid(parsed.runtime_offset,
-                     XHCI_RUNTIME_BASE_SIZE +
-                         (uint32_t)parsed.max_interrupters *
-                             XHCI_RUNTIME_INTERRUPTER_SIZE,
-                     bar_length))
+        !range_valid(parsed.doorbell_offset, doorbell_length, bar_length) ||
+        !range_valid(parsed.runtime_offset, runtime_length, bar_length))
+        return PROS_DRIVER_EIO;
+
+    /* Doorbell and runtime register windows are separate xHCI regions. Reject
+     * a malformed snapshot that aliases them, before any future MMIO access. */
+    uint32_t doorbell_end = parsed.doorbell_offset + doorbell_length;
+    uint32_t runtime_end = parsed.runtime_offset + runtime_length;
+    if (parsed.doorbell_offset < runtime_end &&
+        parsed.runtime_offset < doorbell_end)
         return PROS_DRIVER_EIO;
 
     /* xECP is a BAR-relative pointer and may lie beyond CAPLENGTH. */
