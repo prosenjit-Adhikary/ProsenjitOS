@@ -97,7 +97,8 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
         *count_out = 0u;
         return PROS_DRIVER_OK;
     }
-    if ((first_offset & 3u) != 0u || first_offset < XHCI_CAP_HEADER_MIN ||
+    if ((first_offset & 3u) != 0u ||
+        first_offset < bar[0] ||
         !range_valid(first_offset, 4u, bar_length))
         return PROS_DRIVER_EIO;
 
@@ -146,7 +147,7 @@ int pros_xhci_validate_supported_protocols(const uint8_t *bar,
         return PROS_DRIVER_OK;
     }
     if ((first_offset & 3u) != 0u ||
-        first_offset < XHCI_CAP_HEADER_MIN ||
+        first_offset < bar[0] ||
         !range_valid(first_offset, 4u, bar_length))
         return PROS_DRIVER_EIO;
 
