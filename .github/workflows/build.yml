@@ -9,7 +9,32 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
+  paint-tests:
+    timeout-minutes: 30
+    # All Paint development and regression testing must use the designated Windows runner.
+    runs-on: [self-hosted, windows, x64, OfficeWindows]
+    steps:
+      - name: Verify designated OfficeWindows runner
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_NAME -ne 'OfficeWindows') {
+            throw "Paint tests must run on OfficeWindows; actual runner is '$env:RUNNER_NAME'."
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile and run Paint core tests on OfficeWindows
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          ./scripts/test_paint_core.ps1
+
   build:
     # Native kernel/ProsenjitFS build and QEMU boot tests currently require the
     # Linux GNU toolchain. Do not dispatch this job to Windows until its compatible
