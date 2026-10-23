@@ -11,6 +11,8 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
     uint32_t total = (uint32_t)blob[2] | ((uint32_t)blob[3] << 8);
     if (total < 9u || total > blob_length) return PROS_DRIVER_EIO;
 
+    uint8_t seen_interfaces[256] = {0};
+    uint16_t distinct_interfaces = 0u;
     uint8_t current_interface = 0u, current_alt = 0u;
     uint8_t expected_endpoints = 0u, observed_endpoints = 0u;
     uint8_t in_interface = 0u;
@@ -35,6 +37,10 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
                 return PROS_DRIVER_EIO;
             current_interface = blob[offset + 2u];
             current_alt = blob[offset + 3u];
+            if (!seen_interfaces[current_interface]) {
+                seen_interfaces[current_interface] = 1u;
+                ++distinct_interfaces;
+            }
             expected_endpoints = blob[offset + 4u];
             observed_endpoints = 0u;
             in_interface = 1u;
@@ -59,18 +65,13 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             uint8_t transfer_type =
                 (uint8_t)(attributes & PROS_USB_ENDPOINT_TRANSFER_MASK);
 
-            /*
-             * Validate every endpoint descriptor, not just the candidate:
-             * endpoint zero/reserved address bits and reserved attribute
-             * bits are malformed regardless of direction or transfer type.
-             */
+            /* Validate every endpoint, including endpoints not selected for HID. */
             if ((address & 0x70u) != 0u || (address & 0x0Fu) == 0u ||
                 (attributes & 0xC0u) != 0u || packet_size == 0u)
                 return PROS_DRIVER_EIO;
 
             if (transfer_type == PROS_USB_ENDPOINT_INTERRUPT) {
-                if (blob[offset + 6u] == 0u) return PROS_DRIVER_EIO;
-                if ((packet & 0xF800u) != 0u)
+                if (blob[offset + 6u] == 0u || (packet & 0xF800u) != 0u)
                     return PROS_DRIVER_EIO;
             }
 
@@ -92,6 +93,7 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
     if (offset != total) return PROS_DRIVER_EIO;
     if (in_interface && observed_endpoints != expected_endpoints)
         return PROS_DRIVER_EIO;
+    if (distinct_interfaces != blob[4]) return PROS_DRIVER_EIO;
     if (!found) return PROS_DRIVER_ENODEV;
     *out = candidate;
     return PROS_DRIVER_OK;
