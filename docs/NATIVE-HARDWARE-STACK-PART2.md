@@ -154,3 +154,13 @@ These are software/QEMU checks, not physical-hardware validation. USB enumeratio
 - Hosted allocator regression coverage checks page alignment, rejection at the exclusive physical-address ceiling, allocated-page state, free-page accounting, protection against individual-page free of a contiguous run, wrong-base/wrong-length/partial release rejection, double release, invalid non-power-of-two alignment, and zero-length requests.
 - This is an allocator primitive only. It does **not** establish DMA safety: no cache-coherency contract, pin/reference ownership, device ownership handoff, IOMMU mapping, or per-device DMA address mask is provided. Do not enable PCI bus mastering or start xHCI/audio DMA based on this change.
 - Baseline validation for commit `61a9566d0c78ee4e1bbf842f42b1ce44ab2a6f1d` passed both build/boot-test and security workflows. The newer exclusive-ceiling regression test is being validated separately; do not infer its result from the baseline run.
+
+## Contiguous allocator concurrency regression and exact-head verification — 2026-10-23
+
+The hosted physical-memory allocator suite now also stresses concurrent contiguous allocation: eight worker threads each request a four-page run aligned to four pages and constrained below the exclusive 8 MiB ceiling. The test verifies every request succeeds, runs do not overlap, every base is aligned and each run stays below the ceiling, then releases all runs and confirms the free-page count returns to its prior value. This complements the existing ordinary-page allocator concurrency test.
+
+Exact current code head verified: `3d0f9b8d2a24c8b26279e3cc8a72eb07af7762c4`.
+- [Build and boot-test, run 39942918400](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39942918400) — **passed**, including the hosted test job, ISO build, ISO QEMU boot-test, and native BIOS image QEMU boot-test.
+- [Security architecture checks, run 39942918377](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39942918377) — **passed**.
+
+These checks validate the software regression suite and QEMU boot paths only. They do not demonstrate live USB enumeration/transfers, GPU modesetting, hardware audio, interrupt-driven input, DMA/cache coherency, IOMMU integration, or physical-hardware compatibility. The contiguous allocator remains only a memory-allocation primitive; PCI bus mastering and xHCI/audio DMA must remain disabled until device-specific DMA addressability, ownership, lifetime, cache-coherency and rollback contracts are implemented and tested.
