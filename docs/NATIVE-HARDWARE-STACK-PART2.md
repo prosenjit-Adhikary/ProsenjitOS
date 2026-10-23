@@ -255,3 +255,8 @@ Extended the Supported Protocol tests to reject next-capability pointers into th
 ## xECP capability-region separation — 2026-10-23
 
 The xHCI capability parser now rejects a nonzero xECP offset that points inside the CAPLENGTH-defined capability-register region. The parser also checks that the pointed-to dword lies within the supplied BAR snapshot. A regression case covers an xECP pointer that overlaps the capability registers. This remains static snapshot validation, not MMIO mapping or controller startup.
+
+
+## xHCI register-window alias rejection — 2026-10-23
+
+The read-only capability parser now computes the complete doorbell and runtime-register windows after validating each range against the supplied BAR snapshot, then rejects snapshots where those windows overlap. A regression case sets the doorbell offset equal to the runtime offset and expects failure. This protects future code from interpreting the same BAR bytes as two register banks; it does not map MMIO or initialize an xHCI controller.
