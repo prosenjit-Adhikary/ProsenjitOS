@@ -182,7 +182,11 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 #endif
 
     uint32_t total_size = *(const uint32_t *)(uintptr_t)multiboot_info_address;
-    if (total_size < 16u || total_size > (16u * 1024u * 1024u)) return -2;
+    uint32_t header_reserved =
+        *((const uint32_t *)(uintptr_t)multiboot_info_address + 1);
+    if (total_size < 16u || total_size > (16u * 1024u * 1024u) ||
+        (total_size & 7u) != 0u || header_reserved != 0u)
+        return -2;
     if (multiboot_info_address > UINT64_MAX - (uint64_t)total_size)
         return -2;
 #ifndef PROSENJIT_MEMORY_HOST_TEST
@@ -207,7 +211,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
             return -3;
 
         if (tag->type == MULTIBOOT2_TAG_END) {
-            if (tag->size != 8u) return -3;
+            /* The end tag is terminal: no trailing bytes or hidden tags. */
+            if (tag->size != 8u || end - current != 8ULL)
+                return -3;
             saw_end_tag = 1;
             break;
         }

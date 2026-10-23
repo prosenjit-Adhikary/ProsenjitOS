@@ -115,6 +115,23 @@ int main(void) {
                       "undersized and oversized Multiboot2 structures are rejected");
     failures += check(!multiboot_info_range_valid(UINT64_MAX - 7ULL, 16u),
                       "overflowing Multiboot2 info range is rejected");
+
+    begin_info();
+    ((struct test_info_header *)info)->total_size = 23u;
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -2,
+                      "non-eight-byte-aligned Multiboot2 total_size is rejected");
+
+    begin_info();
+    ((struct test_info_header *)info)->reserved = 1u;
+    append_end(8u);
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -2,
+                      "nonzero Multiboot2 information header reserved word is rejected");
+
+    begin_info();
+    append_end(8u);
+    ((struct test_info_header *)info)->total_size = 24u;
+    failures += check(physical_memory_init((uint64_t)(uintptr_t)info) == -3,
+                      "bytes after the Multiboot2 terminal end tag are rejected");
     const struct test_mmap_entry overlapping[] = {
         { 0x00100000ULL, 0x00700000ULL, 1u, 0u },
         { 0x00200000ULL, 0x00100000ULL, 2u, 0u }
