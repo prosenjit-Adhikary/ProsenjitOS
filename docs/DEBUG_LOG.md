@@ -452,3 +452,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Reapplied their test-only corruption fixtures onto the current source while preserving the merged recovery cleanup and sector-targeted journal read-failure injection.
 - Both tests recompute valid entry checksums, expect report-only integrity rejection with no durable/volatile/dirty media mutation, restore the original entry, and require a clean rescan.
 - Exact-current-head build/boot-test and Security architecture verification is pending; prior green results on older PR heads are not substituted for this new head.
+
+
+## 2026-10-23 — Current-source re-check: integrity-scan read failures
+
+- The current integrity self-test walks read-failure countdown positions from 1 through 512 and injects a failure at each block-device read position reached by a clean integrity scan.
+- Each injected failure must return `PROSENJITFS_EIO` and set report status to `PROSENJITFS_EIO`, without changing durable data, volatile data, or the dirty-block bitmap. The first countdown not reached ends the sweep.
+- This corrects the scope of older notes that described the test as targeting only the inode-bitmap read. It does not mean every mount/recovery or mutation-path read is covered, and it does not prove physical-device durability.
