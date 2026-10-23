@@ -374,31 +374,49 @@ page_directory: resb 4096
                 resb 4096
                 resb 4096
 
-align 16
+; Keep each critical kernel/IST stack on page boundaries with one
+; dedicated, initially mapped-but-later-unmapped guard page immediately below.
+align 4096
+global stack_guard_bottom
+stack_guard_bottom:
+    resb 4096
+align 4096
 global stack_bottom
 global stack_top
 stack_bottom:
     ; kernel_main and NTFS mutation tests can nest a large test frame with
     ; a 64 KiB MFT-record scratch buffer. Keep enough headroom for compiler
-    ; stack probing so the bootstrap stack cannot underflow into unmapped RAM.
+    ; stack probing; paging_init removes the guard page below this stack.
     resb 131072
 stack_top:
 
-align 16
+align 4096
+global ist1_stack_guard_bottom
+ist1_stack_guard_bottom:
+    resb 4096
+align 4096
 global ist1_stack_bottom
 global ist1_stack_top
 ist1_stack_bottom:
     resb 8192
 ist1_stack_top:
 
-align 16
+align 4096
+global ist2_stack_guard_bottom
+ist2_stack_guard_bottom:
+    resb 4096
+align 4096
 global ist2_stack_bottom
 global ist2_stack_top
 ist2_stack_bottom:
     resb 8192
 ist2_stack_top:
 
-align 16
+align 4096
+global ist3_stack_guard_bottom
+ist3_stack_guard_bottom:
+    resb 4096
+align 4096
 global ist3_stack_bottom
 global ist3_stack_top
 ist3_stack_bottom:

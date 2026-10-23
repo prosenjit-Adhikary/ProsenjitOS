@@ -7,12 +7,18 @@ extern char __kernel_rodata_start[];
 extern char __kernel_rodata_end[];
 extern char __kernel_bss_start[];
 extern char __kernel_bss_end[];
+extern char stack_guard_bottom[];
 extern char stack_bottom[];
 extern char stack_top[];
+extern char ist1_stack_guard_bottom[];
 extern char ist1_stack_bottom[];
 extern char ist1_stack_top[];
+extern char ist2_stack_guard_bottom[];
 extern char ist2_stack_bottom[];
 extern char ist2_stack_top[];
+extern char ist3_stack_guard_bottom[];
+extern char ist3_stack_bottom[];
+extern char ist3_stack_top[];
 
 #define PAGE_MASK 0x000FFFFFFFFFF000ULL
 #define ENTRIES 512u
@@ -311,20 +317,39 @@ int paging_init(void) {
      * integer addresses before doing end-1 arithmetic so -Warray-bounds does
      * not treat stack_top as an actual C array object.
      */
+    uint64_t stack_guard = (uint64_t)(uintptr_t)stack_guard_bottom;
     uint64_t stack_start = (uint64_t)(uintptr_t)stack_bottom;
     uint64_t stack_end = (uint64_t)(uintptr_t)stack_top;
+    uint64_t ist1_guard = (uint64_t)(uintptr_t)ist1_stack_guard_bottom;
     uint64_t ist1_start = (uint64_t)(uintptr_t)ist1_stack_bottom;
     uint64_t ist1_end = (uint64_t)(uintptr_t)ist1_stack_top;
+    uint64_t ist2_guard = (uint64_t)(uintptr_t)ist2_stack_guard_bottom;
     uint64_t ist2_start = (uint64_t)(uintptr_t)ist2_stack_bottom;
     uint64_t ist2_end = (uint64_t)(uintptr_t)ist2_stack_top;
+    uint64_t ist3_guard = (uint64_t)(uintptr_t)ist3_stack_guard_bottom;
+    uint64_t ist3_start = (uint64_t)(uintptr_t)ist3_stack_bottom;
+    uint64_t ist3_end = (uint64_t)(uintptr_t)ist3_stack_top;
 
     if (map_identity_range(stack_start, stack_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         map_identity_range(ist1_start, ist1_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
         map_identity_range(ist2_start, ist2_end,
+                           PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0 ||
+        map_identity_range(ist3_start, ist3_end,
                            PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) != 0)
         return -1;
+
+    /*
+     * The broad identity map above includes BSS. Remove the dedicated page
+     * immediately below each critical stack before activating this root.
+     * Guard pages remain reserved kernel-image physical memory; they are
+     * intentionally unmapped, never returned to the page allocator.
+     */
+    paging_unmap_page(stack_guard);
+    paging_unmap_page(ist1_guard);
+    paging_unmap_page(ist2_guard);
+    paging_unmap_page(ist3_guard);
 
     uint64_t test_page = physical_page_alloc();
     if (!test_page) return -1;
@@ -335,10 +360,19 @@ int paging_init(void) {
     }
 
     if (stack_end <= stack_start || ist1_end <= ist1_start ||
-        ist2_end <= ist2_start ||
+        ist2_end <= ist2_start || ist3_end <= ist3_start ||
+        (stack_guard & 0xFFFULL) != 0 ||
+        (ist1_guard & 0xFFFULL) != 0 ||
+        (ist2_guard & 0xFFFULL) != 0 ||
+        (ist3_guard & 0xFFFULL) != 0 ||
+        paging_translate(stack_guard) != 0 ||
+        paging_translate(ist1_guard) != 0 ||
+        paging_translate(ist2_guard) != 0 ||
+        paging_translate(ist3_guard) != 0 ||
         paging_translate(stack_end - 1u) == 0 ||
         paging_translate(ist1_end - 1u) == 0 ||
-        paging_translate(ist2_end - 1u) == 0) {
+        paging_translate(ist2_end - 1u) == 0 ||
+        paging_translate(ist3_end - 1u) == 0) {
         paging_unmap_page(PROSENJIT_KERNEL_TEST_VA);
         physical_page_free(test_page);
         return -1;
