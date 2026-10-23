@@ -357,3 +357,15 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - Coverage boundary: the probes prove that these three test vectors select their configured IST stack and that the captured frame page/guard mapping meets the checked policy in QEMU. They do not simulate a nested double fault/page fault, exhaustively validate all exception/privilege transitions, or prove real hardware behavior, UEFI or SMP correctness.
 
 **Overall Part 1 remains PARTIAL / NOT COMPLETE.** Dynamic per-thread kernel-stack ownership/bounds/guard/reclamation, broader scheduler/IPC race testing, full memory/page-table dependency review, DMA/IOMMU safety, UEFI and physical-hardware validation remain open.
+
+
+## Verification result — Multiboot2 range and kernel page-table reclamation (2026-10-23)
+
+- Source/test head before this report-only commit: `eba3d10544cb16c384b3a6c7e1477ab351bfe2c6`.
+- `kernel/memory.c`: the kernel validates the Multiboot2 info pointer's alignment and header extent against the first 1 GiB identity-map limit **before dereferencing the header**; after reading `total_size`, it rejects a structure extending outside the currently mapped range. Pure helper tests cover null/unaligned/above-limit pointers, lower/upper size limits, identity-map boundary acceptance/rejection and invalid extents.
+- Exact-head Build/boot run [#7989](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39918933966): **SUCCESS** for commit `ba3f172cfeaab4ee5eb9ca1a91f4092923991a60`. New Multiboot2 boundary tests passed, as did ISO/native BIOS QEMU checks and security-relevant runtime markers. Security architecture run [#7525](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39918933806): **SUCCESS** for the same commit.
+- `kernel/paging.c`: `paging_unmap_page()` now clears and frees PT/PD/PDPT pages only when they become entirely empty. The regression test verifies that removing one of two adjacent mappings preserves the sibling mapping and shared tables; removing the last mapping reclaims exactly the empty hierarchy and restores physical-page accounting while leaving caller-owned leaf pages allocated.
+- Exact-head Build/boot run [#7993](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39919333859): **SUCCESS** for commit `eba3d10544cb16c384b3a6c7e1477ab351bfe2c6`; paging deep invariants passed in both ISO and native BIOS QEMU. Security architecture run [#7529](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39919333735): **SUCCESS**. The bounded QEMU exit status 124 is the workflow's expected timeout after required markers were checked.
+- Concurrency boundary: kernel-root table reclamation currently assumes the existing uniprocessor execution model. Before SMP support, this path needs a remote TLB/page-walk-cache shootdown protocol and stress tests.
+
+**Overall Part 1 remains PARTIAL / NOT COMPLETE.** Dynamic per-thread kernel-stack ownership/bounds/guard/reclamation, broader scheduler/IPC lifecycle-race coverage, complete memory/page-table dependency review, DMA/IOMMU/device ownership, UEFI, SMP and physical-hardware validation remain open.
