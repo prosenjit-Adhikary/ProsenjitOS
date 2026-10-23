@@ -4,6 +4,9 @@
 #include "ps2_keyboard.h"
 #include "process.h"
 
+/* Deterministic stand-in for the kernel's monotonic PIT tick source. */
+uint64_t timer_ticks(void) { return 1234u; }
+
 /* Host test isolates the queue from the kernel process manager. */
 int process_grant_handle(struct pros_process *process, struct pros_object *object,
                          uint64_t rights, uint64_t *handle_out)
@@ -39,6 +42,7 @@ int main(void)
     assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
     assert(event.type == PROS_HW_INPUT_KEY);
     assert(event.value0 == 0x1E && event.flags == PROS_HW_INPUT_PRESS);
+    assert(event.timestamp == 1234u);
     assert(pros_input_service_read(&event) == PROS_DRIVER_OK);
     assert(event.value0 == 0x1E && event.flags == PROS_HW_INPUT_RELEASE);
     assert(pros_input_service_read(&event) == PROS_DRIVER_EBUSY);
