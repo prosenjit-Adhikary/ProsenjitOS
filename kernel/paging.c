@@ -224,7 +224,7 @@ static void paging_unmap_mmio_range_unlocked(uint64_t virtual_address, uint64_t 
          (((virtual_address + length - 1ULL) >> 47) & 1ULL)))
         return;
     for (uint64_t offset = 0u; offset < length; offset += 0x1000ULL)
-        paging_unmap_page(virtual_address + offset);
+        paging_unmap_page_unlocked(virtual_address + offset);
 }
 
 static void paging_unmap_page_unlocked(uint64_t virtual_address) {
