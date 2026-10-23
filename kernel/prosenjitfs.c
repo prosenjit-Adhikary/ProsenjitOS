@@ -10102,6 +10102,98 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sparse-growth read failures must not publish a larger EOF or mutate
+     * media. Inject failures into inode validation, extent lookup, and the
+     * existing tail-block read before the tail-zero transaction begins.
+     */
+    {
+        uint8_t original[64];
+        uint8_t readback[64];
+        uint32_t completed = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(original); ++i)
+            original[i] = (uint8_t)(0x93u ^ (uint8_t)(i * 23u));
+
+        for (uint32_t read_position = 1u; read_position <= 3u;
+             ++read_position) {
+            struct pros_vfs_file file;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            uint32_t done = 0u;
+            int truncate_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, original, sizeof(original), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(original) ||
+                vfs_file_close(&file) != PROS_VFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            truncate_rc = vfs_file_truncate(
+                &file, (uint64_t)fs.sb.block_size + 1u);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                disk.fail_read_countdown != 0u ||
+                truncate_rc != PROS_VFS_EIO ||
+                fs.read_only || fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/truncate-growth-read.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(readback) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+            for (uint32_t i = 0u; i < sizeof(readback); ++i) {
+                if (readback[i] != original[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+            ++completed;
+        }
+
+        if (completed != 3u)
+            return pfs_selftest_fail(__LINE__, -22);
+    }
+
+    /*
      * Truncation is a metadata transaction too. If its commit record cannot
      * be written, power-loss remount must retain the pre-truncate EOF, extent,
      * and bytes rather than exposing a partially applied shrink.
