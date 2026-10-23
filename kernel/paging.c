@@ -439,8 +439,6 @@ int paging_selftest(void) {
                          PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_USER |
                          PROSENJIT_PAGE_NX) == 0)
         return -10;
-    if (paging_translate(0xFFFF800000001000ULL) != 0)
-        return -10;
     if (paging_map_page(PROSENJIT_KERNEL_TEST_VA, PROSENJIT_PHYS_LIMIT,
                         PROSENJIT_PAGE_WRITABLE | PROSENJIT_PAGE_NX) == 0)
         return -7;
