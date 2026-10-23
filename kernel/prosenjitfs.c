@@ -9093,6 +9093,34 @@ int prosenjitfs_selftest(void)
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
 
+        /*
+         * Inode allocator bitmap I/O failure must propagate without changing
+         * the caller's output value, mount state, or media contents.
+         */
+        {
+            uint64_t candidate = UINT64_MAX;
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = 1u;
+            if (pfs_find_free_inode(&fs, &candidate) != PROSENJITFS_EIO ||
+                disk.fail_read_countdown != 0u ||
+                candidate != UINT64_MAX || fs.read_only ||
+                fs.mount.read_only ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -27);
+        }
+
         pfs_selftest_diag_stage = __LINE__;
         /*
          * Negative/boundary arithmetic is exercised against the real device
