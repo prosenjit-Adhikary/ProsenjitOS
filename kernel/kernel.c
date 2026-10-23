@@ -163,6 +163,11 @@ extern void isr32(void);
 extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
+extern int interrupt_gpr_sentinel_selftest(void);
+extern int timer_gpr_sentinel_selftest(void);
+
+/* INT3 may return only during the tightly scoped GPR-preservation probe. */
+volatile uint8_t pros_interrupt_gpr_selftest_active;
 extern void user_test_entry(void);
 
 struct gdtr_snapshot {
@@ -256,6 +261,13 @@ void exception_dispatch(uint64_t *frame) {
         for (;;) __asm__ volatile ("hlt");
     }
     exception_dispatch_active = 1u;
+    if (frame[0] == 3u && pros_interrupt_gpr_selftest_active) {
+        ++health_exception_count;
+        health_last_exception_vector = frame[0];
+        health_last_exception_rip = frame[2];
+        exception_dispatch_active = 0u;
+        return;
+    }
     ++health_exception_count;
     health_last_exception_vector = frame[0];
     health_last_exception_rip = frame[2];
@@ -379,6 +391,18 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: PIT timer initialized at 100 Hz\n");
+    pros_interrupt_gpr_selftest_active = 1u;
+    if (interrupt_gpr_sentinel_selftest() != 0) {
+        pros_interrupt_gpr_selftest_active = 0u;
+        serial_write("ProsenjitOS: ERROR exception GPR-preservation runtime test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    pros_interrupt_gpr_selftest_active = 0u;
+    if (timer_gpr_sentinel_selftest() != 0) {
+        serial_write("ProsenjitOS: ERROR timer GPR-preservation runtime test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: interrupt/timer GPR preservation runtime tests passed\n");
     serial_write("ProsenjitOS: IDT loaded; exceptions armed; hardware IRQs masked\n");
     serial_write("ProsenjitOS: Multiboot2 info = "); serial_hex64(boot_info); serial_write("\n");
     serial_write("ProsenjitOS: x86-64 long mode active\n");

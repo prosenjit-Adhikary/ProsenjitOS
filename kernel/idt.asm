@@ -282,4 +282,141 @@ isr_common:
     add rsp, 16
     iretq
 
+
+; Runtime register-preservation probes. The C caller is responsible for
+; enabling the INT3 recovery gate around the exception-path probe.
+global interrupt_gpr_sentinel_selftest
+interrupt_gpr_sentinel_selftest:
+    push rbx
+    push rbp
+    push r12
+    push r13
+    push r14
+    push r15
+    mov eax, 0x101
+    mov ebx, 0x202
+    mov ecx, 0x303
+    mov edx, 0x404
+    mov esi, 0x505
+    mov edi, 0x606
+    mov ebp, 0x707
+    mov r8d, 0x808
+    mov r9d, 0x909
+    mov r10d, 0xA0A
+    mov r11d, 0xB0B
+    mov r12d, 0xC0C
+    mov r13d, 0xD0D
+    mov r14d, 0xE0E
+    mov r15d, 0xF0F
+    int3
+    cmp rax, 0x101
+    jne .gpr_fail
+    cmp rbx, 0x202
+    jne .gpr_fail
+    cmp rcx, 0x303
+    jne .gpr_fail
+    cmp rdx, 0x404
+    jne .gpr_fail
+    cmp rsi, 0x505
+    jne .gpr_fail
+    cmp rdi, 0x606
+    jne .gpr_fail
+    cmp rbp, 0x707
+    jne .gpr_fail
+    cmp r8, 0x808
+    jne .gpr_fail
+    cmp r9, 0x909
+    jne .gpr_fail
+    cmp r10, 0xA0A
+    jne .gpr_fail
+    cmp r11, 0xB0B
+    jne .gpr_fail
+    cmp r12, 0xC0C
+    jne .gpr_fail
+    cmp r13, 0xD0D
+    jne .gpr_fail
+    cmp r14, 0xE0E
+    jne .gpr_fail
+    cmp r15, 0xF0F
+    jne .gpr_fail
+    xor eax, eax
+    jmp .gpr_restore
+.gpr_fail:
+    mov eax, 1
+.gpr_restore:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+    ret
+
+global timer_gpr_sentinel_selftest
+timer_gpr_sentinel_selftest:
+    push rbx
+    push rbp
+    push r12
+    push r13
+    push r14
+    push r15
+    mov eax, 0x111
+    mov ebx, 0x222
+    mov ecx, 0x333
+    mov edx, 0x444
+    mov esi, 0x555
+    mov edi, 0x666
+    mov ebp, 0x777
+    mov r8d, 0x888
+    mov r9d, 0x999
+    mov r10d, 0xAAA
+    mov r11d, 0xBBB
+    mov r12d, 0xCCC
+    mov r13d, 0xDDD
+    mov r14d, 0xEEE
+    mov r15d, 0xFFF
+    int 0x20
+    cmp rax, 0x111
+    jne .timer_gpr_fail
+    cmp rbx, 0x222
+    jne .timer_gpr_fail
+    cmp rcx, 0x333
+    jne .timer_gpr_fail
+    cmp rdx, 0x444
+    jne .timer_gpr_fail
+    cmp rsi, 0x555
+    jne .timer_gpr_fail
+    cmp rdi, 0x666
+    jne .timer_gpr_fail
+    cmp rbp, 0x777
+    jne .timer_gpr_fail
+    cmp r8, 0x888
+    jne .timer_gpr_fail
+    cmp r9, 0x999
+    jne .timer_gpr_fail
+    cmp r10, 0xAAA
+    jne .timer_gpr_fail
+    cmp r11, 0xBBB
+    jne .timer_gpr_fail
+    cmp r12, 0xCCC
+    jne .timer_gpr_fail
+    cmp r13, 0xDDD
+    jne .timer_gpr_fail
+    cmp r14, 0xEEE
+    jne .timer_gpr_fail
+    cmp r15, 0xFFF
+    jne .timer_gpr_fail
+    xor eax, eax
+    jmp .timer_gpr_restore
+.timer_gpr_fail:
+    mov eax, 1
+.timer_gpr_restore:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+    ret
+
 section .note.GNU-stack noalloc noexec nowrite progbits
