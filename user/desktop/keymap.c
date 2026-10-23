@@ -2,7 +2,7 @@
 
 /* In the freestanding kernel build, this code/data is copied into the CPL3
  * test image. Hosted unit tests keep normal sections and remain independent. */
-#if defined(__STDC_HOSTED__) && __STDC_HOSTED__
+#if !defined(PROSENJIT_USER_IMAGE_BUILD)
 #define PROS_USER_CODE
 #define PROS_USER_DATA
 #else
