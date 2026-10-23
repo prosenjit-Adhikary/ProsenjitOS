@@ -85,9 +85,13 @@ int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
                     continue;
 
                 uint32_t class_word;
+                uint32_t function_header_word;
                 if (pci_config_read32((uint8_t)bus, (uint8_t)slot,
                                       (uint8_t)function, 0x08u, &class_word) !=
-                        PROS_PCI_OK)
+                        PROS_PCI_OK ||
+                    pci_config_read32((uint8_t)bus, (uint8_t)slot,
+                                      (uint8_t)function, 0x0Cu,
+                                      &function_header_word) != PROS_PCI_OK)
                     return PROS_PCI_EINVAL;
 
                 if (found >= capacity)
@@ -101,7 +105,9 @@ int pci_scan(struct pros_pci_device *devices, uint32_t capacity,
                 devices[found].class_code = (uint8_t)(class_word >> 24);
                 devices[found].subclass = (uint8_t)(class_word >> 16);
                 devices[found].prog_if = (uint8_t)(class_word >> 8);
-                devices[found].header_type = header_type;
+                /* Header layout belongs to each function, not function zero. */
+                devices[found].header_type =
+                    (uint8_t)((function_header_word >> 16) & 0xFFu);
                 ++found;
             }
         }
