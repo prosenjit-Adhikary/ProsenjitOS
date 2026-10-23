@@ -113,3 +113,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Exact commit build/boot-test [#39927032201](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39927032201): **PASS**. Toolchain validation, desktop/DML tests, ISO build, block-init diagnostics, ISO QEMU boot and native BIOS QEMU boot all passed; both boot logs contained the ProsenjitFS format/mount/allocation/journal/recovery self-test success marker, and the native BIOS log also contained the ATA/MBR/ProsenjitFS persistent-mount marker.
 - Exact commit security architecture checks [#39927032230](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39927032230): **PASS**.
 - This closes the narrow acceptance gap for sequential read-failure classification during the report-only integrity scan. It does **not** close all ProsenjitFS acceptance work: broader mutation rollback/persistence-remount coverage, write/flush failure paths, adversarial namespace/link semantics, caller-serialization review and physical-device power-loss durability still require independent verification. QEMU/mock-device success is not proof of real-hardware durability.
+
+
+## Verification update — 2026-10-23: degraded-mount mutation rejection
+
+- Commit `433c93ff864b0fb114119ddfe859cf421d01d6fb` extends the degraded-superblock self-test in both directions: primary invalid / backup valid, and backup invalid / primary valid.
+- Each direction now attempts file creation and directory creation on the read-only degraded mount. Both operations must return `PROS_VFS_EPERM`; durable disk, volatile cache and dirty-block checksums must remain unchanged.
+- Exact commit build/boot-test [#39928003595](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39928003595): **PASS**. ISO build, ISO QEMU boot and native BIOS QEMU boot all succeeded, including the ProsenjitFS format/mount/allocation/journal/recovery marker and the ATA/MBR persistent-mount marker.
+- Exact commit security architecture checks [#39928003550](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39928003550): **PASS**.
+- This verifies the two degraded-superblock recovery directions reject create/mkdir mutation without mock-media changes. It does not prove all VFS mutation operations, all I/O fault paths, or real-device power-loss durability.
