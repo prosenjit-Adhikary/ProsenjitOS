@@ -263,3 +263,12 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - The new paging self-test's lower-half and upper-half USER-mapping rejection checks were included in the built kernel and passed the configured QEMU marker gates.
 - QEMU was terminated by the configured bounded test timeout after the required serial markers were checked. This does not establish unlimited-runtime stability or physical hardware, UEFI, or real SMP correctness.
 - **Verified for configured CI gates:** kernel-root USER mapping restriction. **Overall Part 1 remains PARTIAL / NOT COMPLETE**; outstanding gates include full-tree dependency inventory, runtime register-sentinel/IST and lifecycle race tests, thread stack ownership/guard/reclamation, and DMA/IOMMU, UEFI, physical-hardware validation.
+
+
+## Follow-up — compile-time scheduler/ISR ABI layout assertions (2026-10-23)
+
+- Source commit: `361e5102d9dcd7d0f4682bff7e6ebfef345eb6e9`.
+- `kernel/thread.c` now uses compile-time assertions to verify that `pros_thread.context.rsp` remains at byte offset 80, matching `kernel/context_switch.asm`, and that `pros_interrupt_frame.rip` and the complete interrupt-frame size match the assembly's 15-register + 3-word frame contract.
+- Purpose: fail the build immediately if a C structure edit silently changes offsets consumed by handwritten assembly. These checks do not prove runtime register preservation, stack safety, or correct IST delivery.
+- Verification status: **PENDING** until build/host tests/ISO QEMU/native BIOS QEMU and security checks finish for this source commit or a later head containing it.
+- Thread-stack allocation/ownership/guard/reclamation remains a separate unresolved design gate; this change intentionally does not invent a stack allocator or alter lifecycle semantics.
