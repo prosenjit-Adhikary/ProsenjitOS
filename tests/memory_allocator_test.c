@@ -120,16 +120,34 @@ int main(void) {
         fputs("allocator test: contiguous release did not restore free count\n", stderr);
         return 15;
     }
-    if (physical_pages_free_contiguous(run, 4u) == 0 ||
-        physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0 ||
-        physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0 ||
-        physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
-        physical_pages_alloc_contiguous((uint64_t)UINT16_MAX + 1u, 1u,
-                                        PROSENJIT_PHYS_LIMIT) != 0 ||
-        physical_memory_free_pages() != before ||
-        physical_memory_failed_allocations() < failed_before) {
-        fputs("allocator test: invalid contiguous request was accepted\n", stderr);
+    if (physical_pages_free_contiguous(run, 4u) == 0) {
+        fputs("allocator test: double release of contiguous run was accepted\n", stderr);
         return 16;
+    }
+    if (physical_pages_alloc_contiguous(4u, 3u, 8ULL * 1024ULL * 1024ULL) != 0) {
+        fputs("allocator test: non-power-of-two alignment was accepted\n", stderr);
+        return 25;
+    }
+    if (physical_pages_alloc_contiguous(0u, 1u, 8ULL * 1024ULL * 1024ULL) != 0) {
+        fputs("allocator test: zero-page allocation was accepted\n", stderr);
+        return 26;
+    }
+    if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0) {
+        fputs("allocator test: exclusive physical address ceiling was violated\n", stderr);
+        return 27;
+    }
+    if (physical_pages_alloc_contiguous((uint64_t)UINT16_MAX + 1u, 1u,
+                                        PROSENJIT_PHYS_LIMIT) != 0) {
+        fputs("allocator test: oversized contiguous allocation was accepted\n", stderr);
+        return 28;
+    }
+    if (physical_memory_free_pages() != before) {
+        fputs("allocator test: rejected request changed free-page count\n", stderr);
+        return 29;
+    }
+    if (physical_memory_failed_allocations() < failed_before) {
+        fputs("allocator test: failed-allocation counter moved backwards\n", stderr);
+        return 30;
     }
     pthread_t threads[THREADS];
     for (uint32_t i = 0; i < THREADS; ++i) {
