@@ -80,6 +80,9 @@ int main(void)
     assert(pros_ps2_mouse_decode_byte(&decoder, 0u, events, &count) == PROS_DRIVER_OK);
     assert(count == 0u); /* no duplicate press edge after resynchronization */
 
+    /* Start a fresh simulated device before the independent batch-size case. */
+    pros_ps2_mouse_reset(&decoder);
+
     /* Motion and two button transitions fit within the bounded event array. */
     assert(pros_ps2_mouse_decode_byte(&decoder, 0x0Bu, events, &count) == PROS_DRIVER_ENOTSUP);
     assert(pros_ps2_mouse_decode_byte(&decoder, 1u, events, &count) == PROS_DRIVER_ENOTSUP);
