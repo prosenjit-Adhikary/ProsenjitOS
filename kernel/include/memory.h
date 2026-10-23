@@ -8,6 +8,9 @@
 
 int physical_memory_init(uint64_t multiboot_info_address);
 uint64_t physical_page_alloc(void);
+uint64_t physical_pages_alloc_contiguous(uint64_t page_count, uint64_t alignment_pages,
+                                         uint64_t max_address_exclusive);
+int physical_pages_free_contiguous(uint64_t physical_address, uint64_t page_count);
 uint64_t physical_page_alloc_user(void);
 int physical_page_is_allocated(uint64_t physical_address);
 int physical_page_is_user_mappable(uint64_t physical_address);
