@@ -45,6 +45,7 @@ jobs:
           bash -n scripts/test_hw_stack.sh
           bash -n scripts/test_ps2_keyboard.sh
           bash -n scripts/test_ps2_mouse.sh
+          bash -n scripts/test_usb_hid.sh
           bash -n scripts/test_input_service.sh
           bash -n scripts/test_keymap.sh
           bash -n scripts/test_pci.sh
@@ -52,6 +53,7 @@ jobs:
           make hw-stack-test
           make ps2-keyboard-test
           make ps2-mouse-test
+          make usb-hid-test
           make input-service-test
           make keymap-test
           make pci-test
