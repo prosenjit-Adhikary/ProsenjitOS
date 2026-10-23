@@ -199,5 +199,14 @@ int main(void)
     make_bar(bar, sizeof(bar));
     put32(&bar[0x14], 0x102u);
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
+
+    /* The operational register block must include DCBAAP and CONFIG. Here
+       doorbell/runtime windows fit, but CAPLENGTH + 0x40 exceeds the BAR. */
+    make_bar(bar, sizeof(bar));
+    bar[0] = 0xC0u;
+    put32(&bar[4], 8u | (1u << 8) | (6u << 24));
+    put32(&bar[0x14], 0xD0u);
+    put32(&bar[0x18], 0x80u);
+    assert(pros_xhci_parse_capabilities(bar, 0xFFu, &caps) == PROS_DRIVER_EIO);
     return 0;
 }
