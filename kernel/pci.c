@@ -3,6 +3,49 @@
 #define PCI_CONFIG_ADDRESS 0xCF8u
 #define PCI_CONFIG_DATA    0xCFCu
 
+/*
+ * Mechanism #1 shares a global address/data port pair. Serialize the two
+ * port operations so another CPU cannot replace CONFIG_ADDRESS between the
+ * address write and data read. Mask local interrupts while holding the lock
+ * to prevent same-CPU interrupt re-entry from deadlocking the spin lock.
+ * Hosted contract tests do not execute privileged CLI/STI instructions.
+ */
+static uint32_t pci_config_lock;
+
+static uint64_t pci_irq_save(void)
+{
+#if __STDC_HOSTED__
+    return 0u;
+#else
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+#endif
+}
+
+static void pci_irq_restore(uint64_t flags)
+{
+#if __STDC_HOSTED__
+    (void)flags;
+#else
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+#endif
+}
+
+static uint64_t pci_config_lock_acquire(void)
+{
+    uint64_t flags = pci_irq_save();
+    while (__atomic_exchange_n(&pci_config_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+        __asm__ volatile ("pause");
+    return flags;
+}
+
+static void pci_config_lock_release(uint64_t flags)
+{
+    __atomic_store_n(&pci_config_lock, 0u, __ATOMIC_RELEASE);
+    pci_irq_restore(flags);
+}
+
 static inline void pci_out32(uint16_t port, uint32_t value)
 {
     __asm__ volatile ("outl %0, %1" : : "a"(value), "Nd"(port));
@@ -32,9 +75,11 @@ int pci_config_read32(uint8_t bus, uint8_t slot, uint8_t function,
         (offset & 3u) != 0u)
         return PROS_PCI_EINVAL;
 
+    uint64_t flags = pci_config_lock_acquire();
     pci_out32(PCI_CONFIG_ADDRESS,
               pci_config_address(bus, slot, function, offset));
     *value = pci_in32(PCI_CONFIG_DATA);
+    pci_config_lock_release(flags);
     return PROS_PCI_OK;
 }
 
