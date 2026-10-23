@@ -9951,10 +9951,13 @@ int prosenjitfs_selftest(void)
             pfs_crash_inject_stage = recovery_stage;
             pfs_crash_injected = 0u;
             pfs_test_crash_reset(&fs, &disk);
-            if (prosenjitfs_mount(&fs, &device, 0u) == PROSENJITFS_OK ||
-                pfs_crash_injected == 0u) {
-                pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -13);
+            {
+                int mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+                if (mount_rc != PROSENJITFS_EIO ||
+                    pfs_crash_injected == 0u) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
             }
 
             /* Recovery was interrupted; a second power loss must be safe. */
