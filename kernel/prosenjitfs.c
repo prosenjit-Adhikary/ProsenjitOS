@@ -6218,10 +6218,12 @@ int prosenjitfs_selftest(void)
             disk.dirty, (uint32_t)sizeof(disk.dirty)))
         return pfs_selftest_fail(__LINE__, -4);
     /*
-     * I/O classification regression: a device read failure during the scan
-     * must be reported as EIO, not misclassified as on-disk corruption. The
-     * checker is read-only and must leave durable, volatile and dirty media
-     * state unchanged even when the read fails.
+     * I/O classification and immutability acceptance regression. Walk every
+     * block-device read position reached by a clean integrity scan and inject
+     * a failure at that exact read. Each injected failure must propagate as
+     * EIO (never be collapsed into corruption) and must not mutate durable,
+     * volatile or dirty media state. The first countdown not reached marks
+     * the end of the scan's read sequence.
      */
     {
         uint32_t durable_before = prosenjitfs_crc32c(
@@ -6230,17 +6232,34 @@ int prosenjitfs_selftest(void)
             disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
         uint32_t dirty_before = prosenjitfs_crc32c(
             disk.dirty, (uint32_t)sizeof(disk.dirty));
-        /*
-         * The scanner first reads the root inode, then reads inode bitmap
-         * block zero. Fail the second device read so this specifically covers
-         * the bitmap-read classification path below.
-         */
-        disk.fail_read_countdown = 2u;
-        if (prosenjitfs_check_integrity_report(&fs, &integrity_report) !=
-                PROSENJITFS_EIO ||
-            integrity_report.status != PROSENJITFS_EIO ||
-            integrity_report.first_error_location != 0u ||
-            disk.fail_read_countdown != 0u ||
+        uint32_t injected_read_failures = 0u;
+        uint32_t read_position;
+
+        for (read_position = 1u; read_position <= 512u; ++read_position) {
+            int scan_rc;
+            disk.fail_read_countdown = read_position;
+            scan_rc = prosenjitfs_check_integrity_report(&fs,
+                                                          &integrity_report);
+            if (disk.fail_read_countdown != 0u) {
+                /* The selected read was beyond the scan's final read. */
+                if (scan_rc != PROSENJITFS_OK ||
+                    integrity_report.status != PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -4);
+                break;
+            }
+            if (scan_rc != PROSENJITFS_EIO ||
+                integrity_report.status != PROSENJITFS_EIO ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -4);
+            ++injected_read_failures;
+        }
+        disk.fail_read_countdown = 0u;
+        if (read_position > 512u || injected_read_failures < 2u ||
             durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
