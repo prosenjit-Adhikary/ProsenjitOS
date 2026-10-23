@@ -320,3 +320,16 @@ Source review of `kernel/thread.c`, `kernel/include/thread.h`, `kernel/context_s
 - These are bounded QEMU/CI gates; they do not establish physical hardware, UEFI, SMP, unlimited runtime, or DMA/IOMMU safety.
 - **Remaining acceptance gates:** stack ownership/bounds/guard/reclamation; actual ISR/IST register-sentinel and nested-exception delivery beyond the source-level/scheduler-frame regression; deeper scheduler/IPC race coverage; complete memory/page-table dependency audit; DMA/IOMMU; UEFI and physical hardware.
 - **Overall Part 1 remains PARTIAL / NOT COMPLETE.**
+
+
+## Verification result — guarded bootstrap and IST stacks (2026-10-23)
+
+- Tested source commit: `eb89c7e823df4b30b6d452bc52fb553c08769e40`.
+- `boot/entry.asm` now page-aligns the bootstrap stack and IST1/IST2/IST3 stacks, reserving a dedicated page immediately below each stack.
+- `kernel/paging.c` removes those four guard pages from the final kernel page table after establishing the identity map, verifies each guard remains unmapped, and verifies the corresponding stack ends remain mapped RW+NX. Guard-page physical memory remains reserved as part of the kernel image and is not freed to the allocator.
+- The first guard-page attempt correctly exposed a mismatch in the hardening audit: the BSS verifier expected every BSS page to be mapped. `kernel/security_hardening.c` now explicitly recognizes only these four named guard pages, requires them to remain unmapped, and continues checking all other BSS pages for supervisor RW+NX.
+- Build and boot-test workflow [#7975](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39915295717): **SUCCESS**. Host tests, ISO build, ProsenjitFS diagnostic, ISO QEMU and native BIOS QEMU marker gates passed.
+- Security architecture workflow [#7511](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39915295611): **SUCCESS** for the same source commit.
+- Together with the previous per-thread user-frame fix, the configured boot gates now cover the guard-page checks and the scheduler snapshot/resume regression.
+- **Still open:** dynamically allocated per-thread kernel stacks with explicit ownership/reclamation; guard/bounds coverage for arbitrary caller-provided thread stacks; actual ISR/IST GPR-sentinel and nested-exception delivery tests; deeper scheduler/IPC race coverage; complete memory/page-table dependency audit; DMA/IOMMU; UEFI and physical hardware.
+- **Overall Part 1 remains PARTIAL / NOT COMPLETE.** These changes improve stack isolation but do not establish a general thread-stack lifecycle.
