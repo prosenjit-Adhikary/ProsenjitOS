@@ -14,12 +14,12 @@ static void put32(uint8_t *p, uint32_t value)
 static void make_bar(uint8_t *bar, uint32_t size)
 {
     for (uint32_t i = 0; i < size; ++i) bar[i] = 0u;
-    bar[0] = 0x20u; /* CAPLENGTH */
+    bar[0] = 0xD0u; /* CAPLENGTH: capability space ends at 0xD0 */
     bar[2] = 0x00u; bar[3] = 0x01u; /* xHCI 1.0 */
     put32(&bar[4], 8u | (4u << 8) | (6u << 24)); /* slots, interrupters, ports */
     put32(&bar[0x10], (0x30u << 16) | (1u << 2)); /* xECP at 0xC0, 64-bit context */
-    put32(&bar[0x14], 0x40u); /* doorbell array */
-    put32(&bar[0x18], 0x80u); /* runtime registers */
+    put32(&bar[0x14], 0xD0u); /* doorbell array begins after capability space */
+    put32(&bar[0x18], 0x100u); /* runtime registers */
 }
 
 static int caps_equal(const struct pros_xhci_capabilities *a,
@@ -38,15 +38,15 @@ static int caps_equal(const struct pros_xhci_capabilities *a,
 
 int main(void)
 {
-    uint8_t bar[256];
+    uint8_t bar[512];
     struct pros_xhci_capabilities caps = {0};
     make_bar(bar, sizeof(bar));
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_OK);
-    assert(caps.capability_length == 0x20u);
+    assert(caps.capability_length == 0xD0u);
     assert(caps.interface_version == 0x0100u);
     assert(caps.max_slots == 8u && caps.max_interrupters == 4u && caps.max_ports == 6u);
     assert(caps.context_size_64 == 1u);
-    assert(caps.doorbell_offset == 0x40u && caps.runtime_offset == 0x80u);
+    assert(caps.doorbell_offset == 0xD0u && caps.runtime_offset == 0x100u);
     assert(caps.extended_capabilities_offset == 0xC0u);
 
     uint32_t ext_count = 99u;
@@ -67,7 +67,7 @@ int main(void)
     put32(&bar[0xC0], 0x00000000u); /* reserved capability ID zero */
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC0u, &ext_count) == PROS_DRIVER_EIO);
-    assert(ext_count == 77u); /* invalid header must not publish a count */
+    assert(ext_count == 77u);
     put32(&bar[0xC0], 0x00000201u);
     assert(pros_xhci_validate_extended_capabilities(
                bar, sizeof(bar), 0xC1u, &ext_count) == PROS_DRIVER_EIO);
@@ -90,16 +90,16 @@ int main(void)
     put32(&bar[4], 0u); /* zero slots/interrupters/ports */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
-    put32(&bar[0x14], 0xFCu); /* doorbell array extends beyond 256-byte BAR */
+    put32(&bar[0x14], 0x1FCu); /* doorbell array extends beyond 512-byte BAR */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
-    put32(&bar[0x18], 0xE0u); /* runtime minimum range does not fit */
-    assert(pros_xhci_parse_capabilities(bar, 0xF0u, &caps) == PROS_DRIVER_EIO);
+    put32(&bar[0x18], 0x1E0u); /* runtime minimum range does not fit in short BAR */
+    assert(pros_xhci_parse_capabilities(bar, 0x1F0u, &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
-    put32(&bar[0x10], (0x7Fu << 16) | (1u << 2)); /* xECP at 0x1FC, truncated */
+    put32(&bar[0x10], (0x7Fu << 16) | (1u << 2)); /* xECP outside CAPLENGTH */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     make_bar(bar, sizeof(bar));
-    put32(&bar[0x14], 0x42u); /* reserved low offset bits */
+    put32(&bar[0x14], 0xD2u); /* reserved low offset bits */
     assert(pros_xhci_parse_capabilities(bar, sizeof(bar), &caps) == PROS_DRIVER_EIO);
     return 0;
 }
