@@ -10918,6 +10918,9 @@ int prosenjitfs_selftest(void)
         }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -14);
+        /* Do not leak the deliberate commit-stage fault into later tests. */
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
     }
     pfs_selftest_diag_stage = __LINE__;
     /* Repeated persistence/reuse regression: 100 complete create/write/
