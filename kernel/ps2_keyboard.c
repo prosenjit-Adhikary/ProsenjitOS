@@ -134,7 +134,11 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
         ++bytes_seen;
         /* A corrupted byte invalidates any partial E0/Pause sequence. */
         if ((status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) != 0u) {
-            pros_ps2_keyboard_reset_decoder();
+            /* Drop incomplete packets, but retain last mouse button state so
+             * the next valid packet can report any release edge. */
+            extended_prefix = 0u;
+            pause_bytes_remaining = 0u;
+            pros_ps2_mouse_discard_packet(&mouse_decoder);
             continue;
         }
         /* Mouse/AUX bytes are a separate byte stream and must never be
@@ -143,6 +147,7 @@ int pros_ps2_keyboard_poll(uint32_t input_endpoint_id)
          * sequence, as verified by the AUX-interleaving regression test. */
         if ((status & PS2_STATUS_AUX_DATA) != 0u) {
             extended_prefix = 0u;
+            pause_bytes_remaining = 0u;
             struct pros_hw_input_event mouse_events[PROS_PS2_MOUSE_MAX_EVENTS];
             uint32_t mouse_count = 0u;
             int mouse_rc = pros_ps2_mouse_decode_byte(&mouse_decoder, byte,
