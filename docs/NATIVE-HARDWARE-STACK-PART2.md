@@ -202,3 +202,10 @@ Code commits: `e14fbc5b6f12ad47571d2c67478e4d3453b94467`, `e18068c8fb18624b7430e
 Added a hosted test seam around the PIC port-write primitive; it is compiled only when `PROS_PIC_HOSTED_TEST` is defined. Production builds continue to use the x86 `outb` instruction. The hosted suite verifies that initialization enables only IRQ0, rejects direct IRQ2 manipulation and out-of-range IRQs, checks master IRQ mask transitions, verifies slave IRQs enable/retain the cascade correctly, and asserts slave-before-master EOI ordering for IRQ12. The build workflow runs this suite through `make pic-test`.
 
 This validates the software mask/EOI contract, not live hardware interrupt delivery. IRQ1 and IRQ12 remain masked pending a controller-level test for scan-code/AUX interleaving, queue pressure, spurious IRQs and safe interrupt-context behavior. Exact-head build and security workflow results must be checked before considering this follow-up verified.
+
+
+## Additional hosted IRQ contract test — 2026-10-23
+
+Added `tests/ps2_irq_dispatch_test.c` and `scripts/test_ps2_irq_dispatch.sh`, wired as `make ps2-irq-dispatch-test` in the build workflow. It checks that unrelated vectors do not trigger polling/EOI, that IRQ1/IRQ12 always take the dispatcher's EOI path, and that hardware polling is gated on input-service readiness. This test uses stubs and validates dispatcher control flow only; it does not simulate PIC ISR/IRR registers, device-byte timing, interrupt nesting, or real IRQ delivery.
+
+PIC and dispatcher hosted suites are now scheduled in CI, but the current branch's latest workflow runs remain queued because the workflow targets a self-hosted Linux x64 runner. Do not count these newly added suites as passed until their logs show the exact branch head succeeded.
