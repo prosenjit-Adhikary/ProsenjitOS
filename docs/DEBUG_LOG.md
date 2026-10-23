@@ -444,3 +444,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; ISO and native BIOS QEMU reached the required ProsenjitFS recovery and persistence markers. Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This is self-test cleanup verification, not physical-device power-loss durability.
 - This is a self-test failure-path cleanup; it is not a claim of production filesystem completion or physical-device power-loss durability.
+
+
+## 2026-10-23 — Sparse truncate read-failure regression added
+
+- Added three deterministic read-failure cases to the ProsenjitFS self-test around sparse truncate growth. The countdown targets inode validation, extent lookup, and the old tail data-block read before tail-zeroing begins.
+- The test checks the operation returns `PROS_VFS_EIO`, the filesystem remains writable, durable/volatile/dirty mock-media CRCs do not change, the original 64-byte payload remains readable, and integrity scan/unmount succeed.
+- The new test is committed on `test/prosenjitfs-truncate-growth-read-failures-20261023`. Runtime CI has not been claimed; exact-head build/boot and security checks remain required.
