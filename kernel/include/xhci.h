@@ -28,4 +28,12 @@ int pros_xhci_validate_extended_capabilities(const uint8_t *bar,
                                              uint32_t first_offset,
                                              uint32_t *count_out);
 
+/* Validate Supported Protocol extended capabilities and their one-based
+ * port ranges against MaxPorts. count_out is changed only on success. */
+int pros_xhci_validate_supported_protocols(const uint8_t *bar,
+                                           uint32_t bar_length,
+                                           uint32_t first_offset,
+                                           uint8_t max_ports,
+                                           uint32_t *count_out);
+
 #endif
