@@ -57,8 +57,10 @@ int pros_xhci_parse_capabilities(const uint8_t *bar, uint32_t bar_length,
     if (parsed.max_slots == 0u || parsed.max_interrupters == 0u ||
         parsed.max_ports == 0u ||
         (doorbell & 3u) != 0u || (runtime & 0x1Fu) != 0u ||
-        parsed.doorbell_offset < parsed.capability_length ||
-        parsed.runtime_offset < parsed.capability_length ||
+        /* Operational registers occupy CAPLENGTH..CAPLENGTH+0x3F.
+         * Doorbell/runtime windows must not alias that register block. */
+        parsed.doorbell_offset < (uint32_t)parsed.capability_length + 0x40u ||
+        parsed.runtime_offset < (uint32_t)parsed.capability_length + 0x40u ||
         /* Operational registers include DCBAAP and CONFIG, beyond the first
          * 0x20 bytes. Validate the whole minimum 0x40-byte register block. */
         !range_valid(parsed.capability_length, 0x40u, bar_length) ||
