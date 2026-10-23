@@ -52,6 +52,14 @@ int main(void)
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
     copy_config(bad);
+    bad[13] = 0u; /* interface declares zero endpoints but contains one */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
+    bad[13] = 2u; /* interface declares two endpoints but contains one */
+    assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
+
+    copy_config(bad);
     bad[20] = 0x91u; /* reserved endpoint-address bits */
     assert(pros_usb_find_boot_hid_endpoint(bad, sizeof(bad), &out) == PROS_DRIVER_EIO);
 
