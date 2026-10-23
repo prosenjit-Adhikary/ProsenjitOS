@@ -49,3 +49,23 @@ On a bootloader-provided supported RGB framebuffer, the kernel now checks that t
 ## Userspace keyboard layout foundation
 
 `user/desktop/keymap.c` adds a stateful US-QWERTY translation helper for the shared input ABI: set-1 letter/digit/punctuation keys, left/right Shift, Caps Lock, Control and Alt state. It ignores key releases, unsupported extended keys, malformed ABI versions, and ambiguous press/release edges. `make keymap-test` exercises the hosted translator. This is a userspace library component only: it is not yet connected to a running input service, does not provide non-US layouts or Unicode/IME support, and does not close the missing capability-checked kernel-to-userspace event route.
+
+
+## USB-first input direction
+
+Modern input work should prioritize USB HID; PS/2 remains a legacy fallback only. The new `kernel/usb_hid.c` is deliberately a transport-independent parser for the USB HID **boot protocol** reports, not a USB driver:
+
+- Keyboard reports are fixed at eight bytes. The parser emits HID usage-code press/release transitions, handles modifier bits E0–E7, rejects duplicate usages and rollover/error usages 1–3, and preserves the previous state when a report is invalid.
+- Mouse reports are fixed at three bytes. The parser emits signed relative motion and left/right/middle button transitions through the shared native input event ABI.
+- The parser has no controller register access, DMA, interrupt handling, USB enumeration, descriptor parsing, endpoint scheduling, or hot-plug lifecycle. A successful parser unit test must not be represented as a working USB keyboard/mouse.
+- `make usb-hid-test` runs hosted tests for report transitions, unchanged reports, invalid keyboard rollover/duplicate usages, pointer motion, button press/release, and invalid arguments.
+
+Implementation sequence before claiming usable USB input:
+1. Keep PCI enumeration read-only and identify supported USB host-controller programming interfaces from class/subclass/prog-if.
+2. Implement one controller family at a time, preferably xHCI for modern machines, with spec-correct reset, ownership, command/event rings, bounded waits and timeout/error paths.
+3. Implement safe DMA memory allocation and cache/coherency/ownership rules before enabling bus mastering; add IOMMU isolation where available. Do not pass ordinary kernel virtual pointers as DMA addresses.
+4. Enumerate USB devices and parse bounded configuration/interface/endpoint descriptors; reject malformed lengths and unsupported configurations.
+5. Implement interrupt-IN transfer scheduling, report polling/interrupt completion, and disconnect/reset cleanup without stale handles or stuck key/button state.
+6. Connect parsed events to the authorized input-service queue and userspace keymap. Add QEMU and physical-device tests for each declared controller/device combination.
+7. Keep Bluetooth HID as a separate later transport; do not imply USB HID support covers Bluetooth.
+
