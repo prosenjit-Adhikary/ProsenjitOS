@@ -8821,16 +8821,26 @@ int prosenjitfs_selftest(void)
                         return pfs_selftest_fail(__LINE__, -203);
                     break;
                 }
-                if (scan_rc != PROSENJITFS_EIO ||
-                    integrity_report.status != PROSENJITFS_EIO ||
-                    durable_before != prosenjitfs_crc32c(
-                        disk.data, (uint32_t)sizeof(disk.data)) ||
-                    volatile_before != prosenjitfs_crc32c(
+                /*
+                 * Keep each failure mode distinguishable in the boot log.
+                 * This sweep covers a populated namespace and can otherwise
+                 * report only the common -203 code, hiding whether the scan
+                 * lost EIO propagation or mutated a media/cache view.
+                 */
+                if (scan_rc != PROSENJITFS_EIO)
+                    return pfs_selftest_fail(__LINE__, -204);
+                if (integrity_report.status != PROSENJITFS_EIO)
+                    return pfs_selftest_fail(__LINE__, -205);
+                if (durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)))
+                    return pfs_selftest_fail(__LINE__, -206);
+                if (volatile_before != prosenjitfs_crc32c(
                         disk.volatile_data,
-                        (uint32_t)sizeof(disk.volatile_data)) ||
-                    dirty_before != prosenjitfs_crc32c(
+                        (uint32_t)sizeof(disk.volatile_data)))
+                    return pfs_selftest_fail(__LINE__, -207);
+                if (dirty_before != prosenjitfs_crc32c(
                         disk.dirty, (uint32_t)sizeof(disk.dirty)))
-                    return pfs_selftest_fail(__LINE__, -203);
+                    return pfs_selftest_fail(__LINE__, -208);
                 ++injected;
             }
             disk.fail_read_countdown = 0u;
