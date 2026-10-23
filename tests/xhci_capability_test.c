@@ -59,6 +59,15 @@ int main(void)
     assert(pros_xhci_validate_extended_capabilities(bar, sizeof(bar), 0u,
                                                      &ext_count) == PROS_DRIVER_OK);
     assert(ext_count == 0u);
+    /* Extended capabilities may not begin inside the CAPLENGTH register bank. */
+    ext_count = 76u;
+    assert(pros_xhci_validate_extended_capabilities(
+               bar, sizeof(bar), 0x20u, &ext_count) == PROS_DRIVER_EIO);
+    assert(ext_count == 76u);
+    protocol_count = 75u;
+    assert(pros_xhci_validate_supported_protocols(
+               bar, sizeof(bar), 0x20u, 6u, &protocol_count) == PROS_DRIVER_EIO);
+    assert(protocol_count == 75u);
     ext_count = 77u;
     put32(&bar[0xC0], 0x0000FF01u);
     assert(pros_xhci_validate_extended_capabilities(
