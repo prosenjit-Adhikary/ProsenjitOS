@@ -13,9 +13,8 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
 
     uint8_t current_interface = 0u, current_alt = 0u;
     enum pros_usb_hid_kind current_kind = PROS_USB_HID_NONE;
-    uint8_t candidate_interface = 0u, candidate_alt = 0u;
-    enum pros_usb_hid_kind candidate_kind = PROS_USB_HID_NONE;
-    uint8_t found_interface = 0u;
+    struct pros_usb_hid_endpoint candidate = {0};
+    uint8_t found = 0u;
     uint32_t offset = 0u;
 
     while (offset < total) {
@@ -46,29 +45,36 @@ int pros_usb_find_boot_hid_endpoint(const uint8_t *blob, uint32_t blob_length,
             uint8_t attributes = blob[offset + 3u];
             uint16_t packet = (uint16_t)blob[offset + 4u] |
                               ((uint16_t)blob[offset + 5u] << 8);
+
             if (current_kind != PROS_USB_HID_NONE &&
                 (address & PROS_USB_ENDPOINT_IN) != 0u &&
                 (attributes & PROS_USB_ENDPOINT_TRANSFER_MASK) ==
                     PROS_USB_ENDPOINT_INTERRUPT) {
                 uint16_t packet_size = (uint16_t)(packet & 0x07FFu);
-                if (packet_size == 0u || (packet & 0xF800u) != 0u)
+                /*
+                 * This endpoint contract does not model high-bandwidth
+                 * transaction multipliers, so reject those descriptors.
+                 * Reject reserved address/attribute bits and endpoint zero.
+                 */
+                if ((address & 0x70u) != 0u || (address & 0x0Fu) == 0u ||
+                    (attributes & 0xFCu) != 0u || packet_size == 0u ||
+                    (packet & 0xF800u) != 0u || blob[offset + 6u] == 0u)
                     return PROS_DRIVER_EIO;
-                candidate_interface = current_interface;
-                candidate_alt = current_alt;
-                candidate_kind = current_kind;
-                out->endpoint_address = address;
-                out->max_packet_size = packet_size;
-                out->interval = blob[offset + 6u];
-                found_interface = 1u;
+
+                candidate.interface_number = current_interface;
+                candidate.alternate_setting = current_alt;
+                candidate.endpoint_address = address;
+                candidate.max_packet_size = packet_size;
+                candidate.interval = blob[offset + 6u];
+                candidate.kind = current_kind;
+                found = 1u;
             }
         }
         offset += length;
     }
 
     if (offset != total) return PROS_DRIVER_EIO;
-    if (!found_interface) return PROS_DRIVER_ENODEV;
-    out->interface_number = candidate_interface;
-    out->alternate_setting = candidate_alt;
-    out->kind = candidate_kind;
+    if (!found) return PROS_DRIVER_ENODEV;
+    *out = candidate;
     return PROS_DRIVER_OK;
 }
