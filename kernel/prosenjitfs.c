@@ -10550,6 +10550,128 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Rename read-failure sweep: each read position reached while resolving
+     * and staging a rename must fail closed without publishing the new name or
+     * mutating any mock-media view. The first position not reached proves the
+     * sweep passed the complete read sequence for this namespace.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t payload[96];
+        uint8_t readback[96];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0x6Du ^ (uint8_t)(i * 17u));
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            uint32_t done = 0u;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int rename_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/rename-read-before.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(payload) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -21);
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            rename_rc = vfs_rename(&fs.mount, "/rename-read-before.bin",
+                                   "/rename-read-after.bin");
+            if (disk.fail_read_countdown != 0u) {
+                /*
+                 * The requested read position was beyond rename's read
+                 * sequence. Disarm the one-shot fault before integrity scan
+                 * and unmount; those operations must not consume a fault
+                 * intended exclusively for the rename operation.
+                 */
+                disk.fail_read_countdown = 0u;
+                if (rename_rc != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -21);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (rename_rc == PROS_VFS_OK ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                fs.read_only || fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -21);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/rename-read-before.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(readback) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -21);
+            }
+            for (uint32_t i = 0u; i < sizeof(readback); ++i) {
+                if (readback[i] != payload[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -21);
+                }
+            }
+
+            {
+                int destination_rc = vfs_file_open(
+                    &fs.mount, "/rename-read-after.bin", PROS_VFS_O_READ,
+                    &file);
+                if (destination_rc == PROS_VFS_OK) {
+                    (void)vfs_file_close(&file);
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -21);
+                }
+                if (destination_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -21);
+                }
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -21);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -21);
+    }
+
+    /*
      * A failed journal commit must not publish an unlink. Keep a populated
      * file, inject failure at the commit-record write, simulate power loss,
      * then prove remount retains the old name and bytes and the scan is clean.
