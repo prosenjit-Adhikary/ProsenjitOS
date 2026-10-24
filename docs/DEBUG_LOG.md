@@ -543,3 +543,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source commit: `bf7f618f4e54add952115638e24dae29433c08e2`.
 - **Status: pending verification.** The local runner is offline; no compile, boot-test, or runtime pass is claimed. Require exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI before marking verified.
 - Mock-device fault injection does not establish physical-device power-loss durability or general concurrent VFS safety.
+
+
+## 2026-10-24 — Rename read-failure sweep (pending CI)
+
+- Added a bounded mock-device read-failure countdown sweep across `vfs_rename` source/destination resolution.
+- Each reached fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty media CRCs, keep the mount writable, retain the original source bytes, leave the destination absent, and pass the integrity scan.
+- The first not-reached countdown is disarmed before successful-rename verification reads.
+- Source commit: `3903eaf5f252d45c6f1111a303f88739cfa4fe8a` is the current file blob; the rename-test commit is recorded in the branch history.
+- **Status: pending exact-head verification.** The local runner is offline; no compile, boot-test, or runtime pass is claimed. Require Build/boot-test (ISO QEMU plus native BIOS QEMU) and Security architecture CI.
+- This mock-device test does not establish physical-device durability or general concurrent VFS safety.
