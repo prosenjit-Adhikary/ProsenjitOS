@@ -228,3 +228,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Follow-up cross-review also applied the power-of-two geometry guard to `pfs_find_free_data_block_excluding`, which shares the bitmap-index arithmetic but is a separate allocation helper.
+
+
+- Test-harness safety refinement: exhaustion tests now snapshot and restore both durable and volatile bytes directly in the mock disk, leaving the dirty map untouched. This avoids using the block-write callback to restore a bitmap and inadvertently changing the mock cache state during the test itself.
