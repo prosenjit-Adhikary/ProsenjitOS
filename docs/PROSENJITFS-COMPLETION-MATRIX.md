@@ -201,6 +201,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 ## inode allocator bitmap read-failure regression — 2026-10-23
 
-- Injects a read failure into `pfs_find_free_inode`'s inode-bitmap read.
-- Requires I/O error propagation, unchanged output sentinel, consumed fault injection, writable mount, unchanged durable/volatile/dirty mock-media CRCs, and successful integrity scan.
+- Injects independent read failures into `pfs_find_free_inode` and public `prosenjitfs_alloc_inode` bitmap reads.
+- Requires I/O error propagation, unchanged output sentinels, consumed fault injection for each call, writable mount, unchanged durable/volatile/dirty mock-media CRCs, and successful integrity scan.
 - Exact-head Build/boot-test and Security architecture checks are required; no runtime pass is claimed.
