@@ -203,7 +203,7 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 - PR #211 adds two adversarial namespace integrity tests: duplicate inode references across distinct directory entries, and duplicate valid names across distinct inodes. Both tests recompute valid entry checksums, require `PROSENJITFS_ECORRUPT`, verify durable/volatile/dirty mock-media CRCs are unchanged by the report-only scan, restore the original entry, and require a clean rescan.
 - PR #212 adds a bounded read-failure countdown sweep around `vfs_rename`. For each read position reached, it requires rename failure, unchanged durable/volatile/dirty media CRCs, a writable mount, intact original path/payload, absent destination, and a clean integrity scan. The sweep stops at the first countdown not reached.
-- At documentation time, PRs #211 and #212 are open; Build/boot-test and Security architecture workflows for their exact current heads are queued. Do not mark either regression as passed until those runs complete successfully.
+- PR #211 merged as `e8a27899d4fe6de72a6e0959fa9d04659ca34eec`; exact head `28446ed40aeb748e8e0a5b3172a3e86f799f4567` passed Build/boot-test [#39980888372](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39980888372) and Security architecture [#39980888146](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39980888146). PR #212 merged as `b6b6eaf409c9407a822b0a6016147087edb6c365`; fixed head `1204deed4e8899448422e5cc7702eca776de3c6f` passed Build/boot-test [#40072397646](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397646) and Security architecture [#40072397702](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397702).
 - These are mock-device regression tests. They do not prove physical-device power-loss durability, full concurrent VFS safety, or production filesystem completion.
 
 
@@ -213,13 +213,14 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Root cause: the rename read-failure sweep left the final not-reached read countdown armed while running the report-only integrity scan and unmount. Those follow-up operations could consume an injection intended only for vfs_rename.
 - Fix in commit a7a7a5b7eaca35dfdf91788d44e37daef433f2a0 disarms the countdown before integrity/unmount only when the requested read position was not reached by rename. Failure-path assertions remain intact.
 - Debug log updated in commit f497ca14d967a4107f6f686d241187dc87067a4a.
-- **Status: fix committed; exact-head Build/boot-test and Security architecture verification pending.** Do not mark this sweep accepted until ISO QEMU and native BIOS QEMU pass on the updated head.
+- **Status: verified** on fixed exact PR head `1204deed4e8899448422e5cc7702eca776de3c6f`: Build/boot-test [#40072397646](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397646) passed ISO QEMU and native BIOS QEMU; Security architecture [#40072397702](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397702) passed. PR #212 is merged.
 
 
-## Pending verification — rename write-failure sweep (2026-10-24)
+## Verification update — rename write-failure sweep (2026-10-24)
 
 - Added mock-device one-shot block-write failure injection and a bounded countdown sweep across `vfs_rename`.
 - Each reached failure is followed by simulated power loss and remount; acceptance requires exactly one of the original/destination paths, intact payload bytes, and a clean report-only integrity scan.
 - The first countdown not reached is disarmed before integrity/unmount checks so those operations cannot consume a rename-specific fault.
-- Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`.
-- **Pending:** exact-head warning-clean build, ISO QEMU, native BIOS QEMU, and Security architecture CI. This regression does not prove physical hardware durability or concurrent VFS safety.
+- Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`; PR #222 merged as `2b14a2b67e7c3543e95140af033f603410c66bc5`.
+- Exact PR head `c897fa782f805778b0de051ca2b338a39be7d7ce` passed Build/boot-test [#40072964418](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964418), including ISO QEMU and native BIOS QEMU, and Security architecture [#40072964417](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964417).
+- This regression does not prove physical hardware durability or concurrent VFS safety.
