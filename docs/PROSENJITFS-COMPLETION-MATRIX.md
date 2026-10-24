@@ -261,6 +261,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 - Added a bounded countdown sweep across all block writes reached by truncating a populated file to zero.
 - Each injected failure is followed by simulated power loss and remount; the test checks that the file is either fully unchanged (including payload) or fully truncated, then runs the report-only integrity scan.
-- The first not-reached write countdown is disarmed before integrity/unmount checks.
+- The first not-reached write countdown is disarmed before follow-up checks; the successful truncate path also verifies immediate EOF.
 - Exact-head Build/boot (including ISO QEMU and native BIOS QEMU) and Security architecture CI are **pending**. This is not yet a verified milestone and does not prove physical-device power-loss durability.
 
