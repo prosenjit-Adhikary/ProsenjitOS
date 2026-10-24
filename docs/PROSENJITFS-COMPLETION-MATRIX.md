@@ -273,3 +273,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Source commits: `a065fc973d3359aa0bf5e54cd91e3465262b7f03` and `62662b01374141490a9a4b3080ed37e806bcf35c`.
 - **Status: pending exact-head CI.** The local runner is offline, so no build or runtime result is asserted. Require Build/boot-test (ISO QEMU plus native BIOS QEMU) and Security architecture success before closing.
 - Mock-device coverage only; physical-device durability and general concurrent VFS safety remain unproven.
+
+
+## Pending verification — truncate read-failure sweep (2026-10-24)
+
+- Added a bounded read-failure sweep across `vfs_file_truncate`, including file open. Reached faults must return `PROS_VFS_EIO`, preserve durable/volatile/dirty mock-media CRCs, keep the mount writable, retain the original payload, and pass the report-only integrity scan.
+- The first not-reached countdown is disarmed before readback/integrity/unmount so the truncate-specific fault cannot leak into verification.
+- Source commit: `bf7f618f4e54add952115638e24dae29433c08e2`.
+- **Status: pending exact-head CI.** Local runner offline; no build or runtime result is asserted. Require Build/boot-test (ISO QEMU plus native BIOS QEMU) and Security architecture success before closing.
+- Mock-device coverage only; physical-device durability and general concurrent VFS safety remain unproven.
