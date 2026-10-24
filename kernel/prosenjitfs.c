@@ -2065,22 +2065,22 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
     enum pros_vfs_node_type type;
 
     if (!fs || !result || inode_number >= fs->sb.inode_count)
-        return PROS_VFS_EINVAL;
+        return PROSENJITFS_EINVAL;
     {
         int rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (rc != PROSENJITFS_OK)
-            return pfs_vfs_error(rc);
+            return rc;
     }
     if (inode.type == PROSENJITFS_INODE_DIR)
         type = PROS_VFS_NODE_DIRECTORY;
     else if (inode.type == PROSENJITFS_INODE_FILE)
         type = PROS_VFS_NODE_FILE;
     else
-        return PROS_VFS_ENOSYS;
+        return PROSENJITFS_ENOTSUP;
 
     data = (struct pfs_vnode_data *)kmalloc(sizeof(*data));
     if (!data)
-        return PROS_VFS_EIO;
+        return PROSENJITFS_EIO;
     data->fs = fs;
     data->inode_number = inode_number;
     data->generation = inode.generation;
@@ -2088,7 +2088,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
     *result = (struct pros_vfs_vnode *)kmalloc(sizeof(**result));
     if (!*result) {
         kfree(data);
-        return PROS_VFS_EIO;
+        return PROSENJITFS_EIO;
     }
     /*
      * A vnode keeps a non-owning parent pointer by default, but path lookup
@@ -2100,7 +2100,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         kfree(data);
         kfree(*result);
         *result = 0;
-        return PROS_VFS_EINVAL;
+        return PROSENJITFS_EINVAL;
     }
     if (vfs_vnode_init(*result, &fs->mount, parent, type,
                        &pfs_vnode_ops,
@@ -2111,7 +2111,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
         kfree(data);
         kfree(*result);
         *result = 0;
-        return PROS_VFS_EINVAL;
+        return PROSENJITFS_EINVAL;
     }
     return PROS_VFS_OK;
 }
@@ -3124,7 +3124,7 @@ static int pfs_vnode_create(struct pros_vfs_vnode *parent, const char *name,
     if (rc != PROSENJITFS_OK)
         return pfs_vfs_error(rc);
 
-    return pfs_make_vnode(data->fs, inode_number, parent, result);
+    return pfs_vfs_error(pfs_make_vnode(data->fs, inode_number, parent, result));
 }
 
 static void pfs_vnode_release(struct pros_vfs_vnode *vnode)
@@ -3449,7 +3449,9 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
             *result = parent;
             return PROS_VFS_OK;
         }
-        return pfs_make_vnode(data->fs, dir_inode.parent_inode, parent ? parent->parent : NULL, result);
+        return pfs_vfs_error(pfs_make_vnode(
+            data->fs, dir_inode.parent_inode,
+            parent ? parent->parent : NULL, result));
     }
 
     {
@@ -3466,7 +3468,8 @@ static int pfs_vnode_lookup(struct pros_vfs_vnode *parent, const char *name,
             return PROS_VFS_ENOENT;
         if (rc != PROSENJITFS_OK)
             return pfs_vfs_error(rc);
-        return pfs_make_vnode(data->fs, disk_entry.inode, parent, result);
+        return pfs_vfs_error(pfs_make_vnode(
+            data->fs, disk_entry.inode, parent, result));
     }
 }
 
@@ -5191,7 +5194,7 @@ int prosenjitfs_mount(struct pros_prosenjitfs *fs,
     struct pros_vfs_vnode *root_vnode = 0;
     {
         int rc = pfs_make_vnode(fs, fs->sb.root_inode, 0, &root_vnode);
-        if (rc != PROS_VFS_OK) {
+        if (rc != PROSENJITFS_OK) {
             vfs_mount_deactivate(&fs->mount);
             kfree(fs->tx.images); kfree(fs->scratch);
             fs->tx.images = 0; fs->scratch = 0;
