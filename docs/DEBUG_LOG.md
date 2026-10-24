@@ -448,6 +448,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 ## 2026-10-23 — inode bitmap read-failure regression added
 
-- Added a direct allocator regression injecting a read failure in `pfs_find_free_inode`.
-- The test checks EIO propagation, untouched output sentinel, no media changes, writable state, and integrity scan.
+- Added read-failure regressions for both `pfs_find_free_inode` and public `prosenjitfs_alloc_inode`, ensuring the direct finder and API allocator propagate `PROSENJITFS_EIO` and preserve their output sentinel. Each fault must be consumed; the mount stays writable and durable/volatile/dirty media CRCs plus integrity remain unchanged.
 - Branch: `test/prosenjitfs-inode-bitmap-read-failure-20261023`. Exact-head runtime CI is pending/unverified.
