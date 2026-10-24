@@ -9,7 +9,7 @@
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-16 | VFS read error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Permission-denied and filesystem-`EIO` reads with a nonzero sentinel return the expected error and leave `bytes_read=0` | Implemented on PR #235 head `4445eaee89dea7bc5a2dd7845356f94354baf96f`; exact-head Build/boot-test and Security pending |
+| FS-16 | VFS read error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Permission-denied and filesystem-`EIO` reads with a nonzero sentinel return the expected error and leave `bytes_read=0` | Implemented on PR #235 branch; exact-head Build/boot-test and Security pending |
 
 
 ## Part 2 regression added — pending exact-head CI
