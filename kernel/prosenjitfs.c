@@ -11574,6 +11574,99 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sweep read failures across rmdir's parent lookup, child metadata checks,
+     * and transaction preparation. Reached faults must propagate as EIO,
+     * leave media unchanged and preserve the directory; the first not-reached
+     * countdown marks the end of the operation's read sequence.
+     */
+    {
+        struct pros_vfs_dir directory;
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int rmdir_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_mkdir(&fs.mount, "/rmdir-read-sweep") != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -26);
+            }
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-read-sweep");
+            if (disk.fail_read_countdown != 0u) {
+                /* This read position was beyond rmdir's complete read path. */
+                disk.fail_read_countdown = 0u;
+                if (rmdir_rc != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -26);
+                }
+                {
+                    int lookup_rc = vfs_dir_open(
+                        &fs.mount, "/rmdir-read-sweep", &directory);
+                    if (lookup_rc == PROS_VFS_OK) {
+                        (void)vfs_dir_close(&directory);
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -26);
+                    }
+                    if (lookup_rc != PROS_VFS_ENOENT) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -26);
+                    }
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -26);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (rmdir_rc != PROS_VFS_EIO ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                fs.read_only || fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -26);
+            }
+
+            if (vfs_dir_open(&fs.mount, "/rmdir-read-sweep", &directory) !=
+                    PROS_VFS_OK ||
+                vfs_dir_close(&directory) != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -26);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -26);
+    }
+
+    /*
      * A cyclic parent-directory bucket chain is malformed metadata, not a
      * device I/O failure. Exercise the VFS rmdir lookup against a checksum-
      * valid self-cycle and require corruption classification without media
