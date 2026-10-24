@@ -503,3 +503,8 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-10-24 — oversized allocator geometry regression
 
 - Geometry regression now also covers 4097-byte blocks (one above the supported maximum), alongside 0, 511, and 513, across all allocator/location/free-state helpers; invalid sizes must return `PROSENJITFS_EINVAL` without modifying output sentinels or media. Exact-head CI remains the authority for runtime/build verification; no pass is claimed until the queued workflows finish.
+
+
+## 2026-10-24 — allocator mutation geometry audit
+
+- Follow-up source audit found the allocation/mutation side still had inconsistent geometry guards: `prosenjitfs_alloc_inode` could divide by zero for a zero block size, and the range/staging helpers did not consistently reject sub-512 or non-power-of-two sizes. Added 512–4096-byte power-of-two validation to `pfs_allocator_range_valid`, `pfs_allocator_range_state`, `pfs_allocator_stage_unchecked`, `pfs_inode_bitmap_stage_unchecked`, and `prosenjitfs_alloc_inode`. Expanded malformed-geometry tests to cover these helpers and public allocation/free paths at 0, 511, 513, and 4097 bytes; expected errors must preserve output sentinels and mock-media CRCs. Exact-head runner verification remains pending.
