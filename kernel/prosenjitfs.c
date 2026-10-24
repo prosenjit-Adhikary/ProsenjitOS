@@ -1018,7 +1018,7 @@ static int pfs_data_block_is_free(const struct pros_prosenjitfs *fs,
 
     if (!fs || block_number < fs->sb.data_start ||
         block_number >= fs->sb.total_blocks ||
-        fs->sb.block_size == 0u || fs->sb.block_size > 4096u)
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -1043,7 +1043,7 @@ static int pfs_inode_block_location(const struct pros_prosenjitfs *fs,
     uint64_t byte_offset;
     if (!fs || !block_lba || !offset ||
         inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size > 4096u)
+        fs->sb.block_size < 512u || fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
@@ -9119,8 +9119,35 @@ int prosenjitfs_selftest(void)
             if (pfs_find_free_data_block_except(&invalid_fs, UINT64_MAX,
                                                 &candidate) !=
                     PROSENJITFS_EINVAL ||
-                candidate != UINT64_MAX ||
-                durable_before != prosenjitfs_crc32c(
+                candidate != UINT64_MAX)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            {
+                uint64_t block_lba = UINT64_MAX;
+                uint32_t offset = UINT32_MAX;
+                if (pfs_inode_block_location(&invalid_fs, 0u, &block_lba,
+                                             &offset) != PROSENJITFS_EINVAL ||
+                    block_lba != UINT64_MAX || offset != UINT32_MAX ||
+                    pfs_data_block_is_free(&invalid_fs,
+                                           invalid_fs.sb.data_start) !=
+                        PROSENJITFS_EINVAL)
+                    return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            invalid_fs.sb.block_size = 0u;
+            {
+                uint64_t block_lba = UINT64_MAX;
+                uint32_t offset = UINT32_MAX;
+                if (pfs_inode_block_location(&invalid_fs, 0u, &block_lba,
+                                             &offset) != PROSENJITFS_EINVAL ||
+                    block_lba != UINT64_MAX || offset != UINT32_MAX ||
+                    pfs_data_block_is_free(&invalid_fs,
+                                           invalid_fs.sb.data_start) !=
+                        PROSENJITFS_EINVAL)
+                    return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            if (durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
