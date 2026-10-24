@@ -534,3 +534,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source commits: `a065fc973d3359aa0bf5e54cd91e3465262b7f03` (test) and `62662b01374141490a9a4b3080ed37e806bcf35c` (reset byte-count output before the operation).
 - **Status: pending verification.** The local runner is unavailable; no compile, boot-test, or runtime pass is claimed. Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI must pass before marking verified.
 - Mock-device read-failure coverage does not establish physical-device power-loss durability or general concurrent VFS safety.
+
+
+## 2026-10-24 — Truncate read-failure sweep (pending CI)
+
+- Added a bounded mock-device read-failure countdown sweep around `vfs_file_truncate`, including the writable file-open path. Every reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty mock-media CRCs, keep the mount writable, preserve the original 64-byte payload, and leave integrity clean.
+- The first countdown not reached confirms the truncate operation's read sequence ended; the fault is disarmed before the successful truncate's EOF/integrity verification.
+- Source commit: `bf7f618f4e54add952115638e24dae29433c08e2`.
+- **Status: pending verification.** The local runner is offline; no compile, boot-test, or runtime pass is claimed. Require exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI before marking verified.
+- Mock-device fault injection does not establish physical-device power-loss durability or general concurrent VFS safety.
