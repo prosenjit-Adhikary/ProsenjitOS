@@ -525,3 +525,21 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The regression rejects intermediate EOF, altered original payload, or integrity-scan failures. It accepts only unchanged original content or fully truncated content.
 - Exact tested PR head `2586aa0403d5c984cb64b962c5bfdd1bf360cfe4` passed Build/boot-test [#40077700893](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700893) and Security architecture [#40077700948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700948); both ISO QEMU and native BIOS QEMU steps passed. PR #228 merged as `e6c391ae009b94dd8645140cfe86a571167ff54f`.
 - This verifies the mock-device fault model only, not physical-device power-loss durability.
+
+
+## 2026-10-24 — Append read-failure sweep (pending CI)
+
+- Added a bounded mock-device read-failure countdown sweep around append-at-EOF through the VFS. Each reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty media CRCs, keep the mount writable, preserve the complete original payload, and pass the report-only integrity scan.
+- The first countdown not reached verifies the append read sequence ended; the countdown is disarmed before readback, integrity scan, and unmount.
+- Source commits: `a065fc973d3359aa0bf5e54cd91e3465262b7f03` (test) and `62662b01374141490a9a4b3080ed37e806bcf35c` (reset byte-count output before the operation).
+- **Status: pending verification.** The local runner is unavailable; no compile, boot-test, or runtime pass is claimed. Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI must pass before marking verified.
+- Mock-device read-failure coverage does not establish physical-device power-loss durability or general concurrent VFS safety.
+
+
+## 2026-10-24 — Truncate read-failure sweep (pending CI)
+
+- Added a bounded mock-device read-failure countdown sweep around `vfs_file_truncate`, including the writable file-open path. Every reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty mock-media CRCs, keep the mount writable, preserve the original 64-byte payload, and leave integrity clean.
+- The first countdown not reached confirms the truncate operation's read sequence ended; the fault is disarmed before the successful truncate's EOF/integrity verification.
+- Source commit: `bf7f618f4e54add952115638e24dae29433c08e2`.
+- **Status: pending verification.** The local runner is offline; no compile, boot-test, or runtime pass is claimed. Require exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI before marking verified.
+- Mock-device fault injection does not establish physical-device power-loss durability or general concurrent VFS safety.
