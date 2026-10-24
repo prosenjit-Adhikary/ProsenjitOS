@@ -27,7 +27,7 @@ The matrix separates implementation, current-baseline runtime evidence, and unme
 | FS-13 | Concurrency and object lifetime | VFS vnode refs, file/mount state, `io_lock` | Explicit lock contract and interleaving tests cover mutation vs scan and rename/unlink vs open file lifetime | **NOT VERIFIED** as general thread-safe VFS behavior |
 | FS-14 | Actual hardware durability | ATA PIO and hardware-backed device | Power-cut testing on target hardware with declared cache/flush assumptions | **NOT TESTED**; QEMU/mock-device results are not hardware certification |
 
-| FS-15 | Allocator geometry and bitmap boundaries | Current branch `fix/prosenjitfs-allocator-geometry-currentmain-20261024` | All allocator/index helpers reject 0, 511, 513, and 4097-byte geometry before division/indexing; output sentinels and durable/volatile/dirty mock state stay unchanged. Exhaustion returns ENOSPC; last valid inode/data bit is handled correctly. | **PENDING exact-head CI** at `eefb231ba4577d989b2170d245010685cf4d3493` |
+| FS-15 | Allocator geometry and bitmap boundaries | Current branch `fix/prosenjitfs-allocator-geometry-currentmain-20261024` | All allocator/index helpers reject 0, 511, 513, 4097, and 8192-byte geometry via the shared `pfs_block_size_valid()` predicate before division/indexing; output sentinels and durable/volatile/dirty mock state stay unchanged. Exhaustion returns ENOSPC; last valid inode/data bit is handled correctly. | **PENDING exact-head CI** at `eefb231ba4577d989b2170d245010685cf4d3493` |
 
 ## Reproducible commands on a provisioned Linux self-hosted runner
 

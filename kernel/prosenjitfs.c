@@ -847,7 +847,7 @@ static int pfs_allocate_generation(struct pros_prosenjitfs *fs,
     struct pros_prosenjitfs_inode old_inode;
     int rc;
 
-    if (!fs || !generation || fs->sb.block_size > sizeof(block))
+    if (!fs || !generation || !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     rc = pfs_inode_block_location(fs, inode_number, &lba, &offset);
     if (rc != PROSENJITFS_OK)
@@ -904,7 +904,7 @@ static int pfs_read_extent(const struct pros_prosenjitfs *fs, uint64_t lba,
                            struct pros_prosenjitfs_extent *extent)
 {
     uint8_t block[4096];
-    if (!fs || !extent || fs->sb.block_size > sizeof(block) ||
+    if (!fs || !extent || !pfs_block_size_valid(fs->sb.block_size) ||
         lba < fs->sb.data_start || lba >= fs->sb.total_blocks)
         return PROSENJITFS_ECORRUPT;
     {
@@ -3223,7 +3223,7 @@ static int pfs_read_dir_index(const struct pros_prosenjitfs *fs,
     if (!fs || !inode || !index || inode->type != PROSENJITFS_INODE_DIR ||
         inode->dir_index < fs->sb.data_start ||
         inode->dir_index >= fs->sb.total_blocks ||
-        fs->sb.block_size > sizeof(block))
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_ECORRUPT;
     {
         int rc = pfs_read_block(fs->mount.device, inode->dir_index, block);
@@ -3259,7 +3259,7 @@ static int pfs_read_dir_entry(const struct pros_prosenjitfs *fs,
     uint8_t block[4096];
     uint32_t name_length;
     uint32_t checksum;
-    if (!fs || !entry || fs->sb.block_size > sizeof(block) ||
+    if (!fs || !entry || !pfs_block_size_valid(fs->sb.block_size) ||
         block_lba < fs->sb.data_start || block_lba >= fs->sb.total_blocks)
         return PROSENJITFS_ECORRUPT;
     {

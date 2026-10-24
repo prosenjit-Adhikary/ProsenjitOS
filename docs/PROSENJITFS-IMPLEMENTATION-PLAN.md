@@ -38,7 +38,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ### Allocator geometry hardening — current branch pending CI
 
 - [x] Add 512–4096-byte power-of-two checks to allocator bitmap builders/searchers, inode location and public inode I/O, allocator range/staging paths, preallocation, integrity scan, and vnode read/write/truncate arithmetic.
-- [x] Add malformed geometry assertions for block sizes 0, 511, 513 and 4097; verify sentinel preservation and unchanged mock-media state.
+- [x] Add malformed geometry assertions for block sizes 0, 511, 513, 4097 and 8192 through the shared `pfs_block_size_valid()` predicate; verify sentinel preservation and unchanged mock-media state.
 - [x] Add bounded inode/data bitmap exhaustion and final-valid-bit checks on the 512-byte single-bitmap fixture.
 - [ ] Run exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture for branch head `eefb231ba4577d989b2170d245010685cf4d3493`; diagnose and rerun on any failure.
 
