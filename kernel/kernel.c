@@ -22,6 +22,9 @@
 #include "network.h"
 #include "device_broker.h"
 #include "display.h"
+#include "hw_stack.h"
+#include "input_service.h"
+#include "framebuffer.h"
 #include "ata_pio.h"
 #include "partition.h"
 #include "storage.h"
@@ -159,7 +162,9 @@ static struct idt_gate idt[IDT_ENTRIES];
 extern void idt_load(const struct idt_pointer *ptr);
 extern void isr128(void);
 extern void isr32(void);
-extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle);
+extern void isr33(void);
+extern void isr44(void);
+extern void enter_user_mode(uint64_t entry, uint64_t stack_top, uint64_t initial_handle, uint64_t input_handle);
 extern void cpu_load_tss(void);
 extern void thread_start_trampoline(void);
 extern void user_test_entry(void);
@@ -224,6 +229,10 @@ void idt_init(void) {
      * cannot recursively destroy the first fault report. */
     idt_set_gate(14, handlers[14], 3);
     idt_set_gate(32, isr32, 0);
+    /* PS/2 IRQ gates are installed, but PIC lines remain masked until the
+     * controller transport and interrupt-driven path are fully validated. */
+    idt_set_gate(33, isr33, 0);
+    idt_set_gate(44, isr44, 0);
     /* Use a dedicated IST stack for CPL3 -> CPL0 INT 0x80 entry.
      * The regular RSP0 bootstrap stack is also used by early kernel code;
      * keeping syscall entry on IST1 makes the privilege transition robust
@@ -1148,6 +1157,95 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: device permission broker self-test passed\n");
 
+    if (pros_hw_stack_selftest() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR native hardware stack contract self-test failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: native graphics/input/audio endpoint contract self-test passed\n");
+
+    if (pros_input_service_init() != PROS_DRIVER_OK) {
+        serial_write("ProsenjitOS: ERROR kernel input service initialization failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: kernel input queue registered; bounded PS/2 polling attached to timer heartbeat\n");
+
+    /* Verify that only a READ handle to this exact endpoint can dequeue input. */
+    {
+        struct pros_hw_input_event probe;
+        struct pros_hw_input_event received;
+        uint64_t input_read_handle = PROSENJIT_HANDLE_INVALID;
+        probe.version = PROS_HW_STACK_ABI_VERSION;
+        probe.type = PROS_HW_INPUT_KEY;
+        probe.flags = PROS_HW_INPUT_PRESS;
+        probe.reserved = 0u;
+        probe.timestamp = 1u;
+        probe.value0 = 0x1Eu;
+        probe.value1 = 0;
+        if (pros_input_service_grant_read(&init_process, &input_read_handle) != PROS_DRIVER_OK ||
+            input_read_handle == PROSENJIT_HANDLE_INVALID ||
+            pros_input_service_shutdown() != PROS_DRIVER_EBUSY ||
+            !pros_input_service_is_ready() ||
+            pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &probe) != PROS_DRIVER_OK ||
+            pros_input_service_read_capability(&init_process, 0xFFFFFFFFFFFFFF01ULL,
+                                               &received) != PROS_DRIVER_EPERM ||
+            pros_input_service_read_capability(&init_process, input_read_handle,
+                                               &received) != PROS_DRIVER_OK ||
+            received.type != PROS_HW_INPUT_KEY ||
+            received.flags != PROS_HW_INPUT_PRESS ||
+            received.value0 != 0x1Eu ||
+            process_close_handle(&init_process, input_read_handle) != 0) {
+            serial_write("ProsenjitOS: ERROR capability-checked input endpoint self-test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: capability-checked input endpoint self-test passed\n");
+
+        /*
+         * Restart the static service object after all old capabilities close.
+         * A stale generation must not become valid again when the endpoint is
+         * registered a second time; the service must remain ready afterwards.
+         */
+        uint64_t restarted_handle = PROSENJIT_HANDLE_INVALID;
+        if (pros_input_service_shutdown() != PROS_DRIVER_OK ||
+            pros_input_service_is_ready() ||
+            pros_input_service_init() != PROS_DRIVER_OK ||
+            !pros_input_service_is_ready() ||
+            pros_input_service_read_capability(&init_process, input_read_handle,
+                                               &received) != PROS_DRIVER_EPERM ||
+            pros_input_service_grant_read(&init_process, &restarted_handle) != PROS_DRIVER_OK ||
+            restarted_handle == PROSENJIT_HANDLE_INVALID ||
+            restarted_handle == input_read_handle ||
+            process_close_handle(&init_process, restarted_handle) != 0) {
+            serial_write("ProsenjitOS: ERROR input capability stale-generation restart test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: input service restart/stale-capability test passed\n");
+    }
+
+    {
+        int framebuffer_rc = pros_framebuffer_init(boot_magic, (uint64_t)boot_info);
+        if (framebuffer_rc == PROS_DRIVER_OK) {
+            struct pros_framebuffer_info info;
+            if (pros_framebuffer_get_info(&info) == PROS_DRIVER_OK) {
+                serial_write("ProsenjitOS: Multiboot framebuffer endpoint initialized; width = ");
+                serial_hex64(info.width);
+                serial_write("; height = ");
+                serial_hex64(info.height);
+                serial_write("\n");
+                if (pros_framebuffer_selftest() != PROS_DRIVER_OK) {
+                    serial_write("ProsenjitOS: ERROR framebuffer endpoint presentation self-test failed\n");
+                    for (;;) __asm__ volatile ("cli; hlt");
+                }
+                serial_write("ProsenjitOS: framebuffer endpoint presentation self-test passed\n");
+            }
+        } else if (framebuffer_rc == PROS_DRIVER_ENOTSUP) {
+            serial_write("ProsenjitOS: no supported boot framebuffer; legacy text console retained\n");
+        } else {
+            serial_write("ProsenjitOS: boot framebuffer unavailable rc=");
+            serial_hex64((uint64_t)(int64_t)framebuffer_rc);
+            serial_write("\n");
+        }
+    }
+
     if (pros_display_selftest() != PROS_DRIVER_OK) {
         serial_write("ProsenjitOS: ERROR display-device binding self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
@@ -1196,7 +1294,26 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         /* Register the PCI inventory in the generic driver model.
          * Registration does not claim ownership; binding remains separate. */
         uint32_t registered_count = 0u;
+        uint32_t classified_count = 0u;
+        uint32_t unsupported_class_count = 0u;
+        uint32_t assigned_bar_count = 0u;
+        uint32_t unsupported_bar_count = 0u;
         for (uint32_t i = 0u; i < pci_count; ++i) {
+            /* Read BAR bases only; do not write sizing masks or enable bus mastering. */
+            for (uint8_t bar_index = 0u; bar_index < PROS_PCI_BAR_COUNT_MAX; ++bar_index) {
+                struct pros_pci_bar bar;
+                int bar_rc = pci_read_bar(&pci_devices[i], bar_index, &bar);
+                if (bar_rc == PROS_PCI_OK) {
+                    ++assigned_bar_count;
+                    if (bar.type == PROS_PCI_BAR_MMIO64) ++bar_index;
+                } else if (bar_rc == PROS_PCI_ENOTSUP) {
+                    ++unsupported_bar_count;
+                }
+            }
+            enum pros_device_class discovered_class = PROS_DEVICE_CLASS_OTHER;
+            int class_rc = pros_hw_classify_pci(&pci_devices[i], &discovered_class);
+            if (class_rc == PROS_DRIVER_OK) ++classified_count;
+            else ++unsupported_class_count;
             uint32_t registered_id = 0u;
             int rc = pros_driver_register_pci_device(
                 pci_devices[i].bus, pci_devices[i].slot,
@@ -1216,6 +1333,17 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         }
         serial_write("ProsenjitOS: PCI devices registered with driver model = ");
         serial_hex64(registered_count);
+        serial_write("\n");
+        serial_write("ProsenjitOS: PCI devices with known native class = ");
+        serial_hex64(classified_count);
+        serial_write("\n");
+        serial_write("ProsenjitOS: PCI devices with unsupported/unknown class = ");
+        serial_hex64(unsupported_class_count);
+        serial_write("\n");
+        serial_write("ProsenjitOS: PCI BAR inspection passed; assigned BARs = ");
+        serial_hex64(assigned_bar_count);
+        serial_write("; unsupported BARs = ");
+        serial_hex64(unsupported_bar_count);
         serial_write("\n");
     }
 
@@ -1347,6 +1475,55 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR final user process/address-space switch failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /* Provision a dedicated READ-only capability for the CPL3 input test. */
+    uint64_t input_read_handle = PROSENJIT_HANDLE_INVALID;
+    {
+        struct pros_hw_input_event probe;
+        struct pros_hw_input_event discarded;
+        uint64_t saved_flags;
+        int queue_empty = 0;
+
+        if (pros_input_service_grant_read(&init_process, &input_read_handle) != PROS_DRIVER_OK ||
+            input_read_handle == PROSENJIT_HANDLE_INVALID) {
+            serial_write("ProsenjitOS: ERROR input capability provisioning failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        /* Freeze the timer poller while clearing stale boot-time input and
+         * enqueueing the deterministic event that the CPL3 test must receive. */
+        __asm__ volatile ("pushfq; popq %0; cli" : "=r"(saved_flags) : : "memory");
+        for (uint32_t i = 0u; i <= PROS_INPUT_SERVICE_QUEUE_CAPACITY; ++i) {
+            int rc = pros_input_service_read_capability(&init_process,
+                                                        input_read_handle,
+                                                        &discarded);
+            if (rc == PROS_DRIVER_EBUSY) {
+                queue_empty = 1;
+                break;
+            }
+            if (rc != PROS_DRIVER_OK) {
+                serial_write("ProsenjitOS: ERROR input queue drain failed\n");
+                for (;;) __asm__ volatile ("cli; hlt");
+            }
+        }
+        if (!queue_empty) {
+            serial_write("ProsenjitOS: ERROR input queue did not drain within its bound\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+
+        probe.version = PROS_HW_STACK_ABI_VERSION;
+        probe.type = PROS_HW_INPUT_KEY;
+        probe.flags = PROS_HW_INPUT_PRESS;
+        probe.reserved = 0u;
+        probe.timestamp = 2u;
+        probe.value0 = 0x20u;
+        probe.value1 = 0;
+        if (pros_hw_input_send(PROS_INPUT_SERVICE_ENDPOINT_ID, &probe) != PROS_DRIVER_OK) {
+            serial_write("ProsenjitOS: ERROR input syscall probe enqueue failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        __asm__ volatile ("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+    }
+
     serial_write("ProsenjitOS: entering CPL3 user-mode syscall test\n");
-    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle);
+    enter_user_mode(elf_result.entry, elf_result.stack_top, user_test_handle, input_read_handle);
 }

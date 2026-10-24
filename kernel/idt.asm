@@ -5,9 +5,12 @@ global idt_load
 global isr_common
 global isr128
 global isr32
+global isr33
+global isr44
 extern exception_dispatch
 extern syscall_dispatch
 extern timer_dispatch
+extern ps2_irq_dispatch
 extern timer_should_preempt
 extern thread_schedule_interrupt
 extern pic_eoi_master
@@ -177,6 +180,57 @@ isr32:
     pop r15
     call pic_eoi_master
     iretq
+
+
+%macro ISR_IRQ 1
+isr%1:
+    cli
+    ; Preserve all GPRs. Save the logical frame pointer in callee-saved R12,
+    ; then dynamically align RSP for the SysV C ABI (interrupts may arrive
+    ; at arbitrary instruction-level stack alignment).
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rbp
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rbx
+    push rax
+    push qword 0
+    push qword %1
+    mov r12, rsp
+    and rsp, -16
+    mov edi, %1
+    call ps2_irq_dispatch
+    mov rsp, r12
+    add rsp, 16
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rbp
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+    iretq
+%endmacro
+
+ISR_IRQ 33
+ISR_IRQ 44
 
 %macro ISR_NO_ERROR 1
 global isr%1

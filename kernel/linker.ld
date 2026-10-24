@@ -45,6 +45,9 @@ SECTIONS
     . = ALIGN(4K);
     __kernel_end = .;
 
+    ASSERT(pros_keymap_reset >= __user_text_start && pros_keymap_reset < __user_text_end, "pros_keymap_reset must be in the copied user image")
+    ASSERT(pros_keymap_translate >= __user_text_start && pros_keymap_translate < __user_text_end, "pros_keymap_translate must be in the copied user image")
+
     /DISCARD/ :
     {
         *(.comment)

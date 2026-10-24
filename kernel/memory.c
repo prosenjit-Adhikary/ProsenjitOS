@@ -2,6 +2,7 @@
 
 #define MULTIBOOT2_TAG_END 0u
 #define MULTIBOOT2_TAG_MMAP 6u
+#define MULTIBOOT2_TAG_FRAMEBUFFER 8u
 #define MULTIBOOT2_MEMORY_AVAILABLE 1u
 
 #define MAX_PAGES (PROSENJIT_PHYS_LIMIT / PROSENJIT_PAGE_SIZE)
@@ -19,6 +20,18 @@ struct multiboot_tag_mmap {
     uint32_t entry_version;
 };
 
+struct multiboot_tag_framebuffer {
+    uint32_t type;
+    uint32_t size;
+    uint64_t address;
+    uint32_t pitch;
+    uint32_t width;
+    uint32_t height;
+    uint8_t bpp;
+    uint8_t framebuffer_type;
+    uint16_t reserved;
+} __attribute__((packed));
+
 struct multiboot_mmap_entry {
     uint64_t base_addr;
     uint64_t length;
@@ -32,11 +45,53 @@ extern char __kernel_end[];
 static uint64_t page_bitmap[BITMAP_WORDS];
 /* managed_bitmap distinguishes allocator-owned pages from permanently reserved pages. */
 static uint64_t managed_bitmap[BITMAP_WORDS];
+/* Firmware-reported RAM ranges are tracked beyond the allocator's 1 GiB limit too. */
+#define PROSENJIT_PHYS_ADDRESS_LIMIT (1ULL << 52)
+#define PROSENJIT_RAM_RANGE_MAX 256u
+struct physical_ram_range { uint64_t base, end; };
+static struct physical_ram_range ram_ranges[PROSENJIT_RAM_RANGE_MAX];
+static uint32_t ram_range_count;
+static uint64_t boot_framebuffer_base;
+static uint64_t boot_framebuffer_length;
+static uint64_t boot_info_base;
+static uint64_t boot_info_length;
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
 static uint64_t user_bitmap[BITMAP_WORDS];
+/* Marks every page in a contiguous allocation, not just its run head. */
+static uint64_t contiguous_bitmap[BITMAP_WORDS];
+static uint16_t contiguous_run_length[MAX_PAGES];
 static uint64_t total_pages;
 static uint64_t free_pages;
 static uint64_t failed_allocations;
+static uint32_t page_allocator_lock;
+
+/* IRQ-safe spin lock: allocator calls may occur from kernel paths on multiple CPUs. */
+static uint64_t page_allocator_irq_save(void) {
+#if __STDC_HOSTED__
+    return 0u;
+#else
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
+    return flags;
+#endif
+}
+static void page_allocator_irq_restore(uint64_t flags) {
+#if __STDC_HOSTED__
+    (void)flags;
+#else
+    __asm__ volatile ("pushq %0; popfq" : : "r"(flags) : "memory", "cc");
+#endif
+}
+static uint64_t page_allocator_lock_acquire(void) {
+    uint64_t flags = page_allocator_irq_save();
+    while (__atomic_exchange_n(&page_allocator_lock, 1u, __ATOMIC_ACQUIRE) != 0u)
+        __asm__ volatile ("pause");
+    return flags;
+}
+static void page_allocator_lock_release(uint64_t flags) {
+    __atomic_store_n(&page_allocator_lock, 0u, __ATOMIC_RELEASE);
+    page_allocator_irq_restore(flags);
+}
 
 static inline void bitmap_set(uint64_t page) {
     page_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
@@ -60,6 +115,15 @@ static inline void managed_clear(uint64_t page) {
 
 static inline int managed_test(uint64_t page) {
     return (managed_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+}
+static inline void contiguous_set(uint64_t page) {
+    contiguous_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+}
+static inline void contiguous_clear(uint64_t page) {
+    contiguous_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+}
+static inline int contiguous_test(uint64_t page) {
+    return (contiguous_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
 }
 
 /*
@@ -106,6 +170,24 @@ static void reserve_range(uint64_t base, uint64_t length) {
     }
 }
 
+/* Remember all firmware-reported RAM, including ranges beyond the allocator's
+ * current limit. MMIO mappings must never alias RAM merely because the current
+ * allocator does not manage that physical address. */
+static int remember_ram_range(uint64_t base, uint64_t length) {
+    if (length == 0u || base >= PROSENJIT_PHYS_ADDRESS_LIMIT)
+        return 0;
+    uint64_t end = base + length;
+    if (end < base || end > PROSENJIT_PHYS_ADDRESS_LIMIT)
+        end = PROSENJIT_PHYS_ADDRESS_LIMIT;
+    if (end <= base) return 0;
+    if (ram_range_count >= PROSENJIT_RAM_RANGE_MAX)
+        return -1;
+    ram_ranges[ram_range_count].base = base;
+    ram_ranges[ram_range_count].end = end;
+    ++ram_range_count;
+    return 0;
+}
+
 static void mark_available(uint64_t base, uint64_t length) {
     if (length == 0 || base >= PROSENJIT_PHYS_LIMIT) return;
 
@@ -130,10 +212,16 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         page_bitmap[i] = 0;
         managed_bitmap[i] = 0;
         user_bitmap[i] = 0;
+        contiguous_bitmap[i] = 0;
     }
+    for (uint64_t i = 0; i < MAX_PAGES; ++i)
+        contiguous_run_length[i] = 0;
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
+    ram_range_count = 0u;
+    boot_info_base = 0u;
+    boot_info_length = 0u;
 
     if (multiboot_info_address == 0) return -1;
 
@@ -142,6 +230,13 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     if (multiboot_info_address > UINT64_MAX - (uint64_t)total_size)
         return -2;
 
+    boot_info_base = multiboot_info_address;
+    boot_info_length = total_size;
+
+    uint64_t framebuffer_base = 0u;
+    uint64_t framebuffer_length = 0u;
+    boot_framebuffer_base = 0u;
+    boot_framebuffer_length = 0u;
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
 
@@ -150,10 +245,26 @@ int physical_memory_init(uint64_t multiboot_info_address) {
         if (tag->type == MULTIBOOT2_TAG_END) break;
         if (tag->size < 8u || current + tag->size > end) return -3;
 
+        if (tag->type == MULTIBOOT2_TAG_FRAMEBUFFER &&
+            tag->size >= sizeof(struct multiboot_tag_framebuffer)) {
+            const struct multiboot_tag_framebuffer *fb =
+                (const struct multiboot_tag_framebuffer *)tag;
+            uint64_t bytes = (uint64_t)fb->pitch * (uint64_t)fb->height;
+            if (fb->pitch != 0u && fb->height != 0u &&
+                bytes != 0u && bytes <= (256ULL * 1024ULL * 1024ULL) &&
+                fb->address <= 0x000FFFFFFFFFFFFFULL &&
+                bytes - 1u <= 0x000FFFFFFFFFFFFFULL - fb->address) {
+                framebuffer_base = fb->address;
+                framebuffer_length = bytes;
+            }
+        }
+
         if (tag->type == MULTIBOOT2_TAG_MMAP) {
             const struct multiboot_tag_mmap *mmap =
                 (const struct multiboot_tag_mmap *)tag;
             if (mmap->size < 16u || mmap->entry_size < 24u) return -4;
+            /* A memory-map tag must contain whole entries, never a truncated tail. */
+            if (((mmap->size - 16u) % mmap->entry_size) != 0u) return -4;
 
             uint64_t entries_start = current + 16ULL;
             uint64_t entries_end = current + mmap->size;
@@ -164,14 +275,47 @@ int physical_memory_init(uint64_t multiboot_info_address) {
                  p += mmap->entry_size) {
                 const struct multiboot_mmap_entry *entry =
                     (const struct multiboot_mmap_entry *)(uintptr_t)p;
-                if (entry->type == MULTIBOOT2_MEMORY_AVAILABLE)
+                if (entry->type == MULTIBOOT2_MEMORY_AVAILABLE) {
+                    if (remember_ram_range(entry->base_addr, entry->length) != 0)
+                        return -6;
                     mark_available(entry->base_addr, entry->length);
+                }
             }
         }
 
         uint64_t next = current + (uint64_t)tag->size;
         if (next > UINT64_MAX - 7ULL)
             return -3;
+        current = (next + 7ULL) & ~7ULL;
+    }
+
+    /*
+     * Firmware memory-map entries should not overlap, but treat every
+     * non-available range as reserved even if a malformed/overlapping map
+     * also described the same pages as available. Do this in a second pass
+     * so the final result does not depend on entry ordering.
+     */
+    current = multiboot_info_address + 8ULL;
+    while (current <= end && end - current >= 8ULL) {
+        const struct multiboot_tag *tag =
+            (const struct multiboot_tag *)(uintptr_t)current;
+        if (tag->type == MULTIBOOT2_TAG_END) break;
+        if (tag->type == MULTIBOOT2_TAG_MMAP) {
+            const struct multiboot_tag_mmap *mmap =
+                (const struct multiboot_tag_mmap *)tag;
+            uint64_t entries_start = current + 16ULL;
+            uint64_t entries_end = current + mmap->size;
+            for (uint64_t p = entries_start;
+                 p <= entries_end &&
+                 entries_end - p >= mmap->entry_size;
+                 p += mmap->entry_size) {
+                const struct multiboot_mmap_entry *entry =
+                    (const struct multiboot_mmap_entry *)(uintptr_t)p;
+                if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE)
+                    reserve_range(entry->base_addr, entry->length);
+            }
+        }
+        uint64_t next = current + (uint64_t)tag->size;
         current = (next + 7ULL) & ~7ULL;
     }
 
@@ -184,6 +328,20 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     reserve_range((uint64_t)(uintptr_t)__kernel_start,
                   (uint64_t)((uintptr_t)__kernel_end - (uintptr_t)__kernel_start));
 
+    /* The bootloader framebuffer must never be returned as ordinary RAM. */
+    if (framebuffer_length != 0u)
+        reserve_range(framebuffer_base, framebuffer_length);
+    if (framebuffer_length != 0u) {
+        uint64_t page_base = framebuffer_base & ~(PROSENJIT_PAGE_SIZE - 1ULL);
+        uint64_t offset = framebuffer_base - page_base;
+        uint64_t span = offset + framebuffer_length;
+        if (span < offset || span > UINT64_MAX - (PROSENJIT_PAGE_SIZE - 1ULL))
+            return -7;
+        boot_framebuffer_base = page_base;
+        boot_framebuffer_length = (span + PROSENJIT_PAGE_SIZE - 1ULL) &
+                                  ~(PROSENJIT_PAGE_SIZE - 1ULL);
+    }
+
     /* The Multiboot information structure must remain readable by the kernel. */
     reserve_range(multiboot_info_address, total_size);
 
@@ -194,7 +352,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     return free_pages != 0 ? 0 : -5;
 }
 
-uint64_t physical_page_alloc(void) {
+static uint64_t physical_page_alloc_locked(void) {
     for (uint64_t word = 0; word < BITMAP_WORDS; ++word) {
         uint64_t bits = page_bitmap[word];
         if (bits != 0) {
@@ -214,11 +372,117 @@ uint64_t physical_page_alloc(void) {
     return 0;
 }
 
+uint64_t physical_page_alloc(void) {
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t physical = physical_page_alloc_locked();
+    page_allocator_lock_release(flags);
+    return physical;
+}
+
+/*
+ * Allocate a physically contiguous run for future DMA-capable consumers.
+ * max_address_exclusive is a physical-address ceiling; zero is invalid.
+ * Alignment is expressed in pages and must be a power of two.
+ * This API does not itself make a buffer DMA-safe: cache coherency,
+ * pinning, device ownership and IOMMU/address-mask handling remain separate.
+ */
+static void physical_page_record_failed_allocation(void) {
+    uint64_t flags = page_allocator_lock_acquire();
+    ++failed_allocations;
+    page_allocator_lock_release(flags);
+}
+
+uint64_t physical_pages_alloc_contiguous(uint64_t page_count,
+                                         uint64_t alignment_pages,
+                                         uint64_t max_address_exclusive) {
+    if (page_count == 0 || page_count > UINT16_MAX || alignment_pages == 0 ||
+        (alignment_pages & (alignment_pages - 1ULL)) != 0 ||
+        max_address_exclusive < PROSENJIT_PAGE_SIZE) {
+        physical_page_record_failed_allocation();
+        return 0;
+    }
+
+    if (max_address_exclusive > PROSENJIT_PHYS_LIMIT)
+        max_address_exclusive = PROSENJIT_PHYS_LIMIT;
+    uint64_t limit_pages = max_address_exclusive / PROSENJIT_PAGE_SIZE;
+    if (page_count > limit_pages) {
+        physical_page_record_failed_allocation();
+        return 0;
+    }
+
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t candidate = alignment_pages;
+    while (candidate <= limit_pages - page_count) {
+        uint64_t i = 0;
+        while (i < page_count) {
+            uint64_t page = candidate + i;
+            if (!managed_test(page) || !bitmap_test(page))
+                break;
+            ++i;
+        }
+        if (i == page_count) {
+            for (uint64_t j = 0; j < page_count; ++j) {
+                bitmap_clear(candidate + j);
+                contiguous_set(candidate + j);
+            }
+            contiguous_run_length[candidate] = (uint16_t)page_count;
+            free_pages -= page_count;
+            page_allocator_lock_release(flags);
+            return candidate * PROSENJIT_PAGE_SIZE;
+        }
+        /* Skip past the first unavailable page, then realign. */
+        candidate += i + 1ULL;
+        uint64_t remainder = candidate & (alignment_pages - 1ULL);
+        if (remainder != 0)
+            candidate += alignment_pages - remainder;
+    }
+    ++failed_allocations;
+    page_allocator_lock_release(flags);
+    return 0;
+}
+
+/* Release only a wholly allocated, managed run; invalid runs change nothing. */
+int physical_pages_free_contiguous(uint64_t physical_address,
+                                   uint64_t page_count) {
+    if (page_count == 0 ||
+        (physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
+        return -1;
+    uint64_t first = physical_address / PROSENJIT_PAGE_SIZE;
+    if (first == 0 || first >= MAX_PAGES || page_count > MAX_PAGES - first)
+        return -1;
+
+    uint64_t flags = page_allocator_lock_acquire();
+    if (contiguous_run_length[first] != page_count) {
+        page_allocator_lock_release(flags);
+        return -3;
+    }
+    for (uint64_t i = 0; i < page_count; ++i) {
+        uint64_t page = first + i;
+        if (!managed_test(page) || bitmap_test(page) || !contiguous_test(page)) {
+            page_allocator_lock_release(flags);
+            return -2;
+        }
+    }
+    contiguous_run_length[first] = 0;
+    for (uint64_t i = 0; i < page_count; ++i) {
+        uint64_t page = first + i;
+        user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+        contiguous_clear(page);
+        bitmap_set(page);
+    }
+    free_pages += page_count;
+    page_allocator_lock_release(flags);
+    return 0;
+}
+
 uint64_t physical_page_alloc_user(void) {
-    uint64_t physical = physical_page_alloc();
-    if (!physical) return 0;
-    uint64_t page = physical / PROSENJIT_PAGE_SIZE;
-    user_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t physical = physical_page_alloc_locked();
+    if (physical) {
+        uint64_t page = physical / PROSENJIT_PAGE_SIZE;
+        user_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+    }
+    page_allocator_lock_release(flags);
     return physical;
 }
 
@@ -226,41 +490,130 @@ int physical_page_is_allocated(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
         return 0;
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page))
+    if (page >= MAX_PAGES) return 0;
+    uint64_t flags = page_allocator_lock_acquire();
+    int allocated = managed_test(page) && !bitmap_test(page);
+    page_allocator_lock_release(flags);
+    return allocated;
+}
+
+/*
+ * MMIO mapping must not create an uncached alias of allocator-managed RAM.
+ * Reserved firmware/device ranges (including the boot framebuffer) are not
+ * marked managed, while free and allocated RAM both remain marked managed.
+ */
+int physical_range_is_managed(uint64_t physical_address, uint64_t length) {
+    if (length == 0u || physical_address > UINT64_MAX - length)
+        return -1;
+    uint64_t end = physical_address + length;
+    if (physical_address >= PROSENJIT_PHYS_LIMIT)
         return 0;
-    return !bitmap_test(page);
+    if (end > PROSENJIT_PHYS_LIMIT)
+        end = PROSENJIT_PHYS_LIMIT;
+    uint64_t first = physical_address / PROSENJIT_PAGE_SIZE;
+    uint64_t last = (end + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
+    if (last > MAX_PAGES) last = MAX_PAGES;
+    uint64_t flags = page_allocator_lock_acquire();
+    for (uint64_t page = first; page < last; ++page) {
+        if (managed_test(page)) {
+            page_allocator_lock_release(flags);
+            return 1;
+        }
+    }
+    page_allocator_lock_release(flags);
+    return 0;
+}
+
+/*
+ * Return whether a physical range may be mapped as device MMIO. Firmware
+ * reserved ranges are allowed, but RAM is not: clearing managed_bitmap for
+ * the kernel or boot metadata must not accidentally make that RAM MMIO-safe.
+ * The one explicit RAM-backed exception is the exact bootloader framebuffer
+ * range, which physical_memory_init has reserved from normal allocation.
+ */
+int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length) {
+    if (length == 0u || physical_address > UINT64_MAX - length)
+        return -1;
+    uint64_t end = physical_address + length;
+    int overlaps_ram = 0;
+    uint64_t flags = page_allocator_lock_acquire();
+    for (uint32_t i = 0u; i < ram_range_count; ++i) {
+        if (physical_address < ram_ranges[i].end &&
+            end > ram_ranges[i].base) {
+            overlaps_ram = 1;
+            break;
+        }
+    }
+    uint64_t fb_base = boot_framebuffer_base;
+    uint64_t fb_length = boot_framebuffer_length;
+    uint64_t info_base = boot_info_base;
+    uint64_t info_length = boot_info_length;
+    page_allocator_lock_release(flags);
+
+    /* Never alias the linked kernel image or the bootloader-owned info block,
+     * even if a firmware map classifies either range as reserved. */
+    uint64_t kernel_base = (uint64_t)(uintptr_t)__kernel_start;
+    uint64_t kernel_end = (uint64_t)(uintptr_t)__kernel_end;
+    if ((kernel_end > kernel_base && physical_address < kernel_end && end > kernel_base) ||
+        (info_length != 0u && info_base <= UINT64_MAX - info_length &&
+         physical_address < info_base + info_length && end > info_base))
+        return 0;
+    /* The mapped framebuffer span is page-rounded to match page-table granularity. */
+    if (fb_length != 0u && physical_address >= fb_base &&
+        fb_base <= UINT64_MAX - fb_length && end <= fb_base + fb_length)
+        return 1;
+    /* The current kernel cannot prove unknown low-memory holes are not RAM.
+     * Fail closed below the allocator limit until device-range reservations exist. */
+    if (physical_address < PROSENJIT_PHYS_LIMIT)
+        return 0;
+    return overlaps_ram ? 0 : 1;
 }
 
 int physical_page_is_user_mappable(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
         return 0;
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page))
-        return 0;
-    return (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+    if (page >= MAX_PAGES) return 0;
+    uint64_t flags = page_allocator_lock_acquire();
+    int mappable = managed_test(page) && !bitmap_test(page) &&
+        (user_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0;
+    page_allocator_lock_release(flags);
+    return mappable;
 }
 
 void physical_page_free(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0) return;
-
     uint64_t page = physical_address / PROSENJIT_PAGE_SIZE;
-    if (page >= MAX_PAGES || !managed_test(page) || bitmap_test(page)) return;
+    if (page >= MAX_PAGES) return;
 
-    user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
-    bitmap_set(page);
-    ++free_pages;
+    uint64_t flags = page_allocator_lock_acquire();
+    if (managed_test(page) && !bitmap_test(page) && !contiguous_test(page)) {
+        user_bitmap[page >> 6] &= ~(1ULL << (page & 63ULL));
+        bitmap_set(page);
+        ++free_pages;
+    }
+    page_allocator_lock_release(flags);
 }
 
 uint64_t physical_memory_total_pages(void) {
-    return total_pages;
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t value = total_pages;
+    page_allocator_lock_release(flags);
+    return value;
 }
 
 uint64_t physical_memory_free_pages(void) {
-    return free_pages;
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t value = free_pages;
+    page_allocator_lock_release(flags);
+    return value;
 }
 
 uint64_t physical_memory_failed_allocations(void) {
-    return failed_allocations;
+    uint64_t flags = page_allocator_lock_acquire();
+    uint64_t value = failed_allocations;
+    page_allocator_lock_release(flags);
+    return value;
 }
 
 

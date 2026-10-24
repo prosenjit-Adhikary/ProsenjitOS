@@ -1,5 +1,6 @@
 #include "timer.h"
 #include "pic.h"
+#include "input_service.h"
 
 #define PROSENJIT_PIT_BASE_HZ 1193182u
 
@@ -63,6 +64,11 @@ void timer_dispatch(uint64_t *frame) {
     ++ticks;
     ++irq_count;
 
+    /* The legacy PS/2 poller is bounded to 32 bytes and only publishes into
+     * the pre-registered fixed-size input queue; no allocation or blocking. */
+    if ((ticks & 0x3u) == 0u && pros_input_service_is_ready())
+        (void)pros_input_service_poll_hardware();
+
     /*
      * The timer is the real kernel heartbeat. The health watchdog is checked
      * from this interrupt path so watchdog state cannot depend on a userspace
@@ -83,3 +89,22 @@ int timer_should_preempt(void) {
 
 uint64_t timer_irq_count(void) { return irq_count; }
 uint64_t timer_preempt_count(void) { return preempt_count; }
+
+
+/*
+ * Shared bounded dispatch for the legacy PS/2 IRQ vectors. The IDT entry
+ * arrives with IF cleared; reuse the existing status-byte-aware poller so
+ * keyboard and AUX bytes retain one decoder path. PIC IRQ1/IRQ12 stay masked
+ * during this bring-up phase; this dispatcher is installed but not activated
+ * until controller/IRQ behavior has passed the acceptance tests.
+ */
+void ps2_irq_dispatch(uint64_t irq)
+{
+    if (irq != 1u && irq != 12u)
+        return;
+
+    if (pros_input_service_is_ready())
+        (void)pros_input_service_poll_hardware();
+
+    pic_eoi_irq((uint8_t)irq);
+}

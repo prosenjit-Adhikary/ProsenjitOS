@@ -9,6 +9,8 @@ global stack_top
 extern kernel_main
 extern cpu_security_init
 extern user_mode_test_complete
+extern pros_keymap_reset
+extern pros_keymap_translate
 extern paging_switch_kernel
 
 _start:
@@ -102,7 +104,7 @@ long_mode_entry:
     jmp .halt
 
 enter_user_mode:
-    ; RDI=entry, RSI=stack_top, RDX=initial capability handle.
+    ; RDI=entry, RSI=stack_top, RDX=initial IPC handle, RCX=input READ handle.
     ; Load CPL3-compatible data segments before IRET so the first user
     ; memory access does not inherit the CPL0 data-segment cache.
     mov ax, gdt64.user_data + 3
@@ -110,6 +112,7 @@ enter_user_mode:
     mov es, ax
     mov rax, rdi
     mov r8, rdx
+    mov r9, rcx
     mov rdx, rsi
     push qword 0x23
     push rdx
@@ -120,6 +123,7 @@ enter_user_mode:
     push qword 0x1B
     push rax
     mov rdi, r8
+    mov rsi, r9
     iretq
 
 user_mode_exit_trampoline:
@@ -208,6 +212,7 @@ global user_test_entry
 user_test_entry:
     ; Preserve the initial IPC capability before exercising syscall arguments.
     mov r12, rdi
+    mov r15, rsi                ; separately granted READ-only input capability
 
     ; Write a marker through the isolated user mapping.
     mov rdx, 0x0000008000001000
@@ -219,6 +224,64 @@ user_test_entry:
     int 0x80
     cmp rax, 0x0000000000010000
     jne .user_halt
+
+    ; A forged endpoint handle must be denied without consuming the event.
+    mov rax, 8                  ; PROSENJIT_SYS_INPUT_READ
+    mov rdi, 0xFFFFFFFFFFFFFF01 ; stale/forged generation for slot 1
+    lea rsi, [r14 + 64]
+    int 0x80
+    cmp rax, -13                ; PROSENJIT_SYSCALL_EPERM
+    jne .user_halt
+
+    ; Read one kernel-queued input event using the separately provisioned
+    ; READ-only input endpoint handle. The kernel validates this user buffer.
+    mov rax, 8                  ; PROSENJIT_SYS_INPUT_READ
+    mov rdi, r15                ; input endpoint capability
+    lea rsi, [r14 + 64]         ; struct pros_input_event output buffer
+    int 0x80
+    test rax, rax
+    jnz .user_halt
+    cmp dword [r14 + 64], 1     ; PROSENJIT_INPUT_ABI_VERSION
+    jne .user_halt
+    cmp dword [r14 + 68], 1     ; PROS_INPUT_KEY
+    jne .user_halt
+    cmp dword [r14 + 80], 0x20  ; injected scan code
+    jne .user_halt
+    cmp dword [r14 + 88], 1     ; PROS_INPUT_FLAG_PRESS
+    jne .user_halt
+
+    ; Exercise the real C keymap implementation from the CPL3 image.
+    ; PS/2 set-1 scan code 0x20 is the US-QWERTY 'd' key.
+    lea rdi, [r14 + 128]        ; writable user keymap state
+    call pros_keymap_reset
+    lea rdi, [r14 + 128]
+    lea rsi, [r14 + 64]         ; userspace event received through syscall
+    call pros_keymap_translate
+    cmp eax, 'd'
+    jne .user_halt
+
+    ; The successful read consumed the only queued event; empty reads return EAGAIN.
+    mov rax, 8
+    mov rdi, r15
+    lea rsi, [r14 + 64]
+    int 0x80
+    cmp rax, -11                ; PROSENJIT_SYSCALL_EAGAIN
+    jne .user_halt
+
+    ; Reject an invalid userspace output pointer before touching the queue.
+    mov rax, 8
+    mov rdi, r15
+    xor rsi, rsi
+    int 0x80
+    cmp rax, -10                ; PROSENJIT_SYSCALL_EBADF
+    jne .user_halt
+
+    ; Release the input capability after the CPL3 delivery assertion.
+    mov rax, 3
+    mov rdi, r15
+    int 0x80
+    test rax, rax
+    jnz .user_halt
 
     ; Unknown syscall numbers must fail closed with ENOSYS.
     mov rax, 0x7FFF
