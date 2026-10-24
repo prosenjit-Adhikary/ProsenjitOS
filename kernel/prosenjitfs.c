@@ -13195,7 +13195,8 @@ int prosenjitfs_selftest(void)
                 prosenjitfs_alloc_inode(&fs, &inode_out) !=
                     PROSENJITFS_EINVAL ||
                 prosenjitfs_preallocate_blocks(&fs, 0u, 0u, 1u) !=
-                    PROSENJITFS_EINVAL) {
+                    PROSENJITFS_EINVAL ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_ECORRUPT) {
                 fs.sb.block_size = saved_block_size;
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -30);
