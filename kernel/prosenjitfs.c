@@ -9317,10 +9317,17 @@ int prosenjitfs_selftest(void)
                 for (uint32_t i = 0u;
                      i < sizeof(invalid_sizes) / sizeof(invalid_sizes[0]); ++i) {
                     uint64_t block_lba = UINT64_MAX;
+                    uint64_t inode_candidate = UINT64_MAX;
                     uint32_t offset = UINT32_MAX;
                     invalid_fs.sb.block_size = invalid_sizes[i];
                     if (pfs_find_free_inode(&invalid_fs, &candidate) !=
                             PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
+                        prosenjitfs_alloc_inode(&invalid_fs, &inode_candidate) !=
+                            PROSENJITFS_EINVAL || inode_candidate != UINT64_MAX ||
+                        pfs_inode_bitmap_stage_unchecked(&invalid_fs, 1u, 1u) !=
+                            PROSENJITFS_EINVAL ||
+                        prosenjitfs_free_blocks(&invalid_fs,
+                            invalid_fs.sb.data_start, 1u) != PROSENJITFS_EINVAL ||
                         pfs_find_free_data_block(&invalid_fs, &candidate) !=
                             PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
                         pfs_find_free_data_block_except(
