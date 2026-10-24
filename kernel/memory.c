@@ -45,8 +45,12 @@ extern char __kernel_end[];
 static uint64_t page_bitmap[BITMAP_WORDS];
 /* managed_bitmap distinguishes allocator-owned pages from permanently reserved pages. */
 static uint64_t managed_bitmap[BITMAP_WORDS];
-/* Tracks firmware-reported RAM even when the allocator later reserves it. */
-static uint64_t ram_bitmap[BITMAP_WORDS];
+/* Firmware-reported RAM ranges are tracked beyond the allocator's 1 GiB limit too. */
+#define PROSENJIT_PHYS_ADDRESS_LIMIT (1ULL << 52)
+#define PROSENJIT_RAM_RANGE_MAX 256u
+struct physical_ram_range { uint64_t base, end; };
+static struct physical_ram_range ram_ranges[PROSENJIT_RAM_RANGE_MAX];
+static uint32_t ram_range_count;
 static uint64_t boot_framebuffer_base;
 static uint64_t boot_framebuffer_length;
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
@@ -164,18 +168,29 @@ static void reserve_range(uint64_t base, uint64_t length) {
     }
 }
 
+/* Remember all firmware-reported RAM, including ranges beyond the allocator's
+ * current limit. MMIO mappings must never alias RAM merely because the current
+ * allocator does not manage that physical address. */
+static int remember_ram_range(uint64_t base, uint64_t length) {
+    if (length == 0u || base >= PROSENJIT_PHYS_ADDRESS_LIMIT)
+        return 0;
+    uint64_t end = base + length;
+    if (end < base || end > PROSENJIT_PHYS_ADDRESS_LIMIT)
+        end = PROSENJIT_PHYS_ADDRESS_LIMIT;
+    if (end <= base) return 0;
+    if (ram_range_count >= PROSENJIT_RAM_RANGE_MAX)
+        return -1;
+    ram_ranges[ram_range_count].base = base;
+    ram_ranges[ram_range_count].end = end;
+    ++ram_range_count;
+    return 0;
+}
+
 static void mark_available(uint64_t base, uint64_t length) {
     if (length == 0 || base >= PROSENJIT_PHYS_LIMIT) return;
 
     uint64_t end = base + length;
     if (end < base || end > PROSENJIT_PHYS_LIMIT) end = PROSENJIT_PHYS_LIMIT;
-
-    /* Mark every touched RAM page for MMIO-alias prevention, including partial edge pages. */
-    uint64_t ram_first = base / PROSENJIT_PAGE_SIZE;
-    uint64_t ram_last = (end + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
-    if (ram_last > MAX_PAGES) ram_last = MAX_PAGES;
-    for (uint64_t page = ram_first; page < ram_last; ++page)
-        ram_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
 
     uint64_t first = (base + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
     uint64_t last = end / PROSENJIT_PAGE_SIZE;
@@ -194,7 +209,6 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
         page_bitmap[i] = 0;
         managed_bitmap[i] = 0;
-        ram_bitmap[i] = 0;
         user_bitmap[i] = 0;
         contiguous_bitmap[i] = 0;
     }
@@ -203,6 +217,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     total_pages = 0;
     free_pages = 0;
     failed_allocations = 0;
+    ram_range_count = 0u;
 
     if (multiboot_info_address == 0) return -1;
 
@@ -253,8 +268,11 @@ int physical_memory_init(uint64_t multiboot_info_address) {
                  p += mmap->entry_size) {
                 const struct multiboot_mmap_entry *entry =
                     (const struct multiboot_mmap_entry *)(uintptr_t)p;
-                if (entry->type == MULTIBOOT2_MEMORY_AVAILABLE)
+                if (entry->type == MULTIBOOT2_MEMORY_AVAILABLE) {
+                    if (remember_ram_range(entry->base_addr, entry->length) != 0)
+                        return -6;
                     mark_available(entry->base_addr, entry->length);
+                }
             }
         }
 
@@ -306,8 +324,16 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     /* The bootloader framebuffer must never be returned as ordinary RAM. */
     if (framebuffer_length != 0u)
         reserve_range(framebuffer_base, framebuffer_length);
-    boot_framebuffer_base = framebuffer_base;
-    boot_framebuffer_length = framebuffer_length;
+    if (framebuffer_length != 0u) {
+        uint64_t page_base = framebuffer_base & ~(PROSENJIT_PAGE_SIZE - 1ULL);
+        uint64_t offset = framebuffer_base - page_base;
+        uint64_t span = offset + framebuffer_length;
+        if (span < offset || span > UINT64_MAX - (PROSENJIT_PAGE_SIZE - 1ULL))
+            return -7;
+        boot_framebuffer_base = page_base;
+        boot_framebuffer_length = (span + PROSENJIT_PAGE_SIZE - 1ULL) &
+                                  ~(PROSENJIT_PAGE_SIZE - 1ULL);
+    }
 
     /* The Multiboot information structure must remain readable by the kernel. */
     reserve_range(multiboot_info_address, total_size);
@@ -502,17 +528,11 @@ int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length) {
     if (length == 0u || physical_address > UINT64_MAX - length)
         return -1;
     uint64_t end = physical_address + length;
-    if (physical_address >= PROSENJIT_PHYS_LIMIT)
-        return 1;
-    uint64_t managed_end = end > PROSENJIT_PHYS_LIMIT
-        ? PROSENJIT_PHYS_LIMIT : end;
-    uint64_t first = physical_address / PROSENJIT_PAGE_SIZE;
-    uint64_t last = (managed_end + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
-    if (last > MAX_PAGES) last = MAX_PAGES;
     int overlaps_ram = 0;
     uint64_t flags = page_allocator_lock_acquire();
-    for (uint64_t page = first; page < last; ++page) {
-        if ((ram_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0u) {
+    for (uint32_t i = 0u; i < ram_range_count; ++i) {
+        if (physical_address < ram_ranges[i].end &&
+            end > ram_ranges[i].base) {
             overlaps_ram = 1;
             break;
         }
@@ -522,9 +542,9 @@ int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length) {
     page_allocator_lock_release(flags);
     if (!overlaps_ram)
         return 1;
+    /* The mapped framebuffer span is page-rounded to match page-table granularity. */
     if (fb_length != 0u && physical_address >= fb_base &&
-        end >= physical_address && fb_base <= UINT64_MAX - fb_length &&
-        end <= fb_base + fb_length)
+        fb_base <= UINT64_MAX - fb_length && end <= fb_base + fb_length)
         return 1;
     return 0;
 }
