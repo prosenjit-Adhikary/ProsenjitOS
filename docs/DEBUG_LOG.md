@@ -517,3 +517,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The first not-reached countdown is disarmed before follow-up lookup/integrity/unmount.
 - Source commit: `aefcac64b5ee80cf58c62c04e0a312d8878ab8dd`.
 - **Verified:** exact PR head `5522c822d9bce6d01ca6c0c06b572c8032e63c5e` passed Build/boot-test [#40074188166](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188166), including ISO QEMU and native BIOS QEMU, and Security architecture [#40074188142](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188142). PR #226 merged as `84a707c354065d6f1c9aa0f418cf043f6d55bdd3`.
+
+## 2026-10-24 — ProsenjitFS truncate block-write failure sweep
+
+### Regression added
+- Added a bounded one-shot block-write countdown sweep across `vfs_file_truncate(..., 0)` on a populated file.
+- Every reached write failure is followed by simulated power loss and remount. The test accepts only a fully preserved original payload or a fully committed zero-length file, then requires the report-only integrity scan and unmount to succeed.
+- The first write position not reached by truncate is disarmed before follow-up integrity/unmount checks. The regression does not weaken existing commit-failure assertions.
+- Exact-head Build/boot and Security CI results are pending; do not call this change verified until both workflows pass.
+
