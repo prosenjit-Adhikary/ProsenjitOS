@@ -1,5 +1,12 @@
 # ProsenjitFS Test Matrix — 2026-10-24
 
+## Part 2 regression added — pending exact-head CI
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-15 | VFS write error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | A filesystem write callback returning `PROS_VFS_EIO` must return the error and set `bytes_written=0`, even when caller input was a nonzero sentinel | Implemented on `fix/prosenjitfs-vfs-write-error-count-20261024`; exact-head Build/boot-test and Security pending |
+
+
 **Baseline commit:** `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
 **Status source:** [Completion matrix](PROSENJITFS-COMPLETION-MATRIX.md)  
 **Work plan:** [Implementation plan](PROSENJITFS-IMPLEMENTATION-PLAN.md)
