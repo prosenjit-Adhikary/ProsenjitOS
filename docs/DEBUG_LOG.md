@@ -463,3 +463,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Added a bounded test that temporarily fills all valid inode bitmap bits in the one-block test-fixture layout, verifies `pfs_find_free_inode` returns `PROSENJITFS_ENOSPC` and leaves the output sentinel plus durable/volatile/dirty mock-media CRCs unchanged, then restores the original bitmap.
 - The fixture guard intentionally skips layouts with multiple inode-bitmap blocks; no broader exhaustion claim is made. Exact-head CI is pending/unverified.
+
+
+## 2026-10-24 — data allocator exhaustion test
+
+- Added `pfs_find_free_data_block` coverage for the one-block 512-byte test fixture: all valid data bits are temporarily set, the finder must return `PROSENJITFS_ENOSPC` with the result sentinel unchanged, and durable/volatile/dirty mock-media CRCs must remain stable across the search. The saved bitmap is restored afterward.
+- Cross-review tightened both exhaustion tests to run only for the fixture's exact 512-byte sector/block geometry and one-block bitmap layout, avoiding accidental assumptions for larger filesystem blocks. Runner-based verification is pending.
