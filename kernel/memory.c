@@ -448,6 +448,33 @@ int physical_page_is_allocated(uint64_t physical_address) {
     return allocated;
 }
 
+/*
+ * MMIO mapping must not create an uncached alias of allocator-managed RAM.
+ * Reserved firmware/device ranges (including the boot framebuffer) are not
+ * marked managed, while free and allocated RAM both remain marked managed.
+ */
+int physical_range_is_managed(uint64_t physical_address, uint64_t length) {
+    if (length == 0u || physical_address > UINT64_MAX - length)
+        return -1;
+    uint64_t end = physical_address + length;
+    if (physical_address >= PROSENJIT_PHYS_LIMIT)
+        return 0;
+    if (end > PROSENJIT_PHYS_LIMIT)
+        end = PROSENJIT_PHYS_LIMIT;
+    uint64_t first = physical_address / PROSENJIT_PAGE_SIZE;
+    uint64_t last = (end + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
+    if (last > MAX_PAGES) last = MAX_PAGES;
+    uint64_t flags = page_allocator_lock_acquire();
+    for (uint64_t page = first; page < last; ++page) {
+        if (managed_test(page)) {
+            page_allocator_lock_release(flags);
+            return 1;
+        }
+    }
+    page_allocator_lock_release(flags);
+    return 0;
+}
+
 int physical_page_is_user_mappable(uint64_t physical_address) {
     if ((physical_address & (PROSENJIT_PAGE_SIZE - 1ULL)) != 0)
         return 0;
