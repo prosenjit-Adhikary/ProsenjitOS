@@ -11624,7 +11624,14 @@ int prosenjitfs_selftest(void)
             if (disk.fail_write_countdown != 0u) {
                 /* This position is beyond truncate's complete write path. */
                 disk.fail_write_countdown = 0u;
+                done = 0u;
                 if (truncate_rc != PROS_VFS_OK ||
+                    vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                        PROS_VFS_OK ||
+                    done != 0u ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                     prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                     pfs_test_crash_reset(&fs, &disk);
