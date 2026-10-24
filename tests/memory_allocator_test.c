@@ -74,6 +74,17 @@ int main(void) {
         return 2;
     }
 
+    /* Managed RAM includes both free and allocated pages; reserved low
+     * memory and physical ranges above the allocator's 1 GiB scope are not managed. */
+    if (physical_range_is_managed(0x200000u, PROSENJIT_PAGE_SIZE) != 1 ||
+        physical_range_is_managed(0x1000u, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_range_is_managed(PROSENJIT_PHYS_LIMIT, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_range_is_managed(UINT64_MAX - 0xFFFu, 0x2000u) != -1 ||
+        physical_range_is_managed(0x200000u, 0u) != -1) {
+        fputs("allocator test: managed physical range query contract failed\\n", stderr);
+        return 18;
+    }
+
     uint64_t before = physical_memory_free_pages();
     uint64_t failed_before = physical_memory_failed_allocations();
     if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
