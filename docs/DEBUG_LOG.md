@@ -516,4 +516,4 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Every reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty media CRCs, keep the mount writable, preserve the directory, and pass the report-only integrity scan.
 - The first not-reached countdown is disarmed before follow-up lookup/integrity/unmount.
 - Source commit: `aefcac64b5ee80cf58c62c04e0a312d8878ab8dd`.
-- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture checks are pending.
+- **Verified:** exact PR head `5522c822d9bce6d01ca6c0c06b572c8032e63c5e` passed Build/boot-test [#40074188166](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188166), including ISO QEMU and native BIOS QEMU, and Security architecture [#40074188142](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188142). PR #226 merged as `84a707c354065d6f1c9aa0f418cf043f6d55bdd3`.
