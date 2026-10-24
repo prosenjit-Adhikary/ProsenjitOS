@@ -20,7 +20,9 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## P1 — Complete and reconcile per-operation fault-injection coverage
 
 - [ ] Review and verify PR #233 append/truncate read-failure sweeps after P0.
-- [ ] Review PR #230 create/overwrite write-failure sweep and PR #232 rmdir write-failure sweep; confirm each branch is based on the intended current `main` and that its tests assert rollback and error classification rather than only build success.
+- [x] PR #230 create/overwrite and mkdir/rmdir write-failure sweeps were merged and passed current-main Build/boot-test #40118316719 plus Security #40118316931.
+- [x] Ported the stronger rmdir recovery assertions (valid parent relationship and cleanup) into the current geometry-hardening branch; its exact-head CI remains pending.
+- [ ] Close/reconcile stale duplicate PR #232 after the strengthened sweep passes current-head CI.
 - [ ] For every accepted test PR, capture exact head SHA and both Build/boot-test and Security architecture run links in `docs/PROSENJITFS-COMPLETION-MATRIX.md`.
 - [ ] Deduplicate overlapping sweeps; do not merge stale or superseded branches just because their titles sound complementary.
 - **Acceptance:** no open test branch is called verified until its exact head passes the required CI workflows; failure injection never leaks into post-operation verification.
@@ -32,6 +34,13 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [ ] Ensure device `EIO` stays an I/O error and is not converted into metadata corruption unless bytes were successfully read and shown malformed.
 - [ ] Check all failure exits for transaction-buffer reset, temporary heap/scratch cleanup, vnode/file closure, allocation rollback, mount state, and preservation of prior file data.
 - **Acceptance:** every injected fault has a bounded, deterministic expected result; clean integrity checks pass after recovery; no in-memory staged transaction contaminates the next operation.
+
+### Allocator geometry hardening — current branch pending CI
+
+- [x] Add 512–4096-byte power-of-two checks to allocator bitmap builders/searchers, inode location and public inode I/O, allocator range/staging paths, preallocation, integrity scan, and vnode read/write/truncate arithmetic.
+- [x] Add malformed geometry assertions for block sizes 0, 511, 513 and 4097; verify sentinel preservation and unchanged mock-media state.
+- [x] Add bounded inode/data bitmap exhaustion and final-valid-bit checks on the 512-byte single-bitmap fixture.
+- [ ] Run exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture for branch head `eefb231ba4577d989b2170d245010685cf4d3493`; diagnose and rerun on any failure.
 
 ## P3 — Re-validate transactional durability and recovery invariants
 

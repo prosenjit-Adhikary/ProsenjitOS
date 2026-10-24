@@ -297,3 +297,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Recovered content must be either the unchanged original 64-byte payload or a fully truncated empty file; intermediate EOF, altered bytes, or integrity failures are rejected.
 - **Verified:** exact PR head `2586aa0403d5c984cb64b962c5bfdd1bf360cfe4` passed Build/boot-test [#40077700893](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700893), including ISO QEMU and native BIOS QEMU, and Security architecture [#40077700948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700948). PR #228 merged as `e6c391ae009b94dd8645140cfe86a571167ff54f`.
 
+
+
+## Verification update — 2026-10-24 after write-failure sweeps merged
+
+- Current `main` at `3df77093edec9a6961a507fe05f4c32420d73391` passed [Build/boot-test #40118316719](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40118316719) and [Security #40118316931](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40118316931). The build log contains the required ProsenjitFS format/mount/allocation/journal/recovery marker and the native ATA PIO -> MBR -> ProsenjitFS persistent-mount marker; ISO and native QEMU returned timeout 124 only after required milestones.
+- PR #230 merged as `3df77093edec9a6961a507fe05f4c32420d73391`, bringing the create/overwrite and mkdir/rmdir write-failure sweeps into main.
+- The current branch `fix/prosenjitfs-allocator-geometry-currentmain-20261024` adds consistent supported block-size validation (512–4096 bytes, power of two) before bitmap/index/offset arithmetic, plus bounded invalid-geometry, allocator exhaustion and final-valid-bit tests. Its exact-head CI remains pending; these changes are not yet considered verified.
+- The same branch strengthens the rmdir write-sweep's post-crash checks by validating the child parent-inode and cleaning up a recovered directory after integrity verification; this supersedes the need for a separate duplicate rmdir-only sweep if exact-head CI passes.
