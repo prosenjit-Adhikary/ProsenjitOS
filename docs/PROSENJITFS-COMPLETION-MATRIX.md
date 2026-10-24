@@ -234,3 +234,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Added last-valid-bit boundary assertions to the bounded exhaustion fixtures: after proving `ENOSPC` with every valid bit set, each test exposes only the final valid inode/data-block bit and verifies the allocator returns exactly `inode_count - 1` / `total_blocks - 1` without changing either mock-media view or the dirty map. The original durable and volatile bitmap sectors are then restored byte-for-byte.
+
+
+- Cross-review expanded malformed-geometry coverage to every relevant allocator helper, including `pfs_find_free_data_block_excluding`, for block sizes 0, 511, and 513. Each call must return `PROSENJITFS_EINVAL` without changing output sentinels; mock-media CRC checks bracket the whole set.
