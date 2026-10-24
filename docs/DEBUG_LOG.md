@@ -520,3 +520,8 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - A final `block_size`-use sweep found the vnode write/truncate paths still checked only zero/upper bounds. Both now enforce the supported 512–4096-byte power-of-two geometry before size-to-block arithmetic, matching mount-time superblock validation.
+
+
+## 2026-10-24 — vnode read geometry guard
+
+- Cross-review of every `block_size` division found `pfs_file_read` divided the requested position by the superblock block size without a local geometry check. Added the same supported 512–4096-byte power-of-two check and total-data-span overflow guard used by the write path before inode validation/read-loop arithmetic. Invalid in-memory geometry now returns `PROS_VFS_ECORRUPT` instead of risking divide-by-zero or invalid block indexing. Exact-head runner verification remains pending.
