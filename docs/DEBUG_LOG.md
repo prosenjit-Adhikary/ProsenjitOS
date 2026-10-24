@@ -508,3 +508,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source audit found the parent-directory bucket traversal in `pfs_vnode_rmdir()` returned `PROS_VFS_EIO` when its bounded step count detected a cyclic directory-entry chain. This is malformed on-disk metadata, not a device I/O failure.
 - Changed the internal result to `PROSENJITFS_ECORRUPT` and added a checksum-valid self-cycle regression. The test requires `PROS_VFS_ECORRUPT`, unchanged durable/volatile/dirty media during the operation, then restores the entry and requires a clean integrity scan and successful normal rmdir.
 - **Verified:** fixed exact PR head `5a2dd5d63813498b0bd83f2aa4b6fed1f69e8e2a` passed Build/boot-test [#40073950609](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073950609), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073950625](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073950625). PR #225 merged as `0cdaab0ca75c286e839494d37c24420f74a5c039`.
+
+
+## 2026-10-24 — rmdir read-failure sweep (pending CI)
+
+- Added a bounded read-failure sweep around `vfs_rmdir`.
+- Every reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty media CRCs, keep the mount writable, preserve the directory, and pass the report-only integrity scan.
+- The first not-reached countdown is disarmed before follow-up lookup/integrity/unmount.
+- Source commit: `aefcac64b5ee80cf58c62c04e0a312d8878ab8dd`.
+- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture checks are pending.
