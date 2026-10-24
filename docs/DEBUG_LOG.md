@@ -501,3 +501,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The first countdown not reached proves the unlink write sequence ended; the fault is disarmed before lookup/integrity/unmount.
 - Source commit: `a18e2a55b36c6a445657bb9786dd172fb0eaf95c`.
 - **Verified:** exact PR head `c536d9e03f2e21ee559d73ecb1d1a4d92e30a74b` passed Build/boot-test [#40073592946](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073592946), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073592829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073592829). PR #224 merged as `714fa8e66d3a46991cb80446d769ab4538a63120`.
+
+
+## 2026-10-24 — rmdir cycle error classification (pending CI)
+
+- Source audit found the parent-directory bucket traversal in `pfs_vnode_rmdir()` returned `PROS_VFS_EIO` when its bounded step count detected a cyclic directory-entry chain. This is malformed on-disk metadata, not a device I/O failure.
+- Changed the internal result to `PROSENJITFS_ECORRUPT` and added a checksum-valid self-cycle regression. The test requires `PROS_VFS_ECORRUPT`, unchanged durable/volatile/dirty media during the operation, then restores the entry and requires a clean integrity scan and successful normal rmdir.
+- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture checks are pending.
