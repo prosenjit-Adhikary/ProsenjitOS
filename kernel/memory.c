@@ -558,13 +558,15 @@ int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length) {
         (info_length != 0u && info_base <= UINT64_MAX - info_length &&
          physical_address < info_base + info_length && end > info_base))
         return 0;
-    if (!overlaps_ram)
-        return 1;
     /* The mapped framebuffer span is page-rounded to match page-table granularity. */
     if (fb_length != 0u && physical_address >= fb_base &&
         fb_base <= UINT64_MAX - fb_length && end <= fb_base + fb_length)
         return 1;
-    return 0;
+    /* The current kernel cannot prove unknown low-memory holes are not RAM.
+     * Fail closed below the allocator limit until device-range reservations exist. */
+    if (physical_address < PROSENJIT_PHYS_LIMIT)
+        return 0;
+    return overlaps_ram ? 0 : 1;
 }
 
 int physical_page_is_user_mappable(uint64_t physical_address) {
