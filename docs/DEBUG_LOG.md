@@ -490,4 +490,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Each reached read failure must propagate as `PROS_VFS_EIO`, leave durable/volatile/dirty media unchanged, keep the mount writable, preserve the original payload, and leave the integrity scan clean.
 - The first countdown not reached confirms the read sequence ended; the injection is disarmed before the follow-up lookup, integrity scan, and unmount.
 - Source commit: `126a4786dbd9b0427625149cee3999efd4c6dbba`.
-- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture checks are pending. No runtime pass is claimed yet.
+- Initial CI exposed an error-classification bug: `pfs_vnode_unlink()` converted any `pfs_read_extent()` failure to `PROSENJITFS_ECORRUPT`, hiding device I/O errors during extent reclamation. The fix now propagates the exact extent-read error through transaction cleanup. Source fix commit: `ab3c659d4784f82fa83b87f54e7e1d84122d8dd6`.
+- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture reruns are pending; no pass is claimed yet.
