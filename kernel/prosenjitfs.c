@@ -11131,6 +11131,75 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Failure while flushing the journal header/images (the second transaction
+     * flush) occurs before the commit record is published. The mount should
+     * remain writable, and a subsequent transaction should replace the
+     * uncommitted journal contents and succeed.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x42u ^ (uint8_t)(i * 3u));
+            new_data[i] = (uint8_t)(0xB1u ^ (uint8_t)(i * 19u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        disk.fail_flush_countdown = 2u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_flush_countdown != 0u ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK ||
+            vfs_file_write(&file, new_data, sizeof(new_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(new_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/journal-image-flush.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i)
+            if (read_data[i] != new_data[i])
+                return pfs_selftest_fail(__LINE__, -13);
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+    }
+
+    /*
      * Commit-record write failure: the device rejects the commit block before
      * accepting any bytes. Since a partial device write is still possible on
      * real hardware, the conservative policy freezes this mount read-only;
