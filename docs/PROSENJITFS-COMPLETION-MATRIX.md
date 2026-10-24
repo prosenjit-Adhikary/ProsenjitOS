@@ -1,5 +1,12 @@
 # ProsenjitFS Completion Matrix
 
+## Part 2 allocator geometry finding — 2026-10-24
+
+- Source audit found inconsistent block-size guards in allocation helpers. In particular, zero block size could reach bits-per-block division in public inode allocation and inode-bitmap staging; non-power-of-two sizes could also pass helpers that only checked upper/lower bounds.
+- Branch `fix/prosenjitfs-allocator-geometry-guards-20261024` introduces one supported-geometry predicate and targeted invalid-size regression coverage.
+- Status: **implemented; exact-head CI pending**. No successful build or boot is claimed yet.
+
+
 ## Current source-backed audit — 2026-10-24 (authoritative snapshot)
 
 **Repository:** `prosenjit-Adhikary/ProsenjitOS`  
