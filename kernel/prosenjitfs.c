@@ -2919,10 +2919,15 @@ static int pfs_vnode_unlink(struct pros_vfs_vnode *parent, const char *name)
             rc = PROSENJITFS_ECORRUPT;
             goto out_reset;
         }
-        if (pfs_read_extent(parent_data->fs, current, &extent) !=
-            PROSENJITFS_OK) {
-            rc = PROSENJITFS_ECORRUPT;
-            goto out_reset;
+        {
+            int extent_rc = pfs_read_extent(parent_data->fs, current,
+                                            &extent);
+            if (extent_rc != PROSENJITFS_OK) {
+                /* Preserve device I/O errors; only malformed extent metadata
+                 * should be reported as corruption. */
+                rc = extent_rc;
+                goto out_reset;
+            }
         }
         next = extent.next;
         if (extent.block_count > UINT32_MAX) {
