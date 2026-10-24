@@ -86,6 +86,7 @@ int main(void) {
     }
 
     if (physical_range_is_mmio_safe(0x200000u, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_range_is_mmio_safe((uint64_t)(uintptr_t)&fixture, sizeof(fixture)) != 0 ||
         physical_range_is_mmio_safe(0x1000u, PROSENJIT_PAGE_SIZE) != 1 ||
         physical_range_is_mmio_safe(PROSENJIT_PHYS_LIMIT, PROSENJIT_PAGE_SIZE) != 0 ||
         physical_range_is_mmio_safe(0xFEC00000ULL, PROSENJIT_PAGE_SIZE) != 1 ||
