@@ -278,3 +278,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - The same division audit found the public `prosenjitfs_read_inode` and `prosenjitfs_write_inode` paths divided by the superblock block size after checking only the upper bound. Both now reject sizes below 512 and non-power-of-two geometry before offset arithmetic; the malformed-size matrix covers both public APIs for 0, 511, 513, and 4097 and the existing media CRC assertions verify no writes occur.
+
+
+- Boundary follow-up now checks both outcomes for each exclusion-aware data-block finder: excluding a different block still finds the final valid free block, while excluding that final block returns `PROSENJITFS_ENOSPC` and preserves the sentinel. The test compares durable/volatile media and dirty-map CRCs across all four calls.
