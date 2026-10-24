@@ -1,5 +1,34 @@
 # ProsenjitFS Test Matrix — 2026-10-24
 
+## Journal failure-path follow-up — pending exact-head CI
+
+- [x] Added a targeted regression for failure of transaction flush #2 (journal header/images flush): the write must fail with zero bytes reported, the mount must remain writable, a retry must succeed, and readback plus integrity scan must match the retry payload.
+- [ ] Exact-head Build/boot-test and Security architecture CI must pass before this regression is considered verified.
+- Scope is the mock block device only; this is not physical-device durability certification.
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-17 | Journal-images flush failure and retry | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Second transaction flush fails before commit publication; failed write reports zero bytes, mount remains writable, subsequent write/readback succeeds, integrity scan passes | Implemented on PR #235 branch; exact-head CI pending |
+
+## Part 2 follow-up — VFS read output-count contract (2026-10-24)
+
+- [x] Audited `vfs_file_read()`: unlike the write fix in this branch, it cleared `bytes_read` only after argument and permission checks. A rejected read could therefore leave a stale caller-provided count.
+- [x] Changed `kernel/vfs.c` to clear a non-null output count before validation/dispatch; added regressions for permission-denied and filesystem-`EIO` reads using a nonzero sentinel.
+- [ ] Exact-head Build/boot-test and Security architecture CI must pass before runtime verification is claimed.
+- Scope: VFS output contract only; no on-disk format change, no crash-atomicity or hardware-durability claim.
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-16 | VFS read error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Permission-denied and filesystem-`EIO` reads with a nonzero sentinel return the expected error and leave `bytes_read=0` | Implemented on PR #235 branch; exact-head Build/boot-test and Security pending |
+
+
+## Part 2 regression added — pending exact-head CI
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-15 | VFS write error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | A filesystem write callback returning `PROS_VFS_EIO` must return the error and set `bytes_written=0`, even when caller input was a nonzero sentinel | Implemented on `fix/prosenjitfs-vfs-write-error-count-20261024`; exact-head Build/boot-test and Security pending |
+
+
 **Baseline commit:** `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
 **Status source:** [Completion matrix](PROSENJITFS-COMPLETION-MATRIX.md)  
 **Work plan:** [Implementation plan](PROSENJITFS-IMPLEMENTATION-PLAN.md)

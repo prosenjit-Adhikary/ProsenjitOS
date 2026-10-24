@@ -256,6 +256,13 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
                   uint32_t length, uint32_t *bytes_read)
 {
     int rc;
+    /*
+     * The output count is valid only after a successful read. Clear it before
+     * argument and permission checks so every failure leaves a deterministic
+     * zero count instead of the caller's stale value.
+     */
+    if (bytes_read)
+        *bytes_read = 0u;
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->read || !bytes_read ||
         !file->vnode || file->position > 0xFFFFFFFFULL)
@@ -267,7 +274,6 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
      * A zero-length read is a successful no-op and does not require a data
      * buffer. Non-zero reads require a valid destination before dispatch.
      */
-    *bytes_read = 0u;
     if (length == 0u)
         return PROS_VFS_OK;
     if (!buffer)
@@ -296,6 +302,13 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
                    uint32_t length, uint32_t *bytes_written)
 {
     int rc;
+    /*
+     * Never leave a caller's stale byte count visible after a rejected or
+     * failed write. Filesystem callbacks communicate errors through rc; the
+     * output count is meaningful only after a successful callback.
+     */
+    if (bytes_written)
+        *bytes_written = 0u;
     if (!file || !file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->write || !bytes_written || !file->vnode)
         return PROS_VFS_EINVAL;
@@ -1126,6 +1139,28 @@ static int vfs_selftest_read_file(struct pros_vfs_file *file, uint32_t offset,
     return (int)take;
 }
 
+static int vfs_selftest_read_error_file(struct pros_vfs_file *file,
+                                        uint32_t offset, uint32_t length,
+                                        void *buffer)
+{
+    (void)file;
+    (void)offset;
+    (void)length;
+    (void)buffer;
+    return PROS_VFS_EIO;
+}
+
+static int vfs_selftest_write_file(struct pros_vfs_file *file,
+                                   uint32_t offset, uint32_t length,
+                                   const void *buffer)
+{
+    (void)file;
+    (void)offset;
+    (void)length;
+    (void)buffer;
+    return PROS_VFS_EIO;
+}
+
 static void vfs_selftest_vnode_release(struct pros_vfs_vnode *vnode)
 {
     struct pros_vfs_vnode *parent;
@@ -1164,6 +1199,12 @@ static const struct pros_vfs_vnode_ops vfs_selftest_vnode_ops = {
 
 static const struct pros_vfs_file_ops vfs_selftest_file_ops = {
     .read = vfs_selftest_read_file,
+    .write = vfs_selftest_write_file,
+    .close = vfs_selftest_close_file
+};
+
+static const struct pros_vfs_file_ops vfs_selftest_read_error_ops = {
+    .read = vfs_selftest_read_error_file,
     .close = vfs_selftest_close_file
 };
 
@@ -1235,6 +1276,44 @@ static int vfs_vnode_api_selftest(void)
         done != 3u || output[0] != 'v' ||
         vfs_file_close(&file) != PROS_VFS_OK)
         return -106;
+
+    /*
+     * A failed filesystem write must not leave the caller's old byte count
+     * looking like a successful partial write.
+     */
+    mount.read_only = 0u;
+    done = 0xA5A5A5A5u;
+    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
+            PROS_VFS_OK ||
+        vfs_file_write(&file, output, 1u, &done) != PROS_VFS_EIO ||
+        done != 0u ||
+        vfs_file_close(&file) != PROS_VFS_OK)
+        return -1061;
+    mount.read_only = 1u;
+
+    /*
+     * Read failures, including permission rejection and filesystem EIO, must
+     * clear a caller-supplied stale byte count before returning.
+     */
+    mount.read_only = 0u;
+    done = 0xA5A5A5A5u;
+    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
+            PROS_VFS_OK ||
+        vfs_file_read(&file, output, 1u, &done) != PROS_VFS_EPERM ||
+        done != 0u ||
+        vfs_file_close(&file) != PROS_VFS_OK)
+        return -1062;
+    mount.read_only = 1u;
+
+    done = 0xA5A5A5A5u;
+    if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
+            PROS_VFS_OK)
+        return -1063;
+    file.ops = &vfs_selftest_read_error_ops;
+    if (vfs_file_read(&file, output, 1u, &done) != PROS_VFS_EIO ||
+        done != 0u ||
+        vfs_file_close(&file) != PROS_VFS_OK)
+        return -1064;
 
     if (vfs_dir_open(&mount, "/etc", &dir) != PROS_VFS_OK ||
         vfs_dir_read(&dir, &entry) != PROS_VFS_OK ||
