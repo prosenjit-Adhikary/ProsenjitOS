@@ -530,3 +530,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-10-24 — inode I/O geometry validation
 
 - Cross-review found `prosenjitfs_read_inode` and `prosenjitfs_write_inode` still computed inode offsets after only checking `block_size <= 4096`; zero could cause divide-by-zero and sub-sector/non-power-of-two values could produce invalid offsets. Both now validate the supported 512–4096-byte power-of-two geometry before division. The malformed-geometry self-test now calls both public APIs for 0, 511, 513, and 4097 and expects `PROSENJITFS_EINVAL`; whole-test durable/volatile/dirty CRC assertions detect accidental media mutation. Exact-head CI remains pending.
+
+
+- Extended the final-data-bit regression for `pfs_find_free_data_block_except` and `pfs_find_free_data_block_excluding`: excluding a different block must still find the last valid free block; excluding the last block must return `PROSENJITFS_ENOSPC`. Both outcomes preserve output semantics and mock-media/dirty-map CRCs.
