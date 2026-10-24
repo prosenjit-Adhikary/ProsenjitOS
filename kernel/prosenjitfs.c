@@ -13146,6 +13146,116 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -29);
     }
 
+    /*
+     * Sweep block-write failures across truncate's transaction. After each
+     * injected failure, power-loss remount must expose either the original
+     * file and bytes or a fully committed zero-length file, never corruption.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t payload[64];
+        uint8_t readback[64];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0x6Du ^ (uint8_t)(i * 23u));
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            uint32_t done = 0u;
+            int truncate_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(payload) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            disk.fail_write_countdown = write_position;
+            if (vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            truncate_rc = vfs_file_truncate(&file, 0u);
+            if (vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            if (disk.fail_write_countdown != 0u) {
+                /* This position is beyond truncate's complete write path. */
+                disk.fail_write_countdown = 0u;
+                done = 0u;
+                if (truncate_rc != PROS_VFS_OK ||
+                    vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                        PROS_VFS_OK ||
+                    done != 0u ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (truncate_rc != PROS_VFS_EIO) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -271);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, readback, sizeof(readback), &done) !=
+                    PROS_VFS_OK ||
+                (done != 0u && done != sizeof(readback)) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            if (done == sizeof(readback)) {
+                for (uint32_t i = 0u; i < sizeof(readback); ++i) {
+                    if (readback[i] != payload[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -27);
+                    }
+                }
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -27);
+    }
+
     saved = disk.data[0];
     disk.data[0] ^= 0x01u;
     disk.data[512u] ^= 0x01u;
