@@ -1,0 +1,75 @@
+# ProsenjitFS Implementation Plan — Audit-Driven
+
+**Audit date:** 2026-10-24  
+**Baseline:** `main` at `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
+**Status source:** [Completion matrix](PROSENJITFS-COMPLETION-MATRIX.md)  
+**Architecture source:** [ProsenjitFS design and verified audit](PROSENJITFS.md)  
+**Test gates:** [Test matrix](PROSENJITFS-TEST-MATRIX.md)
+
+This is the working checklist for completing existing ProsenjitFS safely. The order is dependency-driven; do not mark a step complete from code inspection alone when its acceptance criteria require runtime evidence.
+
+## P0 — Diagnose and repair the currently failing fault-injection test
+
+- [x] Inspect PR #233 head `74b8cedf5b96055823b9a9a5d4a963b8d2f1a3b0` and map QEMU stage `0x28E1` to the invariant assertion at `kernel/prosenjitfs.c:10465`.
+- [x] Split the compound assertion into distinct diagnostic returns for operation status, durable-media CRC, volatile-media CRC, dirty-map CRC, filesystem read-only state and mount read-only state.
+- [x] Fix the error namespace boundary: `pfs_make_vnode()` returns filesystem-native errors and VFS callback callsites map through `pfs_vfs_error()`; the earlier direct return could confuse ProsenjitFS `EIO (-2)` with VFS `ENOSYS (-2)`.
+- [x] Verify by source inspection that a not-reached countdown is disarmed before readback/integrity/unmount.
+- [x] Confirm on exact PR #233 head `84d2b84948065011cf0c94291e8bcaf5d9f7079c`: Build/boot-test #40116501666 and Security architecture #40116501659 pass; workflow logs include the full ProsenjitFS format/mount/allocation/journal/recovery success marker and native ATA PIO -> MBR -> ProsenjitFS persistent mount marker. This is mock-device/QEMU evidence, not physical-device certification.
+- **Acceptance:** met on PR #233 exact head `84d2b84948065011cf0c94291e8bcaf5d9f7079c` (Build/boot-test #40116501666 and Security #40116501659 passed). The fix passed exact-head CI and merged into `main` as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`; post-merge main CI is pending.
+
+## P1 — Complete and reconcile per-operation fault-injection coverage
+
+- [ ] Review and verify PR #233 append/truncate read-failure sweeps after P0.
+- [ ] Review PR #230 create/overwrite write-failure sweep and PR #232 rmdir write-failure sweep; confirm each branch is based on the intended current `main` and that its tests assert rollback and error classification rather than only build success.
+- [ ] For every accepted test PR, capture exact head SHA and both Build/boot-test and Security architecture run links in `docs/PROSENJITFS-COMPLETION-MATRIX.md`.
+- [ ] Deduplicate overlapping sweeps; do not merge stale or superseded branches just because their titles sound complementary.
+- **Acceptance:** no open test branch is called verified until its exact head passes the required CI workflows; failure injection never leaks into post-operation verification.
+
+## P2 — Make I/O-failure classification and cleanup systematic
+
+- [ ] Audit `kernel/prosenjitfs.c` read/write/flush propagation paths for superblocks, journal, bitmaps, inode table, extents, directory indexes and directory entries.
+- [ ] Extend mock-device tests for read, write and flush errors at each reachable operation point, including short/partial transfers if the interface supports them.
+- [ ] Ensure device `EIO` stays an I/O error and is not converted into metadata corruption unless bytes were successfully read and shown malformed.
+- [ ] Check all failure exits for transaction-buffer reset, temporary heap/scratch cleanup, vnode/file closure, allocation rollback, mount state, and preservation of prior file data.
+- **Acceptance:** every injected fault has a bounded, deterministic expected result; clean integrity checks pass after recovery; no in-memory staged transaction contaminates the next operation.
+
+## P3 — Re-validate transactional durability and recovery invariants
+
+- [ ] Sweep failure points around journal-slot invalidation, journal header/images, flush barriers, commit record, home-block application, and journal retirement.
+- [ ] For pre-commit interruption, recovery must expose the old consistent state; for a valid committed transaction, recovery may expose the complete new state. Reject mixed/partial logical results.
+- [ ] Re-run recovery interruption tests both before and after flush, including repeat recovery after simulated power loss.
+- [ ] Test missing/stale commit markers, matching transaction IDs with contradictory record counts, invalid checksums, duplicate/out-of-range transaction targets and overflowed region calculations.
+- **Acceptance:** all committed/uncommitted outcomes are deterministic and idempotent; ambiguous commit state fails closed or leaves the mount read-only until recovery; no repair writes occur during a read-only scan.
+
+## P4 — Validate metadata, allocation and namespace invariants adversarially
+
+- [ ] Expand boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, inode types/generations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
+- [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
+- [ ] Exercise path edge cases through VFS: empty and overlong paths, repeated separators, `.`, `..`, root escape attempts, missing intermediate directories and non-directory components.
+- [ ] Keep orphan detection report-only until a separate recovery design proves how to distinguish an orphan from valid but temporarily unreachable metadata.
+- **Acceptance:** malformed media is rejected without out-of-range access or media mutation; valid media passes the read-only scan; all error values are stable and documented.
+
+## P5 — Specify operation serialization before expanding concurrency
+
+- [ ] Audit uses of `pfs_io_lock`, all VFS mutation entry points and integrity-scan callers in `kernel/prosenjitfs.c` and `kernel/vfs.c`.
+- [ ] Define lock ownership, lock ordering, recursion rules and whether VFS calls can be re-entered. Do not infer filesystem-wide exclusion from the narrow append lock.
+- [ ] Add controlled interleaving tests for append/write/truncate/rename/unlink versus scans and for vnode/file lifetime around unlink/rename.
+- [ ] Reconcile the locking design with scheduler/preemption and interrupt-state contracts before enabling concurrent execution paths.
+- **Acceptance:** documented locking proves which mutable state is protected, and the test setup exercises the same contract as production call sites. Otherwise keep concurrency explicitly unsupported.
+
+## P6 — Complete operational/maintenance gaps
+
+- [ ] Audit and remove or isolate temporary block-init diagnostics in `kernel/block.c` only after confirming no active diagnosis depends on them.
+- [ ] Decide and document the host-side `mkprosenjitfs` tool scope; when implemented, share the versioned format definitions and never operate on a real device without explicit, separate user action.
+- [ ] Keep automated repair/reclamation disabled until a journal-first, conservative repair design includes pre/post-integrity verification, read-only fallback and recovery logging.
+- [ ] Define a separate physical-device durability validation plan. Mock-device and QEMU tests are not physical power-loss certification.
+- **Acceptance:** production diagnostics do not alter the filesystem control path unnecessarily; tools use explicit image paths and refuse unsafe targets; recovery is observable and non-destructive by default.
+
+## Change and verification discipline
+
+1. Inspect current source, the exact PR head and the current `main` base before editing.
+2. Make the smallest change that addresses the demonstrated failing invariant; retain public interfaces unless a reviewed design requires a change.
+3. Add/adjust a focused regression before broader runs.
+4. Build and run the test matrix; keep logs and run IDs linked in the status matrix.
+5. If CI fails, map the exact serial stage/assertion to source, fix that cause, and rerun. Never infer green from an earlier commit.
+6. Do not format, overwrite, delete or repartition a real disk during discovery or tests. Use the deterministic mock device and repository-generated disposable image only.
