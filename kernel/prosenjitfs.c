@@ -9110,8 +9110,37 @@ int prosenjitfs_selftest(void)
             if (pfs_find_free_data_block(&fs, &candidate) != PROSENJITFS_EIO ||
                 disk.fail_read_countdown != 0u ||
                 candidate != UINT64_MAX || fs.read_only ||
-                fs.mount.read_only ||
-                durable_before != prosenjitfs_crc32c(
+                fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            /*
+             * Exercise the sibling bitmap readers independently; each must
+             * propagate its own injected read failure without mutating media.
+             */
+            disk.fail_read_countdown = 1u;
+            candidate = UINT64_MAX;
+            if (pfs_find_free_data_block_except(
+                    &fs, UINT64_MAX, &candidate) != PROSENJITFS_EIO ||
+                disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+                fs.read_only || fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            disk.fail_read_countdown = 1u;
+            candidate = UINT64_MAX;
+            if (pfs_find_free_data_block_excluding(
+                    &fs, UINT64_MAX, &candidate) != PROSENJITFS_EIO ||
+                disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+                fs.read_only || fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            disk.fail_read_countdown = 1u;
+            if (pfs_data_block_is_free(&fs, fs.sb.data_start) !=
+                    PROSENJITFS_EIO ||
+                disk.fail_read_countdown != 0u ||
+                fs.read_only || fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            if (durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
