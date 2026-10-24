@@ -491,4 +491,4 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The first countdown not reached confirms the read sequence ended; the injection is disarmed before the follow-up lookup, integrity scan, and unmount.
 - Source commit: `126a4786dbd9b0427625149cee3999efd4c6dbba`.
 - Initial CI exposed an error-classification bug: `pfs_vnode_unlink()` converted any `pfs_read_extent()` failure to `PROSENJITFS_ECORRUPT`, hiding device I/O errors during extent reclamation. The fix now propagates the exact extent-read error through transaction cleanup. Source fix commit: `ab3c659d4784f82fa83b87f54e7e1d84122d8dd6`.
-- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture reruns are pending; no pass is claimed yet.
+- **Verified:** fixed exact PR head `895ee35f7a2413e569b2d42cbc52ca0efc580928` passed Build/boot-test [#40073371338](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073371338), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073371343](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073371343). PR #223 merged as `30acc248df1258fa6ac65a6b5eb8e8ef47e2ceb5`.
