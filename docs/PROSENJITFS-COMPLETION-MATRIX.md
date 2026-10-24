@@ -214,3 +214,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Fix in commit a7a7a5b7eaca35dfdf91788d44e37daef433f2a0 disarms the countdown before integrity/unmount only when the requested read position was not reached by rename. Failure-path assertions remain intact.
 - Debug log updated in commit f497ca14d967a4107f6f686d241187dc87067a4a.
 - **Status: fix committed; exact-head Build/boot-test and Security architecture verification pending.** Do not mark this sweep accepted until ISO QEMU and native BIOS QEMU pass on the updated head.
+
+
+## Pending verification — rename write-failure sweep (2026-10-24)
+
+- Added mock-device one-shot block-write failure injection and a bounded countdown sweep across `vfs_rename`.
+- Each reached failure is followed by simulated power loss and remount; acceptance requires exactly one of the original/destination paths, intact payload bytes, and a clean report-only integrity scan.
+- The first countdown not reached is disarmed before integrity/unmount checks so those operations cannot consume a rename-specific fault.
+- Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`.
+- **Pending:** exact-head warning-clean build, ISO QEMU, native BIOS QEMU, and Security architecture CI. This regression does not prove physical hardware durability or concurrent VFS safety.
