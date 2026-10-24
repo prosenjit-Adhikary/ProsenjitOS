@@ -517,3 +517,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The first not-reached countdown is disarmed before follow-up lookup/integrity/unmount.
 - Source commit: `aefcac64b5ee80cf58c62c04e0a312d8878ab8dd`.
 - **Verified:** exact PR head `5522c822d9bce6d01ca6c0c06b572c8032e63c5e` passed Build/boot-test [#40074188166](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188166), including ISO QEMU and native BIOS QEMU, and Security architecture [#40074188142](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188142). PR #226 merged as `84a707c354065d6f1c9aa0f418cf043f6d55bdd3`.
+
+
+## 2026-10-24 — truncate write-failure sweep verified
+
+- Added a bounded sweep of block-write failures through `vfs_file_truncate`; every reached failure triggers simulated power-loss reset and remount.
+- The regression rejects intermediate EOF, altered original payload, or integrity-scan failures. It accepts only unchanged original content or fully truncated content.
+- Exact tested PR head `2586aa0403d5c984cb64b962c5bfdd1bf360cfe4` passed Build/boot-test [#40077700893](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700893) and Security architecture [#40077700948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700948); both ISO QEMU and native BIOS QEMU steps passed. PR #228 merged as `e6c391ae009b94dd8645140cfe86a571167ff54f`.
+- This verifies the mock-device fault model only, not physical-device power-loss durability.
