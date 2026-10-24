@@ -10598,6 +10598,13 @@ int prosenjitfs_selftest(void)
             rename_rc = vfs_rename(&fs.mount, "/rename-read-before.bin",
                                    "/rename-read-after.bin");
             if (disk.fail_read_countdown != 0u) {
+                /*
+                 * The requested read position was beyond rename's read
+                 * sequence. Disarm the one-shot fault before integrity scan
+                 * and unmount; those operations must not consume a fault
+                 * intended exclusively for the rename operation.
+                 */
+                disk.fail_read_countdown = 0u;
                 if (rename_rc != PROS_VFS_OK ||
                     prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                     prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
