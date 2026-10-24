@@ -13,6 +13,8 @@ uint64_t physical_pages_alloc_contiguous(uint64_t page_count, uint64_t alignment
 int physical_pages_free_contiguous(uint64_t physical_address, uint64_t page_count);
 uint64_t physical_page_alloc_user(void);
 int physical_page_is_allocated(uint64_t physical_address);
+/* Returns 1 if any page overlaps allocator-managed RAM, 0 if none, -1 on invalid range. */
+int physical_range_is_managed(uint64_t physical_address, uint64_t length);
 int physical_page_is_user_mappable(uint64_t physical_address);
 void physical_page_free(uint64_t physical_address);
 uint64_t physical_memory_total_pages(void);
