@@ -8120,15 +8120,16 @@ int prosenjitfs_selftest(void)
     }
 
     /*
-     * Exhaust the inode bitmap in a bounded test volume and verify ENOSPC
-     * leaves the caller's output untouched. Restore the exact bitmap block
-     * before continuing so later integrity checks see the original metadata.
+     * Exhaust the inode bitmap in a bounded test volume. Snapshot both media
+     * views and mutate the mock disk directly so the test itself does not
+     * change the dirty map or hide cache-state regressions.
      */
     if (fs.sb.block_size == 512u && fs.sb.inode_bitmap_blocks == 1u &&
         fs.sb.inode_count <= (uint64_t)fs.sb.block_size * 8u) {
-        uint8_t saved_bitmap[512];
-        uint8_t full_bitmap[512];
+        uint8_t saved_durable[512];
+        uint8_t saved_volatile[512];
         uint64_t bitmap_lba;
+        uint64_t byte_offset;
         uint64_t candidate = UINT64_MAX;
         uint32_t durable_before;
         uint32_t volatile_before;
@@ -8137,17 +8138,15 @@ int prosenjitfs_selftest(void)
 
         if (pfs_lba_add(fs.mount.device, fs.sb.inode_bitmap_start, 0u,
                         &bitmap_lba) != PROSENJITFS_OK ||
-            pfs_read_block(fs.mount.device, bitmap_lba, saved_bitmap) !=
-                PROSENJITFS_OK)
+            bitmap_lba >= 512u)
             return pfs_selftest_fail(__LINE__, -28);
-        pfs_copy(full_bitmap, saved_bitmap, fs.sb.block_size);
-        for (uint64_t bit = 0u; bit < fs.sb.inode_count; ++bit)
-            full_bitmap[bit >> 3] |= (uint8_t)(1u << (bit & 7u));
-
-        if (pfs_write_block(fs.mount.device, bitmap_lba, full_bitmap) !=
-                PROSENJITFS_OK) {
-            (void)pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap);
-            return pfs_selftest_fail(__LINE__, -28);
+        byte_offset = bitmap_lba * 512u;
+        pfs_copy(saved_durable, disk.data + byte_offset, 512u);
+        pfs_copy(saved_volatile, disk.volatile_data + byte_offset, 512u);
+        for (uint64_t bit = 0u; bit < fs.sb.inode_count; ++bit) {
+            uint8_t mask = (uint8_t)(1u << (bit & 7u));
+            disk.data[byte_offset + (bit >> 3)] |= mask;
+            disk.volatile_data[byte_offset + (bit >> 3)] |= mask;
         }
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
@@ -8157,37 +8156,31 @@ int prosenjitfs_selftest(void)
             disk.dirty, (uint32_t)sizeof(disk.dirty));
 
         exhausted_rc = pfs_find_free_inode(&fs, &candidate);
-        if (exhausted_rc != PROSENJITFS_ENOSPC || candidate != UINT64_MAX) {
-            (void)pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap);
-            return pfs_selftest_fail(__LINE__, -28);
-        }
-        /*
-         * The finder is read-only: the three media/cache views must not change
-         * between the call's before/after snapshots.
-         */
-        if (durable_before != prosenjitfs_crc32c(
+        if (exhausted_rc != PROSENJITFS_ENOSPC || candidate != UINT64_MAX ||
+            durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
             dirty_before != prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty))) {
-            (void)pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap);
+            pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+            pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
             return pfs_selftest_fail(__LINE__, -28);
         }
-        if (pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap) !=
-                PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -28);
+        pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+        pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
     }
 
     /*
-     * Exhaust the data-block bitmap in the bounded one-block fixture and
-     * verify ENOSPC leaves the result sentinel and media views unchanged.
+     * Exhaust the data-block bitmap in the same bounded fixture and verify
+     * ENOSPC leaves the result sentinel and all mock-media views unchanged.
      */
     if (fs.sb.block_size == 512u && fs.sb.block_bitmap_blocks == 1u &&
         fs.sb.total_blocks <= (uint64_t)fs.sb.block_size * 8u) {
-        uint8_t saved_bitmap[512];
-        uint8_t full_bitmap[512];
+        uint8_t saved_durable[512];
+        uint8_t saved_volatile[512];
         uint64_t bitmap_lba;
+        uint64_t byte_offset;
         uint64_t candidate = UINT64_MAX;
         uint32_t durable_before;
         uint32_t volatile_before;
@@ -8196,17 +8189,15 @@ int prosenjitfs_selftest(void)
 
         if (pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start, 0u,
                         &bitmap_lba) != PROSENJITFS_OK ||
-            pfs_read_block(fs.mount.device, bitmap_lba, saved_bitmap) !=
-                PROSENJITFS_OK)
+            bitmap_lba >= 512u)
             return pfs_selftest_fail(__LINE__, -29);
-        pfs_copy(full_bitmap, saved_bitmap, fs.sb.block_size);
-        for (uint64_t bit = fs.sb.data_start; bit < fs.sb.total_blocks; ++bit)
-            full_bitmap[bit >> 3] |= (uint8_t)(1u << (bit & 7u));
-
-        if (pfs_write_block(fs.mount.device, bitmap_lba, full_bitmap) !=
-                PROSENJITFS_OK) {
-            (void)pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap);
-            return pfs_selftest_fail(__LINE__, -29);
+        byte_offset = bitmap_lba * 512u;
+        pfs_copy(saved_durable, disk.data + byte_offset, 512u);
+        pfs_copy(saved_volatile, disk.volatile_data + byte_offset, 512u);
+        for (uint64_t bit = fs.sb.data_start; bit < fs.sb.total_blocks; ++bit) {
+            uint8_t mask = (uint8_t)(1u << (bit & 7u));
+            disk.data[byte_offset + (bit >> 3)] |= mask;
+            disk.volatile_data[byte_offset + (bit >> 3)] |= mask;
         }
         durable_before = prosenjitfs_crc32c(
             disk.data, (uint32_t)sizeof(disk.data));
@@ -8216,22 +8207,19 @@ int prosenjitfs_selftest(void)
             disk.dirty, (uint32_t)sizeof(disk.dirty));
 
         exhausted_rc = pfs_find_free_data_block(&fs, &candidate);
-        if (exhausted_rc != PROSENJITFS_ENOSPC || candidate != UINT64_MAX) {
-            (void)pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap);
-            return pfs_selftest_fail(__LINE__, -29);
-        }
-        if (durable_before != prosenjitfs_crc32c(
+        if (exhausted_rc != PROSENJITFS_ENOSPC || candidate != UINT64_MAX ||
+            durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
             volatile_before != prosenjitfs_crc32c(
                 disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
             dirty_before != prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty))) {
-            (void)pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap);
+            pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+            pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
             return pfs_selftest_fail(__LINE__, -29);
         }
-        if (pfs_write_block(fs.mount.device, bitmap_lba, saved_bitmap) !=
-                PROSENJITFS_OK)
-            return pfs_selftest_fail(__LINE__, -29);
+        pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+        pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
     }
 
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
