@@ -981,7 +981,8 @@ static int pfs_find_free_data_block_except(const struct pros_prosenjitfs *fs,
                                            uint64_t *block_number)
 {
     uint64_t b;
-    if (!fs || !block_number || fs->sb.block_size > 4096u)
+    if (!fs || !block_number || fs->sb.block_size < 512u ||
+        fs->sb.block_size > 4096u)
         return PROSENJITFS_EINVAL;
     for (b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
         if (b == avoid)
@@ -9092,6 +9093,41 @@ int prosenjitfs_selftest(void)
             prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
+
+        /*
+         * The legacy allocator helper must reject invalid block sizes before
+         * deriving bits_per_block, avoiding a divide-by-zero on corrupt state.
+         */
+        {
+            struct pros_prosenjitfs invalid_fs = fs;
+            uint64_t candidate = UINT64_MAX;
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            invalid_fs.sb.block_size = 0u;
+            if (pfs_find_free_data_block_except(&invalid_fs, UINT64_MAX,
+                                                &candidate) !=
+                    PROSENJITFS_EINVAL ||
+                candidate != UINT64_MAX)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            invalid_fs.sb.block_size = 511u;
+            if (pfs_find_free_data_block_except(&invalid_fs, UINT64_MAX,
+                                                &candidate) !=
+                    PROSENJITFS_EINVAL ||
+                candidate != UINT64_MAX ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -27);
+        }
 
         pfs_selftest_diag_stage = __LINE__;
         /*
