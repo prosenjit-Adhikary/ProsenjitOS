@@ -1295,6 +1295,7 @@ static int vfs_vnode_api_selftest(void)
      * Read failures, including permission rejection and filesystem EIO, must
      * clear a caller-supplied stale byte count before returning.
      */
+    mount.read_only = 0u;
     done = 0xA5A5A5A5u;
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_WRITE, &file) !=
             PROS_VFS_OK ||
@@ -1302,6 +1303,7 @@ static int vfs_vnode_api_selftest(void)
         done != 0u ||
         vfs_file_close(&file) != PROS_VFS_OK)
         return -1062;
+    mount.read_only = 1u;
 
     done = 0xA5A5A5A5u;
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
