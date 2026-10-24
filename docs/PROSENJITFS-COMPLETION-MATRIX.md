@@ -275,3 +275,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Follow-up division-safety sweep found `pfs_file_read` used `block_size` for division before its own geometry check. It now validates supported power-of-two geometry and the total data-span multiplication bound before inode validation/read-loop arithmetic, returning `PROS_VFS_ECORRUPT` for malformed in-memory state. Exact-head CI must verify this path; no runtime pass is claimed.
+
+
+- The same division audit found the public `prosenjitfs_read_inode` and `prosenjitfs_write_inode` paths divided by the superblock block size after checking only the upper bound. Both now reject sizes below 512 and non-power-of-two geometry before offset arithmetic; the malformed-size matrix covers both public APIs for 0, 511, 513, and 4097 and the existing media CRC assertions verify no writes occur.
