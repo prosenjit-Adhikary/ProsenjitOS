@@ -500,4 +500,4 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - For every reached write failure, the test simulates power loss and remount. Either the old file remains with byte-identical payload, or the committed unlink is visible; in both cases the report-only integrity scan must pass.
 - The first countdown not reached proves the unlink write sequence ended; the fault is disarmed before lookup/integrity/unmount.
 - Source commit: `a18e2a55b36c6a445657bb9786dd172fb0eaf95c`.
-- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture checks are pending.
+- **Verified:** exact PR head `c536d9e03f2e21ee559d73ecb1d1a4d92e30a74b` passed Build/boot-test [#40073592946](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073592946), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073592829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073592829). PR #224 merged as `714fa8e66d3a46991cb80446d769ab4538a63120`.
