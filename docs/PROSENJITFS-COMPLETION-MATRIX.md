@@ -248,3 +248,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Fixed `pfs_vnode_rmdir()` to classify a bounded directory-chain cycle as corruption rather than I/O failure.
 - Added a valid-checksum self-cycle regression that checks the VFS error result, no operation-side media mutation, restoration, clean integrity scan, and normal rmdir afterward.
 - **Verified:** fixed exact PR head `5a2dd5d63813498b0bd83f2aa4b6fed1f69e8e2a` passed Build/boot-test [#40073950609](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073950609), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073950625](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073950625). PR #225 merged as `0cdaab0ca75c286e839494d37c24420f74a5c039`.
+
+
+## Pending verification — rmdir read-failure sweep (2026-10-24)
+
+- Added a bounded read-failure sweep around `vfs_rmdir`. Reached faults must propagate as I/O errors, preserve durable/volatile/dirty mock-media state, keep the mount writable, and leave the directory intact.
+- After each injected failure, the directory is reopened and integrity-scanned; the first not-reached countdown confirms the sweep end and is disarmed before follow-up operations.
+- Source commit: `aefcac64b5ee80cf58c62c04e0a312d8878ab8dd`.
+- **Pending:** exact-head warning-clean build, ISO QEMU, native BIOS QEMU, and Security architecture CI.
