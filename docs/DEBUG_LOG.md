@@ -527,19 +527,20 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - This verifies the mock-device fault model only, not physical-device power-loss durability.
 
 
-## 2026-10-24 — Append read-failure sweep (pending CI)
+## 2026-10-24 — Part 1 repository audit and PR #233 failure mapping
 
-- Added a bounded mock-device read-failure countdown sweep around append-at-EOF through the VFS. Each reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty media CRCs, keep the mount writable, preserve the complete original payload, and pass the report-only integrity scan.
-- The first countdown not reached verifies the append read sequence ended; the countdown is disarmed before readback, integrity scan, and unmount.
-- Source commits: `a065fc973d3359aa0bf5e54cd91e3465262b7f03` (test) and `62662b01374141490a9a4b3080ed37e806bcf35c` (reset byte-count output before the operation).
-- **Status: pending verification.** The local runner is unavailable; no compile, boot-test, or runtime pass is claimed. Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI must pass before marking verified.
-- Mock-device read-failure coverage does not establish physical-device power-loss durability or general concurrent VFS safety.
+- Audited `main` at `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`, the block/VFS/partition/ATA storage interfaces, version-1 format definitions, ProsenjitFS implementation, current design notes, build script and workflow.
+- Main Build/boot-test [#8426](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40083299324) and Security architecture [#7962](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40083299325) both passed at that baseline.
+- Inspected PR #233 head `74b8cedf5b96055823b9a9a5d4a963b8d2f1a3b0` and its failed Build/boot-test [#40112968528](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40112968528). QEMU reported `selftest_stage=0x28E1` and `selftest_rc=-27`. Stage `0x28E1` maps to `kernel/prosenjitfs.c:10465`, where one compound condition checks the expected `PROS_VFS_EIO`, durable-media CRC, volatile-media CRC, dirty-map CRC, and filesystem/mount writable state after an injected read error.
+- The log did not identify which predicate failed. Source inspection found a concrete error-contract defect consistent with the operation-status predicate: `pfs_make_vnode()` returned `PROSENJITFS_EIO` (`-2`) directly into VFS, where `-2` means `PROS_VFS_ENOSYS`. PR #233 now keeps helper errors in the filesystem namespace and translates them at VFS callback boundaries. It also splits the compound invariant check into predicate-specific diagnostic codes. Current PR #233 head is `84d2b84948065011cf0c94291e8bcaf5d9f7079c`; exact-head Build/boot-test and Security architecture are queued, so this diagnosis is source-backed but not yet runtime-verified.
+- Part 1 documentation lives in the existing flat `docs/` convention rather than a parallel `docs/prosenjitfs/` tree: the completion matrix is the current status report, this design document carries the verified architecture baseline, and separate implementation-plan/test-matrix documents track remaining acceptance work.
+- No local compiler or emulator was run from this session and no real disk was formatted. GitHub Actions did run the failed PR on self-hosted runner `home`; the observed issue is a runtime self-test failure, not a proven runner outage.
 
 
-## 2026-10-24 — Truncate read-failure sweep (pending CI)
+## 2026-10-24 — Append/truncate read-failure sweep: error mapping fix verified on PR head
 
-- Added a bounded mock-device read-failure countdown sweep around `vfs_file_truncate`, including the writable file-open path. Every reached read fault must return `PROS_VFS_EIO`, preserve durable/volatile/dirty mock-media CRCs, keep the mount writable, preserve the original 64-byte payload, and leave integrity clean.
-- The first countdown not reached confirms the truncate operation's read sequence ended; the fault is disarmed before the successful truncate's EOF/integrity verification.
-- Source commit: `bf7f618f4e54add952115638e24dae29433c08e2`.
-- **Status: pending verification.** The local runner is offline; no compile, boot-test, or runtime pass is claimed. Require exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture CI before marking verified.
-- Mock-device fault injection does not establish physical-device power-loss durability or general concurrent VFS safety.
+- The original PR #233 head `74b8cedf5b96055823b9a9a5d4a963b8d2f1a3b0` failed Build/boot-test #40112968528 at stage `0x28E1` / line 10465. The assertion checked the operation result, durable/volatile/dirty mock-media CRCs, and writable mount state.
+- Source inspection found that `pfs_make_vnode()` returned ProsenjitFS error values directly. Both `PROSENJITFS_EIO` and `PROS_VFS_ENOSYS` are numerically `-2`, so a read failure could be misclassified at the VFS boundary.
+- Fix: `pfs_make_vnode()` keeps filesystem-native error codes; filesystem callbacks translate through `pfs_vfs_error()`. The append-sweep invariant was split into individual diagnostic codes for operation status, each mock-media CRC, and filesystem/mount read-only state.
+- Verified exact PR head `84d2b84948065011cf0c94291e8bcaf5d9f7079c`: [Build/boot-test #40116501666](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501666) passed and [Security architecture #40116501659](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501659) passed. Logs contain the full ProsenjitFS format/mount/allocation/journal/recovery marker plus the native ATA PIO -> MBR -> ProsenjitFS persistent-mount marker. Both ISO QEMU and native BIOS QEMU completed the workflow's required markers before expected timeout termination.
+- PR #233 merged into `main` as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c` after both exact-head checks passed. Post-merge main Build/boot-test #40116980733 and Security #40116980685 are pending. This is deterministic mock-device/QEMU evidence; it does not establish physical-device power-loss durability or general concurrent VFS safety.

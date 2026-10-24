@@ -187,3 +187,32 @@ Native ProsenjitFS block numbers remain volume-relative filesystem blocks.
 The validated LBA helper performs the device-sector conversion and the
 partition device remains responsible for applying partition-relative offset.
 Metadata, journal, and out-of-range targets are rejected before block I/O.
+
+
+## Verified source audit baseline — 2026-10-24
+
+This section records findings checked against `main` commit `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`. It complements the format contract above; it does not replace the exact-head verification rule in the completion matrix.
+
+### Kernel, boot and storage path
+
+- The kernel is a freestanding 64-bit x86-64 kernel primarily written in C, with NASM assembly entry/context-switch/low-level components. `scripts/build.sh` builds the GRUB/Multiboot2 ISO and a separate native BIOS disk image. GCC flags include `-ffreestanding`, `-fno-builtin`, `-fno-pie`, `-fno-stack-protector`, `-mno-red-zone`, `-Wall -Wextra -Werror` and `-O2`.
+- The hardware path under test is ATA PIO -> block-device callback interface -> MBR/GPT partition parsing and a partition-relative block-device view -> VFS probe/mount -> ProsenjitFS. The bootloader does not parse ProsenjitFS.
+- `struct pros_block_device` exposes sector size/count and read/write/optional-flush callbacks. LBA values are device-local sector indices; checked range/add helpers must be used before I/O. The filesystem's version-1 design requires a power-of-two block size from 512 through 4096 bytes, matching the underlying sector size.
+- The public format is in `include/prosenjitfs_format.h`; kernel-private mount/transaction/diagnostic state is in `kernel/include/prosenjitfs.h`; implementation and in-kernel self-test are together in `kernel/prosenjitfs.c`.
+
+### On-disk structures and safety boundaries
+
+- Version 1 uses primary and redundant superblocks, a redo journal, block bitmap, inode bitmap, inode table and file/directory/extent data regions. Region locations are taken from validated metadata rather than assumed fixed offsets beyond the two superblock copies.
+- The disk format defines checksummed superblocks, inodes, extents, directory indexes/entries and journal records. CRC32C detects accidental corruption; it is not cryptographic authentication.
+- Persistent inode/block bitmaps back allocation. Files map logical to physical blocks through linked extents. Directories use a 32-bucket hash index and linked entries. Names are case-sensitive UTF-8 byte sequences with a maximum of 255 bytes; the documented policy performs no Unicode normalization.
+- The VFS contract has explicit vnode/file/mount structures and callbacks for lookup, readdir, create, mkdir, rmdir, unlink, rename, read, write, truncate and close. Paths and names are bounded by `PROS_VFS_PATH_MAX` and `PROS_VFS_NAME_MAX`; traversal, malformed metadata and arithmetic boundary cases still require adversarial regression coverage.
+- The transaction contract requires flush barriers around journal publication, commit and home-block writes. Without a block-device flush callback, the implementation cannot claim device-level power-loss durability. A failed transaction after attempting to publish a commit record forces the current mount read-only until recovery resolves the uncertain state.
+- The structured integrity scan is read-only. It reports inconsistencies and orphan candidates; it does not repair/reclaim them. Its documented caller must exclude concurrent filesystem mutations.
+
+### Verified implementation boundary and known gaps
+
+- The main-branch workflow at the audit commit passed toolchain validation, ISO build, ISO QEMU boot and native BIOS QEMU boot, and emitted the required ProsenjitFS success marker. Security architecture checks also passed at that same commit.
+- These results are deterministic test/emulator evidence, not physical drive power-loss evidence. No real disk was formatted or modified during this audit.
+- The implementation is concentrated in one very large translation unit (`kernel/prosenjitfs.c`) with both filesystem logic and a sizable self-test. Changes to test injection and diagnostics must remain bounded and must not obscure which invariant failed.
+- The active `kernel/block.c` includes explicitly labelled temporary cross-layer block-init tracing and an O0/noinline diagnostic path. Audit it for necessity and remove or isolate it only after its remaining diagnostic purpose is verified; do not remove it blindly as part of this documentation-only phase.
+- `docs/PROSENJITFS-COMPLETION-MATRIX.md` is the source of truth for current CI evidence; `docs/PROSENJITFS-IMPLEMENTATION-PLAN.md` and `docs/PROSENJITFS-TEST-MATRIX.md` define the next acceptance gates.

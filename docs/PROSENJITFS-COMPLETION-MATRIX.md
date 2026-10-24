@@ -1,6 +1,39 @@
-# ProsenjitFS Completion Matrix — 2026-10-22
+# ProsenjitFS Completion Matrix
 
-## Latest verification update — 2026-10-22 13:07 UTC
+## Current source-backed audit — 2026-10-24 (authoritative snapshot)
+
+**Repository:** `prosenjit-Adhikary/ProsenjitOS`  
+**Audited baseline:** `main` at `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
+**Audit branch:** `audit/prosenjitfs-part1-20261024`
+
+### Verified baseline
+
+- Main-branch Build/boot-test run [#8426](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40083299324) passed at the audited commit. Its completed steps include toolchain validation, desktop/DML prerequisite tests, ISO build, ISO QEMU boot and native BIOS QEMU boot.
+- Main-branch Security architecture run [#7962](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40083299325) passed at the same commit.
+- The workflow's required serial markers include partition discovery, VFS provider-boundary self-test, storage volume discovery, and the ProsenjitFS format/mount/allocation/journal/recovery self-test. These establish the baseline at this exact main commit; they do not prove unmerged test branches.
+- Source inspection confirms a freestanding C filesystem in `kernel/prosenjitfs.c`, shared block/VFS contracts in `kernel/include/block.h` and `kernel/include/vfs.h`, and a version-1 disk format in `include/prosenjitfs_format.h`. The current provider includes formatting, probing/mounting, persistent allocation, inodes/extents, hash-indexed directories, VFS file/namespace operations, redo-journal recovery and a read-only integrity-report API.
+- Existing design notes explicitly limit the integrity scan to callers that serialize it against mutations. The `io_lock` in filesystem state must not be treated as proof of global VFS/SMP safety.
+- Existing design notes distinguish deterministic mock-device crash injection from physical-device power-loss validation. No automatic destructive repair or orphan reclamation is currently exposed by the integrity checker.
+
+### Required status categories
+
+| Category | Audited finding |
+|---|---|
+| **Verified complete (baseline only)** | The audited main commit builds and passes both ISO QEMU and native BIOS QEMU workflow gates; Security architecture check passes. The existing format/mount/allocation/journal/recovery self-test passes on that baseline. |
+| **Partially implemented** | Systematic per-operation read/write/flush fault injection is being added incrementally. Current VFS locking is not a general concurrency guarantee. The structured integrity scan reports problems but does not repair them. |
+| **Missing / deferred** | A host-side `mkprosenjitfs` utility and VFS-visible fallocate policy are documented as future work. Conservative repair/reclamation, physical-device power-loss testing, and concurrent mutation/scan guarantees remain deferred. |
+| **Verified on PR branch (not yet merged)** | PR #233's earlier head `74b8cedf5b96055823b9a9a5d4a963b8d2f1a3b0` failed at stage `0x28E1` / line 10465 (`-27`), checking expected EIO, unchanged durable/volatile/dirty mock-media CRCs and writable mount state. Source audit found that `pfs_make_vnode()` leaked filesystem `EIO (-2)` into VFS, where `-2` is `PROS_VFS_ENOSYS`. Fixed by retaining filesystem status inside the helper and translating at VFS call boundaries; split assertion into predicate-specific diagnostics. Current exact head `84d2b84948065011cf0c94291e8bcaf5d9f7079c` passed [Build/boot-test #40116501666](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501666) and [Security architecture #40116501659](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501659). Logs confirm the ProsenjitFS self-test marker and ATA PIO -> MBR -> ProsenjitFS persistent mount marker; both QEMU runs terminated with expected timeout 124 after required markers. PR #233 has now merged as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`. Exact-head Build/boot-test #40116501666 and Security #40116501659 both passed; post-merge main Build/boot-test #40116980733 and Security #40116980685 are pending. |
+| **Blocked by unavailable tooling** | This session has no attached local repository/interactive shell for independent local compilation. GitHub Actions is accessible and did run PR #233 on self-hosted runner `home`; the failure is a test failure, not evidence of runner unavailability. |
+| **Not yet verified** | PR #233's append/truncate read-failure sweep passed on its exact head and has now merged into `main` as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`. Create/overwrite-write and rmdir-write PRs must pass their exact heads before being counted green. General concurrency and physical durability remain unverified. |
+
+### Immediate next action
+
+1. **Completed and verified on PR #233:** `pfs_make_vnode()` returns filesystem-native errors; VFS callbacks translate them via `pfs_vfs_error()`. The append sweep has distinct diagnostic returns for operation status, durable/volatile/dirty CRC and read-only state.
+2. Exact head `84d2b84948065011cf0c94291e8bcaf5d9f7079c` passed Build/boot-test #40116501666 (ISO QEMU + native BIOS QEMU; required filesystem and ATA/partition serial markers present) and Security architecture #40116501659.
+3. Next, review the still-open create/overwrite-write and rmdir-write sweeps. Keep general concurrency and physical-device durability explicitly separate from mock-device/QEMU acceptance.
+4. Use `docs/PROSENJITFS-IMPLEMENTATION-PLAN.md` and `docs/PROSENJITFS-TEST-MATRIX.md` as the dependency-ordered next-work checklist.
+
+## Historical verification notes — 2026-10-22 (superseded by the 2026-10-24 snapshot)
 
 - PR #193 fixed a diagnostic contract bug in the report-only integrity scanner: allocated inode bitmap + FREE inode record previously returned `-20000 - inode_number`, which the public wrapper incorrectly decoded as a source line. It now returns corruption with the actual checker source line and has a targeted regression. PR #193 merged as `0e61bc728f1eb0fe5cf3a701de806d98a04bfeb0`.
 - Exact PR head `7a3ff53146aa9685d3becc0d304b62f16e8d01d4` passed build/boot-test [#39783774495](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39783774495) and security architecture [#39783774327](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39783774327). Build steps including ISO build, filesystem diagnostics, ISO QEMU boot, and native BIOS QEMU boot all passed.
@@ -264,21 +297,3 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Recovered content must be either the unchanged original 64-byte payload or a fully truncated empty file; intermediate EOF, altered bytes, or integrity failures are rejected.
 - **Verified:** exact PR head `2586aa0403d5c984cb64b962c5bfdd1bf360cfe4` passed Build/boot-test [#40077700893](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700893), including ISO QEMU and native BIOS QEMU, and Security architecture [#40077700948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700948). PR #228 merged as `e6c391ae009b94dd8645140cfe86a571167ff54f`.
 
-
-
-## Pending verification — append read-failure sweep (2026-10-24)
-
-- Added a bounded read-failure sweep around append-at-EOF through the VFS. Reached read faults must return `PROS_VFS_EIO`, leave durable/volatile/dirty mock-media CRCs unchanged, keep the mount writable, preserve the old payload, and pass the report-only integrity scan.
-- The first not-reached countdown is disarmed before readback/integrity/unmount so an append-scoped fault cannot leak into verification.
-- Source commits: `a065fc973d3359aa0bf5e54cd91e3465262b7f03` and `62662b01374141490a9a4b3080ed37e806bcf35c`.
-- **Status: pending exact-head CI.** The local runner is offline, so no build or runtime result is asserted. Require Build/boot-test (ISO QEMU plus native BIOS QEMU) and Security architecture success before closing.
-- Mock-device coverage only; physical-device durability and general concurrent VFS safety remain unproven.
-
-
-## Pending verification — truncate read-failure sweep (2026-10-24)
-
-- Added a bounded read-failure sweep across `vfs_file_truncate`, including file open. Reached faults must return `PROS_VFS_EIO`, preserve durable/volatile/dirty mock-media CRCs, keep the mount writable, retain the original payload, and pass the report-only integrity scan.
-- The first not-reached countdown is disarmed before readback/integrity/unmount so the truncate-specific fault cannot leak into verification.
-- Source commit: `bf7f618f4e54add952115638e24dae29433c08e2`.
-- **Status: pending exact-head CI.** Local runner offline; no build or runtime result is asserted. Require Build/boot-test (ISO QEMU plus native BIOS QEMU) and Security architecture success before closing.
-- Mock-device coverage only; physical-device durability and general concurrent VFS safety remain unproven.
