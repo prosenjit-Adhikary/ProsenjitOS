@@ -8278,6 +8278,27 @@ int prosenjitfs_selftest(void)
                 pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
                 return pfs_selftest_fail(__LINE__, -29);
             }
+            /*
+             * The excluding variants must not return the sole free block
+             * when it is excluded; both should report exhaustion and preserve
+             * the caller's sentinel.
+             */
+            candidate = UINT64_MAX;
+            if (pfs_find_free_data_block_except(&fs, last_block, &candidate) !=
+                    PROSENJITFS_ENOSPC || candidate != UINT64_MAX ||
+                pfs_find_free_data_block_excluding(
+                    &fs, last_block, &candidate) != PROSENJITFS_ENOSPC ||
+                candidate != UINT64_MAX ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+                pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+                return pfs_selftest_fail(__LINE__, -29);
+            }
         }
         pfs_copy(disk.data + byte_offset, saved_durable, 512u);
         pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
