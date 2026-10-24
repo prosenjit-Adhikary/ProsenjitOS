@@ -224,3 +224,11 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`; PR #222 merged as `2b14a2b67e7c3543e95140af033f603410c66bc5`.
 - Exact PR head `c897fa782f805778b0de051ca2b338a39be7d7ce` passed Build/boot-test [#40072964418](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964418), including ISO QEMU and native BIOS QEMU, and Security architecture [#40072964417](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964417).
 - This regression does not prove physical hardware durability or concurrent VFS safety.
+
+
+## Pending verification — unlink read-failure sweep (2026-10-24)
+
+- Added a bounded read-failure sweep around `vfs_unlink`. Each reached read fault must return `PROS_VFS_EIO`, preserve all mock-media CRCs, keep the mount writable, preserve the file payload, and pass the report-only integrity scan.
+- The first not-reached countdown is disarmed before follow-up checks to avoid leaking an operation-specific fault into integrity/unmount.
+- Source commit: `126a4786dbd9b0427625149cee3999efd4c6dbba`.
+- Initial ISO QEMU run [#40073247679](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073247679) exposed a source-proven error-classification bug: `pfs_vnode_unlink()` collapsed `pfs_read_extent()` device I/O failures into corruption. Fix commit `ab3c659d4784f82fa83b87f54e7e1d84122d8dd6` preserves the original error; exact-head build/boot and security reruns are pending. This does not prove physical-device durability or general concurrent VFS safety.

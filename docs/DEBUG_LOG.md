@@ -482,3 +482,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`.
 - Exact PR head `c897fa782f805778b0de051ca2b338a39be7d7ce` passed Build/boot-test [#40072964418](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964418), including ISO QEMU and native BIOS QEMU, and Security architecture [#40072964417](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964417). PR #222 merged as `2b14a2b67e7c3543e95140af033f603410c66bc5`.
 - Mock-device tests do not establish physical-device power-loss durability or general concurrent VFS safety.
+
+
+## 2026-10-24 — Unlink read-failure sweep (pending CI)
+
+- Added a bounded mock-device read-failure countdown sweep around `vfs_unlink`.
+- Each reached read failure must propagate as `PROS_VFS_EIO`, leave durable/volatile/dirty media unchanged, keep the mount writable, preserve the original payload, and leave the integrity scan clean.
+- The first countdown not reached confirms the read sequence ended; the injection is disarmed before the follow-up lookup, integrity scan, and unmount.
+- Source commit: `126a4786dbd9b0427625149cee3999efd4c6dbba`.
+- Initial CI exposed an error-classification bug: `pfs_vnode_unlink()` converted any `pfs_read_extent()` failure to `PROSENJITFS_ECORRUPT`, hiding device I/O errors during extent reclamation. The fix now propagates the exact extent-read error through transaction cleanup. Source fix commit: `ab3c659d4784f82fa83b87f54e7e1d84122d8dd6`.
+- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture reruns are pending; no pass is claimed yet.
