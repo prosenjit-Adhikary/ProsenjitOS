@@ -53,6 +53,8 @@ static struct physical_ram_range ram_ranges[PROSENJIT_RAM_RANGE_MAX];
 static uint32_t ram_range_count;
 static uint64_t boot_framebuffer_base;
 static uint64_t boot_framebuffer_length;
+static uint64_t boot_info_base;
+static uint64_t boot_info_length;
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
 static uint64_t user_bitmap[BITMAP_WORDS];
 /* Marks every page in a contiguous allocation, not just its run head. */
@@ -218,6 +220,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     free_pages = 0;
     failed_allocations = 0;
     ram_range_count = 0u;
+    boot_info_base = 0u;
+    boot_info_length = 0u;
 
     if (multiboot_info_address == 0) return -1;
 
@@ -225,6 +229,9 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     if (total_size < 16u || total_size > (16u * 1024u * 1024u)) return -2;
     if (multiboot_info_address > UINT64_MAX - (uint64_t)total_size)
         return -2;
+
+    boot_info_base = multiboot_info_address;
+    boot_info_length = total_size;
 
     uint64_t framebuffer_base = 0u;
     uint64_t framebuffer_length = 0u;
@@ -539,7 +546,18 @@ int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length) {
     }
     uint64_t fb_base = boot_framebuffer_base;
     uint64_t fb_length = boot_framebuffer_length;
+    uint64_t info_base = boot_info_base;
+    uint64_t info_length = boot_info_length;
     page_allocator_lock_release(flags);
+
+    /* Never alias the linked kernel image or the bootloader-owned info block,
+     * even if a firmware map classifies either range as reserved. */
+    uint64_t kernel_base = (uint64_t)(uintptr_t)__kernel_start;
+    uint64_t kernel_end = (uint64_t)(uintptr_t)__kernel_end;
+    if ((kernel_end > kernel_base && physical_address < kernel_end && end > kernel_base) ||
+        (info_length != 0u && info_base <= UINT64_MAX - info_length &&
+         physical_address < info_base + info_length && end > info_base))
+        return 0;
     if (!overlaps_ram)
         return 1;
     /* The mapped framebuffer span is page-rounded to match page-table granularity. */
