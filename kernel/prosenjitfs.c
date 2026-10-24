@@ -5507,7 +5507,8 @@ static int pfs_selftest_consistency(
     }
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
-        fs->sb.block_size == 0u || fs->sb.block_size > sizeof(bitmap) ||
+        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(bitmap) ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
         fs->sb.data_start >= fs->sb.total_blocks ||
         fs->sb.inode_count == 0u)
