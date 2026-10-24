@@ -263,3 +263,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Cross-review extended the same guard to the bitmap-construction helper `pfs_bitmap_region_build` and added a no-mutation probe for invalid sizes. The allocator mutation audit also covers range validation/state checks, block/inode bitmap staging, `prosenjitfs_alloc_inode`, and `prosenjitfs_free_blocks` to prevent zero-size division and unsupported geometry from slipping through non-search allocation paths.
+
+
+- The same audit found `prosenjitfs_check_integrity_report` also divided by `block_size * 8` after checking only zero/upper-bound conditions. It now rejects sub-512 and non-power-of-two in-memory geometry as corruption before scanning; the invalid-geometry matrix asserts this error without changing mock-media CRCs.
