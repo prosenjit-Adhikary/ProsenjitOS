@@ -260,3 +260,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Follow-up source audit found the allocation/mutation side still had inconsistent geometry guards: `prosenjitfs_alloc_inode` could divide by zero for a zero block size, and the range/staging helpers did not consistently reject sub-512 or non-power-of-two sizes. Added 512–4096-byte power-of-two validation to `pfs_allocator_range_valid`, `pfs_allocator_range_state`, `pfs_allocator_stage_unchecked`, `pfs_inode_bitmap_stage_unchecked`, and `prosenjitfs_alloc_inode`. Expanded malformed-geometry tests to cover these helpers and public allocation/free paths at 0, 511, 513, and 4097 bytes; expected errors must preserve output sentinels and mock-media CRCs. Exact-head runner verification remains pending.
+
+
+- Cross-review extended the same guard to the bitmap-construction helper `pfs_bitmap_region_build` and added a no-mutation probe for invalid sizes. The allocator mutation audit also covers range validation/state checks, block/inode bitmap staging, `prosenjitfs_alloc_inode`, and `prosenjitfs_free_blocks` to prevent zero-size division and unsupported geometry from slipping through non-search allocation paths.
