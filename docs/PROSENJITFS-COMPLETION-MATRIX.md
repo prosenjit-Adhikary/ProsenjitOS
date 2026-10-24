@@ -1,5 +1,13 @@
 # ProsenjitFS Completion Matrix
 
+## Part 2 execution update — 2026-10-24
+
+- Starting main HEAD: `e875810769cb022f1a450bce86027966a3982fcc`.
+- Change under verification: `kernel/vfs.c` now clears `bytes_written` before validating/dispatching a write, preventing stale caller state after any write error. A focused VFS self-test asserts that a callback returning `PROS_VFS_EIO` leaves the count at zero.
+- Status: **implemented in branch; CI not yet verified**. Do not treat this as a passing build, boot, or security result until the exact branch's workflows complete.
+- This is VFS contract hardening in the existing ProsenjitFS integration, not a new filesystem format or claim of crash atomicity.
+
+
 ## Current source-backed audit — 2026-10-24 (authoritative snapshot)
 
 **Repository:** `prosenjit-Adhikary/ProsenjitOS`  
