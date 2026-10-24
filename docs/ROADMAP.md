@@ -4,6 +4,14 @@
 
 The repository has moved beyond the original boot/kernel-only milestone. The current kernel filesystem scope is intentionally narrowed to native ProsenjitFS; legacy FAT32, exFAT and NTFS implementations were removed from the kernel image so compatibility support can later be supplied through external filesystem providers.
 
+### ProsenjitOS 0.2 — Universal Storage Interpretation Engine
+
+- [ ] Proposed architecture documented in [docs/UNIVERSAL-STORAGE-INTERPRETATION-ENGINE.md](UNIVERSAL-STORAGE-INTERPRETATION-ENGINE.md).
+- [ ] Treat raw logical-block access, partition discovery, filesystem interpretation, recovery, and file-format processing as separate layers.
+- [ ] Keep compatibility parsers outside kernel-core where feasible; use bounded, capability-controlled providers behind the existing VFS/provider boundary.
+- [ ] Start with read-only support and a tested provider/feature matrix; add write support only after format-specific allocation, journal, crash-consistency, and recovery tests pass.
+- [ ] Do not claim universal filesystem support, raw magnetic/RLL access, or completed implementation from this design document alone.
+
 ### Current engineering focus
 1. **Native filesystem production verification:** finish ProsenjitFS storage, transaction, crash, recovery and LBA verification.
 2. **Filesystem-provider boundary:** define a stable external provider ABI without linking compatibility parsers into kernel-core.
