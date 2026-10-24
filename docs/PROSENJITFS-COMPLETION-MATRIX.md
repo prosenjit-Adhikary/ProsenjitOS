@@ -225,3 +225,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Added a matching `pfs_find_free_data_block` exhaustion test for the bounded 512-byte, single-block bitmap fixture. It temporarily marks all valid data-block bits allocated, expects `PROSENJITFS_ENOSPC`, verifies the output sentinel and durable/volatile/dirty mock-media CRCs remain unchanged during the read-only search, then restores the original bitmap block.
 - Both inode/data exhaustion tests explicitly require the test device's 512-byte sector geometry and a single bitmap block; they skip unsupported fixture layouts instead of treating a partial-sector read as a full filesystem block.
 - Runtime verification remains pending until the self-hosted runner is active and the exact-head workflows finish.
+
+
+- Follow-up cross-review also applied the power-of-two geometry guard to `pfs_find_free_data_block_excluding`, which shares the bitmap-index arithmetic but is a separate allocation helper.
