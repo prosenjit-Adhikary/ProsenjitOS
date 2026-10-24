@@ -1113,6 +1113,18 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
     data = (struct pfs_vnode_data *)file->vnode->private_data;
     if (!data || !data->fs || !data->fs->mount.active)
         return PROS_VFS_EPERM;
+    /*
+     * Validate geometry before inode validation and the read loop divide
+     * positions by block_size. A corrupted in-memory superblock must not
+     * turn a read request into divide-by-zero or an oversized stack copy.
+     */
+    if (data->fs->sb.block_size < 512u ||
+        data->fs->sb.block_size > 4096u ||
+        (data->fs->sb.block_size & (data->fs->sb.block_size - 1u)) != 0u ||
+        data->fs->sb.total_blocks < data->fs->sb.data_start ||
+        (data->fs->sb.total_blocks - data->fs->sb.data_start) >
+            UINT64_MAX / data->fs->sb.block_size)
+        return PROS_VFS_ECORRUPT;
     {
         int rc = pfs_vnode_validate_inode(data, &inode);
         if (rc != PROSENJITFS_OK)
