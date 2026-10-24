@@ -272,3 +272,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - A final `block_size`-use sweep found the vnode write/truncate paths still checked only zero/upper bounds. Both now enforce the supported 512–4096-byte power-of-two geometry before size-to-block arithmetic, matching mount-time superblock validation.
+
+
+- Follow-up division-safety sweep found `pfs_file_read` used `block_size` for division before its own geometry check. It now validates supported power-of-two geometry and the total data-span multiplication bound before inode validation/read-loop arithmetic, returning `PROS_VFS_ECORRUPT` for malformed in-memory state. Exact-head CI must verify this path; no runtime pass is claimed.
