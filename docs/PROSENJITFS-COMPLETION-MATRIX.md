@@ -241,3 +241,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The first not-reached countdown is disarmed before follow-up checks.
 - Source commit: `a18e2a55b36c6a445657bb9786dd172fb0eaf95c`.
 - **Verified:** exact PR head `c536d9e03f2e21ee559d73ecb1d1a4d92e30a74b` passed Build/boot-test [#40073592946](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073592946), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073592829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073592829). PR #224 merged as `714fa8e66d3a46991cb80446d769ab4538a63120`. Physical-device durability and general concurrent VFS safety remain unproven.
+
+
+## Pending verification — rmdir cyclic directory-entry classification (2026-10-24)
+
+- Fixed `pfs_vnode_rmdir()` to classify a bounded directory-chain cycle as corruption rather than I/O failure.
+- Added a valid-checksum self-cycle regression that checks the VFS error result, no operation-side media mutation, restoration, clean integrity scan, and normal rmdir afterward.
+- Exact-head warning-clean build, ISO QEMU, native BIOS QEMU, and Security architecture CI are pending.
