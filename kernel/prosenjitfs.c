@@ -266,6 +266,12 @@ static uint32_t pfs_crc_with_zero32(const uint8_t *data, uint32_t length,
     return ~crc;
 }
 
+static int pfs_block_size_valid(uint32_t block_size)
+{
+    return block_size >= 512u && block_size <= 4096u &&
+           (block_size & (block_size - 1u)) == 0u;
+}
+
 static uint32_t pfs_region_end(uint64_t start, uint64_t blocks,
                                uint64_t *end)
 {
@@ -394,8 +400,7 @@ static int pfs_superblock_valid(const uint8_t *block,
         sb->header_size != sizeof(*sb) ||
         sb->header_size > block_size ||
         sb->block_size != block_size ||
-        sb->block_size < 512u || sb->block_size > 4096u ||
-        (sb->block_size & (sb->block_size - 1u)) != 0u ||
+        !pfs_block_size_valid(sb->block_size) ||
         sb->total_blocks < PFS_MIN_BLOCKS ||
         sb->root_inode != 0u ||
         sb->inode_size != PROSENJITFS_INODE_SIZE ||
@@ -482,8 +487,7 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
     uint64_t end;
     uint64_t bits_per_block = (uint64_t)block_size * 8u;
     uint64_t bitmap_base;
-    if (!bitmap || block_size < 512u || block_size > 4096u ||
-        (block_size & (block_size - 1u)) != 0u ||
+    if (!bitmap || !pfs_block_size_valid(block_size) ||
         bits_per_block == 0u || bitmap_index > UINT64_MAX / bits_per_block ||
         pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
@@ -573,8 +577,7 @@ int prosenjitfs_format(struct pros_block_device *device)
         return PROSENJITFS_EINVAL;
     block_size = device->sector_size;
     total = device->sector_count;
-    if (block_size < 512u || block_size > 4096u ||
-        (block_size & (block_size - 1u)) != 0u ||
+    if (!pfs_block_size_valid(block_size) ||
         total < PFS_MIN_BLOCKS)
         return PROSENJITFS_EINVAL;
 
@@ -1020,8 +1023,7 @@ static int pfs_data_block_is_free(const struct pros_prosenjitfs *fs,
 
     if (!fs || block_number < fs->sb.data_start ||
         block_number >= fs->sb.total_blocks ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -1046,8 +1048,7 @@ static int pfs_inode_block_location(const struct pros_prosenjitfs *fs,
     uint64_t byte_offset;
     if (!fs || !block_lba || !offset ||
         inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
@@ -1118,9 +1119,7 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
      * positions by block_size. A corrupted in-memory superblock must not
      * turn a read request into divide-by-zero or an oversized stack copy.
      */
-    if (data->fs->sb.block_size < 512u ||
-        data->fs->sb.block_size > 4096u ||
-        (data->fs->sb.block_size & (data->fs->sb.block_size - 1u)) != 0u ||
+    if (!pfs_block_size_valid(data->fs->sb.block_size) ||
         data->fs->sb.total_blocks < data->fs->sb.data_start ||
         (data->fs->sb.total_blocks - data->fs->sb.data_start) >
             UINT64_MAX / data->fs->sb.block_size)
@@ -1220,9 +1219,7 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
         return PROS_VFS_EIO;
     if (!data->fs->mount.active)
         return PROS_VFS_EPERM;
-    if (data->fs->sb.block_size < 512u ||
-        data->fs->sb.block_size > 4096u ||
-        (data->fs->sb.block_size & (data->fs->sb.block_size - 1u)) != 0u ||
+    if (!pfs_block_size_valid(data->fs->sb.block_size) ||
         data->fs->sb.total_blocks < data->fs->sb.data_start ||
         (data->fs->sb.total_blocks - data->fs->sb.data_start) >
             UINT64_MAX / data->fs->sb.block_size)
@@ -1723,9 +1720,7 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
     }
 
-    if (data->fs->sb.block_size < 512u ||
-        data->fs->sb.block_size > 4096u ||
-        (data->fs->sb.block_size & (data->fs->sb.block_size - 1u)) != 0u)
+    if (!pfs_block_size_valid(data->fs->sb.block_size))
         return PROS_VFS_ECORRUPT;
 
     keep_blocks = size / data->fs->sb.block_size +
@@ -4111,10 +4106,9 @@ static int pfs_tx_validate(const struct pros_prosenjitfs *fs)
 
     if (!fs || !fs->tx.images || fs->tx.count == 0u ||
         fs->tx.count > PROSENJITFS_MAX_TX_BLOCKS ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
         sizeof(struct pros_prosenjitfs_journal_header) > fs->sb.block_size ||
-        sizeof(struct pros_prosenjitfs_journal_commit) > fs->sb.block_size ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        sizeof(struct pros_prosenjitfs_journal_commit) > fs->sb.block_size)
         return PROSENJITFS_EINVAL;
     if (pfs_region_end(fs->sb.journal_start, fs->sb.journal_blocks,
                        &journal_end) != PROSENJITFS_OK ||
@@ -4375,8 +4369,7 @@ static int pfs_allocator_stage_unchecked(struct pros_prosenjitfs *fs,
     if (!fs || count == 0u || allocate > 1u || first < fs->sb.data_start ||
         first >= fs->sb.total_blocks ||
         (uint64_t)count > fs->sb.total_blocks - first ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -4514,8 +4507,7 @@ static int pfs_allocator_range_state(const struct pros_prosenjitfs *fs,
     uint8_t bitmap[4096];
 
     if (!fs || want_allocated > 1u || count == 0u ||
-        fs->sb.block_size < 512u || fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
         first < fs->sb.data_start || first >= fs->sb.total_blocks ||
         (uint64_t)count > fs->sb.total_blocks - first)
         return PROSENJITFS_EINVAL;
@@ -4582,8 +4574,7 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
 
     if (!fs || fs->read_only || !fs->mount.active || !fs->mount.device ||
         count == 0u || count > 8u ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(bitmap_zero) ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
         inode_number >= fs->sb.inode_count)
         return PROSENJITFS_EINVAL;
 
@@ -4944,8 +4935,7 @@ static int pfs_inode_bitmap_stage_unchecked(struct pros_prosenjitfs *fs,
     uint8_t mask;
 
     if (!fs || fs->read_only || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -5030,8 +5020,7 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
     uint8_t block[4096];
 
     if (!fs || !inode_number || fs->read_only ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
 
     bits_per_block = (uint64_t)fs->sb.block_size * 8u;
@@ -5072,8 +5061,7 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     uint32_t offset;
     uint8_t block[4096];
     if (!fs || !inode || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
@@ -5112,8 +5100,7 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
     uint32_t offset;
     uint8_t block[4096];
     if (!fs || !inode || fs->read_only || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+        !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
@@ -5539,8 +5526,7 @@ static int pfs_selftest_consistency(
     }
 
     if (!fs || !fs->mount.device || !fs->mount.active ||
-        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(bitmap) ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
         fs->sb.total_blocks > fs->mount.device->sector_count ||
         fs->sb.data_start >= fs->sb.total_blocks ||
         fs->sb.inode_count == 0u)
@@ -9370,7 +9356,7 @@ int prosenjitfs_selftest(void)
              * non-power-of-two geometry before division or bitmap indexing.
              */
             {
-                const uint32_t invalid_sizes[] = {0u, 511u, 513u, 4097u};
+                const uint32_t invalid_sizes[] = {0u, 511u, 513u, 4097u, 8192u};
                 uint8_t bitmap_probe[512];
                 for (uint32_t bi = 0u; bi < sizeof(bitmap_probe); ++bi)
                     bitmap_probe[bi] = 0xA5u;
