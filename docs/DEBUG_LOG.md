@@ -514,3 +514,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - The same audit found `prosenjitfs_check_integrity_report` also divided by `block_size * 8` after checking only zero/upper-bound conditions. It now rejects sub-512 and non-power-of-two in-memory geometry as corruption before scanning; the invalid-geometry matrix asserts this error without changing mock-media CRCs.
+
+
+- Extended the geometry audit to `prosenjitfs_preallocate_blocks`: it now rejects non-power-of-two block sizes at its public entry point before inode/bitmap traversal. The malformed-geometry regression calls preallocation with each invalid size and expects `PROSENJITFS_EINVAL` while the overall durable/volatile/dirty media CRC checks remain unchanged.
