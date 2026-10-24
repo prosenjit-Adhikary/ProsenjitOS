@@ -255,4 +255,4 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Added a bounded read-failure sweep around `vfs_rmdir`. Reached faults must propagate as I/O errors, preserve durable/volatile/dirty mock-media state, keep the mount writable, and leave the directory intact.
 - After each injected failure, the directory is reopened and integrity-scanned; the first not-reached countdown confirms the sweep end and is disarmed before follow-up operations.
 - Source commit: `aefcac64b5ee80cf58c62c04e0a312d8878ab8dd`.
-- **Pending:** exact-head warning-clean build, ISO QEMU, native BIOS QEMU, and Security architecture CI.
+- **Verified:** exact PR head `5522c822d9bce6d01ca6c0c06b572c8032e63c5e` passed Build/boot-test [#40074188166](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188166), including ISO QEMU and native BIOS QEMU, and Security architecture [#40074188142](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40074188142). PR #226 merged as `84a707c354065d6f1c9aa0f418cf043f6d55bdd3`.
