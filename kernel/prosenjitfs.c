@@ -10397,6 +10397,7 @@ int prosenjitfs_selftest(void)
             dirty_before = prosenjitfs_crc32c(
                 disk.dirty, (uint32_t)sizeof(disk.dirty));
 
+            done = 0u;
             disk.fail_read_countdown = read_position;
             open_rc = vfs_file_open(&fs.mount, "/append-read-sweep.bin",
                                     PROS_VFS_O_WRITE, &file);
