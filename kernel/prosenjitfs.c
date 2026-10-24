@@ -482,7 +482,8 @@ static int pfs_bitmap_region_build(uint8_t *bitmap, uint32_t bytes,
     uint64_t end;
     uint64_t bits_per_block = (uint64_t)block_size * 8u;
     uint64_t bitmap_base;
-    if (!bitmap || block_size == 0u || block_size > 4096u ||
+    if (!bitmap || block_size < 512u || block_size > 4096u ||
+        (block_size & (block_size - 1u)) != 0u ||
         bits_per_block == 0u || bitmap_index > UINT64_MAX / bits_per_block ||
         pfs_region_end(region_start, region_blocks, &end) != PROSENJITFS_OK)
         return PROSENJITFS_EINVAL;
