@@ -81,7 +81,7 @@ int main(void) {
         physical_range_is_managed(PROSENJIT_PHYS_LIMIT, PROSENJIT_PAGE_SIZE) != 0 ||
         physical_range_is_managed(UINT64_MAX - 0xFFFu, 0x2000u) != -1 ||
         physical_range_is_managed(0x200000u, 0u) != -1) {
-        fputs("allocator test: managed physical range query contract failed\\n", stderr);
+        fputs("allocator test: managed physical range query contract failed\n", stderr);
         return 18;
     }
 
