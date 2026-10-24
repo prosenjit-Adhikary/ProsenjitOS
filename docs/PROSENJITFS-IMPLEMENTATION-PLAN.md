@@ -1,5 +1,16 @@
 # ProsenjitFS Implementation Plan — Audit-Driven
 
+## Part 2 allocator audit — 2026-10-24
+
+**Branch:** `fix/prosenjitfs-allocator-geometry-guards-20261024`  
+**Base:** current `main` at branch creation
+
+- [x] Audited bitmap-index arithmetic in free-inode/data-block lookup, allocation-range validation, inode-bitmap staging, public inode allocation, preallocation, and integrity scan.
+- [x] Added a shared supported-block-size predicate (512, 1024, 2048, or 4096 bytes only) and applied it before division, bitmap indexing, or transaction staging in the audited helpers.
+- [x] Added a deterministic self-test over malformed block sizes `0`, `511`, `513`, and `8192`; helpers must reject them with `PROSENJITFS_EINVAL`, and the integrity checker must reject malformed mounted geometry with `PROSENJITFS_ECORRUPT`.
+- [ ] Run exact-head Build/boot-test and Security architecture workflows. Until those complete, the change is implemented but not verified.
+
+
 **Audit date:** 2026-10-24  
 **Baseline:** `main` at `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
 **Status source:** [Completion matrix](PROSENJITFS-COMPLETION-MATRIX.md)  
