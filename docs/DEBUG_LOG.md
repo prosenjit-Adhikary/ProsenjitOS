@@ -475,3 +475,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Cross-verification hardening: inode/data exhaustion tests now preserve both durable and volatile mock-sector bytes and leave the dirty bitmap untouched by directly mutating/restoring only the isolated test fixture. The test setup no longer calls the block-write callback to restore state, which could otherwise leave a previously clean sector marked dirty.
+
+
+- Added final-valid-bit boundary checks after each exhaustion assertion. The inode/data allocator must find the final valid index when that is the only free bit, while durable bytes, volatile bytes and the dirty map remain unchanged by the search. The test restores both original mock-sector views afterward.
