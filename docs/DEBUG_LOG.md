@@ -457,3 +457,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Follow-up review found the primary `pfs_find_free_inode` and `pfs_find_free_data_block` helpers enforced the size range but did not reject non-power-of-two values. They now reject 513-byte geometry before allocating a bitmap buffer or computing bitmap indexes.
 - Regression coverage checks both helpers return `PROSENJITFS_EINVAL` for 513 and preserve the caller's output sentinel. Exact-head CI is pending/unverified.
+
+
+## 2026-10-24 — inode allocator exhaustion test
+
+- Added a bounded test that temporarily fills all valid inode bitmap bits in the one-block test-fixture layout, verifies `pfs_find_free_inode` returns `PROSENJITFS_ENOSPC` and leaves the output sentinel plus durable/volatile/dirty mock-media CRCs unchanged, then restores the original bitmap.
+- The fixture guard intentionally skips layouts with multiple inode-bitmap blocks; no broader exhaustion claim is made. Exact-head CI is pending/unverified.
