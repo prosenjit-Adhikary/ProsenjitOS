@@ -1,5 +1,12 @@
 # ProsenjitFS Test Matrix — 2026-10-24
 
+## Part 2 allocator geometry regression — pending exact-head CI
+
+| ID | Area / risk | Test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-16 | Invalid block geometry reaching bitmap arithmetic | `kernel/prosenjitfs.c` allocator helpers and `prosenjitfs_selftest()` | Reject sizes 0, 511, 513, and 8192 before division/indexing/staging; integrity scan rejects invalid mounted geometry | Implemented on `fix/prosenjitfs-allocator-geometry-guards-20261024`; Build/boot-test and Security pending |
+
+
 **Baseline commit:** `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
 **Status source:** [Completion matrix](PROSENJITFS-COMPLETION-MATRIX.md)  
 **Work plan:** [Implementation plan](PROSENJITFS-IMPLEMENTATION-PLAN.md)
