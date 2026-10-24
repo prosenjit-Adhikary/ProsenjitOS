@@ -205,3 +205,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - PR #212 adds a bounded read-failure countdown sweep around `vfs_rename`. For each read position reached, it requires rename failure, unchanged durable/volatile/dirty media CRCs, a writable mount, intact original path/payload, absent destination, and a clean integrity scan. The sweep stops at the first countdown not reached.
 - At documentation time, PRs #211 and #212 are open; Build/boot-test and Security architecture workflows for their exact current heads are queued. Do not mark either regression as passed until those runs complete successfully.
 - These are mock-device regression tests. They do not prove physical-device power-loss durability, full concurrent VFS safety, or production filesystem completion.
+
+
+## Pending verification — rename read-failure sweep fix (2026-10-24)
+
+- Build/boot run [#39981319506](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39981319506) failed the ISO QEMU ProsenjitFS self-test at source line 10605 (stage 0x296D, failure -21); build/ISO and prior diagnostic steps passed. Security architecture run [#39981319411](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39981319411) passed.
+- Root cause: the rename read-failure sweep left the final not-reached read countdown armed while running the report-only integrity scan and unmount. Those follow-up operations could consume an injection intended only for vfs_rename.
+- Fix in commit a7a7a5b7eaca35dfdf91788d44e37daef433f2a0 disarms the countdown before integrity/unmount only when the requested read position was not reached by rename. Failure-path assertions remain intact.
+- Debug log updated in commit f497ca14d967a4107f6f686d241187dc87067a4a.
+- **Status: fix committed; exact-head Build/boot-test and Security architecture verification pending.** Do not mark this sweep accepted until ISO QEMU and native BIOS QEMU pass on the updated head.
