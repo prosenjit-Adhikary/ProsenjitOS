@@ -2494,7 +2494,7 @@ static int pfs_vnode_rmdir(struct pros_vfs_vnode *parent, const char *name)
     current = dir_index.heads[bucket];
     while (current != 0u) {
         if (++steps > data->fs->sb.total_blocks) {
-            rc = PROS_VFS_EIO;
+            rc = PROSENJITFS_ECORRUPT;
             goto rmdir_out;
         }
         if (current < data->fs->sb.data_start ||
@@ -11571,6 +11571,117 @@ int prosenjitfs_selftest(void)
         }
         if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -16);
+    }
+
+    /*
+     * A cyclic parent-directory bucket chain is malformed metadata, not a
+     * device I/O failure. Exercise the VFS rmdir lookup against a checksum-
+     * valid self-cycle and require corruption classification without media
+     * writes; restore the entry before running the integrity scan.
+     */
+    {
+        static const char anchor_name[] = "rmdir-cycle-aa";
+        static const char anchor_path[] = "/rmdir-cycle-aa";
+        char missing_name[] = "rmdir-cycle-aa";
+        char missing_path[] = "/rmdir-cycle-aa";
+        struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_dir_entry anchor_entry;
+        uint8_t saved_block[4096];
+        uint8_t corrupt_block[4096];
+        uint64_t anchor_lba = 0u;
+        uint64_t previous_lba = 0u;
+        uint32_t bucket;
+        uint32_t found_missing = 0u;
+        uint32_t media_size;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int rmdir_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_mkdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
+            prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
+                PROSENJITFS_OK ||
+            pfs_find_dir_entry_lba(&fs, &root_inode, anchor_name,
+                                   &anchor_entry, &anchor_lba,
+                                   &previous_lba) != PROSENJITFS_OK ||
+            anchor_lba == 0u ||
+            pfs_read_block(fs.mount.device, anchor_lba, saved_block) !=
+                PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -25);
+        }
+
+        bucket = pfs_name_hash((const uint8_t *)anchor_name,
+                               (uint32_t)(sizeof(anchor_name) - 1u)) %
+                 PROSENJITFS_DIR_BUCKETS;
+        for (uint32_t a = 0u; a < 26u && !found_missing; ++a) {
+            for (uint32_t b = 0u; b < 26u; ++b) {
+                missing_name[12] = (char)('a' + a);
+                missing_name[13] = (char)('a' + b);
+                missing_name[14] = '\0';
+                if ((a != 0u || b != 0u) &&
+                    pfs_name_hash((const uint8_t *)missing_name, 14u) %
+                        PROSENJITFS_DIR_BUCKETS == bucket) {
+                    found_missing = 1u;
+                    break;
+                }
+            }
+        }
+        if (!found_missing) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -25);
+        }
+
+        pfs_copy(corrupt_block, saved_block, fs.sb.block_size);
+        anchor_entry.next = anchor_lba;
+        pfs_copy(corrupt_block, &anchor_entry, sizeof(anchor_entry));
+        pfs_put32(corrupt_block +
+                      offsetof(struct pros_prosenjitfs_dir_entry, checksum),
+                  pfs_crc_with_zero32(
+                      corrupt_block, sizeof(anchor_entry),
+                      (uint32_t)offsetof(
+                          struct pros_prosenjitfs_dir_entry, checksum)));
+        media_size = (uint32_t)sizeof(disk.data);
+        pfs_copy(disk.data + anchor_lba * fs.sb.block_size,
+                 corrupt_block, fs.sb.block_size);
+        pfs_copy(disk.volatile_data + anchor_lba * fs.sb.block_size,
+                 corrupt_block, fs.sb.block_size);
+
+        durable_before = prosenjitfs_crc32c(disk.data, media_size);
+        volatile_before = prosenjitfs_crc32c(disk.volatile_data, media_size);
+        dirty_before = prosenjitfs_crc32c(disk.dirty,
+                                           (uint32_t)sizeof(disk.dirty));
+        missing_path[13] = missing_name[12];
+        missing_path[14] = missing_name[13];
+        rmdir_rc = vfs_rmdir(&fs.mount, missing_path);
+        if (rmdir_rc != PROS_VFS_ECORRUPT ||
+            durable_before != prosenjitfs_crc32c(disk.data, media_size) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, media_size) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_copy(disk.data + anchor_lba * fs.sb.block_size,
+                     saved_block, fs.sb.block_size);
+            pfs_copy(disk.volatile_data + anchor_lba * fs.sb.block_size,
+                     saved_block, fs.sb.block_size);
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -25);
+        }
+
+        pfs_copy(disk.data + anchor_lba * fs.sb.block_size,
+                 saved_block, fs.sb.block_size);
+        pfs_copy(disk.volatile_data + anchor_lba * fs.sb.block_size,
+                 saved_block, fs.sb.block_size);
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            vfs_rmdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -25);
     }
 
     /*
