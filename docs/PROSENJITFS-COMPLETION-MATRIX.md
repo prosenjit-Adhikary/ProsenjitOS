@@ -246,4 +246,4 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 - Cross-checked the source regression block against all allocator entry points: `pfs_find_free_inode`, `pfs_find_free_data_block`, `pfs_find_free_data_block_except`, `pfs_find_free_data_block_excluding`, `pfs_data_block_is_free`, and `pfs_inode_block_location`. The malformed sizes 0, 511, and 513 are rejected with `PROSENJITFS_EINVAL` before geometry arithmetic, and result/location sentinels are checked.
 - Cross-checked bounded inode/data bitmap exhaustion and final-valid-bit tests. They operate only on the 512-byte, single-bitmap mock fixture, snapshot durable and volatile sector bytes plus the dirty map, and restore original durable/volatile bitmap bytes before normal allocation tests continue.
-- Exact reviewed head: `${head}`. Build/boot-test and security architecture workflows were still queued at this checkpoint; no pass is claimed here.
+- Exact reviewed head: `941d079bedf686aa7a9a661f6323ce867a6a392e`. Build/boot-test and security architecture workflows were still queued at this checkpoint; no pass is claimed here.
