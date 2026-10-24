@@ -218,3 +218,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Added a bounded self-test for the one-block inode-bitmap layout: temporarily mark every valid inode bit allocated, assert `pfs_find_free_inode` returns `PROSENJITFS_ENOSPC` without modifying its output sentinel or the durable/volatile/dirty mock-media views, then restore the original bitmap block.
 - The test runs only when the fixture's inode bitmap is exactly one block and can represent every inode; it does not mutate the real volume or claim coverage for multi-block bitmap exhaustion.
 - Exact-head CI remains required; this is source/test coverage until build and boot-test runs report results.
+
+
+## Data allocator exhaustion regression — 2026-10-24
+
+- Added a matching `pfs_find_free_data_block` exhaustion test for the bounded 512-byte, single-block bitmap fixture. It temporarily marks all valid data-block bits allocated, expects `PROSENJITFS_ENOSPC`, verifies the output sentinel and durable/volatile/dirty mock-media CRCs remain unchanged during the read-only search, then restores the original bitmap block.
+- Both inode/data exhaustion tests explicitly require the test device's 512-byte sector geometry and a single bitmap block; they skip unsupported fixture layouts instead of treating a partial-sector read as a full filesystem block.
+- Runtime verification remains pending until the self-hosted runner is active and the exact-head workflows finish.
