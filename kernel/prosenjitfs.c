@@ -10350,6 +10350,149 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sweep read failures during append-at-EOF. A metadata/data read fault
+     * must not change the existing file or any mock-media view. The first
+     * countdown not reached proves the operation's read sequence is covered.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[64];
+        uint8_t append_data[64];
+        uint8_t read_data[128];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x47u ^ (uint8_t)(i * 9u));
+            append_data[i] = (uint8_t)(0xA5u + (uint8_t)(i * 17u));
+        }
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            uint32_t done = 0u;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int operation_rc = PROS_VFS_OK;
+            int open_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            open_rc = vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+                                    PROS_VFS_O_WRITE, &file);
+            if (open_rc != PROS_VFS_OK) {
+                operation_rc = open_rc;
+            } else {
+                operation_rc = vfs_file_seek(&file, sizeof(old_data));
+                if (operation_rc == PROS_VFS_OK)
+                    operation_rc = vfs_file_write(
+                        &file, append_data, sizeof(append_data), &done);
+                if (vfs_file_close(&file) != PROS_VFS_OK &&
+                    operation_rc == PROS_VFS_OK)
+                    operation_rc = PROS_VFS_EIO;
+            }
+
+            if (disk.fail_read_countdown != 0u) {
+                /* Do not let an append-specific fault leak into verification. */
+                disk.fail_read_countdown = 0u;
+                if (operation_rc != PROS_VFS_OK ||
+                    done != sizeof(append_data)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+
+                done = 0u;
+                if (vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                        PROS_VFS_OK ||
+                    done != sizeof(read_data) ||
+                    vfs_file_close(&file) != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+                for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                    if (read_data[i] != old_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -27);
+                    }
+                }
+                for (uint32_t i = 0u; i < sizeof(append_data); ++i) {
+                    if (read_data[sizeof(old_data) + i] != append_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -27);
+                    }
+                }
+                if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (operation_rc != PROS_VFS_EIO ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                fs.read_only || fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/append-read-sweep.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                if (read_data[i] != old_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -27);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -27);
+    }
+
+    /*
      * Sweep append-at-EOF write failures. After simulated power loss, the
      * file must retain its original payload or expose the entire appended
      * payload; partial logical append and changed original bytes are invalid.
