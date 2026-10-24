@@ -4473,8 +4473,9 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
 static int pfs_allocator_range_valid(const struct pros_prosenjitfs *fs,
                                       uint64_t first, uint32_t count)
 {
-    if (!fs || count == 0u || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u || fs->sb.total_blocks < fs->sb.data_start ||
+    if (!fs || count == 0u ||
+        !pfs_block_size_valid(fs->sb.block_size) ||
+        fs->sb.total_blocks < fs->sb.data_start ||
         first < fs->sb.data_start || first >= fs->sb.total_blocks ||
         (uint64_t)count > fs->sb.total_blocks - first)
         return PROSENJITFS_EINVAL;
