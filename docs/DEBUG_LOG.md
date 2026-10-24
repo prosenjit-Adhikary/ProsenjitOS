@@ -472,3 +472,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Cross-review caught the sibling `pfs_find_free_data_block_excluding` entry point still checking only the size range; it now rejects non-power-of-two sizes before bitmap-index arithmetic as well.
+
+
+- Cross-verification hardening: inode/data exhaustion tests now preserve both durable and volatile mock-sector bytes and leave the dirty bitmap untouched by directly mutating/restoring only the isolated test fixture. The test setup no longer calls the block-write callback to restore state, which could otherwise leave a previously clean sector marked dirty.
