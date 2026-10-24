@@ -478,3 +478,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Added final-valid-bit boundary checks after each exhaustion assertion. The inode/data allocator must find the final valid index when that is the only free bit, while durable bytes, volatile bytes and the dirty map remain unchanged by the search. The test restores both original mock-sector views afterward.
+
+
+- Expanded invalid-geometry regression coverage across all allocator entry points, including `pfs_find_free_data_block_excluding`, at sizes 0, 511, and 513. Each must return `PROSENJITFS_EINVAL` and preserve output sentinels; durable/volatile/dirty CRC snapshots verify the calls do not mutate mock media.
