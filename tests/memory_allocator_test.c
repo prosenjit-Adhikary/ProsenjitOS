@@ -85,6 +85,15 @@ int main(void) {
         return 18;
     }
 
+    if (physical_range_is_mmio_safe(0x200000u, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_range_is_mmio_safe(0x1000u, PROSENJIT_PAGE_SIZE) != 1 ||
+        physical_range_is_mmio_safe(PROSENJIT_PHYS_LIMIT, PROSENJIT_PAGE_SIZE) != 1 ||
+        physical_range_is_mmio_safe(UINT64_MAX - 0xFFFu, 0x2000u) != -1 ||
+        physical_range_is_mmio_safe(0x200000u, 0u) != -1) {
+        fputs("allocator test: MMIO-safe physical range query contract failed\n", stderr);
+        return 19;
+    }
+
     uint64_t before = physical_memory_free_pages();
     uint64_t failed_before = physical_memory_failed_allocations();
     if (physical_pages_alloc_contiguous(1u, 1u, PROSENJIT_PAGE_SIZE) != 0 ||
