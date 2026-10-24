@@ -269,3 +269,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Extended the geometry audit to `prosenjitfs_preallocate_blocks`: it now rejects non-power-of-two block sizes at its public entry point before inode/bitmap traversal. The malformed-geometry regression calls preallocation with each invalid size and expects `PROSENJITFS_EINVAL` while the overall durable/volatile/dirty media CRC checks remain unchanged.
+
+
+- A final `block_size`-use sweep found the vnode write/truncate paths still checked only zero/upper bounds. Both now enforce the supported 512–4096-byte power-of-two geometry before size-to-block arithmetic, matching mount-time superblock validation.
