@@ -985,9 +985,7 @@ static int pfs_find_free_data_block_except(const struct pros_prosenjitfs *fs,
                                            uint64_t *block_number)
 {
     uint64_t b;
-    if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+    if (!fs || !block_number || !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     for (b = fs->sb.data_start; b < fs->sb.total_blocks; ++b) {
         if (b == avoid)
@@ -2137,9 +2135,7 @@ static int pfs_find_free_inode(const struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t *block;
 
-    if (!fs || !inode_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+    if (!fs || !inode_number || !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
@@ -2182,9 +2178,7 @@ static int pfs_find_free_data_block(const struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t *block;
 
-    if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+    if (!fs || !block_number || !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
@@ -2222,9 +2216,7 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
     uint64_t bits_per_block;
     uint8_t *block;
 
-    if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
+    if (!fs || !block_number || !pfs_block_size_valid(fs->sb.block_size))
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
@@ -4482,9 +4474,7 @@ static int pfs_allocator_update(struct pros_prosenjitfs *fs,
 static int pfs_allocator_range_valid(const struct pros_prosenjitfs *fs,
                                       uint64_t first, uint32_t count)
 {
-    if (!fs || count == 0u || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u ||
-        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
+    if (!fs || count == 0u || !pfs_block_size_valid(fs->sb.block_size) ||
         fs->sb.total_blocks < fs->sb.data_start ||
         first < fs->sb.data_start || first >= fs->sb.total_blocks ||
         (uint64_t)count > fs->sb.total_blocks - first)
