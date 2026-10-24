@@ -498,3 +498,8 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Re-checked the latest source at `26bc12ed9debe1d5c32b6fc483bb600a99eae1b2`: all six allocator/location helpers reject invalid geometry values 0, 511, and 513; output/location sentinels and mock-media CRCs are checked.
 - Confirmed bounded inode/data exhaustion and final-valid-bit tests plus both exclusion-aware helper checks. Fixture preparation/restoration edits only the mock durable/volatile sector arrays directly, so the allocator's read-only behavior is measured independently from write-path dirty bookkeeping.
 - Exact-head Build/boot-test run [#8354](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40061193695) and Security architecture run [#7890](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40061193684) were queued at review time. Combined status had no reported checks; runtime verification remains pending.
+
+
+## 2026-10-24 — oversized allocator geometry regression
+
+- Geometry regression now also covers 4097-byte blocks (one above the supported maximum), alongside 0, 511, and 513, across all allocator/location/free-state helpers; invalid sizes must return `PROSENJITFS_EINVAL` without modifying output sentinels or media. Exact-head CI remains the authority for runtime/build verification; no pass is claimed until the queued workflows finish.
