@@ -8162,6 +8162,214 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -14);
     }
 
+    /*
+     * Exhaust the inode bitmap in a bounded test volume. Snapshot both media
+     * views and mutate the mock disk directly so the test itself does not
+     * change the dirty map or hide cache-state regressions.
+     */
+    if (fs.sb.block_size == 512u && fs.sb.inode_bitmap_blocks == 1u &&
+        fs.sb.inode_count > 1u &&
+        fs.sb.inode_count <= (uint64_t)fs.sb.block_size * 8u) {
+        uint8_t saved_durable[512];
+        uint8_t saved_volatile[512];
+        uint64_t bitmap_lba;
+        uint64_t byte_offset;
+        uint64_t candidate = UINT64_MAX;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int exhausted_rc;
+
+        if (pfs_lba_add(fs.mount.device, fs.sb.inode_bitmap_start, 0u,
+                        &bitmap_lba) != PROSENJITFS_OK ||
+            bitmap_lba >= 512u)
+            return pfs_selftest_fail(__LINE__, -28);
+        byte_offset = bitmap_lba * 512u;
+        pfs_copy(saved_durable, disk.data + byte_offset, 512u);
+        pfs_copy(saved_volatile, disk.volatile_data + byte_offset, 512u);
+        for (uint64_t bit = 0u; bit < fs.sb.inode_count; ++bit) {
+            uint8_t mask = (uint8_t)(1u << (bit & 7u));
+            disk.data[byte_offset + (bit >> 3)] |= mask;
+            disk.volatile_data[byte_offset + (bit >> 3)] |= mask;
+        }
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        exhausted_rc = pfs_find_free_inode(&fs, &candidate);
+        if (exhausted_rc != PROSENJITFS_ENOSPC || candidate != UINT64_MAX ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+            pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+            return pfs_selftest_fail(__LINE__, -28);
+        }
+        /*
+         * With every valid inode bit set, clear only the final valid inode.
+         * The finder must reach that boundary without reading past it.
+         */
+        {
+            uint64_t last_inode = fs.sb.inode_count - 1u;
+            uint64_t bit_byte = byte_offset + (last_inode >> 3);
+            uint8_t mask = (uint8_t)(1u << (last_inode & 7u));
+            disk.data[bit_byte] &= (uint8_t)~mask;
+            disk.volatile_data[bit_byte] &= (uint8_t)~mask;
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            candidate = UINT64_MAX;
+            exhausted_rc = pfs_find_free_inode(&fs, &candidate);
+            if (exhausted_rc != PROSENJITFS_OK || candidate != last_inode ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+                pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+                return pfs_selftest_fail(__LINE__, -28);
+            }
+        }
+        pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+        pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+    }
+
+    /*
+     * Exhaust the data-block bitmap in the same bounded fixture and verify
+     * ENOSPC leaves the result sentinel and all mock-media views unchanged.
+     */
+    if (fs.sb.block_size == 512u && fs.sb.block_bitmap_blocks == 1u &&
+        fs.sb.total_blocks <= (uint64_t)fs.sb.block_size * 8u) {
+        uint8_t saved_durable[512];
+        uint8_t saved_volatile[512];
+        uint64_t bitmap_lba;
+        uint64_t byte_offset;
+        uint64_t candidate = UINT64_MAX;
+        uint32_t durable_before;
+        uint32_t volatile_before;
+        uint32_t dirty_before;
+        int exhausted_rc;
+
+        if (pfs_lba_add(fs.mount.device, fs.sb.block_bitmap_start, 0u,
+                        &bitmap_lba) != PROSENJITFS_OK ||
+            bitmap_lba >= 512u)
+            return pfs_selftest_fail(__LINE__, -29);
+        byte_offset = bitmap_lba * 512u;
+        pfs_copy(saved_durable, disk.data + byte_offset, 512u);
+        pfs_copy(saved_volatile, disk.volatile_data + byte_offset, 512u);
+        for (uint64_t bit = fs.sb.data_start; bit < fs.sb.total_blocks; ++bit) {
+            uint8_t mask = (uint8_t)(1u << (bit & 7u));
+            disk.data[byte_offset + (bit >> 3)] |= mask;
+            disk.volatile_data[byte_offset + (bit >> 3)] |= mask;
+        }
+        durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        exhausted_rc = pfs_find_free_data_block(&fs, &candidate);
+        if (exhausted_rc != PROSENJITFS_ENOSPC || candidate != UINT64_MAX ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+            pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+            pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+            return pfs_selftest_fail(__LINE__, -29);
+        }
+        /*
+         * Clear only the final valid data bit after the exhaustion check.
+         * This verifies the allocator's inclusive lower/exclusive upper bound.
+         */
+        if (fs.sb.total_blocks > fs.sb.data_start) {
+            uint64_t last_block = fs.sb.total_blocks - 1u;
+            uint64_t bit_byte = byte_offset + (last_block >> 3);
+            uint8_t mask = (uint8_t)(1u << (last_block & 7u));
+            disk.data[bit_byte] &= (uint8_t)~mask;
+            disk.volatile_data[bit_byte] &= (uint8_t)~mask;
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+            candidate = UINT64_MAX;
+            exhausted_rc = pfs_find_free_data_block(&fs, &candidate);
+            if (exhausted_rc != PROSENJITFS_OK || candidate != last_block ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+                pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+                return pfs_selftest_fail(__LINE__, -29);
+            }
+            /*
+             * Excluding a different block must still find the sole free final
+             * block. Then excluding that final block must report ENOSPC and
+             * preserve the caller's sentinel.
+             */
+            candidate = UINT64_MAX;
+            if (pfs_find_free_data_block_except(
+                    &fs, last_block - 1u, &candidate) != PROSENJITFS_OK ||
+                candidate != last_block) {
+                pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+                pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+                return pfs_selftest_fail(__LINE__, -29);
+            }
+            candidate = UINT64_MAX;
+            if (pfs_find_free_data_block_excluding(
+                    &fs, last_block - 1u, &candidate) != PROSENJITFS_OK ||
+                candidate != last_block ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+                pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+                return pfs_selftest_fail(__LINE__, -29);
+            }
+            candidate = UINT64_MAX;
+            if (pfs_find_free_data_block_except(&fs, last_block, &candidate) !=
+                    PROSENJITFS_ENOSPC || candidate != UINT64_MAX ||
+                pfs_find_free_data_block_excluding(
+                    &fs, last_block, &candidate) != PROSENJITFS_ENOSPC ||
+                candidate != UINT64_MAX ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+                pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+                return pfs_selftest_fail(__LINE__, -29);
+            }
+        }
+        pfs_copy(disk.data + byte_offset, saved_durable, 512u);
+        pfs_copy(disk.volatile_data + byte_offset, saved_volatile, 512u);
+    }
+
+
     if (prosenjitfs_alloc_blocks(&fs, 4u, &first_block) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -6);
     if (first_block < fs.sb.data_start ||
@@ -9142,6 +9350,93 @@ int prosenjitfs_selftest(void)
             prosenjitfs_read_inode(&fs, allocated_inode, &inode) !=
                 PROSENJITFS_ENOENT)
             return pfs_selftest_fail(__LINE__, -15);
+
+        /*
+         * The legacy allocator helper must reject invalid block sizes before
+         * deriving bits_per_block, avoiding a divide-by-zero on corrupt state.
+         */
+        {
+            struct pros_prosenjitfs invalid_fs = fs;
+            uint64_t candidate = UINT64_MAX;
+            uint32_t durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            uint32_t volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            uint32_t dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            /*
+             * Every allocator entry point must reject zero, sub-sector, and
+             * non-power-of-two geometry before division or bitmap indexing.
+             */
+            {
+                const uint32_t invalid_sizes[] = {0u, 511u, 513u, 4097u};
+                uint8_t bitmap_probe[512];
+                for (uint32_t bi = 0u; bi < sizeof(bitmap_probe); ++bi)
+                    bitmap_probe[bi] = 0xA5u;
+                for (uint32_t i = 0u;
+                     i < sizeof(invalid_sizes) / sizeof(invalid_sizes[0]); ++i) {
+                    uint64_t block_lba = UINT64_MAX;
+                    uint64_t inode_candidate = UINT64_MAX;
+                    uint32_t offset = UINT32_MAX;
+                    uint32_t bitmap_before = prosenjitfs_crc32c(
+                        bitmap_probe, (uint32_t)sizeof(bitmap_probe));
+                    invalid_fs.sb.block_size = invalid_sizes[i];
+                    if (pfs_bitmap_region_build(
+                            bitmap_probe, sizeof(bitmap_probe), 0u, 1u, 0u,
+                            invalid_sizes[i]) != PROSENJITFS_EINVAL ||
+                        bitmap_before != prosenjitfs_crc32c(
+                            bitmap_probe, (uint32_t)sizeof(bitmap_probe)) ||
+                        pfs_find_free_inode(&invalid_fs, &candidate) !=
+                            PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
+                        prosenjitfs_alloc_inode(&invalid_fs, &inode_candidate) !=
+                            PROSENJITFS_EINVAL || inode_candidate != UINT64_MAX ||
+                        pfs_inode_bitmap_stage_unchecked(&invalid_fs, 1u, 1u) !=
+                            PROSENJITFS_EINVAL ||
+                        pfs_allocator_stage_unchecked(
+                            &invalid_fs, invalid_fs.sb.data_start, 1u, 1u) !=
+                            PROSENJITFS_EINVAL ||
+                        pfs_allocator_range_state(
+                            &invalid_fs, invalid_fs.sb.data_start, 1u, 0u) !=
+                            PROSENJITFS_EINVAL ||
+                        prosenjitfs_check_integrity_report(
+                            &invalid_fs, &integrity_report) !=
+                            PROSENJITFS_ECORRUPT ||
+                        prosenjitfs_free_blocks(&invalid_fs,
+                            invalid_fs.sb.data_start, 1u) != PROSENJITFS_EINVAL ||
+                        prosenjitfs_preallocate_blocks(
+                            &invalid_fs, invalid_fs.sb.root_inode, 0u, 1u) !=
+                            PROSENJITFS_EINVAL ||
+                        pfs_find_free_data_block(&invalid_fs, &candidate) !=
+                            PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
+                        pfs_find_free_data_block_except(
+                            &invalid_fs, UINT64_MAX, &candidate) !=
+                            PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
+                        pfs_find_free_data_block_excluding(
+                            &invalid_fs, UINT64_MAX, &candidate) !=
+                            PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
+                        pfs_inode_block_location(
+                            &invalid_fs, 0u, &block_lba, &offset) !=
+                            PROSENJITFS_EINVAL ||
+                        block_lba != UINT64_MAX || offset != UINT32_MAX ||
+                        pfs_data_block_is_free(
+                            &invalid_fs, invalid_fs.sb.data_start) !=
+                            PROSENJITFS_EINVAL ||
+                        prosenjitfs_read_inode(&invalid_fs, 0u, &inode) !=
+                            PROSENJITFS_EINVAL ||
+                        prosenjitfs_write_inode(&invalid_fs, 0u, &inode) !=
+                            PROSENJITFS_EINVAL)
+                        return pfs_selftest_fail(__LINE__, -27);
+                }
+            }
+            if (durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)))
+                return pfs_selftest_fail(__LINE__, -27);
+        }
 
         pfs_selftest_diag_stage = __LINE__;
         /*
