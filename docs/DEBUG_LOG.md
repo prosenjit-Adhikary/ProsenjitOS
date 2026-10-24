@@ -523,6 +523,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### Regression added
 - Added a bounded one-shot block-write countdown sweep across `vfs_file_truncate(..., 0)` on a populated file.
 - Every reached write failure is followed by simulated power loss and remount. The test accepts only a fully preserved original payload or a fully committed zero-length file, then requires the report-only integrity scan and unmount to succeed.
-- The first write position not reached by truncate is disarmed before follow-up integrity/unmount checks. The regression does not weaken existing commit-failure assertions.
+- The first write position not reached by truncate is disarmed before follow-up checks; the success path explicitly reads the file and requires EOF at byte zero. The regression does not weaken existing commit-failure assertions.
 - Exact-head Build/boot and Security CI results are pending; do not call this change verified until both workflows pass.
 
