@@ -469,3 +469,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - Added `pfs_find_free_data_block` coverage for the one-block 512-byte test fixture: all valid data bits are temporarily set, the finder must return `PROSENJITFS_ENOSPC` with the result sentinel unchanged, and durable/volatile/dirty mock-media CRCs must remain stable across the search. The saved bitmap is restored afterward.
 - Cross-review tightened both exhaustion tests to run only for the fixture's exact 512-byte sector/block geometry and one-block bitmap layout, avoiding accidental assumptions for larger filesystem blocks. Runner-based verification is pending.
+
+
+- Cross-review caught the sibling `pfs_find_free_data_block_excluding` entry point still checking only the size range; it now rejects non-power-of-two sizes before bitmap-index arithmetic as well.
