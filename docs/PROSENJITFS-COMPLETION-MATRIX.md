@@ -211,3 +211,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Extended the supported 512–4096-byte power-of-two guard to the primary inode and data-block free-space finders; these entry points now reject non-power-of-two geometry before bitmap indexing or allocation.
 - Added regression assertions for a 513-byte block size and verifies both finder output sentinels remain unchanged on `PROSENJITFS_EINVAL`.
 - Exact-head build/boot-test and security checks remain required; source-level changes are not treated as a runtime pass.
+
+
+## Inode allocator exhaustion regression — 2026-10-24
+
+- Added a bounded self-test for the one-block inode-bitmap layout: temporarily mark every valid inode bit allocated, assert `pfs_find_free_inode` returns `PROSENJITFS_ENOSPC` without modifying its output sentinel or the durable/volatile/dirty mock-media views, then restore the original bitmap block.
+- The test runs only when the fixture's inode bitmap is exactly one block and can represent every inode; it does not mutate the real volume or claim coverage for multi-block bitmap exhaustion.
+- Exact-head CI remains required; this is source/test coverage until build and boot-test runs report results.
