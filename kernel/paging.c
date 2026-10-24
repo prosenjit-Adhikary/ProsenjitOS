@@ -189,6 +189,10 @@ static int paging_map_mmio_range_unlocked(uint64_t virtual_address, uint64_t phy
         length - 1ULL > (PAGE_MASK | 0xFFFULL) - physical_address ||
         length - 1ULL > UINT64_MAX - virtual_address)
         return -1;
+    /* Never create an uncached alias of allocator-managed RAM. Device and
+     * firmware-reserved ranges are excluded from managed_bitmap at boot. */
+    if (physical_range_is_managed(physical_address, length) != 0)
+        return -1;
     uint64_t last_va = virtual_address + length - 1ULL;
     if (!canonical_address(virtual_address) || !canonical_address(last_va) ||
         ((virtual_address >> 47) & 1ULL) != ((last_va >> 47) & 1ULL))
