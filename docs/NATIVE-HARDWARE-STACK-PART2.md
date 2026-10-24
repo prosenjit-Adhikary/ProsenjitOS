@@ -291,3 +291,15 @@ The snapshot validator now tracks ports claimed by each Supported Protocol capab
 Follow-up review found that validating the full operational-register block was not enough: the doorbell and runtime windows also must start after that block, not merely after CAPLENGTH. The parser now rejects either window when it begins before CAPLENGTH + 0x40, preventing register-bank aliasing. Regression tests cover both a doorbell offset and a runtime offset inside the operational-register region.
 
 The parser still consumes only a supplied snapshot. This does not establish the real BAR aperture size or enable live MMIO/DMA. Exact-head CI must pass before verification is claimed.
+
+## MMIO/RAM alias safety follow-up — 2026-10-24
+
+A source audit found that `paging_map_mmio_range()` validated alignment, address bounds, canonical virtual ranges, and rollback, but did not reject a physical range that overlapped allocator-managed RAM. Mapping such a range with cache-disable flags could create an unsafe uncached alias of ordinary RAM.
+
+The follow-up adds `physical_range_is_managed()` to the physical-memory API. It checks every page touched by a range under the allocator lock, treats both free and allocated managed RAM as managed, rejects empty/overflowing ranges, and treats reserved device/firmware ranges as outside the managed bitmap. The MMIO mapper now fails closed if the query reports managed RAM or an invalid range. This preserves the boot-framebuffer path because the framebuffer pages are reserved during physical-memory initialization before the mapping is installed.
+
+Regression coverage added:
+- Hosted allocator test: managed RAM, reserved low memory, the 1 GiB allocator boundary, zero-length and overflowing ranges.
+- Kernel paging self-test: a freshly allocated RAM page must not be accepted as an MMIO mapping; the existing reserved APIC-window mapping still exercises the successful path.
+
+**Verification status:** source changes and test expectations have been cross-checked in the repository. Exact-head build/boot and security workflows are queued on the self-hosted runner; until they finish successfully, this change is not considered runtime-verified. No physical hardware was tested. Part 2 remains incomplete and this follow-up does not close the DMA/IOMMU, real USB transport, IRQ-driven input, audio backend, persistent userspace service, or physical-device acceptance gates.
