@@ -11582,7 +11582,6 @@ int prosenjitfs_selftest(void)
     {
         static const char anchor_name[] = "rmdir-cycle-aa";
         char missing_name[] = "rmdir-cycle-aa";
-        struct pros_vfs_file unused_file;
         struct pros_prosenjitfs_inode root_inode;
         struct pros_prosenjitfs_dir_entry anchor_entry;
         uint8_t saved_block[4096];
@@ -11597,7 +11596,6 @@ int prosenjitfs_selftest(void)
         uint32_t dirty_before;
         int rmdir_rc;
 
-        (void)unused_file;
         pfs_zero(&disk, sizeof(disk));
         pfs_crash_inject_stage = 0u;
         pfs_crash_injected = 0u;
@@ -11624,11 +11622,9 @@ int prosenjitfs_selftest(void)
                 missing_name[12] = (char)('a' + a);
                 missing_name[13] = (char)('a' + b);
                 missing_name[14] = '\0';
-                if (pfs_name_hash((const uint8_t *)missing_name, 14u) %
-                        PROSENJITFS_DIR_BUCKETS == bucket &&
-                    pfs_name_hash((const uint8_t *)missing_name, 14u) !=
-                        pfs_name_hash((const uint8_t *)anchor_name,
-                                      (uint32_t)(sizeof(anchor_name) - 1u))) {
+                if ((a != 0u || b != 0u) &&
+                    pfs_name_hash((const uint8_t *)missing_name, 14u) %
+                        PROSENJITFS_DIR_BUCKETS == bucket) {
                     found_missing = 1u;
                     break;
                 }
