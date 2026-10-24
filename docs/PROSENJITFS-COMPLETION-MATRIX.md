@@ -240,3 +240,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Final data-block boundary cross-check now also calls both exclusion-aware allocators while the last valid data block is the only free candidate. Excluding that block must return `PROSENJITFS_ENOSPC`, preserve the output sentinel, and leave durable/volatile mock sectors and the dirty map unchanged.
+
+
+## Allocator cross-review checkpoint — 2026-10-24
+
+- Cross-checked the source regression block against all allocator entry points: `pfs_find_free_inode`, `pfs_find_free_data_block`, `pfs_find_free_data_block_except`, `pfs_find_free_data_block_excluding`, `pfs_data_block_is_free`, and `pfs_inode_block_location`. The malformed sizes 0, 511, and 513 are rejected with `PROSENJITFS_EINVAL` before geometry arithmetic, and result/location sentinels are checked.
+- Cross-checked bounded inode/data bitmap exhaustion and final-valid-bit tests. They operate only on the 512-byte, single-bitmap mock fixture, snapshot durable and volatile sector bytes plus the dirty map, and restore original durable/volatile bitmap bytes before normal allocation tests continue.
+- Exact reviewed head: `${head}`. Build/boot-test and security architecture workflows were still queued at this checkpoint; no pass is claimed here.
