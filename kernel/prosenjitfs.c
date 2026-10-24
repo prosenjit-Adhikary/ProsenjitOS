@@ -13405,8 +13405,11 @@ int prosenjitfs_selftest(void)
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_mkdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK)
+                vfs_mkdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);
+            }
 
             disk.fail_write_countdown = write_position;
             rmdir_rc = vfs_rmdir(&fs.mount, "/rmdir-write-sweep");
@@ -13459,12 +13462,16 @@ int prosenjitfs_selftest(void)
                 (found_lba == 0u ||
                  prosenjitfs_read_inode(&fs, dir_entry.inode, &child_inode) !=
                     PROSENJITFS_OK ||
-                 child_inode.type != PROSENJITFS_INODE_DIR)) {
+                 child_inode.type != PROSENJITFS_INODE_DIR ||
+                  child_inode.parent_inode != fs.sb.root_inode)) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);
             }
 
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                (found_lba != 0u &&
+                 (vfs_rmdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
+                  prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)) ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);
