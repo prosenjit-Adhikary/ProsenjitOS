@@ -9315,13 +9315,23 @@ int prosenjitfs_selftest(void)
              */
             {
                 const uint32_t invalid_sizes[] = {0u, 511u, 513u, 4097u};
+                uint8_t bitmap_probe[512];
+                for (uint32_t bi = 0u; bi < sizeof(bitmap_probe); ++bi)
+                    bitmap_probe[bi] = 0xA5u;
                 for (uint32_t i = 0u;
                      i < sizeof(invalid_sizes) / sizeof(invalid_sizes[0]); ++i) {
                     uint64_t block_lba = UINT64_MAX;
                     uint64_t inode_candidate = UINT64_MAX;
                     uint32_t offset = UINT32_MAX;
+                    uint32_t bitmap_before = prosenjitfs_crc32c(
+                        bitmap_probe, (uint32_t)sizeof(bitmap_probe));
                     invalid_fs.sb.block_size = invalid_sizes[i];
-                    if (pfs_find_free_inode(&invalid_fs, &candidate) !=
+                    if (pfs_bitmap_region_build(
+                            bitmap_probe, sizeof(bitmap_probe), 0u, 1u, 0u,
+                            invalid_sizes[i]) != PROSENJITFS_EINVAL ||
+                        bitmap_before != prosenjitfs_crc32c(
+                            bitmap_probe, (uint32_t)sizeof(bitmap_probe)) ||
+                        pfs_find_free_inode(&invalid_fs, &candidate) !=
                             PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
                         prosenjitfs_alloc_inode(&invalid_fs, &inode_candidate) !=
                             PROSENJITFS_EINVAL || inode_candidate != UINT64_MAX ||
