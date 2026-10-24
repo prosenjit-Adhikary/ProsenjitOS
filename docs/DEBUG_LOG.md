@@ -451,3 +451,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source review found `pfs_find_free_data_block_except` and `pfs_inode_block_location` did not reject zero or sub-512 block sizes before geometry arithmetic; zero could cause division by zero. `pfs_data_block_is_free` also accepted nonzero sub-512 sizes.
 - Added the supported 512–4096-byte power-of-two block-size bounds to all three helpers and self-tests for block sizes 0, 511, and 513, including unchanged inode-location output sentinels.
 - Exact-head runtime CI is pending/unverified.
+
+
+## 2026-10-24 — allocator geometry consistency
+
+- Follow-up review found the primary `pfs_find_free_inode` and `pfs_find_free_data_block` helpers enforced the size range but did not reject non-power-of-two values. They now reject 513-byte geometry before allocating a bitmap buffer or computing bitmap indexes.
+- Regression coverage checks both helpers return `PROSENJITFS_EINVAL` for 513 and preserve the caller's output sentinel. Exact-head CI is pending/unverified.
