@@ -1208,8 +1208,9 @@ static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offs
         return PROS_VFS_EIO;
     if (!data->fs->mount.active)
         return PROS_VFS_EPERM;
-    if (data->fs->sb.block_size == 0u ||
+    if (data->fs->sb.block_size < 512u ||
         data->fs->sb.block_size > 4096u ||
+        (data->fs->sb.block_size & (data->fs->sb.block_size - 1u)) != 0u ||
         data->fs->sb.total_blocks < data->fs->sb.data_start ||
         (data->fs->sb.total_blocks - data->fs->sb.data_start) >
             UINT64_MAX / data->fs->sb.block_size)
@@ -1710,8 +1711,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
         return PROS_VFS_OK;
     }
 
-    if (data->fs->sb.block_size == 0u ||
-        data->fs->sb.block_size > 4096u)
+    if (data->fs->sb.block_size < 512u ||
+        data->fs->sb.block_size > 4096u ||
+        (data->fs->sb.block_size & (data->fs->sb.block_size - 1u)) != 0u)
         return PROS_VFS_ECORRUPT;
 
     keep_blocks = size / data->fs->sb.block_size +
