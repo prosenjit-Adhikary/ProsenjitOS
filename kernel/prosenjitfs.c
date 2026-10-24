@@ -9344,6 +9344,9 @@ int prosenjitfs_selftest(void)
                         pfs_allocator_range_state(
                             &invalid_fs, invalid_fs.sb.data_start, 1u, 0u) !=
                             PROSENJITFS_EINVAL ||
+                        prosenjitfs_check_integrity_report(
+                            &invalid_fs, &integrity_report) !=
+                            PROSENJITFS_ECORRUPT ||
                         prosenjitfs_free_blocks(&invalid_fs,
                             invalid_fs.sb.data_start, 1u) != PROSENJITFS_EINVAL ||
                         pfs_find_free_data_block(&invalid_fs, &candidate) !=
