@@ -10350,6 +10350,111 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sweep block-write failures across truncate's complete transaction,
+     * not only its commit-record write. After simulated power loss, the file
+     * must be either the original complete payload or fully truncated; an
+     * intermediate EOF, altered payload, or corrupt namespace is forbidden.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[64];
+        uint8_t read_data[64];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0xB3u ^ (uint8_t)(i * 23u));
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            uint32_t done = 0u;
+            int truncate_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -25);
+
+            disk.fail_write_countdown = write_position;
+            if (vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+            truncate_rc = vfs_file_truncate(&file, 0u);
+            if (vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            if (disk.fail_write_countdown != 0u) {
+                /* Truncate completed before this write position was reached. */
+                disk.fail_write_countdown = 0u;
+                if (truncate_rc != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -25);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (truncate_rc == PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/truncate-write-sweep.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            if (done == sizeof(old_data)) {
+                for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                    if (read_data[i] != old_data[i]) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -25);
+                    }
+                }
+            } else if (done != 0u) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -25);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -25);
+    }
+
+    /*
      * Truncation is a metadata transaction too. If its commit record cannot
      * be written, power-loss remount must retain the pre-truncate EOF, extent,
      * and bytes rather than exposing a partially applied shrink.
