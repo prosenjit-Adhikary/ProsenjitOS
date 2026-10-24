@@ -448,6 +448,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 ## 2026-10-24 — data-block allocator bitmap read-failure regression added
 
-- Added a direct allocator regression injecting a read failure in `pfs_find_free_data_block`.
-- The test checks EIO propagation, untouched output sentinel, no media changes, writable state, and integrity scan.
+- Added read-failure regressions for `pfs_find_free_data_block`, `pfs_find_free_data_block_except`, `pfs_find_free_data_block_excluding`, and `pfs_data_block_is_free`.
+- Each injected failure must be consumed and propagate `PROSENJITFS_EIO`; pointer-returning finders preserve the output sentinel. The suite also checks writable mount state, unchanged durable/volatile/dirty mock-media CRCs, and a successful integrity scan.
 - Exact-head runtime CI is pending/unverified.
