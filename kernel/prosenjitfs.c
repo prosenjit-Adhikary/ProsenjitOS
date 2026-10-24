@@ -9326,6 +9326,12 @@ int prosenjitfs_selftest(void)
                             PROSENJITFS_EINVAL || inode_candidate != UINT64_MAX ||
                         pfs_inode_bitmap_stage_unchecked(&invalid_fs, 1u, 1u) !=
                             PROSENJITFS_EINVAL ||
+                        pfs_allocator_stage_unchecked(
+                            &invalid_fs, invalid_fs.sb.data_start, 1u, 1u) !=
+                            PROSENJITFS_EINVAL ||
+                        pfs_allocator_range_state(
+                            &invalid_fs, invalid_fs.sb.data_start, 1u, 0u) !=
+                            PROSENJITFS_EINVAL ||
                         prosenjitfs_free_blocks(&invalid_fs,
                             invalid_fs.sb.data_start, 1u) != PROSENJITFS_EINVAL ||
                         pfs_find_free_data_block(&invalid_fs, &candidate) !=
