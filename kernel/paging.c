@@ -515,16 +515,16 @@ int paging_selftest(void) {
     static const uint64_t mmio_va = 0xFFFF900000000000ULL;
     static const uint64_t mmio_pa = 0xFEC00000ULL;
     uint64_t ram_alias_page = physical_page_alloc();
-    if (!ram_alias_page) return -6;
+    if (!ram_alias_page) return -20;
     if (paging_map_mmio_range(mmio_va, ram_alias_page, 0x1000ULL) == 0 ||
         paging_translate(mmio_va) != 0) {
         paging_unmap_mmio_range(mmio_va, 0x1000ULL);
         physical_page_free(ram_alias_page);
-        return -7;
+        return -21;
     }
     physical_page_free(ram_alias_page);
     if (paging_map_mmio_range(mmio_va, mmio_pa, 0x2000ULL) != 0)
-        return -8;
+        return -6;
     uint64_t mmio_flags = 0u;
     if (paging_translate(mmio_va) != mmio_pa ||
         paging_translate(mmio_va + 0x1000ULL) != mmio_pa + 0x1000ULL ||
