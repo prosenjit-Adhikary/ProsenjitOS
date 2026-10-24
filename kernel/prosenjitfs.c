@@ -5248,6 +5248,8 @@ struct pfs_test_disk {
     uint8_t dirty[512u / 8u];
     /* Fail the selected future block read to test I/O error classification. */
     uint32_t fail_read_countdown;
+    /* Fail the selected future block write before any bytes are accepted. */
+    uint32_t fail_write_countdown;
     /* Fail one read touching this sector, targeted at journal recovery. */
     uint64_t fail_read_lba;
     uint8_t fail_read_lba_once;
@@ -5309,6 +5311,11 @@ static int pfs_test_write(struct pros_block_device *device, uint64_t lba,
     struct pfs_test_disk *disk = (struct pfs_test_disk *)device->private_data;
     if (!disk || !buffer || lba >= 512u || count > 512u - lba)
         return PROS_BLOCK_EINVAL;
+    if (disk->fail_write_countdown != 0u) {
+        --disk->fail_write_countdown;
+        if (disk->fail_write_countdown == 0u)
+            return PROS_BLOCK_EIO;
+    }
     if (disk->fail_commit_write_once && count == 1u) {
         uint32_t magic = 0u;
         pfs_copy(&magic, buffer, sizeof(magic));
@@ -10669,6 +10676,132 @@ int prosenjitfs_selftest(void)
 
         if (sweep_finished == 0u || completed_failures == 0u)
             return pfs_selftest_fail(__LINE__, -21);
+    }
+
+    /*
+     * Sweep failures across every block write issued by rename. After a
+     * simulated power loss, recovery must expose exactly one namespace path
+     * (old or new) with the original payload, never a missing or duplicate
+     * name. A countdown not reached marks the end of rename's write sequence.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t payload[96];
+        uint8_t readback[96];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(payload); ++i)
+            payload[i] = (uint8_t)(0xA7u ^ (uint8_t)(i * 19u));
+
+        for (uint32_t write_position = 1u; write_position <= 64u;
+             ++write_position) {
+            uint32_t done = 0u;
+            int rename_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/rename-write-before.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, payload, sizeof(payload), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(payload) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -22);
+
+            disk.fail_write_countdown = write_position;
+            rename_rc = vfs_rename(&fs.mount, "/rename-write-before.bin",
+                                   "/rename-write-after.bin");
+            if (disk.fail_write_countdown != 0u) {
+                /*
+                 * Rename completed before this write position was reached.
+                 * Disarm the test-only fault before integrity scan/unmount.
+                 */
+                disk.fail_write_countdown = 0u;
+                if (rename_rc != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (rename_rc == PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+
+            pfs_test_crash_reset(&fs, &disk);
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+
+            {
+                int source_rc = vfs_file_open(
+                    &fs.mount, "/rename-write-before.bin",
+                    PROS_VFS_O_READ, &file);
+                int source_exists = source_rc == PROS_VFS_OK;
+                if (source_exists) {
+                    done = 0u;
+                    if (vfs_file_read(&file, readback, sizeof(readback),
+                                      &done) != PROS_VFS_OK ||
+                        done != sizeof(readback) ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -22);
+                    }
+                } else if (source_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+
+                int destination_rc = vfs_file_open(
+                    &fs.mount, "/rename-write-after.bin",
+                    PROS_VFS_O_READ, &file);
+                int destination_exists = destination_rc == PROS_VFS_OK;
+                if (destination_exists) {
+                    done = 0u;
+                    if (vfs_file_read(&file, readback, sizeof(readback),
+                                      &done) != PROS_VFS_OK ||
+                        done != sizeof(readback) ||
+                        vfs_file_close(&file) != PROS_VFS_OK) {
+                        pfs_test_crash_reset(&fs, &disk);
+                        return pfs_selftest_fail(__LINE__, -22);
+                    }
+                } else if (destination_rc != PROS_VFS_ENOENT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+
+                if (source_exists == destination_exists) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+            }
+
+            for (uint32_t i = 0u; i < sizeof(readback); ++i) {
+                if (readback[i] != payload[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -22);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -22);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -22);
     }
 
     /*

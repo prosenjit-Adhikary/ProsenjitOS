@@ -469,3 +469,17 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### Verification status
 - Exact-head Build/boot-test and Security architecture reruns are required after this fix.
 - Do not claim the regression fixed at runtime until the updated ISO QEMU and native BIOS QEMU gates pass.
+
+
+## 2026-10-24 — Rename write-failure sweep (pending CI)
+
+### Change
+- Added a generic one-shot block-write countdown to the ProsenjitFS mock device. It fails the selected future block write before accepting bytes, without changing the existing targeted journal-commit failure hook.
+- Added a bounded write-position sweep around `vfs_rename`. For every reached write failure, the test simulates power loss and remounts, then requires exactly one of the old/new paths to exist, the original payload to remain intact, and the report-only integrity scan to pass.
+- The first countdown not reached proves the tested rename write sequence ended; the countdown is disarmed before follow-up integrity/unmount operations.
+- No assertions are weakened and no runtime success is claimed before CI.
+
+### Verification status
+- Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`.
+- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture workflows must pass before accepting this regression.
+- Mock-device tests do not establish physical-device power-loss durability or general concurrent VFS safety.
