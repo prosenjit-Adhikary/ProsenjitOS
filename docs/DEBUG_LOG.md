@@ -481,3 +481,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Expanded invalid-geometry regression coverage across all allocator entry points, including `pfs_find_free_data_block_excluding`, at sizes 0, 511, and 513. Each must return `PROSENJITFS_EINVAL` and preserve output sentinels; durable/volatile/dirty CRC snapshots verify the calls do not mutate mock media.
+
+
+- Additional allocator cross-check: with only the final valid data block free, `pfs_find_free_data_block_except` and `pfs_find_free_data_block_excluding` must both return `PROSENJITFS_ENOSPC` when that block is excluded, preserve the sentinel, and keep durable/volatile media plus the dirty map unchanged. Exact-head runner results are still pending.
