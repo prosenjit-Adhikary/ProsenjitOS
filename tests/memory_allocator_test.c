@@ -62,7 +62,7 @@ int main(void) {
         .total_size = sizeof(struct multiboot_fixture),
         .reserved = 0,
         .mmap = { .type = 6u, .size = 40u, .entry_size = 24u, .entry_version = 0u },
-        .entry = { .base_addr = 0x100000u, .length = 63u * 1024u * 1024u, .type = 1u, .reserved = 0u },
+        .entry = { .base_addr = 0x100000u, .length = PROSENJIT_PHYS_LIMIT + 4ULL * 1024ULL * 1024ULL - 0x100000ULL, .type = 1u, .reserved = 0u },
         .end = { .type = 0u, .size = 8u }
     };
     if (physical_memory_init((uint64_t)(uintptr_t)&fixture) != 0) {
@@ -87,7 +87,8 @@ int main(void) {
 
     if (physical_range_is_mmio_safe(0x200000u, PROSENJIT_PAGE_SIZE) != 0 ||
         physical_range_is_mmio_safe(0x1000u, PROSENJIT_PAGE_SIZE) != 1 ||
-        physical_range_is_mmio_safe(PROSENJIT_PHYS_LIMIT, PROSENJIT_PAGE_SIZE) != 1 ||
+        physical_range_is_mmio_safe(PROSENJIT_PHYS_LIMIT, PROSENJIT_PAGE_SIZE) != 0 ||
+        physical_range_is_mmio_safe(0xFEC00000ULL, PROSENJIT_PAGE_SIZE) != 1 ||
         physical_range_is_mmio_safe(UINT64_MAX - 0xFFFu, 0x2000u) != -1 ||
         physical_range_is_mmio_safe(0x200000u, 0u) != -1) {
         fputs("allocator test: MMIO-safe physical range query contract failed\n", stderr);
