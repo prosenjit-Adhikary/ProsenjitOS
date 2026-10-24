@@ -11656,8 +11656,8 @@ int prosenjitfs_selftest(void)
         volatile_before = prosenjitfs_crc32c(disk.volatile_data, media_size);
         dirty_before = prosenjitfs_crc32c(disk.dirty,
                                            (uint32_t)sizeof(disk.dirty));
-        missing_path[12] = missing_name[12];
-        missing_path[13] = missing_name[13];
+        missing_path[13] = missing_name[12];
+        missing_path[14] = missing_name[13];
         rmdir_rc = vfs_rmdir(&fs.mount, missing_path);
         if (rmdir_rc != PROS_VFS_ECORRUPT ||
             durable_before != prosenjitfs_crc32c(disk.data, media_size) ||
