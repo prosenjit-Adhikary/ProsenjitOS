@@ -2213,7 +2213,8 @@ static int pfs_find_free_data_block_excluding(const struct pros_prosenjitfs *fs,
     uint8_t *block;
 
     if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u)
+        fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
