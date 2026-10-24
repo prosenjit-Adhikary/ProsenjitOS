@@ -9110,8 +9110,21 @@ int prosenjitfs_selftest(void)
             if (pfs_find_free_inode(&fs, &candidate) != PROSENJITFS_EIO ||
                 disk.fail_read_countdown != 0u ||
                 candidate != UINT64_MAX || fs.read_only ||
-                fs.mount.read_only ||
-                durable_before != prosenjitfs_crc32c(
+                fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            /*
+             * The public inode allocator reads the same bitmap but must also
+             * preserve its output parameter when that read fails.
+             */
+            disk.fail_read_countdown = 1u;
+            candidate = UINT64_MAX;
+            if (prosenjitfs_alloc_inode(&fs, &candidate) != PROSENJITFS_EIO ||
+                disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+                fs.read_only || fs.mount.read_only)
+                return pfs_selftest_fail(__LINE__, -27);
+
+            if (durable_before != prosenjitfs_crc32c(
                     disk.data, (uint32_t)sizeof(disk.data)) ||
                 volatile_before != prosenjitfs_crc32c(
                     disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
