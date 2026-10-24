@@ -444,3 +444,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build/boot-test run [#8227](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134203): **PASS** on self-hosted runner `office`; ISO and native BIOS QEMU reached the required ProsenjitFS recovery and persistence markers. Security architecture run [#7763](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39956134201): **PASS**.
 - Exact tested PR head: `f2df43395bbf2f07c56b6796df2818cc75aec220`. This is self-test cleanup verification, not physical-device power-loss durability.
 - This is a self-test failure-path cleanup; it is not a claim of production filesystem completion or physical-device power-loss durability.
+
+
+## 2026-10-24 — allocator invalid-block-size guard
+
+- Source review found `pfs_find_free_data_block_except` rejected block sizes above 4096 but did not reject zero or sub-512 sizes before computing `bits_per_block`. A zero block size could cause division by zero if malformed filesystem state reached this helper.
+- Added the same supported block-size lower bound used by the primary allocators and self-tests for block sizes 0 and 511.
+- Exact-head runtime CI is pending/unverified.
