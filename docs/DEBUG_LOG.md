@@ -450,7 +450,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 - PR #211 adds self-tests for duplicate directory inode references and duplicate valid directory names. The corruption is crafted with valid checksums/hash placement so the integrity scan must detect the namespace violation itself; the tests check report-only behavior leaves durable, volatile, and dirty mock media unchanged and that restoring the entry yields a clean scan.
 - PR #212 adds a bounded `fail_read_countdown` sweep for `vfs_rename`. Each injected read failure must not publish the destination or mutate durable/volatile/dirty mock-media views; the original payload must remain readable, the mount writable, and integrity clean. The first countdown not reached terminates the sweep.
-- Exact heads at the time of this note: PR #211 `28446ed40aeb748e8e0a5b3172a3e86f799f4567`; PR #212 `db6d868b3e906aef1d684dcc14386ee01ffe66a9`. Build/boot-test and Security architecture checks were queued for these exact heads; no pass is claimed here.
+- Exact PR #211 head `28446ed40aeb748e8e0a5b3172a3e86f799f4567` passed Build/boot-test [#39980888372](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39980888372) and Security architecture [#39980888146](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39980888146); PR #211 merged as `e8a27899d4fe6de72a6e0959fa9d04659ca34eec`. PR #212 fixed head `1204deed4e8899448422e5cc7702eca776de3c6f` passed Build/boot-test [#40072397646](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397646) and Security architecture [#40072397702](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397702); PR #212 merged as `b6b6eaf409c9407a822b0a6016147087edb6c365`.
 - Mock-device regression coverage only; physical hardware durability and general concurrent VFS safety remain separate acceptance gates.
 
 
@@ -467,11 +467,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source fix commit: a7a7a5b7eaca35dfdf91788d44e37daef433f2a0.
 
 ### Verification status
-- Exact-head Build/boot-test and Security architecture reruns are required after this fix.
-- Do not claim the regression fixed at runtime until the updated ISO QEMU and native BIOS QEMU gates pass.
+- **Verified:** fixed exact PR head `1204deed4e8899448422e5cc7702eca776de3c6f` passed Build/boot-test [#40072397646](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397646), including ISO QEMU and native BIOS QEMU, and Security architecture [#40072397702](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072397702). PR #212 merged as `b6b6eaf409c9407a822b0a6016147087edb6c365`.
 
 
-## 2026-10-24 — Rename write-failure sweep (pending CI)
+## 2026-10-24 — Rename write-failure sweep (verified)
 
 ### Change
 - Added a generic one-shot block-write countdown to the ProsenjitFS mock device. It fails the selected future block write before accepting bytes, without changing the existing targeted journal-commit failure hook.
@@ -481,5 +480,5 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 ### Verification status
 - Source commit: `68b04cad273d9521c271942ae828926b0bcb3ab6`.
-- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture workflows must pass before accepting this regression.
+- Exact PR head `c897fa782f805778b0de051ca2b338a39be7d7ce` passed Build/boot-test [#40072964418](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964418), including ISO QEMU and native BIOS QEMU, and Security architecture [#40072964417](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40072964417). PR #222 merged as `2b14a2b67e7c3543e95140af033f603410c66bc5`.
 - Mock-device tests do not establish physical-device power-loss durability or general concurrent VFS safety.
