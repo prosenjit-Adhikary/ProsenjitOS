@@ -9350,6 +9350,9 @@ int prosenjitfs_selftest(void)
                             PROSENJITFS_ECORRUPT ||
                         prosenjitfs_free_blocks(&invalid_fs,
                             invalid_fs.sb.data_start, 1u) != PROSENJITFS_EINVAL ||
+                        prosenjitfs_preallocate_blocks(
+                            &invalid_fs, invalid_fs.sb.root_inode, 0u, 1u) !=
+                            PROSENJITFS_EINVAL ||
                         pfs_find_free_data_block(&invalid_fs, &candidate) !=
                             PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
                         pfs_find_free_data_block_except(
