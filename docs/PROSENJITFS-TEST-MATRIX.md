@@ -1,5 +1,15 @@
 # ProsenjitFS Test Matrix — 2026-10-24
 
+## Journal failure-path follow-up — pending exact-head CI
+
+- [x] Added a targeted regression for failure of transaction flush #2 (journal header/images flush): the write must fail with zero bytes reported, the mount must remain writable, a retry must succeed, and readback plus integrity scan must match the retry payload.
+- [ ] Exact-head Build/boot-test and Security architecture CI must pass before this regression is considered verified.
+- Scope is the mock block device only; this is not physical-device durability certification.
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-17 | Journal-images flush failure and retry | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Second transaction flush fails before commit publication; failed write reports zero bytes, mount remains writable, subsequent write/readback succeeds, integrity scan passes | Implemented on PR #235 branch; exact-head CI pending |
+
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
 
 - [x] Audited `vfs_file_read()`: unlike the write fix in this branch, it cleared `bytes_read` only after argument and permission checks. A rejected read could therefore leave a stale caller-provided count.
