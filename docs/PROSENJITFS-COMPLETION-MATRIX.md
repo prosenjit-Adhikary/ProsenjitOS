@@ -231,3 +231,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Test-harness safety refinement: exhaustion tests now snapshot and restore both durable and volatile bytes directly in the mock disk, leaving the dirty map untouched. This avoids using the block-write callback to restore a bitmap and inadvertently changing the mock cache state during the test itself.
+
+
+- Added last-valid-bit boundary assertions to the bounded exhaustion fixtures: after proving `ENOSPC` with every valid bit set, each test exposes only the final valid inode/data-block bit and verifies the allocator returns exactly `inode_count - 1` / `total_blocks - 1` without changing either mock-media view or the dirty map. The original durable and volatile bitmap sectors are then restored byte-for-byte.
