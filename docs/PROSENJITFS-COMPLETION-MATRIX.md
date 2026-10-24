@@ -237,3 +237,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 
 - Cross-review expanded malformed-geometry coverage to every relevant allocator helper, including `pfs_find_free_data_block_excluding`, for block sizes 0, 511, and 513. Each call must return `PROSENJITFS_EINVAL` without changing output sentinels; mock-media CRC checks bracket the whole set.
+
+
+- Final data-block boundary cross-check now also calls both exclusion-aware allocators while the last valid data block is the only free candidate. Excluding that block must return `PROSENJITFS_ENOSPC`, preserve the output sentinel, and leave durable/volatile mock sectors and the dirty map unchanged.
