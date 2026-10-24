@@ -5064,7 +5064,8 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
     uint32_t offset;
     uint8_t block[4096];
     if (!fs || !inode || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size > sizeof(block))
+        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
@@ -5103,7 +5104,8 @@ int prosenjitfs_write_inode(struct pros_prosenjitfs *fs,
     uint32_t offset;
     uint8_t block[4096];
     if (!fs || !inode || fs->read_only || inode_number >= fs->sb.inode_count ||
-        fs->sb.block_size > sizeof(block))
+        fs->sb.block_size < 512u || fs->sb.block_size > sizeof(block) ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
     if (inode_number > UINT64_MAX / PROSENJITFS_INODE_SIZE)
         return PROSENJITFS_EOVERFLOW;
@@ -9381,6 +9383,10 @@ int prosenjitfs_selftest(void)
                         block_lba != UINT64_MAX || offset != UINT32_MAX ||
                         pfs_data_block_is_free(
                             &invalid_fs, invalid_fs.sb.data_start) !=
+                            PROSENJITFS_EINVAL ||
+                        prosenjitfs_read_inode(&invalid_fs, 0u, &inode) !=
+                            PROSENJITFS_EINVAL ||
+                        prosenjitfs_write_inode(&invalid_fs, 0u, &inode) !=
                             PROSENJITFS_EINVAL)
                         return pfs_selftest_fail(__LINE__, -27);
                 }
