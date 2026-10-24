@@ -202,5 +202,5 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 ## Legacy allocator invalid-block-size guard — 2026-10-24
 
 - The legacy data-block allocator helper, `pfs_inode_block_location`, and `pfs_data_block_is_free` now reject block sizes below 512 bytes as well as sizes above 4096 bytes before bitmap or inode geometry arithmetic.
-- Regression coverage checks block sizes 0 and 511 return `PROSENJITFS_EINVAL`, preserves output sentinels, and leaves durable/volatile/dirty mock-media state unchanged. This prevents divide-by-zero and invalid geometry calculations when malformed state reaches these helpers.
+- Regression coverage checks block sizes 0, 511, and non-power-of-two 513 return `PROSENJITFS_EINVAL`, preserves output sentinels, and leaves durable/volatile/dirty mock-media state unchanged. This prevents divide-by-zero and invalid geometry calculations when malformed state reaches these helpers.
 - Exact-head Build/boot-test and Security architecture checks are required; no runtime pass is claimed.
