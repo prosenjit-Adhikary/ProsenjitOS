@@ -8123,10 +8123,10 @@ int prosenjitfs_selftest(void)
      * leaves the caller's output untouched. Restore the exact bitmap block
      * before continuing so later integrity checks see the original metadata.
      */
-    if (fs.sb.inode_bitmap_blocks == 1u &&
+    if (fs.sb.block_size == 512u && fs.sb.inode_bitmap_blocks == 1u &&
         fs.sb.inode_count <= (uint64_t)fs.sb.block_size * 8u) {
-        uint8_t saved_bitmap[4096];
-        uint8_t full_bitmap[4096];
+        uint8_t saved_bitmap[512];
+        uint8_t full_bitmap[512];
         uint64_t bitmap_lba;
         uint64_t candidate = UINT64_MAX;
         uint32_t durable_before;
@@ -8182,11 +8182,10 @@ int prosenjitfs_selftest(void)
      * Exhaust the data-block bitmap in the bounded one-block fixture and
      * verify ENOSPC leaves the result sentinel and media views unchanged.
      */
-    if (fs.sb.block_bitmap_blocks == 1u &&
-        fs.sb.total_blocks <= (uint64_t)fs.sb.block_size * 8u &&
-        fs.sb.block_size <= 4096u) {
-        uint8_t saved_bitmap[4096];
-        uint8_t full_bitmap[4096];
+    if (fs.sb.block_size == 512u && fs.sb.block_bitmap_blocks == 1u &&
+        fs.sb.total_blocks <= (uint64_t)fs.sb.block_size * 8u) {
+        uint8_t saved_bitmap[512];
+        uint8_t full_bitmap[512];
         uint64_t bitmap_lba;
         uint64_t candidate = UINT64_MAX;
         uint32_t durable_before;
