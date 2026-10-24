@@ -492,3 +492,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Source commit: `126a4786dbd9b0427625149cee3999efd4c6dbba`.
 - Initial CI exposed an error-classification bug: `pfs_vnode_unlink()` converted any `pfs_read_extent()` failure to `PROSENJITFS_ECORRUPT`, hiding device I/O errors during extent reclamation. The fix now propagates the exact extent-read error through transaction cleanup. Source fix commit: `ab3c659d4784f82fa83b87f54e7e1d84122d8dd6`.
 - **Verified:** fixed exact PR head `895ee35f7a2413e569b2d42cbc52ca0efc580928` passed Build/boot-test [#40073371338](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073371338), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073371343](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073371343). PR #223 merged as `30acc248df1258fa6ac65a6b5eb8e8ef47e2ceb5`.
+
+
+## 2026-10-24 — Unlink write-failure sweep (pending CI)
+
+- Added a bounded mock-device block-write countdown sweep around `vfs_unlink`.
+- For every reached write failure, the test simulates power loss and remount. Either the old file remains with byte-identical payload, or the committed unlink is visible; in both cases the report-only integrity scan must pass.
+- The first countdown not reached proves the unlink write sequence ended; the fault is disarmed before lookup/integrity/unmount.
+- Source commit: `a18e2a55b36c6a445657bb9786dd172fb0eaf95c`.
+- Exact-head Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture checks are pending.

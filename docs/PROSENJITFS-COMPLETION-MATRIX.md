@@ -232,3 +232,12 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The first not-reached countdown is disarmed before follow-up checks to avoid leaking an operation-specific fault into integrity/unmount.
 - Source commit: `126a4786dbd9b0427625149cee3999efd4c6dbba`.
 - Initial ISO QEMU run [#40073247679](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073247679) exposed a source-proven error-classification bug: `pfs_vnode_unlink()` collapsed `pfs_read_extent()` device I/O failures into corruption. Fix commit `ab3c659d4784f82fa83b87f54e7e1d84122d8dd6` preserves the original error. Fixed exact PR head `895ee35f7a2413e569b2d42cbc52ca0efc580928` passed Build/boot-test [#40073371338](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073371338), including ISO QEMU and native BIOS QEMU, and Security architecture [#40073371343](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40073371343). PR #223 merged as `30acc248df1258fa6ac65a6b5eb8e8ef47e2ceb5`. This does not prove physical-device durability or general concurrent VFS safety.
+
+
+## Pending verification — unlink write-failure sweep (2026-10-24)
+
+- Added a bounded block-write failure sweep around `vfs_unlink`; each injected failure is followed by simulated power loss and remount.
+- Acceptance allows either the original file with unchanged payload or the fully committed unlink, but rejects both/neither namespace inconsistencies, altered payload, or an integrity-scan failure.
+- The first not-reached countdown is disarmed before follow-up checks.
+- Source commit: `a18e2a55b36c6a445657bb9786dd172fb0eaf95c`.
+- **Pending:** exact-head warning-clean build, ISO QEMU, native BIOS QEMU, and Security architecture CI. Physical-device durability and general concurrent VFS safety remain unproven.
