@@ -1,5 +1,13 @@
 # ProsenjitFS Test Matrix — 2026-10-24
 
+## Part 2 follow-up — VFS read output-count contract (2026-10-24)
+
+- [x] Audited `vfs_file_read()`: unlike the write fix in this branch, it cleared `bytes_read` only after argument and permission checks. A rejected read could therefore leave a stale caller-provided count.
+- [x] Changed `kernel/vfs.c` to clear a non-null output count before validation/dispatch; added regressions for permission-denied and filesystem-`EIO` reads using a nonzero sentinel.
+- [ ] Exact-head Build/boot-test and Security architecture CI must pass before runtime verification is claimed.
+- Scope: VFS output contract only; no on-disk format change, no crash-atomicity or hardware-durability claim.
+
+
 ## Part 2 regression added — pending exact-head CI
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
