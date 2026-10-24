@@ -8125,6 +8125,7 @@ int prosenjitfs_selftest(void)
      * change the dirty map or hide cache-state regressions.
      */
     if (fs.sb.block_size == 512u && fs.sb.inode_bitmap_blocks == 1u &&
+        fs.sb.inode_count > 1u &&
         fs.sb.inode_count <= (uint64_t)fs.sb.block_size * 8u) {
         uint8_t saved_durable[512];
         uint8_t saved_volatile[512];
