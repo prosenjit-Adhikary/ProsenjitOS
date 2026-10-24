@@ -9304,7 +9304,7 @@ int prosenjitfs_selftest(void)
              * non-power-of-two geometry before division or bitmap indexing.
              */
             {
-                const uint32_t invalid_sizes[] = {0u, 511u, 513u};
+                const uint32_t invalid_sizes[] = {0u, 511u, 513u, 4097u};
                 for (uint32_t i = 0u;
                      i < sizeof(invalid_sizes) / sizeof(invalid_sizes[0]); ++i) {
                     uint64_t block_lba = UINT64_MAX;
