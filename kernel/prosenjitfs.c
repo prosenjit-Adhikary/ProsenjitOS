@@ -10453,16 +10453,32 @@ int prosenjitfs_selftest(void)
                 break;
             }
 
-            if (operation_rc != PROS_VFS_EIO ||
-                durable_before != prosenjitfs_crc32c(
-                    disk.data, (uint32_t)sizeof(disk.data)) ||
-                volatile_before != prosenjitfs_crc32c(
-                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
-                dirty_before != prosenjitfs_crc32c(
-                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
-                fs.read_only || fs.mount.read_only) {
+            if (operation_rc != PROS_VFS_EIO) {
                 pfs_test_crash_reset(&fs, &disk);
-                return pfs_selftest_fail(__LINE__, -27);
+                return pfs_selftest_fail(__LINE__, -271);
+            }
+            if (durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -272);
+            }
+            if (volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -273);
+            }
+            if (dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty))) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -274);
+            }
+            if (fs.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -275);
+            }
+            if (fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -276);
             }
 
             done = 0u;
