@@ -533,9 +533,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Exact tested head `804732c4f19cd5104de1edacefbddb2628d7724c` passed Build/boot-test [#40077925458](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077925458) and Security architecture [#40077925489](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077925489). PR #229 merged before the current mkdir sweep.
 - Mock-device fault injection only; physical-device power-loss durability and general concurrent VFS safety remain unproven.
 
-## 2026-10-24 — mkdir write-failure sweep (verification pending)
+## 2026-10-24 — create and mkdir write-failure sweeps (verification pending)
 
-- Added a bounded block-write countdown sweep around `vfs_mkdir`. Each reached failure is followed by simulated power loss and remount; the recovered filesystem must mount and pass the report-only integrity scan.
+- Added bounded block-write countdown sweeps around `vfs_mkdir` and file creation via `vfs_file_open(..., O_CREATE)`. Each reached failure is followed by simulated power loss and remount; the recovered filesystem must mount and pass the report-only integrity scan. The create test permits a file to be absent or present after an ambiguous commit, with integrity validation as the acceptance gate.
 - The first write countdown not reached is disarmed before integrity/unmount checks. The test also requires the failed mkdir operation not to report success when an injected write failure was reached.
-- Exact PR head `d14fbcab9c8c6eec91ba7d777d5f271e3ffbdab6`; Build/boot-test run [#40083581369](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40083581369) and Security architecture run [#40083581479](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40083581479) were queued when this entry was written. Update this status only after inspecting both exact-head results.
+- Latest exact PR head `f695bee960b46485c104a59bbff5a17230dca880`; Build/boot-test run [#40084286411](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40084286411) and Security architecture run [#40084286375](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40084286375) were queued when this entry was written. Update this status only after inspecting both exact-head results.
 - This is a mock-device regression and does not prove physical-device power-loss durability.
