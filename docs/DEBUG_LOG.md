@@ -484,3 +484,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 
 - Additional allocator cross-check: with only the final valid data block free, `pfs_find_free_data_block_except` and `pfs_find_free_data_block_excluding` must both return `PROSENJITFS_ENOSPC` when that block is excluded, preserve the sentinel, and keep durable/volatile media plus the dirty map unchanged. Exact-head runner results are still pending.
+
+
+## 2026-10-24 — allocator cross-review checkpoint
+
+- Re-read the complete malformed-geometry regression and verified it exercises all six relevant allocator/location helpers with block sizes 0, 511, and 513, checking error codes and unchanged output sentinels.
+- Re-read the inode/data exhaustion fixtures and confirmed they are bounded to a 512-byte block and one bitmap block. They inject the synthetic bitmap directly into mock durable/volatile sectors, snapshot those views and the dirty map around read-only allocator calls, and restore both original sector views on success and handled failure paths.
+- The final-valid-data-bit case also checks both exclusion-aware helpers return `PROSENJITFS_ENOSPC` when that sole free bit is excluded. Exact reviewed head: `${head}`.
+- Verification status at this checkpoint: build/boot-test and security architecture workflows were queued, combined status had no reported checks. Runtime verification is pending; do not treat this source review as a passing run.
