@@ -492,3 +492,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Re-read the inode/data exhaustion fixtures and confirmed they are bounded to a 512-byte block and one bitmap block. They inject the synthetic bitmap directly into mock durable/volatile sectors, snapshot those views and the dirty map around read-only allocator calls, and restore both original sector views on success and handled failure paths.
 - The final-valid-data-bit case also checks both exclusion-aware helpers return `PROSENJITFS_ENOSPC` when that sole free bit is excluded. Exact reviewed head: `941d079bedf686aa7a9a661f6323ce867a6a392e`.
 - Verification status at this checkpoint: build/boot-test and security architecture workflows were queued, combined status had no reported checks. Runtime verification is pending; do not treat this source review as a passing run.
+
+## 2026-10-24 — allocator cross-review follow-up
+
+- Re-checked the latest source at `26bc12ed9debe1d5c32b6fc483bb600a99eae1b2`: all six allocator/location helpers reject invalid geometry values 0, 511, and 513; output/location sentinels and mock-media CRCs are checked.
+- Confirmed bounded inode/data exhaustion and final-valid-bit tests plus both exclusion-aware helper checks. Fixture preparation/restoration edits only the mock durable/volatile sector arrays directly, so the allocator's read-only behavior is measured independently from write-path dirty bookkeeping.
+- Exact-head Build/boot-test run [#8354](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40061193695) and Security architecture run [#7890](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40061193684) were queued at review time. Combined status had no reported checks; runtime verification remains pending.
