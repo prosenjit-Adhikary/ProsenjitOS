@@ -45,6 +45,10 @@ extern char __kernel_end[];
 static uint64_t page_bitmap[BITMAP_WORDS];
 /* managed_bitmap distinguishes allocator-owned pages from permanently reserved pages. */
 static uint64_t managed_bitmap[BITMAP_WORDS];
+/* Tracks firmware-reported RAM even when the allocator later reserves it. */
+static uint64_t ram_bitmap[BITMAP_WORDS];
+static uint64_t boot_framebuffer_base;
+static uint64_t boot_framebuffer_length;
 /* Only explicitly user-allocated pages may be mapped into CPL3. */
 static uint64_t user_bitmap[BITMAP_WORDS];
 /* Marks every page in a contiguous allocation, not just its run head. */
@@ -166,6 +170,13 @@ static void mark_available(uint64_t base, uint64_t length) {
     uint64_t end = base + length;
     if (end < base || end > PROSENJIT_PHYS_LIMIT) end = PROSENJIT_PHYS_LIMIT;
 
+    /* Mark every touched RAM page for MMIO-alias prevention, including partial edge pages. */
+    uint64_t ram_first = base / PROSENJIT_PAGE_SIZE;
+    uint64_t ram_last = (end + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
+    if (ram_last > MAX_PAGES) ram_last = MAX_PAGES;
+    for (uint64_t page = ram_first; page < ram_last; ++page)
+        ram_bitmap[page >> 6] |= 1ULL << (page & 63ULL);
+
     uint64_t first = (base + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
     uint64_t last = end / PROSENJIT_PAGE_SIZE;
     if (last > MAX_PAGES) last = MAX_PAGES;
@@ -183,6 +194,7 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     for (uint64_t i = 0; i < BITMAP_WORDS; ++i) {
         page_bitmap[i] = 0;
         managed_bitmap[i] = 0;
+        ram_bitmap[i] = 0;
         user_bitmap[i] = 0;
         contiguous_bitmap[i] = 0;
     }
@@ -201,6 +213,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
 
     uint64_t framebuffer_base = 0u;
     uint64_t framebuffer_length = 0u;
+    boot_framebuffer_base = 0u;
+    boot_framebuffer_length = 0u;
     uint64_t current = multiboot_info_address + 8ULL;
     uint64_t end = multiboot_info_address + (uint64_t)total_size;
 
@@ -292,6 +306,8 @@ int physical_memory_init(uint64_t multiboot_info_address) {
     /* The bootloader framebuffer must never be returned as ordinary RAM. */
     if (framebuffer_length != 0u)
         reserve_range(framebuffer_base, framebuffer_length);
+    boot_framebuffer_base = framebuffer_base;
+    boot_framebuffer_length = framebuffer_length;
 
     /* The Multiboot information structure must remain readable by the kernel. */
     reserve_range(multiboot_info_address, total_size);
@@ -472,6 +488,44 @@ int physical_range_is_managed(uint64_t physical_address, uint64_t length) {
         }
     }
     page_allocator_lock_release(flags);
+    return 0;
+}
+
+/*
+ * Return whether a physical range may be mapped as device MMIO. Firmware
+ * reserved ranges are allowed, but RAM is not: clearing managed_bitmap for
+ * the kernel or boot metadata must not accidentally make that RAM MMIO-safe.
+ * The one explicit RAM-backed exception is the exact bootloader framebuffer
+ * range, which physical_memory_init has reserved from normal allocation.
+ */
+int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length) {
+    if (length == 0u || physical_address > UINT64_MAX - length)
+        return -1;
+    uint64_t end = physical_address + length;
+    if (physical_address >= PROSENJIT_PHYS_LIMIT)
+        return 1;
+    uint64_t managed_end = end > PROSENJIT_PHYS_LIMIT
+        ? PROSENJIT_PHYS_LIMIT : end;
+    uint64_t first = physical_address / PROSENJIT_PAGE_SIZE;
+    uint64_t last = (managed_end + PROSENJIT_PAGE_SIZE - 1ULL) / PROSENJIT_PAGE_SIZE;
+    if (last > MAX_PAGES) last = MAX_PAGES;
+    int overlaps_ram = 0;
+    uint64_t flags = page_allocator_lock_acquire();
+    for (uint64_t page = first; page < last; ++page) {
+        if ((ram_bitmap[page >> 6] & (1ULL << (page & 63ULL))) != 0u) {
+            overlaps_ram = 1;
+            break;
+        }
+    }
+    uint64_t fb_base = boot_framebuffer_base;
+    uint64_t fb_length = boot_framebuffer_length;
+    page_allocator_lock_release(flags);
+    if (!overlaps_ram)
+        return 1;
+    if (fb_length != 0u && physical_address >= fb_base &&
+        end >= physical_address && fb_base <= UINT64_MAX - fb_length &&
+        end <= fb_base + fb_length)
+        return 1;
     return 0;
 }
 
