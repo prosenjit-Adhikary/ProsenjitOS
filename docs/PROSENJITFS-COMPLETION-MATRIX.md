@@ -256,3 +256,9 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Recovered content must be either the unchanged original 64-byte payload or a fully truncated empty file; intermediate EOF, altered bytes, or integrity failures are rejected.
 - **Verified:** exact PR head `2586aa0403d5c984cb64b962c5bfdd1bf360cfe4` passed Build/boot-test [#40077700893](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700893), including ISO QEMU and native BIOS QEMU, and Security architecture [#40077700948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700948). PR #228 merged as `e6c391ae009b94dd8645140cfe86a571167ff54f`.
 
+## Pending verification — mkdir/rmdir/create/overwrite write-failure sweeps (2026-10-24)
+
+- PR #230 adds bounded block-write countdown sweeps for `vfs_mkdir`, `vfs_rmdir`, file creation through `vfs_file_open(..., O_CREATE)`, and same-size overwrite. Reached faults simulate power loss and remount; namespace/inode state and the report-only integrity scan are checked. Overwrite recovery must contain exactly the old or new 64-byte payload, never a torn mixture.
+- The test disarms the first countdown not reached before integrity/unmount checks. The rmdir sweep accepts either the intact empty directory or the fully removed directory after remount, but requires valid inode type and clean integrity.
+- Latest exact head `22da8502bce69a3c69c6ddf222eb643ffa89aab0`: Build/boot-test [#40088773369](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40088773369) and Security architecture [#40088773288](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40088773288) are queued; results are not yet verified.
+- Mock-device fault injection does not prove physical-device power-loss durability or general concurrent VFS safety.
