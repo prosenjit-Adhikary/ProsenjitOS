@@ -204,3 +204,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - The legacy data-block allocator helper, `pfs_inode_block_location`, and `pfs_data_block_is_free` now reject block sizes below 512 bytes as well as sizes above 4096 bytes before bitmap or inode geometry arithmetic.
 - Regression coverage checks block sizes 0, 511, and non-power-of-two 513 return `PROSENJITFS_EINVAL`, preserves output sentinels, and leaves durable/volatile/dirty mock-media state unchanged. This prevents divide-by-zero and invalid geometry calculations when malformed state reaches these helpers.
 - Exact-head Build/boot-test and Security architecture checks are required; no runtime pass is claimed.
+
+
+## Allocator geometry consistency — 2026-10-24
+
+- Extended the supported 512–4096-byte power-of-two guard to the primary inode and data-block free-space finders; these entry points now reject non-power-of-two geometry before bitmap indexing or allocation.
+- Added regression assertions for a 513-byte block size and verifies both finder output sentinels remain unchanged on `PROSENJITFS_EINVAL`.
+- Exact-head build/boot-test and security checks remain required; source-level changes are not treated as a runtime pass.
