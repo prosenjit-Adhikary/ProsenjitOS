@@ -2069,7 +2069,7 @@ static int pfs_make_vnode(struct pros_prosenjitfs *fs, uint64_t inode_number,
     {
         int rc = prosenjitfs_read_inode(fs, inode_number, &inode);
         if (rc != PROSENJITFS_OK)
-            return rc;
+            return pfs_vfs_error(rc);
     }
     if (inode.type == PROSENJITFS_INODE_DIR)
         type = PROS_VFS_NODE_DIRECTORY;
