@@ -254,3 +254,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Both exclusion-aware data allocators are checked with the final valid data block as the only free bit; excluding it must return `ENOSPC` without changing the sentinel or durable/volatile/dirty media state.
 - The tests directly alter the mock durable/volatile sector views, not the block-device write path, then restore the saved sector views. This avoids introducing dirty-map changes merely from preparing test fixtures. Handled assertion failures restore the bitmap before returning.
 - Exact-head Build/boot-test run [#8354](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40061193695) and Security architecture run [#7890](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40061193684) were queued at review time; combined status had no reported checks. No runtime pass is claimed.
+
+
+- Geometry regression now also covers 4097-byte blocks (one above the supported maximum), alongside 0, 511, and 513, across all allocator/location/free-state helpers; invalid sizes must return `PROSENJITFS_EINVAL` without modifying output sentinels or media.
