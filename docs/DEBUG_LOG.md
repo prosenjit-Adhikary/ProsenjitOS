@@ -452,3 +452,20 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - PR #212 adds a bounded `fail_read_countdown` sweep for `vfs_rename`. Each injected read failure must not publish the destination or mutate durable/volatile/dirty mock-media views; the original payload must remain readable, the mount writable, and integrity clean. The first countdown not reached terminates the sweep.
 - Exact heads at the time of this note: PR #211 `28446ed40aeb748e8e0a5b3172a3e86f799f4567`; PR #212 `db6d868b3e906aef1d684dcc14386ee01ffe66a9`. Build/boot-test and Security architecture checks were queued for these exact heads; no pass is claimed here.
 - Mock-device regression coverage only; physical hardware durability and general concurrent VFS safety remain separate acceptance gates.
+
+
+## 2026-10-24 — Rename read-failure sweep leaked its final fault injection
+
+### Diagnosis
+- Build/boot run [#39981319506](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39981319506) built the ISO but failed its ISO QEMU gate because the ProsenjitFS boot self-test stopped at source line 10605 (selftest_stage=0x296D, failure code -21).
+- Source inspection found that when the selected read position was beyond the reads performed by vfs_rename, the test immediately ran the integrity scan and unmount while disk.fail_read_countdown was still armed. The unrelated follow-up integrity/unmount reads could consume that fault and falsely fail the sweep.
+- This is a test fault-injection lifetime bug, not a missing-runner failure. The Security architecture run [#39981319411](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/39981319411) passed.
+
+### Fix
+- Disarm disk.fail_read_countdown once the sweep proves the requested position was not reached by vfs_rename, before running integrity scan and unmount.
+- Preserve all injected-failure assertions; the fault remains active during the rename operation itself.
+- Source fix commit: a7a7a5b7eaca35dfdf91788d44e37daef433f2a0.
+
+### Verification status
+- Exact-head Build/boot-test and Security architecture reruns are required after this fix.
+- Do not claim the regression fixed at runtime until the updated ISO QEMU and native BIOS QEMU gates pass.
