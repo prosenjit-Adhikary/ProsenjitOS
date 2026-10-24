@@ -10611,6 +10611,127 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Sweep read failures across truncate's complete operation, including
+     * opening the file. A reached read fault must leave the old file and all
+     * mock-media views unchanged; a not-reached fault is disarmed before the
+     * successful truncate's verification reads.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[64];
+        uint8_t read_data[64];
+        uint32_t completed_failures = 0u;
+        uint32_t sweep_finished = 0u;
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i)
+            old_data[i] = (uint8_t)(0x6Du + (uint8_t)(i * 19u));
+
+        for (uint32_t read_position = 1u; read_position <= 64u;
+             ++read_position) {
+            uint32_t done = 0u;
+            uint32_t durable_before;
+            uint32_t volatile_before;
+            uint32_t dirty_before;
+            int open_rc;
+            int truncate_rc = PROS_VFS_OK;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -28);
+
+            durable_before = prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data));
+            volatile_before = prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+            dirty_before = prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+            disk.fail_read_countdown = read_position;
+            open_rc = vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+                                    PROS_VFS_O_WRITE, &file);
+            if (open_rc != PROS_VFS_OK) {
+                truncate_rc = open_rc;
+            } else {
+                truncate_rc = vfs_file_truncate(&file, 0u);
+                if (vfs_file_close(&file) != PROS_VFS_OK &&
+                    truncate_rc == PROS_VFS_OK)
+                    truncate_rc = PROS_VFS_EIO;
+            }
+
+            if (disk.fail_read_countdown != 0u) {
+                /* Truncate completed before this read position was reached. */
+                disk.fail_read_countdown = 0u;
+                if (truncate_rc != PROS_VFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -28);
+                }
+                done = 0u;
+                if (vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+                                  PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                    vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                        PROS_VFS_OK ||
+                    done != 0u ||
+                    vfs_file_close(&file) != PROS_VFS_OK ||
+                    prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                    prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -28);
+                }
+                sweep_finished = 1u;
+                break;
+            }
+
+            if (truncate_rc != PROS_VFS_EIO ||
+                durable_before != prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data)) ||
+                volatile_before != prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                dirty_before != prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+                fs.read_only || fs.mount.read_only) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -28);
+            }
+
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/truncate-read-sweep.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -28);
+            }
+            for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+                if (read_data[i] != old_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -28);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -28);
+            }
+            ++completed_failures;
+        }
+
+        if (sweep_finished == 0u || completed_failures == 0u)
+            return pfs_selftest_fail(__LINE__, -28);
+    }
+
+    /*
      * Sweep block-write failures across truncate's complete transaction,
      * not only its commit-record write. After simulated power loss, the file
      * must be either the original complete payload or fully truncated; an
