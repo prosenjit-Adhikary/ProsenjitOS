@@ -2128,7 +2128,8 @@ static int pfs_find_free_inode(const struct pros_prosenjitfs *fs,
     uint8_t *block;
 
     if (!fs || !inode_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u)
+        fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
@@ -2172,7 +2173,8 @@ static int pfs_find_free_data_block(const struct pros_prosenjitfs *fs,
     uint8_t *block;
 
     if (!fs || !block_number || fs->sb.block_size < 512u ||
-        fs->sb.block_size > 4096u)
+        fs->sb.block_size > 4096u ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u)
         return PROSENJITFS_EINVAL;
     block = (uint8_t *)kmalloc(fs->sb.block_size);
     if (!block)
@@ -9127,6 +9129,12 @@ int prosenjitfs_selftest(void)
 
             /* In-range but non-power-of-two geometry is also unsupported. */
             invalid_fs.sb.block_size = 513u;
+            if (pfs_find_free_inode(&invalid_fs, &candidate) !=
+                    PROSENJITFS_EINVAL || candidate != UINT64_MAX ||
+                pfs_find_free_data_block(&invalid_fs, &candidate) !=
+                    PROSENJITFS_EINVAL || candidate != UINT64_MAX)
+                return pfs_selftest_fail(__LINE__, -27);
+
             if (pfs_find_free_data_block_except(&invalid_fs, UINT64_MAX,
                                                 &candidate) !=
                     PROSENJITFS_EINVAL ||
