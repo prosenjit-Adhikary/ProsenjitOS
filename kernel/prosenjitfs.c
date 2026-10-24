@@ -4561,6 +4561,7 @@ int prosenjitfs_preallocate_blocks(struct pros_prosenjitfs *fs,
     if (!fs || fs->read_only || !fs->mount.active || !fs->mount.device ||
         count == 0u || count > 8u ||
         fs->sb.block_size < 512u || fs->sb.block_size > sizeof(bitmap_zero) ||
+        (fs->sb.block_size & (fs->sb.block_size - 1u)) != 0u ||
         inode_number >= fs->sb.inode_count)
         return PROSENJITFS_EINVAL;
 
