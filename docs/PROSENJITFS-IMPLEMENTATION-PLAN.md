@@ -1,5 +1,18 @@
 # ProsenjitFS Implementation Plan — Audit-Driven
 
+## Part 2 execution update — 2026-10-24
+
+**Execution branch:** `fix/prosenjitfs-vfs-write-error-count-20261024`  
+**Starting main HEAD:** `e875810769cb022f1a450bce86027966a3982fcc`
+
+- [x] Re-read the completion matrix, implementation plan, test matrix, architecture contract, `kernel/prosenjitfs.c`, `kernel/vfs.c`, and `kernel/include/vfs.h` before changing code.
+- [x] Confirmed the existing v1 core already implements superblock/version validation, bitmap allocation, inode/extent metadata, hash-bucket directories, VFS namespace/file operations, redo journaling/recovery, and a read-only integrity scan. The immediate gap is not a missing replacement filesystem; continue hardening the existing provider.
+- [x] Fixed a VFS output-contract defect in `vfs_file_write()`: the caller-provided `bytes_written` value was not cleared before permission checks or filesystem callback dispatch, so an error could leave a stale count that looked like successful partial I/O.
+- [x] Added a focused VFS self-test callback that returns `PROS_VFS_EIO`; the regression seeds the output count with a nonzero sentinel and requires `EIO` plus a zero byte count.
+- [ ] Verify the exact execution branch with Build/boot-test and Security architecture workflows. Source changes are not runtime-verified until those gates finish on this branch.
+- [ ] Continue the pending exact-head review of create/overwrite-write PR #230 and rmdir-write PR #232; do not merge or mark them verified from their titles or queued statuses.
+
+
 **Audit date:** 2026-10-24  
 **Baseline:** `main` at `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
 **Status source:** [Completion matrix](PROSENJITFS-COMPLETION-MATRIX.md)  
