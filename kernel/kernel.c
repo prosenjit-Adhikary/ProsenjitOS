@@ -1198,6 +1198,27 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
             for (;;) __asm__ volatile ("cli; hlt");
         }
         serial_write("ProsenjitOS: capability-checked input endpoint self-test passed\n");
+
+        /*
+         * Restart the static service object after all old capabilities close.
+         * A stale generation must not become valid again when the endpoint is
+         * registered a second time; the service must remain ready afterwards.
+         */
+        uint64_t restarted_handle = PROSENJIT_HANDLE_INVALID;
+        if (pros_input_service_shutdown() != PROS_DRIVER_OK ||
+            pros_input_service_is_ready() ||
+            pros_input_service_init() != PROS_DRIVER_OK ||
+            !pros_input_service_is_ready() ||
+            pros_input_service_read_capability(&init_process, input_read_handle,
+                                               &received) != PROS_DRIVER_EPERM ||
+            pros_input_service_grant_read(&init_process, &restarted_handle) != PROS_DRIVER_OK ||
+            restarted_handle == PROSENJIT_HANDLE_INVALID ||
+            restarted_handle == input_read_handle ||
+            process_close_handle(&init_process, restarted_handle) != 0) {
+            serial_write("ProsenjitOS: ERROR input capability stale-generation restart test failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+        serial_write("ProsenjitOS: input service restart/stale-capability test passed\n");
     }
 
     {
