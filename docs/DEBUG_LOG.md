@@ -448,6 +448,6 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 
 ## 2026-10-24 — allocator invalid-block-size guard
 
-- Source review found `pfs_find_free_data_block_except` rejected block sizes above 4096 but did not reject zero or sub-512 sizes before computing `bits_per_block`. A zero block size could cause division by zero if malformed filesystem state reached this helper.
-- Added the same supported block-size lower bound used by the primary allocators and self-tests for block sizes 0 and 511.
+- Source review found `pfs_find_free_data_block_except` and `pfs_inode_block_location` did not reject zero or sub-512 block sizes before geometry arithmetic; zero could cause division by zero. `pfs_data_block_is_free` also accepted nonzero sub-512 sizes.
+- Added the supported 512–4096-byte block-size bounds to all three helpers and self-tests for block sizes 0 and 511, including unchanged inode-location output sentinels.
 - Exact-head runtime CI is pending/unverified.
