@@ -8,6 +8,8 @@ The project is being designed from first principles. It may study ideas used by 
 
 The complete subsystem/dependency map and completion gates are maintained in [docs/PROJECT-STRUCTURE.md](docs/PROJECT-STRUCTURE.md). The project follows a structure-first workflow: establish interfaces and deterministic regression hooks, then run the full verification baseline and fix errors before starting dependent features.
 
+The single-desktop / separate-execution-subsystem architecture, source-backed implementation status, interface ownership, lifecycle, security boundaries, and Part 1 acceptance gate are maintained in [docs/DESKTOP-ARCHITECTURE-FOUNDATION.md](docs/DESKTOP-ARCHITECTURE-FOUNDATION.md).
+
 ## Vision
 
 ProsenjitOS aims to become a practical general-purpose OS with:
