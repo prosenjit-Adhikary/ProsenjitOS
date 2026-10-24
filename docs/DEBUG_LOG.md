@@ -525,3 +525,8 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-10-24 — vnode read geometry guard
 
 - Cross-review of every `block_size` division found `pfs_file_read` divided the requested position by the superblock block size without a local geometry check. Added the same supported 512–4096-byte power-of-two check and total-data-span overflow guard used by the write path before inode validation/read-loop arithmetic. Invalid in-memory geometry now returns `PROS_VFS_ECORRUPT` instead of risking divide-by-zero or invalid block indexing. Exact-head runner verification remains pending.
+
+
+## 2026-10-24 — inode I/O geometry validation
+
+- Cross-review found `prosenjitfs_read_inode` and `prosenjitfs_write_inode` still computed inode offsets after only checking `block_size <= 4096`; zero could cause divide-by-zero and sub-sector/non-power-of-two values could produce invalid offsets. Both now validate the supported 512–4096-byte power-of-two geometry before division. The malformed-geometry self-test now calls both public APIs for 0, 511, 513, and 4097 and expects `PROSENJITFS_EINVAL`; whole-test durable/volatile/dirty CRC assertions detect accidental media mutation. Exact-head CI remains pending.
