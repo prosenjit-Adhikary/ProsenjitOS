@@ -15,6 +15,8 @@ uint64_t physical_page_alloc_user(void);
 int physical_page_is_allocated(uint64_t physical_address);
 /* Returns 1 if any page overlaps allocator-managed RAM, 0 if none, -1 on invalid range. */
 int physical_range_is_managed(uint64_t physical_address, uint64_t length);
+/* Returns 1 for reserved/device-safe ranges, 0 for RAM overlap, -1 if invalid. */
+int physical_range_is_mmio_safe(uint64_t physical_address, uint64_t length);
 int physical_page_is_user_mappable(uint64_t physical_address);
 void physical_page_free(uint64_t physical_address);
 uint64_t physical_memory_total_pages(void);
