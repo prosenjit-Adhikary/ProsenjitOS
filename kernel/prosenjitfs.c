@@ -12479,6 +12479,7 @@ int prosenjitfs_selftest(void)
      */
     {
         struct pros_prosenjitfs_inode root_inode;
+        struct pros_prosenjitfs_inode created_inode;
         struct pros_prosenjitfs_dir_entry dir_entry;
         uint64_t dir_lba = 0u;
         uint64_t previous_lba = 0u;
@@ -12536,6 +12537,14 @@ int prosenjitfs_selftest(void)
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -26);
                 }
+                if (lookup_rc == PROSENJITFS_OK &&
+                    (dir_lba == 0u ||
+                     prosenjitfs_read_inode(&fs, dir_entry.inode,
+                                            &created_inode) != PROSENJITFS_OK ||
+                     created_inode.type != PROSENJITFS_INODE_DIR)) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -26);
+                }
             }
 
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
@@ -12563,10 +12572,12 @@ int prosenjitfs_selftest(void)
         for (uint32_t write_position = 1u; write_position <= 64u;
              ++write_position) {
             struct pros_prosenjitfs_inode root_inode;
+            struct pros_prosenjitfs_inode created_inode;
             struct pros_prosenjitfs_dir_entry dir_entry;
             struct pros_vfs_file file;
             uint64_t found_lba = 0u;
             uint64_t previous_lba = 0u;
+            int lookup_rc;
             int open_rc;
 
             pfs_zero(&disk, sizeof(disk));
@@ -12614,15 +12625,22 @@ int prosenjitfs_selftest(void)
 
             found_lba = 0u;
             previous_lba = 0u;
-            {
-                int lookup_rc = pfs_find_dir_entry_lba(
-                    &fs, &root_inode, file_name, &dir_entry, &found_lba,
-                    &previous_lba);
-                if (lookup_rc != PROSENJITFS_OK &&
-                    lookup_rc != PROSENJITFS_ENOENT) {
-                    pfs_test_crash_reset(&fs, &disk);
-                    return pfs_selftest_fail(__LINE__, -27);
-                }
+            lookup_rc = pfs_find_dir_entry_lba(
+                &fs, &root_inode, file_name, &dir_entry, &found_lba,
+                &previous_lba);
+            if (lookup_rc != PROSENJITFS_OK &&
+                lookup_rc != PROSENJITFS_ENOENT) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
+            }
+            if (lookup_rc == PROSENJITFS_OK &&
+                (found_lba == 0u ||
+                 prosenjitfs_read_inode(&fs, dir_entry.inode,
+                                        &created_inode) != PROSENJITFS_OK ||
+                 created_inode.type != PROSENJITFS_INODE_FILE ||
+                 created_inode.size != 0u)) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -27);
             }
 
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
