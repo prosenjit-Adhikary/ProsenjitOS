@@ -11581,7 +11581,9 @@ int prosenjitfs_selftest(void)
      */
     {
         static const char anchor_name[] = "rmdir-cycle-aa";
+        static const char anchor_path[] = "/rmdir-cycle-aa";
         char missing_name[] = "rmdir-cycle-aa";
+        char missing_path[] = "/rmdir-cycle-aa";
         struct pros_prosenjitfs_inode root_inode;
         struct pros_prosenjitfs_dir_entry anchor_entry;
         uint8_t saved_block[4096];
@@ -11601,7 +11603,7 @@ int prosenjitfs_selftest(void)
         pfs_crash_injected = 0u;
         if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
             prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-            vfs_mkdir(&fs.mount, anchor_name) != PROS_VFS_OK ||
+            vfs_mkdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
             prosenjitfs_read_inode(&fs, fs.sb.root_inode, &root_inode) !=
                 PROSENJITFS_OK ||
             pfs_find_dir_entry_lba(&fs, &root_inode, anchor_name,
@@ -11654,7 +11656,9 @@ int prosenjitfs_selftest(void)
         volatile_before = prosenjitfs_crc32c(disk.volatile_data, media_size);
         dirty_before = prosenjitfs_crc32c(disk.dirty,
                                            (uint32_t)sizeof(disk.dirty));
-        rmdir_rc = vfs_rmdir(&fs.mount, missing_name);
+        missing_path[12] = missing_name[12];
+        missing_path[13] = missing_name[13];
+        rmdir_rc = vfs_rmdir(&fs.mount, missing_path);
         if (rmdir_rc != PROS_VFS_ECORRUPT ||
             durable_before != prosenjitfs_crc32c(disk.data, media_size) ||
             volatile_before != prosenjitfs_crc32c(
@@ -11674,7 +11678,7 @@ int prosenjitfs_selftest(void)
         pfs_copy(disk.volatile_data + anchor_lba * fs.sb.block_size,
                  saved_block, fs.sb.block_size);
         if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-            vfs_rmdir(&fs.mount, anchor_name) != PROS_VFS_OK ||
+            vfs_rmdir(&fs.mount, anchor_path) != PROS_VFS_OK ||
             prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
             prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
             return pfs_selftest_fail(__LINE__, -25);
