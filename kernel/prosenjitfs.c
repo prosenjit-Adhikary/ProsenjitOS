@@ -8777,7 +8777,6 @@ int prosenjitfs_selftest(void)
         struct pros_prosenjitfs_inode root_inode;
         struct pros_prosenjitfs_inode file_inode;
         struct pros_prosenjitfs_dir_entry fault_entry;
-        uint32_t done = 0u;
         uint32_t durable_before;
         uint32_t volatile_before;
         uint32_t dirty_before;
