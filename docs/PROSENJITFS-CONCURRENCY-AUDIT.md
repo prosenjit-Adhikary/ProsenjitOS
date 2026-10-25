@@ -191,3 +191,12 @@ This section is a verification snapshot, not a claim that the filesystem is comp
 - A query filtered to workflow runs whose `head_sha` exactly equals `7ce8f6f6bddd3cea59fa891781cbd44a0ba2815a` returned no runs. The visible Build run for PR #265 references older commit `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`; it is not evidence that the current head built or booted.
 - PR #264's exact-head Security and Build runs remain queued/pending for `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`; neither result is a pass yet.
 - Current lock review remains source-level only: IRQ-save spinlocks mitigate the same-CPU timer-preemption deadlock, but hold local interrupts off across callbacks and are not an SMP locking protocol. Keep both PRs unmerged until exact-head CI completes and interrupt latency, namespace/lifetime races, and deterministic concurrent tests are addressed.
+
+
+## Exact-head recheck — 2026-10-25 23:56 IST
+
+- Live PR #265 head at this recheck: `e48f27b8401502dd2161726e0fe59e6c584fa8d3`; PR remains open and GitHub currently reports it as not mergeable.
+- The branch's visible Build/boot-test run `40209491598` and Security architecture run `40209491593` both reference older head `3a759c2498bbcdda5fd15ebbfc762fe996bf0409` and remain queued. They are not exact-head verification for `e48f27b8401502dd2161726e0fe59e6c584fa8d3`; the exact-head workflow query returned no matching run.
+- Source inspection confirms the IRQ-save spinlock correction and nested IF-restoration regression are present. The test executes during early initialization with IF disabled, so the initially-enabled IF restoration path is still not directly exercised.
+- No local build or QEMU result is claimed. Do not merge based on the stale queued runs. The next verification gate is Build/boot-test and Security architecture on the exact functional source head, followed by controlled same-handle and mount/namespace lifecycle tests and review of IRQ-off latency.
+- This is a status correction only; it does not claim the concurrency gaps are fixed.
