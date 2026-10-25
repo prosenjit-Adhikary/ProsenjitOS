@@ -625,3 +625,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Build job completed toolchain verification, DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
 - Captured logs include the ProsenjitFS format/mount/allocation/journal/recovery self-test marker, native filesystem LBA-boundary diagnostic, and ATA PIO -> MBR -> ProsenjitFS persistent-mount marker.
 - These results verify the code/test head; this follow-up only updates documentation. Physical-device power-loss certification and general concurrent mutation remain outside the evidence.
+
+
+## 2026-10-25 — FS-30 journal-retirement error propagation
+
+- Found `pfs_journal_clear()` returned undocumented values `-101..-106`, including for failed journal-block writes and flushes. Recovery/mount could therefore lose the block layer's intended `PROSENJITFS_EIO` classification.
+- Replaced magic returns with named filesystem validation/corruption statuses and propagated the original LBA/write/flush result.
+- Added a mount-level regression for the journal-clear write and flush failure after a durable stage-4 uncommitted transaction. Both failures must return EIO; retries must discard the uncommitted journal and retain the old file payload.
+- Exact-head Build/boot-test and Security architecture CI are pending; no runtime result is claimed yet.
