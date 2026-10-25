@@ -178,3 +178,29 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [x] Add a deterministic mock-device regression that creates a committed transaction stopped before home-block replay, duplicates two journal target LBAs, recomputes both header and commit checksums, and requires mount recovery to return `PROSENJITFS_ECORRUPT` before replay.
 - [ ] Exact-head Build/boot-test and Security architecture CI must pass before marking this regression PASS.
 - Scope is structural validation on an in-memory mock device; no physical-device durability or general concurrency claim.
+
+
+## Handoff / active work log — 2026-10-25 (PR #264 and PR #265)
+
+This section is the handoff source for another AI/engineer. Preserve the distinction between implemented code, tests that exist, CI status, and hardware-level evidence.
+
+### PR #264 — invalid journal target geometry
+- Branch: `test/prosenjitfs-invalid-journal-targets-main-v2-20261025`
+- Exact head observed: `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`
+- Source test adds checksum-recomputed invalid journal target cases for block 0, block 1, `total_blocks`, and `journal_start`; expected result is `PROSENJITFS_ECORRUPT` with durable, volatile and dirty mock-medium state unchanged.
+- PR: https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/264
+- Exact-head CI last observed pending: Build/boot-test run [#40207586779](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40207586779); Security architecture run [#40207586760](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40207586760). Re-query current head and runs before treating these as final status.
+
+### PR #265 — file read/truncate I/O serialization
+- Branch: `fix/prosenjitfs-serialize-file-read-truncate-20261025`
+- Exact head observed: `4c0f7e40ea3408a10bbcd2b25e8318f54026eb45`
+- `pfs_file_read()` now acquires the existing per-filesystem `pfs_io_lock()` and calls `pfs_file_read_unserialized()`; `pfs_file_truncate()` similarly wraps `pfs_file_truncate_unserialized()`. This lock is already used by the write path, so file reads/truncates serialize against writes and append's inode-EOF snapshot.
+- PR: https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/265
+- Exact-head CI last observed queued: Build/boot-test run [#40208475785](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208475785); Security architecture run [#40208475812](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208475812). Re-query current head and runs before treating these as final status.
+- This is a targeted synchronization improvement, not proof of full VFS concurrency safety. Namespace mutation operations (create/unlink/rename/mkdir/rmdir), directory scans and unmount-vs-in-flight-operation synchronization still need a lock ownership/order audit and deterministic concurrency tests. Avoid adding nested acquisition of the same non-recursive spinlock.
+
+### Verification and handoff rules
+- Local runner was reported offline; no local compile, runtime, or filesystem self-test is claimed for these two PR heads.
+- Do not merge either PR until the exact current head's Build/boot-test and Security architecture checks pass, then re-check PR head SHA and mergeability.
+- Existing mock-device and QEMU tests do not certify physical-device power-loss durability.
+- Do not mark overall ProsenjitFS complete based only on these PRs. Update this log and the test matrix whenever implementation, test, CI or hardware evidence changes.
