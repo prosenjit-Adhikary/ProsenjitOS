@@ -194,3 +194,10 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - Current PR #265 head at last query: `1312cef301f7e6042abce59fb928745787eca8ff`.
 - Build/boot-test [#40208605368](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605368): pending. Security architecture [#40208605379](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605379): queued.
 - Earlier runs were for superseded commits and are not valid pass evidence for this head.
+
+
+## Follow-up audit note — FS-33 write-lock correction (2026-10-25)
+
+- The initial FS-33 wrapper guarded only `O_APPEND` writes; a follow-up source audit caught that ordinary writes would not take the shared lock. The write wrapper is now corrected to lock every write when filesystem state is available.
+- Corrective source head: `828def8a5cc8e53f9c03156973c1b60e96876572` on PR #265.
+- This correction has not yet passed exact-head CI at the time of writing. The existing matrix item describes intended synchronization, not a verified concurrency guarantee. Controlled interleaving tests and the broader VFS lifecycle audit remain open.
