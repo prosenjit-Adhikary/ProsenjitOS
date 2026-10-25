@@ -117,3 +117,10 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - Never point a formatter or write test at a real disk, partition, or existing filesystem.
 - Fault injection must be scoped to the target operation and disabled before readback, integrity scans, remount checks or cleanup.
 - A passing mock-device/QEMU test does not establish physical-device power-loss durability or concurrent VFS safety.
+
+
+## Ambiguous pre-commit flush regression — added, exact-head CI pending
+
+- Added a mock-device case for flush #2 (journal header/images): the mock persists the journal data but reports `EIO`. The write must report zero bytes while the mount remains writable because no commit record was published.
+- The test simulates power loss, remounts, verifies the complete old payload is still visible, and runs the read-only integrity check before continuing to the existing ambiguous commit-flush case.
+- This specifically covers the uncertain outcome where a pre-commit flush may have reached durable media despite reporting failure. It is not physical-device durability certification.
