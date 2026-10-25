@@ -609,3 +609,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Changed shrink truncation to stage the zeroed final-block suffix, extent/bitmap changes and new inode size through the existing redo journal transaction; the v1 layout is unchanged.
 - Added a deterministic self-test for truncate-to-100, write-at-200, and zero-gap verification through VFS.
 - Verification pending: exact-head Build/boot-test (ISO + native BIOS QEMU) and Security architecture workflows must run on the branch. No compiler, runtime or CI success is claimed here.
+
+
+## 2026-10-25 — FS-29 inode allocation output contract
+
+- Audit found `prosenjitfs_alloc_inode()` wrote its candidate inode number before the inode-bitmap redo transaction succeeded, so an I/O failure could return an error while modifying the caller's output.
+- Moved output publication after successful bitmap transaction completion.
+- Added a pre-commit journal-write fault regression requiring EIO, sentinel preservation, unchanged durable/volatile/dirty mock-media checksums, a writable mount and a passing integrity scan.
+- Exact-head Build/boot-test and Security architecture CI remain pending; no runtime success is claimed.
