@@ -584,3 +584,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Root cause: while porting PR #237, a cleanup hunk sharing a generic integrity/unmount anchor was applied to the earlier unlink read-failure sweep instead of the intended rmdir write-failure sweep.
 - Removed the misplaced rmdir cleanup from the unlink block; added it only to the rmdir write-sweep block, where `found_lba` belongs and the condition means remove a child directory that survived recovery. Kept the recovered parent-inode/root invariant and test-fixture crash reset.
 - Source-scope guards passed by inspection of the resulting GitHub file content; this is not compiler verification. Fresh exact-head Build/boot-test and Security runs are required.
+
+
+## 2026-10-25 — removed temporary block-init tracing
+
+- Removed the one-off `block_device_init()` entry/exit stack/register trace, its cross-layer dependency on `pfs_selftest_diag_stage`, and the forced `O0`/`noinline` attributes from `kernel/block.c`.
+- Kept the generic ProsenjitFS self-test checkpoints immediately before and after block-device initialization (`0xF004` and `0xF005`) so high-level failure localization remains available.
+- This is a cleanup of diagnostic instrumentation only; the exact-head Build/boot-test and Security architecture workflows must pass before treating it as verified.
