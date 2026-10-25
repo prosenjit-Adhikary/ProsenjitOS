@@ -1,31 +1,11 @@
-## Namespace child-reference validation — 2026-10-25
+## Part 2 verification checkpoint — 2026-10-25
 
-- [x] Hardened pfs_vnode_lookup() and pfs_vnode_readdir() to reject dangling child references, mismatched directory-entry/inode types, child parent IDs that do not match the containing directory, and direct directory self-links.
-- [x] Added checksummed corruption regressions for entry/inode type mismatch and an in-range but wrong child parent; path lookup rejects the corrupted metadata, enumeration rejects the mismatched entry, restores valid records, and checks integrity.
-- [ ] Fresh exact-head Build/boot-test and Security architecture CI are required for the combined inode, directory-index-owner, lookup and readdir changes.
-- Scope: v1 disk layout unchanged. Cross-directory rename updates the child inode parent and remains covered by existing tests.
-
-## Namespace child-reference validation — 2026-10-25
-
-- [x] Hardened pfs_vnode_lookup() to verify that a directory entry resolves to an allocated inode whose type matches the entry and whose parent inode matches the containing directory; direct directory self-links are rejected.
-- [x] Added checksummed corruption regressions for entry/inode type mismatch and an in-range but wrong child parent; each requires lookup to fail closed, restores valid metadata, and verifies a clean integrity scan.
-- [ ] Fresh exact-head Build/boot-test and Security architecture CI are required for the combined inode, directory-index-owner, and namespace-reference changes.
-- Scope: v1 disk layout unchanged. Cross-directory rename updates the child inode parent and remains covered by existing tests.
-
-## Directory-index owner identity — 2026-10-25
-
-- [x] Extended the directory-index reader and directory traversal helpers to require the expected inode number, not just an in-range index inode and matching generation.
-- [x] Added a CRC-valid index corruption regression that changes only the owner inode to another in-range value, requires `PROSENJITFS_ECORRUPT` on read, restores the original index through the journal transaction path, and verifies clean integrity.
-- [ ] Exact-head Build/boot-test and Security architecture CI are pending for the combined inode/index metadata hardening branch.
-- Scope: no v1 format change; the index owner field is checked against the inode ID known to the caller.
-
-## Inode-record admission hardening — 2026-10-25
-
-- [x] Audited prosenjitfs_read_inode() against the existing v1 inode layout and the integrity scanner's semantic checks.
-- [x] Added post-checksum admission checks for supported v1 inode types/flags, nonzero generation, in-range parent inode, logical size within data-area capacity, and block-aligned allocated-byte accounting bounded by volume capacity.
-- [x] Added tests that inject CRC-valid malformed root records through prosenjitfs_write_inode(), require PROSENJITFS_ECORRUPT from reads, restore the valid root on each case, and run a clean integrity scan.
-- [ ] Exact-head Build/boot-test and Security architecture CI for this branch are required; source inspection alone is not runtime verification.
-- Scope: no v1 on-disk format change. Extent/directory reference graphs remain validated by dedicated readers and the integrity walk; no physical-device durability or general concurrency claim.
+- [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.
+- [x] Directory-index ownership: readers and callers supply the expected owner ID; a CRC-valid index naming another in-range inode is rejected, and the original index is restored through the journal path.
+- [x] Namespace child references: path lookup and readdir reject dangling references, entry/inode type mismatch, wrong parent, and direct directory self-links. Corruption regressions restore original metadata and verify integrity.
+- [x] On-disk v1 layout/version unchanged. No physical-device durability or general concurrency claim.
+- [x] Exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033` passed [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791). Build includes ISO and native BIOS QEMU boot, ProsenjitFS self-test, LBA-boundary diagnostic, and ATA-to-MBR persistent-mount checks.
+- [ ] Broader P2/P3/P4 work remains open: systematic read/write/flush fault sweeps, additional journal recovery cut points, and remaining metadata/extent/namespace boundary cases.
 ## Part 2 continuation — 2026-10-25
 
 ## Integration CI failure and source correction — 2026-10-25
@@ -121,7 +101,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## P4 — Validate metadata, allocation and namespace invariants adversarially
 
 - [ ] Expand remaining boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, further inode semantic combinations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
-- [x] Source/test coverage added for checksum-valid inode type/flag/generation/parent/size/allocated-byte admission; exact-head CI is pending and P4 is not complete.
+- [x] Source/test coverage for checksum-valid inode type/flag/generation/parent/size/allocated-byte admission passed on exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033` (Build #8548 and Security #8084). P4 remains open for remaining boundary families.
 - [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
 - [x] Added a bounded total-path-length guard in `vfs_path_lookup()` before vnode reference acquisition; an unterminated path reaching `PROS_VFS_PATH_MAX` is rejected with `PROS_VFS_EOVERFLOW` instead of scanning arbitrarily many separators.
 - [x] Added VFS self-tests for empty and overlong paths, repeated separators, `.`, `..` and root escape clamping, missing intermediate directory, non-directory components, and preservation of the caller's result pointer on error.

@@ -1,29 +1,10 @@
-## Namespace child-reference validation — source/test added; current exact-head CI pending (2026-10-25)
+## Part 2 metadata-hardening status — 2026-10-25
 
-- pfs_vnode_lookup() and pfs_vnode_readdir() reject dangling entry references as corruption and require entry type and inode type to agree and child parent_inode to equal the containing directory's inode number; direct directory self-links are rejected.
-- Checksummed regressions mutate the /hello.bin directory-entry type and child inode parent. Lookup returns PROS_VFS_ECORRUPT; enumeration also returns PROS_VFS_ECORRUPT for the type mismatch. Original metadata is restored and integrity is checked.
-- Build/boot-test passed on prior exact head 712eaf68bb90dfb2d1ffddf59fbc1bd48258d0d2 (run #8547); the additional readdir source/test change requires fresh exact-head Build and Security checks before acceptance.
-
-## Namespace child-reference validation — source/test added; CI pending (2026-10-25)
-
-- pfs_vnode_lookup() now rejects dangling entry references as corruption and requires entry type and inode type to agree and child parent_inode to equal the containing directory's inode number; direct directory self-links are rejected.
-- Added two checksum-valid regressions against /hello.bin: mutate the directory-entry type, then mutate the inode parent to a different in-range ID. Each case requires PROS_VFS_ECORRUPT, restores valid metadata, and verifies clean integrity.
-- The current combined source/test commit requires fresh exact-head Build/boot-test and Security architecture checks before acceptance.
-
-## Directory-index owner identity — source/test added; CI pending (2026-10-25)
-
-- `pfs_read_dir_index()` now receives the expected inode number and rejects a checksum-valid directory index whose embedded `inode` field names a different in-range inode.
-- Propagated the known owner through create/mkdir/unlink/rmdir/rename, lookup, readdir, and integrity-check callers, including self-test helper paths.
-- Regression mutates the root index owner while recalculating the CRC, requires `PROSENJITFS_ECORRUPT`, then restores the original index via the journal transaction interface and runs a clean integrity scan.
-- The preceding source revision `88b7873f12c29678a9fc93bb9be8012e8dac2205` passed Build/boot-test #8544 (run [#8544](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40163951177)); this new source change requires fresh exact-head checks.
-
-## Inode-record admission update — 2026-10-25
-
-- Added v1 inode semantic validation to prosenjitfs_read_inode() after checksum validation: known type/flag values, nonzero generation, parent index bounds, size within the data area, and block-aligned allocated-byte accounting bounded by volume capacity.
-- Added seven checksum-valid malformed-record regressions. Each mutation is written via the existing fixture-capable inode writer, then the valid root record is restored before assertion results are evaluated; the suite ends with a clean integrity scan.
-- The accepted v1 disk format is unchanged. Extent and directory references remain the responsibility of dedicated readers.
-- Verification status: PENDING exact-head Build/boot-test and Security architecture workflows. Do not mark FS-23 green before both pass.
-
+- **PASS — source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`:** [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791) both completed successfully.
+- Inode admission: seven checksum-valid malformed-record cases rejected; original root restored; integrity scan passed.
+- Directory-index owner: a checksum-valid wrong-owner index rejected; original index restored transactionally; integrity scan passed.
+- Namespace child references: lookup and readdir enforce inode existence, type equality, parent equality, and direct-self-link rules. Type/parent corruption tests restore metadata and require a clean integrity scan.
+- v1 on-disk format unchanged. Mock-device/QEMU evidence does not certify physical-device power-loss durability or general VFS concurrency.
 ## Current integration update — allocator bitmap read-error coverage (2026-10-25)
 
 - Added test cases in `kernel/prosenjitfs.c` for read failures in the inode bitmap finder and public inode allocator, plus all four data bitmap lookup/query paths.

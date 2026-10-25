@@ -1,37 +1,10 @@
-## 2026-10-25 — Readdir child-reference validation
+## 2026-10-25 — ProsenjitFS Part 2 verification summary
 
-- Follow-up source audit found readdir used the referenced inode's type without enforcing the directory entry's type or child parent relationship.
-- Updated pfs_vnode_readdir() to convert dangling inode references to corruption and require type/parent consistency, with directory self-links rejected.
-- Extended the checksummed wrong-entry-type regression to require both vfs_path_lookup and vfs_dir_read enumeration to return PROS_VFS_ECORRUPT before the original entry block is restored.
-- The prior head passed Build/boot-test #8547; this readdir addition needs fresh exact-head Build/boot-test and Security runs. No unverified result is claimed.
-
-## 2026-10-25 — VFS corruption result-code alignment
-
-- Source review confirmed pfs_vfs_error() maps PROSENJITFS_ECORRUPT to PROS_VFS_ECORRUPT. Updated both new namespace lookup regressions and documentation to assert the defined error code, not generic I/O failure.
-- Exact-head Build/boot-test and Security architecture remain pending for the final branch head.
-
-## 2026-10-25 — Namespace child-reference validation follow-up
-
-- Continued the metadata-hardening series on fix/prosenjitfs-inode-record-admission-20261025.
-- pfs_vnode_lookup() now rejects dangling inode references as corruption and checks entry type, child parent, and direct self-link invariants before constructing a vnode.
-- Added tests that inject CRC-valid type/parent mismatches for /hello.bin, expect lookup failure, restore metadata, and verify integrity.
-- Current revision must pass fresh exact-head Build/boot-test and Security checks; no result is assumed from prior commits. Disk version/layout remain unchanged.
-
-## 2026-10-25 — Directory-index owner identity follow-up
-
-- Continuing on `fix/prosenjitfs-inode-record-admission-20261025`; branch now includes inode-record admission plus directory-index owner validation.
-- Found a metadata identity gap: the directory index reader validated `index.inode` was in range and generation-matched, but could not require it to equal the owning inode number because that number was not passed into the reader.
-- Propagated expected inode IDs through namespace lookup/traversal, create/mkdir/unlink/rmdir/rename, readdir, and the consistency scan.
-- Added a checksum-valid wrong-owner regression with transactional restore and final integrity validation. No on-disk version/layout change.
-- The previous source head `88b7873f12c29678a9fc93bb9be8012e8dac2205` passed Build/boot-test #8544; this additional source/test edit requires fresh exact-head Build and Security results. No runtime success is claimed for the new revision until those complete.
-
-## 2026-10-25 — ProsenjitFS inode-record admission
-
-- Baseline inspected: main at 8c8821db740639123d5d3a051dd0751ebf1baf10.
-- Source change: kernel/prosenjitfs.c rejects checksum-valid but semantically invalid non-free inode records from prosenjitfs_read_inode() (type/flags, generation, parent bounds, size capacity, and allocated-byte alignment/capacity). The on-disk format remains v1.
-- Regression: seven malformed root-record variants are injected using the existing inode writer, rejected on read, and followed by restoration of the valid root plus integrity validation.
-- Documentation updated: implementation plan, completion matrix, test matrix and architecture contract.
-- Verification: source reviewed through GitHub; no local repository shell was available for independent compilation in this session. Exact-head Build/boot-test and Security architecture CI are required before acceptance. No physical-device durability claim.
+- Verified source head: `70ed44cd45987682ac50f9fbfd1b82a510e25033`; PR #249 remains open and unmerged.
+- **PASS:** [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791) on that exact source head.
+- The build log contains ProsenjitFS format/mount/allocation/journal/recovery success markers in both ISO and native BIOS runs, plus LBA-boundary and ATA PIO → MBR → ProsenjitFS persistent-mount success markers.
+- Source changes: checksum-valid inode admission, directory-index owner identity, and child-reference validation in path lookup and readdir. Corruption fixtures restore original metadata and finish with integrity checks.
+- The v1 disk format is unchanged. Broader P2/P3/P4 fault-injection and corruption families remain incomplete; no physical-device durability or general concurrency claim.
 # ProsenjitOS Debug Log
 
 ## 2026-10-04 — CPL3 syscall/IPC test fix
