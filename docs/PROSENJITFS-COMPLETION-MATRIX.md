@@ -326,3 +326,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - PR #239 merged into `main` as `1b87449daf9555d15723dea284d3725b87e354d0` after exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) both passed.
 - FS-18 now covers failure of transaction flush #4 after durable commit publication and during home-block persistence. The current mount must report zero written bytes and become read-only; simulated power-loss remount must replay the committed payload completely and pass integrity validation.
 - Remaining work includes systematic coverage of other journal interruption points, broader malformed journal metadata, concurrency/object lifetime verification, and physical hardware durability testing. The current pass is mock-device/QEMU evidence, not hardware certification.
+
+
+## Allocator geometry hardening — current-main branch, verification pending (2026-10-25)
+
+- Branch `fix/prosenjitfs-allocator-geometry-main-20261025` is based on the latest main after PR #239 merged. It centralizes supported block sizes (512/1024/2048/4096) and applies validation before bitmap division/indexing, inode offsets, allocator range/staging, preallocation, integrity scan, transaction setup, and vnode write/truncate arithmetic.
+- Malformed geometry cases (0, 511, 513, 4097, 8192), output sentinel/mock-media invariance, bounded inode/data bitmap exhaustion, and final-valid-bit tests are added.
+- **Pending exact-head CI:** source head `fbfb4d8bea8ece13e9afdc70ab3ab1467277c95a`; no pass is claimed before Build/boot-test and Security architecture complete on the final head.
