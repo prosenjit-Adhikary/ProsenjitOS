@@ -280,3 +280,12 @@ A failed home-block write during recovery must return EIO without clearing the d
 commit record. After a simulated power loss discards the incomplete volatile replay,
 the next mount must reapply all journal images idempotently, complete the committed
 unlink, and pass integrity checks. This is deterministic mock-device evidence only.
+
+
+## FS-31 — exact-head verification (2026-10-25)
+
+Code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9` passed [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715). The logs contain
+ProsenjitFS self-test, LBA-boundary and ATA/MBR persistent-mount success markers
+in both ISO and native BIOS QEMU paths. The replay-write failure, simulated
+power-loss retry, committed unlink and integrity assertions passed. This remains
+mock-device/QEMU evidence, not physical-device power-loss certification.
