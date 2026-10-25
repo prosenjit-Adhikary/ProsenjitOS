@@ -1298,6 +1298,27 @@ static int vfs_vnode_api_selftest(void)
     struct pros_vfs_vnode *found = 0;
     uint8_t output[16];
     uint32_t done;
+    struct pros_vfs_file lock_probe_outer = {0};
+    struct pros_vfs_file lock_probe_inner = {0};
+    uint64_t flags_before, flags_outer, flags_inner;
+    uint64_t flags_locked, flags_after_inner, flags_after_outer;
+
+    /*
+     * Regression: lock acquisition clears IF before spinning, nested unlock
+     * does not re-enable IF, and the outer unlock restores the original IF.
+     */
+    __asm__ volatile ("pushfq; popq %0" : "=r"(flags_before) : : "memory");
+    flags_outer = vfs_file_lock(&lock_probe_outer);
+    flags_inner = vfs_file_lock(&lock_probe_inner);
+    __asm__ volatile ("pushfq; popq %0" : "=r"(flags_locked) : : "memory");
+    vfs_file_unlock(&lock_probe_inner, flags_inner);
+    __asm__ volatile ("pushfq; popq %0" : "=r"(flags_after_inner) : : "memory");
+    vfs_file_unlock(&lock_probe_outer, flags_outer);
+    __asm__ volatile ("pushfq; popq %0" : "=r"(flags_after_outer) : : "memory");
+    if ((flags_locked & (1ULL << 9)) != 0u ||
+        (flags_after_inner & (1ULL << 9)) != 0u ||
+        ((flags_after_outer ^ flags_before) & (1ULL << 9)) != 0u)
+        return -130;
 
     root_data = (struct vfs_selftest_node){
         "root", PROS_VFS_NODE_DIRECTORY, 0, 0, &hello_node, &etc_node
