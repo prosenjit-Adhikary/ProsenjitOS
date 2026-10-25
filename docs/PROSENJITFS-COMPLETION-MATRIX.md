@@ -400,3 +400,7 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Old passing CI runs do not verify newer source changes.
 - QEMU and deterministic mock-device tests are not physical power-loss certification.
 - A metadata checksum is not a file-data checksum; detection is not repair; a planned design is not an implementation.
+
+## Release-specification cross-reference — 1.0 / 1.1
+
+The authoritative detailed scope, required tests, acceptance gates, non-goals and release decision checklist are in [PROSENJITFS-1.0-1.1-RELEASE-SPEC.md](PROSENJITFS-1.0-1.1-RELEASE-SPEC.md). Keep each capability's current status evidence-based: planned is not implemented, implemented is not necessarily tested, and tested on an earlier commit is not verified on the release candidate. Version 1.1 feature status must be updated only after the code and exact-head CI evidence are available.
