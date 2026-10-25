@@ -4,7 +4,7 @@
 
 - [x] Audited `vfs_file_read()`: unlike the write fix in this branch, it cleared `bytes_read` only after argument and permission checks. A rejected read could therefore leave a stale caller-provided count.
 - [x] Changed `kernel/vfs.c` to clear a non-null output count before validation/dispatch; added regressions for permission-denied and filesystem-`EIO` reads using a nonzero sentinel.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before runtime verification is claimed.
+- [x] Exact PR-head Build/boot-test #40119299299 and Security architecture #40119299311 passed on `89a35608bcd278b01977f5abded40f2208208d9e`; PR #235 merged as `d82d1010f3c58696c15dfb09c326ba2b6d612e43`.
 - Scope: VFS output contract only; no on-disk format change, no crash-atomicity or hardware-durability claim.
 
 
@@ -18,7 +18,8 @@
 - [x] Fixed a VFS output-contract defect in `vfs_file_write()`: the caller-provided `bytes_written` value was not cleared before permission checks or filesystem callback dispatch, so an error could leave a stale count that looked like successful partial I/O.
 - [x] Added a focused VFS self-test callback that returns `PROS_VFS_EIO`; the regression seeds the output count with a nonzero sentinel and requires `EIO` plus a zero byte count.
 - [ ] Verify the exact execution branch with Build/boot-test and Security architecture workflows. Source changes are not runtime-verified until those gates finish on this branch.
-- [ ] Continue the pending exact-head review of create/overwrite-write PR #230 and rmdir-write PR #232; do not merge or mark them verified from their titles or queued statuses.
+- [x] Reviewed PR #230 exact head `22da8502bce69a3c69c6ddf222eb643ffa89aab0`; Build #40088773369 and Security #40088773288 passed, and it merged as `3df77093edec9a6961a507fe05f4c32420d73391`.
+- [x] Confirmed `main` already contains the equivalent rmdir write-failure sweep. PR #232 is duplicate coverage on an older/conflicting branch; do not merge the duplicate blindly.
 
 
 **Audit date:** 2026-10-24  
@@ -41,7 +42,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## P1 — Complete and reconcile per-operation fault-injection coverage
 
 - [ ] Review and verify PR #233 append/truncate read-failure sweeps after P0.
-- [ ] Review PR #230 create/overwrite write-failure sweep and PR #232 rmdir write-failure sweep; confirm each branch is based on the intended current `main` and that its tests assert rollback and error classification rather than only build success.
+- [x] PR #230 create/overwrite/rmdir write-failure sweep reviewed and exact-head CI passed (Build #40088773369; Security #40088773288).
 - [ ] For every accepted test PR, capture exact head SHA and both Build/boot-test and Security architecture run links in `docs/PROSENJITFS-COMPLETION-MATRIX.md`.
 - [ ] Deduplicate overlapping sweeps; do not merge stale or superseded branches just because their titles sound complementary.
 - **Acceptance:** no open test branch is called verified until its exact head passes the required CI workflows; failure injection never leaks into post-operation verification.
