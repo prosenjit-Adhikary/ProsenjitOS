@@ -1,4 +1,5 @@
 #include "vfs.h"
+#include "irq_spinlock.h"
 #include "partition.h"
 #include "prosenjitfs.h"
 #include "health.h"
@@ -34,21 +35,12 @@ static uint64_t health_dir_read_count;
  */
 static uint64_t vfs_file_lock(struct pros_vfs_file *file)
 {
-    uint64_t flags;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
-    while (__sync_lock_test_and_set(&file->io_lock, 1u) != 0u) {
-        __asm__ volatile ("pause");
-    }
-    __sync_synchronize();
-    return flags;
+    return pros_irq_spin_lock(&file->io_lock);
 }
 
 static void vfs_file_unlock(struct pros_vfs_file *file, uint64_t flags)
 {
-    __sync_synchronize();
-    __sync_lock_release(&file->io_lock);
-    if ((flags & (1ULL << 9)) != 0u)
-        __asm__ volatile ("sti" : : : "memory");
+    pros_irq_spin_unlock(&file->io_lock, flags);
 }
 
 static void vfs_health_error(int rc)

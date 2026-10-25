@@ -1,5 +1,6 @@
 /* Native ProsenjitFS: all on-disk address arithmetic must remain checked. */
 #include "prosenjitfs.h"
+#include "irq_spinlock.h"
 #include "heap.h"
 #include <stddef.h>
 
@@ -803,25 +804,13 @@ struct pfs_vnode_data {
  */
 static uint64_t pfs_io_lock(struct pros_prosenjitfs *fs)
 {
-    uint64_t flags;
-    if (!fs)
-        return 0u;
-    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
-    while (__sync_lock_test_and_set(&fs->io_lock, 1u) != 0u) {
-        __asm__ volatile ("pause");
-    }
-    __sync_synchronize();
-    return flags;
+    return fs ? pros_irq_spin_lock(&fs->io_lock) : 0u;
 }
 
 static void pfs_io_unlock(struct pros_prosenjitfs *fs, uint64_t flags)
 {
-    if (!fs)
-        return;
-    __sync_synchronize();
-    __sync_lock_release(&fs->io_lock);
-    if ((flags & (1ULL << 9)) != 0u)
-        __asm__ volatile ("sti" : : : "memory");
+    if (fs)
+        pros_irq_spin_unlock(&fs->io_lock, flags);
 }
 
 static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
