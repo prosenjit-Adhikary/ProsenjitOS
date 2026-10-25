@@ -108,3 +108,18 @@ Reviewed the PR #265 head `7b41a5128be74462db884ef169a1e8f125fb7d26` and its VFS
 - The kernel has `thread_schedule_preempt()` and `thread_schedule_interrupt()` declarations/definitions, but this review did not establish the active interrupt call path or prove whether a callback can sleep/yield while the lock is held. Do not infer either “preemption is impossible” or “a deadlock was reproduced” from this inspection alone.
 - Repository inspection did not find an established sleepable mutex primitive in the kernel synchronization headers/files reviewed. Do not invent one or silently substitute a different primitive. First trace the actual interrupt/scheduler call path and block-device callbacks; then define the lock/context contract. If callback paths may block or yield, this spinlock design is not acceptable as-is.
 - No deterministic concurrent test, local build, or exact-head CI pass is claimed by this audit update. PR #265 remains validation-open; do not merge until lock/context/lifetime assumptions are proved and the exact current head passes required CI.
+
+
+## Confirmed timer-preemption hazard — follow-up (2026-10-25)
+
+A deeper trace of `kernel/idt.asm`, `kernel/timer.c`, and `kernel/thread.c` confirms that the prior note's uncertainty about the active preemption path is resolved:
+
+- The timer ISR calls `timer_dispatch`, then `timer_should_preempt`, and on a selected tick calls `thread_schedule_interrupt` (see `kernel/idt.asm`, timer path around lines 120–138).
+- `timer_should_preempt()` requests preemption on every tenth tick (see `kernel/timer.c`). The scheduler can therefore switch away from a thread while that thread is in an ordinary kernel path, unless that path explicitly protects its critical section.
+- `vfs_file_lock()` and `pfs_io_lock()` use busy-wait atomic spin loops and neither helper disables preemption/interrupts. Both locks are held across filesystem work; ProsenjitFS callbacks can issue block-device read/write/flush operations.
+- **High-priority correctness risk:** if the timer preempts a lock owner and schedules another runnable thread that tries to acquire that same lock, the new thread can spin while the owner remains suspended, preventing the owner from releasing the lock. This is a source-level deadlock scenario implied by the current implementation; it has not been reproduced in a runtime test.
+- The same concern applies to the filesystem-wide `pfs_io_lock`, not only the VFS per-handle `io_lock`. Merely changing one lock is insufficient. Do not add more spinlock coverage until the kernel defines a consistent preemption-safe lock protocol.
+- Required remediation decision: add a kernel-supported IRQ/preemption-safe critical-section primitive (with correct nested save/restore semantics), or introduce a scheduler-aware sleepable mutex after verifying it can safely be used in these call paths. Then apply it consistently to VFS handle state and ProsenjitFS shared state, audit lock ordering and interrupt-context restrictions, and add deterministic multi-thread regression tests. Do not hand-roll a mutex in filesystem code.
+- This finding supersedes the earlier sentence saying the active interrupt call path had not been established. It raises the VFS/filesystem locking issue from “contract to verify” to a confirmed source-level risk requiring remediation before merge.
+
+No runtime deadlock reproduction, local build, or passing CI is claimed. PR #265 must remain unmerged until the lock protocol is corrected and validated on its exact head.
