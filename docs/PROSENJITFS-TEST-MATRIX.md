@@ -51,12 +51,18 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Implementation:** publish the candidate only after `pfs_inode_bitmap_update()` succeeds.
 - **Status:** source and regression passed on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed.
 
-## FS-30 — Journal-retirement error classification (**PENDING exact-head CI**)
+## FS-30 — Journal-retirement error classification (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
 
 - **Risk:** `pfs_journal_clear()` used undocumented `-101..-106` codes, obscuring actual write/flush EIO during mount recovery.
 - **Test:** interrupt a write at stage 4 (durable header/images, no matching commit), inject journal-retirement write failure and flush failure separately, require mount EIO, retry mount, verify old bytes and a clean integrity scan.
 - **Implementation:** propagate `pfs_lba_add`, block-write and flush status directly; map invalid state to named filesystem errors.
-- **Status:** source/test added, exact-head Build/boot-test and Security pending.
+- **Status:** the injected retirement write and flush failures returned EIO; retry recovery preserved the old payload and integrity passed. [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed.
+
+## FS-31 — Committed-journal replay write failure (**PENDING exact-head CI**)
+
+- **Risk:** home-block I/O can fail partway through committed-journal replay; the committed journal must remain available for a retry.
+- **Test:** interrupt unlink at stage 5 after commit publication, fail the second replay write, simulate power loss, retry mount, require the unlink fully applied and integrity clean.
+- **Status:** source/test added; fresh exact-head Build/boot-test and Security architecture results pending.
 
 # ProsenjitFS Test Matrix — 2026-10-24
 
