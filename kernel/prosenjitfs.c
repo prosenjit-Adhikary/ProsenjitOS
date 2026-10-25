@@ -12456,6 +12456,40 @@ int prosenjitfs_selftest(void)
             vfs_file_close(&file) != PROS_VFS_OK)
             return pfs_selftest_fail(__LINE__, -13);
 
+        /*
+         * Flush #2 may persist the journal header/images while returning EIO.
+         * No commit record has been published, so recovery must retain old data.
+         */
+        disk.fail_flush_after_persist_countdown = 2u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_flush_after_persist_countdown != 0u ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            if (read_data[i] != old_data[i])
+                return pfs_selftest_fail(__LINE__, -13);
+        }
+        if (prosenjitfs_check_integrity_report(&fs, 0) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
         disk.fail_flush_after_persist_countdown = 3u;
         done = 0u;
         if (vfs_file_open(&fs.mount, "/ambiguous-flush.bin",
