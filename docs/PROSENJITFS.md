@@ -289,3 +289,46 @@ ProsenjitFS self-test, LBA-boundary and ATA/MBR persistent-mount success markers
 in both ISO and native BIOS QEMU paths. The replay-write failure, simulated
 power-loss retry, committed unlink and integrity assertions passed. This remains
 mock-device/QEMU evidence, not physical-device power-loss certification.
+
+## Release roadmap: ProsenjitFS 1.0 and 1.1 (2026-10-25)
+
+**Version terminology:** ProsenjitFS product/release version (1.0, 1.1) is distinct from the existing **v1 on-disk format**. Do not silently change the v1 disk layout under a product-version label. Any incompatible layout change requires a new on-disk format version, feature negotiation, and an explicit upgrade/rollback strategy.
+
+### ProsenjitFS 1.0 — reliable native filesystem baseline
+
+The 1.0 goal is correctness and a verifiable release, not feature-count parity with NTFS/ext4/ZFS/Btrfs.
+
+**Required release scope**
+- Preserve the current v1 on-disk layout unless a separately reviewed format change is approved.
+- Verify format/mount, superblock redundancy/degraded read-only behavior, metadata-region bounds, bitmap/inode/extent validation, directory operations, persistent file read/write/truncate, rename/unlink, and VFS/security integration.
+- Finish systematic read/write/flush fault-injection coverage for reachable storage operations and journal phases; verify pre-commit recovery returns the old consistent state and committed recovery returns the complete new state.
+- Finish adversarial boundary/corruption tests for superblocks, feature/version flags, region geometry, bitmap tail bits, inode semantics, extent chains/ownership, directory names/references and journal targets.
+- Audit and test read/write/truncate/namespace concurrency. Do not claim general concurrency safety until locking, object lifetime, and race tests justify it.
+- Require passing exact-head Build/boot-test and Security architecture CI for the release candidate, including ISO boot, native BIOS QEMU boot, ProsenjitFS self-test, and ATA PIO -> MBR -> persistent ProsenjitFS mount.
+- Publish known limitations: QEMU/mock-device tests are not physical hardware power-loss certification; devices without a durable flush barrier cannot promise power-loss durability.
+- Keep integrity scan read-only. Automatic destructive repair remains disabled by default.
+
+**Not a 1.0 requirement:** snapshots, general Copy-on-Write, compression, encryption, self-healing writes, broad foreign-filesystem support, and full NTFS/ext4/ZFS/Btrfs feature parity.
+
+### ProsenjitFS 1.1 — integrity and usability expansion
+
+1.1 begins only after the 1.0 release gates pass. It must be backward-compatible with 1.0 volumes where feasible; any required on-disk changes must be explicitly versioned and tested.
+
+**Planned 1.1 work**
+1. **File-data integrity:** design and implement checksums for file-data blocks/extents, including checksum metadata layout, checksum update atomicity, read-time mismatch reporting, and tests for corruption, partial writes, truncate, overwrite, remount and recovery. CRC32C is error detection, not authentication. Do not describe metadata CRCs as file-data checksums.
+2. **Recovery diagnostics:** structured, user-visible error/status reporting for corrupt data, degraded redundant metadata, journal replay and failed I/O. Recovery must not silently overwrite uncertain user data.
+3. **Namespace and metadata usability:** assess and implement hard links, symbolic links and extended attributes only with explicit VFS semantics, on-disk representation, permissions, cycle/bounds checks, and test coverage.
+4. **Sparse files:** define hole semantics, logical versus allocated size accounting, zero-fill behavior, truncate/grow behavior, and bitmap/extent invariants before implementation.
+5. **Permissions/ACL design:** define mode/uid/gid enforcement and ACL semantics at the VFS/security boundary. On-disk metadata alone must never grant authority. Full ACL support is conditional on a stable authorization model.
+6. **Host formatter and compatibility tests:** complete and validate mkprosenjitfs/formatter behavior, safe target-device checks, format/mount round trips and malformed-image tests.
+7. **Performance baseline:** benchmark sequential and random I/O, directory lookup, allocation, and mount/recovery on reproducible test images; optimize only with correctness tests preserved.
+
+**Deferred beyond 1.1 unless separately approved:** snapshots and general Copy-on-Write, compression, encryption/key management, deduplication, RAID/self-healing redundancy, and automatic destructive repair. These features materially increase format, security, recovery, and testing complexity.
+
+### Feature provenance and honesty rules
+
+- ext4-inspired: extents, bitmap allocation and journal/recovery concepts; this is not ext4 compatibility.
+- NTFS-inspired: transactional recovery and a path toward ACLs; this is not NTFS compatibility.
+- ZFS/Btrfs-inspired: integrity-first design and future snapshot/Copy-on-Write exploration; current CRC32C metadata checksums do not equal end-to-end file-data integrity, snapshots, or self-healing.
+- Keep FAT32/exFAT/NTFS providers outside the kernel-core ProsenjitFS format, as specified by the filesystem-provider boundary.
+- Track every feature as **Planned**, **Implemented**, **Tested**, or **Verified**. Source code alone is not verification; use exact-head CI evidence. Do not mark a feature Verified based on an older commit's CI.
