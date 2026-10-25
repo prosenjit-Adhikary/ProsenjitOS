@@ -9,13 +9,13 @@
 
 ### Owner-confirmed architecture decision
 
-**Confirmed 2026-10-25:** only native ProsenjitFS belongs in the kernel core. FAT32/exFAT/NTFS and future filesystem formats are separate drivers/providers connected through VFS, similar in principle to mainstream operating systems. EXT4 boot + read/write is not the chosen first-release baseline; EXT4 is not to be added to the native kernel core as part of this plan.
+**Confirmed 2026-10-25:** only native ProsenjitFS belongs in the kernel core. FAT32/exFAT/NTFS and future filesystem formats are separate drivers/providers connected through VFS, similar in principle to mainstream operating systems. **FAT32 support is mandatory for ProsenjitOS 1.0** to support common FAT32-formatted USB pendrives. This release requirement includes the complete supported USB mass-storage → block device → partition → FAT32 provider → VFS path, not just a FAT32 parser. EXT4 boot + read/write is not the chosen first-release baseline; EXT4 is not to be added to the native kernel core as part of this plan.
 
 This section records cross-document/source checks performed during consolidation. It prevents old design notes from being mistaken for current implementation evidence.
 
 ### Release-scope decision — resolved by owner
 
-The project owner confirmed: **ProsenjitFS is the only native filesystem implementation in the kernel core**. FAT32, exFAT, NTFS, and future formats are supported through separate drivers/providers behind the common VFS interface, following the general multi-filesystem approach used by mainstream operating systems. The earlier EXT4 boot + read/write idea is not the selected first-release baseline. Do not add EXT4 to the kernel core or treat it as a release blocker. EXT4 may only be considered later as an optional compatibility provider if explicitly prioritized. The release-baseline conflict is closed.
+The project owner confirmed: **ProsenjitFS is the only native filesystem implementation in the kernel core**. FAT32, exFAT, NTFS, and future formats are separate drivers/providers behind the common VFS interface. **FAT32 is explicitly in the ProsenjitOS 1.0 release scope because common FAT32-formatted pendrives must be usable.** Passing that release gate requires the end-to-end USB mass-storage, block-device, partition-discovery, FAT32 mount, file I/O, safe unmount, and media-removal path to be implemented and tested; a standalone FAT32 parser alone is insufficient. exFAT and NTFS are not automatically 1.0 commitments unless separately approved in the release scope. The earlier EXT4 boot + read/write idea is not the selected first-release baseline. Do not add EXT4 to the kernel core or treat it as a release blocker. EXT4 may only be considered later as an optional compatibility provider if explicitly prioritized. The release-baseline conflict is closed.
 
 ### Provider implementation reality
 
@@ -115,10 +115,10 @@ Current release gates:
 
 ### 2.2 Compatibility-provider status
 
-- **FAT32 provider:** target/planned until a separate provider implementation, ABI integration, and tests are evidenced.
+- **FAT32 provider:** **mandatory ProsenjitOS 1.0 target**, but not yet verified as supported. It remains incomplete until a separate provider, VFS ABI integration, USB mass-storage path, partition discovery, and exact-candidate tests are evidenced.
 - **exFAT provider:** target/planned until a separate provider implementation, ABI integration, and tests are evidenced.
 - **NTFS provider:** not present in the current branch's source/build tree as an implementation. A former status document described limited writes, but the implementation/source evidence is absent from this branch; treat NTFS as planned, not supported. Re-audit code and exact-head tests before changing status.
-- **Physical removable-media support:** not complete merely because ATA/QEMU persistent-disk or parser tests pass. USB mass-storage driver, device discovery, partition enumeration, provider mounting, and physical-device regression tests are separate acceptance items.
+- **Physical removable-media support:** a ProsenjitOS 1.0 release gate for FAT32 pendrives. It is not complete merely because ATA/QEMU persistent-disk or parser tests pass. USB controller/device discovery, USB Mass Storage (BOT/SCSI as supported), block-device registration, MBR/GPT partition enumeration, FAT32 provider mounting, read/write semantics, safe unmount, media removal, and physical-device regression tests must all be evidenced.
 
 ### 2.3 Required status vocabulary
 
@@ -150,6 +150,7 @@ Current release gates:
 - [ ] Add compatibility tests for provider mount/unmount, media removal, stale handles, and unsupported operations.
 
 ### Phase C — External compatibility providers and removable media
+- [ ] **ProsenjitOS 1.0 release blocker: FAT32 pendrive support.** Implement and verify USB controller/device discovery, supported USB Mass Storage transport, block-device registration, partition discovery, FAT32 provider probe/mount, VFS directory/file operations, safe write/flush behavior where supported, unmount, and media-removal handling. State the exact supported hardware/transport and FAT32 subset.
 - [ ] FAT32 provider: identify/probe, mount, directory lookup/iteration, read, safe write support, create/delete/rename/truncate, sync, and malformed-media tests; document unsupported FAT variants/features.
 - [ ] exFAT provider: identify/probe, mount, Unicode names, read/write operations, allocation bitmap/cluster-chain validation, sync, and malformed-media tests.
 - [ ] NTFS provider: first establish robust read-only access; then separately gate safe write support, allocation, directory-index updates, metadata transactions, and recovery. Never describe partial write support as full NTFS support.
@@ -169,7 +170,7 @@ Current release gates:
 - [ ] Native filesystem self-tests and persistence checks pass.
 - [ ] Provider ABI tests pass independently of hardware.
 - [ ] Each compatibility provider has its own conformance/fuzz/error-path results before being advertised as supported.
-- [ ] USB/removable-media discovery, partitioning, mount, read/write (as supported), unmount, and media-removal cases pass on supported hardware or explicitly documented emulation.
+- [ ] **ProsenjitOS 1.0:** FAT32-formatted USB pendrive end-to-end discovery, partitioning, mount, read/write (according to the advertised provider contract), unmount, and media-removal cases pass on supported physical hardware; emulation-only evidence must be labelled and is not a claim of physical-device compatibility.
 - [ ] No unsupported filesystem is guessed, mounted, or modified.
 - [ ] Limitations and data-safety behavior are documented.
 
