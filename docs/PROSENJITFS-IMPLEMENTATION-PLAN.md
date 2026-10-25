@@ -1,3 +1,12 @@
+## FS-27 — truncate-shrink partial-block tail isolation (exact-head CI pending)
+
+- [x] Source audit found a privacy/correctness gap: shrink retained the final allocated data block without clearing bytes beyond a non-block-aligned new EOF; a later write past EOF could re-expose pre-truncate bytes.
+- [x] Updated `pfs_file_truncate()` to locate the retained EOF block before changing the extent chain, zero the suffix, and add that image to the same redo transaction as the inode size and any extent/bitmap changes. Duplicate transaction targets fail closed; staging errors reset the volatile transaction.
+- [x] Added a native self-test: truncate `/hello.bin` to 100 bytes, write one byte at offset 200, then require bytes 100–199 to read as zero and byte 200 to match the new payload.
+- [x] Preserved the version-1 on-disk format; the change uses the existing redo journal.
+- [ ] Exact-head Build/boot-test (including ISO and native BIOS QEMU) and Security architecture workflows must pass before runtime verification is claimed.
+- **Durability scope:** deterministic mock-device/QEMU evidence only; no physical-device power-loss certification or general concurrent-mutation guarantee.
+
 ## Part 2 verification checkpoint — 2026-10-25
 
 - [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.
