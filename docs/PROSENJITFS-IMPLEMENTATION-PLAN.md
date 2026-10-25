@@ -1,3 +1,10 @@
+## Directory-index owner identity — 2026-10-25
+
+- [x] Extended the directory-index reader and directory traversal helpers to require the expected inode number, not just an in-range index inode and matching generation.
+- [x] Added a CRC-valid index corruption regression that changes only the owner inode to another in-range value, requires `PROSENJITFS_ECORRUPT` on read, restores the original index through the journal transaction path, and verifies clean integrity.
+- [ ] Exact-head Build/boot-test and Security architecture CI are pending for the combined inode/index metadata hardening branch.
+- Scope: no v1 format change; the index owner field is checked against the inode ID known to the caller.
+
 ## Inode-record admission hardening — 2026-10-25
 
 - [x] Audited prosenjitfs_read_inode() against the existing v1 inode layout and the integrity scanner's semantic checks.

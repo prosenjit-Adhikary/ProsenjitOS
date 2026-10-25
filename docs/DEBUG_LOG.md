@@ -1,3 +1,11 @@
+## 2026-10-25 — Directory-index owner identity follow-up
+
+- Continuing on `fix/prosenjitfs-inode-record-admission-20261025`; branch now includes inode-record admission plus directory-index owner validation.
+- Found a metadata identity gap: the directory index reader validated `index.inode` was in range and generation-matched, but could not require it to equal the owning inode number because that number was not passed into the reader.
+- Propagated expected inode IDs through namespace lookup/traversal, create/mkdir/unlink/rmdir/rename, readdir, and the consistency scan.
+- Added a checksum-valid wrong-owner regression with transactional restore and final integrity validation. No on-disk version/layout change.
+- The previous source head `88b7873f12c29678a9fc93bb9be8012e8dac2205` passed Build/boot-test #8544; this additional source/test edit requires fresh exact-head Build and Security results. No runtime success is claimed for the new revision until those complete.
+
 ## 2026-10-25 — ProsenjitFS inode-record admission
 
 - Baseline inspected: main at 8c8821db740639123d5d3a051dd0751ebf1baf10.

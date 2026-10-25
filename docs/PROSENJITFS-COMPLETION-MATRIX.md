@@ -1,3 +1,10 @@
+## Directory-index owner identity — source/test added; CI pending (2026-10-25)
+
+- `pfs_read_dir_index()` now receives the expected inode number and rejects a checksum-valid directory index whose embedded `inode` field names a different in-range inode.
+- Propagated the known owner through create/mkdir/unlink/rmdir/rename, lookup, readdir, and integrity-check callers, including self-test helper paths.
+- Regression mutates the root index owner while recalculating the CRC, requires `PROSENJITFS_ECORRUPT`, then restores the original index via the journal transaction interface and runs a clean integrity scan.
+- The preceding source revision `88b7873f12c29678a9fc93bb9be8012e8dac2205` passed Build/boot-test #8544 (run [#8544](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40163951177)); this new source change requires fresh exact-head checks.
+
 ## Inode-record admission update — 2026-10-25
 
 - Added v1 inode semantic validation to prosenjitfs_read_inode() after checksum validation: known type/flag values, nonzero generation, parent index bounds, size within the data area, and block-aligned allocated-byte accounting bounded by volume capacity.

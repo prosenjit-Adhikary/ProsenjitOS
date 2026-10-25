@@ -1,3 +1,9 @@
+## FS-24 — Directory-index owner identity (source/test added; exact-head CI pending)
+
+- Coverage: valid root directory index with a recomputed checksum but an embedded in-range `inode` value different from its actual owner.
+- Acceptance: `pfs_read_dir_index()` returns `PROSENJITFS_ECORRUPT`; original root index is restored through the journal transaction interface; final integrity scan passes.
+- Scope: no format change. Fresh Build/boot-test and Security architecture results required on the exact combined branch head.
+
 ## FS-23 — CRC-valid inode semantic admission (source/test added; exact-head CI pending)
 
 - Coverage: unknown inode type, unknown flag bit, zero generation, parent inode equal to inode_count, UINT64_MAX file size, non-block-aligned allocated bytes, and block-aligned allocated bytes beyond data-area capacity.
