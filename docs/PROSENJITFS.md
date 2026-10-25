@@ -272,3 +272,11 @@ them with undocumented numeric values. A failed recovery-time journal retirement
 must report I/O error and be retryable after the underlying device fault clears.
 The self-test covers write and flush failures after an interrupted pre-commit
 transaction; the v1 disk format and journal protocol are unchanged.
+
+
+## FS-31 — Committed journal replay write failure
+
+A failed home-block write during recovery must return EIO without clearing the durable
+commit record. After a simulated power loss discards the incomplete volatile replay,
+the next mount must reapply all journal images idempotently, complete the committed
+unlink, and pass integrity checks. This is deterministic mock-device evidence only.
