@@ -15,12 +15,19 @@
 - [x] The existing v1 metadata format and journal protocol are unchanged.
 - [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332); the native self-test marker is present in both QEMU boot paths.
 
-## FS-30 — journal-retirement I/O error propagation (exact-head CI pending)
+## FS-30 — journal-retirement I/O error propagation (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
 
 - [x] Replaced undocumented `-101..-106` returns in `pfs_journal_clear()` with the filesystem's named validation/corruption errors and direct propagation of the original LBA, write and flush status.
 - [x] Added a mount-recovery regression for both journal-retirement write failure and flush failure. Each starts from a stage-4 interrupted transaction with durable header/images and no matching commit, requires mount to return `PROSENJITFS_EIO`, then retries recovery and verifies the old payload and integrity.
 - [x] No on-disk v1 format or journal protocol changes.
-- [ ] Exact-head Build/boot-test (ISO + native BIOS QEMU) and Security architecture workflows must pass before runtime verification is claimed.
+- [x] [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed; logs show the filesystem self-test marker in ISO and native BIOS QEMU runs.
+
+## FS-31 — committed-journal replay write failure (exact-head CI pending)
+
+- [x] Added a regression that interrupts a file unlink at stage 5, confirms the durable journal header and matching commit, then fails the second home-block write during mount recovery.
+- [x] The test requires recovery mount to return EIO, simulates power loss to discard the partial unflushed replay, retries mount, and verifies the committed unlink is fully applied and integrity is clean.
+- [x] The v1 disk layout and redo-journal protocol are unchanged.
+- [ ] Exact-head Build/boot-test (ISO + native BIOS QEMU) and Security architecture CI must pass before this test is marked verified.
 
 ## Part 2 verification checkpoint — 2026-10-25
 
