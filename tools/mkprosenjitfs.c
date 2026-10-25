@@ -167,6 +167,7 @@ void kfree(void *address)
 int main(int argc, char **argv)
 {
     int fd;
+    struct stat path_st;
     struct stat st;
     uint8_t mbr[SECTOR_SIZE];
     struct image_context ctx;
@@ -177,6 +178,18 @@ int main(int argc, char **argv)
     if (argc != 2) {
         fprintf(stderr, "usage: %s native-disk-image\n", argv[0]);
         return 2;
+    }
+    /*
+     * Reject obvious special files before opening them. The descriptor check
+     * below repeats this after open to defend against a path replacement race.
+     */
+    if (lstat(argv[1], &path_st) != 0) {
+        perror("stat native disk image");
+        return 1;
+    }
+    if (!S_ISREG(path_st.st_mode)) {
+        fprintf(stderr, "refusing to format a non-regular file; use a disposable disk image\n");
+        return 1;
     }
     fd = open(argv[1], O_RDWR | O_NOFOLLOW);
     if (fd < 0) {
