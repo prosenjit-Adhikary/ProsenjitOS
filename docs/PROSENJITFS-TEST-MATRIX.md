@@ -1,13 +1,14 @@
-## Home-block flush failure regression — pending exact-head CI
+## Home-block flush failure regression — exact-head CI passed (2026-10-25)
 
 - [x] Added a mock-device test that fails flush #4, after the commit record has been flushed and while home-block writes are being persisted.
 - [x] The test requires the failed write to report zero bytes and freeze the current mount read-only; after simulated power loss, remount must replay the committed transaction to the complete new payload and pass integrity validation.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before this regression is considered verified.
+- [x] Exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security architecture #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759); PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`.
 - Scope: deterministic mock block device and QEMU CI only; no physical-device durability certification.
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | Implemented on PR branch; exact-head CI pending |
+| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | **PASS** on exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; Build #40156447788 and Security #40156447759 passed; merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock/QEMU only |
+| FS-19 | Allocator geometry, exhaustion and boundary bits | `kernel/prosenjitfs.c`, ProsenjitFS self-test | Reject block sizes 0/511/513/4097/8192 before division/indexing; preserve output sentinels/media; return ENOSPC on exhausted bitmaps and find final valid bit | **PASS on original PR #237 exact head** `3d76a1fdbc2a58518bc914392caf5c846be04ce2`; Build #40119726528 and Security #40119726499 passed. Ported to integration commit `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; its exact-head CI is pending. |
 
 # ProsenjitFS Test Matrix — 2026-10-24
 
