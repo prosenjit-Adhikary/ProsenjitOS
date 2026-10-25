@@ -429,7 +429,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-10-23 — ProsenjitFS integrity-scan caller-serialization audit
 
 ### Checked
-- Inspected `kernel/prosenjitfs.c`, `kernel/include/prosenjitfs.h`, `docs/PROSENJITFS.md`, and the CPL3 entry path in `boot/entry.asm`.
+- Inspected `kernel/prosenjitfs.c`, `kernel/include/prosenjitfs.h`, `docs/FILESYSTEM.md`, and the CPL3 entry path in `boot/entry.asm`.
 - The integrity API explicitly requires callers to serialize scans against mutations. All in-source calls to the report/status APIs are within `prosenjitfs_selftest()`; repository search found no separate production kernel callsite.
 - `pfs_io_lock()` is currently used by the append-write wrapper only. It is not a filesystem-wide lock and must not be described as making all VFS operations thread-safe.
 - `boot/entry.asm` masks IF in the CPL3 interrupt frame because user-mode timer preemption is not yet scheduler-safe.
