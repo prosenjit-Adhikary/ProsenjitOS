@@ -376,6 +376,7 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 ## FS-32 — Invalid journal target geometry (CI pending)
 
-- Added checksum-valid recovery cases for a target equal to `total_blocks` and a target inside the journal region.
+- Added checksum-valid recovery cases for reserved targets 0 and 1, a target equal to `total_blocks`, and a target inside the journal region.
+- Header and commit checksums are recomputed so recovery must reject the target geometry rather than a checksum mismatch.
 - Test captures CRCs of durable, volatile, and dirty mock-media buffers and requires `PROSENJITFS_ECORRUPT` without mutation.
 - Exact-head Build/boot-test and Security architecture CI are required before marking PASS. Mock device only; no physical-drive durability claim.
