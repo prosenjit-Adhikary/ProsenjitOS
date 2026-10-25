@@ -26,6 +26,12 @@
 - Regression sequence: shrink `/hello.bin` to 100 bytes, write a marker at offset 200, and confirm that the gap is all zeroes after the file extends to 201 bytes.
 - On-disk v1 format is unchanged. This is source/test coverage until the new exact-head Build/boot-test and Security architecture workflows run; no physical-device durability claim.
 
+## FS-29 — Inode allocation output on transaction failure (source change; exact-head CI pending)
+
+- `prosenjitfs_alloc_inode()` now publishes its output inode number only after the bitmap transaction returns success.
+- A targeted pre-commit journal-write failure test requires `PROSENJITFS_EIO`, unchanged output sentinel and mock-media CRCs, writable state, and a clean integrity check.
+- On-disk v1 format is unchanged. Exact-head Build/boot-test and Security architecture results are pending.
+
 # ProsenjitFS Completion Matrix
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
