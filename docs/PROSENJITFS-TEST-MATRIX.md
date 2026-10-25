@@ -144,6 +144,6 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 ## FS-28 — Invalid journal target geometry (pending exact-head CI)
 
 - [ ] Add checksum-valid recovery cases for a target equal to `total_blocks` and a target inside the journal region.
-- [ ] Recompute both header and commit checksums for each malformed target list; recovery must return `PROSENJITFS_ECORRUPT` before replay.
+- [ ] Recompute both header and commit checksums for each malformed target list; recovery must return `PROSENJITFS_ECORRUPT` before replay and preserve durable, volatile, and dirty mock-media CRCs.
 - [ ] Verify the exact PR-head Build/boot-test and Security architecture checks pass.
 - Scope: deterministic mock block device only; no physical-drive durability or general VFS concurrency claim.
