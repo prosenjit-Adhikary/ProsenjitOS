@@ -37,6 +37,13 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - Cause: the rmdir recovery-cleanup hunk was accidentally matched to the earlier unlink-read sweep because both had an identical integrity/unmount condition. The source patch now restores that unlink check and limits directory-removal cleanup to the actual rmdir write-sweep scope.
 - Historical compile failure was resolved by the integration correction; PR #242 exact-head Build #40160091435 and Security #40160091518 passed. The later Part 2 hardening is separately verified above.
 
+## FS-27 — Truncate-shrink tail isolation (**PENDING exact-head CI**)
+
+- **Risk:** bytes beyond a non-aligned EOF remained in the retained physical block after shrink; a later write beyond EOF could expose the old tail.
+- **Test:** truncate `/hello.bin` from 700 to 100 bytes, seek to 200, write `0xE7`, then read bytes 100–200 and require 100 zero bytes followed by the marker.
+- **Implementation:** clear the retained block suffix in the same redo transaction as the inode size and related extent/bitmap updates. Reject target collisions; reset staged transactions on failure.
+- **Status:** regression added; Build/boot-test and Security architecture exact-head workflows not yet observed.
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Latest verified execution — 2026-10-25
