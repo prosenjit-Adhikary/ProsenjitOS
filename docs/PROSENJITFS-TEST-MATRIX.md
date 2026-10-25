@@ -64,6 +64,13 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Test:** interrupt unlink at stage 5 after commit publication, fail the second replay write, simulate power loss, retry mount, require the unlink fully applied and integrity clean.
 - **Status:** the second replay home-write failed with EIO; simulated power loss discarded the partial volatile replay; retry mount completed the committed unlink and integrity passed. [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed.
 
+## FS-32 — Preallocation metadata-scan preserves EIO (**PENDING exact-head CI**)
+
+- **Risk:** the extent metadata block selection loop ignored negative returns from `pfs_data_block_is_free()`, potentially converting a bitmap-read error into success or ENOSPC.
+- **Test:** prepare an empty file, inject the fourth read failure during keep-size preallocation so the fault occurs in the metadata candidate scan, and require EIO, unchanged durable/volatile/dirty checksums, writable state and clean integrity.
+- **Implementation:** propagate negative status from the free-state helper; accept only 0/1 as valid boolean results.
+- **Status:** patch and regression added; exact-head Build/boot-test and Security architecture workflows pending.
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Latest verified execution — 2026-10-25
