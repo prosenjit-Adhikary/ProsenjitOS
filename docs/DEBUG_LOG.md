@@ -544,3 +544,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Fix: `pfs_make_vnode()` keeps filesystem-native error codes; filesystem callbacks translate through `pfs_vfs_error()`. The append-sweep invariant was split into individual diagnostic codes for operation status, each mock-media CRC, and filesystem/mount read-only state.
 - Verified exact PR head `84d2b84948065011cf0c94291e8bcaf5d9f7079c`: [Build/boot-test #40116501666](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501666) passed and [Security architecture #40116501659](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501659) passed. Logs contain the full ProsenjitFS format/mount/allocation/journal/recovery marker plus the native ATA PIO -> MBR -> ProsenjitFS persistent-mount marker. Both ISO QEMU and native BIOS QEMU completed the workflow's required markers before expected timeout termination.
 - PR #233 merged into `main` as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c` after both exact-head checks passed. Post-merge main Build/boot-test #40116980733 and Security #40116980685 are pending. This is deterministic mock-device/QEMU evidence; it does not establish physical-device power-loss durability or general concurrent VFS safety.
+
+
+## 2026-10-25 — committed home-block flush failure recovery verified
+
+- PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`.
+- Exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759). Build steps passed ISO build, ProsenjitFS block-init diagnostic, ISO QEMU and native BIOS QEMU.
+- FS-18 injects a flush failure after the commit record is durable while home blocks are being persisted. It requires zero bytes reported, the current mount to freeze read-only, and simulated power-loss remount to replay the complete new payload with a clean integrity scan.
+- Evidence is deterministic mock-device/QEMU coverage only; physical-device durability and general concurrent VFS safety remain unverified.
