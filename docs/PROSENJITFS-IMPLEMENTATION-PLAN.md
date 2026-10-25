@@ -57,7 +57,9 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 ## P3 — Re-validate transactional durability and recovery invariants
 
-- [x] Added a targeted home-block flush failure test at transaction flush #4: the commit record is already durable, the current mount freezes read-only, and remount recovery must replay the complete new payload. - [x] Exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed on `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; ISO QEMU and native BIOS QEMU boot checks passed. Mock/QEMU only; not physical-device durability certification.
+- [x] Added a targeted home-block flush failure test at transaction flush #4: the commit record is already durable, the current mount freezes read-only, and remount recovery must replay the complete new payload.
+- [x] Exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed on `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; ISO QEMU and native BIOS QEMU boot checks passed.
+- Scope: deterministic mock-device/QEMU evidence only; not physical-device durability certification.
 - [ ] Sweep remaining failure points around journal-slot invalidation, journal header/images, flush barriers, commit record, home-block application, and journal retirement.
 - [ ] For pre-commit interruption, recovery must expose the old consistent state; for a valid committed transaction, recovery may expose the complete new state. Reject mixed/partial logical results.
 - [ ] Re-run recovery interruption tests both before and after flush, including repeat recovery after simulated power loss.
