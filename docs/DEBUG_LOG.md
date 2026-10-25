@@ -552,3 +552,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759). Build steps passed ISO build, ProsenjitFS block-init diagnostic, ISO QEMU and native BIOS QEMU.
 - FS-18 injects a flush failure after the commit record is durable while home blocks are being persisted. It requires zero bytes reported, the current mount to freeze read-only, and simulated power-loss remount to replay the complete new payload with a clean integrity scan.
 - Evidence is deterministic mock-device/QEMU coverage only; physical-device durability and general concurrent VFS safety remain unverified.
+
+
+## 2026-10-25 — allocator geometry hardening rebased onto latest main (CI pending)
+
+- Created branch `fix/prosenjitfs-allocator-geometry-main-20261025` from current `main` after PR #239's verified home-block flush recovery test was merged.
+- Centralized accepted block geometry (512, 1024, 2048, or 4096 bytes) in `pfs_block_size_valid()` and applied it to allocator bitmap search/build, inode I/O/offset paths, allocator range/staging, preallocation, integrity validation, transaction setup, and vnode write/truncate geometry guards.
+- Added malformed block-size tests for 0, 511, 513, 4097, and 8192 with output-sentinel and mock-media invariance checks, plus bounded inode/data bitmap exhaustion and final-valid-bit boundary tests.
+- Source head at log update: `fbfb4d8bea8ece13e9afdc70ab3ab1467277c95a`. Exact-head Build/boot-test and Security architecture are not yet verified; do not treat this patch as green until both workflows finish.
