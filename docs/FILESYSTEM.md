@@ -13,9 +13,9 @@
 
 This section records cross-document/source checks performed during consolidation. It prevents old design notes from being mistaken for current implementation evidence.
 
-### Release-scope decision that must not be silently conflated
+### Release-scope decision — resolved by owner
 
-The project owner has now confirmed the release architecture: **ProsenjitFS is the only native filesystem implementation in the kernel core**. FAT32, exFAT, NTFS, and future formats are compatibility filesystems supported through separate drivers/providers behind the common VFS interface, following the general approach used by mainstream operating systems. The earlier EXT4 boot + read/write idea is not the selected first-release baseline; do not add an EXT4 implementation to the kernel core or treat it as a release blocker. EXT4 could only be considered later as another compatibility filesystem if explicitly prioritized. This decision resolves the previously open product-direction question.
+The project owner confirmed: **ProsenjitFS is the only native filesystem implementation in the kernel core**. FAT32, exFAT, NTFS, and future formats are supported through separate drivers/providers behind the common VFS interface, following the general multi-filesystem approach used by mainstream operating systems. The earlier EXT4 boot + read/write idea is not the selected first-release baseline. Do not add EXT4 to the kernel core or treat it as a release blocker. EXT4 may only be considered later as an optional compatibility provider if explicitly prioritized. The release-baseline conflict is closed.
 
 ### Provider implementation reality
 
