@@ -12390,9 +12390,11 @@ int prosenjitfs_selftest(void)
     {
         struct pros_vfs_file file;
         struct pros_prosenjitfs_journal_header header;
+        struct pros_prosenjitfs_journal_commit commit;
         uint8_t old_data[512];
         uint8_t new_data[512];
         uint8_t header_block[512];
+        uint8_t commit_block[512];
         uint32_t done = 0u;
         uint32_t block_size;
         uint32_t duplicate_index = UINT32_MAX;
@@ -12476,6 +12478,36 @@ int prosenjitfs_selftest(void)
                  block_size);
         pfs_copy(disk.volatile_data + journal_start * block_size,
                  header_block, block_size);
+
+        /*
+         * The commit checksum covers the header and every journal image.
+         * Recompute it too, so recovery reaches the duplicate-target check
+         * rather than rejecting the transaction merely for a stale checksum.
+         */
+        uint64_t commit_lba = journal_start + 1u + header.record_count;
+        if (commit_lba >= 512u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        pfs_copy(commit_block, disk.data + commit_lba * block_size,
+                 block_size);
+        pfs_copy(&commit, commit_block, sizeof(commit));
+        if (commit.magic != PROSENJITFS_JOURNAL_COMMIT ||
+            commit.record_count != header.record_count ||
+            commit.transaction_id != header.transaction_id) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        commit.checksum = 0u;
+        pfs_copy(commit_block, &commit, sizeof(commit));
+        commit.checksum = pfs_journal_checksum(
+            header_block, disk.data + (journal_start + 1u) * block_size,
+            block_size, header.record_count, commit_block);
+        pfs_copy(commit_block, &commit, sizeof(commit));
+        pfs_copy(disk.data + commit_lba * block_size, commit_block,
+                 block_size);
+        pfs_copy(disk.volatile_data + commit_lba * block_size, commit_block,
+                 block_size);
         pfs_zero(disk.dirty, sizeof(disk.dirty));
 
         mount_rc = prosenjitfs_mount(&fs, &device, 0u);
