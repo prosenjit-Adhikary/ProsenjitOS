@@ -38,10 +38,10 @@
 - New recovery self-test fails retirement write and flush independently after stage-4 interruption; mount must return EIO, retry must recover successfully, original payload must survive, and integrity must pass.
 - On-disk v1 layout/protocol unchanged. [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed on this code/test head.
 
-## FS-31 — Committed-journal replay write failure (source/test added; exact-head CI pending)
+## FS-31 — Committed-journal replay write failure (**PASS** on code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9`)
 
 - New mock-device test fails the second home-block write during recovery of a durably committed unlink; a power-loss reset then requires repeat recovery to complete the unlink and pass integrity.
-- v1 format/protocol unchanged. Exact-head Build/boot-test and Security architecture verification are pending.
+- v1 format/protocol unchanged. [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed on the code/test head. QEMU/mock-device evidence only; no hardware power-loss certification.
 
 # ProsenjitFS Completion Matrix
 
