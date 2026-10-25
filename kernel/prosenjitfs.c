@@ -5134,8 +5134,13 @@ int prosenjitfs_alloc_inode(struct pros_prosenjitfs *fs,
             int gen_rc = pfs_allocate_generation(fs, inode, &generation);
             if (gen_rc != PROSENJITFS_OK)
                 return gen_rc;
+            {
+                int alloc_rc = pfs_inode_bitmap_update(fs, inode, 1u);
+                if (alloc_rc != PROSENJITFS_OK)
+                    return alloc_rc;
+            }
             *inode_number = inode;
-            return pfs_inode_bitmap_update(fs, inode, 1u);
+            return PROSENJITFS_OK;
         }
     }
     return PROSENJITFS_ENOSPC;
@@ -8669,6 +8674,24 @@ int prosenjitfs_selftest(void)
             disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
             fs.read_only || fs.mount.read_only)
             return pfs_selftest_fail(__LINE__, -31);
+
+        /*
+         * A write failure in inode-bitmap reservation must not publish the
+         * candidate inode number to the caller when allocation fails.
+         * Fail the first (pre-commit) journal write, before media can change.
+         */
+        disk.fail_write_countdown = 1u;
+        candidate = UINT64_MAX;
+        if (prosenjitfs_alloc_inode(&fs, &candidate) != PROSENJITFS_EIO ||
+            disk.fail_write_countdown != 0u || candidate != UINT64_MAX ||
+            fs.read_only || fs.mount.read_only ||
+            durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)))
+            return pfs_selftest_fail(__LINE__, -33);
 
         if (durable_before != prosenjitfs_crc32c(
                 disk.data, (uint32_t)sizeof(disk.data)) ||
