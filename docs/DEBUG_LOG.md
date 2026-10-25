@@ -649,3 +649,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Captured logs contain four ProsenjitFS format/mount/allocation/journal/recovery self-test markers, two native LBA-boundary diagnostic markers and two ATA PIO -> MBR -> ProsenjitFS persistent-mount markers; no compiler `error:` entries.
 - FS-31's injected second home-block write failure during committed journal replay returned EIO; after simulated power loss, retry mount completed the committed unlink and integrity checks passed in the self-test.
 - This is deterministic mock-device/QEMU evidence only; physical-device power-loss certification and general concurrent-mutation safety remain unverified.
+
+
+## 2026-10-25 — FS-32 preallocation read-error propagation
+
+- Found that the extent-metadata candidate scan in `prosenjitfs_preallocate_blocks()` only tested whether `pfs_data_block_is_free()` equaled 1. Negative I/O/status returns were silently treated like an allocated block, hiding the error and continuing the scan.
+- The scan now returns any negative result immediately.
+- Added a deterministic read-countdown regression on an empty file to fail the first metadata-candidate free-state check after the inode read, bitmap scan and range-state validation. The test requires EIO, unchanged durable/volatile/dirty checksums, writable mount state and successful integrity check.
+- No on-disk v1 format change. Exact-head Build/boot-test and Security architecture CI pending.
