@@ -178,3 +178,42 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [x] Add a deterministic mock-device regression that creates a committed transaction stopped before home-block replay, duplicates two journal target LBAs, recomputes both header and commit checksums, and requires mount recovery to return `PROSENJITFS_ECORRUPT` before replay.
 - [ ] Exact-head Build/boot-test and Security architecture CI must pass before marking this regression PASS.
 - Scope is structural validation on an in-memory mock device; no physical-device durability or general concurrency claim.
+
+## Release roadmap — ProsenjitFS 1.0 / 1.1 (2026-10-25)
+
+This roadmap separates product release versions from the existing v1 on-disk format. Product 1.0 does not automatically mean the disk format is changed; incompatible format changes require explicit format-versioning and migration planning.
+
+### Release 1.0 — correctness and release gates
+
+- [ ] Complete systematic block-device read/write/flush fault sweeps, including journal invalidation, header/images, flush barriers, commit record, home-block replay and journal retirement.
+- [ ] Complete deterministic recovery cut-point tests: uncommitted transactions expose the old consistent state; committed transactions expose the complete new state; retries are idempotent.
+- [ ] Complete adversarial geometry and metadata tests for both superblocks, feature/version flags, overlapping regions, bitmap capacity/tail bits, inode-table bounds, inode semantics, extent loops/overlaps/ownership, directory references/names and journal target validation.
+- [ ] Audit concurrency and object lifetime for read/write/truncate and namespace mutation. Add tests or document unsupported concurrent use; do not claim general safety without evidence.
+- [ ] Confirm formatter target safety and format/mount round-trip tests.
+- [ ] Run Build/boot-test and Security architecture workflows on the exact release-candidate head; retain links and commit SHA in the completion matrix.
+- [ ] Publish limitations and a release checklist; QEMU/mock-device evidence must not be described as physical hardware power-loss certification.
+- **Release gate:** no open P0/P1 correctness issue; all required tests pass on exact release-candidate SHA; documentation matches code and CI evidence.
+
+### Release 1.1 — data integrity and filesystem usability
+
+- [ ] Specify a backward-compatible or explicitly versioned file-data checksum design. Cover checksum granularity/storage, atomic updates, overwrite, append, truncate, sparse regions, recovery, and read-time corruption reporting.
+- [ ] Add file-data corruption injection tests proving detection without silently returning corrupted bytes as valid data.
+- [ ] Define hard-link and symbolic-link semantics, including inode link counts, parent/path handling, cycle and bounds protections, deletion behavior, and VFS integration; implement only after the design is reviewed.
+- [ ] Define extended-attribute representation and limits, including safe unknown-attribute handling.
+- [ ] Define sparse-file holes and zero-read semantics, logical size vs allocated bytes, and allocation/accounting invariants.
+- [ ] Specify permissions/ACL enforcement with VFS and process capabilities as authority; on-disk uid/gid/mode must not bypass kernel authorization.
+- [ ] Complete host formatter safety and format/mount round-trip validation.
+- [ ] Establish repeatable performance benchmarks for file I/O, allocation, directory lookup and mount/recovery.
+- **1.1 gate:** each shipped feature has design, implementation, failure-path tests, exact-head CI evidence and a documented on-disk compatibility story.
+
+### Deferred roadmap (not promised for 1.1)
+
+- [ ] Copy-on-Write and snapshots/rollback.
+- [ ] Compression.
+- [ ] Encryption and key management.
+- [ ] Deduplication, redundant storage and self-healing data repair.
+- [ ] Automatic destructive repair (must remain disabled by default until explicit recovery policy, audit logging and rollback are proven).
+
+### Status vocabulary
+
+Use four distinct statuses: **Planned** (documented, not implemented), **Implemented** (code exists), **Tested** (relevant tests ran), **Verified** (acceptance tests passed on an identified exact commit). A feature may have multiple subfeatures at different statuses; do not mark an entire category complete based on one test.
