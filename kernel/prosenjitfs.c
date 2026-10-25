@@ -12521,7 +12521,13 @@ int prosenjitfs_selftest(void)
          * mock medium/cache state unchanged.
          */
         {
-            const uint64_t invalid_targets[2] = {
+            /* Block 0/1 are reserved for the disk/partition boot
+             * structures; total_blocks is outside the volume, and
+             * journal_start is inside the journal. All four fixtures have
+             * valid header/commit checksums so target admission is tested. */
+            const uint64_t invalid_targets[4] = {
+                0u,
+                1u,
                 total_blocks,
                 journal_start
             };
