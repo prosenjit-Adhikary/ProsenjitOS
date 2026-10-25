@@ -147,6 +147,19 @@ if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-fifo" >/dev/null 2>&1; then
     echo "Formatter unexpectedly accepted a FIFO target" >&2
     exit 1
 fi
+# A regular file is not sufficient: require the expected disposable-disk MBR
+# and partition layout before formatting any filesystem sectors.
+truncate -s "$(stat -c%s "$NATIVE_DISK")" "$BUILD/invalid-regular-disk.img"
+INVALID_IMAGE_SHA_BEFORE="$(sha256sum "$BUILD/invalid-regular-disk.img" | awk '{print $1}')"
+if "$BUILD/mkprosenjitfs" "$BUILD/invalid-regular-disk.img" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a regular file without the expected MBR" >&2
+    exit 1
+fi
+INVALID_IMAGE_SHA_AFTER="$(sha256sum "$BUILD/invalid-regular-disk.img" | awk '{print $1}')"
+if [[ "$INVALID_IMAGE_SHA_BEFORE" != "$INVALID_IMAGE_SHA_AFTER" ]]; then
+    echo "Formatter modified a regular file rejected for invalid disk layout" >&2
+    exit 1
+fi
 NATIVE_DISK_SHA_AFTER="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
 if [[ "$NATIVE_DISK_SHA_BEFORE" != "$NATIVE_DISK_SHA_AFTER" ]]; then
     echo "Formatter refusal tests unexpectedly modified the valid disk image" >&2
