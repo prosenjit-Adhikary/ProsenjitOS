@@ -1,13 +1,22 @@
-## Home-block flush failure regression — pending exact-head CI
+## Home-block flush failure regression — exact-head CI passed (2026-10-25)
 
 - [x] Added a mock-device test that fails flush #4, after the commit record has been flushed and while home-block writes are being persisted.
 - [x] The test requires the failed write to report zero bytes and freeze the current mount read-only; after simulated power loss, remount must replay the committed transaction to the complete new payload and pass integrity validation.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before this regression is considered verified.
+- [x] Exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security architecture #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759); PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`.
 - Scope: deterministic mock block device and QEMU CI only; no physical-device durability certification.
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | Implemented on PR branch; exact-head CI pending |
+| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | **PASS** on exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; Build #40156447788 and Security #40156447759 passed; merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock/QEMU only |
+| FS-19 | Allocator geometry, exhaustion and boundary bits | `kernel/prosenjitfs.c`, ProsenjitFS self-test | Reject block sizes 0/511/513/4097/8192 before division/indexing; preserve output sentinels/media; return ENOSPC on exhausted bitmaps and find final valid bit | **PASS on original PR #237 exact head** `3d76a1fdbc2a58518bc914392caf5c846be04ce2`; Build #40119726528 and Security #40119726499 passed. Ported to integration commit `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; its exact-head CI is pending. |
+| FS-20 | Allocator bitmap read-error propagation and cleanup | `kernel/prosenjitfs.c`, `prosenjitfs_selftest()` | Inject a bitmap read error into the inode finder/public allocator and each data-bitmap finder/query; require `EIO`, untouched output sentinels/media state, writable mount, and successful integrity scan | **PENDING** exact PR #242 integration Build/boot-test and Security architecture CI on the final PR head |
+| FS-21 | Total path bounds and VFS path resolution | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Reject path length `>= PROS_VFS_PATH_MAX`; handle repeated separators and `.`/`..`, clamp root `..`, return ENOENT/ENOTDIR for invalid traversal, preserve result pointer on errors | **PENDING** exact PR #242 integration Build/boot-test and Security architecture CI |
+
+## Failed build follow-up — 2026-10-25
+
+- Build/boot-test #40159887034 **failed during ISO compilation**: `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`; boot-test steps were skipped. Security architecture #40159887021 passed on that pre-fix head, but does not verify the corrected source or later integration changes.
+- Cause: the rmdir recovery-cleanup hunk was accidentally matched to the earlier unlink-read sweep because both had an identical integrity/unmount condition. The source patch now restores that unlink check and limits directory-removal cleanup to the actual rmdir write-sweep scope.
+- The next exact-head Build/boot-test and Security results are the acceptance gate.
 
 # ProsenjitFS Test Matrix — 2026-10-24
 
@@ -74,7 +83,9 @@ The matrix separates implementation, current-baseline runtime evidence, and unme
 | FS-13 | Concurrency and object lifetime | VFS vnode refs, file/mount state, `io_lock` | Explicit lock contract and interleaving tests cover mutation vs scan and rename/unlink vs open file lifetime | **NOT VERIFIED** as general thread-safe VFS behavior |
 | FS-14 | Actual hardware durability | ATA PIO and hardware-backed device | Power-cut testing on target hardware with declared cache/flush assumptions | **NOT TESTED**; QEMU/mock-device results are not hardware certification |
 
-| FS-18 | Home-block flush failure after durable commit | PR #239, native ProsenjitFS self-test | Fail flush #4 after durable commit; write reports zero bytes and current mount becomes read-only; simulated power-loss remount replays complete new payload and integrity passes | **PASS on exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`**: [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed; PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU only. |\n\n## Reproducible commands on a provisioned Linux self-hosted runner
+| FS-18 | Home-block flush failure after durable commit | PR #239, native ProsenjitFS self-test | Fail flush #4 after durable commit; write reports zero bytes and current mount becomes read-only; simulated power-loss remount replays complete new payload and integrity passes | **PASS on exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`**: [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed; PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU only. |
+
+## Reproducible commands on a provisioned Linux self-hosted runner
 
 Run these in a disposable checkout/workspace, not against a real block device:
 

@@ -552,3 +552,35 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759). Build steps passed ISO build, ProsenjitFS block-init diagnostic, ISO QEMU and native BIOS QEMU.
 - FS-18 injects a flush failure after the commit record is durable while home blocks are being persisted. It requires zero bytes reported, the current mount to freeze read-only, and simulated power-loss remount to replay the complete new payload with a clean integrity scan.
 - Evidence is deterministic mock-device/QEMU coverage only; physical-device durability and general concurrent VFS safety remain unverified.
+
+## 2026-10-25 — allocator geometry hardening ported to the latest main source
+
+- Re-read the ProsenjitFS implementation plan, completion matrix, test matrix, architecture contract, version-1 format header, the real provider (`kernel/prosenjitfs.c`), block-device interface and VFS contract before editing.
+- Confirmed the v1 filesystem core already includes superblock/version validation, persistent bitmaps, inode/extent metadata, hash-indexed directories, VFS file/namespace callbacks, redo journal/recovery, and report-only integrity validation. No replacement filesystem or disk-format migration was warranted.
+- Ported the block-geometry fix from PR #237 onto the newer source containing merged FS-18. A shared `pfs_block_size_valid()` now guards filesystem block geometry before bitmap/index divisions, inode-location/read/write offsets, preallocation, integrity scanning, and vnode read/write/truncate arithmetic.
+- Retained and ported the regressions for invalid sizes `0, 511, 513, 4097, 8192`, result-sentinel and mock-media invariance, bounded inode/data bitmap exhaustion, and final valid inode/data-block bits.
+- Reconciled the overlapping rmdir sweep against the already-merged home-flush test: setup failure now resets simulated filesystem state, recovered child directory parent must be root, and a still-present recovered directory is removed only after a successful integrity check; integrity is checked again before unmount.
+- Original PR #237 exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed Build/boot-test [#40119726528](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726528) and Security [#40119726499](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726499). That verifies the original source branch, **not** the integration commit.
+- Integration source commit: `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`. Exact-head Build/boot-test and Security workflows must run on this integration branch before its changes are called verified. No local compiler/QEMU was available in this tool session; no compiler output or runtime result is fabricated.
+- Existing FS-18 home-block flush coverage passed on exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`: Build #40156447788, Security #40156447759; merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU evidence only, not physical power-loss certification.
+
+## 2026-10-25 — allocator bitmap read-failure coverage added
+
+- Added deterministic mock-device tests for `pfs_find_free_inode`, `prosenjitfs_alloc_inode`, `pfs_find_free_data_block`, `pfs_find_free_data_block_except`, `pfs_find_free_data_block_excluding`, and `pfs_data_block_is_free`.
+- Every call gets an independent one-shot read fault. The test requires `PROSENJITFS_EIO`, untouched output sentinels for output-producing finders, fault consumption, writable filesystem/mount, and unchanged durable/volatile/dirty media CRCs. Integrity is rechecked after all injected read faults.
+- Source commit: `c7218d60a8b5b499f2baeec4170c8642c6c11f55`. The exact integration PR head has not yet passed Build/boot-test and Security architecture; this regression remains pending until those exact-head runs complete.
+- No disk format or runtime code behavior was changed by these test-only additions. No local compiler/QEMU run is claimed.
+
+## 2026-10-25 — VFS total path-length guard and namespace edge tests
+
+- Inspected `vfs_path_lookup()`, `vfs_next_component()`, the VFS name/path bounds, fake provider lookup callbacks, and the existing `vfs_vnode_api_selftest()` before editing.
+- `vfs_path_lookup()` now checks the full NUL-terminated path against `PROS_VFS_PATH_MAX` before taking a vnode reference or walking components. This bounds scans made entirely of repeated separators; strings whose length reaches the maximum return `PROS_VFS_EOVERFLOW`.
+- Added self-tests for repeated separators plus `.`, root-clamped `..`, empty input, exactly-over-limit path made from slashes, missing intermediate components, traversal through a file, and result pointer preservation on errors.
+- Code was source-edited and mechanically checked for all intended guard/test anchors, but no compiler or runtime execution has been run locally. These additions require exact final-head Build/boot-test and Security CI; no pass is claimed.
+
+## 2026-10-25 — build found rmdir test hunk in wrong scope; corrected
+
+- Queried exact PR #242 workflow logs rather than relying only on the status badge. Build/boot-test #40159887034 completed desktop/DML unit tests successfully, then failed at ISO compilation: `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`; ISO/native QEMU steps were skipped.
+- Root cause: while porting PR #237, a cleanup hunk sharing a generic integrity/unmount anchor was applied to the earlier unlink read-failure sweep instead of the intended rmdir write-failure sweep.
+- Removed the misplaced rmdir cleanup from the unlink block; added it only to the rmdir write-sweep block, where `found_lba` belongs and the condition means remove a child directory that survived recovery. Kept the recovered parent-inode/root invariant and test-fixture crash reset.
+- Source-scope guards passed by inspection of the resulting GitHub file content; this is not compiler verification. Fresh exact-head Build/boot-test and Security runs are required.

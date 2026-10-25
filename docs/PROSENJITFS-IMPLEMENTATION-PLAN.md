@@ -1,3 +1,15 @@
+## Part 2 continuation — 2026-10-25
+
+## Integration CI failure and source correction — 2026-10-25
+
+- [x] Build/boot-test run `#40159887034` exposed a compile failure at `kernel/prosenjitfs.c:10624`: an `rmdir-write-sweep` cleanup clause referenced `found_lba` from the wrong (unlink-read-sweep) scope after branch-conflict reconciliation.
+- [x] Reverted that misplaced cleanup from the unlink read-failure sweep and anchored the optional post-recovery `vfs_rmdir()` cleanup to the actual rmdir write-failure sweep, where `found_lba` is declared and indicates whether the directory survives recovery.
+- [ ] Re-run Build/boot-test and Security architecture checks on the corrected integration head; the failed build did not reach QEMU boot tests.
+
+
+- Reconciled the existing native filesystem implementation rather than introducing a parallel design.
+- Ported allocator block-geometry validation and boundary/exhaustion regressions onto the latest `main` source while preserving the already-merged FS-18 home-flush recovery test. Integrated source commit: `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`.
+- Original allocator-hardening exact-head CI passed; this integration commit own Build/boot-test and Security checks remain required and are not pre-claimed.
 # ProsenjitFS Implementation Plan — Audit-Driven
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
@@ -41,13 +53,22 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 ## P1 — Complete and reconcile per-operation fault-injection coverage
 
-- [ ] Review and verify PR #233 append/truncate read-failure sweeps after P0.
+- [x] PR #233 append/truncate read-failure sweeps passed exact-head Build/boot-test #40116501666 and Security #40116501659 on `84d2b84948065011cf0c94291e8bcaf5d9f7079c`; merged into `main` as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`.
 - [x] PR #230 create/overwrite/rmdir write-failure sweep reviewed and exact-head CI passed (Build #40088773369; Security #40088773288).
 - [ ] For every accepted test PR, capture exact head SHA and both Build/boot-test and Security architecture run links in `docs/PROSENJITFS-COMPLETION-MATRIX.md`.
 - [ ] Deduplicate overlapping sweeps; do not merge stale or superseded branches just because their titles sound complementary.
 - **Acceptance:** no open test branch is called verified until its exact head passes the required CI workflows; failure injection never leaks into post-operation verification.
 
 ## P2 — Make I/O-failure classification and cleanup systematic
+
+### Allocator bitmap read-failure regressions — current integration
+
+- [x] Added mock-device read-failure checks for `pfs_find_free_inode` and `prosenjitfs_alloc_inode`.
+- [x] Added independent data-bitmap read-failure checks for `pfs_find_free_data_block`, `pfs_find_free_data_block_except`, `pfs_find_free_data_block_excluding`, and `pfs_data_block_is_free`.
+- [x] Each reached fault must propagate `PROSENJITFS_EIO`, preserve candidate sentinels, consume the injected fault, leave durable/volatile/dirty media CRCs unchanged, keep the mount writable, and pass a subsequent integrity scan.
+- [ ] Exact integration PR #242 Build/boot-test and Security architecture checks must pass before these new assertions are marked verified.
+
+- [x] Targeted journal-image flush failure/retry (FS-17) and post-commit home-block flush failure/recovery (FS-18) now have passing exact-head Build/boot-test and Security evidence. Broader stage-by-stage fault injection remains open.
 
 - [ ] Audit `kernel/prosenjitfs.c` read/write/flush propagation paths for superblocks, journal, bitmaps, inode table, extents, directory indexes and directory entries.
 - [ ] Extend mock-device tests for read, write and flush errors at each reachable operation point, including short/partial transfers if the interface supports them.
@@ -57,18 +78,25 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 ## P3 — Re-validate transactional durability and recovery invariants
 
-- [x] Added a targeted home-block flush failure test at transaction flush #4: the commit record is already durable, the current mount freezes read-only, and remount recovery must replay the complete new payload. Exact-head CI pending.
+- [x] Added a targeted home-block flush failure test at transaction flush #4: the commit record is already durable, the current mount freezes read-only, and remount recovery replays the complete new payload. Exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed Build/boot-test #40156447788 and Security #40156447759; merged as `1b87449daf9555d15723dea284d3725b87e354d0`.
 - [ ] Sweep remaining failure points around journal-slot invalidation, journal header/images, flush barriers, commit record, home-block application, and journal retirement.
 - [ ] For pre-commit interruption, recovery must expose the old consistent state; for a valid committed transaction, recovery may expose the complete new state. Reject mixed/partial logical results.
 - [ ] Re-run recovery interruption tests both before and after flush, including repeat recovery after simulated power loss.
 - [ ] Test missing/stale commit markers, matching transaction IDs with contradictory record counts, invalid checksums, duplicate/out-of-range transaction targets and overflowed region calculations.
 - **Acceptance:** all committed/uncommitted outcomes are deterministic and idempotent; ambiguous commit state fails closed or leaves the mount read-only until recovery; no repair writes occur during a read-only scan.
 
+## Allocator geometry hardening — ported onto current main (2026-10-25)
+
+- [x] Centralized accepted filesystem block geometry in `pfs_block_size_valid()`: only 512, 1024, 2048 or 4096-byte power-of-two blocks pass. Applied before allocator bitmap/index arithmetic, inode location and public inode I/O, preallocation, integrity scanning, and vnode read/write/truncate arithmetic.
+- [x] Added malformed-geometry coverage for 0, 511, 513, 4097 and 8192; output-sentinel/media-invariance assertions; bounded inode/data bitmap exhaustion checks; final-valid-bit checks; and strengthened the rmdir crash-recovery assertions/cleanup.
+- [x] The original geometry PR exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed Build/boot-test #40119726528 and Security architecture #40119726499. This current-main port is source-committed as `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; the integrated head still requires its own CI before it is marked verified.
 ## P4 — Validate metadata, allocation and namespace invariants adversarially
 
 - [ ] Expand boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, inode types/generations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
 - [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
-- [ ] Exercise path edge cases through VFS: empty and overlong paths, repeated separators, `.`, `..`, root escape attempts, missing intermediate directories and non-directory components.
+- [x] Added a bounded total-path-length guard in `vfs_path_lookup()` before vnode reference acquisition; an unterminated path reaching `PROS_VFS_PATH_MAX` is rejected with `PROS_VFS_EOVERFLOW` instead of scanning arbitrarily many separators.
+- [x] Added VFS self-tests for empty and overlong paths, repeated separators, `.`, `..` and root escape clamping, missing intermediate directory, non-directory components, and preservation of the caller's result pointer on error.
+- [ ] Exact PR #242 Build/boot-test and Security architecture CI must pass before these regressions are considered runtime-verified.
 - [ ] Keep orphan detection report-only until a separate recovery design proves how to distinguish an orphan from valid but temporarily unreachable metadata.
 - **Acceptance:** malformed media is rejected without out-of-range access or media mutation; valid media passes the read-only scan; all error values are stable and documented.
 

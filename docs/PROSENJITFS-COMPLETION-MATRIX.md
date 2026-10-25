@@ -1,8 +1,17 @@
-## Latest follow-up — home-block flush failure test (2026-10-25)
+## Current integration update — allocator bitmap read-error coverage (2026-10-25)
 
-- [x] Added FS-18 in `kernel/prosenjitfs.c` to fail transaction flush #4, after commit publication and during home-block persistence.
-- [ ] Build/boot-test and Security architecture CI must pass on the exact head before this new regression is considered verified.
-- Expected recovery contract: failed write reports zero bytes; mount becomes read-only; after simulated power loss, remount replays the committed new payload and integrity scan passes.
+- Added test cases in `kernel/prosenjitfs.c` for read failures in the inode bitmap finder and public inode allocator, plus all four data bitmap lookup/query paths.
+- Acceptance checks include filesystem `EIO` classification, unchanged result sentinels, consumed one-shot read-failure injection, writable mount state, unchanged durable/volatile/dirty mock-media CRCs, and successful integrity scanning after each sweep.
+- Source commit `c7218d60a8b5b499f2baeec4170c8642c6c11f55`; exact PR #242 integration CI is still required. Do not treat the earlier PR #218/#219 branch states as verification of this port.
+
+## Latest verified follow-ups — 2026-10-25
+
+- [x] **FS-18 home-block flush failure:** inject transaction flush #4 after commit publication; require zero bytes on failure, read-only current mount, committed payload replay after simulated power loss, and clean integrity scan. Exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf` passed [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759); merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU only.
+- [x] **FS-19 allocator geometry hardening:** the original PR #237 exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed [Build/boot-test #40119726528](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726528) and [Security #40119726499](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726499). Its changes are ported onto newer main with FS-18 and reconciled rmdir recovery checks in source commit `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; **the integrated commit still requires fresh exact-head CI**.
+- Geometry tests cover block sizes 0, 511, 513, 4097 and 8192, sentinel/media invariance, bounded bitmap exhaustion, and final valid allocator bits. Accepted on-disk v1 format is unchanged.
+- [ ] **FS-20 allocator bitmap read failures:** source commit `c7218d60a8b5b499f2baeec4170c8642c6c11f55` now tests inode/data bitmap I/O failures, output sentinels, read-only-state invariance, media/cache CRCs and post-fault integrity. Exact PR #242 integration Build/boot-test and Security CI remain pending; this is not yet marked verified.
+- [ ] **FS-21 VFS path bounds and resolution:** added complete path-length limit and tests for empty/overlong path, repeated separators, `.`/`..`, root escape clamp, missing intermediate directory, non-directory traversal and result-sentinel preservation. Exact PR #242 CI is pending.
+- Build/boot-test #40159887034 **failed at ISO compilation** with `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`. The misplaced cleanup was removed from the unlink-read sweep and moved to the actual rmdir-write sweep. A fresh exact-head build/boot and security pass is required.
 
 # ProsenjitFS Completion Matrix
 
