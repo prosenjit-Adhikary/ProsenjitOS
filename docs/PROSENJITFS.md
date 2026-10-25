@@ -332,3 +332,9 @@ The 1.0 goal is correctness and a verifiable release, not feature-count parity w
 - ZFS/Btrfs-inspired: integrity-first design and future snapshot/Copy-on-Write exploration; current CRC32C metadata checksums do not equal end-to-end file-data integrity, snapshots, or self-healing.
 - Keep FAT32/exFAT/NTFS providers outside the kernel-core ProsenjitFS format, as specified by the filesystem-provider boundary.
 - Track every feature as **Planned**, **Implemented**, **Tested**, or **Verified**. Source code alone is not verification; use exact-head CI evidence. Do not mark a feature Verified based on an older commit's CI.
+
+## Detailed product release contract — 1.0 / 1.1
+
+The detailed, feature-by-feature release specification, acceptance checklist, test matrix, deferred-feature list, and verification rules are maintained in [PROSENJITFS-1.0-1.1-RELEASE-SPEC.md](PROSENJITFS-1.0-1.1-RELEASE-SPEC.md). Treat that document as the product-release scope reference. Product version 1.1 is a planned backlog, **not evidence that its features are implemented**. File-data checksums, hard links, symlinks, xattrs, sparse files, ACLs, enhanced diagnostics and benchmarks require individual design/code/test evidence. CoW/snapshots, compression, encryption, full filesystem parity and risky automatic repair remain deferred unless separately approved.
+
+Release status must be assessed against the exact candidate commit and passing required CI. Keep the existing limitations explicit: metadata CRC32C is not file-data integrity protection; integrity scan is read-only and requires caller serialization; mock-device/QEMU testing is not physical power-loss certification; general concurrent VFS safety is not proven.
