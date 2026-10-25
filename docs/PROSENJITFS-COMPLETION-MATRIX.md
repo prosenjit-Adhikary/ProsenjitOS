@@ -319,3 +319,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Recovered content must be either the unchanged original 64-byte payload or a fully truncated empty file; intermediate EOF, altered bytes, or integrity failures are rejected.
 - **Verified:** exact PR head `2586aa0403d5c984cb64b962c5bfdd1bf360cfe4` passed Build/boot-test [#40077700893](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700893), including ISO QEMU and native BIOS QEMU, and Security architecture [#40077700948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40077700948). PR #228 merged as `e6c391ae009b94dd8645140cfe86a571167ff54f`.
 
+
+
+## Verification update — home-block flush failure recovery (2026-10-25)
+
+- PR #239 merged into `main` as `1b87449daf9555d15723dea284d3725b87e354d0` after exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) both passed.
+- FS-18 now covers failure of transaction flush #4 after durable commit publication and during home-block persistence. The current mount must report zero written bytes and become read-only; simulated power-loss remount must replay the committed payload completely and pass integrity validation.
+- Remaining work includes systematic coverage of other journal interruption points, broader malformed journal metadata, concurrency/object lifetime verification, and physical hardware durability testing. The current pass is mock-device/QEMU evidence, not hardware certification.
