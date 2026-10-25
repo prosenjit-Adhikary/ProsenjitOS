@@ -5,6 +5,29 @@
 **Last consolidated:** 2026-10-25.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
+## 0. Reconciliation audit — 2026-10-25
+
+This section records cross-document/source checks performed during consolidation. It prevents old design notes from being mistaken for current implementation evidence.
+
+### Release-scope decision that must not be silently conflated
+
+The current repository implementation track is **native ProsenjitFS**. A prior product requirement discussed in project planning called for **EXT4 boot plus read/write support for the first release**. These are different release baselines: the current source/build does not contain an EXT4 implementation or Linux EXT4 driver port. Until the project owner explicitly confirms which baseline wins, do not claim that the ProsenjitFS implementation satisfies an EXT4 release requirement. The implementation roadmap below tracks the current ProsenjitFS code path; release scope must be explicitly closed before a 1.0 release claim.
+
+### Provider implementation reality
+
+The current `include/vfs_provider.h` and `kernel/vfs_provider.c` provide early registry/ABI scaffolding. The operations currently exposed are probe, mount, and unmount; the registry itself is compiled into the kernel, and `kernel/vfs.c` currently recognizes only `PROS_FS_PROSENJIT`. There is no complete userspace provider process, IPC request path, provider-side VFS operation table for read/write/lookup, or demonstrated sandbox/device broker for compatibility filesystems. Therefore the external-provider architecture is a **design target / partial foundation**, not a completed plug-in runtime. Phase B must complete and test that boundary before any compatibility provider is advertised.
+
+### Compatibility filesystem source audit
+
+The former `docs/NTFS-WRITE-STATUS.md` describes NTFS write behavior and QEMU markers, but the current branch's source/build tree does not contain an NTFS implementation source, an NTFS filesystem enum, or an NTFS object in the build. Treat those statements as historical notes, not evidence of current NTFS read/write support. FAT32 and exFAT likewise remain planned external providers unless source and exact-head tests prove otherwise. No unsupported volume may be auto-mounted or written.
+
+### Security and removable-media gates
+
+- **Permissions:** the preserved ProsenjitFS security contract says UID/GID/mode fields alone are insufficient; trusted VFS/kernel authorization and denial-without-mutation tests are required. Permission enforcement must be added explicitly to Phase A release gates.
+- **Encryption:** current encryption documents are design material, not implementation evidence. Encryption remains deferred/experimental until a reviewed design, key lifecycle, authenticated I/O, journal/recovery integration, and exact-head tests all pass.
+- **USB/external storage:** the present storage evidence is ATA PIO + partition/VFS + ProsenjitFS QEMU persistence. It does not prove USB mass-storage discovery or physical pendrive/external HDD/SSD support. Those remain separate Phase C acceptance items.
+- **Verification:** the documentation-only consolidation has no runtime effect. No filesystem runtime test is claimed by this audit. Exact-head build/boot and security workflow results must be checked for the candidate commit; an empty status response is not a pass.
+
 ## 1. Product decision and architecture
 
 ### 1.1 Native kernel filesystem vs external compatibility providers
@@ -90,7 +113,7 @@ Current release gates:
 
 - **FAT32 provider:** target/planned until a separate provider implementation, ABI integration, and tests are evidenced.
 - **exFAT provider:** target/planned until a separate provider implementation, ABI integration, and tests are evidenced.
-- **NTFS provider:** repository documentation describes parser and VFS integration work, including read-only paths and limited write behavior. Do not promote this to complete general NTFS support: directory/index mutation, new cluster allocation, named streams, compressed/encrypted streams, journal-aware metadata writes, and full recovery semantics have been documented as deferred or incomplete. Re-audit actual source and exact-head tests before changing status.
+- **NTFS provider:** not present in the current branch's source/build tree as an implementation. A former status document described limited writes, but the implementation/source evidence is absent from this branch; treat NTFS as planned, not supported. Re-audit code and exact-head tests before changing status.
 - **Physical removable-media support:** not complete merely because ATA/QEMU persistent-disk or parser tests pass. USB mass-storage driver, device discovery, partition enumeration, provider mounting, and physical-device regression tests are separate acceptance items.
 
 ### 2.3 Required status vocabulary
@@ -109,12 +132,14 @@ Current release gates:
 - [ ] Finish transaction, journal, replay, malformed-target, allocator failure, and I/O error-path coverage.
 - [ ] Verify inode/block allocation, extent ownership, directory-index integrity, truncate/append behavior, stale-data isolation, rename/unlink semantics, and persistent remount.
 - [ ] Establish explicit locking/object-lifetime rules; do not claim general concurrency safety without race and stress tests.
+- [ ] Define and test the trusted VFS permission model (UID/GID/mode or the explicitly chosen capability model); denied operations must leave persistent media unchanged.
 - [ ] Run exact-head Build/boot-test and Security architecture CI, including ISO boot and native BIOS/ATA/MBR persistence paths.
 - [ ] Publish limitations: QEMU/mock-device tests are not physical power-loss certification; no durability guarantee without a real durable flush barrier.
 - [ ] Keep automatic destructive repair disabled by default; integrity scan/reporting is not repair.
 
 ### Phase B — Stable VFS/provider boundary
-- [ ] Specify and implement a versioned provider ABI/registration boundary.
+- [ ] Complete the provider ABI beyond current probe/mount/unmount registry scaffolding: generic lookup/readdir/open/read/write/create/remove/rename/truncate/sync operations, capability negotiation, and explicit error mapping.
+- [ ] Decide and implement the provider execution model (userspace process + IPC is the preferred isolation target; do not treat an in-kernel registry flag as isolation).
 - [ ] Define provider process model, sandboxing, device-access broker, lifecycle, cancellation, timeout, error mapping, and failure recovery.
 - [ ] Add mock provider and mock block-device tests before adding more filesystem formats.
 - [ ] Ensure all providers use the same VFS/security/file-admission boundary and cannot bypass permissions or quarantine.
@@ -1526,4 +1551,554 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 
 
 - [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs, recompute both header and commit checksums, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **CI pending** on exact follow-up head; deterministic mock-device only; no hardware durability claim.
+
+
+
+---
+
+# Historical appendix: filesystem integration boundary
+
+> Preserved from the former standalone document. Its status claims are historical and must not override the current source audit at the top of this file.
+
+# ProsenjitOS filesystem integration boundary
+
+## Status — 2026-09-30
+
+The native BIOS bootloader and ProsenjitFS provider are integrated on main. The latest filesystem work completes the VFS/provider mutation scope for ProsenjitFS: persistent allocation/reclamation, file create/delete, mkdir/rmdir, same-directory rename, cross-directory move, and directory-parent cycle protection. The native bootloader remains independent of partitions/filesystems.
+
+Final CI verification is currently pending because recent GitHub Actions jobs fail during job startup before workflow steps are created; no successful post-change QEMU regression result is claimed.
+
+## Frozen dependency direction
+
+Firmware -> native BIOS/UEFI loader or GRUB compatibility adapter -> ProsenjitOS boot protocol / kernel entry -> Kernel -> Block-device layer -> Partition layer (MBR/GPT) -> VFS/provider boundary -> ProsenjitFS
+
+### Bootloader boundary
+
+The native BIOS loader must not parse MBR/GPT, probe filesystems, mount a filesystem, depend on VFS symbols, or depend on a physical storage driver.
+
+Its current fixed-LBA layout is only a bootstrap mechanism for loading the kernel. MBR/GPT and filesystem discovery remain below the bootloader boundary.
+
+### Block-device boundary
+
+Filesystem providers consume struct pros_block_device and its read/write operations. ProsenjitFS additionally uses the optional flush primitive introduced on its feature branch: block_device_set_flush() and block_device_flush(). Existing block-device initializers remain source-compatible; a device without a flush callback does not claim a durability barrier.
+
+### VFS boundary
+
+The existing VFS owns mount lifetime, vnode/file objects and reference counting, path lookup and directory iteration contracts, generic read/write/seek/close semantics, and filesystem-neutral security admission.
+
+A filesystem provider owns on-disk format parsing, metadata validation, allocation, filesystem-specific journaling/recovery, and filesystem-specific vnode/file operations.
+
+ProsenjitFS therefore attaches to the existing VFS rather than replacing it.
+
+## Real block-device progress
+
+The native BIOS QEMU path now exercises the real storage chain rather than only
+the synthetic filesystem tests:
+
+- the native image contains a deterministic MBR entry for a reserved
+  ProsenjitFS partition at LBA 2048 (512 sectors);
+- the kernel probes the IDE primary channel through the polling ATA PIO driver,
+  including IDENTIFY, LBA28/LBA48 reads/writes, and cache flush;
+- the partition layer creates a bounded block-device view of that partition;
+- the first boot formats the reserved partition when no ProsenjitFS superblock
+  exists;
+- the kernel then probes, mounts, journal-recovers, unmounts, and rediscoveries
+  the persistent ProsenjitFS volume through the normal storage layer.
+
+This is intentionally separate from the fixed-LBA native boot layout: the
+bootloader still loads stage 2 and the kernel from its reserved LBAs, while
+filesystem storage begins at LBA 2048. The native QEMU CI gate requires the
+persistent ATA -> MBR -> ProsenjitFS milestone.
+
+
+## ProsenjitFS branch integration notes
+
+The feature/prosenjitfs branch supplied the initial provider implementation. Its work was integrated through a separate integration branch so the running branch itself was not modified. The provider now lives on main behind the frozen block/VFS boundary.
+
+## Regression contract
+
+Every filesystem integration change must preserve:
+1. GRUB/Multiboot2 ISO build and QEMU boot.
+2. Native BIOS disk-image build.
+3. Native BIOS QEMU boot and native boot-handoff marker.
+4. Partition discovery self-test.
+5. ProsenjitFS native format/mount/allocation/journal/recovery regression.
+8. ProsenjitFS deterministic memory-backed self-test when its provider is compiled in, including allocation/reclamation and directory mutation regression.
+9. Native ATA -> partition -> ProsenjitFS physical-LBA boundary diagnostic, including write/read LBA agreement and payload readback.
+
+A native QEMU disk-device test is now a mandatory regression gate. The native image uses the kernel-visible ATA PIO path and the reserved MBR ProsenjitFS partition described above.
+
+## Non-overlap rule
+
+Do not move ProsenjitFS logic into boot/native_stage1.asm, boot/native_stage2.asm, the native boot image builder's fixed-LBA protocol, or kernel entry/boot handoff code.
+
+Do not duplicate VFS path/file semantics inside ProsenjitFS when an existing VFS operation can provide the contract.
+
+Do not reintroduce compatibility filesystem parsers into the kernel merely to make ProsenjitFS work. Compatibility providers belong outside the kernel image.
+
+## Merge gate
+
+The ProsenjitFS implementation scope is now covered by deterministic memory-backed mutation tests and the native physical-LBA diagnostic gate. The implementation is not labeled CI-verified until a post-change GitHub Actions run successfully executes the workflow steps. Broader corruption/crash-point coverage and real power-loss validation remain separate reliability milestones.
+
+---
+
+# Historical appendix: NTFS write status
+
+> Preserved from the former standalone document. The NTFS write claims are not evidence of current support because the current branch has no NTFS implementation source/build target; see the reconciliation audit above.
+
+# NTFS Write Implementation Status
+
+## Current supported write path
+
+ProsenjitOS now has a real NTFS file-data write path for validated, unnamed `$DATA` streams.
+
+Supported cases:
+- resident unnamed `$DATA` overwrite
+- nonresident unnamed `$DATA` overwrite
+- partial-sector read-modify-write
+- full-sector writes
+- growth inside an already allocated non-sparse extent
+- zero-filling the gap between the old EOF and a forward write
+- updating nonresident `$DATA` real/initialized sizes
+- updating resident `$FILE_NAME` data-size copies when applicable
+- `$Bitmap` free-cluster scanning and allocation
+- exact allocation immediately after the final extent when available
+- non-contiguous extent allocation when contiguous growth is unavailable
+- mapping-pairs append for a newly allocated extent
+- bitmap rollback when runlist metadata expansion cannot be committed
+- VFS write integration and vnode-size synchronization
+
+The implementation deliberately rejects unsupported metadata-changing cases instead of silently producing incomplete NTFS metadata.
+
+## Current regression coverage
+
+The synthetic NTFS disk exercises:
+1. resident write and USA re-sealing
+2. nonresident overwrite across a sector boundary
+3. preallocated EOF growth with gap zero-fill
+4. contiguous cluster allocation
+5. fragmented cluster allocation
+6. mapping-pairs encoding for an appended extent
+7. `$Bitmap` state after allocation
+8. VFS open/read/write/reopen verification
+9. `$INDEX_ALLOCATION` full-leaf split, new INDX-node creation, `$INDEX_ROOT` separator promotion, allocation growth, and lookup routing
+
+The build workflow requires the NTFS file-data write marker during the QEMU regression boot.
+
+## Durability boundary
+
+The NTFS metadata/data write path now issues a block-device flush barrier before reporting a successful MFT/data write. This closes the device-cache durability boundary when the underlying device provides a real flush primitive. A device without a flush callback still provides no physical durability guarantee.
+
+## Important transaction boundary
+
+The current metadata/data write path is **not journaled**. Allocation is rolled back when a pre-commit metadata operation fails, but a failure after physical data sectors have already been written can leave stale data in clusters that are subsequently returned to the free bitmap.
+
+That is acceptable for the current controlled milestone only because the driver does not claim crash-safe filesystem transactions.
+
+Full crash-safe write support still requires NTFS `$LogFile` transaction handling, restart-page/log-page validation, redo/undo transaction replay, and a recovery model.
+
+## Next implementation milestones
+
+The current creation path covers:
+1. allocate and initialize a free MFT record
+2. create a resident `$FILE_NAME`
+3. create an initial unnamed `$DATA` attribute
+4. insert the new `$FILE_NAME` key into the parent directory index
+5. expose the new file through VFS `O_CREATE`
+
+The next NTFS write stages are:
+1. root→`$INDEX_ALLOCATION` conversion when a directory has no existing index-allocation stream
+2. recursive splitting of a non-root internal index node when its parent is full
+3. synchronize `$MFTMirr` where required
+4. add deletion and reclamation
+5. add journal-aware commit/recovery
+
+A future implementation must also handle MFT record growth through additional records/attribute lists rather than assuming every attribute fits in one 1 KiB record.
+
+## Deliberate exclusions
+
+The current path does not yet write:
+- named data streams
+- sparse mappings
+- compressed data
+- encrypted data
+- arbitrary attribute-list expansion
+- root→`$INDEX_ALLOCATION` conversion and recursive internal-node splitting
+- security descriptors
+- `$LogFile` journal transactions and crash-recovery replay
+
+These should be added only with corresponding metadata validation and regression tests.
+
+### Latest safety hardening
+
+- MFT record reuse now advances the record sequence number so stale file references are not silently revived.
+- Directory creation checks for an existing case-insensitive name before allocating a new MFT record.
+- Directory index insertion preserves NTFS $UpCase ordering and rejects case-insensitive duplicates.
+- Resident `$INDEX_ROOT` entries can now be removed by child file reference; `$INDEX_ALLOCATION` delete/rebalance remains intentionally rejected.
+- VFS directory lookup clears temporary $UpCase comparison state on all early failures.
+
+- File creation now rejects inactive/read-only mounts at the public NTFS create API boundary.
+- VFS create and lookup enforce the same UTF-8 filename control/reserved-character rules.
+
+
+### Journal compatibility boundary
+
+The repository does not yet contain an NTFS-compatible `$LogFile` transaction engine. NTFS identifies `$LogFile` as the transactional logging file, and its recovery state is represented by restart pages, LSNs and NTFS client log records. This project must not describe a generic write-ahead log as NTFS `$LogFile` compatibility. The current write path therefore remains a durability-ordered metadata/data path, not crash-recovery-complete.
+
+
+---
+
+# Historical appendix: ProsenjitFS encryption design
+
+> Preserved as design history only. It is not proof of a crypto implementation or a release-ready encryption feature.
+
+# ProsenjitFS Encryption Architecture — Development Plan
+
+Status: Design baseline (no kernel integration yet)
+
+## Goal
+
+Add strong, standards-based encryption to Native ProsenjitFS without modifying the kernel initially. The crypto implementation and filesystem encryption format will be developed and tested as an isolated layer, then integrated with the kernel/VFS only after the design and test suite are stable.
+
+## Security principles
+
+- Do not invent a custom cipher or cryptographic primitive.
+- Prefer well-reviewed, standard authenticated-encryption primitives.
+- Encryption must provide confidentiality and integrity/authentication.
+- Never reuse a nonce with the same encryption key.
+- Key material must have an explicit lifecycle and must not be logged.
+- Filesystem corruption and intentional tampering must be detectable.
+- Encryption must remain compatible with ProsenjitFS transaction/journal/recovery semantics.
+- Crypto must not own LBA translation. Storage/LBA remains the responsibility of the filesystem/block-device layers.
+- No GitHub-hosted CI dependency is required for development; local Debian/VM testing remains the preferred verification path.
+
+## Proposed cryptographic stack
+
+### Primary data encryption
+
+AES-256-GCM.
+
+Reasons:
+- standardized and widely reviewed;
+- authenticated encryption (confidentiality + integrity);
+- good performance on CPUs with AES acceleration;
+- suitable as a block/file/extent encryption primitive when nonce management is designed correctly.
+
+### Alternative backend
+
+ChaCha20-Poly1305 may be implemented as an alternative backend for CPUs without useful AES acceleration.
+
+The filesystem format should define an algorithm identifier so the crypto backend can be selected without redesigning ProsenjitFS.
+
+### Password-based unlock
+
+Argon2id for deriving a key-encryption/unlock key from a user password.
+
+The password itself is never stored in the filesystem.
+
+### Randomness
+
+Use a cryptographically secure random-number abstraction for keys and nonces. The standalone implementation must not silently fall back to weak pseudo-randomness.
+
+## Key hierarchy
+
+Do not encrypt the entire filesystem directly with a password or a single long-lived data key.
+
+Target hierarchy:
+
+    User password
+        |
+        v
+      Argon2id
+        |
+        v
+    Unlock / KEK
+        |
+        v
+   Volume Master Key
+        |
+        +---- Metadata protection keys
+        |
+        +---- Data/file/extent keys
+
+The exact key hierarchy and wrapping format must be finalized before on-disk format freeze.
+
+## Filesystem integration boundary
+
+The crypto layer must be independent of LBA translation.
+
+    VFS
+      |
+    ProsenjitFS
+      |
+    Crypto interface
+      |
+    block/storage layer
+      |
+    volume-relative sector/LBA
+      |
+    device/ATA
+
+The crypto layer receives logical data/metadata buffers and crypto context; it must not calculate physical disk LBAs.
+
+## Encrypted data model
+
+The design should support authenticated encryption of filesystem data units while preserving crash consistency.
+
+Each encrypted unit should have enough authenticated context to prevent:
+- ciphertext substitution;
+- replay of an older valid ciphertext;
+- cross-file/cross-block substitution;
+- metadata/data confusion.
+
+Associated authenticated data (AAD) should bind ciphertext to its filesystem identity/context without unnecessarily exposing sensitive information.
+
+## Metadata protection
+
+Determine separately which metadata must be:
+1. encrypted and authenticated;
+2. authenticated but left readable for mount/recovery;
+3. public structural information.
+
+Do not blindly encrypt metadata required to discover the encrypted volume.
+
+## Journal and crash consistency
+
+Encryption must be transaction-aware.
+
+Required cases:
+- interrupted encrypted write;
+- torn ciphertext;
+- torn authentication tag;
+- journal replay;
+- abandoned transaction;
+- replay of stale ciphertext;
+- metadata update followed by crash;
+- key metadata update followed by crash.
+
+Recovery must never accept partially committed encrypted state as valid.
+
+## Nonce/IV requirements
+
+Nonce uniqueness is a hard security invariant for AES-GCM.
+
+The implementation must define:
+- nonce allocation;
+- persistence/recovery behavior;
+- interaction with transactions;
+- behavior after remount;
+- behavior after rollback;
+- behavior during block relocation;
+- behavior during snapshots/copies if later supported.
+
+No nonce reuse may occur for the same key, including after crash/recovery.
+
+## Key rotation
+
+The format should be designed so that future key rotation is possible without requiring a full filesystem redesign.
+
+At minimum, distinguish:
+- volume/master key;
+- data encryption keys;
+- metadata keys;
+- key version/generation.
+
+## Testing plan before kernel integration
+
+Host-side/standalone tests:
+
+1. Known-answer cryptographic tests.
+2. Encrypt/decrypt round trips.
+3. Randomized input/property tests.
+4. Empty, tiny, sector-sized and multi-megabyte inputs.
+5. Boundary-size and alignment tests.
+6. Wrong-key rejection.
+7. Authentication-tag corruption detection.
+8. Ciphertext bit-flip detection.
+9. AAD modification detection.
+10. Replay/stale-ciphertext rejection.
+11. Nonce uniqueness tests.
+12. Crash-point simulation.
+13. Journal/recovery interaction tests.
+14. Key rotation tests.
+15. Fuzz testing of serialized crypto metadata.
+16. Sanitizer/static-analysis builds where available.
+
+## Kernel integration plan
+
+Only after the standalone crypto layer and encrypted-format tests are stable:
+
+1. Add a narrow ProsenjitFS crypto interface.
+2. Connect VFS/file I/O to the interface.
+3. Connect authenticated metadata handling.
+4. Connect journal/recovery paths.
+5. Connect the kernel CSPRNG source.
+6. Preserve the existing LBA/storage contract.
+7. Add kernel-level regression tests.
+8. Verify remount/persistence/corruption/crash behavior in the Debian VM/QEMU environment.
+
+## Non-goals
+
+This phase does not:
+- replace ProsenjitFS allocation;
+- redesign VFS;
+- redesign LBA translation;
+- modify bootloader/graphics/networking;
+- invent a new encryption algorithm;
+- require GitHub Actions;
+- claim encryption is complete before runtime and corruption/recovery verification.
+
+## Definition of done
+
+Encryption is complete only when:
+- the on-disk format is documented and versioned;
+- cryptographic primitives are standard and correctly composed;
+- nonce/key invariants are enforced;
+- authentication failures are handled safely;
+- journal/recovery semantics are proven;
+- corruption and replay tests pass;
+- persistence/remount tests pass;
+- kernel integration is source-audited;
+- Debian VM/QEMU runtime tests pass;
+- no secret material appears in logs or diagnostics.
+
+
+---
+
+# Historical appendix: permissions and encryption release contract
+
+> Preserved from the former standalone document. Its permission tests remain a release requirement; encryption stays deferred until all design, implementation and verification gates pass.
+
+# ProsenjitFS Release Security Contract — Permissions and Basic Encryption
+
+**Status:** Mandatory release requirement for ProsenjitFS 1.0; encryption is a scoped optional capability unless the key-management and recovery gates below can be completed safely.  
+**Last updated:** 2026-10-25  
+**Applies to:** Native ProsenjitFS, VFS integration, formatter/mount, tests and release notes.
+
+## 1. Non-negotiable release decision
+
+A filesystem release is not acceptable if it has no enforceable access-control model. **Permission enforcement is a Version 1.0 release blocker, not a later enhancement.** Version 1.0 must not ship with UID/GID/mode fields that are merely stored but ignored by the VFS.
+
+Basic encryption is desirable, but insecure or incomplete encryption is worse than clearly documented non-support. Do not advertise encrypted volumes until key handling, authentication, recovery, and all relevant I/O paths are implemented and tested. If these gates cannot be met safely for 1.0, ship permissions in 1.0 and keep encryption as an explicitly deferred/experimental feature for 1.1.
+
+## 2. Permission model — required for Version 1.0
+
+### 2.1 Ownership and mode semantics
+
+- [ ] Define and document UID, GID and mode-bit meanings for files and directories.
+- [ ] Define the effective credentials used by each VFS operation; do not trust caller-supplied credentials without the kernel's authorization boundary.
+- [ ] Define owner/group/other read, write and execute/search behavior, including directory search versus listing permissions.
+- [ ] Define ownership and mode inheritance for file creation, mkdir, rename and cross-directory moves.
+- [ ] Define root/privileged-process behavior through the existing kernel capability/security model; avoid ad hoc filesystem-only privilege bypasses.
+- [ ] Define umask behavior if supported by the OS; otherwise explicitly document that it is not yet exposed.
+- [ ] Define mount policy for read-only mounts and ensure it cannot be bypassed by a filesystem mutation path.
+- [ ] Keep on-disk metadata descriptive only: authorization must be enforced by trusted kernel/VFS code.
+
+### 2.2 Operations that must enforce permissions
+
+Every relevant operation must be audited and tested, including:
+- [ ] Path lookup and directory traversal/search.
+- [ ] File open for read and write; read, write, append and truncate.
+- [ ] File creation and directory creation.
+- [ ] Directory enumeration/listing, independently of search permission.
+- [ ] Unlink and rmdir, including sticky-directory semantics only if the OS supports them.
+- [ ] Rename and cross-directory moves; check source and destination directory rights and any applicable ownership/sticky rules.
+- [ ] Metadata queries/updates and ownership/mode changes, if those APIs exist.
+- [ ] Mount, format and recovery operations at the appropriate privileged boundary.
+- [ ] Read-only integrity scans and diagnostics, ensuring no mutation occurs and access to diagnostic information follows policy.
+
+### 2.3 Security invariants
+
+- [ ] Permission denial occurs before any persistent mutation.
+- [ ] Failed operations return the correct error and initialize output parameters (e.g. byte counts) deterministically.
+- [ ] No operation can obtain privilege by crafting an inode, directory entry, UID/GID, mode, generation or checksum-valid but semantically invalid metadata.
+- [ ] Symlink traversal, hard links and ACLs must not be enabled until their interaction with permission checks is specified and tested.
+- [ ] Permissions must be enforced in the VFS/security boundary, not only in a shell, desktop UI or convenience wrapper.
+- [ ] Document the limits of discretionary access control: it is not encryption and does not protect data from an attacker who can read raw disk blocks or boot another OS.
+
+### 2.4 Required permission tests
+
+- [ ] Owner/group/other allow and deny cases for file reads and writes.
+- [ ] Directory search versus enumeration behavior.
+- [ ] Create/mkdir/unlink/rmdir/rename allowed and denied cases.
+- [ ] Cross-directory rename permission checks and ownership edge cases.
+- [ ] Read-only mount mutation rejection.
+- [ ] Privileged capability behavior and unprivileged denial.
+- [ ] Malformed metadata and permission-denial fault injection; confirm media does not change on denied operations.
+- [ ] Remount persistence of ownership/mode and consistent behavior after reboot.
+- [ ] Run tests at the exact release candidate commit and required Build/boot-test and Security architecture CI gates.
+
+**Release gate:** if the kernel/VFS cannot reliably enforce the model, mark Version 1.0 blocked; do not claim permissions are supported merely because inode fields exist.
+
+## 3. Basic encryption — design and scope
+
+### 3.1 Recommended initial target
+
+Prefer **whole-volume/data-region encryption behind a block-device or volume-crypto layer** rather than adding ad hoc encryption calls to individual filesystem operations. This reduces the chance of forgetting a read/write path and keeps ProsenjitFS metadata layout concerns separate. The exact layer must be chosen after inspecting the current block-device, boot, recovery and key-input architecture.
+
+A reasonable initial design should aim for:
+- Confidentiality of stored file contents when the volume is offline and the key is unavailable.
+- Authenticated integrity where the chosen construction supports it, with a documented threat model.
+- No hard-coded key, predictable default key, plaintext fallback or silent downgrade.
+- A clear distinction between encrypted data and metadata; whole-volume encryption can protect both but may complicate boot-time discovery and recovery.
+- Compatibility and recovery behavior defined before changing the on-disk format.
+
+### 3.2 Cryptographic requirements
+
+- [ ] Use a reviewed, standard cryptographic library/implementation available and supportable in this OS; do not invent a cipher, mode, KDF or authentication construction.
+- [ ] Select an authenticated-encryption design and nonce/tweak strategy appropriate to random-access block storage; document replay/rollback limitations and block-level integrity behavior.
+- [ ] Derive or unwrap keys using a reviewed password-based KDF or a future secure key source; never use a password directly as an encryption key.
+- [ ] Specify salt, KDF parameters, key version, algorithm identifier and any authentication metadata with bounds and validation.
+- [ ] Ensure nonces/tweaks cannot be reused in a way that breaks the chosen construction. Random-access storage makes nonce management a design-critical issue.
+- [ ] Keep secrets out of logs, crash reports, debug output and persistent plaintext buffers where practical; define key lifetime and zeroization best-effort behavior.
+- [ ] Fail closed on wrong key, invalid authentication tag, unsupported algorithm/version or malformed crypto metadata.
+- [ ] Do not silently mount encrypted media as plaintext when key verification fails.
+- [ ] State clearly that encryption does not prevent deletion, denial of service, traffic/usage analysis or rollback to an older valid disk image unless additional mechanisms address those threats.
+
+### 3.3 Key management and boot/recovery requirements
+
+- [ ] Decide how a key is provided at boot and how the key is protected in memory.
+- [ ] Do not embed a master key in the kernel, bootloader, repository, image or source code.
+- [ ] Specify password change, key rotation, recovery-key policy and the consequences of losing all keys.
+- [ ] Specify how formatting identifies encrypted versus unencrypted volumes without exposing secrets or allowing downgrade attacks.
+- [ ] Ensure journal replay and integrity scans run at the correct layer and cannot bypass authentication.
+- [ ] Specify whether the boot partition is encrypted; do not imply encrypted boot if only a data volume is encrypted.
+- [ ] Document that software-only encryption cannot protect keys from a fully compromised running kernel or an attacker with access to unlocked memory.
+- [ ] Add tests for wrong key, corrupted crypto metadata, modified ciphertext/tag, interrupted writes, remount, key loss and unsupported crypto version.
+
+### 3.4 Release gating for encryption
+
+Encryption is **not considered complete** until all of these are true:
+1. Design and threat model reviewed.
+2. Cryptographic primitive and library are reviewed and available in the actual build.
+3. Key input/storage/lifetime and recovery behavior are implemented.
+4. All data I/O paths are encrypted consistently; no plaintext bypass exists.
+5. Authentication failures fail closed without exposing corrupted plaintext.
+6. Power-loss/journal ordering and crypto metadata updates are tested together.
+7. Known-answer tests for primitives and integration tests pass.
+8. Exact-head CI passes and documentation accurately defines protection boundaries.
+
+If any item is missing, encryption must be labelled **planned/experimental**, not a release feature. Never implement a home-grown cipher to meet a deadline.
+
+## 4. Suggested delivery order
+
+### Version 1.0 — mandatory baseline
+1. Audit the actual VFS permission checks and all filesystem operation entry points.
+2. Define UID/GID/mode semantics and directory permission rules.
+3. Implement missing enforcement in the trusted VFS/security layer.
+4. Add positive, negative, malformed-metadata and no-mutation tests.
+5. Verify persistence across remount and exact-head CI.
+6. Publish permission semantics and known limitations in release notes.
+
+### Version 1.1 — encryption only after design approval
+1. Inspect the current block-device/volume abstraction and boot key-entry options.
+2. Write a threat model and compare reviewed authenticated-encryption designs suitable for random-access storage.
+3. Define on-disk crypto metadata and versioning/compatibility.
+4. Implement key management and crypto layer behind a narrow interface.
+5. Test all I/O paths, wrong-key behavior, corruption, interrupted transactions and remount.
+6. Keep it experimental until every encryption gate passes.
+
+## 5. Explicit status rule
+
+This document is a security requirement, not proof of implementation. Before release, link each completed item to source files, tests and exact-head CI runs. A planned permission or encryption feature must never be described as shipped.
 
