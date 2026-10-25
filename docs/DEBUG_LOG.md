@@ -1,3 +1,8 @@
+## 2026-10-25 — VFS corruption result-code alignment
+
+- Source review confirmed pfs_vfs_error() maps PROSENJITFS_ECORRUPT to PROS_VFS_ECORRUPT. Updated both new namespace lookup regressions and documentation to assert the defined error code, not generic I/O failure.
+- Exact-head Build/boot-test and Security architecture remain pending for the final branch head.
+
 ## 2026-10-25 — Namespace child-reference validation follow-up
 
 - Continued the metadata-hardening series on fix/prosenjitfs-inode-record-admission-20261025.

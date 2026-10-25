@@ -6740,7 +6740,7 @@ int prosenjitfs_selftest(void)
                 restore_rc = pfs_tx_add(&fs, entry_lba, original_block);
             if (restore_rc == PROSENJITFS_OK)
                 restore_rc = pfs_tx_commit(&fs);
-            if (inject_rc != PROSENJITFS_OK || lookup_rc != PROS_VFS_EIO ||
+            if (inject_rc != PROSENJITFS_OK || lookup_rc != PROS_VFS_ECORRUPT ||
                 restore_rc != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -172);
@@ -6773,7 +6773,7 @@ int prosenjitfs_selftest(void)
                 lookup_result = 0;
             }
             restore_rc = prosenjitfs_write_inode(&fs, entry.inode, &valid_inode);
-            if (inject_rc != PROSENJITFS_OK || lookup_rc != PROS_VFS_EIO ||
+            if (inject_rc != PROSENJITFS_OK || lookup_rc != PROS_VFS_ECORRUPT ||
                 restore_rc != PROSENJITFS_OK ||
                 prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -172);
