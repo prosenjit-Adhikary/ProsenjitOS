@@ -540,10 +540,23 @@ int vfs_path_lookup(struct pros_vfs_mount *mount, const char *path,
     const char *cursor;
     char component[PROS_VFS_NAME_MAX + 1u];
     uint32_t components = 0;
+    uint32_t path_length = 0u;
 
     if (!mount || !path || !result || !mount->active || !mount->root ||
         path[0] == '\0')
         return PROS_VFS_EINVAL;
+
+    /*
+     * Bound the complete path before taking vnode references or walking its
+     * components. Without a total-length limit, a caller can supply a path
+     * containing arbitrarily many repeated separators and force unbounded
+     * scanning even though each individual component is short.
+     */
+    while (path_length < PROS_VFS_PATH_MAX && path[path_length] != '\0')
+        ++path_length;
+    if (path_length >= PROS_VFS_PATH_MAX)
+        return PROS_VFS_EOVERFLOW;
+
     current = mount->root;
     if (vfs_vnode_get(current) != PROS_VFS_OK)
         return PROS_VFS_EINVAL;
@@ -1266,6 +1279,46 @@ static int vfs_vnode_api_selftest(void)
         found != &hello_node)
         return -105;
     vfs_vnode_put(found);
+
+    /*
+     * Path parsing must bound the entire string, tolerate repeated separators
+     * and '.', clamp '..' at root, and preserve the result output on errors.
+     */
+    found = 0;
+    if (vfs_path_lookup(&mount, "/etc////./../hello.txt", &found) !=
+            PROS_VFS_OK ||
+        found != &hello_node)
+        return -1051;
+    vfs_vnode_put(found);
+
+    found = 0;
+    if (vfs_path_lookup(&mount, "/../../hello.txt", &found) != PROS_VFS_OK ||
+        found != &hello_node)
+        return -1052;
+    vfs_vnode_put(found);
+
+    found = &hello_node;
+    if (vfs_path_lookup(&mount, "", &found) != PROS_VFS_EINVAL ||
+        found != &hello_node)
+        return -1053;
+    if (vfs_path_lookup(&mount, "/missing/child", &found) != PROS_VFS_ENOENT ||
+        found != &hello_node)
+        return -1054;
+    if (vfs_path_lookup(&mount, "/hello.txt/child", &found) !=
+            PROS_VFS_ENOTDIR ||
+        found != &hello_node)
+        return -1055;
+
+    {
+        char overlong_path[PROS_VFS_PATH_MAX + 1u];
+        for (uint32_t n = 0u; n < PROS_VFS_PATH_MAX; ++n)
+            overlong_path[n] = '/';
+        overlong_path[PROS_VFS_PATH_MAX] = '\0';
+        if (vfs_path_lookup(&mount, overlong_path, &found) !=
+                PROS_VFS_EOVERFLOW ||
+            found != &hello_node)
+            return -1056;
+    }
 
     if (vfs_file_open(&mount, "/hello.txt", PROS_VFS_O_READ, &file) !=
             PROS_VFS_OK ||

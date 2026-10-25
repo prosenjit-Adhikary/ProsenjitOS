@@ -570,3 +570,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Every call gets an independent one-shot read fault. The test requires `PROSENJITFS_EIO`, untouched output sentinels for output-producing finders, fault consumption, writable filesystem/mount, and unchanged durable/volatile/dirty media CRCs. Integrity is rechecked after all injected read faults.
 - Source commit: `c7218d60a8b5b499f2baeec4170c8642c6c11f55`. The exact integration PR head has not yet passed Build/boot-test and Security architecture; this regression remains pending until those exact-head runs complete.
 - No disk format or runtime code behavior was changed by these test-only additions. No local compiler/QEMU run is claimed.
+
+## 2026-10-25 — VFS total path-length guard and namespace edge tests
+
+- Inspected `vfs_path_lookup()`, `vfs_next_component()`, the VFS name/path bounds, fake provider lookup callbacks, and the existing `vfs_vnode_api_selftest()` before editing.
+- `vfs_path_lookup()` now checks the full NUL-terminated path against `PROS_VFS_PATH_MAX` before taking a vnode reference or walking components. This bounds scans made entirely of repeated separators; strings whose length reaches the maximum return `PROS_VFS_EOVERFLOW`.
+- Added self-tests for repeated separators plus `.`, root-clamped `..`, empty input, exactly-over-limit path made from slashes, missing intermediate components, traversal through a file, and result pointer preservation on errors.
+- Code was source-edited and mechanically checked for all intended guard/test anchors, but no compiler or runtime execution has been run locally. These additions require exact final-head Build/boot-test and Security CI; no pass is claimed.

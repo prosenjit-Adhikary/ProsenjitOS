@@ -10,6 +10,7 @@
 - [x] **FS-19 allocator geometry hardening:** the original PR #237 exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed [Build/boot-test #40119726528](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726528) and [Security #40119726499](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726499). Its changes are ported onto newer main with FS-18 and reconciled rmdir recovery checks in source commit `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; **the integrated commit still requires fresh exact-head CI**.
 - Geometry tests cover block sizes 0, 511, 513, 4097 and 8192, sentinel/media invariance, bounded bitmap exhaustion, and final valid allocator bits. Accepted on-disk v1 format is unchanged.
 - [ ] **FS-20 allocator bitmap read failures:** source commit `c7218d60a8b5b499f2baeec4170c8642c6c11f55` now tests inode/data bitmap I/O failures, output sentinels, read-only-state invariance, media/cache CRCs and post-fault integrity. Exact PR #242 integration Build/boot-test and Security CI remain pending; this is not yet marked verified.
+- [ ] **FS-21 VFS path bounds and resolution:** added complete path-length limit and tests for empty/overlong path, repeated separators, `.`/`..`, root escape clamp, missing intermediate directory, non-directory traversal and result-sentinel preservation. Exact PR #242 CI is pending.
 
 # ProsenjitFS Completion Matrix
 
