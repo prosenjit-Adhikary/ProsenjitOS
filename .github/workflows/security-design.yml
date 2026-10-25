@@ -7,9 +7,9 @@ on:
 
 jobs:
   security-design:
-    # This check uses Bash. Let GitHub schedule it across either Linux X64 runner
-    # (office or office1); OfficeWindows remains eligible for Windows-compatible jobs.
-    runs-on: [self-hosted, linux, x64]
+    # This source-only Bash check does not need the self-hosted Android runner.
+    # Use hosted x64 so required checks can run even when the local runner is ARM64/offline.
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

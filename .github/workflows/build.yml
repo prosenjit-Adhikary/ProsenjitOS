@@ -11,10 +11,10 @@ on:
 
 jobs:
   build:
-    # Native kernel/ProsenjitFS build and QEMU boot tests currently require the
-    # Linux GNU toolchain. Do not dispatch this job to Windows until its compatible
-    # toolchain is provisioned and validated there.
-    runs-on: [self-hosted, linux, x64]
+    # This build targets x86-64 and needs an x86-64 Linux userspace plus QEMU.
+    # Use GitHub-hosted x64 so an ARM64 Android/Termux self-hosted runner cannot
+    # leave required checks queued forever due to an incompatible architecture.
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
@@ -23,6 +23,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      - name: Install x86-64 build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential nasm grub-common grub-pc-bin xorriso mtools qemu-system-x86
 
       - name: Identify selected runner and verify toolchain
         run: |
