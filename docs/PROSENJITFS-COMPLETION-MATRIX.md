@@ -372,3 +372,31 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - FS-26 ambiguous pre-commit journal-images flush passed exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd`: Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633). Merged as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`.
 - FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression now simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. Exact-head CI for the latest fix remains pending.
 - Neither test establishes physical-drive power-loss durability; concurrency/object-lifetime guarantees also remain unverified as a general VFS property.
+
+## Release roadmap matrix — 1.0 and 1.1 (2026-10-25)
+
+**Version note:** Product releases 1.0/1.1 are distinct from the existing v1 on-disk format.
+
+| Capability | 1.0 target | 1.1 target | Current documentation assessment |
+|---|---|---|---|
+| Persistent file I/O, allocation, extents, directories | Release-critical correctness and tests | Maintain compatibility | Implemented in core; exact-head release verification required |
+| Journal/recovery | Complete failure-point and retry coverage | Maintain recovery guarantees | Core implemented; broader sweeps remain open |
+| Metadata CRC32C and superblock redundancy | Validate corruption/degraded modes | Maintain compatibility | Implemented; boundary coverage continues |
+| File-data end-to-end checksums | Not required for 1.0; document limitation | Design and implement with corruption tests | Not established by metadata CRCs; planned |
+| Read-only integrity scan | Validate scan correctness and serialization requirements | Improve diagnostics | Implemented API; caller must serialize against mutations |
+| Hard links / symlinks / xattrs | Not required | Specify and implement selected features | Full feature plan/verification not established here |
+| Sparse files | Not required | Define semantics and test; implementation gated by design | No complete implementation contract identified |
+| Permissions / ACL | Preserve VFS security boundary | Specify enforcement; ACL conditional | UID/GID/mode metadata exists; ACL is future work |
+| Formatter / host tool | Release-critical target safety and round-trip validation | Expand malformed-image tests | Completion must be checked against current exact-head evidence |
+| Performance benchmarks | Establish correctness-first baseline if practical | Reproducible benchmark suite | Planned |
+| Copy-on-Write / snapshots | Deferred | Deferred unless separately approved | Future roadmap |
+| Compression / encryption | Deferred | Deferred unless separately approved | Future roadmap |
+| Self-healing / automatic repair | Detection and conservative recovery only; no silent destructive repair | Explicitly scoped, logged, verified recovery design | Design requirements exist; complete behavior not claimed |
+| Foreign FAT32/exFAT/NTFS support | Keep provider boundary separate | Separate providers and compatibility tests | Externalized by design; not native ProsenjitFS format |
+
+### Evidence rules
+
+- Every Verified item must cite the exact source commit and passing Build/boot-test plus Security architecture runs where required.
+- Old passing CI runs do not verify newer source changes.
+- QEMU and deterministic mock-device tests are not physical power-loss certification.
+- A metadata checksum is not a file-data checksum; detection is not repair; a planned design is not an implementation.
