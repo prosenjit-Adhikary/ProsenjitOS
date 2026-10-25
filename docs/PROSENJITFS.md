@@ -262,3 +262,13 @@ The build logs contain the ProsenjitFS self-test, native filesystem LBA-boundary
 and ATA PIO -> MBR -> ProsenjitFS persistent-mount success markers in ISO and
 native BIOS QEMU runs. This evidence is for the mock-device/emulator pipeline,
 not physical-device power-loss certification or general concurrent-mutation safety.
+
+
+## FS-30 — Journal-retirement error contract
+
+`pfs_journal_clear()` returns named filesystem errors for invalid internal state and
+propagates errors from LBA validation, block writes and flushes without replacing
+them with undocumented numeric values. A failed recovery-time journal retirement
+must report I/O error and be retryable after the underlying device fault clears.
+The self-test covers write and flush failures after an interrupted pre-commit
+transaction; the v1 disk format and journal protocol are unchanged.
