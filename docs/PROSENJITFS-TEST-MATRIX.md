@@ -1,32 +1,39 @@
 # ProsenjitFS Test Matrix — 2026-10-24
 
-## Journal failure-path follow-up — pending exact-head CI
+## Latest verified execution — 2026-10-25
 
-- [x] Added a targeted regression for failure of transaction flush #2 (journal header/images flush): the write must fail with zero bytes reported, the mount must remain writable, a retry must succeed, and readback plus integrity scan must match the retry payload.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before this regression is considered verified.
+- PR #235 merged as `d82d1010f3c58696c15dfb09c326ba2b6d612e43`.
+- Exact PR-head `89a35608bcd278b01977f5abded40f2208208d9e` passed [Build/boot-test run #40119299299](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119299299) and [Security architecture run #40119299311](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119299311).
+- The passing Build workflow completed desktop unit tests, ISO build, ISO QEMU boot-test, native BIOS QEMU boot-test, and the ProsenjitFS diagnostic step.
+- These results validate CI/QEMU/mock-device coverage only; they do not certify physical-device power-loss durability or general concurrent VFS safety.
+
+## Journal failure-path follow-up — verified
+
+- [x] Added a targeted regression for failure of transaction flush #2 (journal header/images flush): the write fails with zero bytes reported, the mount remains writable, retry succeeds, and readback plus integrity scan match the retry payload.
+- [x] Exact PR-head Build/boot-test and Security architecture CI passed (links above).
 - Scope is the mock block device only; this is not physical-device durability certification.
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-17 | Journal-images flush failure and retry | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Second transaction flush fails before commit publication; failed write reports zero bytes, mount remains writable, subsequent write/readback succeeds, integrity scan passes | Implemented on PR #235 branch; exact-head CI pending |
+| FS-17 | Journal-images flush failure and retry | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Second transaction flush fails before commit publication; failed write reports zero bytes, mount remains writable, subsequent write/readback succeeds, integrity scan passes | **PASS** on exact PR #235 head `89a35608bcd278b01977f5abded40f2208208d9e`; Build/boot-test #40119299299 and Security #40119299311 passed |
 
-## Part 2 follow-up — VFS read output-count contract (2026-10-24)
+## Part 2 follow-up — VFS read output-count contract (2026-10-24; verified 2026-10-25)
 
-- [x] Audited `vfs_file_read()`: unlike the write fix in this branch, it cleared `bytes_read` only after argument and permission checks. A rejected read could therefore leave a stale caller-provided count.
-- [x] Changed `kernel/vfs.c` to clear a non-null output count before validation/dispatch; added regressions for permission-denied and filesystem-`EIO` reads using a nonzero sentinel.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before runtime verification is claimed.
+- [x] Audited `vfs_file_read()` and fixed stale `bytes_read` on rejected reads by clearing the output count before argument/permission checks and dispatch.
+- [x] Added permission-denied and filesystem-`EIO` read regressions using a nonzero sentinel.
+- [x] Exact PR-head Build/boot-test #40119299299 and Security architecture #40119299311 passed on `89a35608bcd278b01977f5abded40f2208208d9e`.
 - Scope: VFS output contract only; no on-disk format change, no crash-atomicity or hardware-durability claim.
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-16 | VFS read error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Permission-denied and filesystem-`EIO` reads with a nonzero sentinel return the expected error and leave `bytes_read=0` | Implemented on PR #235 branch; exact-head Build/boot-test and Security pending |
+| FS-16 | VFS read error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Permission-denied and filesystem-`EIO` reads with a nonzero sentinel return the expected error and leave `bytes_read=0` | **PASS** on exact PR #235 head `89a35608bcd278b01977f5abded40f2208208d9e`; Build/boot-test #40119299299 and Security #40119299311 passed |
 
 
 ## Part 2 regression added — pending exact-head CI
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-15 | VFS write error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | A filesystem write callback returning `PROS_VFS_EIO` must return the error and set `bytes_written=0`, even when caller input was a nonzero sentinel | Implemented on `fix/prosenjitfs-vfs-write-error-count-20261024`; exact-head Build/boot-test and Security pending |
+| FS-15 | VFS write error output count | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | A filesystem write callback returning `PROS_VFS_EIO` must return the error and set `bytes_written=0`, even when caller input was a nonzero sentinel | **PASS** on exact PR #235 head `89a35608bcd278b01977f5abded40f2208208d9e`; Build/boot-test #40119299299 and Security #40119299311 passed |
 
 
 **Baseline commit:** `cfe04a8520ec917a90b284bbc726a8bd0cc83a2d`  
@@ -49,8 +56,8 @@ The matrix separates implementation, current-baseline runtime evidence, and unme
 | FS-06 | Journal ordering and crash recovery | Redo journal, optional block flush, mock durable/volatile/dirty layers | Pre-commit crash yields old state; committed transaction replays to complete new state; re-replay is idempotent; uncertain commit keeps mount read-only | Deterministic mock-device coverage exists; no physical-device certification |
 | FS-07 | Append read-failure sweep | PR #233, `kernel/prosenjitfs.c:10465` | Every reached read fault returns EIO, media CRCs unchanged, writable mount, original payload intact, clean integrity scan | **PASS on exact PR head `84d2b84948065011cf0c94291e8bcaf5d9f7079c`**: [Build/boot-test #40116501666](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501666) and [Security #40116501659](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40116501659) passed; full ProsenjitFS self-test marker observed. Fix keeps `pfs_make_vnode()` filesystem errors in the correct namespace and maps them at VFS callbacks. PR #233 merged into main as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`. |
 | FS-08 | Truncate read-failure sweep | PR #233, truncate sweep and writable-open path | Same invariants as FS-07; stop at first unreached countdown and disarm it before verification | **PASS as part of the full exact-head self-test** on `84d2b84948065011cf0c94291e8bcaf5d9f7079c`; exact-head Build/boot-test and Security checks passed. Individual truncate test rows do not have separate serial markers; this status is based on the enclosing test suite reaching its final success marker. PR #233 merged into main as `9c23331d6afdb090f2fd7d7d22e766c04ccbad6c`. |
-| FS-09 | Create/overwrite write-failure sweep | Open PR #230 | Reached failures propagate correctly; old file content and durable/volatile/dirty media remain stable; integrity passes | **PENDING exact-head verification** |
-| FS-10 | Rmdir write-failure sweep | Open PR #232 | Failure leaves directory/path and allocation intact; media unchanged; mount remains writable; integrity passes | **PENDING exact-head verification** |
+| FS-09 | Create/overwrite write-failure sweep | PR #230, `kernel/prosenjitfs.c` | Reached failures propagate correctly; old file content and durable/volatile/dirty media remain stable; integrity passes | **PASS** on exact PR #230 head `22da8502bce69a3c69c6ddf222eb643ffa89aab0`; Build #40088773369 and Security #40088773288 passed; merged into main as `3df77093edec9a6961a507fe05f4c32420d73391` |
+| FS-10 | Rmdir write-failure sweep | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Sweep block-write failures through `vfs_rmdir`; after simulated crash, the directory is either valid/present or fully removed; integrity passes | **PASS** through PR #230 exact-head Build #40088773369 and Security #40088773288. Equivalent sweep is already in `main`; open PR #232 duplicates this test and is not needed to add coverage. |
 | FS-11 | Other read/write/flush failure paths | Mock-device fault injection in ProsenjitFS self-test | Sweep each reachable superblock/journal/bitmap/inode/extent/directory read/write/flush; no stale injection contaminates verification | **PARTIAL**; inventory and add targeted cases in implementation plan |
 | FS-12 | Integrity scan read-only guarantee | `prosenjitfs_check_integrity`, report API | Check ownership/reachability/checksums/bounds; report orphan candidates without mutating media; distinguish EIO from malformed on-disk data | Implemented API; caller serialization and full adversarial coverage remain open |
 | FS-13 | Concurrency and object lifetime | VFS vnode refs, file/mount state, `io_lock` | Explicit lock contract and interleaving tests cover mutation vs scan and rename/unlink vs open file lifetime | **NOT VERIFIED** as general thread-safe VFS behavior |
