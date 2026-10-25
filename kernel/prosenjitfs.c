@@ -12268,6 +12268,120 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * A CRC-valid journal header with duplicate home-block targets is still
+     * structurally corrupt. Construct a valid committed transaction directly
+     * on the mock device, then duplicate a target and recompute the header CRC.
+     * Recovery must reject the malformed target list before replaying it.
+     */
+    {
+        struct pros_prosenjitfs_journal_header header;
+        struct pros_prosenjitfs_journal_commit commit;
+        uint8_t header_block[512];
+        uint8_t images[2u * 512u];
+        uint8_t commit_block[512];
+        uint64_t target0;
+        uint64_t journal_start;
+        uint32_t block_size;
+        int mount_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        block_size = fs.sb.block_size;
+        journal_start = fs.sb.journal_start;
+        if (block_size != sizeof(header_block) ||
+            fs.sb.journal_blocks < 4u ||
+            prosenjitfs_alloc_blocks(&fs, 2u, &target0) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        for (uint32_t i = 0u; i < sizeof(images); ++i)
+            images[i] = (uint8_t)(0x6Du ^ (uint8_t)(i * 13u));
+        pfs_zero(header_block, sizeof(header_block));
+        pfs_zero(&header, sizeof(header));
+        header.magic = PROSENJITFS_JOURNAL_MAGIC;
+        header.record_count = 2u;
+        header.transaction_id = 0x46533237544A4E4Cull;
+        header.targets[0] = target0;
+        header.targets[1] = target0 + 1u;
+        pfs_copy(header_block, &header, sizeof(header));
+        header.checksum = pfs_crc_with_zero32(
+            header_block, block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header,
+                               checksum));
+        pfs_copy(header_block, &header, sizeof(header));
+
+        pfs_zero(commit_block, sizeof(commit_block));
+        pfs_zero(commit_block, sizeof(commit_block));
+        pfs_zero(&commit, sizeof(commit));
+        commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+        commit.record_count = 2u;
+        commit.transaction_id = header.transaction_id;
+        pfs_copy(commit_block, &commit, sizeof(commit));
+        commit.checksum = pfs_journal_checksum(
+            header_block, images, block_size, 2u, commit_block);
+        pfs_copy(commit_block, &commit, sizeof(commit));
+
+        if (pfs_write_block(&device, journal_start, header_block) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 1u, images) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 2u,
+                            images + block_size) != PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 3u, commit_block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        /* Simulate power loss: normal unmount would retire the journal. */
+        pfs_test_crash_reset(&fs, &disk);
+
+        header.targets[1] = header.targets[0];
+        header.checksum = 0u;
+        pfs_zero(header_block, sizeof(header_block));
+        pfs_copy(header_block, &header, sizeof(header));
+        header.checksum = pfs_crc_with_zero32(
+            header_block, block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header,
+                               checksum));
+        pfs_copy(header_block, &header, sizeof(header));
+
+        /* Keep the commit checksum valid so duplicate-target validation,
+         * rather than checksum rejection, is what makes recovery fail. */
+        pfs_zero(&commit, sizeof(commit));
+        commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+        commit.record_count = 2u;
+        commit.transaction_id = header.transaction_id;
+        pfs_copy(commit_block, &commit, sizeof(commit));
+        commit.checksum = pfs_journal_checksum(
+            header_block, images, block_size, 2u, commit_block);
+        pfs_copy(commit_block, &commit, sizeof(commit));
+
+        if (pfs_write_block(&device, journal_start, header_block) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 3u, commit_block) !=
+                PROSENJITFS_OK ||
+            pfs_flush(&device) != PROSENJITFS_OK) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+
+        mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+        if (mount_rc != PROSENJITFS_ECORRUPT) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        pfs_test_crash_reset(&fs, &disk);
+    }
+
+    /*
      * A failed journal commit must not publish an unlink. Keep a populated
      * file, inject failure at the commit-record write, simulate power loss,
      * then prove remount retains the old name and bytes and the scan is clean.

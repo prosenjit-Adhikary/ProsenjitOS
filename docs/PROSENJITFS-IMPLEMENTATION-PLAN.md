@@ -139,4 +139,11 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 - [x] Added a deterministic mock-device regression for flush #2: journal header/images persist but flush reports `EIO` before a commit record is published.
 - [x] Require failed write with zero bytes, current mount remaining writable, simulated crash/remount preserving the complete old payload, and a passing read-only integrity scan.
-- [ ] Exact-head Build/boot-test and Security architecture checks are required before marking this case PASS. This is not physical-device durability certification.
+- [x] Exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd` passed Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633); merged into `main` as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`. This is not physical-device durability certification.
+
+
+## FS-27 — CRC-valid journal header with duplicate targets (2026-10-25)
+
+- [x] Add a deterministic mock-device regression that creates a committed transaction stopped before home-block replay, duplicates two journal target LBAs, recomputes both header and commit checksums, and requires mount recovery to return `PROSENJITFS_ECORRUPT` before replay.
+- [ ] Exact-head Build/boot-test and Security architecture CI must pass before marking this regression PASS.
+- Scope is structural validation on an in-memory mock device; no physical-device durability or general concurrency claim.
