@@ -232,3 +232,14 @@ This section records findings checked against `main` commit `cfe04a8520ec917a90b
 - The implementation is concentrated in one very large translation unit (`kernel/prosenjitfs.c`) with both filesystem logic and a sizable self-test. Changes to test injection and diagnostics must remain bounded and must not obscure which invariant failed.
 - The active `kernel/block.c` includes explicitly labelled temporary cross-layer block-init tracing and an O0/noinline diagnostic path. Audit it for necessity and remove or isolate it only after its remaining diagnostic purpose is verified; do not remove it blindly as part of this documentation-only phase.
 - `docs/PROSENJITFS-COMPLETION-MATRIX.md` is the source of truth for current CI evidence; `docs/PROSENJITFS-IMPLEMENTATION-PLAN.md` and `docs/PROSENJITFS-TEST-MATRIX.md` define the next acceptance gates.
+
+
+## FS-27 — Truncate-shrink tail isolation
+
+When a truncate shrink ends inside an allocated data block, Native ProsenjitFS zeros
+from the new EOF to the end of that block in the same redo-journal transaction as
+the changed inode size and any extent/bitmap updates. This prevents a later write
+past EOF from re-exposing bytes left beyond the prior EOF. The v1 disk layout is
+unchanged. Runtime status must be taken from exact-head Build/boot-test and Security
+architecture CI; emulator/mock-device results do not certify physical power-loss
+durability.
