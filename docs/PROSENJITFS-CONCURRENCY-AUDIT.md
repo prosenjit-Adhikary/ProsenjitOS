@@ -152,3 +152,20 @@ Current source state:
 - This is still not an SMP synchronization contract and leaves interrupts disabled across the critical section, including synchronous filesystem/block I/O.
 - The latest PR head is `04fafab7ad78d5b60ba39aa94d3dd0299e4d8df0`. Workflow runs associated with this PR were queued/cancelled for older commit SHAs; no passing exact-head Build/boot-test or Security architecture result was found during this review. No local build or QEMU runtime result is claimed.
 - Remaining merge gates: exact-head CI, an isolated enabled-IF restoration test, concurrency/lifetime tests, and explicit review of interrupt latency and the single-CPU assumption.
+
+## Locking follow-up — IRQ-off duration and namespace boundary (2026-10-25)
+
+A fresh source review of PR #265 confirms that the file-handle lock and filesystem I/O lock now save RFLAGS and execute `cli` **before** spinning, then restore IF only when it was enabled on acquisition. This addresses the identified same-CPU timer-preemption spin deadlock at those lock sites, assuming the current single-CPU execution model.
+
+It does not yet establish a complete kernel locking contract:
+
+- Both locks can remain held while a filesystem callback performs synchronous block-device I/O. Interrupts therefore remain disabled for the full callback on the normal enabled-IF path; this can delay the PIT heartbeat and any interrupt-driven work. Measure worst-case hold time before treating this as an acceptable long-term design.
+- IRQ masking is not an SMP lock protocol. If the kernel enables execution on multiple CPUs, local `cli` does not prevent another CPU from contending, and the current code has no reviewed SMP ownership/ordering contract.
+- Source call-site search finds the filesystem lock only in the read, write, and truncate wrappers. Namespace operations (`create`, `mkdir`, `unlink`, `rmdir`, `rename`, `lookup`, `readdir`) are not all serialized by that wrapper protocol. Do not mechanically wrap them until the call graph is checked for nested/re-entrant filesystem helpers and a consistent lock order is defined.
+- The VFS lock self-test runs during early initialization with IF already clear, so it checks nested disabled-IF restoration but does not exercise the enabled-IF restore path. Do not turn interrupts on during early self-tests just to cover that branch.
+
+Verification snapshot:
+- PR #265 head at this review: `dbc8baa85cd8bb82723a9d13db46fd202c79d695`.
+- No GitHub Actions workflow run was associated with this exact head at query time; older queued/cancelled runs are not valid evidence for this commit.
+- No local build or QEMU run is claimed.
+- Keep the PR unmerged until exact-head Build/boot-test and Security architecture checks pass, the enabled-IF path has safe isolated coverage, and same-handle/lifetime/namespace concurrency plus interrupt-latency risks have been reviewed.
