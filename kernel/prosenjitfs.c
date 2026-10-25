@@ -12281,6 +12281,7 @@ int prosenjitfs_selftest(void)
         uint8_t commit_block[512];
         uint64_t target0;
         uint64_t journal_start;
+        uint64_t total_blocks;
         uint32_t block_size;
         int mount_rc;
 
@@ -12293,6 +12294,7 @@ int prosenjitfs_selftest(void)
 
         block_size = fs.sb.block_size;
         journal_start = fs.sb.journal_start;
+        total_blocks = fs.sb.total_blocks;
         if (block_size != sizeof(header_block) ||
             fs.sb.journal_blocks < 4u ||
             prosenjitfs_alloc_blocks(&fs, 2u, &target0) != PROSENJITFS_OK) {
@@ -12387,7 +12389,7 @@ int prosenjitfs_selftest(void)
          */
         {
             const uint64_t invalid_targets[2] = {
-                fs.sb.total_blocks,
+                total_blocks,
                 journal_start
             };
             for (uint32_t invalid_index = 0u;
