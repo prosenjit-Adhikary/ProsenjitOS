@@ -1600,6 +1600,8 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     uint64_t retained_blocks = 0u;
     uint64_t inode_lba = 0u;
     uint32_t inode_offset = 0u;
+    uint64_t tail_zero_lba = 0u;
+    uint8_t tail_zero_pending = 0u;
     int rc = PROSENJITFS_EIO;
 
     if (!file || !file->vnode || !file->mount)
@@ -1726,6 +1728,37 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 
     keep_blocks = size / data->fs->sb.block_size +
                   ((size % data->fs->sb.block_size) != 0u ? 1u : 0u);
+
+    /*
+     * Shrinking to an EOF inside an allocated block must zero the
+     * unreachable suffix in the same redo transaction as the size update.
+     * Resolve the data target before changing the extent chain below.
+     */
+    if ((size % data->fs->sb.block_size) != 0u) {
+        struct pros_prosenjitfs_extent tail_extent;
+        uint64_t extent_lba = 0u;
+        uint64_t tail_lba = 0u;
+        uint64_t logical_block = size / data->fs->sb.block_size;
+
+        rc = pfs_find_extent(data->fs, &inode, logical_block, &tail_extent,
+                             &extent_lba, &tail_lba);
+        if (rc == PROSENJITFS_OK) {
+            uint64_t delta = logical_block - tail_extent.logical_block;
+            if (extent_lba == 0u)
+                return PROS_VFS_ECORRUPT;
+            rc = pfs_lba_add(data->fs->mount.device,
+                             tail_extent.physical_block, delta,
+                             &tail_zero_lba);
+            if (rc != PROSENJITFS_OK)
+                return pfs_vfs_error(rc);
+            if (tail_zero_lba < data->fs->sb.data_start ||
+                tail_zero_lba >= data->fs->sb.total_blocks)
+                return PROS_VFS_ECORRUPT;
+            tail_zero_pending = 1u;
+        } else if (rc != PROSENJITFS_ENOENT) {
+            return pfs_vfs_error(rc);
+        }
+    }
 
     /*
      * Version-1 journal transactions are bounded by MAX_TX_BLOCKS. Shrink
@@ -2012,31 +2045,63 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
                 retained_blocks * data->fs->sb.block_size;
 
         {
-            uint8_t inode_image[4096];
+            /* Reuse a single block-sized buffer to bound kernel stack use. */
+            uint8_t update_image[4096];
             int rc;
             if (affected == 0u) {
                 rc = pfs_tx_reset(data->fs);
                 if (rc != PROSENJITFS_OK)
                     return pfs_vfs_error(rc);
             }
+
+            if (tail_zero_pending) {
+                /* Duplicate targets would replace staged metadata in pfs_tx_add. */
+                for (uint32_t i = 0u; i < data->fs->tx.count; ++i) {
+                    if (data->fs->tx.targets[i] == tail_zero_lba) {
+                        pfs_tx_reset(data->fs);
+                        return PROS_VFS_ECORRUPT;
+                    }
+                }
+                rc = pfs_read_block(data->fs->mount.device, tail_zero_lba,
+                                    update_image);
+                if (rc != PROSENJITFS_OK) {
+                    pfs_tx_reset(data->fs);
+                    return pfs_vfs_error(rc);
+                }
+                for (uint32_t i = (uint32_t)(size % data->fs->sb.block_size);
+                     i < data->fs->sb.block_size; ++i)
+                    update_image[i] = 0u;
+                rc = pfs_tx_add(data->fs, tail_zero_lba, update_image);
+                if (rc != PROSENJITFS_OK) {
+                    pfs_tx_reset(data->fs);
+                    return pfs_vfs_error(rc);
+                }
+            }
+
             rc = pfs_inode_block_location(data->fs, data->inode_number,
-                                              &inode_lba, &inode_offset);
-            if (rc != PROSENJITFS_OK)
-                return pfs_vfs_error(rc);
-            rc = pfs_read_block(data->fs->mount.device, inode_lba,
-                                inode_image);
+                                          &inode_lba, &inode_offset);
             if (rc != PROSENJITFS_OK) {
                 pfs_tx_reset(data->fs);
                 return pfs_vfs_error(rc);
             }
-            pfs_copy(inode_image + inode_offset, &inode, sizeof(inode));
-            pfs_put32(inode_image + inode_offset +
+            if (tail_zero_pending && inode_lba == tail_zero_lba) {
+                pfs_tx_reset(data->fs);
+                return PROS_VFS_ECORRUPT;
+            }
+            rc = pfs_read_block(data->fs->mount.device, inode_lba,
+                                update_image);
+            if (rc != PROSENJITFS_OK) {
+                pfs_tx_reset(data->fs);
+                return pfs_vfs_error(rc);
+            }
+            pfs_copy(update_image + inode_offset, &inode, sizeof(inode));
+            pfs_put32(update_image + inode_offset +
                       offsetof(struct pros_prosenjitfs_inode, checksum),
                       pfs_crc_with_zero32(
-                          inode_image + inode_offset, sizeof(inode),
+                          update_image + inode_offset, sizeof(inode),
                           (uint32_t)offsetof(
                               struct pros_prosenjitfs_inode, checksum)));
-            int rc2 = pfs_tx_add(data->fs, inode_lba, inode_image);
+            int rc2 = pfs_tx_add(data->fs, inode_lba, update_image);
             if (rc2 != PROSENJITFS_OK) {
                 pfs_tx_reset(data->fs);
                 return pfs_vfs_error(rc2);
@@ -9040,6 +9105,46 @@ int prosenjitfs_selftest(void)
             inode.allocated_bytes != fs.sb.block_size ||
             inode.extent_head == 0u)
             return pfs_selftest_fail(__LINE__, -12);
+
+        /* Shrink must not expose stale bytes when a later write extends EOF. */
+        {
+            uint8_t marker = 0xE7u;
+            uint8_t gap[101];
+            uint32_t write_done = 0u;
+            uint32_t read_done = 0u;
+
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_WRITE,
+                              &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+            if (vfs_file_seek(&file, 200u) != PROS_VFS_OK ||
+                vfs_file_write(&file, &marker, 1u, &write_done) !=
+                    PROS_VFS_OK ||
+                write_done != 1u || file.vnode->size != 201u) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+
+            if (vfs_file_open(&fs.mount, "/hello.bin", PROS_VFS_O_READ,
+                              &file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+            if (vfs_file_seek(&file, 100u) != PROS_VFS_OK ||
+                vfs_file_read(&file, gap, sizeof(gap), &read_done) !=
+                    PROS_VFS_OK ||
+                read_done != sizeof(gap) || gap[100] != marker) {
+                vfs_file_close(&file);
+                return pfs_selftest_fail(__LINE__, -12);
+            }
+            for (uint32_t i = 0u; i < 100u; ++i) {
+                if (gap[i] != 0u) {
+                    vfs_file_close(&file);
+                    return pfs_selftest_fail(__LINE__, -12);
+                }
+            }
+            if (vfs_file_close(&file) != PROS_VFS_OK)
+                return pfs_selftest_fail(__LINE__, -12);
+        }
     }
     if (prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
         return pfs_selftest_fail(__LINE__, -12);
