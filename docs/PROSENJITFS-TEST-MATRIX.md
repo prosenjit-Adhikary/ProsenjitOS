@@ -212,3 +212,9 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 
 
 Concurrency test status and lock coverage are tracked in [`docs/PROSENJITFS-CONCURRENCY-AUDIT.md`](PROSENJITFS-CONCURRENCY-AUDIT.md). Do not mark concurrent VFS safety PASS until controlled tests and exact-head CI succeed.
+
+
+### FS-34 — VFS per-open file position concurrency (OPEN)
+- Source audit: `kernel/vfs.c` updates `pros_vfs_file.position` after the filesystem callback returns; append position is set from vnode size outside the ProsenjitFS callback lock.
+- The filesystem I/O lock therefore does not make simultaneous operations on the same open file object safe. Specify external serialization or introduce a VFS per-file synchronization primitive after reviewing kernel context/lock ordering.
+- Status: **OPEN / not tested**. Do not infer concurrency safety from FS-33.

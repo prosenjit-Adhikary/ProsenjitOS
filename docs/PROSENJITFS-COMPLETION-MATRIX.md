@@ -416,3 +416,7 @@ The local runner was reported offline. No local build or runtime test is claimed
 
 
 See [`docs/PROSENJITFS-CONCURRENCY-AUDIT.md`](PROSENJITFS-CONCURRENCY-AUDIT.md) for the dedicated concurrency/lifecycle handoff. The file-I/O lock is not a filesystem-wide concurrency guarantee.
+
+
+### FS-34 — per-open VFS position race remains open
+The VFS updates `pros_vfs_file.position` after provider callbacks return, outside the ProsenjitFS I/O lock. Append position is also copied from vnode size after the provider lock has been released. Same-handle concurrent operations are not verified safe; decide and document a caller serialization contract or add a VFS per-open-file lock and deterministic tests. Status remains OPEN.

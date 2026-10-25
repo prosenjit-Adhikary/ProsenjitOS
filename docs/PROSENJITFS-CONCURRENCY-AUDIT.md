@@ -84,3 +84,10 @@ At the last check for source/documentation head `a9f8c553b3615b2e226cb5fcfb7652b
 ## 8. Handoff rule
 
 The next AI should start by reading this document, then inspect the live source and PR head. Preserve the distinction between **implemented**, **tested**, **CI-passed**, and **hardware-verified**. Overall ProsenjitFS completion remains open.
+
+
+## Follow-up: VFS file-handle state is outside callback lock
+
+Review of `kernel/vfs.c` confirms `vfs_file_read()` advances `file->position` after the filesystem read callback returns, and `vfs_file_write()` advances position (or sets append position from `file->vnode->size`) after the filesystem write callback returns. The ProsenjitFS callback lock is released before those VFS updates. Therefore the lock does **not** serialize two simultaneous calls using the same `pros_vfs_file` object, and it does not make shared file position updates race-free. Concurrent operations on separate file handles may still require a carefully defined position/append contract; same-handle concurrent use must remain unsupported until the VFS itself adds synchronization and tests.
+
+Required test/decision: add a test or explicit API contract for concurrent same-handle read/write/append; decide whether VFS should own a per-open-file lock or whether callers must externally serialize each handle. Do not fix this by adding the filesystem lock around VFS dispatch without checking recursive lock acquisition.
