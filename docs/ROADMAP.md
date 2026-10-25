@@ -8,6 +8,13 @@ The current provider registry is scaffolding, not a complete external userspace 
 
 All current filesystem decisions, exact-head evidence, implementation status, security gates, and preserved historical plans are centralized in [docs/FILESYSTEM.md](FILESYSTEM.md). Legacy filesystem documents are navigation stubs only.
 
+## Native ProsenjitFS release gates — owner decision (2026-10-25)
+
+- **1.0:** native filesystem format/mount, allocation and inode/block bounds checks, directory namespace operations, file read/write/seek/truncate within documented limits, VFS integration, metadata validation/checksums where defined, journal/recovery tests, corruption/error-path tests, and **enforced permissions** (UID/GID/mode plus trusted VFS/kernel authorization; allowed/denied operation tests; denied operations must not mutate persistent media). These are acceptance targets, not a claim that all are implemented.
+- **1.1:** **mandatory native ProsenjitFS encryption**. Requires reviewed threat model/format, vetted authenticated encryption, key lifecycle, authenticated metadata/data I/O, nonce uniqueness, tamper/wrong-key handling, journal/recovery integration, and exact-candidate tests. No custom cryptography; fail closed on authentication failure.
+- **1.2 and later:** remaining native features staged after the above gates, such as extended ACLs, quotas, snapshots, compression, deduplication, online checking/repair, performance improvements, and stronger concurrency/durability. These are backlog candidates, not fixed promises.
+- The detailed feature contract and caveats live in [docs/FILESYSTEM.md](FILESYSTEM.md).
+
 ## Current status — 2026-09-30
 
 The repository has moved beyond the original boot/kernel-only milestone. The kernel core contains only native ProsenjitFS. FAT32, exFAT, NTFS, and future compatibility filesystems must be implemented as modular external providers behind the VFS/provider ABI, so new formats can be added without adding their parsers to kernel core. All filesystem architecture, implementation status, compatibility-provider work, release gates, and test evidence are tracked in the single source of truth: [docs/FILESYSTEM.md](FILESYSTEM.md). Do not create separate filesystem planning/status/test documents; update FILESYSTEM.md.
