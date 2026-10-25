@@ -400,3 +400,9 @@ The local runner was reported offline. No local build or runtime test is claimed
 - PR #265 head after documentation updates: `1312cef301f7e6042abce59fb928745787eca8ff`.
 - Build/boot-test [#40208605368](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605368) pending; Security architecture [#40208605379](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605379) queued at last query.
 - Earlier workflow runs for `4c0f7e4...`, `d6515e8...`, and `a5c881a...` were superseded; do not treat cancelled runs as successful validation.
+
+
+## Follow-up audit correction — 2026-10-25
+
+- Review found that the initial FS-33 change locked append writes only, not ordinary writes. That gap is corrected in source commit `828def8a5cc8e53f9c03156973c1b60e96876572`: every write now uses the same per-filesystem lock as read/truncate wrappers when filesystem state is available.
+- This is a code correction awaiting exact-head CI, not a PASS. Controlled concurrent tests, namespace mutation/readdir locking, lock recursion/order, and unmount-vs-active-I/O lifecycle safety remain open. The local runner is offline; no local build is claimed.
