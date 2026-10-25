@@ -1,3 +1,10 @@
+## Inode-record admission update — 2026-10-25
+
+- Added v1 inode semantic validation to prosenjitfs_read_inode() after checksum validation: known type/flag values, nonzero generation, parent index bounds, size within the data area, and block-aligned allocated-byte accounting bounded by volume capacity.
+- Added seven checksum-valid malformed-record regressions. Each mutation is written via the existing fixture-capable inode writer, then the valid root record is restored before assertion results are evaluated; the suite ends with a clean integrity scan.
+- The accepted v1 disk format is unchanged. Extent and directory references remain the responsibility of dedicated readers.
+- Verification status: PENDING exact-head Build/boot-test and Security architecture workflows. Do not mark FS-23 green before both pass.
+
 ## Current integration update — allocator bitmap read-error coverage (2026-10-25)
 
 - Added test cases in `kernel/prosenjitfs.c` for read failures in the inode bitmap finder and public inode allocator, plus all four data bitmap lookup/query paths.

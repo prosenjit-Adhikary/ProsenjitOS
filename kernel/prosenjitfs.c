@@ -5078,6 +5078,33 @@ int prosenjitfs_read_inode(const struct pros_prosenjitfs *fs,
                                 struct pros_prosenjitfs_inode, checksum)) !=
         inode->checksum)
         return PROSENJITFS_ECORRUPT;
+
+    /* A checksum authenticates bytes, not their semantic validity. */
+    if (inode->type != PROSENJITFS_INODE_FILE &&
+        inode->type != PROSENJITFS_INODE_DIR &&
+        inode->type != PROSENJITFS_INODE_SYMLINK)
+        return PROSENJITFS_ECORRUPT;
+    if ((inode->flags & (uint8_t)~PROSENJITFS_INODE_FLAG_SPARSE) != 0u ||
+        inode->generation == 0u ||
+        inode->parent_inode >= fs->sb.inode_count)
+        return PROSENJITFS_ECORRUPT;
+
+    {
+        uint64_t capacity_blocks;
+        uint64_t size_blocks;
+        if (fs->sb.total_blocks < fs->sb.data_start)
+            return PROSENJITFS_ECORRUPT;
+        capacity_blocks = fs->sb.total_blocks - fs->sb.data_start;
+        size_blocks = inode->size / fs->sb.block_size;
+        if (size_blocks > capacity_blocks ||
+            (size_blocks == capacity_blocks &&
+             (inode->size % fs->sb.block_size) != 0u))
+            return PROSENJITFS_ECORRUPT;
+        /* v1 allocated-byte accounting is expressed in whole data blocks. */
+        if ((inode->allocated_bytes % fs->sb.block_size) != 0u ||
+            inode->allocated_bytes / fs->sb.block_size > capacity_blocks)
+            return PROSENJITFS_ECORRUPT;
+    }
     return PROSENJITFS_OK;
 }
 
@@ -9535,6 +9562,47 @@ int prosenjitfs_selftest(void)
                 return pfs_selftest_fail(__LINE__, -15);
         }
 
+        /* CRC-valid inode records must still obey the v1 semantic contract.
+         * Inject each malformed root with write_inode, reject it via
+         * read_inode, and restore the valid root before checking the result. */
+        {
+            struct pros_prosenjitfs_inode valid_root;
+            struct pros_prosenjitfs_inode invalid_root;
+            struct pros_prosenjitfs_inode readback;
+            uint64_t capacity_blocks;
+            int read_rc;
+            if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &valid_root) !=
+                PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -170);
+            if (fs.sb.total_blocks < fs.sb.data_start)
+                return pfs_selftest_fail(__LINE__, -170);
+            capacity_blocks = fs.sb.total_blocks - fs.sb.data_start;
+            if (capacity_blocks >= UINT64_MAX / fs.sb.block_size)
+                return pfs_selftest_fail(__LINE__, -170);
+            for (uint32_t invalid_case = 0u; invalid_case < 7u; ++invalid_case) {
+                invalid_root = valid_root;
+                switch (invalid_case) {
+                case 0u: invalid_root.type = 0x7Fu; break;
+                case 1u: invalid_root.flags = (uint8_t)(1u << 1); break;
+                case 2u: invalid_root.generation = 0u; break;
+                case 3u: invalid_root.parent_inode = fs.sb.inode_count; break;
+                case 4u: invalid_root.size = UINT64_MAX; break;
+                case 5u: invalid_root.allocated_bytes = fs.sb.block_size + 1u; break;
+                default:
+                    invalid_root.allocated_bytes = (capacity_blocks + 1u) * fs.sb.block_size;
+                    break;
+                }
+                if (prosenjitfs_write_inode(&fs, fs.sb.root_inode, &invalid_root) !=
+                    PROSENJITFS_OK)
+                    return pfs_selftest_fail(__LINE__, -170);
+                read_rc = prosenjitfs_read_inode(&fs, fs.sb.root_inode, &readback);
+                if (prosenjitfs_write_inode(&fs, fs.sb.root_inode, &valid_root) !=
+                        PROSENJITFS_OK || read_rc != PROSENJITFS_ECORRUPT)
+                    return pfs_selftest_fail(__LINE__, -170);
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+                return pfs_selftest_fail(__LINE__, -170);
+        }
         /* Use a dedicated fixture: /hello.bin was deliberately unlinked
          * earlier, and other persistence tests may remount or reset paths. */
         if (vfs_file_open(&fs.mount, "/truncate-overflow.bin",

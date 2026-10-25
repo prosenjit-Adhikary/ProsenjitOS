@@ -1,3 +1,10 @@
+## Inode-record admission hardening — 2026-10-25
+
+- [x] Audited prosenjitfs_read_inode() against the existing v1 inode layout and the integrity scanner's semantic checks.
+- [x] Added post-checksum admission checks for supported v1 inode types/flags, nonzero generation, in-range parent inode, logical size within data-area capacity, and block-aligned allocated-byte accounting bounded by volume capacity.
+- [x] Added tests that inject CRC-valid malformed root records through prosenjitfs_write_inode(), require PROSENJITFS_ECORRUPT from reads, restore the valid root on each case, and run a clean integrity scan.
+- [ ] Exact-head Build/boot-test and Security architecture CI for this branch are required; source inspection alone is not runtime verification.
+- Scope: no v1 on-disk format change. Extent/directory reference graphs remain validated by dedicated readers and the integrity walk; no physical-device durability or general concurrency claim.
 ## Part 2 continuation — 2026-10-25
 
 ## Integration CI failure and source correction — 2026-10-25
@@ -92,7 +99,8 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [x] The original geometry PR exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed Build/boot-test #40119726528 and Security architecture #40119726499. This current-main port is source-committed as `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; the integrated head still requires its own CI before it is marked verified.
 ## P4 — Validate metadata, allocation and namespace invariants adversarially
 
-- [ ] Expand boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, inode types/generations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
+- [ ] Expand remaining boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, further inode semantic combinations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
+- [x] Source/test coverage added for checksum-valid inode type/flag/generation/parent/size/allocated-byte admission; exact-head CI is pending and P4 is not complete.
 - [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
 - [x] Added a bounded total-path-length guard in `vfs_path_lookup()` before vnode reference acquisition; an unterminated path reaching `PROS_VFS_PATH_MAX` is rejected with `PROS_VFS_EOVERFLOW` instead of scanning arbitrarily many separators.
 - [x] Added VFS self-tests for empty and overlong paths, repeated separators, `.`, `..` and root escape clamping, missing intermediate directory, non-directory components, and preservation of the caller's result pointer on error.

@@ -1,3 +1,8 @@
+## FS-23 — CRC-valid inode semantic admission (source/test added; exact-head CI pending)
+
+- Coverage: unknown inode type, unknown flag bit, zero generation, parent inode equal to inode_count, UINT64_MAX file size, non-block-aligned allocated bytes, and block-aligned allocated bytes beyond data-area capacity.
+- Test pattern: inject each malformed-but-checksummed record with prosenjitfs_write_inode(), require prosenjitfs_read_inode() to return PROSENJITFS_ECORRUPT, restore the valid root record, then require a clean integrity scan.
+- No disk-format change. Build/boot-test and Security architecture must pass on the exact branch head before this test is considered verified.
 ## Home-block flush failure regression — exact-head CI passed (2026-10-25)
 
 - [x] Added a mock-device test that fails flush #4, after the commit record has been flushed and while home-block writes are being persisted.
@@ -11,6 +16,7 @@
 | FS-19 | Allocator geometry, exhaustion and boundary bits | `kernel/prosenjitfs.c`, ProsenjitFS self-test | Reject block sizes 0/511/513/4097/8192 before division/indexing; preserve output sentinels/media; return ENOSPC on exhausted bitmaps and find final valid bit | **PASS** on PR #242 exact head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed. Merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
 | FS-20 | Allocator bitmap read-error propagation and cleanup | `kernel/prosenjitfs.c`, `prosenjitfs_selftest()` | Inject a bitmap read error into the inode finder/public allocator and each data-bitmap finder/query; require `EIO`, untouched output sentinels/media state, writable mount, and successful integrity scan | **PASS** on exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed; merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
 | FS-21 | Total path bounds and VFS path resolution | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Reject path length `>= PROS_VFS_PATH_MAX`; handle repeated separators and `.`/`..`, clamp root `..`, return ENOENT/ENOTDIR for invalid traversal, preserve result pointer on errors | **PASS** on exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed; merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
+| FS-23 | CRC-valid inode semantic admission | kernel/prosenjitfs.c, prosenjitfs_selftest() | Reject unknown type/flags, zero generation, out-of-range parent, over-capacity size, unaligned allocation accounting and over-capacity allocated bytes; restore root and pass integrity scan | PENDING exact-head Build/boot-test and Security architecture for fix/prosenjitfs-inode-record-admission-20261025. |
 
 ## Failed build follow-up — 2026-10-25
 

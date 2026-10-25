@@ -1,3 +1,10 @@
+## 2026-10-25 — ProsenjitFS inode-record admission
+
+- Baseline inspected: main at 8c8821db740639123d5d3a051dd0751ebf1baf10.
+- Source change: kernel/prosenjitfs.c rejects checksum-valid but semantically invalid non-free inode records from prosenjitfs_read_inode() (type/flags, generation, parent bounds, size capacity, and allocated-byte alignment/capacity). The on-disk format remains v1.
+- Regression: seven malformed root-record variants are injected using the existing inode writer, rejected on read, and followed by restoration of the valid root plus integrity validation.
+- Documentation updated: implementation plan, completion matrix, test matrix and architecture contract.
+- Verification: source reviewed through GitHub; no local repository shell was available for independent compilation in this session. Exact-head Build/boot-test and Security architecture CI are required before acceptance. No physical-device durability claim.
 # ProsenjitOS Debug Log
 
 ## 2026-10-04 — CPL3 syscall/IPC test fix
