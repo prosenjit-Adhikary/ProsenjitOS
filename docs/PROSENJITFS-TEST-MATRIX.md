@@ -166,3 +166,25 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 
 
 - [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs, recompute both header and commit checksums, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **CI pending** on exact follow-up head; deterministic mock-device only; no hardware durability claim.
+
+
+## Active handoff entries — 2026-10-25
+
+### FS-32 — invalid journal target geometry (PR #264; CI pending at last check)
+- Exact source head: `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`.
+- Checks checksum-valid journal records targeting block 0, block 1, `total_blocks`, and `journal_start`; expects `PROSENJITFS_ECORRUPT` and no durable/volatile/dirty mock-medium mutation.
+- PR: https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/264
+- Build #40207586779 and Security #40207586760 were pending/queued when last queried. Recheck before reporting status as current.
+
+### FS-33 — file read/truncate serialization (PR #265; CI queued at last check)
+- Exact source head: `4c0f7e40ea3408a10bbcd2b25e8318f54026eb45`.
+- File read and truncate entry points now take the existing per-filesystem I/O spinlock and call unlocked internal helpers; write path already uses this lock. Intended to prevent concurrent file data reads/writes/truncates and append-vs-truncate races.
+- PR: https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/265
+- Build #40208475785 and Security #40208475812 were queued when last queried. This test-matrix entry documents the implementation, not a passed test. Add deterministic interleaving tests and exact-head CI evidence before marking PASS.
+
+### Open concurrency coverage
+- [ ] Add/verify controlled interleaving tests for read/write/truncate/append against the same filesystem lock.
+- [ ] Audit namespace mutation operations and directory enumeration for shared transaction state races.
+- [ ] Audit unmount vs in-flight I/O; ensure lock ordering and lifecycle rules do not permit use-after-free or deadlock.
+- [ ] Confirm no nested acquisition of the non-recursive `pfs_io_lock()` on any wrapper/helper path.
+- [ ] Record exact commit SHA and passing Build/boot-test + Security runs before marking any item PASS.
