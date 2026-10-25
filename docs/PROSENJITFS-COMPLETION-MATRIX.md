@@ -413,3 +413,6 @@ The local runner was reported offline. No local build or runtime test is claimed
 - Verified in source that create/rmdir/rename/readdir do not acquire the shared per-filesystem I/O lock at their entry points. Their interaction with shared directory/index/inode/allocator/transaction state is still an open concurrency risk requiring deterministic tests and a deliberate lock-order design.
 - Unmount checks the root vnode reference count, then flushes/deactivates and frees transaction/scratch state; the inspected code does not establish a gate that prevents new operations racing that sequence. Do not claim concurrent-unmount safety yet.
 - Next work should define an active-operation/lifecycle protocol and test it, rather than mechanically adding locks that could deadlock. Current write-lock correction source commit: `828def8a5cc8e53f9c03156973c1b60e96876572`. Local runner unavailable; exact-head CI pending/queued at last snapshot.
+
+
+See [`docs/PROSENJITFS-CONCURRENCY-AUDIT.md`](PROSENJITFS-CONCURRENCY-AUDIT.md) for the dedicated concurrency/lifecycle handoff. The file-I/O lock is not a filesystem-wide concurrency guarantee.

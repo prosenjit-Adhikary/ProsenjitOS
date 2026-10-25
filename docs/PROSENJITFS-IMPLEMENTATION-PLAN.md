@@ -225,3 +225,6 @@ This section is the handoff source for another AI/engineer. Preserve the distinc
 - `prosenjitfs_unmount()` checks root vnode reference count, then flushes/deactivates and frees transaction/scratch buffers without an evident shared active-operation gate. The current check alone does not prove race-free unmount if another operation can begin concurrently.
 - Do not blanket-wrap these functions until call graphs are checked for lock recursion and a lifecycle/lock ordering is defined. Next safe work: controlled concurrency tests plus an explicit mount operation/refcount protocol; then add locks in small changes with exact-head CI.
 - Current PR #265 source correction is `828def8a5cc8e53f9c03156973c1b60e96876572`; docs subsequently changed the PR head. Always re-query the live head and CI. No local build/runtime test or physical-device durability claim.
+
+
+Concurrency handoff: see [`docs/PROSENJITFS-CONCURRENCY-AUDIT.md`](PROSENJITFS-CONCURRENCY-AUDIT.md) for the current lock-coverage map, lifecycle caveats and safe next steps.

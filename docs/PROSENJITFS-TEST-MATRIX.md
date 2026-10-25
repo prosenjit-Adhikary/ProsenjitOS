@@ -209,3 +209,6 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - `prosenjitfs_unmount()` checks root vnode refcount and then flushes/deactivates/frees buffers, but no shared active-operation gate was found in the inspected path. Concurrent unmount safety remains unproven.
 - These are audit findings, not proof that a race was reproduced. Add deterministic interleaving/lifecycle tests and define lock order before applying wrappers. Avoid recursive acquisition of the non-recursive spinlock.
 - File write lock correction is in source commit `828def8a5cc8e53f9c03156973c1b60e96876572`; exact current PR head must pass Build/boot-test and Security checks before this work is called verified.
+
+
+Concurrency test status and lock coverage are tracked in [`docs/PROSENJITFS-CONCURRENCY-AUDIT.md`](PROSENJITFS-CONCURRENCY-AUDIT.md). Do not mark concurrent VFS safety PASS until controlled tests and exact-head CI succeed.
