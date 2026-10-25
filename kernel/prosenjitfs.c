@@ -9570,7 +9570,7 @@ int prosenjitfs_selftest(void)
             struct pros_prosenjitfs_inode invalid_root;
             struct pros_prosenjitfs_inode readback;
             uint64_t capacity_blocks;
-            int read_rc;
+            int write_rc, read_rc, restore_rc;
             if (prosenjitfs_read_inode(&fs, fs.sb.root_inode, &valid_root) !=
                 PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -170);
@@ -9592,12 +9592,14 @@ int prosenjitfs_selftest(void)
                     invalid_root.allocated_bytes = (capacity_blocks + 1u) * fs.sb.block_size;
                     break;
                 }
-                if (prosenjitfs_write_inode(&fs, fs.sb.root_inode, &invalid_root) !=
-                    PROSENJITFS_OK)
-                    return pfs_selftest_fail(__LINE__, -170);
-                read_rc = prosenjitfs_read_inode(&fs, fs.sb.root_inode, &readback);
-                if (prosenjitfs_write_inode(&fs, fs.sb.root_inode, &valid_root) !=
-                        PROSENJITFS_OK || read_rc != PROSENJITFS_ECORRUPT)
+                write_rc = prosenjitfs_write_inode(&fs, fs.sb.root_inode, &invalid_root);
+                read_rc = (write_rc == PROSENJITFS_OK)
+                        ? prosenjitfs_read_inode(&fs, fs.sb.root_inode, &readback)
+                        : write_rc;
+                /* Always attempt restoration, even if the injected write failed. */
+                restore_rc = prosenjitfs_write_inode(&fs, fs.sb.root_inode, &valid_root);
+                if (write_rc != PROSENJITFS_OK || restore_rc != PROSENJITFS_OK ||
+                    read_rc != PROSENJITFS_ECORRUPT)
                     return pfs_selftest_fail(__LINE__, -170);
             }
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
