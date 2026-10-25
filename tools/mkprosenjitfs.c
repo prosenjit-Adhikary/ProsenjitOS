@@ -195,7 +195,7 @@ int main(int argc, char **argv)
      * O_NOFOLLOW above also rejects a symlink used to disguise a target.
      */
     if (!S_ISREG(st.st_mode)) {
-        fprintf(stderr, "refusing to format a non-regular file; use a disposable disk image\\n");
+        fprintf(stderr, "refusing to format a non-regular file; use a disposable disk image\n");
         close(fd);
         return 1;
     }
