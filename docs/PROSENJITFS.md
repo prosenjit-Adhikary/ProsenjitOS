@@ -219,6 +219,8 @@ This section records findings checked against `main` commit `cfe04a8520ec917a90b
 
 ### Verified implementation boundary and known gaps
 
+- FS-18 home-block flush-failure recovery regression passed on exact head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`: [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security architecture #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759). ISO and native BIOS QEMU boot checks passed; this does not certify physical-device durability.
+
 - The main-branch workflow at the audit commit passed toolchain validation, ISO build, ISO QEMU boot and native BIOS QEMU boot, and emitted the required ProsenjitFS success marker. Security architecture checks also passed at that same commit.
 - These results are deterministic test/emulator evidence, not physical drive power-loss evidence. No real disk was formatted or modified during this audit.
 - The implementation is concentrated in one very large translation unit (`kernel/prosenjitfs.c`) with both filesystem logic and a sizable self-test. Changes to test injection and diagnostics must remain bounded and must not obscure which invariant failed.
