@@ -185,7 +185,7 @@ int main(int argc, char **argv)
     }
     if (fstat(fd, &st) != 0 || st.st_size < 0 ||
         ((uint64_t)st.st_size % SECTOR_SIZE) != 0u) {
-        fprintf(stderr, "invalid native disk image size\\n");
+        fprintf(stderr, "invalid native disk image size\n");
         close(fd);
         return 1;
     }
