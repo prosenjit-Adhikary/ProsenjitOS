@@ -169,3 +169,17 @@ Verification snapshot:
 - No GitHub Actions workflow run was associated with this exact head at query time; older queued/cancelled runs are not valid evidence for this commit.
 - No local build or QEMU run is claimed.
 - Keep the PR unmerged until exact-head Build/boot-test and Security architecture checks pass, the enabled-IF path has safe isolated coverage, and same-handle/lifetime/namespace concurrency plus interrupt-latency risks have been reviewed.
+
+
+## Fresh source and CI recheck — 2026-10-25 23:46 IST
+
+- Exact PR #265 source head checked: `34b508bbf7a77ea01e56401dc3869fef77cb6ea3`.
+- The source still contains IRQ-save locking in both `vfs_file_lock()` and `pfs_io_lock()`: save RFLAGS and execute `cli` before the atomic spin; restore IF only when it was set on entry. The VFS self-test checks nested restoration while the boot-time IF state is disabled; it does not safely cover an initially enabled IF state.
+- File callbacks read/write/truncate/close/seek use the per-handle VFS lock. ProsenjitFS read/write/truncate use the filesystem I/O lock. The locks are nested VFS-handle → filesystem-I/O on the regular file callback path.
+- The critical section still includes synchronous filesystem/block I/O with local interrupts disabled. This remains a latency concern; the present source-level mitigation is not a substitute for a scheduler-aware sleepable mutex if callbacks may block or become long-running.
+- No SMP synchronization guarantee is established by local `cli`. Current review assumes one executing CPU; any SMP enablement requires a separate lock contract.
+- Exact-head workflow query: no run was found for `34b508bbf7a77ea01e56401dc3869fef77cb6ea3`. The branch's latest visible Build run was queued for older source commit `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`; it is not exact-head verification. No local build or QEMU run is claimed.
+- PR #265 remains open and unmerged. Do not merge until Build/boot-test and Security architecture checks complete for the exact final code head and the interrupt-off latency plus missing concurrent lifetime/namespace tests are reviewed.
+- PR #264 also remains open/unmerged; its Build and Security runs for `266ee0c48a5f0b13fb0023539ffd22100c7d8d64` were still queued at this recheck.
+
+This section is a verification snapshot, not a claim that the filesystem is complete or release-ready.
