@@ -96,3 +96,15 @@ Required test/decision: add a test or explicit API contract for concurrent same-
 ## FS-34 implementation note — per-open VFS file lock
 
 The VFS now carries a per-open-file spinlock initialized by `vfs_file_init()`. Read/write/truncate/seek/close operations acquire it before validating mutable handle state and hold it across callback dispatch and position/lifetime updates. This addresses same-handle position interleaving at source level. It does not serialize different file objects; provider-level filesystem locking remains necessary. **Important unresolved kernel contract:** this is a spinlock held across synchronous filesystem callbacks and potentially block-device I/O. Verify the kernel execution model forbids sleeping/preemption in this path or replace it with the supported sleepable mutex before claiming production-safe concurrency. Deterministic concurrent tests and exact-head CI remain required.
+
+
+## Follow-up source review — VFS handle lock and kernel synchronization (2026-10-25)
+
+Reviewed the PR #265 head `7b41a5128be74462db884ef169a1e8f125fb7d26` and its VFS implementation.
+
+- `vfs_file_lock()` is an atomic spin loop around `__sync_lock_test_and_set`; it does not disable interrupts, yield, or provide a sleep/wait path. The lock is held across provider callbacks for read/write/truncate and across the provider close callback.
+- `vfs_file_init()` initializes `io_lock` to zero. All direct `struct pros_vfs_file` objects found in the VFS self-test are zero-initialized or passed through the normal open/init path in the inspected source; nevertheless, every future construction path must preserve that invariant.
+- `vfs_file_close()` releases the lock after clearing handle fields. This serializes an operation already contending on the same live object, but does not by itself establish safe object destruction/reuse if a caller retains and concurrently reuses the same pointer after close. The handle's storage lifetime must remain externally stable until all users have stopped.
+- The kernel has `thread_schedule_preempt()` and `thread_schedule_interrupt()` declarations/definitions, but this review did not establish the active interrupt call path or prove whether a callback can sleep/yield while the lock is held. Do not infer either “preemption is impossible” or “a deadlock was reproduced” from this inspection alone.
+- Repository inspection did not find an established sleepable mutex primitive in the kernel synchronization headers/files reviewed. Do not invent one or silently substitute a different primitive. First trace the actual interrupt/scheduler call path and block-device callbacks; then define the lock/context contract. If callback paths may block or yield, this spinlock design is not acceptable as-is.
+- No deterministic concurrent test, local build, or exact-head CI pass is claimed by this audit update. PR #265 remains validation-open; do not merge until lock/context/lifetime assumptions are proved and the exact current head passes required CI.
