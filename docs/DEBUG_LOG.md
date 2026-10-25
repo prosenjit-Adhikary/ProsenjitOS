@@ -617,3 +617,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Moved output publication after successful bitmap transaction completion.
 - Added a pre-commit journal-write fault regression requiring EIO, sentinel preservation, unchanged durable/volatile/dirty mock-media checksums, a writable mount and a passing integrity scan.
 - Exact-head Build/boot-test and Security architecture CI remain pending; no runtime success is claimed.
+
+
+## 2026-10-25 — verification result for FS-28 / FS-29
+
+- Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332).
+- Build job completed toolchain verification, DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- Captured logs include the ProsenjitFS format/mount/allocation/journal/recovery self-test marker, native filesystem LBA-boundary diagnostic, and ATA PIO -> MBR -> ProsenjitFS persistent-mount marker.
+- These results verify the code/test head; this follow-up only updates documentation. Physical-device power-loss certification and general concurrent mutation remain outside the evidence.
