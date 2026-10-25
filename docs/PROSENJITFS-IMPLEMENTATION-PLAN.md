@@ -56,7 +56,8 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 ## P3 — Re-validate transactional durability and recovery invariants
 
-- [ ] Sweep failure points around journal-slot invalidation, journal header/images, flush barriers, commit record, home-block application, and journal retirement.
+- [x] Added a targeted home-block flush failure test at transaction flush #4: the commit record is already durable, the current mount freezes read-only, and remount recovery must replay the complete new payload. Exact-head CI pending.
+- [ ] Sweep remaining failure points around journal-slot invalidation, journal header/images, flush barriers, commit record, home-block application, and journal retirement.
 - [ ] For pre-commit interruption, recovery must expose the old consistent state; for a valid committed transaction, recovery may expose the complete new state. Reject mixed/partial logical results.
 - [ ] Re-run recovery interruption tests both before and after flush, including repeat recovery after simulated power loss.
 - [ ] Test missing/stale commit markers, matching transaction IDs with contradictory record counts, invalid checksums, duplicate/out-of-range transaction targets and overflowed region calculations.
