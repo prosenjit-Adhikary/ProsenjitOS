@@ -218,3 +218,10 @@ Concurrency test status and lock coverage are tracked in [`docs/PROSENJITFS-CONC
 - Source audit: `kernel/vfs.c` updates `pros_vfs_file.position` after the filesystem callback returns; append position is set from vnode size outside the ProsenjitFS callback lock.
 - The filesystem I/O lock therefore does not make simultaneous operations on the same open file object safe. Specify external serialization or introduce a VFS per-file synchronization primitive after reviewing kernel context/lock ordering.
 - Status: **OPEN / not tested**. Do not infer concurrency safety from FS-33.
+
+
+### FS-34 — per-open VFS file position serialization (IMPLEMENTED / VALIDATION OPEN)
+- Added `pros_vfs_file.io_lock`, initialized during file initialization.
+- Read/write/truncate/seek/close lock the open-file object across validation, provider dispatch, and position/lifetime updates.
+- This serializes same-handle calls at the VFS layer; ProsenjitFS's per-filesystem lock is still required across distinct handles.
+- **Not yet PASS:** no deterministic multithreaded interleaving test or exact-head CI evidence has been recorded. Review spinlock suitability across synchronous filesystem/block-device I/O before claiming scheduler-safe concurrency.

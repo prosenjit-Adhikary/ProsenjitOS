@@ -94,6 +94,7 @@ struct pros_vfs_file {
     void *private_data;
     uint64_t position;
     uint32_t flags;
+    volatile uint32_t io_lock;
     uint8_t open;
 };
 

@@ -420,3 +420,7 @@ See [`docs/PROSENJITFS-CONCURRENCY-AUDIT.md`](PROSENJITFS-CONCURRENCY-AUDIT.md) 
 
 ### FS-34 — per-open VFS position race remains open
 The VFS updates `pros_vfs_file.position` after provider callbacks return, outside the ProsenjitFS I/O lock. Append position is also copied from vnode size after the provider lock has been released. Same-handle concurrent operations are not verified safe; decide and document a caller serialization contract or add a VFS per-open-file lock and deterministic tests. Status remains OPEN.
+
+
+### FS-34 — VFS per-open file state
+The VFS now serializes operations on one `pros_vfs_file` object with a per-handle spinlock. Validation remains open: add deterministic concurrent tests, verify the kernel's lock/scheduler/I/O contract, and require exact-head Build/boot-test plus Security architecture CI before marking complete.

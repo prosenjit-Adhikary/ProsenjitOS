@@ -21,6 +21,24 @@ static uint64_t health_rename_count;
 static uint64_t health_dir_open_count;
 static uint64_t health_dir_read_count;
 
+/*
+ * Serialize operations on one open file object, including file-position
+ * changes. This spinlock is scoped to the VFS handle; filesystem locks still
+ * protect shared on-disk inode/transaction state across handles.
+ */
+static void vfs_file_lock(struct pros_vfs_file *file)
+{
+    while (__sync_lock_test_and_set(&file->io_lock, 1u) != 0u) {
+    }
+    __sync_synchronize();
+}
+
+static void vfs_file_unlock(struct pros_vfs_file *file)
+{
+    __sync_synchronize();
+    __sync_lock_release(&file->io_lock);
+}
+
 static void vfs_health_error(int rc)
 {
     uint32_t code = 0u;
@@ -248,6 +266,7 @@ int vfs_file_init(struct pros_vfs_file *file,
     file->private_data = private_data;
     file->position = 0;
     file->flags = flags;
+    file->io_lock = 0u;
     file->open = 1u;
     return PROS_VFS_OK;
 }
@@ -256,45 +275,50 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
                   uint32_t length, uint32_t *bytes_read)
 {
     int rc;
-    /*
-     * The output count is valid only after a successful read. Clear it before
-     * argument and permission checks so every failure leaves a deterministic
-     * zero count instead of the caller's stale value.
-     */
     if (bytes_read)
         *bytes_read = 0u;
-    if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->read || !bytes_read ||
-        !file->vnode || file->position > 0xFFFFFFFFULL)
+    if (!file)
         return PROS_VFS_EINVAL;
-    if ((file->flags & PROS_VFS_O_READ) == 0u)
+    vfs_file_lock(file);
+    if (!file->open || !file->mount || !file->mount->active ||
+        !file->ops || !file->ops->read || !bytes_read || !file->vnode) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EINVAL;
+    }
+    if ((file->flags & PROS_VFS_O_READ) == 0u) {
+        vfs_file_unlock(file);
         return PROS_VFS_EPERM;
-
-    /*
-     * A zero-length read is a successful no-op and does not require a data
-     * buffer. Non-zero reads require a valid destination before dispatch.
-     */
-    if (length == 0u)
+    }
+    if (length == 0u) {
+        vfs_file_unlock(file);
         return PROS_VFS_OK;
-    if (!buffer)
+    }
+    if (!buffer) {
+        vfs_file_unlock(file);
         return PROS_VFS_EINVAL;
-    /*
-     * Do not use the vnode size as an authoritative EOF check. Filesystems
-     * may have multiple vnodes for one inode, so a writer can extend the
-     * inode after this handle was opened. The filesystem read operation is
-     * authoritative and may refresh the vnode size.
-     */
-    if ((uint64_t)length > UINT32_MAX - file->position)
+    }
+    if (file->position > 0xFFFFFFFFULL) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EINVAL;
+    }
+    if ((uint64_t)length > UINT32_MAX - file->position) {
+        vfs_file_unlock(file);
         return PROS_VFS_EOVERFLOW;
-
+    }
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
-    if (rc < 0) { vfs_health_error(rc); return rc; }
-
-    if ((uint32_t)rc > length)
+    if (rc < 0) {
+        vfs_health_error(rc);
+        vfs_file_unlock(file);
+        return rc;
+    }
+    if ((uint32_t)rc > length) {
+        vfs_file_unlock(file);
         return PROS_VFS_EIO;
+    }
     file->position += (uint32_t)rc;
     *bytes_read = (uint32_t)rc;
     ++health_read_count;
+    vfs_file_unlock(file);
     return PROS_VFS_OK;
 }
 
@@ -302,71 +326,90 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
                    uint32_t length, uint32_t *bytes_written)
 {
     int rc;
-    /*
-     * Never leave a caller's stale byte count visible after a rejected or
-     * failed write. Filesystem callbacks communicate errors through rc; the
-     * output count is meaningful only after a successful callback.
-     */
     if (bytes_written)
         *bytes_written = 0u;
-    if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->write || !bytes_written || !file->vnode)
+    if (!file)
         return PROS_VFS_EINVAL;
-    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
+    vfs_file_lock(file);
+    if (!file->open || !file->mount || !file->mount->active ||
+        !file->ops || !file->ops->write || !bytes_written || !file->vnode) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EINVAL;
+    }
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only) {
+        vfs_file_unlock(file);
         return PROS_VFS_EPERM;
-    if (length != 0u && !buffer)
+    }
+    if (length != 0u && !buffer) {
+        vfs_file_unlock(file);
         return PROS_VFS_EINVAL;
-    /*
-     * O_APPEND is an operation-time filesystem contract. Do not derive the
-     * write offset from a cached vnode EOF; another handle may have extended
-     * the inode since this vnode was created. The Native ProsenjitFS provider
-     * selects the authoritative inode EOF under its append serialization.
-     */
-    if (file->position > 0xFFFFFFFFULL)
+    }
+    if (file->position > 0xFFFFFFFFULL ||
+        (uint64_t)length > UINT32_MAX - file->position) {
+        vfs_file_unlock(file);
         return PROS_VFS_EOVERFLOW;
-    if ((uint64_t)length > UINT32_MAX - file->position)
-        return PROS_VFS_EOVERFLOW;
+    }
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
+        vfs_file_unlock(file);
         return rc;
     }
-    if ((uint32_t)rc > length)
+    if ((uint32_t)rc > length) {
+        vfs_file_unlock(file);
         return PROS_VFS_EIO;
+    }
     if ((file->flags & PROS_VFS_O_APPEND) != 0u)
         file->position = file->vnode->size;
     else
         file->position += (uint32_t)rc;
     *bytes_written = (uint32_t)rc;
     ++health_write_count;
+    vfs_file_unlock(file);
     return PROS_VFS_OK;
 }
 
 int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
 {
-    if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->ops || !file->ops->truncate || !file->vnode)
+    int rc;
+    if (!file)
         return PROS_VFS_EINVAL;
-    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only)
-        return PROS_VFS_EPERM;
-    if (size > 0xFFFFFFFFULL)
-        return PROS_VFS_EOVERFLOW;
-    {
-        int rc = file->ops->truncate(file, size);
-        if (rc < 0) vfs_health_error(rc);
-        else ++health_truncate_count;
-        return rc;
+    vfs_file_lock(file);
+    if (!file->open || !file->mount || !file->mount->active ||
+        !file->ops || !file->ops->truncate || !file->vnode) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EINVAL;
     }
+    if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EPERM;
+    }
+    if (size > 0xFFFFFFFFULL) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EOVERFLOW;
+    }
+    rc = file->ops->truncate(file, size);
+    if (rc < 0) vfs_health_error(rc);
+    else ++health_truncate_count;
+    vfs_file_unlock(file);
+    return rc;
 }
 
 int vfs_file_close(struct pros_vfs_file *file)
 {
     int rc;
-    if (!file || !file->open || !file->ops || !file->ops->close)
+    if (!file)
         return PROS_VFS_EINVAL;
+    vfs_file_lock(file);
+    if (!file->open || !file->ops || !file->ops->close) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EINVAL;
+    }
     rc = file->ops->close(file);
-    if (rc != PROS_VFS_OK)
+    if (rc != PROS_VFS_OK) {
+        vfs_file_unlock(file);
         return rc;
+    }
     file->open = 0u;
     if (file->vnode)
         vfs_vnode_put(file->vnode);
@@ -375,17 +418,24 @@ int vfs_file_close(struct pros_vfs_file *file)
     file->ops = 0;
     file->private_data = 0;
     file->position = 0;
+    vfs_file_unlock(file);
     return PROS_VFS_OK;
 }
 
 int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
 {
-    if (!file || !file->open || !file->mount || !file->mount->active ||
-        !file->vnode)
+    if (!file)
         return PROS_VFS_EINVAL;
     if (position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
+    vfs_file_lock(file);
+    if (!file->open || !file->mount || !file->mount->active ||
+        !file->vnode) {
+        vfs_file_unlock(file);
+        return PROS_VFS_EINVAL;
+    }
     file->position = position;
+    vfs_file_unlock(file);
     return PROS_VFS_OK;
 }
 
