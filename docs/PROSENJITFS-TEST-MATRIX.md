@@ -44,6 +44,13 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Implementation:** clear the retained block suffix in the same redo transaction as the inode size and related extent/bitmap updates. Reject target collisions; reset staged transactions on failure.
 - **Status:** regression added; Build/boot-test and Security architecture exact-head workflows not yet observed.
 
+## FS-29 — Inode allocator failure preserves caller output (**PENDING exact-head CI**)
+
+- **Risk:** `prosenjitfs_alloc_inode()` assigned the candidate before its inode-bitmap transaction could fail.
+- **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, unchanged `UINT64_MAX` output sentinel, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
+- **Implementation:** publish the candidate only after `pfs_inode_bitmap_update()` succeeds.
+- **Status:** source and regression updated; exact-head Build/boot-test and Security architecture workflows are pending.
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Latest verified execution — 2026-10-25
