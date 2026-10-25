@@ -342,3 +342,10 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - PR #239 merged into `main` as `1b87449daf9555d15723dea284d3725b87e354d0` after exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) both passed.
 - FS-18 now covers failure of transaction flush #4 after durable commit publication and during home-block persistence. The current mount must report zero written bytes and become read-only; simulated power-loss remount must replay the committed payload completely and pass integrity validation.
 - Remaining work includes systematic coverage of other journal interruption points, broader malformed journal metadata, concurrency/object lifetime verification, and physical hardware durability testing. The current pass is mock-device/QEMU evidence, not hardware certification.
+
+
+## Verification scope update — journal recovery (2026-10-25)
+
+- FS-26 ambiguous pre-commit journal-images flush passed exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd`: Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633). Merged as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`.
+- FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. Its exact-head CI remains pending.
+- Neither test establishes physical-drive power-loss durability; concurrency/object-lifetime guarantees also remain unverified as a general VFS property.
