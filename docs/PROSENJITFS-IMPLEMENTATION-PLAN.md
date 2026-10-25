@@ -119,7 +119,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 ## P6 — Complete operational/maintenance gaps
 
-- [ ] Audit and remove or isolate temporary block-init diagnostics in `kernel/block.c` only after confirming no active diagnosis depends on them.
+- [x] Removed the temporary cross-layer `block_device_init()` trace and forced `O0`/`noinline` attributes from `kernel/block.c`. The ProsenjitFS self-test retains its generic before/after checkpoints (`0xF004`/`0xF005`), so test-stage reporting remains without instrumenting the production block-init path. Exact-head CI is required for acceptance.
 - [ ] Decide and document the host-side `mkprosenjitfs` tool scope; when implemented, share the versioned format definitions and never operate on a real device without explicit, separate user action.
 - [ ] Keep automated repair/reclamation disabled until a journal-first, conservative repair design includes pre/post-integrity verification, read-only fallback and recovery logging.
 - [ ] Define a separate physical-device durability validation plan. Mock-device and QEMU tests are not physical power-loss certification.
