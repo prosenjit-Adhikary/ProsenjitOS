@@ -135,6 +135,16 @@ if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-symlink.img" >/dev/null 2>&1
     echo "Formatter unexpectedly followed a symlink target" >&2
     exit 1
 fi
+mkdir "$BUILD/native-disk-image-directory"
+if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-directory" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a directory target" >&2
+    exit 1
+fi
+mkfifo "$BUILD/native-disk-image-fifo"
+if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-fifo" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a FIFO target" >&2
+    exit 1
+fi
 
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
