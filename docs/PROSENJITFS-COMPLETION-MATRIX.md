@@ -1,3 +1,10 @@
+## Latest follow-up — home-block flush failure test (2026-10-25)
+
+- [x] Added FS-18 in `kernel/prosenjitfs.c` to fail transaction flush #4, after commit publication and during home-block persistence.
+- [x] Failure reports zero bytes and freezes the current mount read-only; simulated power-loss remount replays the committed new payload and integrity scan passes.
+- [x] Exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed on `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; ISO QEMU and native BIOS QEMU boot checks passed. Mock/QEMU only; not physical-device durability certification.
+- Remaining durability boundary: this is deterministic mock-device/QEMU evidence, not physical-device power-loss certification.
+
 # ProsenjitFS Completion Matrix
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
