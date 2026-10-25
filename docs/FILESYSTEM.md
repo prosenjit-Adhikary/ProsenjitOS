@@ -7,11 +7,15 @@
 
 ## 0. Reconciliation audit — 2026-10-25
 
+### Owner-confirmed architecture decision
+
+**Confirmed 2026-10-25:** only native ProsenjitFS belongs in the kernel core. FAT32/exFAT/NTFS and future filesystem formats are separate drivers/providers connected through VFS, similar in principle to mainstream operating systems. EXT4 boot + read/write is not the chosen first-release baseline; EXT4 is not to be added to the native kernel core as part of this plan.
+
 This section records cross-document/source checks performed during consolidation. It prevents old design notes from being mistaken for current implementation evidence.
 
 ### Release-scope decision that must not be silently conflated
 
-The current repository implementation track is **native ProsenjitFS**. A prior product requirement discussed in project planning called for **EXT4 boot plus read/write support for the first release**. These are different release baselines: the current source/build does not contain an EXT4 implementation or Linux EXT4 driver port. Until the project owner explicitly confirms which baseline wins, do not claim that the ProsenjitFS implementation satisfies an EXT4 release requirement. The implementation roadmap below tracks the current ProsenjitFS code path; release scope must be explicitly closed before a 1.0 release claim.
+The project owner has now confirmed the release architecture: **ProsenjitFS is the only native filesystem implementation in the kernel core**. FAT32, exFAT, NTFS, and future formats are compatibility filesystems supported through separate drivers/providers behind the common VFS interface, following the general approach used by mainstream operating systems. The earlier EXT4 boot + read/write idea is not the selected first-release baseline; do not add an EXT4 implementation to the kernel core or treat it as a release blocker. EXT4 could only be considered later as another compatibility filesystem if explicitly prioritized. This decision resolves the previously open product-direction question.
 
 ### Provider implementation reality
 
@@ -35,7 +39,7 @@ The former `docs/NTFS-WRITE-STATUS.md` describes NTFS write behavior and QEMU ma
 The original idea was to put all filesystem implementations inside the kernel. The project later deliberately changed direction: **the kernel core must not contain every filesystem implementation**. Adding or changing formats inside the kernel would increase kernel size, attack surface, coupling, and maintenance cost. Future formats must be addable without rebuilding or redesigning the native filesystem core.
 
 - **ProsenjitFS** is the native filesystem and the only filesystem implementation intended to be linked into the kernel core.
-- **FAT32, exFAT, NTFS, and future compatibility formats** must be implemented as modular external providers outside the kernel core, behind a stable provider ABI and VFS boundary. “External” means separate from kernel core; the provider's execution model, permissions, lifecycle, and crash containment must be specified and enforced, not assumed safe merely because it is out-of-kernel.
+- **FAT32, exFAT, NTFS, and future compatibility formats** must be implemented as separate filesystem drivers/providers behind a stable provider ABI and VFS boundary, as other operating systems provide support for multiple filesystem formats. They must not be built into the native ProsenjitFS implementation. The exact provider execution model (loadable kernel module versus isolated userspace provider) remains an engineering decision and must be selected based on safety, portability, and the current kernel architecture; “separate provider” does not by itself imply userspace execution.
 - The VFS exposes one common file/directory API to applications. Applications should not need to know which filesystem stores a file.
 - The kernel must not link legacy FAT32/exFAT/NTFS parsers back into the kernel core.
 - The native ProsenjitFS feature roadmap and the external-provider roadmap are separate workstreams but tracked in this one document.
