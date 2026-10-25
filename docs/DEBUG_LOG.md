@@ -600,7 +600,9 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - This is a cleanup of diagnostic instrumentation only; the exact-head Build/boot-test and Security architecture workflows must pass before treating it as verified.
 
 
-## 2026-10-25 — FS-27 truncate-shrink tail isolation
+## 2026-10-25 — FS-28 truncate-shrink tail isolation
+
+- Assigned FS-28 to this truncate-shrink bug; FS-27 is already used for duplicate-target journal recovery.
 
 - Audited `kernel/prosenjitfs.c` with the implementation plan, completion matrix, test matrix, format header and block-device contract at main head `d6e4f0998cbaa57d7234803011e3bbe21680b241`.
 - Found that shrink truncation preserved bytes after a partial-block EOF. Since the write path overlays writes into an existing mapped block, a later sparse-offset write could extend the file and expose those stale bytes in the gap.
