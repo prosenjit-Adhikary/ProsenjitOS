@@ -90,7 +90,8 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [ ] Sweep remaining failure points around journal-slot invalidation, journal header/images, flush barriers, commit record, home-block application, and journal retirement.
 - [ ] For pre-commit interruption, recovery must expose the old consistent state; for a valid committed transaction, recovery may expose the complete new state. Reject mixed/partial logical results.
 - [ ] Re-run recovery interruption tests both before and after flush, including repeat recovery after simulated power loss.
-- [ ] Test missing/stale commit markers, matching transaction IDs with contradictory record counts, invalid checksums, duplicate/out-of-range transaction targets and overflowed region calculations.
+- [x] Added a CRC-valid duplicate-target journal regression: the test leaves a durable committed transaction, duplicates a target and recomputes the header CRC; recovery must reject it as corruption before replay. Exact-head CI pending.
+- [ ] Test missing/stale commit markers, matching transaction IDs with contradictory record counts, invalid checksums, out-of-range transaction targets and overflowed region calculations.
 - **Acceptance:** all committed/uncommitted outcomes are deterministic and idempotent; ambiguous commit state fails closed or leaves the mount read-only until recovery; no repair writes occur during a read-only scan.
 
 ## Allocator geometry hardening — ported onto current main (2026-10-25)
