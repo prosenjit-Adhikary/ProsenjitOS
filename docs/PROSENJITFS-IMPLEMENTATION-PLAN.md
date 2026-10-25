@@ -176,7 +176,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## FS-27 — CRC-valid journal header with duplicate targets (2026-10-25)
 
 - [x] Add a deterministic mock-device regression that creates a committed transaction stopped before home-block replay, duplicates two journal target LBAs, recomputes both header and commit checksums, and requires mount recovery to return `PROSENJITFS_ECORRUPT` before replay.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before marking this regression PASS.
+- [x] Exact head `935d5ef715f6c81dc502269d584c7fa3f25cf728` passed Build/boot-test [#40171924978](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40171924978) and Security architecture [#40171924948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40171924948); PR #255 merged as `d6e4f0998cbaa57d7234803011e3bbe21680b241`.
 - Scope is structural validation on an in-memory mock device; no physical-device durability or general concurrency claim.
 
 
