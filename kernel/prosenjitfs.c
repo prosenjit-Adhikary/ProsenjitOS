@@ -1595,19 +1595,23 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
 {
     struct pfs_vnode_data *data = 0;
     struct pros_prosenjitfs *fs = 0;
-    int append = 0;
     int rc;
 
     if (file && file->vnode) {
         data = (struct pfs_vnode_data *)file->vnode->private_data;
         if (data)
             fs = data->fs;
-        append = (file->flags & PROS_VFS_O_APPEND) != 0u;
     }
-    if (append && fs)
+
+    /*
+     * All writes must share the filesystem I/O lock with reads and truncates,
+     * not only O_APPEND writes. Otherwise an ordinary write can race a read
+     * or truncate even though those entry points acquire this lock.
+     */
+    if (fs)
         pfs_io_lock(fs);
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
-    if (append && fs)
+    if (fs)
         pfs_io_unlock(fs);
     return rc;
 }
