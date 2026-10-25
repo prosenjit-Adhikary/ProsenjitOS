@@ -2,12 +2,10 @@
 
 ## Current status — 2026-09-30
 
-The repository has moved beyond the original boot/kernel-only milestone. The current kernel filesystem scope is intentionally narrowed to native ProsenjitFS; legacy FAT32, exFAT and NTFS implementations were removed from the kernel image so compatibility support can later be supplied through external filesystem providers.
+The repository has moved beyond the original boot/kernel-only milestone. The kernel core contains only native ProsenjitFS. FAT32, exFAT, NTFS, and future compatibility filesystems must be implemented as modular external providers behind the VFS/provider ABI, so new formats can be added without adding their parsers to kernel core. All filesystem architecture, implementation status, compatibility-provider work, release gates, and test evidence are tracked in the single source of truth: [docs/FILESYSTEM.md](FILESYSTEM.md). Do not create separate filesystem planning/status/test documents; update FILESYSTEM.md.
 
 ### Current engineering focus
-1. **Native filesystem production verification:** finish ProsenjitFS storage, transaction, crash, recovery and LBA verification.
-2. **Filesystem-provider boundary:** define a stable external provider ABI without linking compatibility parsers into kernel-core.
-3. **Compatibility providers:** later add NTFS/exFAT/FAT32 providers outside the kernel image.
+1. **Filesystem workstream (single source of truth: [docs/FILESYSTEM.md](FILESYSTEM.md)):** finish native ProsenjitFS storage, transaction, crash, recovery and LBA verification; define the stable external provider ABI; then implement FAT32/exFAT/NTFS providers outside kernel core.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing File admission/security broker and quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** the driver model foundation is now implemented around the PCI enumeration layer; next work is the device permission broker and concrete keyboard/display/network device abstractions.
 6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.
