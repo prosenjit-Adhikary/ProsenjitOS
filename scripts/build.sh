@@ -130,6 +130,11 @@ if "$BUILD/mkprosenjitfs" /dev/null >/dev/null 2>&1; then
     echo "Formatter unexpectedly accepted a non-regular target" >&2
     exit 1
 fi
+ln -s "$NATIVE_DISK" "$BUILD/native-disk-image-symlink.img"
+if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-symlink.img" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly followed a symlink target" >&2
+    exit 1
+fi
 
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
