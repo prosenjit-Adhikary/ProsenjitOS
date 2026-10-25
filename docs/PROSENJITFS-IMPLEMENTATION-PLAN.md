@@ -1,5 +1,12 @@
 ## Part 2 continuation — 2026-10-25
 
+## Integration CI failure and source correction — 2026-10-25
+
+- [x] Build/boot-test run `#40159887034` exposed a compile failure at `kernel/prosenjitfs.c:10624`: an `rmdir-write-sweep` cleanup clause referenced `found_lba` from the wrong (unlink-read-sweep) scope after branch-conflict reconciliation.
+- [x] Reverted that misplaced cleanup from the unlink read-failure sweep and anchored the optional post-recovery `vfs_rmdir()` cleanup to the actual rmdir write-failure sweep, where `found_lba` is declared and indicates whether the directory survives recovery.
+- [ ] Re-run Build/boot-test and Security architecture checks on the corrected integration head; the failed build did not reach QEMU boot tests.
+
+
 - Reconciled the existing native filesystem implementation rather than introducing a parallel design.
 - Ported allocator block-geometry validation and boundary/exhaustion regressions onto the latest `main` source while preserving the already-merged FS-18 home-flush recovery test. Integrated source commit: `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`.
 - Original allocator-hardening exact-head CI passed; this integration commit own Build/boot-test and Security checks remain required and are not pre-claimed.

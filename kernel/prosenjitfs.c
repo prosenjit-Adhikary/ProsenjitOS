@@ -10621,9 +10621,6 @@ int prosenjitfs_selftest(void)
                 }
             }
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
-                (found_lba != 0u &&
-                 (vfs_rmdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
-                  prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)) ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -23);
@@ -13677,6 +13674,9 @@ int prosenjitfs_selftest(void)
             }
 
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                (found_lba != 0u &&
+                 (vfs_rmdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
+                  prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)) ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);

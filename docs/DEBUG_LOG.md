@@ -577,3 +577,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - `vfs_path_lookup()` now checks the full NUL-terminated path against `PROS_VFS_PATH_MAX` before taking a vnode reference or walking components. This bounds scans made entirely of repeated separators; strings whose length reaches the maximum return `PROS_VFS_EOVERFLOW`.
 - Added self-tests for repeated separators plus `.`, root-clamped `..`, empty input, exactly-over-limit path made from slashes, missing intermediate components, traversal through a file, and result pointer preservation on errors.
 - Code was source-edited and mechanically checked for all intended guard/test anchors, but no compiler or runtime execution has been run locally. These additions require exact final-head Build/boot-test and Security CI; no pass is claimed.
+
+## 2026-10-25 — build found rmdir test hunk in wrong scope; corrected
+
+- Queried exact PR #242 workflow logs rather than relying only on the status badge. Build/boot-test #40159887034 completed desktop/DML unit tests successfully, then failed at ISO compilation: `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`; ISO/native QEMU steps were skipped.
+- Root cause: while porting PR #237, a cleanup hunk sharing a generic integrity/unmount anchor was applied to the earlier unlink read-failure sweep instead of the intended rmdir write-failure sweep.
+- Removed the misplaced rmdir cleanup from the unlink block; added it only to the rmdir write-sweep block, where `found_lba` belongs and the condition means remove a child directory that survived recovery. Kept the recovered parent-inode/root invariant and test-fixture crash reset.
+- Source-scope guards passed by inspection of the resulting GitHub file content; this is not compiler verification. Fresh exact-head Build/boot-test and Security runs are required.

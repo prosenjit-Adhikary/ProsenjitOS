@@ -11,6 +11,7 @@
 - Geometry tests cover block sizes 0, 511, 513, 4097 and 8192, sentinel/media invariance, bounded bitmap exhaustion, and final valid allocator bits. Accepted on-disk v1 format is unchanged.
 - [ ] **FS-20 allocator bitmap read failures:** source commit `c7218d60a8b5b499f2baeec4170c8642c6c11f55` now tests inode/data bitmap I/O failures, output sentinels, read-only-state invariance, media/cache CRCs and post-fault integrity. Exact PR #242 integration Build/boot-test and Security CI remain pending; this is not yet marked verified.
 - [ ] **FS-21 VFS path bounds and resolution:** added complete path-length limit and tests for empty/overlong path, repeated separators, `.`/`..`, root escape clamp, missing intermediate directory, non-directory traversal and result-sentinel preservation. Exact PR #242 CI is pending.
+- Build/boot-test #40159887034 **failed at ISO compilation** with `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`. The misplaced cleanup was removed from the unlink-read sweep and moved to the actual rmdir-write sweep. A fresh exact-head build/boot and security pass is required.
 
 # ProsenjitFS Completion Matrix
 
