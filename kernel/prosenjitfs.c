@@ -8369,6 +8369,95 @@ int prosenjitfs_selftest(void)
     if (prosenjitfs_free_blocks(&fs, first_block, 1u) != PROSENJITFS_EINVAL)
         return pfs_selftest_fail(__LINE__, -10);
 
+    /*
+     * Bitmap read faults must propagate through both private finders and
+     * public allocator APIs without leaving stale output values, changing
+     * media/cache state, or forcing an otherwise healthy mount read-only.
+     */
+    {
+        uint64_t candidate = UINT64_MAX;
+        uint32_t durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        uint32_t volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        uint32_t dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        disk.fail_read_countdown = 1u;
+        if (pfs_find_free_inode(&fs, &candidate) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -31);
+
+        disk.fail_read_countdown = 1u;
+        candidate = UINT64_MAX;
+        if (prosenjitfs_alloc_inode(&fs, &candidate) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -31);
+
+        if (durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -31);
+    }
+
+    /*
+     * Data-bitmap read faults are independent: exercise each finder/query
+     * separately and make sure a failed scan does not publish a candidate.
+     */
+    {
+        uint64_t candidate = UINT64_MAX;
+        uint32_t durable_before = prosenjitfs_crc32c(
+            disk.data, (uint32_t)sizeof(disk.data));
+        uint32_t volatile_before = prosenjitfs_crc32c(
+            disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+        uint32_t dirty_before = prosenjitfs_crc32c(
+            disk.dirty, (uint32_t)sizeof(disk.dirty));
+
+        disk.fail_read_countdown = 1u;
+        if (pfs_find_free_data_block(&fs, &candidate) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -32);
+
+        disk.fail_read_countdown = 1u;
+        candidate = UINT64_MAX;
+        if (pfs_find_free_data_block_except(
+                &fs, UINT64_MAX, &candidate) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -32);
+
+        disk.fail_read_countdown = 1u;
+        candidate = UINT64_MAX;
+        if (pfs_find_free_data_block_excluding(
+                &fs, UINT64_MAX, &candidate) != PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u || candidate != UINT64_MAX ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -32);
+
+        disk.fail_read_countdown = 1u;
+        if (pfs_data_block_is_free(&fs, fs.sb.data_start) !=
+                PROSENJITFS_EIO ||
+            disk.fail_read_countdown != 0u ||
+            fs.read_only || fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -32);
+
+        if (durable_before != prosenjitfs_crc32c(
+                disk.data, (uint32_t)sizeof(disk.data)) ||
+            volatile_before != prosenjitfs_crc32c(
+                disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+            dirty_before != prosenjitfs_crc32c(
+                disk.dirty, (uint32_t)sizeof(disk.dirty)) ||
+            prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -32);
+    }
+
     pfs_selftest_diag_stage = __LINE__;
     /* Keep-size preallocation regression: reserve future blocks without
      * changing EOF, verify zero initialization, persistence, and subsequent
