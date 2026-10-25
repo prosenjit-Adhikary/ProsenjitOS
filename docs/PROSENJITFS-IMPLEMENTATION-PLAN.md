@@ -140,3 +140,17 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [x] Added a deterministic mock-device regression for flush #2: journal header/images persist but flush reports `EIO` before a commit record is published.
 - [x] Require failed write with zero bytes, current mount remaining writable, simulated crash/remount preserving the complete old payload, and a passing read-only integrity scan.
 - [ ] Exact-head Build/boot-test and Security architecture checks are required before marking this case PASS. This is not physical-device durability certification.
+
+
+## FS-27 — Host formatter target safety (2026-10-25; verified)
+
+- [x] Reject non-regular target paths with `lstat` before opening; open with `O_NOFOLLOW`; recheck the opened descriptor with `fstat` before sector writes.
+- [x] Regression tests reject `/dev/null`, symlink, directory, FIFO, and malformed regular images; SHA-256 comparisons verify rejected targets are not mutated.
+- [x] Exact PR #252 head `764648b04d44d8a9ab1be1c778145ec370ff8d5b` passed Build/boot-test #40168476444 and Security architecture #40168476441; merged as `f2e5adad80c5690e1cffcab64c82c356e1634bbc`.
+- Scope is the host formatter and disposable-image regression only. Kernel device durability, physical-disk power-loss behavior, and general VFS concurrency remain unverified.
+
+## Next native-filesystem implementation gate
+
+- [ ] Add focused recovery tests for malformed committed journal records: inconsistent transaction IDs/counts, duplicate or out-of-range targets, checksum-valid but contradictory metadata, and interrupted repeat-recovery.
+- [ ] Continue systematic read/write/flush fault inventory for journal retirement and recovery read paths; require exact-head Build/boot-test plus Security architecture CI.
+- [ ] Keep FS-13 concurrency and FS-14 physical-device durability explicitly unverified until dedicated interleaving and hardware tests exist.
