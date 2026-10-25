@@ -289,3 +289,12 @@ ProsenjitFS self-test, LBA-boundary and ATA/MBR persistent-mount success markers
 in both ISO and native BIOS QEMU paths. The replay-write failure, simulated
 power-loss retry, committed unlink and integrity assertions passed. This remains
 mock-device/QEMU evidence, not physical-device power-loss certification.
+
+
+## FS-32 — Preallocation free-state error contract
+
+The metadata-block selection loop in `prosenjitfs_preallocate_blocks()` propagates
+negative errors from `pfs_data_block_is_free()`. Only 0 (allocated) and 1 (free)
+are valid normal outcomes. The regression injects a bitmap read EIO at that scan
+and verifies that allocation aborts without modifying durable, volatile or dirty
+media state; the v1 format and journal protocol are unchanged.
