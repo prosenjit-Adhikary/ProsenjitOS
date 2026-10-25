@@ -1,3 +1,10 @@
+## 2026-10-25 — ProsenjitFS Part 2 verification summary
+
+- Verified source head: `70ed44cd45987682ac50f9fbfd1b82a510e25033`; PR #249 remains open and unmerged.
+- **PASS:** [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791) on that exact source head.
+- The build log contains ProsenjitFS format/mount/allocation/journal/recovery success markers in both ISO and native BIOS runs, plus LBA-boundary and ATA PIO → MBR → ProsenjitFS persistent-mount success markers.
+- Source changes: checksum-valid inode admission, directory-index owner identity, and child-reference validation in path lookup and readdir. Corruption fixtures restore original metadata and finish with integrity checks.
+- The v1 disk format is unchanged. Broader P2/P3/P4 fault-injection and corruption families remain incomplete; no physical-device durability or general concurrency claim.
 # ProsenjitOS Debug Log
 
 ## 2026-10-04 — CPL3 syscall/IPC test fix

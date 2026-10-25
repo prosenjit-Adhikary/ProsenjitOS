@@ -1,3 +1,11 @@
+## Part 2 verification checkpoint — 2026-10-25
+
+- [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.
+- [x] Directory-index ownership: readers and callers supply the expected owner ID; a CRC-valid index naming another in-range inode is rejected, and the original index is restored through the journal path.
+- [x] Namespace child references: path lookup and readdir reject dangling references, entry/inode type mismatch, wrong parent, and direct directory self-links. Corruption regressions restore original metadata and verify integrity.
+- [x] On-disk v1 layout/version unchanged. No physical-device durability or general concurrency claim.
+- [x] Exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033` passed [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791). Build includes ISO and native BIOS QEMU boot, ProsenjitFS self-test, LBA-boundary diagnostic, and ATA-to-MBR persistent-mount checks.
+- [ ] Broader P2/P3/P4 work remains open: systematic read/write/flush fault sweeps, additional journal recovery cut points, and remaining metadata/extent/namespace boundary cases.
 ## Part 2 continuation — 2026-10-25
 
 ## Integration CI failure and source correction — 2026-10-25
@@ -92,7 +100,8 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [x] The original geometry PR exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed Build/boot-test #40119726528 and Security architecture #40119726499. This current-main port is source-committed as `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; the integrated head still requires its own CI before it is marked verified.
 ## P4 — Validate metadata, allocation and namespace invariants adversarially
 
-- [ ] Expand boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, inode types/generations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
+- [ ] Expand remaining boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, further inode semantic combinations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
+- [x] Source/test coverage for checksum-valid inode type/flag/generation/parent/size/allocated-byte admission passed on exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033` (Build #8548 and Security #8084). P4 remains open for remaining boundary families.
 - [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
 - [x] Added a bounded total-path-length guard in `vfs_path_lookup()` before vnode reference acquisition; an unterminated path reaching `PROS_VFS_PATH_MAX` is rejected with `PROS_VFS_EOVERFLOW` instead of scanning arbitrarily many separators.
 - [x] Added VFS self-tests for empty and overlong paths, repeated separators, `.`, `..` and root escape clamping, missing intermediate directory, non-directory components, and preservation of the caller's result pointer on error.

@@ -1,3 +1,18 @@
+## FS-23 — CRC-valid inode semantic admission (**PASS** on exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`)
+
+- Seven malformed but checksummed variants: unknown type, unknown flag, zero generation, invalid parent, `UINT64_MAX` size, unaligned allocation bytes, and allocation beyond capacity.
+- Reads return `PROSENJITFS_ECORRUPT`; the valid root is restored after each case; integrity scan passes.
+
+## FS-24 — Directory-index owner identity (**PASS** on exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`)
+
+- The root index is changed to another in-range owner while recalculating its CRC; the reader returns `PROSENJITFS_ECORRUPT`; the original index is restored through the journal transaction interface; integrity scan passes.
+
+## FS-25 — Namespace child-reference validation (**PASS** on exact source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`)
+
+- A CRC-valid directory-entry type mismatch is rejected by both `vfs_path_lookup()` and directory enumeration with `PROS_VFS_ECORRUPT`; a wrong but in-range child parent is rejected by lookup.
+- Original entry/inode records are restored and the integrity scan passes.
+
+Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791). v1 disk layout unchanged. Physical-device durability and general concurrent mutation/scan behavior remain unverified.
 ## Home-block flush failure regression — exact-head CI passed (2026-10-25)
 
 - [x] Added a mock-device test that fails flush #4, after the commit record has been flushed and while home-block writes are being persisted.
@@ -11,12 +26,15 @@
 | FS-19 | Allocator geometry, exhaustion and boundary bits | `kernel/prosenjitfs.c`, ProsenjitFS self-test | Reject block sizes 0/511/513/4097/8192 before division/indexing; preserve output sentinels/media; return ENOSPC on exhausted bitmaps and find final valid bit | **PASS** on PR #242 exact head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed. Merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
 | FS-20 | Allocator bitmap read-error propagation and cleanup | `kernel/prosenjitfs.c`, `prosenjitfs_selftest()` | Inject a bitmap read error into the inode finder/public allocator and each data-bitmap finder/query; require `EIO`, untouched output sentinels/media state, writable mount, and successful integrity scan | **PASS** on exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed; merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
 | FS-21 | Total path bounds and VFS path resolution | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Reject path length `>= PROS_VFS_PATH_MAX`; handle repeated separators and `.`/`..`, clamp root `..`, return ENOENT/ENOTDIR for invalid traversal, preserve result pointer on errors | **PASS** on exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed; merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
+| FS-23 | CRC-valid inode semantic admission | `kernel/prosenjitfs.c`, `prosenjitfs_selftest()` | Reject unknown type/flags, zero generation, out-of-range parent, over-capacity size, unaligned allocation accounting and over-capacity allocated bytes; restore root and pass integrity scan | **PASS** on source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`; Build #8548 and Security #8084 passed. |
+| FS-24 | Directory-index owner identity | `kernel/prosenjitfs.c`, `prosenjitfs_selftest()` | Reject checksum-valid index whose embedded owner differs from caller's directory inode; restore original index and pass integrity scan | **PASS** on source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`; Build #8548 and Security #8084 passed. |
+| FS-25 | Namespace child-reference validation | `kernel/prosenjitfs.c`, `pfs_vnode_lookup()`, `pfs_vnode_readdir()` | Reject dangling or mismatched type/parent child references in lookup and enumeration; restore corrupted metadata and pass integrity scan | **PASS** on source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`; Build #8548 and Security #8084 passed. |
 
 ## Failed build follow-up — 2026-10-25
 
 - Build/boot-test #40159887034 **failed during ISO compilation**: `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`; boot-test steps were skipped. Security architecture #40159887021 passed on that pre-fix head, but does not verify the corrected source or later integration changes.
 - Cause: the rmdir recovery-cleanup hunk was accidentally matched to the earlier unlink-read sweep because both had an identical integrity/unmount condition. The source patch now restores that unlink check and limits directory-removal cleanup to the actual rmdir write-sweep scope.
-- The next exact-head Build/boot-test and Security results are the acceptance gate.
+- Historical compile failure was resolved by the integration correction; PR #242 exact-head Build #40160091435 and Security #40160091518 passed. The later Part 2 hardening is separately verified above.
 
 # ProsenjitFS Test Matrix — 2026-10-24
 

@@ -1,3 +1,10 @@
+## Part 2 metadata-hardening status — 2026-10-25
+
+- **PASS — source head `70ed44cd45987682ac50f9fbfd1b82a510e25033`:** [Build/boot-test #8548](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283756) and [Security architecture #8084](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40165283791) both completed successfully.
+- Inode admission: seven checksum-valid malformed-record cases rejected; original root restored; integrity scan passed.
+- Directory-index owner: a checksum-valid wrong-owner index rejected; original index restored transactionally; integrity scan passed.
+- Namespace child references: lookup and readdir enforce inode existence, type equality, parent equality, and direct-self-link rules. Type/parent corruption tests restore metadata and require a clean integrity scan.
+- v1 on-disk format unchanged. Mock-device/QEMU evidence does not certify physical-device power-loss durability or general VFS concurrency.
 ## Current integration update — allocator bitmap read-error coverage (2026-10-25)
 
 - Added test cases in `kernel/prosenjitfs.c` for read failures in the inode bitmap finder and public inode allocator, plus all four data bitmap lookup/query paths.

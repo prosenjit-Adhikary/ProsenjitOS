@@ -44,6 +44,14 @@ Inodes are persistent 64-bit identifiers and contain type, mode, uid/gid, link c
 File data uses a persistent linked extent list. Each extent records logical start, physical start and block count, avoiding a fixed-size file table.
 Reserved inode fields are retained for future ACL/capability references, extended attributes, encryption state and format extensions.
 
+The v1 inode reader admits a record only after CRC32C and semantic fields validate. Non-free records must use a known v1 type, contain only defined v1 flag bits, have a nonzero generation and an in-range parent inode; logical size and block-aligned allocated-byte accounting must fit within the volume's data-area capacity. Extent chains and directory index/entry graphs are validated separately by their bounded readers and the read-only integrity scan. These checks do not change the v1 disk layout or make the low-level inode writer a validator; that writer remains usable by corruption-injection tests.
+
+Each directory index's embedded inode ID is checked against the owning inode number supplied by its caller, in addition to validating the index checksum, format version, generation and bucket heads. A checksum-valid index pointing at a different in-range inode is corruption, not a second namespace view. This is a reader-side check within the unchanged v1 layout.
+
+Namespace lookup validates cross-record relationships: an entry must reference an allocated inode, the entry type must match the inode type, and the child's recorded parent must be the containing directory. Direct directory self-links are rejected. The read-only integrity scan remains responsible for global duplicate ownership and longer parent cycles.
+
+Both path lookup and directory enumeration enforce the same child-reference invariant: the directory entry must reference an allocated inode, its declared type must match the inode, and the child's parent must equal the containing directory; direct directory self-links are corruption. This prevents listing from exposing inconsistent metadata merely because it follows the enumeration path rather than normal lookup.
+
 ## Directories and Unicode
 Directories use deterministic hash buckets pointing to chains of directory-entry blocks rather than a fixed-size entry array.
 Each entry contains inode number, node type, UTF-8 byte length, UTF-8 name, name hash, entry checksum and next-entry link.
