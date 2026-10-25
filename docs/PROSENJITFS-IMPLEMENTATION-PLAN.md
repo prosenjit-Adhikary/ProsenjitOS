@@ -15,6 +15,13 @@
 - [x] The existing v1 metadata format and journal protocol are unchanged.
 - [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332); the native self-test marker is present in both QEMU boot paths.
 
+## FS-30 — journal-retirement I/O error propagation (exact-head CI pending)
+
+- [x] Replaced undocumented `-101..-106` returns in `pfs_journal_clear()` with the filesystem's named validation/corruption errors and direct propagation of the original LBA, write and flush status.
+- [x] Added a mount-recovery regression for both journal-retirement write failure and flush failure. Each starts from a stage-4 interrupted transaction with durable header/images and no matching commit, requires mount to return `PROSENJITFS_EIO`, then retries recovery and verifies the old payload and integrity.
+- [x] No on-disk v1 format or journal protocol changes.
+- [ ] Exact-head Build/boot-test (ISO + native BIOS QEMU) and Security architecture workflows must pass before runtime verification is claimed.
+
 ## Part 2 verification checkpoint — 2026-10-25
 
 - [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.
