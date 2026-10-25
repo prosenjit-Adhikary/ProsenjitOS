@@ -58,11 +58,11 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Implementation:** propagate `pfs_lba_add`, block-write and flush status directly; map invalid state to named filesystem errors.
 - **Status:** the injected retirement write and flush failures returned EIO; retry recovery preserved the old payload and integrity passed. [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed.
 
-## FS-31 — Committed-journal replay write failure (**PENDING exact-head CI**)
+## FS-31 — Committed-journal replay write failure (**PASS** on code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9`)
 
 - **Risk:** home-block I/O can fail partway through committed-journal replay; the committed journal must remain available for a retry.
 - **Test:** interrupt unlink at stage 5 after commit publication, fail the second replay write, simulate power loss, retry mount, require the unlink fully applied and integrity clean.
-- **Status:** source/test added; fresh exact-head Build/boot-test and Security architecture results pending.
+- **Status:** the second replay home-write failed with EIO; simulated power loss discarded the partial volatile replay; retry mount completed the committed unlink and integrity passed. [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed.
 
 # ProsenjitFS Test Matrix — 2026-10-24
 
