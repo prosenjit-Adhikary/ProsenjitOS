@@ -11869,6 +11869,77 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * Home-block flush failure: the commit record has already been flushed
+     * successfully, but persisting the home-block updates fails. The current
+     * mount must become read-only; after simulated power loss, recovery must
+     * replay the committed transaction and expose the complete new payload.
+     */
+    {
+        struct pros_vfs_file file;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t read_data[512];
+        uint32_t done = 0u;
+        int write_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x57u ^ (uint8_t)(i * 5u));
+            new_data[i] = (uint8_t)(0xA9u ^ (uint8_t)(i * 13u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/home-flush-failure.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -30);
+
+        /*
+         * A single overwrite transaction flushes: commit-slot invalidation,
+         * journal header/images, commit record, then home blocks.
+         */
+        disk.fail_flush_countdown = 4u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/home-flush-failure.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -30);
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            disk.fail_flush_countdown != 0u ||
+            !fs.read_only || !fs.mount.read_only)
+            return pfs_selftest_fail(__LINE__, -30);
+
+        pfs_test_crash_reset(&fs, &disk);
+        if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -30);
+
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/home-flush-failure.bin",
+                          PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+            vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(read_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -30);
+        for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+            if (read_data[i] != new_data[i]) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -30);
+            }
+        }
+        if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+            prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
+            return pfs_selftest_fail(__LINE__, -30);
+    }
+
+    /*
      * Recovery must preserve device I/O errors while reading each journal
      * component. Fail reads of the durable header, first image, and commit
      * record separately; each failed mount must be retryable after power loss
@@ -13144,7 +13215,8 @@ int prosenjitfs_selftest(void)
             pfs_crash_injected = 0u;
             if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
                 prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
-                vfs_mkdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK)
+                vfs_mkdir(&fs.mount, "/rmdir-write-sweep") != PROS_VFS_OK ||
+                prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -29);
 
             disk.fail_write_countdown = write_position;
@@ -13198,7 +13270,8 @@ int prosenjitfs_selftest(void)
                 (found_lba == 0u ||
                  prosenjitfs_read_inode(&fs, dir_entry.inode, &child_inode) !=
                     PROSENJITFS_OK ||
-                 child_inode.type != PROSENJITFS_INODE_DIR)) {
+                 child_inode.type != PROSENJITFS_INODE_DIR ||
+                 child_inode.parent_inode != fs.sb.root_inode)) {
                 pfs_test_crash_reset(&fs, &disk);
                 return pfs_selftest_fail(__LINE__, -29);
             }
