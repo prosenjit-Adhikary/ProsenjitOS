@@ -584,3 +584,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Root cause: while porting PR #237, a cleanup hunk sharing a generic integrity/unmount anchor was applied to the earlier unlink read-failure sweep instead of the intended rmdir write-failure sweep.
 - Removed the misplaced rmdir cleanup from the unlink block; added it only to the rmdir write-sweep block, where `found_lba` belongs and the condition means remove a child directory that survived recovery. Kept the recovered parent-inode/root invariant and test-fixture crash reset.
 - Source-scope guards passed by inspection of the resulting GitHub file content; this is not compiler verification. Fresh exact-head Build/boot-test and Security runs are required.
+
+## 2026-10-25 — UTF-8/name-length validation regression coverage (follow-up)
+
+- Re-read `pfs_utf8_name_valid()` and its namespace callers. ProsenjitFS v1 advertises UTF-8 names with a 255-byte maximum.
+- Added tests for empty/slash/dot/dot-dot, overlong UTF-8 encoding, isolated continuation, truncated sequence, surrogate, code point above U+10FFFF, valid one- through four-byte UTF-8, exactly 255 bytes accepted, and 256 bytes rejected.
+- A public malformed UTF-8 `vfs_mkdir()` must return `PROS_VFS_EINVAL`, preserve output-length sentinel values, leave durable/volatile/dirty mock media CRCs unchanged, and leave the filesystem integrity scan clean.
+- Previous current-main integration head `96418d7bf512ee49e42eb325d0864738781891ab` passed Build/boot-test #40160091435 and Security #40160091518. The FS-22 additions in this follow-up require a new exact-head CI pass.
+- The checksum-valid malformed on-disk UTF-8 directory-entry corruption case and remaining hash/bucket/chain/reference adversarial cases remain open.

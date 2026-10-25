@@ -11,12 +11,16 @@
 | FS-19 | Allocator geometry, exhaustion and boundary bits | `kernel/prosenjitfs.c`, ProsenjitFS self-test | Reject block sizes 0/511/513/4097/8192 before division/indexing; preserve output sentinels/media; return ENOSPC on exhausted bitmaps and find final valid bit | **PASS** on PR #242 exact head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed. Merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
 | FS-20 | Allocator bitmap read-error propagation and cleanup | `kernel/prosenjitfs.c`, `prosenjitfs_selftest()` | Inject a bitmap read error into the inode finder/public allocator and each data-bitmap finder/query; require `EIO`, untouched output sentinels/media state, writable mount, and successful integrity scan | **PASS** on exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed; merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
 | FS-21 | Total path bounds and VFS path resolution | `kernel/vfs.c`, `vfs_vnode_api_selftest()` | Reject path length `>= PROS_VFS_PATH_MAX`; handle repeated separators and `.`/`..`, clamp root `..`, return ENOENT/ENOTDIR for invalid traversal, preserve result pointer on errors | **PASS** on exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`; Build #40160091435 and Security #40160091518 passed; merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. |
+| FS-22 | UTF-8 name validation / maximum byte length | `kernel/prosenjitfs.c`, `pfs_utf8_name_valid()`, `vfs_mkdir()` | Reject malformed/reserved names, accept valid 1–4-byte UTF-8 and exactly 255 bytes, reject 256 bytes, preserve output sentinel/media and integrity | **PENDING** exact-head Build/boot-test and Security architecture CI on follow-up branch `test/prosenjitfs-utf8-validation-20261025` |
 
 ## Failed build follow-up — 2026-10-25
 
-- Build/boot-test #40159887034 **failed during ISO compilation**: `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`; boot-test steps were skipped. Security architecture #40159887021 passed on that pre-fix head, but does not verify the corrected source or later integration changes.
-- Cause: the rmdir recovery-cleanup hunk was accidentally matched to the earlier unlink-read sweep because both had an identical integrity/unmount condition. The source patch now restores that unlink check and limits directory-removal cleanup to the actual rmdir write-sweep scope.
-- The next exact-head Build/boot-test and Security results are the acceptance gate.
+- Build/boot-test #40159887034 initially failed during ISO compilation due `found_lba` being referenced from the wrong scope. The scope was corrected; exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab` then passed Build/boot-test #40160091435 and Security #40160091518.
+
+## FS-22 follow-up — UTF-8 and maximum name boundaries (2026-10-25)
+
+- Added invalid and valid UTF-8 test vectors, 255/256-byte boundary validation, result-sentinel invariance, and a malformed-name `mkdir` no-media-mutation regression in `kernel/prosenjitfs.c`.
+- Source commit before current-main rebase: `bc231c88c0fd36a7bc5ecfb3a1d820d46abd9507`. New exact-head CI is pending; this is not yet a runtime-verified result.
 
 # ProsenjitFS Test Matrix — 2026-10-24
 

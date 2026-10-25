@@ -8,6 +8,7 @@
 
 
 - Reconciled the existing native filesystem implementation rather than introducing a parallel design.
+- Follow-up branch `test/prosenjitfs-utf8-validation-20261025` adds FS-22 UTF-8/name-byte-length self-tests; its rebased current-main head and exact-head Build/boot-test + Security checks are pending.
 - Ported allocator block-geometry validation and boundary/exhaustion regressions onto the latest `main` source while preserving the already-merged FS-18 home-flush recovery test. Integrated source commit: `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`.
 - Original allocator-hardening exact-head CI passed; this integration commit own Build/boot-test and Security checks remain required and are not pre-claimed.
 # ProsenjitFS Implementation Plan — Audit-Driven
@@ -89,14 +90,15 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 - [x] Centralized accepted filesystem block geometry in `pfs_block_size_valid()`: only 512, 1024, 2048 or 4096-byte power-of-two blocks pass. Applied before allocator bitmap/index arithmetic, inode location and public inode I/O, preallocation, integrity scanning, and vnode read/write/truncate arithmetic.
 - [x] Added malformed-geometry coverage for 0, 511, 513, 4097 and 8192; output-sentinel/media-invariance assertions; bounded inode/data bitmap exhaustion checks; final-valid-bit checks; and strengthened the rmdir crash-recovery assertions/cleanup.
-- [x] The original geometry PR exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed Build/boot-test #40119726528 and Security architecture #40119726499. This current-main port is source-committed as `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`; the integrated head still requires its own CI before it is marked verified.
+- [x] The combined current-main port passed exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab`: [Build/boot-test #40160091435](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40160091435) and [Security architecture #40160091518](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40160091518). It merged to `main` as `2a979bed55cc9783859ecd4c3278c46d2abb885d`. Build includes desktop/DML tests, ISO build, ProsenjitFS diagnostic, ISO QEMU, native BIOS QEMU and persistent ATA PIO -> MBR -> ProsenjitFS mount markers.
 ## P4 — Validate metadata, allocation and namespace invariants adversarially
 
 - [ ] Expand boundary tests for primary/backup superblocks, feature/version/block-size validation, region overlap/order, bitmap capacity/tail bits, inode-table bounds, inode types/generations, extent loops/overlaps, extent ownership, and block-to-sector arithmetic.
-- [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
+- [x] Added `pfs_utf8_name_valid()` tests for empty/slash/dot names, malformed UTF-8 (overlong encoding, stray continuation, truncated sequence, surrogate and out-of-range scalar), 1–4-byte valid encodings, exact 255-byte maximum, and 256-byte rejection. A malformed public `vfs_mkdir()` must return EINVAL, preserve length output sentinels, leave durable/volatile/dirty media unchanged, and preserve integrity.
+- [ ] Add a checksum-valid malformed on-disk UTF-8 directory-entry corruption case; complete the remaining directory hash/bucket/chain/reference adversarial matrix.
 - [x] Added a bounded total-path-length guard in `vfs_path_lookup()` before vnode reference acquisition; an unterminated path reaching `PROS_VFS_PATH_MAX` is rejected with `PROS_VFS_EOVERFLOW` instead of scanning arbitrarily many separators.
 - [x] Added VFS self-tests for empty and overlong paths, repeated separators, `.`, `..` and root escape clamping, missing intermediate directory, non-directory components, and preservation of the caller's result pointer on error.
-- [ ] Exact PR #242 Build/boot-test and Security architecture CI must pass before these regressions are considered runtime-verified.
+- [x] Exact PR #242 Build/boot-test #40160091435 and Security architecture #40160091518 passed for FS-20/FS-21; see linked evidence above. FS-22 UTF-8 tests below are new and still require exact-head CI.
 - [ ] Keep orphan detection report-only until a separate recovery design proves how to distinguish an orphan from valid but temporarily unreachable metadata.
 - **Acceptance:** malformed media is rejected without out-of-range access or media mutation; valid media passes the read-only scan; all error values are stable and documented.
 
