@@ -1,4 +1,4 @@
-## FS-27 — truncate-shrink partial-block tail isolation (exact-head CI pending)
+## FS-28 — truncate-shrink partial-block tail isolation (exact-head CI pending)
 
 - [x] Source audit found a privacy/correctness gap: shrink retained the final allocated data block without clearing bytes beyond a non-block-aligned new EOF; a later write past EOF could re-expose pre-truncate bytes.
 - [x] Updated `pfs_file_truncate()` to locate the retained EOF block before changing the extent chain, zero the suffix, and add that image to the same redo transaction as the inode size and any extent/bitmap changes. Duplicate transaction targets fail closed; staging errors reset the volatile transaction.
