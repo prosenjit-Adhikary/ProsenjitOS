@@ -12382,6 +12382,111 @@ int prosenjitfs_selftest(void)
     }
 
     /*
+     * A CRC-valid journal header with duplicate home-block targets is still
+     * structurally corrupt. Preserve a durable committed transaction, alter
+     * only its header to duplicate a target, recompute the header CRC, and
+     * require recovery to reject it before replaying any home block.
+     */
+    {
+        struct pros_vfs_file file;
+        struct pros_prosenjitfs_journal_header header;
+        uint8_t old_data[512];
+        uint8_t new_data[512];
+        uint8_t header_block[512];
+        uint32_t done = 0u;
+        uint32_t block_size;
+        uint32_t duplicate_index = UINT32_MAX;
+        uint64_t journal_start;
+        int write_rc;
+        int mount_rc;
+
+        pfs_zero(&disk, sizeof(disk));
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x43u ^ (uint8_t)(i * 7u));
+            new_data[i] = (uint8_t)(0xD1u ^ (uint8_t)(i * 11u));
+        }
+        if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+            prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+            vfs_file_open(&fs.mount, "/duplicate-target.bin",
+                          PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                PROS_VFS_OK ||
+            vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                PROS_VFS_OK ||
+            done != sizeof(old_data) ||
+            vfs_file_close(&file) != PROS_VFS_OK)
+            return pfs_selftest_fail(__LINE__, -13);
+
+        block_size = fs.sb.block_size;
+        journal_start = fs.sb.journal_start;
+        if (block_size != sizeof(header_block) || journal_start >= 512u) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        pfs_crash_inject_stage = 5u;
+        done = 0u;
+        if (vfs_file_open(&fs.mount, "/duplicate-target.bin",
+                          PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+            pfs_crash_inject_stage = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+        if (vfs_file_close(&file) != PROS_VFS_OK ||
+            write_rc == PROS_VFS_OK || done != 0u ||
+            pfs_crash_injected == 0u) {
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        pfs_crash_inject_stage = 0u;
+        pfs_crash_injected = 0u;
+        pfs_test_crash_reset(&fs, &disk);
+
+        pfs_copy(header_block, disk.data + journal_start * block_size,
+                 block_size);
+        pfs_copy(&header, header_block, sizeof(header));
+        if (header.magic != PROSENJITFS_JOURNAL_MAGIC ||
+            header.record_count < 2u ||
+            header.record_count > PROSENJITFS_MAX_TX_BLOCKS) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        for (uint32_t i = 1u; i < header.record_count; ++i) {
+            if (header.targets[i] != header.targets[0]) {
+                duplicate_index = i;
+                break;
+            }
+        }
+        if (duplicate_index == UINT32_MAX) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        header.targets[duplicate_index] = header.targets[0];
+        header.checksum = 0u;
+        pfs_copy(header_block, &header, sizeof(header));
+        header.checksum = pfs_crc_with_zero32(
+            header_block, block_size,
+            (uint32_t)offsetof(struct pros_prosenjitfs_journal_header,
+                               checksum));
+        pfs_copy(header_block, &header, sizeof(header));
+        pfs_copy(disk.data + journal_start * block_size, header_block,
+                 block_size);
+        pfs_copy(disk.volatile_data + journal_start * block_size,
+                 header_block, block_size);
+        pfs_zero(disk.dirty, sizeof(disk.dirty));
+
+        mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+        if (mount_rc != PROSENJITFS_ECORRUPT) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        pfs_test_crash_reset(&fs, &disk);
+    }
+
+    /*
      * A failed journal commit must not publish an unlink. Keep a populated
      * file, inject failure at the commit-record write, simulate power loss,
      * then prove remount retains the old name and bytes and the scan is clean.
