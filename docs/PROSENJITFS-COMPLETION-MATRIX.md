@@ -348,4 +348,5 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 
 - FS-26 ambiguous pre-commit journal-images flush passed exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd`: Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633). Merged as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`.
 - FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression now simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. Exact-head CI for the latest fix remains pending.
+- FS-28 extends checksum-valid journal-target rejection to an out-of-range block (`total_blocks`) and a target inside the journal region. The tests must return `PROSENJITFS_ECORRUPT` before replay; exact-head CI is pending.
 - Neither test establishes physical-drive power-loss durability; concurrency/object-lifetime guarantees also remain unverified as a general VFS property.
