@@ -370,7 +370,7 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 ## Verification scope update — journal recovery (2026-10-25)
 
 - FS-26 ambiguous pre-commit journal-images flush passed exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd`: Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633). Merged as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`.
-- FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression now simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. Exact-head CI for the latest fix remains pending.
+- FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. **Verified** on exact head `935d5ef715f6c81dc502269d584c7fa3f25cf728`: Build/boot-test [#40171924978](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40171924978) and Security architecture [#40171924948](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40171924948) passed; PR #255 merged as `d6e4f0998cbaa57d7234803011e3bbe21680b241`.
 - Neither test establishes physical-drive power-loss durability; concurrency/object-lifetime guarantees also remain unverified as a general VFS property.
 
 
