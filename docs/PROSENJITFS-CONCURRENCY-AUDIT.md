@@ -183,3 +183,11 @@ Verification snapshot:
 - PR #264 also remains open/unmerged; its Build and Security runs for `266ee0c48a5f0b13fb0023539ffd22100c7d8d64` were still queued at this recheck.
 
 This section is a verification snapshot, not a claim that the filesystem is complete or release-ready.
+
+
+## Exact-head correction — 2026-10-25 23:51 IST
+
+- The current PR #265 head at this recheck is `7ce8f6f6bddd3cea59fa891781cbd44a0ba2815a`. The prior section's `34b508bbf7a77ea01e56401dc3869fef77cb6ea3` label is not the current PR head and must not be used as the verification target.
+- A query filtered to workflow runs whose `head_sha` exactly equals `7ce8f6f6bddd3cea59fa891781cbd44a0ba2815a` returned no runs. The visible Build run for PR #265 references older commit `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`; it is not evidence that the current head built or booted.
+- PR #264's exact-head Security and Build runs remain queued/pending for `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`; neither result is a pass yet.
+- Current lock review remains source-level only: IRQ-save spinlocks mitigate the same-CPU timer-preemption deadlock, but hold local interrupts off across callbacks and are not an SMP locking protocol. Keep both PRs unmerged until exact-head CI completes and interrupt latency, namespace/lifetime races, and deterministic concurrent tests are addressed.
