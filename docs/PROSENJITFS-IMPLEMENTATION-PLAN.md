@@ -221,3 +221,7 @@ Use four distinct statuses: **Planned** (documented, not implemented), **Impleme
 ## Detailed 1.0 / 1.1 implementation and acceptance plan
 
 Use [PROSENJITFS-1.0-1.1-RELEASE-SPEC.md](PROSENJITFS-1.0-1.1-RELEASE-SPEC.md) as the detailed acceptance contract. Version 1.0 work is gated on correctness, recovery/fault-injection coverage, formatter safety, VFS/security boundaries and exact-head CI. Version 1.1 is divided into P0 data-integrity/recovery work, P1 gated namespace/sparse/security/tooling work, and P2 performance/self-healing work. Do not implement format-dependent features before reviewing on-disk compatibility. A checkbox in the specification is a requirement, not a claim of completion; update it only with code references and test evidence.
+
+## Security release blocker: permissions; conditional encryption work
+
+Before Version 1.0 can be release-verified, audit and enforce permission checks for file/directory operations at the trusted VFS/security boundary, then pass the permission-denial/no-mutation/remount tests in [PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md](PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md). Treat this as a blocking release gate. Encryption is a separate design-first task: inspect block-device and boot/key-input architecture, specify a reviewed authenticated-encryption and key-management design, and only then implement. If the complete encryption gate cannot be met, defer encryption rather than ship an unsafe partial implementation.
