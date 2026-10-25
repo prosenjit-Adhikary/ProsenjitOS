@@ -1101,8 +1101,8 @@ static int pfs_file_write_error(uint32_t done, int rc)
     }
 }
 
-static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
-                         uint32_t length, void *buffer)
+static int pfs_file_read_unserialized(struct pros_vfs_file *file, uint32_t offset,
+                                    uint32_t length, void *buffer)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
@@ -1193,6 +1193,29 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
         done += want;
     }
     return (int)done;
+}
+
+static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
+                         uint32_t length, void *buffer)
+{
+    struct pfs_vnode_data *data;
+    int rc;
+
+    if (!file || !file->vnode)
+        return pfs_file_read_unserialized(file, offset, length, buffer);
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    if (!data || !data->fs)
+        return pfs_file_read_unserialized(file, offset, length, buffer);
+
+    /*
+     * Serialize file reads with writes/truncates using the filesystem I/O
+     * lock. This protects the shared transaction state and prevents readers
+     * from observing a concurrently changing extent/inode/data image.
+     */
+    pfs_io_lock(data->fs);
+    rc = pfs_file_read_unserialized(file, offset, length, buffer);
+    pfs_io_unlock(data->fs);
+    return rc;
 }
 
 static int pfs_file_write_unserialized(struct pros_vfs_file *file, uint32_t offset,
@@ -1589,7 +1612,7 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
     return rc;
 }
 
-static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+static int pfs_file_truncate_unserialized(struct pros_vfs_file *file, uint64_t size)
 {
     struct pfs_vnode_data *data;
     struct pros_prosenjitfs_inode inode;
@@ -2122,6 +2145,28 @@ truncate_done:
 
     file->vnode->size = size;
     return PROS_VFS_OK;
+}
+
+static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
+{
+    struct pfs_vnode_data *data;
+    int rc;
+
+    if (!file || !file->vnode)
+        return pfs_file_truncate_unserialized(file, size);
+    data = (struct pfs_vnode_data *)file->vnode->private_data;
+    if (!data || !data->fs)
+        return pfs_file_truncate_unserialized(file, size);
+
+    /*
+     * Append writes and truncate must share the same lock: otherwise truncate
+     * can change EOF/extents while an append writer is constructing a redo
+     * transaction from an earlier inode snapshot.
+     */
+    pfs_io_lock(data->fs);
+    rc = pfs_file_truncate_unserialized(file, size);
+    pfs_io_unlock(data->fs);
+    return rc;
 }
 
 static int pfs_file_close(struct pros_vfs_file *file)
