@@ -217,3 +217,7 @@ This roadmap separates product release versions from the existing v1 on-disk for
 ### Status vocabulary
 
 Use four distinct statuses: **Planned** (documented, not implemented), **Implemented** (code exists), **Tested** (relevant tests ran), **Verified** (acceptance tests passed on an identified exact commit). A feature may have multiple subfeatures at different statuses; do not mark an entire category complete based on one test.
+
+## Detailed 1.0 / 1.1 implementation and acceptance plan
+
+Use [PROSENJITFS-1.0-1.1-RELEASE-SPEC.md](PROSENJITFS-1.0-1.1-RELEASE-SPEC.md) as the detailed acceptance contract. Version 1.0 work is gated on correctness, recovery/fault-injection coverage, formatter safety, VFS/security boundaries and exact-head CI. Version 1.1 is divided into P0 data-integrity/recovery work, P1 gated namespace/sparse/security/tooling work, and P2 performance/self-healing work. Do not implement format-dependent features before reviewing on-disk compatibility. A checkbox in the specification is a requirement, not a claim of completion; update it only with code references and test evidence.
