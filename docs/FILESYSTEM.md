@@ -5,6 +5,45 @@
 **Last consolidated:** 2026-10-25.
 **Important status rule:** code present, planned, tested on an older commit, and verified on the exact candidate commit are different states. Never claim a capability is complete without source and test evidence. Historical appendices below preserve prior audit notes; where they conflict with the current summary at the top, the current summary and exact-head CI evidence take precedence.
 
+## Release feature contract — owner decision (2026-10-25)
+
+This section is the release-scope authority for native ProsenjitFS. Features below are targets and acceptance criteria, not claims that implementation is already complete. Mark a feature complete only after source inspection and tests on the exact release candidate.
+
+### ProsenjitOS 1.0 — native ProsenjitFS
+
+Required:
+- Format and mount a ProsenjitFS volume with validated on-disk metadata and version/feature checks.
+- Core block/inode allocation and release with bounds checks; detect invalid, duplicate, or out-of-range references.
+- Create, lookup, enumerate, rename, and remove files/directories with correct namespace and parent-directory handling.
+- File open/read/write/seek/truncate and supported metadata queries; return defined errors for unsupported operations.
+- Space accounting and allocation metadata consistency checks.
+- Transactional metadata updates using the existing journal/recovery design, with interruption/replay and malformed-journal tests. Do not claim physical power-loss durability without appropriate tests.
+- Metadata checksums and corruption detection where defined by the current on-disk format.
+- VFS integration for path resolution and consistent error propagation.
+- **Mandatory permissions in 1.0:** persistent UID/GID/mode (or the format's documented equivalent), trusted VFS/kernel authorization for every relevant operation, owner/group/other read-write-execute checks, directory traversal/list/create/delete/rename rules, permission changes subject to authorization, and default-deny behavior for unknown credentials or unsupported authorization states. Test allowed and denied cases, including verifying denied operations do not mutate disk state. UID/GID/mode fields alone do not count as enforcement.
+- Deterministic self-tests, malformed metadata/journal tests, allocation-boundary tests, and exact-candidate build/boot/persistence/security test evidence.
+
+The exact supported limits (maximum file size, directory size, extent count, link semantics, timestamp precision, concurrency, and durability guarantees) must be documented from the implementation. Do not promise POSIX completeness, hard links, ACLs, quotas, snapshots, compression, or general concurrent safety unless implemented and verified.
+
+### ProsenjitOS 1.1 — mandatory native filesystem encryption
+
+Required for 1.1:
+- Reviewed threat model and encryption format/specification before implementation is called release-ready.
+- Confidentiality and integrity protection using a vetted authenticated-encryption construction; never invent a custom cryptographic algorithm.
+- Defined key generation, provisioning, unlock, rotation/replacement, failure handling, and secure key lifetime/zeroization policy.
+- Authenticated metadata and file-data I/O with nonce/sector uniqueness rules and corruption/tamper detection.
+- Integration with allocation, journaling, crash recovery, permissions, formatting, and mount/unmount paths.
+- Explicit behavior for wrong keys, damaged tags, partial writes, interrupted transactions, and recovery; fail closed without exposing unauthenticated plaintext as valid data.
+- Tests for wrong keys, tampering, replay/rollback assumptions, crash/recovery, key-handling failures, and denied-access/no-mutation cases. Encryption is not complete until exact-candidate tests pass and the design is reviewed.
+
+### ProsenjitOS 1.2 and later — staged remaining features
+
+Add other native filesystem capabilities incrementally after 1.0 permissions and 1.1 encryption are stable. Each feature must have a separate design, compatibility/migration plan where relevant, implementation, negative tests, and exact-candidate evidence. Candidate later features include ACLs beyond basic owner/group/other permissions, quotas, snapshots, compression, deduplication, online checking/repair, performance optimizations, richer journaling/durability, and broader concurrency guarantees. This list is a future backlog, not a promise that every item will be delivered in a particular release.
+
+### Release separation reminder
+
+FAT32 and exFAT are separate compatibility providers targeted for 1.0; EXT/EXT4 and NTFS are deferred to later releases. These formats are not part of native ProsenjitFS. The native feature schedule above applies only to ProsenjitFS.
+
 ## 0. Reconciliation audit — 2026-10-25
 
 ### Owner-confirmed architecture decision
@@ -27,8 +66,8 @@ The former `docs/NTFS-WRITE-STATUS.md` describes NTFS write behavior and QEMU ma
 
 ### Security and removable-media gates
 
-- **Permissions:** the preserved ProsenjitFS security contract says UID/GID/mode fields alone are insufficient; trusted VFS/kernel authorization and denial-without-mutation tests are required. Permission enforcement must be added explicitly to Phase A release gates.
-- **Encryption:** current encryption documents are design material, not implementation evidence. Encryption remains deferred/experimental until a reviewed design, key lifecycle, authenticated I/O, journal/recovery integration, and exact-head tests all pass.
+- **Permissions:** mandatory ProsenjitOS 1.0 native ProsenjitFS release gate. Require trusted VFS/kernel authorization and denial-without-mutation tests; metadata fields alone are insufficient.
+- **Encryption:** mandatory ProsenjitOS 1.1 native ProsenjitFS release gate. Current encryption documents are design material, not implementation evidence; require reviewed design, key lifecycle, authenticated I/O, journal/recovery integration, and exact-head tests.
 - **USB/external storage:** the present storage evidence is ATA PIO + partition/VFS + ProsenjitFS QEMU persistence. It does not prove USB mass-storage discovery or physical pendrive/external HDD/SSD support. Those remain separate Phase C acceptance items.
 - **Verification:** the documentation-only consolidation has no runtime effect. No filesystem runtime test is claimed by this audit. Exact-head build/boot and security workflow results must be checked for the candidate commit; an empty status response is not a pass.
 
