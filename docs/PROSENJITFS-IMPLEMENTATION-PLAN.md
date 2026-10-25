@@ -8,8 +8,7 @@
 
 
 - Reconciled the existing native filesystem implementation rather than introducing a parallel design.
-- Ported allocator block-geometry validation and boundary/exhaustion regressions onto the latest `main` source while preserving the already-merged FS-18 home-flush recovery test. Integrated source commit: `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`.
-- Original allocator-hardening exact-head CI passed; this integration commit own Build/boot-test and Security checks remain required and are not pre-claimed.
+- Ported allocator block-geometry validation and boundary/exhaustion regressions onto the latest `main` source while preserving the already-merged FS-18 home-flush recovery test. The integrated source was verified on PR #242 exact head `96418d7bf512ee49e42eb325d0864738781891ab`; Build/boot-test #40160091435 and Security architecture #40160091518 passed, including ISO and native BIOS QEMU boot checks. PR #242 merged as `2a979bed55cc9783859ecd4c3278c46d2abb885d`.
 # ProsenjitFS Implementation Plan — Audit-Driven
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
@@ -96,13 +95,13 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [ ] Expand directory tests for malformed UTF-8, zero/overlong names, checksum-valid bad hashes, wrong buckets, duplicate names/references, self-cycles, chain cycles, bad child types/parents and parent chains that do not reach root.
 - [x] Added a bounded total-path-length guard in `vfs_path_lookup()` before vnode reference acquisition; an unterminated path reaching `PROS_VFS_PATH_MAX` is rejected with `PROS_VFS_EOVERFLOW` instead of scanning arbitrarily many separators.
 - [x] Added VFS self-tests for empty and overlong paths, repeated separators, `.`, `..` and root escape clamping, missing intermediate directory, non-directory components, and preservation of the caller's result pointer on error.
-- [ ] Exact PR #242 Build/boot-test and Security architecture CI must pass before these regressions are considered runtime-verified.
+- [x] Exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab` passed Build/boot-test #40160091435 and Security architecture #40160091518. ISO and native BIOS QEMU boot checks passed; this does not certify physical-device durability.
 - [ ] Keep orphan detection report-only until a separate recovery design proves how to distinguish an orphan from valid but temporarily unreachable metadata.
 - **Acceptance:** malformed media is rejected without out-of-range access or media mutation; valid media passes the read-only scan; all error values are stable and documented.
 
 ## P5 — Specify operation serialization before expanding concurrency
 
-- [ ] Audit uses of `pfs_io_lock`, all VFS mutation entry points and integrity-scan callers in `kernel/prosenjitfs.c` and `kernel/vfs.c`.
+- [x] Audited `pfs_io_lock`, VFS mutation entry points and integrity-scan callers in `kernel/prosenjitfs.c` and `kernel/vfs.c`. The lock serializes append writes only; all in-source integrity-scan callers are inside `prosenjitfs_selftest()`. This audit does not establish general concurrent VFS safety.
 - [ ] Define lock ownership, lock ordering, recursion rules and whether VFS calls can be re-entered. Do not infer filesystem-wide exclusion from the narrow append lock.
 - [ ] Add controlled interleaving tests for append/write/truncate/rename/unlink versus scans and for vnode/file lifetime around unlink/rename.
 - [ ] Reconcile the locking design with scheduler/preemption and interrupt-state contracts before enabling concurrent execution paths.
@@ -111,9 +110,9 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## P6 — Complete operational/maintenance gaps
 
 - [ ] Audit and remove or isolate temporary block-init diagnostics in `kernel/block.c` only after confirming no active diagnosis depends on them.
-- [ ] Decide and document the host-side `mkprosenjitfs` tool scope; when implemented, share the versioned format definitions and never operate on a real device without explicit, separate user action.
+- [x] The host-side `mkprosenjitfs` utility uses the shared kernel formatter/format definitions on the repository-generated disposable image. Target hardening (`O_NOFOLLOW`, reject non-regular files, and negative tests for `/dev/null` and symlink targets) is proposed in PR #246; accept only after exact-head CI passes.
 - [ ] Keep automated repair/reclamation disabled until a journal-first, conservative repair design includes pre/post-integrity verification, read-only fallback and recovery logging.
-- [ ] Define a separate physical-device durability validation plan. Mock-device and QEMU tests are not physical power-loss certification.
+- [x] Defined [the physical durability validation plan](PROSENJITFS-PHYSICAL-DURABILITY-PLAN.md). Physical execution remains unperformed and must use explicitly selected expendable hardware; mock-device/QEMU results are not physical power-loss certification.
 - **Acceptance:** production diagnostics do not alter the filesystem control path unnecessarily; tools use explicit image paths and refuse unsafe targets; recovery is observable and non-destructive by default.
 
 ## Change and verification discipline
