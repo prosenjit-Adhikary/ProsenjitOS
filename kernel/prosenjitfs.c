@@ -12396,6 +12396,10 @@ int prosenjitfs_selftest(void)
                  invalid_index < sizeof(invalid_targets) /
                                  sizeof(invalid_targets[0]);
                  ++invalid_index) {
+                uint32_t durable_before;
+                uint32_t volatile_before;
+                uint32_t dirty_before;
+
                 header.targets[1] = invalid_targets[invalid_index];
                 header.checksum = 0u;
                 pfs_zero(header_block, sizeof(header_block));
@@ -12425,8 +12429,20 @@ int prosenjitfs_selftest(void)
                     return pfs_selftest_fail(__LINE__, -13);
                 }
 
+                durable_before = prosenjitfs_crc32c(
+                    disk.data, (uint32_t)sizeof(disk.data));
+                volatile_before = prosenjitfs_crc32c(
+                    disk.volatile_data, (uint32_t)sizeof(disk.volatile_data));
+                dirty_before = prosenjitfs_crc32c(
+                    disk.dirty, (uint32_t)sizeof(disk.dirty));
                 mount_rc = prosenjitfs_mount(&fs, &device, 0u);
-                if (mount_rc != PROSENJITFS_ECORRUPT) {
+                if (mount_rc != PROSENJITFS_ECORRUPT ||
+                    durable_before != prosenjitfs_crc32c(
+                        disk.data, (uint32_t)sizeof(disk.data)) ||
+                    volatile_before != prosenjitfs_crc32c(
+                        disk.volatile_data, (uint32_t)sizeof(disk.volatile_data)) ||
+                    dirty_before != prosenjitfs_crc32c(
+                        disk.dirty, (uint32_t)sizeof(disk.dirty))) {
                     pfs_test_crash_reset(&fs, &disk);
                     return pfs_selftest_fail(__LINE__, -13);
                 }
