@@ -12332,11 +12332,13 @@ int prosenjitfs_selftest(void)
                             images + block_size) != PROSENJITFS_OK ||
             pfs_write_block(&device, journal_start + 3u, commit_block) !=
                 PROSENJITFS_OK ||
-            pfs_flush(&device) != PROSENJITFS_OK ||
-            prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+            pfs_flush(&device) != PROSENJITFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -13);
         }
+
+        /* Simulate power loss: normal unmount would retire the journal. */
+        pfs_test_crash_reset(&fs, &disk);
 
         header.targets[1] = header.targets[0];
         header.checksum = 0u;
@@ -12346,7 +12348,21 @@ int prosenjitfs_selftest(void)
             (uint32_t)offsetof(struct pros_prosenjitfs_journal_header,
                                checksum));
         pfs_copy(header_block, &header, sizeof(header));
+
+        /* Keep the commit checksum valid so duplicate-target validation,
+         * rather than checksum rejection, is what makes recovery fail. */
+        pfs_zero(&commit, sizeof(commit));
+        commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+        commit.record_count = 2u;
+        commit.transaction_id = header.transaction_id;
+        pfs_copy(commit_block, &commit, sizeof(commit));
+        commit.checksum = pfs_journal_checksum(
+            header_block, images, block_size, 2u, commit_block);
+        pfs_copy(commit_block, &commit, sizeof(commit));
+
         if (pfs_write_block(&device, journal_start, header_block) !=
+                PROSENJITFS_OK ||
+            pfs_write_block(&device, journal_start + 3u, commit_block) !=
                 PROSENJITFS_OK ||
             pfs_flush(&device) != PROSENJITFS_OK) {
             pfs_test_crash_reset(&fs, &disk);
