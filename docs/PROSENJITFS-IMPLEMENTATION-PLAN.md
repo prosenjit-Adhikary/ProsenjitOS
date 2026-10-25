@@ -7,6 +7,14 @@
 - [ ] Exact-head Build/boot-test (including ISO and native BIOS QEMU) and Security architecture workflows must pass before runtime verification is claimed.
 - **Durability scope:** deterministic mock-device/QEMU evidence only; no physical-device power-loss certification or general concurrent-mutation guarantee.
 
+## FS-29 — inode allocator output on transaction failure (exact-head CI pending)
+
+- [x] Source audit found `prosenjitfs_alloc_inode()` published the candidate inode number before the inode-bitmap redo transaction completed.
+- [x] The output is now assigned only after `pfs_inode_bitmap_update()` succeeds; all error returns preserve the caller's value.
+- [x] Added a mock-device regression that fails the first journal write during inode reservation and checks `EIO`, unchanged output sentinel, unchanged durable/volatile/dirty media, writable mount state, and a clean integrity scan.
+- [x] The existing v1 metadata format and journal protocol are unchanged.
+- [ ] Exact-head Build/boot-test and Security architecture workflows are required before runtime verification is claimed.
+
 ## Part 2 verification checkpoint — 2026-10-25
 
 - [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.
