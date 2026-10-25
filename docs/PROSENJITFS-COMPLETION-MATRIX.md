@@ -333,3 +333,6 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - Branch `fix/prosenjitfs-allocator-geometry-main-20261025` is based on the latest main after PR #239 merged. It centralizes supported block sizes (512/1024/2048/4096) and applies validation before bitmap division/indexing, inode offsets, allocator range/staging, preallocation, integrity scan, transaction setup, and vnode write/truncate arithmetic.
 - Malformed geometry cases (0, 511, 513, 4097, 8192), output sentinel/mock-media invariance, bounded inode/data bitmap exhaustion, and final-valid-bit tests are added.
 - **Pending exact-head CI:** source head `fbfb4d8bea8ece13e9afdc70ab3ab1467277c95a`; no pass is claimed before Build/boot-test and Security architecture complete on the final head.
+
+
+| FS-19 | Allocator geometry and bitmap boundaries | PR #241, `kernel/prosenjitfs.c` | Reject unsupported geometry before division/indexing; preserve output sentinels/mock media; bounded exhaustion and final-valid-bit checks | **PENDING exact-head CI**; do not merge until Build/boot-test and Security pass on the final PR head |
