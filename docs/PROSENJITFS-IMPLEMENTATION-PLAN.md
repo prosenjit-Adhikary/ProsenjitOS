@@ -204,3 +204,8 @@ This section is the handoff source for another AI/engineer. Preserve the distinc
 - Do not merge either PR until the exact current head's Build/boot-test and Security architecture checks pass, then re-check PR head SHA and mergeability.
 - Existing mock-device and QEMU tests do not certify physical-device power-loss durability.
 - Do not mark overall ProsenjitFS complete based only on these PRs. Update this log and the test matrix whenever implementation, test, CI or hardware evidence changes.
+
+
+### Documentation commit / latest exact-head CI snapshot
+- The handoff entries above were committed to PR #265's branch; documentation commit/head is now `1312cef301f7e6042abce59fb928745787eca8ff`.
+- Latest head checks: Build/boot-test [#40208605368](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605368) was pending; Security architecture [#40208605379](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605379) was queued at the last query. Earlier runs for superseded heads were cancelled; do not count them as passes.
