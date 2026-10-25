@@ -111,7 +111,7 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 ## P6 — Complete operational/maintenance gaps
 
 - [ ] Audit and remove or isolate temporary block-init diagnostics in `kernel/block.c` only after confirming no active diagnosis depends on them.
-- [x] Host-side `mkprosenjitfs` exists and uses the shared kernel formatter/format definitions on a disposable image. Hardened it to open without following symlinks and reject non-regular targets (including block/character devices) before sector I/O; `scripts/build.sh` now asserts that `/dev/null` is refused. Exact-head CI must pass before this safety gate is accepted.
+- [x] Host-side `mkprosenjitfs` exists and uses the shared kernel formatter/format definitions on a disposable image. It checks the path with `lstat`, opens with `O_NOFOLLOW`, and rechecks the descriptor with `fstat` before sector I/O; `scripts/build.sh` asserts that `/dev/null` and a symlink target are refused. Exact-head CI must pass before this safety gate is accepted.
 - [ ] Keep automated repair/reclamation disabled until a journal-first, conservative repair design includes pre/post-integrity verification, read-only fallback and recovery logging.
 - [ ] Define a separate physical-device durability validation plan. Mock-device and QEMU tests are not physical power-loss certification.
 - **Acceptance:** production diagnostics do not alter the filesystem control path unnecessarily; tools use explicit image paths and refuse unsafe targets; recovery is observable and non-destructive by default.
