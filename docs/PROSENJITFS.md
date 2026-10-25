@@ -234,7 +234,7 @@ This section records findings checked against `main` commit `cfe04a8520ec917a90b
 - `docs/PROSENJITFS-COMPLETION-MATRIX.md` is the source of truth for current CI evidence; `docs/PROSENJITFS-IMPLEMENTATION-PLAN.md` and `docs/PROSENJITFS-TEST-MATRIX.md` define the next acceptance gates.
 
 
-## FS-27 — Truncate-shrink tail isolation
+## FS-28 — Truncate-shrink tail isolation
 
 When a truncate shrink ends inside an allocated data block, Native ProsenjitFS zeros
 from the new EOF to the end of that block in the same redo-journal transaction as
