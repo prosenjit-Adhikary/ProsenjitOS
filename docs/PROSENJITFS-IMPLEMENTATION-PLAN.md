@@ -29,6 +29,14 @@
 - [x] The v1 disk layout and redo-journal protocol are unchanged.
 - [x] [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed on this code/test head. Logs contain the filesystem self-test marker in ISO and native BIOS QEMU paths; replay-write fault, power-loss retry, unlink state and integrity assertions are inside that self-test.
 
+## FS-32 — propagate preallocation metadata-scan read failures (exact-head CI pending)
+
+- [x] Source audit found the extent-metadata block scan treated `pfs_data_block_is_free()` as a boolean and ignored negative returns. A one-shot bitmap-read EIO could be skipped and a later candidate selected instead.
+- [x] The scan now propagates negative status immediately; only 0 (allocated) and 1 (free) are treated as normal results.
+- [x] Added a mock-device regression for an empty file. A countdown fault targets the first metadata-candidate free-state read, requires EIO, confirms durable/volatile/dirty media checksums remain unchanged, checks the mount remains writable, and runs the integrity check.
+- [x] Existing v1 on-disk format and journal protocol are unchanged.
+- [ ] Exact-head Build/boot-test (ISO + native BIOS QEMU) and Security architecture workflows must pass before this change is marked verified.
+
 ## Part 2 verification checkpoint — 2026-10-25
 
 - [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.
