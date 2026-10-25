@@ -166,3 +166,6 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 
 
 - [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs, recompute both header and commit checksums, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **CI pending** on exact follow-up head; deterministic mock-device only; no hardware durability claim.
+
+
+- [ ] **FS-32 | Checksum-valid invalid journal target geometry** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Reject a target equal to `total_blocks` and a target within the journal region; preserve durable/volatile/dirty mock-media CRCs | **Pending exact-head Build/boot-test and Security architecture CI**; mock-device only.
