@@ -182,7 +182,8 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 
 ## FS-32 — Journal target geometry regression
 
-- [x] Add committed journal fixtures with checksum-valid out-of-range and journal-region targets.
+- [x] Add committed journal fixtures with checksum-valid reserved boot-block targets (0 and 1), an out-of-range target (`total_blocks`), and a journal-region target.
+- [x] Recompute header and commit checksums so structural target admission is what rejects the fixtures.
 - [x] Assert failed recovery is non-mutating across durable, volatile, and dirty mock-device state.
 - [ ] Verify exact-head Build/boot-test and Security architecture CI before merge.
 - Physical device durability and concurrent VFS safety remain separate requirements.
