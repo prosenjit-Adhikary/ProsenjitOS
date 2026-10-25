@@ -1,3 +1,9 @@
+## FS-25 — Namespace child-reference validation (current source/test added; CI pending)
+
+- Case A: checksummed root directory entry for /hello.bin says directory while referenced inode remains a file. Path lookup and directory enumeration must fail with PROS_VFS_ECORRUPT; original entry block is restored through the transaction path.
+- Case B: checksummed /hello.bin inode has a different in-range parent inode. Lookup must fail with PROS_VFS_ECORRUPT; valid inode record is restored.
+- Both cases finish with a clean ProsenjitFS integrity scan. Fresh exact-head Build/boot-test and Security results required for the addition of readdir validation.
+
 ## FS-25 — Namespace child-reference validation (source/test added; CI pending)
 
 - Case A: checksummed root directory entry for /hello.bin says directory while the referenced inode remains a file. Lookup must fail with PROS_VFS_ECORRUPT; original entry block is restored through the transaction path.

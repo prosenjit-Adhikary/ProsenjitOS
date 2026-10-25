@@ -1,3 +1,9 @@
+## Namespace child-reference validation — source/test added; current exact-head CI pending (2026-10-25)
+
+- pfs_vnode_lookup() and pfs_vnode_readdir() reject dangling entry references as corruption and require entry type and inode type to agree and child parent_inode to equal the containing directory's inode number; direct directory self-links are rejected.
+- Checksummed regressions mutate the /hello.bin directory-entry type and child inode parent. Lookup returns PROS_VFS_ECORRUPT; enumeration also returns PROS_VFS_ECORRUPT for the type mismatch. Original metadata is restored and integrity is checked.
+- Build/boot-test passed on prior exact head 712eaf68bb90dfb2d1ffddf59fbc1bd48258d0d2 (run #8547); the additional readdir source/test change requires fresh exact-head Build and Security checks before acceptance.
+
 ## Namespace child-reference validation — source/test added; CI pending (2026-10-25)
 
 - pfs_vnode_lookup() now rejects dangling entry references as corruption and requires entry type and inode type to agree and child parent_inode to equal the containing directory's inode number; direct directory self-links are rejected.

@@ -1,3 +1,10 @@
+## 2026-10-25 — Readdir child-reference validation
+
+- Follow-up source audit found readdir used the referenced inode's type without enforcing the directory entry's type or child parent relationship.
+- Updated pfs_vnode_readdir() to convert dangling inode references to corruption and require type/parent consistency, with directory self-links rejected.
+- Extended the checksummed wrong-entry-type regression to require both vfs_path_lookup and vfs_dir_read enumeration to return PROS_VFS_ECORRUPT before the original entry block is restored.
+- The prior head passed Build/boot-test #8547; this readdir addition needs fresh exact-head Build/boot-test and Security runs. No unverified result is claimed.
+
 ## 2026-10-25 — VFS corruption result-code alignment
 
 - Source review confirmed pfs_vfs_error() maps PROSENJITFS_ECORRUPT to PROS_VFS_ECORRUPT. Updated both new namespace lookup regressions and documentation to assert the defined error code, not generic I/O failure.
