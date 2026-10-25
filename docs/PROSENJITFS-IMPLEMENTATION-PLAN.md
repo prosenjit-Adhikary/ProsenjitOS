@@ -178,3 +178,12 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 - [x] Add a deterministic mock-device regression that creates a committed transaction stopped before home-block replay, duplicates two journal target LBAs, recomputes both header and commit checksums, and requires mount recovery to return `PROSENJITFS_ECORRUPT` before replay.
 - [ ] Exact-head Build/boot-test and Security architecture CI must pass before marking this regression PASS.
 - Scope is structural validation on an in-memory mock device; no physical-device durability or general concurrency claim.
+
+
+## FS-32 — Invalid journal target geometry (2026-10-25)
+
+- [x] Added committed-journal corruption cases for a target equal to `total_blocks` and a target inside the journal region.
+- [x] Recomputed header and commit checksums so each case exercises structural target validation.
+- [x] Asserted recovery returns `PROSENJITFS_ECORRUPT` before replay and durable/volatile/dirty mock-media CRCs remain unchanged.
+- [ ] Verify the exact PR head with Build/boot-test and Security architecture workflows before marking PASS.
+- Scope remains deterministic mock-device recovery testing; physical hardware durability and general VFS concurrency are separate open items.
