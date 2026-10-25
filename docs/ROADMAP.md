@@ -1,5 +1,13 @@
 # ProsenjitOS Roadmap
 
+## Filesystem scope gate — 2026-10-25
+
+The active implementation track is native ProsenjitFS. A previously discussed first-release requirement called for EXT4 boot + read/write; the current source tree does not implement EXT4. Resolve this release-baseline conflict explicitly before freezing or advertising the 1.0 scope. Do not treat ProsenjitFS as EXT4 compatibility.
+
+The current provider registry is scaffolding, not a complete external userspace filesystem runtime: the present ABI exposes probe/mount/unmount and the VFS recognizes only ProsenjitFS. Complete the provider operations, process/IPC boundary, sandbox/device broker, and integration tests before describing FAT32/exFAT/NTFS providers as functional.
+
+All current filesystem decisions, exact-head evidence, implementation status, security gates, and preserved historical plans are centralized in [docs/FILESYSTEM.md](FILESYSTEM.md). Legacy filesystem documents are navigation stubs only.
+
 ## Current status — 2026-09-30
 
 The repository has moved beyond the original boot/kernel-only milestone. The kernel core contains only native ProsenjitFS. FAT32, exFAT, NTFS, and future compatibility filesystems must be implemented as modular external providers behind the VFS/provider ABI, so new formats can be added without adding their parsers to kernel core. All filesystem architecture, implementation status, compatibility-provider work, release gates, and test evidence are tracked in the single source of truth: [docs/FILESYSTEM.md](FILESYSTEM.md). Do not create separate filesystem planning/status/test documents; update FILESYSTEM.md.
