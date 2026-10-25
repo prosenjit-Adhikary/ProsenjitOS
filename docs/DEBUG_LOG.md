@@ -563,3 +563,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Original PR #237 exact head `3d76a1fdbc2a58518bc914392caf5c846be04ce2` passed Build/boot-test [#40119726528](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726528) and Security [#40119726499](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119726499). That verifies the original source branch, **not** the integration commit.
 - Integration source commit: `f533f1a3f8c2a6dd2c0f6891c8323c68562b4fd1`. Exact-head Build/boot-test and Security workflows must run on this integration branch before its changes are called verified. No local compiler/QEMU was available in this tool session; no compiler output or runtime result is fabricated.
 - Existing FS-18 home-block flush coverage passed on exact PR #239 head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`: Build #40156447788, Security #40156447759; merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU evidence only, not physical power-loss certification.
+
+## 2026-10-25 — allocator bitmap read-failure coverage added
+
+- Added deterministic mock-device tests for `pfs_find_free_inode`, `prosenjitfs_alloc_inode`, `pfs_find_free_data_block`, `pfs_find_free_data_block_except`, `pfs_find_free_data_block_excluding`, and `pfs_data_block_is_free`.
+- Every call gets an independent one-shot read fault. The test requires `PROSENJITFS_EIO`, untouched output sentinels for output-producing finders, fault consumption, writable filesystem/mount, and unchanged durable/volatile/dirty media CRCs. Integrity is rechecked after all injected read faults.
+- Source commit: `c7218d60a8b5b499f2baeec4170c8642c6c11f55`. The exact integration PR head has not yet passed Build/boot-test and Security architecture; this regression remains pending until those exact-head runs complete.
+- No disk format or runtime code behavior was changed by these test-only additions. No local compiler/QEMU run is claimed.
