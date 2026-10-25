@@ -13,7 +13,7 @@
 - The former NTFS write-status claims do not match the current branch source/build tree: no NTFS implementation source, filesystem enum, or NTFS object is present. NTFS, FAT32 and exFAT must remain planned, not advertised as supported.
 - ATA PIO + MBR/partition + ProsenjitFS QEMU persistence does not prove USB mass-storage discovery or physical removable-media support.
 - Permission enforcement and denial-without-mutation tests remain explicit release gates. Encryption remains deferred until its full reviewed design, key management, authenticated I/O, journal/recovery integration, and exact-head tests are complete.
-- Recorded the unresolved release-scope conflict: earlier planning called for EXT4 boot + read/write in the first release, while the current source implements ProsenjitFS. The owner must explicitly select the release baseline before freezing 1.0 scope.
+- Initially identified a conflict between earlier EXT4 boot + read/write planning and the current ProsenjitFS implementation; the owner subsequently resolved it. EXT4 is not the first-release baseline and is not to be added to the native kernel core.
 - This was a documentation/source-tree audit only. No kernel code changed and no filesystem runtime tests were run. An empty commit-status response is not a CI pass.
 
 Authoritative plan/status and preserved historical notes: [docs/FILESYSTEM.md](FILESYSTEM.md).
