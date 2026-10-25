@@ -1,3 +1,15 @@
+## 2026-10-25 — Filesystem plan reconciliation audit
+
+- Consolidated the former filesystem integration, NTFS status, encryption design, and permissions/encryption documents into `docs/FILESYSTEM.md`; their old paths are now navigation stubs to prevent parallel status sources.
+- Audited the current source/build tree against those documents. `kernel/vfs_provider.c` and `include/vfs_provider.h` are only early registry scaffolding (probe/mount/unmount); `kernel/vfs.c` currently recognizes only native ProsenjitFS. A complete userspace provider process/IPC and compatibility provider operation path are not evidenced.
+- The former NTFS write-status claims do not match the current branch source/build tree: no NTFS implementation source, filesystem enum, or NTFS object is present. NTFS, FAT32 and exFAT must remain planned, not advertised as supported.
+- ATA PIO + MBR/partition + ProsenjitFS QEMU persistence does not prove USB mass-storage discovery or physical removable-media support.
+- Permission enforcement and denial-without-mutation tests remain explicit release gates. Encryption remains deferred until its full reviewed design, key management, authenticated I/O, journal/recovery integration, and exact-head tests are complete.
+- Recorded the unresolved release-scope conflict: earlier planning called for EXT4 boot + read/write in the first release, while the current source implements ProsenjitFS. The owner must explicitly select the release baseline before freezing 1.0 scope.
+- This was a documentation/source-tree audit only. No kernel code changed and no filesystem runtime tests were run. An empty commit-status response is not a CI pass.
+
+Authoritative plan/status and preserved historical notes: [docs/FILESYSTEM.md](FILESYSTEM.md).
+
 ## 2026-10-25 — ProsenjitFS Part 2 verification summary
 
 - Verified source head: `70ed44cd45987682ac50f9fbfd1b82a510e25033`; PR #249 remains open and unmerged.
