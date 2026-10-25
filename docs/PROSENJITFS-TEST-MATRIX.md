@@ -1,3 +1,14 @@
+## Home-block flush failure regression — pending exact-head CI
+
+- [x] Added a mock-device test that fails flush #4, after the commit record has been flushed and while home-block writes are being persisted.
+- [x] The test requires the failed write to report zero bytes and freeze the current mount read-only; after simulated power loss, remount must replay the committed transaction to the complete new payload and pass integrity validation.
+- [ ] Exact-head Build/boot-test and Security architecture CI must pass before this regression is considered verified.
+- Scope: deterministic mock block device and QEMU CI only; no physical-device durability certification.
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | Implemented on PR branch; exact-head CI pending |
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Journal failure-path follow-up — pending exact-head CI
