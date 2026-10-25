@@ -243,3 +243,11 @@ past EOF from re-exposing bytes left beyond the prior EOF. The v1 disk layout is
 unchanged. Runtime status must be taken from exact-head Build/boot-test and Security
 architecture CI; emulator/mock-device results do not certify physical power-loss
 durability.
+
+
+## FS-29 — Inode allocator output contract
+
+`prosenjitfs_alloc_inode()` only publishes its output inode number after the inode
+bitmap reservation transaction succeeds. An I/O failure must return an error and
+leave the caller's output unchanged. The regression injects a pre-commit journal
+write failure and checks output/media invariants before accepting the result.
