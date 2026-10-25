@@ -4,7 +4,7 @@
 
 - [x] Audited `vfs_file_read()`: unlike the write fix in this branch, it cleared `bytes_read` only after argument and permission checks. A rejected read could therefore leave a stale caller-provided count.
 - [x] Changed `kernel/vfs.c` to clear a non-null output count before validation/dispatch; added regressions for permission-denied and filesystem-`EIO` reads using a nonzero sentinel.
-- [ ] Exact-head Build/boot-test and Security architecture CI must pass before runtime verification is claimed.
+- [x] Exact PR-head Build/boot-test #40119299299 and Security architecture #40119299311 passed on `89a35608bcd278b01977f5abded40f2208208d9e`; PR #235 merged as `d82d1010f3c58696c15dfb09c326ba2b6d612e43`.
 - Scope: VFS output contract only; no on-disk format change, no crash-atomicity or hardware-durability claim.
 
 
@@ -12,7 +12,7 @@
 
 - Starting main HEAD: `e875810769cb022f1a450bce86027966a3982fcc`.
 - Change under verification: `kernel/vfs.c` now clears `bytes_written` before validating/dispatching a write, preventing stale caller state after any write error. A focused VFS self-test asserts that a callback returning `PROS_VFS_EIO` leaves the count at zero.
-- Status: **implemented in branch; CI not yet verified**. Do not treat this as a passing build, boot, or security result until the exact branch's workflows complete.
+- Status: **verified** on exact PR head `89a35608bcd278b01977f5abded40f2208208d9e`: [Build/boot-test #40119299299](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119299299) and [Security architecture #40119299311](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40119299311) passed; merged as `d82d1010f3c58696c15dfb09c326ba2b6d612e43`.
 - This is VFS contract hardening in the existing ProsenjitFS integration, not a new filesystem format or claim of crash atomicity.
 
 
