@@ -48,6 +48,8 @@ The v1 inode reader admits a record only after CRC32C and semantic fields valida
 
 Each directory index's embedded inode ID is checked against the owning inode number supplied by its caller, in addition to validating the index checksum, format version, generation and bucket heads. A checksum-valid index pointing at a different in-range inode is corruption, not a second namespace view. This is a reader-side check within the unchanged v1 layout.
 
+Namespace lookup validates cross-record relationships: an entry must reference an allocated inode, the entry type must match the inode type, and the child's recorded parent must be the containing directory. Direct directory self-links are rejected. The read-only integrity scan remains responsible for global duplicate ownership and longer parent cycles.
+
 ## Directories and Unicode
 Directories use deterministic hash buckets pointing to chains of directory-entry blocks rather than a fixed-size entry array.
 Each entry contains inode number, node type, UTF-8 byte length, UTF-8 name, name hash, entry checksum and next-entry link.

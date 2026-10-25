@@ -1,3 +1,9 @@
+## Namespace child-reference validation — source/test added; CI pending (2026-10-25)
+
+- pfs_vnode_lookup() now rejects dangling entry references as corruption and requires entry type and inode type to agree and child parent_inode to equal the containing directory's inode number; direct directory self-links are rejected.
+- Added two checksum-valid regressions against /hello.bin: mutate the directory-entry type, then mutate the inode parent to a different in-range ID. Each case requires PROS_VFS_EIO, restores valid metadata, and verifies clean integrity.
+- The current combined source/test commit requires fresh exact-head Build/boot-test and Security architecture checks before acceptance.
+
 ## Directory-index owner identity — source/test added; CI pending (2026-10-25)
 
 - `pfs_read_dir_index()` now receives the expected inode number and rejects a checksum-valid directory index whose embedded `inode` field names a different in-range inode.

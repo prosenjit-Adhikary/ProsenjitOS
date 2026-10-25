@@ -1,3 +1,10 @@
+## 2026-10-25 — Namespace child-reference validation follow-up
+
+- Continued the metadata-hardening series on fix/prosenjitfs-inode-record-admission-20261025.
+- pfs_vnode_lookup() now rejects dangling inode references as corruption and checks entry type, child parent, and direct self-link invariants before constructing a vnode.
+- Added tests that inject CRC-valid type/parent mismatches for /hello.bin, expect lookup failure, restore metadata, and verify integrity.
+- Current revision must pass fresh exact-head Build/boot-test and Security checks; no result is assumed from prior commits. Disk version/layout remain unchanged.
+
 ## 2026-10-25 — Directory-index owner identity follow-up
 
 - Continuing on `fix/prosenjitfs-inode-record-admission-20261025`; branch now includes inode-record admission plus directory-index owner validation.

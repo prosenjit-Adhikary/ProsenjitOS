@@ -1,3 +1,10 @@
+## Namespace child-reference validation — 2026-10-25
+
+- [x] Hardened pfs_vnode_lookup() to verify that a directory entry resolves to an allocated inode whose type matches the entry and whose parent inode matches the containing directory; direct directory self-links are rejected.
+- [x] Added checksummed corruption regressions for entry/inode type mismatch and an in-range but wrong child parent; each requires lookup to fail closed, restores valid metadata, and verifies a clean integrity scan.
+- [ ] Fresh exact-head Build/boot-test and Security architecture CI are required for the combined inode, directory-index-owner, and namespace-reference changes.
+- Scope: v1 disk layout unchanged. Cross-directory rename updates the child inode parent and remains covered by existing tests.
+
 ## Directory-index owner identity — 2026-10-25
 
 - [x] Extended the directory-index reader and directory traversal helpers to require the expected inode number, not just an in-range index inode and matching generation.
