@@ -2,7 +2,7 @@
 
 ## Filesystem scope gate — 2026-10-25
 
-The active implementation track is native ProsenjitFS. A previously discussed first-release requirement called for EXT4 boot + read/write; the current source tree does not implement EXT4. Resolve this release-baseline conflict explicitly before freezing or advertising the 1.0 scope. Do not treat ProsenjitFS as EXT4 compatibility.
+The owner-confirmed release architecture is native ProsenjitFS as the only filesystem implementation in the kernel core. FAT32, exFAT, NTFS and future formats are separate filesystem drivers/providers behind the common VFS interface. The earlier EXT4 boot + read/write idea is not the selected first-release baseline; do not add EXT4 to the native kernel core or treat it as a release blocker. EXT4 may be reconsidered later as an optional compatibility provider if explicitly prioritized.
 
 The current provider registry is scaffolding, not a complete external userspace filesystem runtime: the present ABI exposes probe/mount/unmount and the VFS recognizes only ProsenjitFS. Complete the provider operations, process/IPC boundary, sandbox/device broker, and integration tests before describing FAT32/exFAT/NTFS providers as functional.
 
