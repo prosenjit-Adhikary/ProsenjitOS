@@ -124,6 +124,13 @@ gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
     -Wl,--gc-sections -o "$BUILD/mkprosenjitfs"
 "$BUILD/mkprosenjitfs" "$NATIVE_DISK"
 
+# The formatter must refuse special files, including block/character devices.
+# /dev/null is a harmless CI target and must never be accepted as a disk image.
+if "$BUILD/mkprosenjitfs" /dev/null >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a non-regular target" >&2
+    exit 1
+fi
+
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
 echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
