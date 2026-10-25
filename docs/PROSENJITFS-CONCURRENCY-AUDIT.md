@@ -138,3 +138,17 @@ This is a source-level correction, **not yet a verified fix**. At this snapshot,
 - The nested-token rule must remain intact: an inner lock acquired while IF is already clear must not execute `sti` on release; the outermost caller restores the original IF state.
 - Add/execute deterministic tests for nested lock restoration, timer-preemption stress, concurrent same-handle operations, separate-handle append/write, namespace mutation races, and unmount versus in-flight operations.
 - Keep PR #265 open until exact-head CI passes and the runtime/latency implications are reviewed.
+
+
+## IRQ-save self-test coverage refinement — 2026-10-25
+
+The nested IRQ-save regression added to `vfs_vnode_api_selftest()` checks that IF stays clear while both locks are held, remains clear after the inner unlock, and matches the initial IF state after the outer unlock. However, `kernel_main()` executes `cli` during early initialization and the inspected boot path does not execute `sti` before the VFS self-test. Therefore this boot-time test exercises the initially-disabled IF case; it does **not** prove the initially-enabled outer-unlock path.
+
+This is a test-coverage limitation, not evidence that the restoration implementation is wrong. Do not enable interrupts ad hoc during early self-tests: that could admit timer scheduling while kernel initialization/test fixtures are in progress. Add an isolated test of the enabled-IF restoration path only when there is a safe test harness or a reviewed point in boot where IRQs and scheduler state are ready.
+
+Current source state:
+- Both `vfs_file_lock()` and `pfs_io_lock()` now save RFLAGS and execute `cli` before the atomic spin; both restore IF only if it was set on entry.
+- The lock token is caller-local, preserving nested VFS → filesystem locking semantics on one CPU.
+- This is still not an SMP synchronization contract and leaves interrupts disabled across the critical section, including synchronous filesystem/block I/O.
+- The latest PR head is `04fafab7ad78d5b60ba39aa94d3dd0299e4d8df0`. Workflow runs associated with this PR were queued/cancelled for older commit SHAs; no passing exact-head Build/boot-test or Security architecture result was found during this review. No local build or QEMU runtime result is claimed.
+- Remaining merge gates: exact-head CI, an isolated enabled-IF restoration test, concurrency/lifetime tests, and explicit review of interrupt latency and the single-CPU assumption.
