@@ -209,3 +209,11 @@ This section is the handoff source for another AI/engineer. Preserve the distinc
 ### Documentation commit / latest exact-head CI snapshot
 - The handoff entries above were committed to PR #265's branch; documentation commit/head is now `1312cef301f7e6042abce59fb928745787eca8ff`.
 - Latest head checks: Build/boot-test [#40208605368](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605368) was pending; Security architecture [#40208605379](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605379) was queued at the last query. Earlier runs for superseded heads were cancelled; do not count them as passes.
+
+
+## Follow-up source audit — all writes must serialize (2026-10-25)
+
+- A follow-up audit found the first PR #265 wrapper still acquired `pfs_io_lock()` only for `O_APPEND`; ordinary writes therefore were not serialized against the newly locked reads/truncates. The earlier broad wording should not be interpreted as proving all writes were serialized on that revision.
+- Corrected `pfs_file_write()` to acquire/release the per-filesystem I/O lock for every write when a filesystem state is available. This makes ordinary writes, append writes, reads and truncates use the same lock at their public entry points.
+- Corrective code commit: `828def8a5cc8e53f9c03156973c1b60e96876572` (branch PR #265). This is source implementation only; no build/runtime pass is claimed until exact-head CI completes.
+- Remaining: add deterministic interleaving regression tests; audit lock recursion, namespace mutators, readdir/scans and unmount lifecycle. No physical-device durability claim.
