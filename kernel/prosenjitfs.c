@@ -12281,6 +12281,7 @@ int prosenjitfs_selftest(void)
         uint8_t header_block[512];
         uint32_t done = 0u;
         uint32_t block_size;
+        uint32_t duplicate_index = UINT32_MAX;
         uint64_t journal_start;
         int write_rc;
         int mount_rc;
@@ -12335,12 +12336,21 @@ int prosenjitfs_selftest(void)
         pfs_copy(&header, header_block, sizeof(header));
         if (header.magic != PROSENJITFS_JOURNAL_MAGIC ||
             header.record_count < 2u ||
-            header.record_count > PROSENJITFS_MAX_TX_BLOCKS ||
-            header.targets[0] == header.targets[1]) {
+            header.record_count > PROSENJITFS_MAX_TX_BLOCKS) {
             pfs_test_crash_reset(&fs, &disk);
             return pfs_selftest_fail(__LINE__, -13);
         }
-        header.targets[1] = header.targets[0];
+        for (uint32_t i = 1u; i < header.record_count; ++i) {
+            if (header.targets[i] != header.targets[0]) {
+                duplicate_index = i;
+                break;
+            }
+        }
+        if (duplicate_index == UINT32_MAX) {
+            pfs_test_crash_reset(&fs, &disk);
+            return pfs_selftest_fail(__LINE__, -13);
+        }
+        header.targets[duplicate_index] = header.targets[0];
         header.checksum = 0u;
         pfs_copy(header_block, &header, sizeof(header));
         header.checksum = pfs_crc_with_zero32(
