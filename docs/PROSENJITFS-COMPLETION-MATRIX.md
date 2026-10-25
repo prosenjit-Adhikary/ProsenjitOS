@@ -43,6 +43,12 @@
 - New mock-device test fails the second home-block write during recovery of a durably committed unlink; a power-loss reset then requires repeat recovery to complete the unlink and pass integrity.
 - v1 format/protocol unchanged. [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed on the code/test head. QEMU/mock-device evidence only; no hardware power-loss certification.
 
+## FS-32 — Preallocation metadata-scan read-error propagation (source/test added; exact-head CI pending)
+
+- The metadata candidate scan in `prosenjitfs_preallocate_blocks()` now returns negative errors from `pfs_data_block_is_free()` instead of ignoring them.
+- The regression injects EIO into the first candidate scan after inode read, bitmap scan and allocation-range validation. It requires no durable, volatile or dirty-map mutation, a writable mount, and successful integrity validation.
+- v1 disk format unchanged. Exact-head Build/boot-test and Security architecture verification are pending.
+
 # ProsenjitFS Completion Matrix
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
