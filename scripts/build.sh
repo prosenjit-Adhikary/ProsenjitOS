@@ -126,6 +126,8 @@ gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
 
 # The formatter must refuse special files, including block/character devices.
 # /dev/null is a harmless CI target and must never be accepted as a disk image.
+# Rejected-target tests also prove the valid image was not modified indirectly.
+NATIVE_DISK_SHA_BEFORE="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
 if "$BUILD/mkprosenjitfs" /dev/null >/dev/null 2>&1; then
     echo "Formatter unexpectedly accepted a non-regular target" >&2
     exit 1
@@ -143,6 +145,11 @@ fi
 mkfifo "$BUILD/native-disk-image-fifo"
 if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-fifo" >/dev/null 2>&1; then
     echo "Formatter unexpectedly accepted a FIFO target" >&2
+    exit 1
+fi
+NATIVE_DISK_SHA_AFTER="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
+if [[ "$NATIVE_DISK_SHA_BEFORE" != "$NATIVE_DISK_SHA_AFTER" ]]; then
+    echo "Formatter refusal tests unexpectedly modified the valid disk image" >&2
     exit 1
 fi
 
