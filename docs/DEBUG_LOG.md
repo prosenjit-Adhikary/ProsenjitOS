@@ -1,3 +1,11 @@
+## 2026-10-25 — Owner confirmed filesystem architecture
+
+- Owner confirmed that native ProsenjitFS is the only filesystem implementation intended to live in the kernel core.
+- FAT32, exFAT, NTFS and future formats will be separate filesystem drivers/providers exposed through the common VFS interface, following the general multi-filesystem model used by mainstream operating systems.
+- The earlier EXT4 boot + read/write proposal is not the selected first-release baseline and is not a kernel-core requirement. EXT4 may be considered later as an optional compatibility provider if explicitly prioritized.
+- Provider execution model (loadable kernel module versus isolated userspace service) remains a separate technical decision; do not claim userspace isolation unless implemented and tested.
+- Canonical updated plan: [docs/FILESYSTEM.md](FILESYSTEM.md). Roadmap updated to match.
+
 ## 2026-10-25 — Filesystem plan reconciliation audit
 
 - Consolidated the former filesystem integration, NTFS status, encryption design, and permissions/encryption documents into `docs/FILESYSTEM.md`; their old paths are now navigation stubs to prevent parallel status sources.
