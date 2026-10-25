@@ -96,3 +96,11 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 4. Build and run the test matrix; keep logs and run IDs linked in the status matrix.
 5. If CI fails, map the exact serial stage/assertion to source, fix that cause, and rerun. Never infer green from an earlier commit.
 6. Do not format, overwrite, delete or repartition a real disk during discovery or tests. Use the deterministic mock device and repository-generated disposable image only.
+
+
+### Allocator geometry hardening — current-main branch
+
+- [x] Centralize supported block sizes as 512, 1024, 2048, or 4096 bytes and use the predicate before allocator bitmap division/indexing, inode offset calculations, preallocation, integrity scans, transaction setup, and vnode write/truncate arithmetic.
+- [x] Add malformed-geometry regression cases for 0, 511, 513, 4097, and 8192, preserving output sentinels and durable/volatile/dirty mock-media state.
+- [x] Add bounded inode/data bitmap exhaustion and final-valid-bit boundary checks on the mock volume.
+- [ ] Run Build/boot-test (ISO QEMU and native BIOS QEMU) and Security architecture on exact head `fbfb4d8bea8ece13e9afdc70ab3ab1467277c95a`; diagnose failures and rerun before merge.
