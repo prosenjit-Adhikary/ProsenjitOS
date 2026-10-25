@@ -167,6 +167,7 @@ void kfree(void *address)
 int main(int argc, char **argv)
 {
     int fd;
+    struct stat path_st;
     struct stat st;
     uint8_t mbr[SECTOR_SIZE];
     struct image_context ctx;
@@ -178,7 +179,19 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s native-disk-image\n", argv[0]);
         return 2;
     }
-    fd = open(argv[1], O_RDWR);
+    /*
+     * This host utility is image-only. Reject special files before open,
+     * then recheck the opened descriptor to defend against path races.
+     */
+    if (lstat(argv[1], &path_st) != 0) {
+        perror("stat native disk image");
+        return 1;
+    }
+    if (!S_ISREG(path_st.st_mode)) {
+        fprintf(stderr, "refusing to format a non-regular file; use a disposable disk image\n");
+        return 1;
+    }
+    fd = open(argv[1], O_RDWR | O_NOFOLLOW);
     if (fd < 0) {
         perror("open native disk image");
         return 1;
@@ -186,6 +199,11 @@ int main(int argc, char **argv)
     if (fstat(fd, &st) != 0 || st.st_size < 0 ||
         ((uint64_t)st.st_size % SECTOR_SIZE) != 0u) {
         fprintf(stderr, "invalid native disk image size\n");
+        close(fd);
+        return 1;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "refusing to format a non-regular file; use a disposable disk image\n");
         close(fd);
         return 1;
     }

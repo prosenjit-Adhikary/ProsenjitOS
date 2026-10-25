@@ -124,6 +124,46 @@ gcc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror \
     -Wl,--gc-sections -o "$BUILD/mkprosenjitfs"
 "$BUILD/mkprosenjitfs" "$NATIVE_DISK"
 
+# Refuse special files and malformed regular files before any sector writes.
+# These tests use /dev/null and disposable files created inside BUILD only.
+NATIVE_DISK_SHA_BEFORE="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
+if "$BUILD/mkprosenjitfs" /dev/null >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a non-regular target" >&2
+    exit 1
+fi
+ln -s "$NATIVE_DISK" "$BUILD/native-disk-image-symlink.img"
+if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-symlink.img" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly followed a symlink target" >&2
+    exit 1
+fi
+mkdir "$BUILD/native-disk-image-directory"
+if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-directory" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a directory target" >&2
+    exit 1
+fi
+mkfifo "$BUILD/native-disk-image-fifo"
+if "$BUILD/mkprosenjitfs" "$BUILD/native-disk-image-fifo" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a FIFO target" >&2
+    exit 1
+fi
+# Regular-file type alone is insufficient: require the expected MBR/partition.
+truncate -s "$(stat -c%s "$NATIVE_DISK")" "$BUILD/invalid-regular-disk.img"
+INVALID_IMAGE_SHA_BEFORE="$(sha256sum "$BUILD/invalid-regular-disk.img" | awk '{print $1}')"
+if "$BUILD/mkprosenjitfs" "$BUILD/invalid-regular-disk.img" >/dev/null 2>&1; then
+    echo "Formatter unexpectedly accepted a regular file without the expected MBR" >&2
+    exit 1
+fi
+INVALID_IMAGE_SHA_AFTER="$(sha256sum "$BUILD/invalid-regular-disk.img" | awk '{print $1}')"
+if [[ "$INVALID_IMAGE_SHA_BEFORE" != "$INVALID_IMAGE_SHA_AFTER" ]]; then
+    echo "Formatter modified a regular file rejected for invalid disk layout" >&2
+    exit 1
+fi
+NATIVE_DISK_SHA_AFTER="$(sha256sum "$NATIVE_DISK" | awk '{print $1}')"
+if [[ "$NATIVE_DISK_SHA_BEFORE" != "$NATIVE_DISK_SHA_AFTER" ]]; then
+    echo "Formatter refusal tests unexpectedly modified the valid disk image" >&2
+    exit 1
+fi
+
 echo "Built native BIOS disk: $NATIVE_DISK"
 echo "Native kernel sectors: $NATIVE_KERNEL_SECTORS"
 echo "Native ProsenjitFS partition: LBA $NATIVE_PFS_START_LBA + $NATIVE_PFS_SECTORS sectors"
