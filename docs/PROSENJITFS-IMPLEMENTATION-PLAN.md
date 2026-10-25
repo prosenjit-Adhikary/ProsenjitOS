@@ -124,3 +124,10 @@ This is the working checklist for completing existing ProsenjitFS safely. The or
 4. Build and run the test matrix; keep logs and run IDs linked in the status matrix.
 5. If CI fails, map the exact serial stage/assertion to source, fix that cause, and rerun. Never infer green from an earlier commit.
 6. Do not format, overwrite, delete or repartition a real disk during discovery or tests. Use the deterministic mock device and repository-generated disposable image only.
+
+
+## Additional journal ambiguity coverage — 2026-10-25
+
+- Added a self-test for flush #2 (journal header/images) that persists the mock device's dirty sectors and then returns `EIO`, modeling an ambiguous pre-commit durability result.
+- The expected outcome is a failed write with zero bytes, writable current mount, simulated power loss, remount to the complete old payload, and a passing integrity scan. Exact-head Build/boot-test and Security architecture CI are required before acceptance.
+- This closes one targeted mock-device gap; it does not complete the full fault matrix or physical-device durability validation.
