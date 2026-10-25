@@ -640,3 +640,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - FS-30 code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded` passed [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601). The log contains four ProsenjitFS self-test markers and two each of the LBA-boundary and ATA/MBR persistent-mount milestones, covering ISO and native BIOS runs.
 - Added FS-31: committed unlink interrupted after commit flush, second replay home-write fails, power loss discards the partial volatile replay, next mount must replay the entire transaction and pass integrity.
 - FS-31 exact-head Build/boot-test and Security verification are pending; prior FS-30 results are not presented as verification of the new source/test head.
+
+
+## 2026-10-25 — FS-31 exact-head verification
+
+- Code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9` passed [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715).
+- The Build job completed toolchain verification, DML tests, ISO compilation, block-init diagnostic, ISO QEMU boot and native BIOS QEMU boot.
+- Captured logs contain four ProsenjitFS format/mount/allocation/journal/recovery self-test markers, two native LBA-boundary diagnostic markers and two ATA PIO -> MBR -> ProsenjitFS persistent-mount markers; no compiler `error:` entries.
+- FS-31's injected second home-block write failure during committed journal replay returned EIO; after simulated power loss, retry mount completed the committed unlink and integrity checks passed in the self-test.
+- This is deterministic mock-device/QEMU evidence only; physical-device power-loss certification and general concurrent-mutation safety remain unverified.
