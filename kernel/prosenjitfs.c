@@ -4063,20 +4063,25 @@ static int pfs_journal_clear(struct pros_prosenjitfs *fs)
     uint64_t lba;
     int rc;
 
-    if (!fs) return -101;
-    if (!fs->scratch) return -102;
-    if (!fs->mount.device) return -103;
+    if (!fs || !fs->scratch || !fs->mount.device)
+        return PROSENJITFS_EINVAL;
+    if (!pfs_block_size_valid(fs->sb.block_size) ||
+        fs->sb.block_size != fs->mount.device->sector_size)
+        return PROSENJITFS_ECORRUPT;
 
     pfs_zero(fs->scratch, fs->sb.block_size);
-    
+
     rc = pfs_lba_add(fs->mount.device, fs->sb.journal_start, 0u, &lba);
-    if (rc != PROSENJITFS_OK) return -104;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     rc = pfs_write_block(fs->mount.device, lba, fs->scratch);
-    if (rc != PROSENJITFS_OK) return -105;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     rc = pfs_flush(fs->mount.device);
-    if (rc != PROSENJITFS_OK) return -106;
+    if (rc != PROSENJITFS_OK)
+        return rc;
 
     fs->tx.count = 0u;
     return PROSENJITFS_OK;
@@ -12979,6 +12984,107 @@ int prosenjitfs_selftest(void)
             if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
                 prosenjitfs_unmount(&fs) != PROSENJITFS_OK)
                 return pfs_selftest_fail(__LINE__, -14);
+        }
+    }
+
+    /*
+     * Journal retirement must preserve the underlying I/O error during mount
+     * recovery. Stage 4 leaves a durable header/images with no new commit.
+     * Fail the journal-clear write and flush separately, then retry mount.
+     */
+    {
+        uint8_t old_data[64];
+        uint8_t new_data[64];
+        uint8_t read_data[64];
+
+        for (uint32_t i = 0u; i < sizeof(old_data); ++i) {
+            old_data[i] = (uint8_t)(0x31u ^ (uint8_t)(i * 7u));
+            new_data[i] = (uint8_t)(0xC7u ^ (uint8_t)(i * 19u));
+        }
+
+        for (uint32_t failure_kind = 1u; failure_kind <= 2u;
+             ++failure_kind) {
+            struct pros_vfs_file file;
+            uint32_t done = 0u;
+            int write_rc;
+            int mount_rc;
+
+            pfs_zero(&disk, sizeof(disk));
+            pfs_crash_inject_stage = 0u;
+            pfs_crash_injected = 0u;
+            if (prosenjitfs_format(&device) != PROSENJITFS_OK ||
+                prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK ||
+                vfs_file_open(&fs.mount, "/journal-clear-error.bin",
+                              PROS_VFS_O_WRITE | PROS_VFS_O_CREATE, &file) !=
+                    PROS_VFS_OK ||
+                vfs_file_write(&file, old_data, sizeof(old_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+
+            pfs_crash_inject_stage = 4u;
+            pfs_crash_injected = 0u;
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/journal-clear-error.bin",
+                              PROS_VFS_O_WRITE, &file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+            write_rc = vfs_file_write(&file, new_data, sizeof(new_data), &done);
+            if (vfs_file_close(&file) != PROS_VFS_OK ||
+                write_rc != PROS_VFS_EIO || done != 0u ||
+                pfs_crash_injected == 0u) {
+                pfs_crash_inject_stage = 0u;
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+
+            pfs_crash_inject_stage = 0u;
+            pfs_test_crash_reset(&fs, &disk);
+            if (failure_kind == 1u)
+                disk.fail_write_countdown = 1u;
+            else
+                disk.fail_flush_countdown = 1u;
+
+            mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+            if (mount_rc != PROSENJITFS_EIO ||
+                (failure_kind == 1u && disk.fail_write_countdown != 0u) ||
+                (failure_kind == 2u && disk.fail_flush_countdown != 0u)) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+
+            /* Failed mount owns its allocations; drop only device volatile state. */
+            pfs_test_power_loss(&disk);
+            pfs_zero(&fs, sizeof(fs));
+            if (prosenjitfs_mount(&fs, &device, 0u) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+            done = 0u;
+            if (vfs_file_open(&fs.mount, "/journal-clear-error.bin",
+                              PROS_VFS_O_READ, &file) != PROS_VFS_OK ||
+                vfs_file_read(&file, read_data, sizeof(read_data), &done) !=
+                    PROS_VFS_OK ||
+                done != sizeof(old_data) ||
+                vfs_file_close(&file) != PROS_VFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
+            for (uint32_t i = 0u; i < sizeof(read_data); ++i) {
+                if (read_data[i] != old_data[i]) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -34);
+                }
+            }
+            if (prosenjitfs_check_integrity(&fs) != PROSENJITFS_OK ||
+                prosenjitfs_unmount(&fs) != PROSENJITFS_OK) {
+                pfs_test_crash_reset(&fs, &disk);
+                return pfs_selftest_fail(__LINE__, -34);
+            }
         }
     }
 
