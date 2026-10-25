@@ -170,6 +170,7 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 
 ## FS-32 — Invalid journal target geometry (CI pending)
 
+- [x] Checksum-valid reserved targets 0 and 1 (boot/partition structures).
 - [x] Checksum-valid target equal to `total_blocks`.
 - [x] Checksum-valid target inside the journal region.
 - [x] Recompute header and commit checksums to isolate structural validation.
