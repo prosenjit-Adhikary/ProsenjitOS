@@ -32,6 +32,12 @@
 - A targeted pre-commit journal-write failure test requires `PROSENJITFS_EIO`, unchanged output sentinel and mock-media CRCs, writable state, and a clean integrity check.
 - On-disk v1 format is unchanged. [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head; no physical-device durability or general concurrent-mutation claim.
 
+## FS-30 — Journal-retirement I/O error propagation (source/test added; exact-head CI pending)
+
+- `pfs_journal_clear()` now returns named filesystem errors for invalid internal state and propagates the exact result of `pfs_lba_add()`, `pfs_write_block()`, and `pfs_flush()`.
+- New recovery self-test fails retirement write and flush independently after stage-4 interruption; mount must return EIO, retry must recover successfully, original payload must survive, and integrity must pass.
+- On-disk v1 layout/protocol unchanged. Runtime verification is pending exact-head Build/boot-test and Security CI.
+
 # ProsenjitFS Completion Matrix
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
