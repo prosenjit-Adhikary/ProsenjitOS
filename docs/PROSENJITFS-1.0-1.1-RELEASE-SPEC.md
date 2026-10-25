@@ -185,3 +185,7 @@ If any answer is “no” or unknown, mark the feature **not release-verified**.
 - Mock-device and QEMU tests do not certify physical-drive power-loss behavior.
 - General concurrent VFS safety is not proven merely by append serialization or a passing single-threaded test.
 - Passing historical CI does not verify later source changes; evidence must match the exact commit.
+
+## Mandatory security release gate — permissions and encryption
+
+The security contract in [PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md](PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md) is normative. **Permission enforcement is a Version 1.0 release blocker.** UID/GID/mode fields alone do not count: the trusted VFS/security layer must enforce permissions for all relevant operations and the negative tests must prove denied operations do not mutate disk state. Basic encryption is a goal, but it must not be advertised as shipped until crypto design, key management, authenticated integrity, boot/recovery integration and exact-head tests pass. If those gates are not met, ship 1.0 with permissions and clearly defer encryption; never use home-grown cryptography.
