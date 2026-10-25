@@ -136,3 +136,15 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - Never point a formatter or write test at a real disk, partition, or existing filesystem.
 - Fault injection must be scoped to the target operation and disabled before readback, integrity scans, remount checks or cleanup.
 - A passing mock-device/QEMU test does not establish physical-device power-loss durability or concurrent VFS safety.
+
+
+## Formatter target safety — verified 2026-10-25
+
+- [x] Host formatter rejects non-regular targets before write access, refuses symlink following with `O_NOFOLLOW`, and validates the opened descriptor with `fstat` before sector I/O.
+- [x] Regression coverage rejects `/dev/null`, symlink, directory, FIFO, and malformed regular image targets; SHA-256 checks assert rejected-target cases leave test images unchanged.
+- [x] Exact PR #252 head `764648b04d44d8a9ab1be1c778145ec370ff8d5b` passed [Build/boot-test #40168476444](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168476444) and [Security architecture #40168476441](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168476441); merged as `f2e5adad80c5690e1cffcab64c82c356e1634bbc`.
+- Scope: host formatter target safety and disposable-image regressions; this does not prove kernel block-device durability or physical-device safety under power loss.
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-27 | Host formatter unsafe target rejection | `tools/mkprosenjitfs.c`, `scripts/build.sh` | Reject device/symlink/directory/FIFO/malformed image targets before mutation; valid and invalid test-image hashes remain unchanged | **PASS** on exact PR #252 head `764648b04d44d8a9ab1be1c778145ec370ff8d5b`; Build #40168476444 and Security #40168476441 passed; merged as `f2e5adad80c5690e1cffcab64c82c356e1634bbc` |
