@@ -1,3 +1,34 @@
+## FS-28 — truncate-shrink partial-block tail isolation (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+
+- [x] Source audit found a privacy/correctness gap: shrink retained the final allocated data block without clearing bytes beyond a non-block-aligned new EOF; a later write past EOF could re-expose pre-truncate bytes.
+- [x] Updated `pfs_file_truncate()` to locate the retained EOF block before changing the extent chain, zero the suffix, and add that image to the same redo transaction as the inode size and any extent/bitmap changes. Duplicate transaction targets fail closed; staging errors reset the volatile transaction.
+- [x] Added a native self-test: truncate `/hello.bin` to 100 bytes, write one byte at offset 200, then require bytes 100–199 to read as zero and byte 200 to match the new payload.
+- [x] Preserved the version-1 on-disk format; the change uses the existing redo journal.
+- [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332). Logs include successful ProsenjitFS self-test, LBA-boundary diagnostic, and ATA/MBR persistent-mount markers in ISO and native BIOS QEMU runs.
+- **Durability scope:** deterministic mock-device/QEMU evidence only; no physical-device power-loss certification or general concurrent-mutation guarantee.
+
+## FS-29 — inode allocator output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+
+- [x] Source audit found `prosenjitfs_alloc_inode()` published the candidate inode number before the inode-bitmap redo transaction completed.
+- [x] The output is now assigned only after `pfs_inode_bitmap_update()` succeeds; all error returns preserve the caller's value.
+- [x] Added a mock-device regression that fails the first journal write during inode reservation and checks `EIO`, unchanged output sentinel, unchanged durable/volatile/dirty media, writable mount state, and a clean integrity scan.
+- [x] The existing v1 metadata format and journal protocol are unchanged.
+- [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332); the native self-test marker is present in both QEMU boot paths.
+
+## FS-30 — journal-retirement I/O error propagation (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
+
+- [x] Replaced undocumented `-101..-106` returns in `pfs_journal_clear()` with the filesystem's named validation/corruption errors and direct propagation of the original LBA, write and flush status.
+- [x] Added a mount-recovery regression for both journal-retirement write failure and flush failure. Each starts from a stage-4 interrupted transaction with durable header/images and no matching commit, requires mount to return `PROSENJITFS_EIO`, then retries recovery and verifies the old payload and integrity.
+- [x] No on-disk v1 format or journal protocol changes.
+- [x] [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed; logs show the filesystem self-test marker in ISO and native BIOS QEMU runs.
+
+## FS-31 — committed-journal replay write failure (**PASS** on code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9`)
+
+- [x] Added a regression that interrupts a file unlink at stage 5, confirms the durable journal header and matching commit, then fails the second home-block write during mount recovery.
+- [x] The test requires recovery mount to return EIO, simulates power loss to discard the partial unflushed replay, retries mount, and verifies the committed unlink is fully applied and integrity is clean.
+- [x] The v1 disk layout and redo-journal protocol are unchanged.
+- [x] [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed on this code/test head. Logs contain the filesystem self-test marker in ISO and native BIOS QEMU paths; replay-write fault, power-loss retry, unlink state and integrity assertions are inside that self-test.
+
 ## Part 2 verification checkpoint — 2026-10-25
 
 - [x] Inode-record admission: `prosenjitfs_read_inode()` rejects checksum-valid records with unsupported type/flags, zero generation, invalid parent, oversized logical size, or invalid allocated-byte accounting. Seven malformed-record cases restore the root and end with a passing integrity scan.

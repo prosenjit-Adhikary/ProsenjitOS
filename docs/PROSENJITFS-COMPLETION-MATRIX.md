@@ -20,6 +20,29 @@
 - [x] **FS-21 VFS path bounds and resolution:** complete path-length limit and tests for empty/overlong path, repeated separators, `.`/`..`, root escape clamp, missing intermediate directory, non-directory traversal and result-sentinel preservation. - [x] Exact PR #242 head `96418d7bf512ee49e42eb325d0864738781891ab` passed [Build/boot-test #40160091435](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40160091435) and [Security architecture #40160091518](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40160091518). Build includes ISO and native BIOS QEMU boot checks; no physical-device durability or general concurrency claim.
 - Build/boot-test #40159887034 **failed at ISO compilation** with `kernel/prosenjitfs.c:10624:18: error: 'found_lba' undeclared`. The misplaced cleanup was removed from the unlink-read sweep and moved to the actual rmdir-write sweep. A fresh exact-head build/boot and security pass is required.
 
+## FS-28 — Truncate-shrink tail isolation (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+
+- The shrink path stages zeroes from the new EOF through the end of a retained partial data block in the same redo transaction as inode/extent/allocation metadata.
+- Regression sequence: shrink `/hello.bin` to 100 bytes, write a marker at offset 200, and confirm that the gap is all zeroes after the file extends to 201 bytes.
+- On-disk v1 format is unchanged. [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head; no physical-device durability or general concurrent-mutation claim.
+
+## FS-29 — Inode allocation output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+
+- `prosenjitfs_alloc_inode()` now publishes its output inode number only after the bitmap transaction returns success.
+- A targeted pre-commit journal-write failure test requires `PROSENJITFS_EIO`, unchanged output sentinel and mock-media CRCs, writable state, and a clean integrity check.
+- On-disk v1 format is unchanged. [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head; no physical-device durability or general concurrent-mutation claim.
+
+## FS-30 — Journal-retirement I/O error propagation (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
+
+- `pfs_journal_clear()` now returns named filesystem errors for invalid internal state and propagates the exact result of `pfs_lba_add()`, `pfs_write_block()`, and `pfs_flush()`.
+- New recovery self-test fails retirement write and flush independently after stage-4 interruption; mount must return EIO, retry must recover successfully, original payload must survive, and integrity must pass.
+- On-disk v1 layout/protocol unchanged. [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed on this code/test head.
+
+## FS-31 — Committed-journal replay write failure (**PASS** on code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9`)
+
+- New mock-device test fails the second home-block write during recovery of a durably committed unlink; a power-loss reset then requires repeat recovery to complete the unlink and pass integrity.
+- v1 format/protocol unchanged. [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed on the code/test head. QEMU/mock-device evidence only; no hardware power-loss certification.
+
 # ProsenjitFS Completion Matrix
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)

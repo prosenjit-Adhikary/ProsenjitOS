@@ -232,3 +232,60 @@ This section records findings checked against `main` commit `cfe04a8520ec917a90b
 - The implementation is concentrated in one very large translation unit (`kernel/prosenjitfs.c`) with both filesystem logic and a sizable self-test. Changes to test injection and diagnostics must remain bounded and must not obscure which invariant failed.
 - The active `kernel/block.c` includes explicitly labelled temporary cross-layer block-init tracing and an O0/noinline diagnostic path. Audit it for necessity and remove or isolate it only after its remaining diagnostic purpose is verified; do not remove it blindly as part of this documentation-only phase.
 - `docs/PROSENJITFS-COMPLETION-MATRIX.md` is the source of truth for current CI evidence; `docs/PROSENJITFS-IMPLEMENTATION-PLAN.md` and `docs/PROSENJITFS-TEST-MATRIX.md` define the next acceptance gates.
+
+
+## FS-28 — Truncate-shrink tail isolation
+
+When a truncate shrink ends inside an allocated data block, Native ProsenjitFS zeros
+from the new EOF to the end of that block in the same redo-journal transaction as
+the changed inode size and any extent/bitmap updates. This prevents a later write
+past EOF from re-exposing bytes left beyond the prior EOF. The v1 disk layout is
+unchanged. Runtime status must be taken from exact-head Build/boot-test and Security
+architecture CI; emulator/mock-device results do not certify physical power-loss
+durability.
+
+
+## FS-29 — Inode allocator output contract
+
+`prosenjitfs_alloc_inode()` only publishes its output inode number after the inode
+bitmap reservation transaction succeeds. An I/O failure must return an error and
+leave the caller's output unchanged. The regression injects a pre-commit journal
+write failure and checks output/media invariants before accepting the result.
+
+
+## FS-28 / FS-29 — exact-head verification record (2026-10-25)
+
+Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed
+[Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331)
+and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332).
+The build logs contain the ProsenjitFS self-test, native filesystem LBA-boundary,
+and ATA PIO -> MBR -> ProsenjitFS persistent-mount success markers in ISO and
+native BIOS QEMU runs. This evidence is for the mock-device/emulator pipeline,
+not physical-device power-loss certification or general concurrent-mutation safety.
+
+
+## FS-30 — Journal-retirement error contract
+
+`pfs_journal_clear()` returns named filesystem errors for invalid internal state and
+propagates errors from LBA validation, block writes and flushes without replacing
+them with undocumented numeric values. A failed recovery-time journal retirement
+must report I/O error and be retryable after the underlying device fault clears.
+The self-test covers write and flush failures after an interrupted pre-commit
+transaction; the v1 disk format and journal protocol are unchanged.
+
+
+## FS-31 — Committed journal replay write failure
+
+A failed home-block write during recovery must return EIO without clearing the durable
+commit record. After a simulated power loss discards the incomplete volatile replay,
+the next mount must reapply all journal images idempotently, complete the committed
+unlink, and pass integrity checks. This is deterministic mock-device evidence only.
+
+
+## FS-31 — exact-head verification (2026-10-25)
+
+Code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9` passed [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715). The logs contain
+ProsenjitFS self-test, LBA-boundary and ATA/MBR persistent-mount success markers
+in both ISO and native BIOS QEMU paths. The replay-write failure, simulated
+power-loss retry, committed unlink and integrity assertions passed. This remains
+mock-device/QEMU evidence, not physical-device power-loss certification.

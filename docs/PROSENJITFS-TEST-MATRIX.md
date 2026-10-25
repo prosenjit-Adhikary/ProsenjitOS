@@ -37,6 +37,33 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - Cause: the rmdir recovery-cleanup hunk was accidentally matched to the earlier unlink-read sweep because both had an identical integrity/unmount condition. The source patch now restores that unlink check and limits directory-removal cleanup to the actual rmdir write-sweep scope.
 - Historical compile failure was resolved by the integration correction; PR #242 exact-head Build #40160091435 and Security #40160091518 passed. The later Part 2 hardening is separately verified above.
 
+## FS-28 — Truncate-shrink tail isolation (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+
+- **Risk:** bytes beyond a non-aligned EOF remained in the retained physical block after shrink; a later write beyond EOF could expose the old tail.
+- **Test:** truncate `/hello.bin` from 700 to 100 bytes, seek to 200, write `0xE7`, then read bytes 100–200 and require 100 zero bytes followed by the marker.
+- **Implementation:** clear the retained block suffix in the same redo transaction as the inode size and related extent/bitmap updates. Reject target collisions; reset staged transactions on failure.
+- **Status:** regression passed in the self-test marker observed in ISO and native BIOS QEMU runs; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed on the code/test head.
+
+## FS-29 — Inode allocator failure preserves caller output (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
+
+- **Risk:** `prosenjitfs_alloc_inode()` assigned the candidate before its inode-bitmap transaction could fail.
+- **Test:** fail the first journal write during direct inode allocation; require `PROSENJITFS_EIO`, unchanged `UINT64_MAX` output sentinel, unchanged durable/volatile/dirty mock-media CRCs, writable mount state and a passing integrity check.
+- **Implementation:** publish the candidate only after `pfs_inode_bitmap_update()` succeeds.
+- **Status:** source and regression passed on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed.
+
+## FS-30 — Journal-retirement error classification (**PASS** on code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded`)
+
+- **Risk:** `pfs_journal_clear()` used undocumented `-101..-106` codes, obscuring actual write/flush EIO during mount recovery.
+- **Test:** interrupt a write at stage 4 (durable header/images, no matching commit), inject journal-retirement write failure and flush failure separately, require mount EIO, retry mount, verify old bytes and a clean integrity scan.
+- **Implementation:** propagate `pfs_lba_add`, block-write and flush status directly; map invalid state to named filesystem errors.
+- **Status:** the injected retirement write and flush failures returned EIO; retry recovery preserved the old payload and integrity passed. [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601) passed.
+
+## FS-31 — Committed-journal replay write failure (**PASS** on code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9`)
+
+- **Risk:** home-block I/O can fail partway through committed-journal replay; the committed journal must remain available for a retry.
+- **Test:** interrupt unlink at stage 5 after commit publication, fail the second replay write, simulate power loss, retry mount, require the unlink fully applied and integrity clean.
+- **Status:** the second replay home-write failed with EIO; simulated power loss discarded the partial volatile replay; retry mount completed the committed unlink and integrity passed. [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715) passed.
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Latest verified execution — 2026-10-25

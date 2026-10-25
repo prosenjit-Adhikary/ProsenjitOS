@@ -598,3 +598,54 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Removed the one-off `block_device_init()` entry/exit stack/register trace, its cross-layer dependency on `pfs_selftest_diag_stage`, and the forced `O0`/`noinline` attributes from `kernel/block.c`.
 - Kept the generic ProsenjitFS self-test checkpoints immediately before and after block-device initialization (`0xF004` and `0xF005`) so high-level failure localization remains available.
 - This is a cleanup of diagnostic instrumentation only; the exact-head Build/boot-test and Security architecture workflows must pass before treating it as verified.
+
+
+## 2026-10-25 — FS-28 truncate-shrink tail isolation
+
+- Assigned FS-28 to this truncate-shrink bug; FS-27 is already used for duplicate-target journal recovery.
+
+- Audited `kernel/prosenjitfs.c` with the implementation plan, completion matrix, test matrix, format header and block-device contract at main head `d6e4f0998cbaa57d7234803011e3bbe21680b241`.
+- Found that shrink truncation preserved bytes after a partial-block EOF. Since the write path overlays writes into an existing mapped block, a later sparse-offset write could extend the file and expose those stale bytes in the gap.
+- Changed shrink truncation to stage the zeroed final-block suffix, extent/bitmap changes and new inode size through the existing redo journal transaction; the v1 layout is unchanged.
+- Added a deterministic self-test for truncate-to-100, write-at-200, and zero-gap verification through VFS.
+- Verification pending: exact-head Build/boot-test (ISO + native BIOS QEMU) and Security architecture workflows must run on the branch. No compiler, runtime or CI success is claimed here.
+
+
+## 2026-10-25 — FS-29 inode allocation output contract
+
+- Audit found `prosenjitfs_alloc_inode()` wrote its candidate inode number before the inode-bitmap redo transaction succeeded, so an I/O failure could return an error while modifying the caller's output.
+- Moved output publication after successful bitmap transaction completion.
+- Added a pre-commit journal-write fault regression requiring EIO, sentinel preservation, unchanged durable/volatile/dirty mock-media checksums, a writable mount and a passing integrity scan.
+- Exact-head Build/boot-test and Security architecture CI remain pending; no runtime success is claimed.
+
+
+## 2026-10-25 — verification result for FS-28 / FS-29
+
+- Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332).
+- Build job completed toolchain verification, DML unit tests, ISO build, ISO QEMU boot, and native BIOS QEMU boot.
+- Captured logs include the ProsenjitFS format/mount/allocation/journal/recovery self-test marker, native filesystem LBA-boundary diagnostic, and ATA PIO -> MBR -> ProsenjitFS persistent-mount marker.
+- These results verify the code/test head; this follow-up only updates documentation. Physical-device power-loss certification and general concurrent mutation remain outside the evidence.
+
+
+## 2026-10-25 — FS-30 journal-retirement error propagation
+
+- Found `pfs_journal_clear()` returned undocumented values `-101..-106`, including for failed journal-block writes and flushes. Recovery/mount could therefore lose the block layer's intended `PROSENJITFS_EIO` classification.
+- Replaced magic returns with named filesystem validation/corruption statuses and propagated the original LBA/write/flush result.
+- Added a mount-level regression for the journal-clear write and flush failure after a durable stage-4 uncommitted transaction. Both failures must return EIO; retries must discard the uncommitted journal and retain the old file payload.
+- Exact-head Build/boot-test and Security architecture CI are pending; no runtime result is claimed yet.
+
+
+## 2026-10-25 — FS-30 verification and FS-31 replay-write regression
+
+- FS-30 code/test head `5aa0569a24093b11aee7685c7f3f136f02aaaded` passed [Build/boot-test #8590](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503632) and [Security architecture #8126](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173503601). The log contains four ProsenjitFS self-test markers and two each of the LBA-boundary and ATA/MBR persistent-mount milestones, covering ISO and native BIOS runs.
+- Added FS-31: committed unlink interrupted after commit flush, second replay home-write fails, power loss discards the partial volatile replay, next mount must replay the entire transaction and pass integrity.
+- FS-31 exact-head Build/boot-test and Security verification are pending; prior FS-30 results are not presented as verification of the new source/test head.
+
+
+## 2026-10-25 — FS-31 exact-head verification
+
+- Code/test head `73bff7fe8aad278e04f08ee7594b901bb11da6f9` passed [Build/boot-test #8593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866752) and [Security architecture #8129](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40173866715).
+- The Build job completed toolchain verification, DML tests, ISO compilation, block-init diagnostic, ISO QEMU boot and native BIOS QEMU boot.
+- Captured logs contain four ProsenjitFS format/mount/allocation/journal/recovery self-test markers, two native LBA-boundary diagnostic markers and two ATA PIO -> MBR -> ProsenjitFS persistent-mount markers; no compiler `error:` entries.
+- FS-31's injected second home-block write failure during committed journal replay returned EIO; after simulated power loss, retry mount completed the committed unlink and integrity checks passed in the self-test.
+- This is deterministic mock-device/QEMU evidence only; physical-device power-loss certification and general concurrent-mutation safety remain unverified.
