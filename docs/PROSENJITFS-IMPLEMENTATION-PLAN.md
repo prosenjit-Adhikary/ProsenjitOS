@@ -217,3 +217,11 @@ This section is the handoff source for another AI/engineer. Preserve the distinc
 - Corrected `pfs_file_write()` to acquire/release the per-filesystem I/O lock for every write when a filesystem state is available. This makes ordinary writes, append writes, reads and truncates use the same lock at their public entry points.
 - Corrective code commit: `828def8a5cc8e53f9c03156973c1b60e96876572` (branch PR #265). This is source implementation only; no build/runtime pass is claimed until exact-head CI completes.
 - Remaining: add deterministic interleaving regression tests; audit lock recursion, namespace mutators, readdir/scans and unmount lifecycle. No physical-device durability claim.
+
+
+## Namespace/lifecycle lock audit snapshot — 2026-10-25
+
+- Inspected `pfs_vnode_rmdir`, `pfs_vnode_create`, `pfs_vnode_rename`, `pfs_vnode_readdir`, and `prosenjitfs_unmount` on the PR #265 branch. These paths do not currently acquire `pfs_io_lock()` at their public entry points, although they read/modify shared inode, directory-index, allocator, and transaction state.
+- `prosenjitfs_unmount()` checks root vnode reference count, then flushes/deactivates and frees transaction/scratch buffers without an evident shared active-operation gate. The current check alone does not prove race-free unmount if another operation can begin concurrently.
+- Do not blanket-wrap these functions until call graphs are checked for lock recursion and a lifecycle/lock ordering is defined. Next safe work: controlled concurrency tests plus an explicit mount operation/refcount protocol; then add locks in small changes with exact-head CI.
+- Current PR #265 source correction is `828def8a5cc8e53f9c03156973c1b60e96876572`; docs subsequently changed the PR head. Always re-query the live head and CI. No local build/runtime test or physical-device durability claim.

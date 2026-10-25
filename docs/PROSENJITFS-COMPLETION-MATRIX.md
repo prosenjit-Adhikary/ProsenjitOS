@@ -406,3 +406,10 @@ The local runner was reported offline. No local build or runtime test is claimed
 
 - Review found that the initial FS-33 change locked append writes only, not ordinary writes. That gap is corrected in source commit `828def8a5cc8e53f9c03156973c1b60e96876572`: every write now uses the same per-filesystem lock as read/truncate wrappers when filesystem state is available.
 - This is a code correction awaiting exact-head CI, not a PASS. Controlled concurrent tests, namespace mutation/readdir locking, lock recursion/order, and unmount-vs-active-I/O lifecycle safety remain open. The local runner is offline; no local build is claimed.
+
+
+## Namespace and unmount synchronization audit — 2026-10-25
+
+- Verified in source that create/rmdir/rename/readdir do not acquire the shared per-filesystem I/O lock at their entry points. Their interaction with shared directory/index/inode/allocator/transaction state is still an open concurrency risk requiring deterministic tests and a deliberate lock-order design.
+- Unmount checks the root vnode reference count, then flushes/deactivates and frees transaction/scratch state; the inspected code does not establish a gate that prevents new operations racing that sequence. Do not claim concurrent-unmount safety yet.
+- Next work should define an active-operation/lifecycle protocol and test it, rather than mechanically adding locks that could deadlock. Current write-lock correction source commit: `828def8a5cc8e53f9c03156973c1b60e96876572`. Local runner unavailable; exact-head CI pending/queued at last snapshot.

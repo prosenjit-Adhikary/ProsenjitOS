@@ -201,3 +201,11 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - The initial FS-33 wrapper guarded only `O_APPEND` writes; a follow-up source audit caught that ordinary writes would not take the shared lock. The write wrapper is now corrected to lock every write when filesystem state is available.
 - Corrective source head: `828def8a5cc8e53f9c03156973c1b60e96876572` on PR #265.
 - This correction has not yet passed exact-head CI at the time of writing. The existing matrix item describes intended synchronization, not a verified concurrency guarantee. Controlled interleaving tests and the broader VFS lifecycle audit remain open.
+
+
+## Namespace/lifecycle audit findings — 2026-10-25
+
+- Source audit confirms `pfs_vnode_create`, `pfs_vnode_rmdir`, `pfs_vnode_rename`, and `pfs_vnode_readdir` do not currently acquire the shared `pfs_io_lock()` at their entry points. They can touch shared directory/index/inode/allocator/transaction state; concurrent namespace operations are therefore not yet proven safe.
+- `prosenjitfs_unmount()` checks root vnode refcount and then flushes/deactivates/frees buffers, but no shared active-operation gate was found in the inspected path. Concurrent unmount safety remains unproven.
+- These are audit findings, not proof that a race was reproduced. Add deterministic interleaving/lifecycle tests and define lock order before applying wrappers. Avoid recursive acquisition of the non-recursive spinlock.
+- File write lock correction is in source commit `828def8a5cc8e53f9c03156973c1b60e96876572`; exact current PR head must pass Build/boot-test and Security checks before this work is called verified.
