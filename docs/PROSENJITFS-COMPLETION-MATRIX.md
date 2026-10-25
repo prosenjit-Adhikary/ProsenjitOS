@@ -372,3 +372,25 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 - FS-26 ambiguous pre-commit journal-images flush passed exact PR #250 head `32541b0d67e9a077b10bf8896a0881bf862c01cd`: Build/boot-test [#40168090685](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090685) and Security architecture [#40168090633](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40168090633). Merged as `4cb57fc7e80b4a9cca6ecfb0a5cdf7b668c60055`.
 - FS-27 adds malformed-but-CRC-valid duplicate journal target coverage. The regression now simulates power loss (not normal unmount) and recomputes both header and commit checksums, so acceptance depends on structural duplicate-target rejection. Exact-head CI for the latest fix remains pending.
 - Neither test establishes physical-drive power-loss durability; concurrency/object-lifetime guarantees also remain unverified as a general VFS property.
+
+
+## Current implementation handoff — 2026-10-25
+
+### Active pull requests (not yet verified merged)
+
+| Work item | PR / head | Implementation status | CI status last observed |
+|---|---|---|---|
+| FS-32 invalid journal targets | [PR #264](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/264), `266ee0c48a5f0b13fb0023539ffd22100c7d8d64` | Four checksum-valid invalid-target cases added (0, 1, total_blocks, journal_start), with mock-medium immutability assertions | Build #40207586779 pending; Security #40207586760 queued |
+| FS-33 file I/O serialization | [PR #265](https://github.com/prosenjit-Adhikary/ProsenjitOS/pull/265), `4c0f7e40ea3408a10bbcd2b25e8318f54026eb45` | Read/truncate entry points wrap existing unlocked helpers with the filesystem I/O lock already used by writes | Build #40208475785 queued; Security #40208475812 queued |
+
+CI links: [FS-32 Build](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40207586779) · [FS-32 Security](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40207586760) · [FS-33 Build](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208475785) · [FS-33 Security](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208475812).
+
+### What another AI must do next
+1. Re-query both PRs and all four workflow runs; status values above are historical snapshots, not live guarantees.
+2. Inspect exact diff and verify helper/wrapper placement, every call path, and lock ordering. The spinlock is non-recursive; never re-acquire it while already held.
+3. Add deterministic concurrency tests (not just comments) for read/write/truncate/append, then audit create/unlink/rename/mkdir/rmdir/readdir and unmount lifecycle synchronization.
+4. Wait for successful Build/boot-test and Security architecture checks on the exact current PR head. If any source change occurs, use the new exact head's checks.
+5. Only merge after checks pass and head/mergeability are revalidated. Do not claim physical-device durability from mock-device/QEMU tests.
+
+### Verification boundary
+The local runner was reported offline. No local build or runtime test is claimed for the active PR heads. The changes described above are implemented in open PR branches, not proof that the changes are already part of main. Overall ProsenjitFS completion remains open until outstanding implementation, tests, CI, and durability scope are explicitly recorded.
