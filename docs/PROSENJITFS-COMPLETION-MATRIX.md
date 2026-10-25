@@ -394,3 +394,9 @@ CI links: [FS-32 Build](https://github.com/prosenjit-Adhikary/ProsenjitOS/action
 
 ### Verification boundary
 The local runner was reported offline. No local build or runtime test is claimed for the active PR heads. The changes described above are implemented in open PR branches, not proof that the changes are already part of main. Overall ProsenjitFS completion remains open until outstanding implementation, tests, CI, and durability scope are explicitly recorded.
+
+
+### Latest exact-head verification snapshot
+- PR #265 head after documentation updates: `1312cef301f7e6042abce59fb928745787eca8ff`.
+- Build/boot-test [#40208605368](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605368) pending; Security architecture [#40208605379](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605379) queued at last query.
+- Earlier workflow runs for `4c0f7e4...`, `d6515e8...`, and `a5c881a...` were superseded; do not treat cancelled runs as successful validation.
