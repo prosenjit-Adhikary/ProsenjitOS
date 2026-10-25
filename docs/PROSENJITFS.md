@@ -251,3 +251,14 @@ durability.
 bitmap reservation transaction succeeds. An I/O failure must return an error and
 leave the caller's output unchanged. The regression injects a pre-commit journal
 write failure and checks output/media invariants before accepting the result.
+
+
+## FS-28 / FS-29 — exact-head verification record (2026-10-25)
+
+Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed
+[Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331)
+and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332).
+The build logs contain the ProsenjitFS self-test, native filesystem LBA-boundary,
+and ATA PIO -> MBR -> ProsenjitFS persistent-mount success markers in ISO and
+native BIOS QEMU runs. This evidence is for the mock-device/emulator pipeline,
+not physical-device power-loss certification or general concurrent-mutation safety.
