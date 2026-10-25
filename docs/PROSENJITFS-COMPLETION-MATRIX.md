@@ -1,3 +1,9 @@
+## Latest follow-up — home-block flush failure test (2026-10-25)
+
+- [x] Added FS-18 in `kernel/prosenjitfs.c` to fail transaction flush #4, after commit publication and during home-block persistence.
+- [ ] Build/boot-test and Security architecture CI must pass on the exact head before this new regression is considered verified.
+- Expected recovery contract: failed write reports zero bytes; mount becomes read-only; after simulated power loss, remount replays the committed new payload and integrity scan passes.
+
 # ProsenjitFS Completion Matrix
 
 ## Part 2 follow-up — VFS read output-count contract (2026-10-24)
