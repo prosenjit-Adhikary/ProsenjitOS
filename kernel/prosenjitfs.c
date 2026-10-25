@@ -12302,6 +12302,7 @@ int prosenjitfs_selftest(void)
 
         for (uint32_t i = 0u; i < sizeof(images); ++i)
             images[i] = (uint8_t)(0x6Du ^ (uint8_t)(i * 13u));
+        pfs_zero(header_block, sizeof(header_block));
         pfs_zero(&header, sizeof(header));
         header.magic = PROSENJITFS_JOURNAL_MAGIC;
         header.record_count = 2u;
@@ -12315,6 +12316,8 @@ int prosenjitfs_selftest(void)
                                checksum));
         pfs_copy(header_block, &header, sizeof(header));
 
+        pfs_zero(commit_block, sizeof(commit_block));
+        pfs_zero(commit_block, sizeof(commit_block));
         pfs_zero(&commit, sizeof(commit));
         commit.magic = PROSENJITFS_JOURNAL_COMMIT;
         commit.record_count = 2u;
@@ -12342,6 +12345,7 @@ int prosenjitfs_selftest(void)
 
         header.targets[1] = header.targets[0];
         header.checksum = 0u;
+        pfs_zero(header_block, sizeof(header_block));
         pfs_copy(header_block, &header, sizeof(header));
         header.checksum = pfs_crc_with_zero32(
             header_block, block_size,
