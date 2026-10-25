@@ -51,6 +51,13 @@ Exact-head evidence for FS-23/24/25: [Build/boot-test #8548](https://github.com/
 - **Implementation:** publish the candidate only after `pfs_inode_bitmap_update()` succeeds.
 - **Status:** source and regression passed on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`; [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332) passed.
 
+## FS-30 — Journal-retirement error classification (**PENDING exact-head CI**)
+
+- **Risk:** `pfs_journal_clear()` used undocumented `-101..-106` codes, obscuring actual write/flush EIO during mount recovery.
+- **Test:** interrupt a write at stage 4 (durable header/images, no matching commit), inject journal-retirement write failure and flush failure separately, require mount EIO, retry mount, verify old bytes and a clean integrity scan.
+- **Implementation:** propagate `pfs_lba_add`, block-write and flush status directly; map invalid state to named filesystem errors.
+- **Status:** source/test added, exact-head Build/boot-test and Security pending.
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Latest verified execution — 2026-10-25
