@@ -188,3 +188,9 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - [ ] Audit unmount vs in-flight I/O; ensure lock ordering and lifecycle rules do not permit use-after-free or deadlock.
 - [ ] Confirm no nested acquisition of the non-recursive `pfs_io_lock()` on any wrapper/helper path.
 - [ ] Record exact commit SHA and passing Build/boot-test + Security runs before marking any item PASS.
+
+
+### Latest documentation-head check snapshot
+- Current PR #265 head at last query: `1312cef301f7e6042abce59fb928745787eca8ff`.
+- Build/boot-test [#40208605368](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605368): pending. Security architecture [#40208605379](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40208605379): queued.
+- Earlier runs were for superseded commits and are not valid pass evidence for this head.
