@@ -7,7 +7,7 @@
 
 | ID | Area / risk | Existing test surface | Required acceptance | Status |
 |---|---|---|---|---|
-| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | Implemented on PR branch; exact-head CI pending |
+| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | **PASS** on PR #239 exact head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; Build #40156447788 and Security #40156447759 passed |
 
 # ProsenjitFS Test Matrix — 2026-10-24
 
@@ -76,7 +76,7 @@ The matrix separates implementation, current-baseline runtime evidence, and unme
 
 | FS-18 | Home-block flush failure after durable commit | PR #239, native ProsenjitFS self-test | Fail flush #4 after durable commit; write reports zero bytes and current mount becomes read-only; simulated power-loss remount replays complete new payload and integrity passes | **PASS on exact PR head `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`**: [Build/boot-test #40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and [Security #40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed; PR #239 merged as `1b87449daf9555d15723dea284d3725b87e354d0`. Mock-device/QEMU only. |
 
-| FS-15 | Allocator geometry and bitmap boundaries | `fix/prosenjitfs-allocator-geometry-main-20261025`, `kernel/prosenjitfs.c` | Reject 0/511/513/4097/8192-byte geometry before division/indexing; preserve output sentinels and mock-media state; ENOSPC on exhausted bitmaps; correctly handle final valid inode/data bit | **PENDING exact-head CI** at `8dd3032ab6ad52cd6c2ec310909d5c6ef5f4613c` |
+| FS-19 | Allocator geometry and bitmap boundaries | `fix/prosenjitfs-allocator-geometry-main-20261025`, `kernel/prosenjitfs.c` | Reject 0/511/513/4097/8192-byte geometry before division/indexing; preserve output sentinels and mock-media state; ENOSPC on exhausted bitmaps; correctly handle final valid inode/data bit | **PENDING exact-head CI** on PR #241; source commit `fbfb4d8bea8ece13e9afdc70ab3ab1467277c95a` |
 
 ## Reproducible commands on a provisioned Linux self-hosted runner
 
