@@ -404,3 +404,9 @@ Status meanings: **Implemented in inspected source** means code exists, not that
 ## Release-specification cross-reference — 1.0 / 1.1
 
 The authoritative detailed scope, required tests, acceptance gates, non-goals and release decision checklist are in [PROSENJITFS-1.0-1.1-RELEASE-SPEC.md](PROSENJITFS-1.0-1.1-RELEASE-SPEC.md). Keep each capability's current status evidence-based: planned is not implemented, implemented is not necessarily tested, and tested on an earlier commit is not verified on the release candidate. Version 1.1 feature status must be updated only after the code and exact-head CI evidence are available.
+
+## Mandatory security acceptance update — permissions and encryption
+
+- **Permissions / UID-GID-mode enforcement:** mandatory Version 1.0 release blocker; implementation status must be confirmed against current VFS source and tests. Metadata fields alone do not qualify.
+- **Basic encryption:** desired but conditional on reviewed cryptography, key management, authenticated I/O, recovery integration and exact-head CI. Otherwise keep it planned/experimental and defer shipment.
+- Acceptance details and tests: [PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md](PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md).
