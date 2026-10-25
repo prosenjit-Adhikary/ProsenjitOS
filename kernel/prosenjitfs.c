@@ -12379,6 +12379,58 @@ int prosenjitfs_selftest(void)
             return pfs_selftest_fail(__LINE__, -13);
         }
         pfs_test_crash_reset(&fs, &disk);
+
+        /*
+         * Also reject checksum-valid targets outside the filesystem and
+         * targets inside the journal region. Keep the commit checksum valid
+         * in each case so the target-geometry checks are the rejection cause.
+         */
+        {
+            const uint64_t invalid_targets[2] = {
+                fs.sb.total_blocks,
+                journal_start
+            };
+            for (uint32_t invalid_index = 0u;
+                 invalid_index < sizeof(invalid_targets) /
+                                 sizeof(invalid_targets[0]);
+                 ++invalid_index) {
+                header.targets[1] = invalid_targets[invalid_index];
+                header.checksum = 0u;
+                pfs_zero(header_block, sizeof(header_block));
+                pfs_copy(header_block, &header, sizeof(header));
+                header.checksum = pfs_crc_with_zero32(
+                    header_block, block_size,
+                    (uint32_t)offsetof(
+                        struct pros_prosenjitfs_journal_header, checksum));
+                pfs_copy(header_block, &header, sizeof(header));
+
+                pfs_zero(commit_block, sizeof(commit_block));
+                pfs_zero(&commit, sizeof(commit));
+                commit.magic = PROSENJITFS_JOURNAL_COMMIT;
+                commit.record_count = 2u;
+                commit.transaction_id = header.transaction_id;
+                pfs_copy(commit_block, &commit, sizeof(commit));
+                commit.checksum = pfs_journal_checksum(
+                    header_block, images, block_size, 2u, commit_block);
+                pfs_copy(commit_block, &commit, sizeof(commit));
+
+                if (pfs_write_block(&device, journal_start, header_block) !=
+                        PROSENJITFS_OK ||
+                    pfs_write_block(&device, journal_start + 3u,
+                                    commit_block) != PROSENJITFS_OK ||
+                    pfs_flush(&device) != PROSENJITFS_OK) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+
+                mount_rc = prosenjitfs_mount(&fs, &device, 0u);
+                if (mount_rc != PROSENJITFS_ECORRUPT) {
+                    pfs_test_crash_reset(&fs, &disk);
+                    return pfs_selftest_fail(__LINE__, -13);
+                }
+                pfs_test_crash_reset(&fs, &disk);
+            }
+        }
     }
 
     /*
