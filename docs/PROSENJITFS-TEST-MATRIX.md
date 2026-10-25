@@ -1,3 +1,14 @@
+## Home-block flush failure regression — verified 2026-10-25
+
+- [x] Added a mock-device test that fails flush #4, after the commit record has been flushed and while home-block writes are being persisted.
+- [x] The test requires the failed write to report zero bytes and freeze the current mount read-only; after simulated power loss, remount must replay the committed transaction to the complete new payload and pass integrity validation.
+- [x] Exact-head Build/boot-test [#40156447788](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447788) and Security architecture [#40156447759](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40156447759) passed on `7faba8cb996e3f5ae8b329af9f44bf0a24f597cf`; ISO QEMU and native BIOS QEMU boot checks passed. Mock/QEMU only; not physical-device durability certification.
+- Scope: deterministic mock block device and QEMU CI only; no physical-device durability certification.
+
+| ID | Area / risk | Existing test surface | Required acceptance | Status |
+|---|---|---|---|---|
+| FS-18 | Home-block flush failure after durable commit | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Fail fourth transaction flush; report zero bytes and freeze mount; simulated power-loss remount replays complete new payload; integrity scan passes | Verified on exact PR head; mock/QEMU scope only |
+
 # ProsenjitFS Test Matrix — 2026-10-24
 
 ## Latest verified execution — 2026-10-25
