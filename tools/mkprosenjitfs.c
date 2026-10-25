@@ -178,14 +178,24 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s native-disk-image\n", argv[0]);
         return 2;
     }
-    fd = open(argv[1], O_RDWR);
+    fd = open(argv[1], O_RDWR | O_NOFOLLOW);
     if (fd < 0) {
         perror("open native disk image");
         return 1;
     }
     if (fstat(fd, &st) != 0 || st.st_size < 0 ||
         ((uint64_t)st.st_size % SECTOR_SIZE) != 0u) {
-        fprintf(stderr, "invalid native disk image size\n");
+        fprintf(stderr, "invalid native disk image size\\n");
+        close(fd);
+        return 1;
+    }
+    /*
+     * This utility is intentionally image-only. Reject block devices, disks,
+     * FIFOs and other special files before reading or writing any sectors.
+     * O_NOFOLLOW above also rejects a symlink used to disguise a target.
+     */
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "refusing to format a non-regular file; use a disposable disk image\\n");
         close(fd);
         return 1;
     }
