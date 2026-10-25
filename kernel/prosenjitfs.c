@@ -796,21 +796,32 @@ struct pfs_vnode_data {
     uint64_t generation;
 };
 
-static void pfs_io_lock(struct pros_prosenjitfs *fs)
+/*
+ * IRQ-save filesystem lock. The token is caller-local rather than stored in
+ * the shared filesystem object, so nested VFS -> filesystem acquisition cannot
+ * overwrite the outer lock's saved interrupt state.
+ */
+static uint64_t pfs_io_lock(struct pros_prosenjitfs *fs)
 {
+    uint64_t flags;
     if (!fs)
-        return;
+        return 0u;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
     while (__sync_lock_test_and_set(&fs->io_lock, 1u) != 0u) {
+        __asm__ volatile ("pause");
     }
     __sync_synchronize();
+    return flags;
 }
 
-static void pfs_io_unlock(struct pros_prosenjitfs *fs)
+static void pfs_io_unlock(struct pros_prosenjitfs *fs, uint64_t flags)
 {
     if (!fs)
         return;
     __sync_synchronize();
     __sync_lock_release(&fs->io_lock);
+    if ((flags & (1ULL << 9)) != 0u)
+        __asm__ volatile ("sti" : : : "memory");
 }
 
 static int pfs_vnode_validate_inode(struct pfs_vnode_data *data,
@@ -1212,9 +1223,9 @@ static int pfs_file_read(struct pros_vfs_file *file, uint32_t offset,
      * lock. This protects the shared transaction state and prevents readers
      * from observing a concurrently changing extent/inode/data image.
      */
-    pfs_io_lock(data->fs);
+    uint64_t irq_flags = pfs_io_lock(data->fs);
     rc = pfs_file_read_unserialized(file, offset, length, buffer);
-    pfs_io_unlock(data->fs);
+    pfs_io_unlock(data->fs, irq_flags);
     return rc;
 }
 
@@ -1608,11 +1619,12 @@ static int pfs_file_write(struct pros_vfs_file *file, uint32_t offset,
      * not only O_APPEND writes. Otherwise an ordinary write can race a read
      * or truncate even though those entry points acquire this lock.
      */
+    uint64_t irq_flags = 0u;
     if (fs)
-        pfs_io_lock(fs);
+        irq_flags = pfs_io_lock(fs);
     rc = pfs_file_write_unserialized(file, offset, length, buffer);
     if (fs)
-        pfs_io_unlock(fs);
+        pfs_io_unlock(fs, irq_flags);
     return rc;
 }
 
@@ -2167,9 +2179,9 @@ static int pfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
      * can change EOF/extents while an append writer is constructing a redo
      * transaction from an earlier inode snapshot.
      */
-    pfs_io_lock(data->fs);
+    uint64_t irq_flags = pfs_io_lock(data->fs);
     rc = pfs_file_truncate_unserialized(file, size);
-    pfs_io_unlock(data->fs);
+    pfs_io_unlock(data->fs, irq_flags);
     return rc;
 }
 

@@ -26,17 +26,29 @@ static uint64_t health_dir_read_count;
  * changes. This spinlock is scoped to the VFS handle; filesystem locks still
  * protect shared on-disk inode/transaction state across handles.
  */
-static void vfs_file_lock(struct pros_vfs_file *file)
+/*
+ * IRQ-save spinlock: disabling local interrupts before spinning prevents the
+ * timer ISR from preempting the lock owner on this CPU and scheduling a waiter
+ * that would spin forever. Return the caller's prior IF bit so nested VFS ->
+ * filesystem locking restores the original interrupt state correctly.
+ */
+static uint64_t vfs_file_lock(struct pros_vfs_file *file)
 {
+    uint64_t flags;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(flags) : : "memory");
     while (__sync_lock_test_and_set(&file->io_lock, 1u) != 0u) {
+        __asm__ volatile ("pause");
     }
     __sync_synchronize();
+    return flags;
 }
 
-static void vfs_file_unlock(struct pros_vfs_file *file)
+static void vfs_file_unlock(struct pros_vfs_file *file, uint64_t flags)
 {
     __sync_synchronize();
     __sync_lock_release(&file->io_lock);
+    if ((flags & (1ULL << 9)) != 0u)
+        __asm__ volatile ("sti" : : : "memory");
 }
 
 static void vfs_health_error(int rc)
@@ -279,46 +291,46 @@ int vfs_file_read(struct pros_vfs_file *file, void *buffer,
         *bytes_read = 0u;
     if (!file)
         return PROS_VFS_EINVAL;
-    vfs_file_lock(file);
+    uint64_t irq_flags = vfs_file_lock(file);
     if (!file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->read || !bytes_read || !file->vnode) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     if ((file->flags & PROS_VFS_O_READ) == 0u) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EPERM;
     }
     if (length == 0u) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_OK;
     }
     if (!buffer) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     if (file->position > 0xFFFFFFFFULL) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     if ((uint64_t)length > UINT32_MAX - file->position) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EOVERFLOW;
     }
     rc = file->ops->read(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return rc;
     }
     if ((uint32_t)rc > length) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EIO;
     }
     file->position += (uint32_t)rc;
     *bytes_read = (uint32_t)rc;
     ++health_read_count;
-    vfs_file_unlock(file);
+    vfs_file_unlock(file, irq_flags);
     return PROS_VFS_OK;
 }
 
@@ -330,33 +342,33 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         *bytes_written = 0u;
     if (!file)
         return PROS_VFS_EINVAL;
-    vfs_file_lock(file);
+    uint64_t irq_flags = vfs_file_lock(file);
     if (!file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->write || !bytes_written || !file->vnode) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EPERM;
     }
     if (length != 0u && !buffer) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     if (file->position > 0xFFFFFFFFULL ||
         (uint64_t)length > UINT32_MAX - file->position) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EOVERFLOW;
     }
     rc = file->ops->write(file, (uint32_t)file->position, length, buffer);
     if (rc < 0) {
         vfs_health_error(rc);
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return rc;
     }
     if ((uint32_t)rc > length) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EIO;
     }
     if ((file->flags & PROS_VFS_O_APPEND) != 0u)
@@ -365,7 +377,7 @@ int vfs_file_write(struct pros_vfs_file *file, const void *buffer,
         file->position += (uint32_t)rc;
     *bytes_written = (uint32_t)rc;
     ++health_write_count;
-    vfs_file_unlock(file);
+    vfs_file_unlock(file, irq_flags);
     return PROS_VFS_OK;
 }
 
@@ -374,24 +386,24 @@ int vfs_file_truncate(struct pros_vfs_file *file, uint64_t size)
     int rc;
     if (!file)
         return PROS_VFS_EINVAL;
-    vfs_file_lock(file);
+    uint64_t irq_flags = vfs_file_lock(file);
     if (!file->open || !file->mount || !file->mount->active ||
         !file->ops || !file->ops->truncate || !file->vnode) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     if ((file->flags & PROS_VFS_O_WRITE) == 0u || file->mount->read_only) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EPERM;
     }
     if (size > 0xFFFFFFFFULL) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EOVERFLOW;
     }
     rc = file->ops->truncate(file, size);
     if (rc < 0) vfs_health_error(rc);
     else ++health_truncate_count;
-    vfs_file_unlock(file);
+    vfs_file_unlock(file, irq_flags);
     return rc;
 }
 
@@ -400,14 +412,14 @@ int vfs_file_close(struct pros_vfs_file *file)
     int rc;
     if (!file)
         return PROS_VFS_EINVAL;
-    vfs_file_lock(file);
+    uint64_t irq_flags = vfs_file_lock(file);
     if (!file->open || !file->ops || !file->ops->close) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     rc = file->ops->close(file);
     if (rc != PROS_VFS_OK) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return rc;
     }
     file->open = 0u;
@@ -418,7 +430,7 @@ int vfs_file_close(struct pros_vfs_file *file)
     file->ops = 0;
     file->private_data = 0;
     file->position = 0;
-    vfs_file_unlock(file);
+    vfs_file_unlock(file, irq_flags);
     return PROS_VFS_OK;
 }
 
@@ -428,14 +440,14 @@ int vfs_file_seek(struct pros_vfs_file *file, uint64_t position)
         return PROS_VFS_EINVAL;
     if (position > 0xFFFFFFFFULL)
         return PROS_VFS_EOVERFLOW;
-    vfs_file_lock(file);
+    uint64_t irq_flags = vfs_file_lock(file);
     if (!file->open || !file->mount || !file->mount->active ||
         !file->vnode) {
-        vfs_file_unlock(file);
+        vfs_file_unlock(file, irq_flags);
         return PROS_VFS_EINVAL;
     }
     file->position = position;
-    vfs_file_unlock(file);
+    vfs_file_unlock(file, irq_flags);
     return PROS_VFS_OK;
 }
 
