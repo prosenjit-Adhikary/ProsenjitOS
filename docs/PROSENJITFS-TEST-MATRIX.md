@@ -138,4 +138,4 @@ A return code of 124 is acceptable only if all mandatory serial milestones from 
 - A passing mock-device/QEMU test does not establish physical-device power-loss durability or concurrent VFS safety.
 
 
-- [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs while recomputing the header CRC, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **CI pending** on exact follow-up head; deterministic mock-device only; no hardware durability claim.
+- [ ] **FS-27 | CRC-valid journal header with duplicate targets** | `kernel/prosenjitfs.c`, native ProsenjitFS self-test | Create a durable committed transaction stopped before home-block replay, duplicate two journal target LBAs, recompute both header and commit checksums, and require mount recovery to return `PROSENJITFS_ECORRUPT` before replay | **CI pending** on exact follow-up head; deterministic mock-device only; no hardware durability claim.
