@@ -149,7 +149,7 @@ This is a test-coverage limitation, not evidence that the restoration implementa
 Current source state:
 - Both `vfs_file_lock()` and `pfs_io_lock()` now save RFLAGS and execute `cli` before the atomic spin; both restore IF only if it was set on entry.
 - The lock token is caller-local, preserving nested VFS → filesystem locking semantics on one CPU.
-- This is still not an SMP synchronization contract and leaves interrupts disabled across the critical section, including synchronous filesystem/block I/O.
+- Atomic test-and-set/release serializes contenders on the same lock word across CPUs; cli masks only local interrupts. However, system-wide SMP correctness remains unverified because not all namespace/lifetime paths take these locks and no SMP stress test or full lock-order proof exists. Interrupts remain disabled across the critical section, including synchronous filesystem/block I/O.
 - The latest PR head is `04fafab7ad78d5b60ba39aa94d3dd0299e4d8df0`. Workflow runs associated with this PR were queued/cancelled for older commit SHAs; no passing exact-head Build/boot-test or Security architecture result was found during this review. No local build or QEMU runtime result is claimed.
 - Remaining merge gates: exact-head CI, an isolated enabled-IF restoration test, concurrency/lifetime tests, and explicit review of interrupt latency and the single-CPU assumption.
 
@@ -160,7 +160,7 @@ A fresh source review of PR #265 confirms that the file-handle lock and filesyst
 It does not yet establish a complete kernel locking contract:
 
 - Both locks can remain held while a filesystem callback performs synchronous block-device I/O. Interrupts therefore remain disabled for the full callback on the normal enabled-IF path; this can delay the PIT heartbeat and any interrupt-driven work. Measure worst-case hold time before treating this as an acceptable long-term design.
-- IRQ masking is not an SMP lock protocol. If the kernel enables execution on multiple CPUs, local `cli` does not prevent another CPU from contending, and the current code has no reviewed SMP ownership/ordering contract.
+- The atomic lock word does provide cross-CPU exclusion for these specific lock instances; local cli alone does not provide system-wide synchronization. Before claiming SMP safety, audit all shared-state paths and lock ordering and run multi-CPU stress tests.
 - Source call-site search finds the filesystem lock only in the read, write, and truncate wrappers. Namespace operations (`create`, `mkdir`, `unlink`, `rmdir`, `rename`, `lookup`, `readdir`) are not all serialized by that wrapper protocol. Do not mechanically wrap them until the call graph is checked for nested/re-entrant filesystem helpers and a consistent lock order is defined.
 - The VFS lock self-test runs during early initialization with IF already clear, so it checks nested disabled-IF restoration but does not exercise the enabled-IF restore path. Do not turn interrupts on during early self-tests just to cover that branch.
 
@@ -177,7 +177,7 @@ Verification snapshot:
 - The source still contains IRQ-save locking in both `vfs_file_lock()` and `pfs_io_lock()`: save RFLAGS and execute `cli` before the atomic spin; restore IF only when it was set on entry. The VFS self-test checks nested restoration while the boot-time IF state is disabled; it does not safely cover an initially enabled IF state.
 - File callbacks read/write/truncate/close/seek use the per-handle VFS lock. ProsenjitFS read/write/truncate use the filesystem I/O lock. The locks are nested VFS-handle → filesystem-I/O on the regular file callback path.
 - The critical section still includes synchronous filesystem/block I/O with local interrupts disabled. This remains a latency concern; the present source-level mitigation is not a substitute for a scheduler-aware sleepable mutex if callbacks may block or become long-running.
-- No SMP synchronization guarantee is established by local `cli`. Current review assumes one executing CPU; any SMP enablement requires a separate lock contract.
+- Atomic lock-word exclusion is present, but the complete filesystem/VFS design has no verified SMP contract yet. SMP enablement still requires full shared-state and lock-order review plus stress testing.
 - Exact-head workflow query: no run was found for `34b508bbf7a77ea01e56401dc3869fef77cb6ea3`. The branch's latest visible Build run was queued for older source commit `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`; it is not exact-head verification. No local build or QEMU run is claimed.
 - PR #265 remains open and unmerged. Do not merge until Build/boot-test and Security architecture checks complete for the exact final code head and the interrupt-off latency plus missing concurrent lifetime/namespace tests are reviewed.
 - PR #264 also remains open/unmerged; its Build and Security runs for `266ee0c48a5f0b13fb0023539ffd22100c7d8d64` were still queued at this recheck.
@@ -190,7 +190,7 @@ This section is a verification snapshot, not a claim that the filesystem is comp
 - The current PR #265 head at this recheck is `7ce8f6f6bddd3cea59fa891781cbd44a0ba2815a`. The prior section's `34b508bbf7a77ea01e56401dc3869fef77cb6ea3` label is not the current PR head and must not be used as the verification target.
 - A query filtered to workflow runs whose `head_sha` exactly equals `7ce8f6f6bddd3cea59fa891781cbd44a0ba2815a` returned no runs. The visible Build run for PR #265 references older commit `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`; it is not evidence that the current head built or booted.
 - PR #264's exact-head Security and Build runs remain queued/pending for `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`; neither result is a pass yet.
-- Current lock review remains source-level only: IRQ-save spinlocks mitigate the same-CPU timer-preemption deadlock, but hold local interrupts off across callbacks and are not an SMP locking protocol. Keep both PRs unmerged until exact-head CI completes and interrupt latency, namespace/lifetime races, and deterministic concurrent tests are addressed.
+- Current lock review remains source-level only: IRQ-save atomic spinlocks mitigate the same-CPU timer-preemption deadlock and serialize contenders on each lock word across CPUs, but hold local interrupts off across callbacks. Keep both PRs unmerged until exact-head CI completes and interrupt latency, namespace/lifetime races, full SMP/lock-order safety, and deterministic concurrent tests are addressed.
 
 
 ## Exact-head recheck — 2026-10-25 23:56 IST
@@ -200,3 +200,11 @@ This section is a verification snapshot, not a claim that the filesystem is comp
 - Source inspection confirms the IRQ-save spinlock correction and nested IF-restoration regression are present. The test executes during early initialization with IF disabled, so the initially-enabled IF restoration path is still not directly exercised.
 - No local build or QEMU result is claimed. Do not merge based on the stale queued runs. The next verification gate is Build/boot-test and Security architecture on the exact functional source head, followed by controlled same-handle and mount/namespace lifecycle tests and review of IRQ-off latency.
 - This is a status correction only; it does not claim the concurrency gaps are fixed.
+
+
+## Shared IRQ-save primitive refactor — 2026-10-26
+
+- The duplicate x86-64 save-RFLAGS/cli/atomic-spin/restore-IF implementations have been centralized in `kernel/include/irq_spinlock.h`. The VFS handle lock and ProsenjitFS I/O lock delegate to the same inline helper while keeping each acquisition's saved flags in a caller-local token.
+- A standalone freestanding x86-64 GCC compile smoke test of the helper's inline-assembly pattern succeeded. This is **not** a full repository build, boot test, or runtime deadlock test.
+- Exact functional head for this refactor: `2ea1a1067ce13676f0453d388065944e2ddab48d`. At the time of this update, no PR-triggered workflow run or commit status was available for that exact SHA.
+- The long interrupt-disabled duration across synchronous filesystem callbacks remains unresolved. This refactor centralizes the primitive; it does not convert the callbacks to a sleepable-mutex design or close namespace/mount-lifetime races.
