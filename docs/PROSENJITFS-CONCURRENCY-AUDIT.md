@@ -123,3 +123,18 @@ A deeper trace of `kernel/idt.asm`, `kernel/timer.c`, and `kernel/thread.c` conf
 - This finding supersedes the earlier sentence saying the active interrupt call path had not been established. It raises the VFS/filesystem locking issue from “contract to verify” to a confirmed source-level risk requiring remediation before merge.
 
 No runtime deadlock reproduction, local build, or passing CI is claimed. PR #265 must remain unmerged until the lock protocol is corrected and validated on its exact head.
+
+
+## 8. IRQ-save spinlock correction added on 2026-10-25
+
+Source commit [3d73412](https://github.com/prosenjit-Adhikary/ProsenjitOS/commit/3d73412f8e9c7145dfaa96b1740145980c5f4d48) changes both the VFS per-open-file lock and ProsenjitFS I/O lock to save RFLAGS, execute `cli` **before** attempting the atomic spin, and restore IF only when the caller's saved flags had IF set. The lock token is returned to and held by the caller, rather than stored in the shared lock object. This is intended to address the confirmed same-CPU timer-preemption deadlock and preserve nested VFS-lock → filesystem-lock interrupt state.
+
+This is a source-level correction, **not yet a verified fix**. At this snapshot, exact-head Build/boot-test and Security architecture workflow results have not been confirmed, and no local build or QEMU runtime test is claimed.
+
+### Trade-offs and remaining gates
+
+- Local interrupts remain disabled for the full critical section, including filesystem callbacks and synchronous block-device I/O. This prevents timer-driven preemption deadlock on the lock-owning CPU but can increase interrupt latency; a future scheduler-aware mutex or carefully specified kernel synchronization primitive may be preferable for long I/O paths.
+- IRQ-save locking alone is not a complete SMP proof. Before enabling concurrent execution on multiple CPUs, verify the scheduler/lock-owner progress assumptions and use a per-CPU interrupt-save protocol with a reviewed SMP locking contract.
+- The nested-token rule must remain intact: an inner lock acquired while IF is already clear must not execute `sti` on release; the outermost caller restores the original IF state.
+- Add/execute deterministic tests for nested lock restoration, timer-preemption stress, concurrent same-handle operations, separate-handle append/write, namespace mutation races, and unmount versus in-flight operations.
+- Keep PR #265 open until exact-head CI passes and the runtime/latency implications are reviewed.
