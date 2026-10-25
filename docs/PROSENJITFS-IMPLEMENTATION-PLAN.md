@@ -1,19 +1,19 @@
-## FS-28 — truncate-shrink partial-block tail isolation (exact-head CI pending)
+## FS-28 — truncate-shrink partial-block tail isolation (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - [x] Source audit found a privacy/correctness gap: shrink retained the final allocated data block without clearing bytes beyond a non-block-aligned new EOF; a later write past EOF could re-expose pre-truncate bytes.
 - [x] Updated `pfs_file_truncate()` to locate the retained EOF block before changing the extent chain, zero the suffix, and add that image to the same redo transaction as the inode size and any extent/bitmap changes. Duplicate transaction targets fail closed; staging errors reset the volatile transaction.
 - [x] Added a native self-test: truncate `/hello.bin` to 100 bytes, write one byte at offset 200, then require bytes 100–199 to read as zero and byte 200 to match the new payload.
 - [x] Preserved the version-1 on-disk format; the change uses the existing redo journal.
-- [ ] Exact-head Build/boot-test (including ISO and native BIOS QEMU) and Security architecture workflows must pass before runtime verification is claimed.
+- [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332). Logs include successful ProsenjitFS self-test, LBA-boundary diagnostic, and ATA/MBR persistent-mount markers in ISO and native BIOS QEMU runs.
 - **Durability scope:** deterministic mock-device/QEMU evidence only; no physical-device power-loss certification or general concurrent-mutation guarantee.
 
-## FS-29 — inode allocator output on transaction failure (exact-head CI pending)
+## FS-29 — inode allocator output on transaction failure (**PASS** on code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f`)
 
 - [x] Source audit found `prosenjitfs_alloc_inode()` published the candidate inode number before the inode-bitmap redo transaction completed.
 - [x] The output is now assigned only after `pfs_inode_bitmap_update()` succeeds; all error returns preserve the caller's value.
 - [x] Added a mock-device regression that fails the first journal write during inode reservation and checks `EIO`, unchanged output sentinel, unchanged durable/volatile/dirty media, writable mount state, and a clean integrity scan.
 - [x] The existing v1 metadata format and journal protocol are unchanged.
-- [ ] Exact-head Build/boot-test and Security architecture workflows are required before runtime verification is claimed.
+- [x] Code/test head `520be738325a14025e6b00d56a5d940c13e9ce4f` passed [Build/boot-test #8584](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895331) and [Security architecture #8120](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40172895332); the native self-test marker is present in both QEMU boot paths.
 
 ## Part 2 verification checkpoint — 2026-10-25
 
