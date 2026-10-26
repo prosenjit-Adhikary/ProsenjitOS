@@ -298,3 +298,23 @@ This checkpoint supersedes older SHA/status snapshots above; retain older entrie
 - The IRQ-save helper is now present in source and addresses the identified same-CPU timer-preemption spin loop at the locking primitive level. It still holds local maskable interrupts off through synchronous filesystem callbacks, so interrupt-latency concerns remain. No claim is made that this branch has compiled or booted.
 - No deterministic scheduler-controlled tests currently prove same-handle operation-vs-close serialization or separate-handle append/truncate serialization. Namespace mutation, directory enumeration, unmount-vs-I/O lifetime and SMP behavior remain open audit items.
 - **Merge gate:** do not merge PR #265 or #264 until conflicts are resolved, exact-head Build/boot-test and Security checks pass, and the filesystem concurrency/lifecycle risks have been explicitly reviewed.
+
+
+## Scheduler-aware mutex prerequisite audit — 2026-10-26
+
+A source review of `kernel/thread.c` and `kernel/ipc.c` found that the existing blocking/wait path cannot safely be reused as a filesystem mutex without additional synchronization:
+
+- `thread_block(wait_channel)` sets the current thread's wait channel and BLOCKED state, but it does not itself save/disable interrupts or atomically coordinate the scheduler state transition with publication in the wait queue.
+- `ipc_channel_wait()` holds the IPC channel's ordinary test-and-set spinlock, calls `thread_block()`, and only then appends the thread to `channel->waiters`. Since the timer ISR can preempt kernel threads, the thread can be preempted while holding that ordinary spinlock; a scheduled contender can spin on the lock while its owner is suspended. This is a source-level deadlock risk, not a runtime-reproduced failure.
+- `ipc_lock()` is also a plain busy-spin lock and does not mask local interrupts before contention. It must not be treated as a ready-made synchronization primitive for a new sleepable mutex.
+- The filesystem IRQ-save lock addresses the same-CPU timer-preemption window for its own critical sections, but it can keep interrupts disabled across synchronous provider and block-device callbacks. That is a latency trade-off, not a final mutex design.
+
+### Required mutex design gates
+
+1. Establish one kernel-wide lock/wait protocol that makes waiter registration and transition to BLOCKED atomic with respect to wakeup and timer preemption; define the exact IRQ-state save/restore contract.
+2. Use a scheduler wait queue with a no-lost-wakeup handoff. Do not block or yield while holding an ordinary spinlock; define and test lock ordering.
+3. Specify whether the kernel is single-core only or supports SMP. IRQ masking prevents local timer preemption but does not replace atomic mutual exclusion between CPUs.
+4. Add deterministic tests for contended acquisition, wakeup-before-block, block-before-wakeup, nested lock state restoration, owner exit/termination, and lock handoff under timer preemption.
+5. Only after that primitive and tests exist should long filesystem callbacks migrate away from IRQ-off critical sections. Keep namespace operations and unmount lifecycle out of a mechanical blanket-locking pass until their call graph and lock order are audited.
+
+**Status:** design prerequisite recorded; no scheduler-aware mutex implementation or runtime proof is claimed by this documentation update.
