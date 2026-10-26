@@ -405,3 +405,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Exact-head workflow checks for the prior code commit `150c896fb0b89e6941e6c63a0c6fa5aa8e779fba` were queued: Build/boot run `40336660486` (#8685), Security architecture run `40336660574` (#8221). The build workflow targets a self-hosted Linux x64 runner. User reports the local runner is offline; queued status has no job logs and is not a pass/fail result. No local build, QEMU boot, or runtime test was run in this session.
 - Follow-up commit `6cd6c13bfd5d6f5ccae9a28b5e32bca373283049` includes the cleanup correction and therefore needs its own exact-head CI. Re-check runner availability and both workflow statuses before any further code commit; avoid repeated commits while the self-hosted runner is offline.
 - Remaining scope: Security Control Center UI, public telemetry ABI/client, trusted userspace broker, endpoint provisioning/authentication, and end-to-end IPC tests are still unimplemented. Keep PR draft/unmerged.
+
+
+## Parallel follow-up audit — 2026-10-26
+
+- Created an isolated documentation branch so the queued PR #267 workflows are not superseded by additional commits on their branch.
+- Re-audited the IPC protocol, telemetry source map, lifecycle contract, kernel health ring, and IPC implementation. Found stale counter claims in the source map/lifecycle contract and inconsistent `event_cursor` meanings in the protocol.
+- Proposed making `GET_STATUS` carry both `dropped_event_count` and `latest_event_sequence`, while reserving the response-header `event_cursor` for event pagination. The wire `u64` drop count is zero-extended from the current `uint32_t` source; it must not imply extra source precision.
+- Attempted to apply the documentation corrections through the GitHub contents API, but the write tool returned an internal error. No file changes were confirmed; verify branch/file state before retrying. No runtime source or ABI changed; exact-head CI remains queued.
