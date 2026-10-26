@@ -1,6 +1,6 @@
 # Security Control Center Protocol Test Matrix
 
-Status: test specification only. The wire protocol and broker remain design-only; this document does not claim that parser, broker, authorization, or UI tests currently exist or pass.
+Status: test matrix and host parser/test sources now exist. The wire protocol, trusted broker, authorization mechanism, and UI remain design-only. Host tests have been added and wired into CI but have not yet been confirmed passing on the exact current commit.
 
 Related design:
 - [IPC telemetry protocol](SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md)
@@ -9,7 +9,7 @@ Related design:
 
 ## 1. Pure parser boundary
 
-Implement the first parser as a pure, host-testable C module with no kernel pointers, global state, allocation, I/O, or implicit trust decisions. It should accept (const uint8_t *bytes, size_t length) and return a typed parse result plus a view into the caller-owned byte buffer only after complete validation. The caller must retain the buffer lifetime; the parser must never cast untrusted bytes to a packed C struct.
+The first pure host-testable C framing parser is implemented in user/security/telemetry_protocol.c with its interface in user/security/telemetry_protocol.h. Keep it free of kernel pointers, global state, allocation, I/O, and implicit trust decisions. It should accept (const uint8_t *bytes, size_t length) and return a typed parse result plus a view into the caller-owned byte buffer only after complete validation. The caller must retain the buffer lifetime; the parser must never cast untrusted bytes to a packed C struct.
 
 The parser must:
 - Reject a null pointer for non-zero length; define whether (NULL, 0) is a safe invalid-frame result, and test it.
@@ -63,7 +63,7 @@ For GET_STATUS the request payload is exactly 0 bytes; LIST_EVENTS is exactly 16
 | RS-14 | Output buffer filled with non-zero poison before builder call | Every transmitted byte is initialized deterministically |
 | RS-15 | Fuzzed responses and malformed record fields | No out-of-bounds access, UB, crash, or unbounded work |
 
-The final ABI review must choose one normative rule for error payloads (prefer zero payload for v1 errors) and make the parser and tests enforce it consistently.
+Version 1 now specifies zero payload and zero event_cursor for every non-OK response; the parser enforces this rule. Any future change requires a protocol version/review and updated tests.
 
 ## 4. Size arithmetic invariants
 
