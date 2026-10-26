@@ -58,7 +58,7 @@ For GET_STATUS the request payload is exactly 0 bytes; LIST_EVENTS is exactly 16
 | RS-09 | LIST_EVENTS success with 0 or 1 records | Accept only if payload length is exactly count × 24 and count <= requested max |
 | RS-10 | LIST_EVENTS payload 41..65535 bytes | Reject; never truncate silently |
 | RS-11 | GET_EVENT success with payload length other than 24 | Reject |
-| RS-12 | Any error status with success-shaped event data | Reject or ignore payload per final normative rule; never present as successful events |
+| RS-12 | Any error status with nonzero payload length or nonzero event_cursor | Reject; v1 normative error rule requires both to be zero |
 | RS-13 | Response request_id/opcode mismatch | Reject as unmatched response |
 | RS-14 | Output buffer filled with non-zero poison before builder call | Every transmitted byte is initialized deterministically |
 | RS-15 | Fuzzed responses and malformed record fields | No out-of-bounds access, UB, crash, or unbounded work |
