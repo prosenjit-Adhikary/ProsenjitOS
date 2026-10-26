@@ -45,11 +45,15 @@ there is no runnable successor.
 ## Concurrency protection
 
 Channel queue indices, message count, and receiver wait-list mutations are protected
-by a small atomic lock. The current send and explicit wake paths call `thread_wake()`
-while holding the channel lock; this means scheduler/run-queue mutation occurs inside
-the channel critical section. Lock ordering and the saved interrupt-frame publication
-protocol are not proven safe for SMP. Treat this as a single-CPU foundation, not as
-an SMP-safe IPC implementation.
+by a small atomic lock. Send and explicit wake paths call
+`thread_wake_on_channel(thread, channel)` while holding the channel lock; the
+scheduler validates that the thread is still blocked on that exact channel before
+making it runnable. Generic `thread_wake()` rejects threads with a non-null
+`wait_channel`, so it cannot bypass a wait source and leave a stale waiter entry.
+Scheduler/run-queue mutation still occurs inside the channel critical section.
+Lock ordering, saved interrupt-frame publication, and scheduler-wide synchronization
+are not proven safe for SMP. Treat this as a single-CPU foundation, not as an
+SMP-safe IPC implementation.
 User-buffer copying still depends on the existing address-range validation and does not
 yet provide a fault-safe copy-from/to-user primitive.
 
