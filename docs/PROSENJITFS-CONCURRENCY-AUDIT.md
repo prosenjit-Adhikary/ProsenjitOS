@@ -624,3 +624,10 @@ This review is a source audit only. No termination code was changed, and no buil
 The kernel startup IPC regression now calls `ipc_channel_cancel_waiter()` on a valid, separate channel that has no entry for the blocked thread. It requires `PROSENJIT_IPC_EEMPTY`, zero waiter entries on that unrelated channel, and preservation of the original channel's waiter entry and the blocked thread's `wait_channel`. This exercises the non-mutating “waiter not found” path without dismantling the primary send/wakeup regression.
 
 This is a source-level regression addition only. It has not yet been compiled or executed in QEMU. Successful cancellation during process termination and the lifetime/lock-order protocol remain open follow-ups.
+
+
+### IPC cancellation API contract clarified (2026-10-26)
+
+- `kernel/include/ipc.h` now documents that `ipc_channel_cancel_waiter()` detaches only the channel's waiter-array entry. It does not wake the thread and does not clear `thread->wait_channel`; callers must keep the channel object alive and coordinate teardown.
+- The startup regression's failure diagnostic was restored to a meaningful cancellation-specific message after an earlier edit accidentally shortened the string. This is source review only; compile and boot remain unverified.
+- This documentation does not solve the scheduler/IPC lock-order issue or prove that process termination and cancellation are atomic. The blocked-process termination regression remains an open item until a safe fixture and queue/lifetime protocol are established.
