@@ -14,7 +14,7 @@ Verified facts:
 - `pros_health_snapshot()` exposes `event_sequence`, `event_count`, `dropped_events`, last severity and last category to kernel callers.
 - `pros_health_get_event(offset, out)` enumerates retained records from the oldest retained event.
 - The timestamp is `timer_ticks()`; `health.h` says `timer_frequency_hz()` defines the unit.
-- When the ring is full, `pros_health_record()` increments the static `uint32_t dropped_events` counter unless it is already `UINT32_MAX`; the counter therefore saturates instead of wrapping. `pros_health_selftest()` checks the `UINT32_MAX - 1` boundary using two additional records and calls `pros_health_init()` after a successful test to clear synthetic telemetry. Source inspection confirmed these details on 2026-10-26; exact-head compile/runtime verification remains pending CI.
+- When the ring is full, `pros_health_record()` increments the static `uint32_t dropped_events` counter unless it is already `UINT32_MAX`; the counter therefore saturates instead of wrapping. `pros_health_selftest()` checks the `UINT32_MAX - 1` boundary using two additional records and calls `pros_health_init()` after a successful test to clear synthetic telemetry. `kernel/kernel.c` now invokes this self-test fail-closed before the initial health sample, and the build workflow requires its success marker in both QEMU boot paths. Source inspection confirmed the wiring on 2026-10-26; exact-head compile/runtime verification remains pending CI.
 - The current in-memory ring is not evidence of persistent audit storage. Its initialization resets counters and records.
 
 Implementation gates:
