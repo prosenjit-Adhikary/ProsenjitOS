@@ -78,7 +78,7 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
      */
     if (channel->waiter_count != 0) {
         struct pros_thread *thread = channel->waiters[0];
-        if (thread_wake(thread) == 0) {
+        if (thread_wake_on_channel(thread, channel) == 0) {
             for (uint32_t i = 1; i < channel->waiter_count; ++i)
                 channel->waiters[i - 1] = channel->waiters[i];
             --channel->waiter_count;
@@ -218,7 +218,7 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
         return PROSENJIT_IPC_EEMPTY;
     }
     struct pros_thread *thread = channel->waiters[0];
-    int rc = thread_wake(thread);
+    int rc = thread_wake_on_channel(thread, channel);
     if (rc == 0) {
         for (uint32_t i = 1; i < channel->waiter_count; ++i)
             channel->waiters[i - 1] = channel->waiters[i];
