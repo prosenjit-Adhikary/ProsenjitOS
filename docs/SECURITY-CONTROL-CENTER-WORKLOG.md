@@ -1,7 +1,7 @@
 # Security Control Center — Work Log and AI Handoff
 
 Last updated: 2026-10-26 (UTC)
-Status: documentation/design only; implementation not started; PR remains draft and unmerged.
+Status: isolated draft PR contains a host-testable protocol parser and regression tests plus a boot-integrated health-counter self-test; broker, authenticated endpoint provisioning, UI, and kernel IPC integration remain unimplemented. Exact-head CI is pending; PR remains draft and unmerged.
 
 ## Current Git state
 
@@ -489,3 +489,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Confirmed parser scope is intentionally limited to framing and response shape. It does not authenticate the peer, validate endpoint/handle rights, establish telemetry provenance, or implement a broker. These remain explicit implementation gates, not completed security controls.
 - Follow-up review item before implementation: define a registry for supported capability bits and event enums, then decide which values should be rejected versus mapped to UNKNOWN. The current protocol text says capabilities contain known bits and unknown event severity/category values are preserved as UNKNOWN, but it does not yet enumerate those registries. Do not silently invent values in the parser.
 - No source code changed during this audit; no test pass is inferred from queued workflows. Keep PR #268 draft and do not merge until exact-head CI has executed and failures, if any, are addressed.
+
+
+## Continued parser and CI checkpoint — 2026-10-26
+
+- Rechecked PR #268: open, draft, unmerged. Current head: `2218a7b5bf4697b2db7ec9558ed6f16b5378c978`.
+- Exact-head Build and boot-test run `40348313432` (#8715) is queued; Security architecture run `40348313329` (#8251) is queued. Both jobs have no start/completion timestamps. The earlier build run `40344694654` was cancelled after a newer commit superseded it. No test, sanitizer, compiler, or QEMU result is available for the current head.
+- Re-read `user/security/telemetry_protocol.c`, `user/security/telemetry_protocol.h`, `tests/security_control_center_protocol_test.c`, the runner script, the IPC proposal, and test matrix. Parser framing matches the documented 16-byte request header, 24-byte response header, 20-byte event record, 40-byte maximum payload, and 64-byte transport limit. Error responses require zero payload/cursor; GET_STATUS requires a 24-byte payload and zero header cursor; event list sequence/cursor checks are enforced.
+- Additional gap clarified: the current malformed-input loop is a deterministic smoke test, not a coverage-guided fuzzer. There is no response serializer yet, and no registry of supported capability bits or event enum values. These must remain explicit follow-up gates; do not imply they already exist or invent enum values without a reviewed protocol decision.
+- The parser's scope is framing/shape validation only. It does not authenticate peers, enforce handle rights, verify telemetry provenance, or establish broker identity. No new kernel or ABI changes were made in this checkpoint.
+- Next actionable step: get the exact-head workflows to start and inspect their logs; if the runner stays queued, diagnose runner availability before making more commits. After CI, separately specify the v1 capability/event registries and serializer contract, add corresponding tests, then plan trusted broker provisioning. Keep PR #268 draft until all applicable checks and review gates pass.
