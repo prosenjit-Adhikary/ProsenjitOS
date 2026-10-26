@@ -93,7 +93,8 @@ enum scc_parse_result scc_parse_request(
 enum scc_parse_result scc_parse_response(
     const uint8_t *bytes, size_t length, uint16_t expected_opcode,
     uint32_t expected_request_id, uint16_t requested_max_records,
-    uint64_t prior_cursor, struct scc_response_view *out)
+    uint64_t prior_cursor, uint64_t expected_event_sequence,
+    struct scc_response_view *out)
 {
     struct scc_response_view parsed;
     uint16_t payload_length;
