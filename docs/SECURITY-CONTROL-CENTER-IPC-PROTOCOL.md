@@ -121,6 +121,10 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 - Test copy-in/copy-out failure, especially receive consumption before copy-out; document actual behavior.
 - Fuzz the parser and run QEMU integration tests before exposing the protocol to UI.
 
+## 5.1. Parser and IPC test matrix
+
+The normative test checklist is maintained in [SECURITY-CONTROL-CENTER-TEST-MATRIX.md](SECURITY-CONTROL-CENTER-TEST-MATRIX.md). It covers exact frame sizes, malformed input, integer/length boundaries, cursor invariants, broker authorization prerequisites, and receive copy-out failure. The matrix is a test specification; it is not evidence that a parser or tests have been implemented or executed.
+
 ## 6. Implementation gates
 
 1. Review this proposal with docs/NATIVE-SPAWN-CONTRACT.md and existing IPC/user-copy code.
