@@ -93,3 +93,10 @@ Always distinguish “planned”, “implemented”, “test passed”, and “r
 - Combined commit status endpoint returned no status entries. Neither workflow has a passing conclusion at this time.
 - The branch is eight commits ahead of `main`, zero commits behind; compared changes are limited to the three documentation files listed above.
 - This status describes SHA `b4a55323857861f9ba0060213ead43b887353dba` only. Re-check the new head after this log update before using it as evidence.
+
+## Follow-up check after the log commit — 2026-10-26
+
+- Queried exact head `4a8140a554ee9a43e99a8c3de78d07a25edd5fca` after the previous update.
+- The workflow-run query returned no runs and the combined-status query returned no entries for this SHA. **CI remains unverified**; absence of a run is not a pass.
+- Branch comparison: nine commits ahead of `main`, zero behind; only `docs/ROADMAP.md`, `docs/SECURITY-CONTROL-CENTER.md`, and this work log differ from the base.
+- Next contributor must query the exact new head after this commit and diagnose why workflows are not consistently reported for documentation commits. Do not merge while checks are unavailable or unverified.
