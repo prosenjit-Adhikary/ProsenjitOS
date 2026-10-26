@@ -420,3 +420,27 @@ The source review did not modify `kernel/thread.c` or `kernel/ipc.c`; no schedul
 - Documentation commit: to be filled with the resulting commit SHA after this section is committed.
 - Build/boot-test and Security architecture: require runs attached to the exact resulting source SHA; absent/queued/stale-head runs are not PASS.
 - PR #265 remains open/unmerged and its mergeability/conflict state must be rechecked after any source change.
+
+
+## Implementation decision after IRQ-path audit (2026-10-26)
+
+The follow-up review also inspected `kernel/idt.asm`, `kernel/kernel.c`, `kernel/include/irq_spinlock.h`, `kernel/ipc.c`, and `scripts/build.sh`.
+
+### Why the next patch is not a one-line IRQ change
+
+- The timer ISR executes with interrupts disabled and can call `thread_schedule_interrupt()`; scheduler state is modified from both ordinary thread paths and interrupt paths.
+- `pros_irq_spin_lock()` masks local interrupts and preserves the prior IF bit, but its current documented contract is only a short non-sleeping critical section. It cannot be used as the mutex itself.
+- The current build script compiles the kernel from an explicit source list and creates ISO/native BIOS images. New synchronization source files would have to be added to that list, and both boot artifacts need validation.
+- Changing IPC locking alone would not establish a scheduler-wide invariant for `thread_enqueue`, `thread_dequeue`, `thread_schedule_interrupt`, process termination, and waiter cancellation. A local fix could mask one race while leaving the global run-queue protocol unproven.
+
+### Safe next implementation boundary
+
+Implement and review a scheduler-owned IRQ-save guard first, then refactor all scheduler/run-queue state transitions to use it consistently. The guard must not be acquired recursively or held over a context switch, blocking operation, or storage callback. For the current single-CPU target, local IRQ masking can serialize timer-interrupt access; this is not sufficient for SMP, which will require inter-CPU exclusion as well.
+
+After that refactor, implement a wait-queue operation that publishes a waiter and commits the thread to BLOCKED under the same scheduler guard. The wake path must remove that waiter and transition/enqueue it under the same guard. Audit lock ordering carefully: do not call a scheduler function that takes the scheduler guard while already holding it unless a specifically designed internal “guard already held” API exists.
+
+### Verification status for this checkpoint
+
+- Source files reviewed; no kernel synchronization code changed in this checkpoint.
+- Documentation commit: the commit containing this review must be verified by exact SHA below.
+- CI and runtime behavior remain unverified until successful exact-head build, ISO/native boot, and deterministic scheduler tests are attached to the same commit.
