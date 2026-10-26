@@ -320,3 +320,11 @@ For commit `0710676371c2008645c5b5d22b422ef9ca08ec29`, a follow-up query later r
 - Build and boot-test ProsenjitOS run `40314671037` / #8675: **in_progress** (no conclusion yet).
 - Combined commit status endpoint: no entries.
 These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The next documentation commit will create another head and may trigger new workflow runs; check the new exact SHA before making any CI claim.
+
+
+## CI progress checkpoint — 2026-10-26 (follow-up)
+- PR #267 head remains `06f8fae896d1ac5c932354f19229769e631f5940`, open/draft/unmerged.
+- Exact-head Security architecture checks run `40314781047` (#8212): **success**.
+- Exact-head Build and boot-test run `40314781040` (#8676): job `build` is **in_progress**.
+- Job steps observed: runner setup, checkout, toolchain validation, and “Validate desktop scripts and run DML unit tests” completed successfully. “Build ISO” is currently in progress. Diagnostic, ISO QEMU boot, and native BIOS QEMU boot steps have not started at this checkpoint.
+- Do not describe the full build/boot workflow as passed. Await its final conclusion and inspect job logs if it fails.
