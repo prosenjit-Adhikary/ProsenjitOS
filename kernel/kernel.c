@@ -793,6 +793,24 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /* A stale/mismatched channel waiter must not wake a thread that has
+     * since become blocked on another wait object. Keep the queue entry so
+     * restoring its owner lets the normal send/wakeup path complete below. */
+    struct pros_ipc_channel wrong_wait_channel;
+    if (ipc_channel_init(&wrong_wait_channel) != PROSENJIT_IPC_OK) {
+        serial_write("ProsenjitOS: ERROR IPC wrong-channel setup failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    init_thread.wait_channel = &wrong_wait_channel;
+    int wrong_channel_wake_rc = ipc_channel_wake_one(&ipc_wait_test);
+    if (wrong_channel_wake_rc != PROSENJIT_IPC_EINVAL ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        ipc_wait_test.waiter_count != 1) {
+        serial_write("ProsenjitOS: ERROR IPC wrong-channel wake regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    init_thread.wait_channel = &ipc_wait_test;
+
     const uint8_t wait_message[] = { 'W', 'A', 'K', 'E' };
     uint64_t ipc_flags_before, ipc_flags_after;
     __asm__ volatile ("pushfq; popq %0" : "=r"(ipc_flags_before) : : "memory");
