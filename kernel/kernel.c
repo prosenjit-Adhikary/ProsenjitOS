@@ -814,6 +814,22 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC wakeup regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    uint8_t received_wait_message[sizeof(wait_message)] = { 0 };
+    uint32_t received_wait_length = 0;
+    if (ipc_channel_receive(&ipc_wait_test, received_wait_message,
+                            sizeof(received_wait_message),
+                            &received_wait_length) != PROSENJIT_IPC_OK ||
+        received_wait_length != sizeof(wait_message) ||
+        ipc_channel_count(&ipc_wait_test) != 0) {
+        serial_write("ProsenjitOS: ERROR IPC receive/count regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    for (uint32_t i = 0; i < sizeof(wait_message); ++i) {
+        if (received_wait_message[i] != wait_message[i]) {
+            serial_write("ProsenjitOS: ERROR IPC message payload regression failed\n");
+            for (;;) __asm__ volatile ("cli; hlt");
+        }
+    }
     serial_write("ProsenjitOS: IPC wait-queue block/wakeup test passed\n");
 
     /* Regression guard for interrupt-driven scheduler frame save/restore. */
