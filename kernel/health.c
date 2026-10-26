@@ -66,10 +66,12 @@ int pros_health_record(uint32_t severity, uint32_t category,
         .value = value
     };
     event_head = (event_head + 1u) % PROS_HEALTH_EVENT_MAX;
-    if (event_count < PROS_HEALTH_EVENT_MAX)
+    if (event_count < PROS_HEALTH_EVENT_MAX) {
         ++event_count;
-    else
+    } else if (dropped_events != UINT32_MAX) {
+        /* Preserve a monotonic loss count instead of wrapping to zero. */
         ++dropped_events;
+    }
     return PROS_HEALTH_OK;
 }
 
@@ -387,5 +389,21 @@ int pros_health_selftest(void) {
         event.sequence != PROS_HEALTH_EVENT_MAX + 1u)
         return PROS_HEALTH_EIO;
 
-    return PROS_HEALTH_OK;
+    /*
+     * Exercise the overflow boundary without generating billions of events.
+     * With the ring full, two records must saturate at UINT32_MAX rather
+     * than wrapping the counter back to zero.
+     */
+    dropped_events = UINT32_MAX - 1u;
+    if (pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
+                           3u, 0xFFFFFFFEu, 0u) != PROS_HEALTH_OK ||
+        pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
+                           3u, 0xFFFFFFFFu, 0u) != PROS_HEALTH_OK ||
+        pros_health_snapshot(&snapshot) != PROS_HEALTH_OK ||
+        snapshot.event_count != PROS_HEALTH_EVENT_MAX ||
+        snapshot.dropped_events != UINT32_MAX)
+        return PROS_HEALTH_EIO;
+
+    /* Do not leave synthetic boundary-test telemetry in the live ring. */
+    return pros_health_init();
 }

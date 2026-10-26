@@ -17,6 +17,17 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
 11. **Display binding:** kernel owns only device discovery/binding, framebuffer/backend validation, permissions and lifecycle; window systems and desktop components remain userspace.\n\n- **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
+11. **Security Control Center:** implement a user-space Settings surface on the existing desktop/shared ABI. Start with truthful read-only status and Reason Ledger/audit views; then add permission, quarantine, device, update, and network controls only when each trusted service and enforcement path is available. Specification: [docs/SECURITY-CONTROL-CENTER.md](SECURITY-CONTROL-CENTER.md). Do not add mock toggles or a competing desktop architecture.
+
+### Security Control Center — staged work
+- [x] Document architecture fit, navigation, trust boundaries, failure behavior, and acceptance criteria.
+- [ ] Inspect existing service/ABI contracts and map each UI view to real data sources.
+- [ ] Implement read-only status and bounded audit-event viewer in the existing desktop/Settings integration.
+- [ ] Add GUI/CUI-consistent permission management through the existing capability/permission broker.
+- [ ] Integrate file trust/quarantine, device grants, and update verification as their trusted APIs become available.
+- [ ] Add network-policy UI only after the network stack has real enforcement hooks.
+- [ ] Add QEMU/integration/security regression tests and verify the exact release commit.
+
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
@@ -323,3 +334,20 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [ ] Full desktop environment
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
+
+## Security Control Center — continuation checkpoint (2026-10-26)
+
+Status: **design/documentation only; not implemented; not merged**. Track the detailed source audit and handoff notes in `docs/SECURITY-CONTROL-CENTER.md` and `docs/SECURITY-CONTROL-CENTER-WORKLOG.md`.
+
+- [x] Create an isolated draft PR and document architecture/safety boundaries.
+- [x] Audit the existing health-event, security-monitor, quarantine metadata, and device-broker headers at source level.
+- [x] Confirm the public syscall ABI does not yet expose a security-event query route; the existing desktop manager is not a session launcher.
+- [x] Record a no-shortcuts policy: no fake UI state, no direct calls into kernel-private interfaces, no new syscall solely for a settings page, and no merge before exact-head checks.
+- [ ] Verify the actual user-mode startup, IPC/service ownership, and user-copy/authentication path before defining a public read-only security query contract.
+- [ ] Add focused host-side tests for the query contract and malformed/unauthorized requests.
+- [ ] Implement a read-only adapter only after the contract is supported by a real service/IPC route.
+- [ ] Integrate UI through the existing desktop/session and Shared Desktop ABI; preserve existing desktop code.
+- [ ] Add enforcement-backed controls one at a time with authorization, audit events, failure-injection tests, and rollback.
+- [ ] Verify build/boot and security workflows on the exact final commit SHA before claiming success or requesting merge.
+
+Safety rule: if any step requires bypassing capability checks, touching unrelated kernel-critical code, replacing desktop components, or weakening a test, stop and revise the design instead.
