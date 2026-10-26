@@ -820,7 +820,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         init_thread.wait_channel != &wrong_wait_channel ||
         ipc_wait_test.waiter_count != 1 ||
         wrong_wait_channel.waiter_count != 0) {
-        serial_write("ProsenjitOS: ERROR IPC \n");
+        serial_write("ProsenjitOS: ERROR IPC cancellation regression failed");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.wait_channel = &ipc_wait_test;
