@@ -522,3 +522,45 @@ This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation 
 - The regression checks successful receive, exact payload length, every payload byte, and that the synchronized queue count returns to zero.
 - Test commit: `75d18b06acaabe0c9858bfef8a81c585f3b9469d`.
 - This adds a source-level regression gate; the marker must still be observed in an actual successful ISO/QEMU boot before this is considered verified.
+
+
+## Scheduler source audit checkpoint — exact mutation inventory (2026-10-26)
+
+This checkpoint re-read the active branch's `kernel/thread.c` and `kernel/include/thread.h` after the IPC receive/count regression was added. It is source inspection only; no scheduler behavior or race has been runtime-verified.
+
+### Current mutation surface
+
+The following functions mutate shared scheduler state and must be covered by one consistent synchronization protocol before a sleepable mutex can safely be introduced:
+
+- `thread_manager_init()`: resets run-queue head/tail, current thread, and registry. This is initialization-only and must not race with scheduler entry.
+- `thread_init()`: traverses and prepends to `thread_registry`, initializes state and queue links. Concurrent initialization can race with registry readers and duplicate-TID checks.
+- `thread_terminate_process()`: traverses/unlinks the run queue, walks the registry, cancels IPC waiters, clears saved frames and wait channels, marks threads DEAD, and may clear `current_thread`. This is a multi-object transaction, not a single-thread state assignment.
+- `thread_enqueue()` / `thread_dequeue()` / `thread_remove_queued()`: mutate shared queue links and head/tail. The enqueue helper also changes the thread state.
+- `thread_schedule()`: dequeues candidates, may requeue the outgoing thread, switches process address space, and updates `current_thread` and RUNNING state.
+- `thread_schedule_interrupt()`: performs the corresponding queue/current-thread transitions from the timer interrupt path and saves/restores interrupt frames.
+- `thread_block()` / `thread_wake()`: change state and wait-channel ownership. `thread_wake()` also enqueues the thread and adjusts blocked-syscall restart state.
+- `thread_runnable_count()`, `thread_blocked_count()`, `thread_dead_count()`, `thread_has_runnable()`, `thread_current()`, and `thread_state()`: read shared mutable state without a snapshot guard. They are observations, not synchronization barriers.
+
+### Concrete hazards visible in the current source
+
+1. **No scheduler-wide guard:** queue links, thread state, registry membership, current-thread pointer, and wait-channel state are modified without a common guard. The timer ISR calls `thread_schedule_interrupt()`, so ordinary thread code can be interrupted while these structures are mid-update.
+2. **Block and queue publication are separate operations:** `thread_block()` sets `wait_channel` and BLOCKED, while IPC publishes the waiter in its channel queue in a separate step. The channel IRQ-save lock currently masks local timer IRQs while IPC performs this sequence on the single-CPU target, but this does not make general scheduler APIs atomic for other callers or establish SMP safety.
+3. **Wake accepts no expected channel:** `thread_wake(thread)` verifies BLOCKED state but does not verify that the thread is blocked on the queue/channel performing the wake. A stale or mismatched caller can attempt to wake a thread owned by another wait source. The future wait-queue API should pair wake with an expected wait object and verify ownership under the scheduler guard.
+4. **Termination spans scheduler and IPC state:** `thread_terminate_process()` unlinks threads from the run queue and invokes `ipc_channel_cancel_waiter()` while iterating the registry, then clears wait metadata and marks threads DEAD. A future guard cannot simply be held across the IPC call unless lock order and re-entry are proven; cancellation needs a defined detach/mark-dead protocol.
+5. **Context-switch boundary matters:** both scheduling paths update run-queue/current-thread state around `process_set_current()`. A guard must not be released too early such that another scheduler entry observes half-committed state, nor be held across a context switch or blocking operation. This needs a narrowly designed internal transition API, not mechanical lock calls at each public function.
+6. **Current helper is single-CPU only:** `pros_irq_spin_lock()` disables interrupts on the current CPU. It cannot prevent a second CPU from concurrently mutating scheduler state. SMP remains out of scope until an inter-CPU lock and CPU-local interrupt semantics are designed.
+
+### Safe implementation order
+
+1. Define a scheduler-owned guard contract and enumerate which public functions acquire it versus internal `*_locked` helpers that require it already held. Avoid recursive acquisition.
+2. Refactor queue and state transitions first, including both cooperative and interrupt-driven scheduler paths. Keep process address-space switching and context-switch operations outside any spinlock unless a formally justified transition protocol says otherwise.
+3. Introduce a scheduler-owned wait-queue abstraction whose atomic operation registers the current thread and commits BLOCKED under the same guard. Wake must remove the matching waiter, verify the expected wait object, commit READY/run-queue membership, and clear wait metadata in one transaction.
+4. Refactor process termination to detach blocked waiters without holding the scheduler guard across IPC callbacks; document and test the exact lock order.
+5. Add deterministic tests for enqueue/dequeue consistency, wake-on-wrong-channel rejection, block/wake orderings, timer preemption at transition boundaries, termination during wait, and prior-IF preservation.
+6. Only after those tests pass, build a scheduler-aware mutex on the wait queue, then migrate filesystem critical sections from IRQ-off spinlocks to sleepable locks.
+
+### Verification gate
+
+- Branch source reviewed: `kernel/thread.c` blob SHA `f67c245ede7319c49d37fea0eff148758e652d7a`; `kernel/include/thread.h` blob SHA `a614eda8f3eff8bb0186b4d1753e4e9e61d793bf`.
+- This checkpoint changes documentation only. It does not claim a scheduler fix, mutex implementation, or race closure.
+- Build/boot verification must be attached to the exact resulting commit. At the preceding checkpoint (`7297a187c755bbe1d20a1d930227fa1007b6e11d`), the GitHub connector reported no commit statuses and no PR workflow runs; that state is unverified, not PASS.
