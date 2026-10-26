@@ -262,3 +262,7 @@ A separate bounded IPC proposal lives in docs/SECURITY-CONTROL-CENTER-IPC-PROTOC
 
 ## Broker lifecycle contract
 The trusted userspace broker startup, endpoint identity, authorization, shutdown and restart proposal is documented in `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`. It is a prerequisite contract, not a running service implementation. The IPC protocol's GET_STATUS payload and response cursor were aligned so dropped-event count and latest observed sequence have separate, explicit fields.
+
+
+## Telemetry source mapping
+The current source-to-wire constraints and implementation gates are recorded in `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`. In particular, the existing health-event ring is bounded and useful, but its drop counter does not yet saturate, and security-monitor records are decision summaries rather than complete one-to-one event payloads. Do not expose a “complete” audit view until the mapping and failure semantics are implemented and tested.

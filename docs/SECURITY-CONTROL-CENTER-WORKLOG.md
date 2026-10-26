@@ -385,3 +385,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Follow-up inspection found the earlier lifecycle-contract commit had updated the work-log description of the dropped-event field but the protocol file still contained the old GET_STATUS payload. The PR description was corrected to disclose this mismatch.
 - This commit now changes the actual protocol text: GET_STATUS payload contains a saturating `dropped_event_count: u64`; response-header `event_cursor` carries the latest event sequence observed for the snapshot. A broker that cannot count drops reliably must not fabricate zero.
 - This is a documentation consistency fix only; no compiled ABI or runtime implementation exists. The CI status for this commit must be checked separately.
+
+
+## Telemetry source-map audit — 2026-10-26
+- Inspected `kernel/include/health.h`, `kernel/health.c`, `kernel/include/security_monitor.h`, `kernel/security_monitor.c`, `include/abi/syscall.h`, `kernel/syscall.c`, `kernel/include/ipc.h`, `kernel/ipc.c`, and handle-object code.
+- Confirmed the health ring holds up to 128 events and its snapshot exposes event sequence/count/drop count. However, `dropped_events` is a `uint32_t` incremented without saturation when the ring is full; it can wrap. Added an explicit saturation/wrap self-test gate before reporting the proposed protocol field as reliable.
+- Confirmed security-monitor decisions are recorded in the health ring as action code plus packed type/score value, not as a one-to-one copy of original event fields. The internal `pros_health_event` layout differs from the proposed 20-byte wire record; timestamp/source widths need explicit checked conversions. Added `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`.
+- Reiterated that kernel telemetry C interfaces are not public userspace APIs, IPC handle possession is not service identity, and syscall-level copy-out/dequeue semantics require dedicated tests.
+- CI for previous exact head `f86c4a7a726d9dc31497e13484d7cf7be6444784` was still queued when checked (Build #8683, Security checks #8219). This documentation batch will produce a new head; verify exact-head workflows before claiming a pass. Avoid further commits until these workflows reach a terminal result.
+- Runtime source remains unchanged. The new note is a source map and readiness gate, not implementation.

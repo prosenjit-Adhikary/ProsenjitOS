@@ -88,3 +88,7 @@ Before implementation is accepted:
 ## Non-goals
 
 This contract does not implement a broker, general spawn syscall, service registry, UI, persistent event store, or enforcement controls. Those require separate reviewed implementation changes. Documentation is not runtime security.
+
+
+## Telemetry source readiness gate
+The source-to-wire audit in `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` found that the health ring's dropped counter is currently a non-saturating `uint32_t`, and the security monitor records a decision summary rather than a one-to-one original security event. The broker must not claim reliable drop counts or full event fidelity until those source semantics are fixed/documented and the field mapping is tested. The proposed 20-byte wire event is not a direct cast of the internal health-event C structure.
