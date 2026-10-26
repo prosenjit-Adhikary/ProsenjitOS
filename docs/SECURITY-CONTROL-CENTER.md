@@ -157,3 +157,9 @@ The following is a source-level interface audit, not a claim of runtime validati
 ### Immediate next step
 
 Before writing UI code, map the repository's existing public ABI, syscall dispatch, user-copy validation, process startup, and IPC/service state. If there is no authenticated read-only route from user mode to the health-event snapshot, the safe deliverable is a tested contract/prototype outside the running kernel—not a direct UI-to-kernel call. Keep the existing desktop and ABI untouched.
+
+## 10. Integration blocker confirmed by ABI audit
+
+The current `include/abi/syscall.h` lists syscall IDs for ABI version, user-test completion, handle close/duplicate/transfer, and IPC send/receive. It does not define a security-status/event-query syscall, process spawn/exec, or display/input delivery syscall. The existing `docs/DESKTOP-IMPLEMENTATION-LOG.md` also records that the DML is a registry/preflight component rather than a session launcher, and that the userspace init/service manager and end-to-end display/input path remain prerequisites.
+
+**Decision:** do not add a Security Control Center executable or kernel syscall in this change. That would create a UI with no supported session/service route, or tempt a shortcut across the security boundary. The next safe engineering milestone is to finish and test the existing user-mode/service/IPC prerequisites, then add a small versioned read-only security query contract with caller authorization and bounded output. Only after that contract has integration tests should a UI be connected through the existing desktop path.
