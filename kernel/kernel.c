@@ -781,13 +781,23 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     struct pros_process ipc_teardown_process;
     struct pros_thread ipc_teardown_thread;
     struct pros_ipc_channel ipc_teardown_channel;
+    struct pros_process ipc_unrelated_process;
+    struct pros_thread ipc_unrelated_thread;
+    struct pros_ipc_channel ipc_unrelated_channel;
     if (process_create(&init_process, &ipc_teardown_process, 12,
                        PROS_SECURITY_LIMITED) != 0 ||
         thread_init(&ipc_teardown_thread, &ipc_teardown_process, 12,
                     (uint64_t)(uintptr_t)scheduler_test_worker_entry,
                     (uint64_t)(uintptr_t)(lifecycle_thread_stack +
                                           sizeof(lifecycle_thread_stack))) != 0 ||
-        ipc_channel_init(&ipc_teardown_channel) != PROSENJIT_IPC_OK) {
+        ipc_channel_init(&ipc_teardown_channel) != PROSENJIT_IPC_OK ||
+        process_create(&init_process, &ipc_unrelated_process, 13,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&ipc_unrelated_thread, &ipc_unrelated_process, 13,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                          sizeof(lifecycle_thread_stack))) != 0 ||
+        ipc_channel_init(&ipc_unrelated_channel) != PROSENJIT_IPC_OK) {
         serial_write("ProsenjitOS: ERROR IPC process-teardown setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -795,16 +805,35 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     ipc_teardown_thread.wait_channel = &ipc_teardown_channel;
     ipc_teardown_channel.waiters[0] = &ipc_teardown_thread;
     ipc_teardown_channel.waiter_count = 1;
+    ipc_unrelated_thread.state = PROS_THREAD_BLOCKED;
+    ipc_unrelated_thread.wait_channel = &ipc_unrelated_channel;
+    ipc_unrelated_channel.waiters[0] = &ipc_unrelated_thread;
+    ipc_unrelated_channel.waiter_count = 1;
     uint64_t teardown_runnable_before = thread_runnable_count();
     if (process_exit(&ipc_teardown_process, 23) != 0 ||
         thread_state(&ipc_teardown_thread) != PROS_THREAD_DEAD ||
         ipc_teardown_thread.wait_channel != 0 ||
         ipc_teardown_channel.waiter_count != 0 ||
         ipc_teardown_channel.waiters[0] != 0 ||
+        thread_state(&ipc_unrelated_thread) != PROS_THREAD_BLOCKED ||
+        ipc_unrelated_thread.wait_channel != &ipc_unrelated_channel ||
+        ipc_unrelated_channel.waiter_count != 1 ||
+        ipc_unrelated_channel.waiters[0] != &ipc_unrelated_thread ||
         thread_runnable_count() != teardown_runnable_before ||
         process_wait(&init_process, ipc_teardown_process.pid, &waited_exit) != 0 ||
         waited_exit != 23) {
         serial_write("ProsenjitOS: ERROR IPC blocked-thread teardown regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    /* Cleanup of the independent waiter also proves its queue remains usable. */
+    if (process_exit(&ipc_unrelated_process, 24) != 0 ||
+        thread_state(&ipc_unrelated_thread) != PROS_THREAD_DEAD ||
+        ipc_unrelated_thread.wait_channel != 0 ||
+        ipc_unrelated_channel.waiter_count != 0 ||
+        ipc_unrelated_channel.waiters[0] != 0 ||
+        process_wait(&init_process, ipc_unrelated_process.pid, &waited_exit) != 0 ||
+        waited_exit != 24) {
+        serial_write("ProsenjitOS: ERROR IPC unrelated-waiter teardown regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC blocked-thread process-teardown regression passed\n");
