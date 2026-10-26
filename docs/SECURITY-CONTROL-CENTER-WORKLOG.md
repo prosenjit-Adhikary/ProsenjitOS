@@ -433,3 +433,10 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Updated `.github/workflows/build.yml` to require that marker in both ISO/QEMU and native BIOS/QEMU serial logs, so a missing/unexecuted self-test fails the build workflow rather than being inferred from a generic health-init marker.
 - Audited `timer_selftest()`: it checks initialized timer configuration and monotonic tick reads without mutating timer state. Audited `pros_log_init()`: it initializes the health ring before the boot self-tests.
 - This is a runtime source change plus CI assertion on the isolated branch, not yet compiled or boot-tested. Exact-head CI still needs the self-hosted runner. Do not claim success until both QEMU boot paths and the security architecture workflow pass.
+
+
+## Isolated-branch verification checkpoint — 2026-10-26
+
+- Re-fetched all changed files from `docs/security-center-consistency-2026-10-26` after the edits. Verified exactly one boot call to `pros_health_selftest()`, one matching success marker in `kernel/kernel.c`, and two required marker checks in `.github/workflows/build.yml` (ISO and native BIOS paths).
+- Rechecked the four design documents for stale claims that the drop counter is non-saturating; none remain in the audited set. Protocol status payload is consistently 24 bytes, and `event_cursor` pagination semantics now agree with the status payload's `latest_event_sequence`.
+- Current isolated branch head after this checkpoint is expected to be recorded by the final commit/PR metadata; the original PR #267 head remains unchanged. No compile, unit-test, QEMU boot, or security-workflow pass is claimed in this environment.
