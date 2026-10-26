@@ -81,6 +81,9 @@ enum scc_parse_result scc_parse_request(
         parsed.after_sequence = scc_read_u64(p);
         parsed.category_mask = scc_read_u32(p + 8);
         parsed.max_records = max_records;
+    } else if (opcode == SCC_OP_GET_EVENT &&
+               scc_read_u64(parsed.payload) == 0) {
+        return SCC_PARSE_BAD_PAYLOAD;
     }
 
     *out = parsed;
