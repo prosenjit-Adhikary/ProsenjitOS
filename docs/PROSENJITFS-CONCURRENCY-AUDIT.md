@@ -507,3 +507,11 @@ This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation 
 - Implementation commit: `225b1e3376d8390e5ca9a52eead1eca16b74b373`.
 - Test commit: `44ca1ce7e82418bc9659eeb6f4271d300f8cad31`.
 - The channel object lifetime must still be stabilized by its owner while APIs execute. This change protects the count field; it does not yet make all pre-lock validation reads or object lifetime transitions race-free.
+
+### IPC mutable-state validation moved under lock
+
+- Split channel validation into stable object/lifetime preconditions and mutable queue-state invariants.
+- `head`, `tail`, `count`, and `waiter_count` are now checked only after acquiring the IRQ-save channel lock in send, receive, wait, cancel-waiter, and wake-one paths. This closes the validation-to-lock window where a same-CPU interrupt could change queue state after validation but before acquisition.
+- `ipc_channel_count()` checks the same mutable invariants while holding the lock and returns zero if the queue state is invalid.
+- Implementation commit: `c47759a3fa0206929b447447e8c5e8f798d02e59`.
+- Object lifetime still requires external ownership/refcount discipline; this patch does not add reference acquisition or an SMP scheduler lock.
