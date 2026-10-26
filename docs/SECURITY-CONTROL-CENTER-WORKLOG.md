@@ -557,3 +557,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Failure semantics are now recorded more precisely in the broker plan: first copy failure consumes the message and returns EBADF; second copy failure also consumes it, and message bytes may already be visible even though the output length was not written. Pre-validating ranges does not make these copies atomic.
 - No kernel code changed. A future reserve/peek/commit proposal must cover concurrent receiver exclusion, process exit/fault, partial user-visible output, queue commit semantics and fault-injection tests.
 - CI last checked on previous head `230687755d32262ea2055fe2bd10ad3dff419d23`: build/boot run `40354904771` pending, security run `40354904924` queued. This documentation commit creates a new head; do not treat those runs as validation of the new head.
+
+
+## IPC waiter/scheduler interaction follow-up — 2026-10-26
+
+- Read `thread_block()`, `thread_wake()`, `thread_enqueue()`, and `thread_terminate_process()` alongside the IPC channel paths.
+- The channel spinlock serializes channel queue/waiter bookkeeping, but the inspected thread functions do not acquire a scheduler/run-queue lock. Wake changes thread state, enqueues it, may edit the saved interrupt frame to restart a syscall, and clears its wait-channel pointer.
+- Process termination removes run-queue membership and cancels waiter membership in separate steps; no atomic cross-structure lifetime transaction is evident from these source paths.
+- Recorded this as a scheduler synchronization and supported-execution-model gate in the broker implementation plan. It is not proof of an exploitable race and does not assert the current uniprocessor configuration is broken; SMP-safety is unproven.
+- No kernel code changed. Before any fix, establish CPU/interrupt assumptions and lock order, then test send-vs-block, wake-vs-exit/cancel, enqueue failure, duplicate/full waiter sets and thread lifetime.
