@@ -17,13 +17,19 @@ static void ipc_unlock(struct pros_ipc_channel *channel, uint64_t irq_flags) {
     pros_irq_spin_unlock(&channel->lock, irq_flags);
 }
 
+/* Check stable identity/lifetime preconditions before locking. The owner
+ * must keep the channel alive for the duration of every API call. */
 static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
-    return channel &&
-           channel->object.type == PROS_OBJECT_IPC &&
-           channel->object.refcount != 0 &&
-           channel->head < PROSENJIT_IPC_CAPACITY &&
+    return channel && channel->object.type == PROS_OBJECT_IPC &&
+           channel->object.refcount != 0;
+}
+
+/* Mutable queue fields must only be inspected while holding channel->lock. */
+static int ipc_channel_state_valid(const struct pros_ipc_channel *channel) {
+    return channel->head < PROSENJIT_IPC_CAPACITY &&
            channel->tail < PROSENJIT_IPC_CAPACITY &&
-           channel->count <= PROSENJIT_IPC_CAPACITY;
+           channel->count <= PROSENJIT_IPC_CAPACITY &&
+           channel->waiter_count <= PROSENJIT_IPC_CAPACITY;
 }
 
 int ipc_channel_init(struct pros_ipc_channel *channel) {
@@ -48,6 +54,10 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
     if (length != 0 && !data) return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_state_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->count == PROSENJIT_IPC_CAPACITY) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EFULL;
@@ -86,6 +96,10 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
         return PROSENJIT_IPC_EINVAL;
 
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_state_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->count == 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
@@ -121,6 +135,10 @@ uint32_t ipc_channel_count(const struct pros_ipc_channel *channel) {
     struct pros_ipc_channel *mutable_channel =
         (struct pros_ipc_channel *)(uintptr_t)channel;
     uint64_t irq_flags = ipc_lock(mutable_channel);
+    if (!ipc_channel_state_valid(mutable_channel)) {
+        ipc_unlock(mutable_channel, irq_flags);
+        return 0;
+    }
     uint32_t count = mutable_channel->count;
     ipc_unlock(mutable_channel, irq_flags);
     return count;
@@ -136,6 +154,10 @@ int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *threa
     if (!ipc_channel_valid(channel) || !thread || thread_current() != thread)
         return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_state_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     /*
      * A queued message takes precedence over waiter capacity: callers must
      * retry receive instead of blocking after a sender has already won.
@@ -167,6 +189,10 @@ int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
                                 struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_state_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] != thread) continue;
         for (uint32_t j = i + 1; j < channel->waiter_count; ++j)
@@ -183,6 +209,10 @@ int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
 int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
+    if (!ipc_channel_state_valid(channel)) {
+        ipc_unlock(channel, irq_flags);
+        return PROSENJIT_IPC_EINVAL;
+    }
     if (channel->waiter_count == 0) {
         ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
