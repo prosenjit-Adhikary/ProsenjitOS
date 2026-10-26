@@ -1,13 +1,20 @@
 #include "ipc.h"
 #include "thread.h"
+#include "irq_spinlock.h"
 
-static void ipc_lock(struct pros_ipc_channel *channel) {
-    while (__atomic_test_and_set(&channel->lock, __ATOMIC_ACQUIRE))
-        __asm__ volatile ("pause");
+/*
+ * The channel lock may be held while timer IRQs are enabled. Save and mask
+ * local interrupts before contending so a timer-preempted owner cannot be
+ * stranded while an interrupt/scheduled path spins on the same lock.
+ * This protects a short, non-blocking channel critical section; it is not a
+ * sleeping mutex and does not replace the scheduler-wide wait protocol.
+ */
+static uint64_t ipc_lock(struct pros_ipc_channel *channel) {
+    return pros_irq_spin_lock(&channel->lock);
 }
 
-static void ipc_unlock(struct pros_ipc_channel *channel) {
-    __atomic_clear(&channel->lock, __ATOMIC_RELEASE);
+static void ipc_unlock(struct pros_ipc_channel *channel, uint64_t irq_flags) {
+    pros_irq_spin_unlock(&channel->lock, irq_flags);
 }
 
 static int ipc_channel_valid(const struct pros_ipc_channel *channel) {
@@ -40,9 +47,9 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
     if (length > PROSENJIT_IPC_MESSAGE_MAX) return PROSENJIT_IPC_EMSGSIZE;
     if (length != 0 && !data) return PROSENJIT_IPC_EINVAL;
 
-    ipc_lock(channel);
+    uint64_t irq_flags = ipc_lock(channel);
     if (channel->count == PROSENJIT_IPC_CAPACITY) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EFULL;
     }
 
@@ -68,7 +75,7 @@ int ipc_channel_send(struct pros_ipc_channel *channel,
             channel->waiters[channel->waiter_count] = 0;
         }
     }
-    ipc_unlock(channel);
+    ipc_unlock(channel, irq_flags);
     return PROSENJIT_IPC_OK;
 }
 
@@ -78,19 +85,19 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
     if (!ipc_channel_valid(channel) || !length_out)
         return PROSENJIT_IPC_EINVAL;
 
-    ipc_lock(channel);
+    uint64_t irq_flags = ipc_lock(channel);
     if (channel->count == 0) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
     }
 
     struct pros_ipc_message *message = &channel->messages[channel->head];
     if (message->length > capacity) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EMSGSIZE;
     }
     if (message->length != 0 && !data) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
 
@@ -101,7 +108,7 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
     message->length = 0;
     channel->head = (channel->head + 1u) % PROSENJIT_IPC_CAPACITY;
     --channel->count;
-    ipc_unlock(channel);
+    ipc_unlock(channel, irq_flags);
     return PROSENJIT_IPC_OK;
 }
 
@@ -116,56 +123,56 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread)
         return PROSENJIT_IPC_EINVAL;
-    ipc_lock(channel);
+    uint64_t irq_flags = ipc_lock(channel);
     /*
      * A queued message takes precedence over waiter capacity: callers must
      * retry receive instead of blocking after a sender has already won.
      */
     if (channel->count != 0) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EALREADY;
     }
     if (channel->waiter_count >= PROSENJIT_IPC_CAPACITY) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] == thread) {
-            ipc_unlock(channel);
+            ipc_unlock(channel, irq_flags);
             return PROSENJIT_IPC_EINVAL;
         }
     }
     if (thread_block(channel) != 0) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EINVAL;
     }
     channel->waiters[channel->waiter_count++] = thread;
-    ipc_unlock(channel);
+    ipc_unlock(channel, irq_flags);
     return PROSENJIT_IPC_OK;
 }
 
 int ipc_channel_cancel_waiter(struct pros_ipc_channel *channel,
                                 struct pros_thread *thread) {
     if (!ipc_channel_valid(channel) || !thread) return PROSENJIT_IPC_EINVAL;
-    ipc_lock(channel);
+    uint64_t irq_flags = ipc_lock(channel);
     for (uint32_t i = 0; i < channel->waiter_count; ++i) {
         if (channel->waiters[i] != thread) continue;
         for (uint32_t j = i + 1; j < channel->waiter_count; ++j)
             channel->waiters[j - 1] = channel->waiters[j];
         --channel->waiter_count;
         channel->waiters[channel->waiter_count] = 0;
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_OK;
     }
-    ipc_unlock(channel);
+    ipc_unlock(channel, irq_flags);
     return PROSENJIT_IPC_EEMPTY;
 }
 
 int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
     if (!ipc_channel_valid(channel)) return PROSENJIT_IPC_EINVAL;
-    ipc_lock(channel);
+    uint64_t irq_flags = ipc_lock(channel);
     if (channel->waiter_count == 0) {
-        ipc_unlock(channel);
+        ipc_unlock(channel, irq_flags);
         return PROSENJIT_IPC_EEMPTY;
     }
     struct pros_thread *thread = channel->waiters[0];
@@ -176,6 +183,6 @@ int ipc_channel_wake_one(struct pros_ipc_channel *channel) {
         --channel->waiter_count;
         channel->waiters[channel->waiter_count] = 0;
     }
-    ipc_unlock(channel);
+    ipc_unlock(channel, irq_flags);
     return rc == 0 ? PROSENJIT_IPC_OK : PROSENJIT_IPC_EINVAL;
 }
