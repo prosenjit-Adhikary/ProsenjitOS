@@ -790,7 +790,13 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     const uint8_t wait_message[] = { 'W', 'A', 'K', 'E' };
-    if (ipc_channel_send(&ipc_wait_test, wait_message, sizeof(wait_message)) != PROSENJIT_IPC_OK ||
+    uint64_t ipc_flags_before, ipc_flags_after;
+    __asm__ volatile ("pushfq; popq %0" : "=r"(ipc_flags_before) : : "memory");
+    int ipc_send_rc = ipc_channel_send(&ipc_wait_test, wait_message,
+                                       sizeof(wait_message));
+    __asm__ volatile ("pushfq; popq %0" : "=r"(ipc_flags_after) : : "memory");
+    if (ipc_send_rc != PROSENJIT_IPC_OK ||
+        ((ipc_flags_after ^ ipc_flags_before) & (1ULL << 9)) != 0u ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0 ||
         init_thread.blocked_syscall != 0 ||
