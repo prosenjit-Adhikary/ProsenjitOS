@@ -206,7 +206,9 @@ static void test_response_frames(void)
     assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
-    response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 48, 43);
+    response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 40, 43);
+    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
+           == SCC_PARSE_BAD_PAYLOAD);
     assert(scc_parse_response(b, 65, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_OVERSIZED_FRAME);
 
