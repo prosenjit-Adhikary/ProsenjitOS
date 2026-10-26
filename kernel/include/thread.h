@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "process.h"
 
+struct pros_ipc_channel;
+
 enum pros_thread_state {
     PROS_THREAD_NEW = 0,
     PROS_THREAD_READY = 1,
@@ -38,7 +40,8 @@ struct pros_thread {
     uint64_t entry;
     struct pros_cpu_context context;
     struct pros_interrupt_frame *interrupt_frame;
-    void *wait_channel;
+    /* Non-NULL only while registered on an IPC channel wait queue. */
+    struct pros_ipc_channel *wait_channel;
     uint64_t blocked_syscall;
     struct pros_thread *next;
     struct pros_thread *prev;
@@ -58,7 +61,8 @@ struct pros_thread *thread_dequeue(void);
 struct pros_thread *thread_current(void);
 int thread_schedule(void);
 int thread_schedule_preempt(void);
-int thread_block(void *wait_channel);
+/* Block the current thread on an IPC channel; caller owns channel lifetime. */
+int thread_block(struct pros_ipc_channel *wait_channel);
 int thread_wake(struct pros_thread *thread);
 /* Wake only if the thread is still blocked on the supplied wait channel. */
 int thread_wake_on_channel(struct pros_thread *thread, const void *wait_channel);
