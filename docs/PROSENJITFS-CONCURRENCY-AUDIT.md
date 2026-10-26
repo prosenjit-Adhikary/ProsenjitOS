@@ -465,3 +465,23 @@ Either option only prevents same-CPU interrupt re-entry from spinning on a lock 
 - Build both ISO and native BIOS artifacts with the repository's `-Wall -Wextra -Werror` flags, then run the existing QEMU boot/regression workflow on the exact PR head.
 
 This is an audit clarification only. It does not claim that the IPC lock, scheduler, or mutex has been fixed.
+
+## IPC lock IRQ-safety patch (2026-10-26)
+
+### Source change
+
+- `kernel/include/ipc.h`: changed the channel lock storage from `volatile uint8_t` to `volatile uint32_t`, matching the existing `pros_irq_spin_lock(volatile uint32_t *)` API and avoiding an unsafe pointer cast or wider-than-field access.
+- `kernel/ipc.c`: replaced the ordinary test-and-set lock with `pros_irq_spin_lock()` / `pros_irq_spin_unlock()`. Each acquisition keeps its own saved RFLAGS token and restores the caller's prior IF state on every normal/error return path.
+- The IRQ-save lock covers the existing short channel critical sections, including the waiter publication sequence (`thread_block(channel)` followed by appending the waiter), so the local timer IRQ cannot preempt that sequence on the current single-CPU target. It also prevents a timer interrupt on the same CPU from spinning on a channel lock held by the interrupted code.
+
+### Scope and limits
+
+This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation and not a claim that all scheduler/run-queue operations are globally synchronized. The helper masks local interrupts; SMP scheduler correctness still needs inter-CPU synchronization and a reviewed scheduler guard. The lock must remain non-sleeping and must not be held over a real context switch or storage callback.
+
+### Verification state
+
+- Source/header changes committed on the active PR branch; exact source SHA: `58af7b5c7a8701054ca101fd93fa0e806ba941fa`.
+- Static source check: every IPC lock acquisition now has a saved IRQ token, and no legacy one-argument `ipc_unlock(channel)` calls remain.
+- A local build could not be run in this environment because the GitHub host could not be resolved from the build container.
+- At the time checked, the GitHub connector returned no workflow runs and no commit status for this exact SHA. This is **unverified**, not PASS.
+- Next required gate: run the repository's `-Wall -Wextra -Werror` build, then both ISO and native BIOS QEMU boot/regression workflows on this exact source head. Add deterministic tests for prior-IF preservation and waiter publication/wakeup ordering before treating the race as closed.
