@@ -440,3 +440,14 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Re-fetched all changed files from `docs/security-center-consistency-2026-10-26` after the edits. Verified exactly one boot call to `pros_health_selftest()`, one matching success marker in `kernel/kernel.c`, and two required marker checks in `.github/workflows/build.yml` (ISO and native BIOS paths).
 - Rechecked the four design documents for stale claims that the drop counter is non-saturating; none remain in the audited set. Protocol status payload is consistently 24 bytes, and `event_cursor` pagination semantics now agree with the status payload's `latest_event_sequence`.
 - Current isolated branch head after this checkpoint is expected to be recorded by the final commit/PR metadata; the original PR #267 head remains unchanged. No compile, unit-test, QEMU boot, or security-workflow pass is claimed in this environment.
+
+
+## Broker identity contract review — 2026-10-26
+
+- Continued the non-mutating audit of `kernel/syscall.c`, `kernel/ipc.c`, `kernel/include/ipc.h`, `kernel/usercopy.c`, `include/abi/syscall.h`, and the protocol/source-map docs.
+- Confirmed the public syscall ABI currently ends at syscall 7; generic IPC send/receive exists, but no dedicated telemetry query or authenticated named-service endpoint is present. IPC handles and self-reported PID/name/request IDs are not sufficient proof of broker identity.
+- Added a broker identity/publication contract to `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`: kernel-controlled identity, private initialization then atomic publication, least-privilege rights, per-request caller authorization, epoch/generation changes on restart, stale-handle failure, rollback/cleanup, and bounded denial errors.
+- Preserved the implementation boundary: no new public syscall, no IPC framing change, no process-launch shortcut, and no weakening of handle-rights checks. The trusted userspace broker remains unimplemented until a reviewed launch/identity mechanism exists.
+- Found and corrected an awkward duplicate conjunction in the architecture overview so the health-counter source status is unambiguous.
+- Remaining source-level risk: `kernel/syscall.c` dequeues a message into a kernel buffer before `copy_to_user()` succeeds; a copy-out fault may consume the message. The protocol already warns that retry/delivery guarantees cannot be claimed. Do not patch this kernel-critical path without a dedicated peek/commit design and regression tests.
+- All changes remain on the isolated draft PR branch. CI for the latest head must be rechecked; no compile, runtime, or boot success is claimed while the self-hosted runner remains queued/offline.
