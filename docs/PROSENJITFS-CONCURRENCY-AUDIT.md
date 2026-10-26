@@ -65,7 +65,7 @@ The integrity checker is not currently covered by the file callback lock. If it 
 
 ## IPC blocked-thread teardown regression checkpoint
 
-The kernel startup regression now creates a dedicated child process/thread fixture, seeds a blocked-thread entry in a live IPC channel, exits the child, and checks that the thread is DEAD, its `wait_channel` is cleared, the channel waiter slot/count are empty, the runnable population is unchanged, and the child can be reaped with the expected exit code.
+The kernel startup regression now creates two dedicated child process/thread fixtures and seeds one blocked-thread entry in each of two IPC channels. Exiting the first child must make only its thread DEAD and detach only its own waiter; the test checks that the unrelated thread remains BLOCKED on its original channel, its queue entry is preserved, the runnable population is unchanged, and the first child is reaped with the expected exit code. It then exits/reaps the second child and verifies that its waiter is independently detached.
 
 This is a **source-level regression addition**, not a runtime PASS claim. The test seeds the wait queue directly because `ipc_channel_wait()` intentionally requires the target to be `thread_current()`; it does not yet exercise the full context-switch-to-blocked-child sequence. Scheduler-wide synchronization and channel lifetime during concurrent teardown remain unproven. No scheduler lock was added because a safe lock order between run-queue mutation and channel-lock acquisition has not been established.
 
