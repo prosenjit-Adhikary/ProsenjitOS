@@ -358,3 +358,16 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Protocol proposal: 16-byte request envelope, 24-byte response envelope, 20-byte event records, at most two records per response, explicit unavailable/stale/denied states, cursor semantics, and malformed-input/authorization/lifecycle tests.
 - The protocol is not a public ABI implementation and does not authenticate a peer. No runtime source changed. Native spawn, trusted service identity/endpoint provisioning, and failure/rollback semantics remain blockers.
 - Next: wait for exact-head CI on this documentation commit, then review the proposal against actual IPC send/receive and user-copy code before considering shared-header implementation.
+
+
+## IPC protocol source cross-check and CI completion — 2026-10-26
+- Exact feature head `0aaeb5ab08d6e5521a4f0a4f6cbf965ed337b8e3` was rechecked after the IPC proposal commit: PR #267 remains open, draft, and unmerged.
+- Exact-head Build and boot-test run `40317867809` (#8680) **success**. Verified successful steps: desktop/DML unit tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot.
+- Exact-head Security architecture checks run `40317867729` (#8216) **success**.
+- Cross-checked the proposal against `kernel/include/ipc.h`, `kernel/ipc.c`, `kernel/syscall.c`, `kernel/usercopy.c`, `include/abi/syscall.h`, and `docs/NATIVE-SPAWN-CONTRACT.md`.
+- Confirmed current IPC implementation limits messages to 64 bytes and has an eight-message queue; the low-level receive checks message length against capacity before copying/dequeueing. The syscall path has a separate user-copy boundary, so end-to-end delivery/copy-out semantics must be tested at the syscall layer rather than inferred from the low-level C function alone.
+- Confirmed the public syscall numbers currently stop at `PROSENJIT_SYS_HANDLE_TRANSFER = 7`; no security telemetry query syscall is declared. Native spawn contract remains explicitly proposed rather than implemented.
+- Protocol size arithmetic is internally bounded: request header 16 bytes; response header 24 bytes; status payload 16 bytes; event record 20 bytes; at most two events per response (24 + 40 = 64). This is design arithmetic only, not a compiled ABI guarantee.
+- Review caveat: low-level IPC channel locking/waiter behavior and the single-CPU usercopy fault-recovery state require separate concurrency/SMP review; this milestone does not certify them.
+- No kernel/runtime source or ABI was changed. This remains a documentation-only proposal; no trusted broker, public protocol structs, parser, or UI client is implemented.
+- Next: current protocol proposal is ready for design review, not direct implementation. Before adding shared ABI declarations, define broker identity/endpoint provisioning and lifecycle rollback, then implement host-side parser tests against exact field sizes.
