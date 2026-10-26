@@ -394,3 +394,29 @@ Add test hooks or a host-testable synchronization model where possible; a self-t
 For every implementation commit, record the exact source SHA and exact-head Build/boot-test + Security architecture results. A queued, cancelled, stale-head or absent workflow is **not PASS**. Run QEMU/runtime concurrency tests after the build succeeds. Keep physical-device power-loss durability as a separate, unclaimed property unless it is tested on appropriate hardware.
 
 **Current phase:** prerequisite/design specification only. Scheduler-aware mutex code, deterministic concurrency tests, exact-head CI PASS and production-readiness are still OPEN.
+
+
+## Follow-up source review — block/wakeup implementation gate (2026-10-26)
+
+After the mutex contract was recorded, the current `kernel/thread.c` and `kernel/ipc.c` implementation was re-read before making scheduler changes. This is a source-level review only; no runtime race has been reproduced.
+
+### Findings that block a safe mutex patch
+
+- `thread_block(wait_channel)` only writes `current_thread->wait_channel` and changes the state to `PROS_THREAD_BLOCKED`. It does not take a scheduler guard, atomically publish a waiter, or trigger a context switch itself.
+- `ipc_channel_wait()` currently takes the channel's test-and-set lock, calls `thread_block()`, then appends the thread to `channel->waiters`. A timer preemption can occur between these operations. A sender/waker can observe an incomplete waiter publication, and the channel lock itself can be held by a preempted thread.
+- `ipc_lock()` uses an ordinary busy-spin lock without local IRQ masking. If its owner is timer-preempted and a scheduled thread attempts the same channel lock, the contender may spin while the owner cannot run to release it.
+- `thread_wake()` mutates the thread state and run queue but there is no single shared scheduler/wait-queue guard that makes waiter removal, BLOCKED-to-READY transition and run-queue insertion one atomic operation.
+- `thread_schedule_interrupt()` can save an interrupt frame and change current/run-queue state. Any scheduler guard must be designed around this interrupt entry/exit path; adding a lock only to `thread_block()` and `thread_wake()` would leave scheduler mutations outside the protocol.
+- The current IPC channel stores waiters in a fixed-capacity array. A mutex needs a separate queue/lifetime design or a carefully generalized wait queue; reusing the IPC array would couple mutex capacity to message-channel capacity and would make cancellation/ownership semantics unclear.
+
+### Decision
+
+Do **not** add a superficial mutex implementation on top of these functions. The safe next code change must first introduce a scheduler-owned wait protocol with explicit IRQ-state preservation and one atomic commit point for waiter registration plus BLOCKED state. Audit all run-queue mutation sites and process termination before exposing that protocol to mutex callers. Then add deterministic tests for both orderings (wake-before-block and block-before-wake), and timer preemption at each transition.
+
+The source review did not modify `kernel/thread.c` or `kernel/ipc.c`; no scheduler fix or mutex implementation is claimed. This deliberate stop avoids presenting an uncompiled, race-prone synchronization primitive as a kernel fix.
+
+### Verification checkpoint after documentation commit
+
+- Documentation commit: to be filled with the resulting commit SHA after this section is committed.
+- Build/boot-test and Security architecture: require runs attached to the exact resulting source SHA; absent/queued/stale-head runs are not PASS.
+- PR #265 remains open/unmerged and its mergeability/conflict state must be rechecked after any source change.
