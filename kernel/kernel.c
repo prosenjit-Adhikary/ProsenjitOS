@@ -799,7 +799,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
         ipc_wait_test.waiter_count != 1) {
-        serial_write("ProsenjitOS: ERROR IPC generic-wake ownership regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC generic-wake ownership regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     /* A stale/mismatched channel waiter must not wake a thread that has
