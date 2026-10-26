@@ -75,6 +75,16 @@ Security implication: these are useful capability attenuation checks, but they d
 
 Required tests: rights amplification is rejected; duplication without DUPLICATE is rejected; transfer without TRANSFER is rejected; stale generation is rejected; authorized transfer to an untrusted target does not gain broker identity; only the approved launcher can provision/publish the trusted endpoint.
 
+## Receive syscall follow-up: two independent copy-out failure points
+
+A second pass through the full `PROSENJIT_SYS_IPC_RECEIVE` case confirms the syscall performs two user copies after `ipc_channel_receive()` has already consumed the queue entry:
+1. message bytes to `buffer` (skipped only for a zero-length message);
+2. the received length to `length_out`.
+
+If copy 1 fails, the caller gets `EBADF` after dequeue. If copy 1 succeeds but copy 2 fails, the caller still gets `EBADF`, but the message bytes may already be visible in user memory while the length output is not updated; the queue entry is consumed in either case. The syscall pre-validates both ranges, but that does not make the two copies atomic and does not guarantee either later copy succeeds.
+
+A future delivery contract must define this explicitly. A peek/reserve/commit design cannot merely defer the queue head update: it must also prevent concurrent receivers from claiming the same head, handle process exit/fault during copy-out, and define what happens if message bytes were copied but length copy-out failed. Do not implement a kernel change until the reservation/rollback semantics and race/fault-injection tests are reviewed.
+
 ## Source-audit note: IPC waiters and lock discipline
 
 The current `kernel/ipc.c` uses a channel spinlock around queue and waiter bookkeeping. `ipc_channel_wait()` checks for a queued message while locked, rejects duplicate waiter entries, invokes `thread_block()`, and appends the waiter before unlocking. Send publishes the message and attempts to wake the first waiter while holding the channel lock; `ipc_channel_wake_one()` also calls `thread_wake()` while holding it. These comments and checks are helpful but are not a proof of deadlock freedom or correctness under future SMP.
