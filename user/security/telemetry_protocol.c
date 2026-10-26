@@ -75,7 +75,7 @@ enum scc_parse_result scc_parse_request(
 
         if (scc_read_u16(p + 14) != 0)
             return SCC_PARSE_BAD_RESERVED;
-        if (max_records < 1 || max_records > SCC_EVENT_RECORDS_MAX)
+        if (max_records < 1 || max_records > (uint16_t)SCC_EVENT_RECORDS_MAX)
             return SCC_PARSE_BAD_PAYLOAD;
 
         parsed.after_sequence = scc_read_u64(p);
@@ -124,7 +124,7 @@ enum scc_parse_result scc_parse_response(
         return SCC_PARSE_OVERSIZED_FRAME;
 
     status = scc_read_u32(bytes + 8);
-    if (status > SCC_STATUS_INTERNAL_ERROR)
+    if (status > (uint32_t)SCC_STATUS_INTERNAL_ERROR)
         return SCC_PARSE_BAD_STATUS;
 
     if (opcode != expected_opcode ||
@@ -164,7 +164,7 @@ enum scc_parse_result scc_parse_response(
 
         count = (uint16_t)(payload_length / SCC_EVENT_RECORD_SIZE);
         if (count > requested_max_records ||
-            count > SCC_EVENT_RECORDS_MAX)
+            count > (uint16_t)SCC_EVENT_RECORDS_MAX)
             return SCC_PARSE_BAD_PAYLOAD;
 
         if (count == 0) {
