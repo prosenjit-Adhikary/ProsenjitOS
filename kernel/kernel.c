@@ -779,6 +779,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     init_thread.interrupt_frame = &scheduler_init_frame;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
+        ipc_channel_count(&ipc_wait_test) != 0 ||
         thread_current() != &init_thread ||
         ipc_channel_wait(&ipc_wait_test, &worker_thread) != PROSENJIT_IPC_EINVAL ||
         thread_state(&init_thread) != PROS_THREAD_RUNNING ||
@@ -799,6 +800,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
                                        sizeof(wait_message));
     __asm__ volatile ("pushfq; popq %0" : "=r"(ipc_flags_after) : : "memory");
     if (ipc_send_rc != PROSENJIT_IPC_OK ||
+        ipc_channel_count(&ipc_wait_test) != 1 ||
         ((ipc_flags_after ^ ipc_flags_before) & (1ULL << 9)) != 0u ||
         thread_state(&init_thread) != PROS_THREAD_READY ||
         init_thread.wait_channel != 0 ||
