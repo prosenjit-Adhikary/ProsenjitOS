@@ -59,6 +59,22 @@ Do not patch this by casually splitting receive into peek and commit. A safe cha
 
 Preferred design to review: reserve/peek a message under a defined channel transaction, copy to userspace without holding a spinlock across faultable memory access, and commit dequeue only after both output copies succeed; add a reservation token/generation or serialize receivers so a second receiver cannot consume the same head during copy-out. The current channel implementation has no such transaction token. Do not implement this design until locking, blocking, waiter and interrupt interactions are audited.
 
+## Source-audit finding: handles attenuate rights but do not authenticate service identity
+
+Source inspected on this branch:
+- `kernel/object.c`: `handle_duplicate()`, `handle_transfer_copy()`, and `handle_transfer_move()`
+- `kernel/syscall.c`: `PROSENJIT_SYS_HANDLE_TRANSFER` case
+- `kernel/include/object.h`: generation-tagged handle entries with a rights mask
+
+Observed safeguards:
+- Handle duplication requires the source's DUPLICATE right and rejects requested rights not contained in the source rights.
+- Copy/move transfer requires TRANSFER rights and similarly rejects rights amplification.
+- The syscall resolves a target process by PID and authorizes the transfer intent before copying/moving the handle.
+
+Security implication: these are useful capability attenuation checks, but they do not prove that the target PID is the approved Security Control Center service, nor that a transferred IPC endpoint remains bound to a kernel-established service identity. The future provisioning path must separately authorize the destination service/process and bind identity to the endpoint object. Do not infer authentication from a valid generation-tagged handle or from successful rights reduction.
+
+Required tests: rights amplification is rejected; duplication without DUPLICATE is rejected; transfer without TRANSFER is rejected; stale generation is rejected; authorized transfer to an untrusted target does not gain broker identity; only the approved launcher can provision/publish the trusted endpoint.
+
 ## Dependency-ordered milestones
 
 ### M0 — Freeze contracts and prove existing boundaries (current)
@@ -67,7 +83,8 @@ Preferred design to review: reserve/peek a message under a defined channel trans
 - [x] Document native spawn and service lifecycle as contracts rather than implemented capabilities.
 - [x] Define 24-byte event wire record, 64-bit boot-relative tick timestamp, one-event pagination, and GET_EVENT request/response sequence binding on the current draft branch.
 - [x] Audit the syscall receive path and document copy-out/dequeue failure semantics: the current implementation consumes the message before both user copies complete; retry is not guaranteed.
-- [ ] Audit IPC queue ownership, handle transfer/dup rights reduction, and lock/waiter concurrency from source and tests.
+- [x] Audit handle duplication/transfer: rights are attenuated, but target PID/handle possession does not establish trusted broker identity.
+- [ ] Audit IPC queue ownership and lock/waiter concurrency from source and tests.
 - [ ] Reconcile all docs against the current 24-byte record; no stale 20-byte descriptions.
 - Exit gate: source paths and tests are recorded; no unsupported end-to-end claim; exact-head CI green.
 
