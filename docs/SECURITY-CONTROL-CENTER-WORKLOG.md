@@ -220,3 +220,22 @@ The kernel has meaningful handle-rights, IPC-buffer-validation, and authorizatio
 - No source/runtime code changed. No local build, QEMU boot, or failure-injection test was run in this continuation.
 - Next single action: inspect existing process/ELF/handle creation call sites and tests to determine whether any real boot path creates a user process and provisions IPC handles. Record exact call sites and test coverage. If no such path exists, document it as a prerequisite rather than implementing an isolated service API.
 - After committing this log update, query workflow runs and combined status for the resulting exact PR head and record the result. Do not infer CI success from older merge-ref runs.
+
+
+## Boot-path and endpoint-provisioning call-site check — 2026-10-26
+
+### Search results and interpretation
+- Searched repository call sites for `process_create(`, `pros_init_load(`, `process_grant_handle(`, and public IPC syscall identifiers.
+- `process_create()` call sites found in `kernel/process.c` and `kernel/kernel.c` are lifecycle/self-test and kernel bootstrap/test setup, not a public user-facing spawn ABI.
+- `pros_init_load()` is defined in `kernel/init.c`; the other repository match is its negative self-test. No separate general spawn/exec syscall path was identified.
+- `process_grant_handle()` appears in `kernel/kernel.c` for a kernel-created user-test IPC channel and lifecycle tests. This demonstrates kernel-side test provisioning, not a general policy-controlled service endpoint registry.
+- The bootstrap does contain a CPL3 user-mode/IPC smoke-test path. It must not be confused with a general userspace init/service manager, a production endpoint naming/discovery mechanism, or a running desktop session.
+- `docs/NATIVE-SPAWN-CONTRACT.md` already defines the missing lifecycle contract and failure/rollback gates. Use it as a dependency contract; do not duplicate or silently bypass its requirements.
+
+### Decision
+The source evidence still does not establish a production-ready trusted security-service startup path. Kernel-created test handles prove the IPC primitive can be exercised, but not that a Control Center client can securely discover and authenticate a real broker. No kernel or ABI code is changed to bridge this gap.
+
+### Test status
+- Repository source/search inspection only; no test command was run in this continuation.
+- No build, QEMU, native BIOS, or runtime result is newly claimed.
+- Next: exact-head workflow/status query for the just-created documentation commit, then leave PR #267 draft/unmerged while CI/review requirements remain outstanding.
