@@ -63,7 +63,7 @@ Version 1 normative error rule: every non-OK response has payload_len = 0 and ev
 |---:|---|---|---|
 | 1 | GET_STATUS | Empty | 24-byte status snapshot |
 | 2 | LIST_EVENTS | 16-byte query | Up to two fixed-size event records |
-| 3 | GET_EVENT | u64 sequence | One event record, if it fits |
+| 3 | GET_EVENT | nonzero u64 sequence | One 24-byte event record |
 
 No permission changes, quarantine actions, device grants, network policy mutations, or update actions are permitted in this version.
 
@@ -81,15 +81,15 @@ The response header's `event_cursor` is reserved for event pagination and must b
 
 - after_sequence: u64 (exclusive cursor; zero means earliest retained event)
 - category_mask: u32 (zero means all categories authorized to this caller)
-- max_records: u16 (1..2)
+- max_records: u16 (must equal 1 in v1)
 - reserved: u16 (must be zero)
 
-The two-record cap is deliberate: each event record is 20 bytes, so two records plus the 24-byte response header fit exactly in 64 bytes. If the event schema grows, lower the record count or define a separately reviewed transport/version; never silently exceed 64 bytes.
+The one-record cap is deliberate: each event record is 24 bytes, so one record plus the 24-byte response header fits in 48 bytes. Two records would require 72 bytes and exceed the 64-byte IPC maximum. Pagination must request one record per response; never silently exceed the transport limit.
 
-### Event record — 20 bytes
+### Event record — 24 bytes
 
 - sequence: u64 — monotonically increasing within one broker epoch
-- timestamp_ticks: u32 — clock domain/units must be defined before implementation
+- timestamp_ticks: u64 — raw boot-relative `timer_ticks()` value; `timer_frequency_hz()` defines ticks per second. This is monotonic uptime ticks, not wall-clock time.
 - severity: u8 — fixed enum; unknown values preserved as UNKNOWN
 - category: u8 — fixed enum; unknown values preserved as UNKNOWN
 - source_id: u16 — stable non-pointer identifier
