@@ -798,7 +798,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
      * restoring its owner lets the normal send/wakeup path complete below. */
     struct pros_ipc_channel wrong_wait_channel;
     if (ipc_channel_init(&wrong_wait_channel) != PROSENJIT_IPC_OK) {
-        serial_write("ProsenjitOS: ERROR IPC wrong-channel setup failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC wrong-channel setup failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.wait_channel = &wrong_wait_channel;
@@ -806,7 +806,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     if (wrong_channel_wake_rc != PROSENJIT_IPC_EINVAL ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         ipc_wait_test.waiter_count != 1) {
-        serial_write("ProsenjitOS: ERROR IPC wrong-channel wake regression failed\\n");
+        serial_write("ProsenjitOS: ERROR IPC wrong-channel wake regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     init_thread.wait_channel = &ipc_wait_test;
