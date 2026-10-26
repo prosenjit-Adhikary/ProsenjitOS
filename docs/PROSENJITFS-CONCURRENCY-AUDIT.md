@@ -286,3 +286,15 @@ This is a source/CI handoff update only. It does not mark filesystem concurrency
 - Remaining blockers: no confirmed exact-head CI; no local build or QEMU boot result; no deterministic two-thread same-handle/close race or separate-handle append/truncate tests; namespace and mount/unmount lifetime synchronization remain incomplete; SMP safety is not established.
 - Next implementation priority is not to broaden the IRQ-save critical section. Design a scheduler-aware mutex/wait queue with atomic waiter handoff and lost-wakeup tests, then migrate long filesystem callbacks under an explicit lock-order contract. Until that exists, keep the IRQ-save lock narrow and do not wrap namespace callbacks mechanically.
 - Keep PR #265 unmerged until exact-head Build/boot-test and Security architecture checks pass and the concurrency/lifecycle gaps are reviewed.
+
+## Fresh status checkpoint — 2026-10-26 08:53 IST
+
+This checkpoint supersedes older SHA/status snapshots above; retain older entries as historical evidence.
+
+- PR #265 currently points to `5d38bef352cdc6fa846e436a763643938c93fc60`, remains open and unmerged, and GitHub reports `mergeable=false`.
+- PR #264 currently remains open and unmerged at `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`; GitHub also reports `mergeable=false`. Recheck base-branch conflicts before attempting to merge either PR.
+- The latest observed Build/boot-test run [#40209491598](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40209491598) and Security architecture run [#40209491593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40209491593) are still queued and both identify older workflow `head_sha` `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`. Their PR metadata points at the current PR branch, but that does not make them exact-head validation.
+- A commit-specific workflow query for `5d38bef352cdc6fa846e436a763643938c93fc60` returned no runs, and its commit status has zero reported statuses. No current build/boot/security pass is established.
+- The IRQ-save helper is now present in source and addresses the identified same-CPU timer-preemption spin loop at the locking primitive level. It still holds local maskable interrupts off through synchronous filesystem callbacks, so interrupt-latency concerns remain. No claim is made that this branch has compiled or booted.
+- No deterministic scheduler-controlled tests currently prove same-handle operation-vs-close serialization or separate-handle append/truncate serialization. Namespace mutation, directory enumeration, unmount-vs-I/O lifetime and SMP behavior remain open audit items.
+- **Merge gate:** do not merge PR #265 or #264 until conflicts are resolved, exact-head Build/boot-test and Security checks pass, and the filesystem concurrency/lifecycle risks have been explicitly reviewed.
