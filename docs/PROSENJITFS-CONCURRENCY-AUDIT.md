@@ -586,3 +586,34 @@ This is a deterministic source-level regression test added to the kernel startup
 - The caller must use the owning queue's channel-specific wake/cancel path, which can validate ownership and update the queue consistently.
 - The kernel startup IPC regression now calls generic `thread_wake()` on a registered blocked receiver and requires rejection while preserving BLOCKED state, the channel pointer, and waiter count. The existing wrong-channel wake regression and normal send/wake/receive path then continue.
 - This is a narrow API guard plus source-level regression. It does not add a scheduler-wide guard, prove SMP safety, or establish runtime behavior until the exact-head build and QEMU boot test pass.
+
+
+## Process termination and IPC waiter cancellation review (2026-10-26)
+
+### Current behavior and failure semantics
+
+The current termination path first unlinks a process's threads from the runnable queue, then iterates the registry. For each live owned thread with a non-null `wait_channel`, it calls `ipc_channel_cancel_waiter(channel, thread)`, ignores the return code, clears `wait_channel`, clears blocked-syscall/frame state, and marks the thread DEAD.
+
+The cancellation API has three relevant outcomes:
+
+- `PROSENJIT_IPC_OK`: the matching waiter was found and removed under the channel IRQ-save lock.
+- `PROSENJIT_IPC_EEMPTY`: the channel is valid but no matching waiter entry exists.
+- `PROSENJIT_IPC_EINVAL`: the channel pointer fails the stable validity checks, or the channel's mutable queue invariants are invalid.
+
+A missing waiter entry is not equivalent to a successful detach. However, clearing the dead thread's wait metadata is still necessary for teardown. The more serious unresolved case is an invalid/stale channel pointer: `thread_terminate_process()` currently assumes the wait-channel object remains alive and dereferenceable until cancellation returns. This is consistent with the existing IPC owner-lifetime contract, but it means channel lifetime must be enforced by the owner and cannot be inferred from `wait_channel` alone.
+
+### Lock ordering and why not to patch by nesting locks
+
+- Termination currently calls the IPC cancellation routine without a scheduler-wide guard held.
+- Cancellation acquires the channel lock and only edits the channel waiter array; it does not call back into the scheduler.
+- The IPC wake path takes the channel lock and then performs a thread wake/run-queue transition. A future scheduler guard therefore cannot be introduced mechanically around all of `thread_terminate_process()`: doing so would create scheduler-lock -> channel-lock ordering in termination while wake uses channel-lock -> scheduler-lock ordering, a potential inversion.
+- The existing local IRQ-save channel lock does not protect against other CPUs. SMP correctness is not established.
+
+### Required follow-up before scheduler synchronization is implemented
+
+1. Define one lock-order rule and a scheduler-owned wait-queue protocol before adding a scheduler guard to the termination path.
+2. Make waiter detachment and thread death a documented transaction: the channel owner must remain alive while cancellation runs, and a failed cancellation must be diagnosed rather than silently treated as successful removal.
+3. Add deterministic tests for successful cancellation, cancellation when the waiter is absent, termination of a blocked process thread, and preservation of unrelated channel waiters.
+4. Keep cancellation outside a scheduler guard unless a dedicated non-recursive internal API and an explicitly proven lock order are implemented.
+
+This review is a source audit only. No termination code was changed, and no build, QEMU boot, or runtime pass is claimed. The safe implementation boundary is to establish the shared scheduler/wait-queue protocol first, then make process teardown use it; a local return-code check alone cannot prove that the scheduler queue, IPC waiter array, and thread registry remain consistent.
