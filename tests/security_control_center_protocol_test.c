@@ -113,6 +113,9 @@ static void test_request_frames(void)
     put64(b + 16, 123);
     assert(scc_parse_request(b, 24, &v) == SCC_PARSE_OK);
     assert(v.payload_length == 8);
+    put64(b + 16, 0);
+    assert(scc_parse_request(b, 24, &v) == SCC_PARSE_BAD_PAYLOAD);
+    put64(b + 16, 123);
     assert(scc_parse_request(b, 23, &v) == SCC_PARSE_BAD_LENGTH);
 }
 
@@ -124,7 +127,7 @@ static void test_response_frames(void)
 
     assert(scc_parse_response(NULL, 0, SCC_OP_GET_STATUS, 1, 0, 0, 0, &v)
            == SCC_PARSE_INVALID_ARGUMENT);
-    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 1, 0, 0, NULL)
+    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 1, 0, 0, 0, NULL)
            == SCC_PARSE_INVALID_ARGUMENT);
     {
         uint8_t unaligned[SCC_IPC_MESSAGE_MAX + 1];
