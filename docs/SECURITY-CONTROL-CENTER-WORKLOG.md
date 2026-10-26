@@ -281,3 +281,25 @@ There is a real CPL3/IPC smoke-test path, so it would be inaccurate to say “th
 
 ### Next single actionable step
 Inspect the build/test workflow definitions and existing tests to determine why the PR's exact-head workflow/status queries have sometimes returned no records. Establish a reproducible verification path for documentation commits and, separately, a source/test plan for wiring `pros_init_load()` into a future native bootstrap. Do not change boot behavior in this Control Center PR.
+
+
+## CI/workflow definition audit — 2026-10-26
+
+### Workflow definitions inspected
+- `.github/workflows/build.yml`: triggers on pushes to `main` and pull requests; uses a self-hosted Linux x64 runner. It builds the ISO, runs desktop/DML unit tests, then performs QEMU ISO and native BIOS boot checks with required serial milestones.
+- `.github/workflows/security-design.yml`: triggers on pushes to `main` and pull requests; uses a self-hosted Linux x64 runner and checks required malware/security architecture markers in `docs/SECURITY-MALWARE.md` and `docs/ROADMAP.md`.
+- The workflow definitions explain why a workflow may be delayed while self-hosted runner capacity is unavailable; they do not, by themselves, prove that a job passed. The prior “no records” observations were time-specific snapshots, not evidence that these workflows are disabled.
+
+### Exact SHA status observed during this continuation
+For feature commit `e6ae6dc2f71f82056db489518864a79826a27a90`:
+- Security architecture checks run `40314446090` (run number 8209): job `security-design` completed with conclusion **success**.
+- Build and boot-test run `40314446027` (run number 8673): job `build` was **in_progress** at the time of inspection; no pass/fail conclusion yet.
+- Combined commit status endpoint returned no entries. The Actions run/job result is the relevant evidence here.
+- These results apply only to SHA `e6ae6dc2f71f82056db489518864a79826a27a90`. This work-log append will create a new head, so CI must be re-queried for the resulting SHA; do not transfer the previous SHA's success to it.
+
+### Current implementation status (for handoff)
+- **Implemented:** documentation/design contract, source audit, and durable handoff log updates.
+- **Source primitives present:** bounded IPC channel, capability/handle checks, process/address-space/ELF loader primitives, boot-time CPL3/IPC smoke-test path, and a VFS-backed `pros_init_load()` function with execution admission.
+- **Not implemented/verified for this feature:** Security Control Center UI, public security-event query API, production userspace security-broker launch/discovery, trusted endpoint provisioning contract in runtime code, and read-only end-to-end event retrieval.
+- **Not run in this session:** local build, QEMU boot, IPC failure-injection tests. The CI build/boot workflow is still running on the recorded SHA at this checkpoint.
+- **Next action:** after this log commit, re-check exact-head workflow runs and update the PR description. If build/boot is still running, wait/report pending; if it fails, inspect the failing job logs before changing any source.
