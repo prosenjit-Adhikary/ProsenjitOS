@@ -183,7 +183,7 @@ static void test_response_frames(void)
 
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 25, 0);
     assert(scc_parse_response(b, 49, SCC_OP_GET_STATUS, 9, 0, 0, &v)
-           == SCC_PARSE_BAD_LENGTH);
+           == SCC_PARSE_BAD_PAYLOAD);
 }
 
 static void test_deterministic_fuzz_smoke(void)
