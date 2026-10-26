@@ -303,3 +303,12 @@ For feature commit `e6ae6dc2f71f82056db489518864a79826a27a90`:
 - **Not implemented/verified for this feature:** Security Control Center UI, public security-event query API, production userspace security-broker launch/discovery, trusted endpoint provisioning contract in runtime code, and read-only end-to-end event retrieval.
 - **Not run in this session:** local build, QEMU boot, IPC failure-injection tests. The CI build/boot workflow is still running on the recorded SHA at this checkpoint.
 - **Next action:** after this log commit, re-check exact-head workflow runs and update the PR description. If build/boot is still running, wait/report pending; if it fails, inspect the failing job logs before changing any source.
+
+
+### Follow-up Actions status refresh — 2026-10-26
+The first query for head `8e1b6c84331c1f03844c807c7b235988e489d7ca` returned no runs, but a subsequent query found these PR-triggered runs (status APIs can lag runner dispatch):
+- Security architecture checks: run `40314546607` / run #8210 — **success** on this SHA.
+- Build and boot-test ProsenjitOS: run `40314546506` / run #8674 — **in_progress** at the time of the refresh.
+- Combined commit status endpoint still returned no entries; the workflow-run details above are the direct evidence.
+- An earlier build run `40314446027` / #8673 for the prior SHA had since become **cancelled**; do not count it as a pass.
+- This status is specific to `8e1b6c84331c1f03844c807c7b235988e489d7ca`. Because this status refresh itself is being committed, check workflow runs for the resulting new head before deciding whether CI is green.
