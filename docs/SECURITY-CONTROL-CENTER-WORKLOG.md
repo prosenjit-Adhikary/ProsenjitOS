@@ -145,3 +145,44 @@ Do not use direct UI-to-kernel calls. Do not expose raw kernel structs/pointers 
 ### Exact-head after this update
 - This section was added to the work log on branch `feature/security-control-center-design`; the resulting commit SHA must be checked below after the commit is created.
 - No kernel/runtime code was changed. No build, QEMU boot, or IPC failure-injection test was run. CI must be queried for the exact resulting commit; absent workflow/status records mean unverified, never passed.
+
+
+## Continued contract-design milestone — 2026-10-26
+
+### Scope and evidence
+- Rechecked PR #267 and current branch source. PR remains open, draft, and unmerged.
+- Re-read `include/abi/syscall.h`, `kernel/syscall.c`, `kernel/include/ipc.h`, `kernel/include/usercopy.h`, `kernel/include/process.h`, `kernel/include/health.h`, and `kernel/include/security_monitor.h`.
+- Public syscall ABI currently exposes version, test completion, handle close/duplicate, IPC send/receive, and handle transfer. No public security-event query or general userspace spawn/exec syscall was identified in the inspected contract.
+- IPC remains bounded (8 queued messages, 64 bytes per message) and handle-based. These primitives alone do not establish a trusted named service, service discovery, peer identity, or safe endpoint provisioning.
+- Health event and security monitor interfaces remain kernel-side declarations/interfaces; they are not a ready-made user-mode event API.
+- Existing user-copy helpers validate ranges, but receive currently consumes a queued message before completing copy-out. Fault/race semantics need targeted tests before any stronger reliability guarantee.
+- Latest workflow evidence is for PR merge ref `d4153b2907c4cf047a6cc3f0f17fd7147d52c2bb`, not the feature head. The build/boot workflow and security architecture check both completed successfully for that merge ref; this is not evidence for any new commit created by this update.
+
+### Decision: do not implement UI or kernel changes yet
+Continue with a documentation-only protocol contract. No new syscall, kernel hook, desktop replacement, policy toggle, or mock security state is introduced in this milestone. The proposed transport remains an explicitly provisioned least-privilege IPC endpoint to a trusted service, contingent on proving how the service is launched and how its endpoint is provisioned.
+
+### Minimum read-only protocol requirements
+1. Fixed-size/versioned request header: protocol version, operation enum, request ID, declared size; reject unknown versions/operations and mismatched sizes.
+2. Fixed-size response header: version, request ID, explicit status enum, payload size, and continuation sequence where applicable.
+3. Bound every count, enum, filter, and output size. No pointers, kernel addresses, or raw kernel-private structs cross the ABI.
+4. Only allow read-only status/event operations in the first version. Mutation operations must be rejected as unsupported, not silently accepted.
+5. Authenticate the service endpoint by trusted provisioning and process/handle ownership; possession of an arbitrary IPC handle is not sufficient proof of peer identity.
+6. Enforce least privilege with explicit READ/WRITE rights, and define duplication/transfer/inheritance rules. Fail closed if ownership cannot be established.
+7. Return explicit UNAVAILABLE / NOT_IMPLEMENTED / DENIED / INVALID_REQUEST / BUFFER_TOO_SMALL / INTERNAL_ERROR outcomes. Never map service failure to “protected” or an empty event list.
+8. Copy/validate bounded input before processing. Define behavior for a failed response copy and message-consumption semantics; do not promise retry safety until tested.
+9. Audit access where a trusted audit route exists; avoid logging secrets or untrusted raw payloads.
+10. Keep event pagination bounded and stable using sequence IDs; report dropped/volatile events and unavailable persistence honestly.
+
+### Required tests before implementation
+- Unsupported protocol version, unknown operation, wrong declared size, truncated and oversized request.
+- Invalid enum/filter and integer-overflow boundary cases.
+- Wrong object type, stale handle, missing READ/WRITE rights, denied authorization.
+- Unauthorized handle duplicate/transfer and endpoint-handle leakage between processes.
+- Empty/full IPC channel, service stopped/restarted, request timeout/unavailability.
+- Invalid/unmapped user buffers, copy-in/copy-out failures, message-consumption/retry semantics.
+- Maximum event batch, continuation token/sequence boundary, dropped events and volatile-only log behavior.
+- Confirm no read-only request can mutate policy, quarantine, devices, network, or update state.
+- Host-side protocol tests first; then QEMU integration tests only once a real service-launch/endpoint path exists.
+
+### Exact-head verification required
+After this work-log commit, re-query PR #267 head SHA and both workflow runs against that exact SHA. Do not treat a successful PR merge-ref run as feature-branch validation. No runtime implementation or local test was performed during this documentation-only milestone.
