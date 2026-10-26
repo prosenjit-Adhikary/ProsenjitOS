@@ -578,3 +578,11 @@ This is a narrow ownership check, not a scheduler-wide synchronization fix. The 
 The kernel self-test now deliberately changes a registered receiver's `wait_channel` to a different channel and calls `ipc_channel_wake_one()` on the original channel. It requires the operation to return `PROSENJIT_IPC_EINVAL`, leave the thread BLOCKED, and retain the original channel's waiter entry. The test restores the expected channel and continues the existing normal send/wakeup/receive payload regression.
 
 This is a deterministic source-level regression test added to the kernel startup self-test. It has not yet been executed in QEMU; passing behavior is not claimed until the exact-head build and boot workflow runs.
+
+
+### Generic wake must not bypass wait-queue ownership (2026-10-26)
+
+- `thread_wake()` now rejects a thread whose `wait_channel` is non-null. Such a thread is owned by a wait source; waking it generically would clear its wait metadata and enqueue it without removing the source's waiter entry.
+- The caller must use the owning queue's channel-specific wake/cancel path, which can validate ownership and update the queue consistently.
+- The kernel startup IPC regression now calls generic `thread_wake()` on a registered blocked receiver and requires rejection while preserving BLOCKED state, the channel pointer, and waiter count. The existing wrong-channel wake regression and normal send/wake/receive path then continue.
+- This is a narrow API guard plus source-level regression. It does not add a scheduler-wide guard, prove SMP safety, or establish runtime behavior until the exact-head build and QEMU boot test pass.
