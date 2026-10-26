@@ -318,3 +318,79 @@ A source review of `kernel/thread.c` and `kernel/ipc.c` found that the existing 
 5. Only after that primitive and tests exist should long filesystem callbacks migrate away from IRQ-off critical sections. Keep namespace operations and unmount lifecycle out of a mechanical blanket-locking pass until their call graph and lock order are audited.
 
 **Status:** design prerequisite recorded; no scheduler-aware mutex implementation or runtime proof is claimed by this documentation update.
+
+
+
+## Scheduler/mutex implementation contract — next coding phase (2026-10-26)
+
+This section is a design gate, not an implementation claim. It is intended to prevent an unsafe mutex from being built on top of the current non-atomic `thread_block()` / wait-queue sequence.
+
+### A. Required kernel primitive boundaries
+
+Keep three concepts separate:
+
+1. **IRQ-save spinlock:** protects short scheduler/wait-queue state transitions. It must be non-sleeping and restore the caller's original interrupt state. It is not suitable for a filesystem critical section that may perform block I/O.
+2. **Scheduler-aware mutex:** protects sleepable process-context work. Contention must enqueue the current thread and atomically release the internal wait-queue guard while changing it to BLOCKED, so a wakeup cannot be lost between checking the mutex and sleeping.
+3. **Filesystem operation/lifecycle gate:** prevents new operations from entering while unmount drains in-flight operations. It is a separate protocol from the mutex protecting file data and namespace metadata.
+
+Do not implement the mutex by calling the current `thread_block()` and then separately appending to a wait queue. That ordering has a lost-wakeup window. Do not call `thread_block()` while holding a plain spinlock that a preempted owner might need to release.
+
+### B. Mutex state machine and ownership
+
+The eventual mutex API should have a small, auditable contract, for example:
+
+- `pros_mutex_init(mutex)`: initialize unlocked state and an empty FIFO waiter queue.
+- `pros_mutex_lock(mutex)`: valid only in a schedulable thread context; acquire immediately if free, otherwise register the current thread exactly once and block through the scheduler's atomic wait protocol.
+- `pros_mutex_unlock(mutex)`: only the owner may unlock. Transfer ownership to a selected waiter before making that waiter READY, or use an equivalently proven handoff protocol; do not expose an unlocked interval that lets a newcomer bypass a queued waiter unless barging is explicitly permitted and tested.
+- `pros_mutex_trylock(mutex)`: optional non-blocking operation; it must use the same internal guard and ownership invariants.
+- Interrupt/exception context must not call a blocking mutex operation. Such callers need a separate short IRQ-safe primitive or must defer work to thread context.
+
+These names are proposed design names, not symbols confirmed to exist in the repository.
+
+### C. Lost-wakeup-safe block/wakeup transaction
+
+The implementation must define one indivisible protocol across the mutex waiter queue, thread state, run queue, and wakeup path. On a uniprocessor, a reviewed IRQ-save scheduler guard may make the transition atomic against the timer ISR; on SMP, an inter-CPU atomic lock is also required. The exact mechanism must be selected after auditing every scheduler/run-queue mutation site.
+
+Required invariants:
+
+- A thread is either runnable/on the run queue, running, or blocked on exactly one wait channel; it cannot be both queued and blocked.
+- Publishing a waiter and setting BLOCKED happen under the same guard that the unlock/wakeup path uses.
+- Unlock cannot miss a waiter that has committed to sleeping.
+- Wakeup cannot enqueue a thread twice, wake a DEAD thread, or clear a wait channel before the scheduler state transition is committed.
+- A thread must never sleep while holding a guard that its waker or scheduler needs.
+- Cancellation/process termination must remove or invalidate blocked waiters without leaving dangling queue nodes.
+- Every exit/error path restores the original interrupt state and leaves queue membership and thread state consistent.
+
+Do not implement this as a condition-variable loop until the underlying wait primitive satisfies these invariants.
+
+### D. Filesystem lock migration order
+
+After the mutex and its scheduler tests are accepted:
+
+1. Add a filesystem operation/lifecycle gate and define unmount admission/drain semantics.
+2. Replace the VFS per-open-file IRQ-off lock with a sleepable per-handle mutex only if all callers are guaranteed to be thread context and the callback contract permits sleeping.
+3. Replace the ProsenjitFS filesystem-wide IRQ-off lock with a sleepable mutex for long synchronous I/O paths.
+4. Audit nested order explicitly (proposed direction: per-handle state before filesystem state, only if no reverse acquisition exists); inspect close, vnode release, namespace callbacks, transactions, allocator and block-device callbacks before finalizing.
+5. Add namespace locking only after nested callback paths are classified; never mechanically add a non-recursive mutex at both public and helper layers.
+6. Keep interrupt handlers and any code that may run before scheduler initialization on IRQ-safe, non-blocking paths.
+
+The proposed lock order is provisional until a complete call-graph audit confirms it.
+
+### E. Deterministic test plan
+
+Add test hooks or a host-testable synchronization model where possible; a self-test that only calls lock/unlock sequentially is not a concurrency test.
+
+- **Lost wakeup:** force unlock between waiter intent and block; prove the waiter either acquires immediately or is queued and subsequently awakened.
+- **Contention:** two or more threads contend; each critical-section counter must show no overlap and all waiters must eventually progress.
+- **FIFO/handoff:** verify the documented fairness policy and that a newcomer cannot corrupt or duplicate queue membership.
+- **Interrupt state:** test initially IF=0 and IF=1 in a safe harness; nested guard release must preserve the outer state.
+- **Preemption:** force timer ticks at each lock/wait transition and prove no owner is suspended while a contender spins on a lock needed by that owner.
+- **Cancellation:** terminate a blocked owner/waiter and verify no stale waiter or locked mutex remains.
+- **Filesystem integration:** separate-handle append, ordinary write/read, truncate, create/unlink/rename/readdir, integrity scan versus mutation, and unmount versus active I/O/open descendants.
+- **Failure paths:** invalid context, queue insertion failure, scheduler switch failure and device I/O error must leave locks and wait queues recoverable.
+
+### F. Acceptance evidence
+
+For every implementation commit, record the exact source SHA and exact-head Build/boot-test + Security architecture results. A queued, cancelled, stale-head or absent workflow is **not PASS**. Run QEMU/runtime concurrency tests after the build succeeds. Keep physical-device power-loss durability as a separate, unclaimed property unless it is tested on appropriate hardware.
+
+**Current phase:** prerequisite/design specification only. Scheduler-aware mutex code, deterministic concurrency tests, exact-head CI PASS and production-readiness are still OPEN.
