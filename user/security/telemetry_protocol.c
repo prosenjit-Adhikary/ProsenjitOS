@@ -157,7 +157,7 @@ enum scc_parse_result scc_parse_response(
         uint64_t cursor = scc_read_u64(bytes + 16);
 
         if (requested_max_records < 1 ||
-            requested_max_records > SCC_EVENT_RECORDS_MAX)
+            requested_max_records > (uint16_t)SCC_EVENT_RECORDS_MAX)
             return SCC_PARSE_INVALID_ARGUMENT;
         if (payload_length % SCC_EVENT_RECORD_SIZE != 0)
             return SCC_PARSE_BAD_PAYLOAD;
