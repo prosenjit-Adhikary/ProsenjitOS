@@ -444,3 +444,24 @@ After that refactor, implement a wait-queue operation that publishes a waiter an
 - Source files reviewed; no kernel synchronization code changed in this checkpoint.
 - Documentation commit: the commit containing this review must be verified by exact SHA below.
 - CI and runtime behavior remain unverified until successful exact-head build, ISO/native boot, and deterministic scheduler tests are attached to the same commit.
+
+## IPC lock representation and interrupt-context finding (2026-10-26)
+
+The exact IPC header confirms that `struct pros_ipc_channel::lock` is a `volatile uint8_t`, while `pros_irq_spin_lock()` accepts a `volatile uint32_t *`. The existing IRQ-save helper therefore cannot be applied to the IPC lock by a cast: that would access a wider word than the field and could overwrite adjacent channel state.
+
+A future IPC lock conversion must deliberately choose one of these approaches:
+
+- Change the lock field and initialization to a correctly aligned `volatile uint32_t`, then use an IRQ-save token local to each acquisition/unlock pair; or
+- Keep a byte lock and implement an equally reviewed byte-specific IRQ-save primitive, preserving the caller's prior IF state.
+
+Either option only prevents same-CPU interrupt re-entry from spinning on a lock held by the interrupted owner. It does **not** by itself serialize all scheduler state transitions or make waiter publication atomic. The lock must not be held across a blocking/context-switch operation, and the scheduler/IPC lock order must be documented and enforced.
+
+### Additional acceptance checks
+
+- Verify the IPC lock's width/alignment and all initialization sites match its primitive.
+- Exercise IPC send/wait/wake while timer interrupts are enabled; include the lock-owner-preempted scenario where the test harness can deterministically trigger it.
+- Assert no waiter is simultaneously linked in the channel waiter collection and runnable queue in an inconsistent state.
+- Verify failed wakeups preserve waiter membership and that process termination cancels waiters without corrupting the queue.
+- Build both ISO and native BIOS artifacts with the repository's `-Wall -Wextra -Werror` flags, then run the existing QEMU boot/regression workflow on the exact PR head.
+
+This is an audit clarification only. It does not claim that the IPC lock, scheduler, or mutex has been fixed.
