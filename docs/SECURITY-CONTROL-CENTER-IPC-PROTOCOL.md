@@ -72,9 +72,9 @@ No permission changes, quarantine actions, device grants, network policy mutatio
 - component_id: u16
 - state: u16 (UNKNOWN, READY, DEGRADED, UNAVAILABLE)
 - capabilities: u32 (known feature bits only; zero means no optional feature advertised)
-- last_event_sequence: u64 (zero if no sequence has been recorded)
+- dropped_event_count: u64 (saturating count for the current broker epoch; zero is valid only if the broker can establish that no events were dropped)
 
-This is broker-reported telemetry, not a blanket claim that the OS is secure. UI must label the source and age of the last successful query.
+The response header's event_cursor carries the latest event sequence actually observed for this status snapshot; it is not duplicated in the payload. A broker that cannot reliably count drops must return an explicit degraded/unavailable status rather than fabricate zero. This is broker-reported telemetry, not a blanket claim that the OS is secure. UI must label the source and age of the last successful query.
 
 ### LIST_EVENTS query — 16 bytes
 

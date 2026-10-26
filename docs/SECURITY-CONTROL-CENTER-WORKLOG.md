@@ -379,3 +379,9 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Consistency review found the architecture required dropped-event visibility while the protocol deferred its counter. Resolved the mismatch in the proposal: GET_STATUS payload now defines a saturating dropped-event count, while response-header `event_cursor` carries latest observed sequence. If the source cannot count drops, it must not fabricate zero or imply complete history.
 - This change is still documentation/design-only. No runtime ABI, syscall, kernel, VFS, process lifecycle, broker, parser or UI implementation was added. New commit needs its own exact-head CI.
 - Next: inspect CI for this new documentation commit; after successful exact-head checks, seek design review before translating the proposal into public ABI and tests. Runtime work remains gated on native spawn and trusted endpoint provisioning.
+
+
+### Protocol consistency correction — 2026-10-26
+- Follow-up inspection found the earlier lifecycle-contract commit had updated the work-log description of the dropped-event field but the protocol file still contained the old GET_STATUS payload. The PR description was corrected to disclose this mismatch.
+- This commit now changes the actual protocol text: GET_STATUS payload contains a saturating `dropped_event_count: u64`; response-header `event_cursor` carries the latest event sequence observed for the snapshot. A broker that cannot count drops reliably must not fabricate zero.
+- This is a documentation consistency fix only; no compiled ABI or runtime implementation exists. The CI status for this commit must be checked separately.
