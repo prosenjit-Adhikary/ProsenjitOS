@@ -252,3 +252,14 @@ This is a source/CI handoff update only. It does not mark filesystem concurrency
 - Confirmed implementation detail: `kernel/include/irq_spinlock.h` saves caller RFLAGS, executes `cli` before attempting the atomic lock, and restores IF only when it was enabled at entry. VFS and ProsenjitFS use caller-local saved-flags tokens, preserving nested VFS-handle → filesystem lock restoration on the current CPU.
 - The mitigation does not make long critical sections latency-safe. Synchronous filesystem callbacks can hold local interrupts disabled during block-device I/O. A scheduler-aware sleepable mutex remains a separate design task; IRQ masking alone does not establish SMP safety.
 - No local build, QEMU boot, runtime deadlock reproduction, or concurrency stress-test pass is claimed. Keep PR #265 unmerged pending exact-head CI and deterministic concurrency/lifecycle tests.
+
+
+
+## Scheduler-aware mutex feasibility review — 2026-10-26 08:27 IST
+
+- Reviewed the current scheduler/wait primitives in `kernel/thread.c`, `kernel/include/thread.h`, and `kernel/ipc.c` against the filesystem lock's long interrupt-off window.
+- `thread_block(wait_channel)` only marks the current thread BLOCKED and stores a wait-channel pointer; `thread_wake(thread)` marks a blocked thread READY and enqueues it. The IPC layer maintains its own waiter array under a separate channel spinlock. These primitives do not, by themselves, provide a general mutex with atomic lock-release / waiter-enqueue / block handoff semantics.
+- Do **not** replace `pros_irq_spin_lock()` with a naive sleepable lock built only from `thread_block/thread_wake`: a lost-wakeup race could leave a waiter blocked indefinitely, and blocking while holding the VFS or filesystem lock would deadlock other I/O. A proper mutex needs a reviewed wait queue and an atomic scheduler handoff, with a documented lock-order protocol.
+- The existing VFS self-test contains a focused nested-lock IF-state regression: it checks IF is clear while both locks are held, remains clear after inner unlock, and matches the original IF state after outer unlock. This is source-level test coverage only; no current exact-head build/boot result was found, so the test is not marked passed.
+- The IRQ-save spinlock remains the immediate same-CPU preemption mitigation. It does not solve the interrupt-latency cost of synchronous block-device callbacks, nor establish SMP safety. Keep namespace mutation/readdir and unmount-vs-I/O lifetime gates open.
+- Required next implementation step: design a kernel-wide sleepable mutex/wait-queue primitive with atomic block/wake handoff and tests before using it for filesystem I/O; until then, keep the current lock narrow and do not add lock wrappers mechanically to namespace callbacks.
