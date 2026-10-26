@@ -54,7 +54,7 @@ For GET_STATUS the request payload is exactly 0 bytes; LIST_EVENTS is exactly 16
 | RS-05 | Unknown status enum | Treat as protocol error; never silently map to OK |
 | RS-06 | Non-zero v1 flags | Reject |
 | RS-07 | GET_STATUS success with payload length other than 24 | Reject |
-| RS-08 | GET_STATUS response with non-zero event_cursor | Reject or mark invalid per final reviewed ABI; do not use it as latest sequence |
+| RS-08 | GET_STATUS response with non-zero event_cursor | Reject; v1 requires the header cursor to be zero and carries latest sequence in the status payload |
 | RS-09 | LIST_EVENTS success with 0, 1, or 2 records | Accept only if payload length is exactly count × 20 and count <= requested max |
 | RS-10 | LIST_EVENTS payload 41..65535 bytes | Reject; never truncate silently |
 | RS-11 | GET_EVENT success with payload length other than 20 | Reject |
