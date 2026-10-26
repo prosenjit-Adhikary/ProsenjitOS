@@ -186,3 +186,37 @@ Continue with a documentation-only protocol contract. No new syscall, kernel hoo
 
 ### Exact-head verification required
 After this work-log commit, re-query PR #267 head SHA and both workflow runs against that exact SHA. Do not treat a successful PR merge-ref run as feature-branch validation. No runtime implementation or local test was performed during this documentation-only milestone.
+
+
+## Continued handle/IPC source audit — 2026-10-26
+
+### Exact state at start of this continuation
+- PR #267: open, draft, unmerged; branch `feature/security-control-center-design`; head `c9f39ebfc23c47e1fd0e0a94ceb200275b1efe42`.
+- Scope remains documentation-only. Do not merge or alter kernel/runtime paths without tests and review.
+- The previous exact-head check found no workflow runs/status records for that SHA; re-check after this documentation commit. Absence of CI records is not a pass.
+
+### Additional source paths inspected
+- `kernel/syscall.c`
+- `kernel/object.c` and `kernel/include/object.h`
+- `kernel/include/process.h`
+- `kernel/init.c`
+- `kernel/service_manager.c`
+- `kernel/include/ipc.h`
+- `user/README.md`
+
+### Confirmed implementation details
+- IPC send checks the current process, message size bound, user-buffer range, handle object type, and a WRITE intent/authorization decision before copying the payload into a bounded kernel buffer and enqueueing it.
+- IPC receive checks a bounded nonzero capacity, writable user buffer ranges (payload and length output), IPC object type, and a READ intent/authorization decision. An empty queue may block only if there is a runnable successor; otherwise it returns an error rather than suspending the only runnable execution context.
+- Receive dequeues into a kernel buffer before copying the payload and received length to userspace. If either copy-out fails, the call returns an error after the message has already been removed; retry/delivery guarantees are therefore not established.
+- Handle values combine a slot with a generation. Closing increments the generation and permanently retires a slot rather than wrapping it; duplicate and transfer helpers attenuate requested rights and reject rights not held by the source handle.
+- The syscall transfer path authorizes the source process's transfer intent and chooses copy or move semantics. This is capability enforcement, but not a named-service registry or proof that a recipient is the intended security service.
+- `pros_init_load()` loads the fixed `/init` image after filesystem admission and execution-security admission, then ELF validation/loading. This is a guarded init-image path, not a general userspace process spawn/exec syscall.
+- The kernel service manager stores callbacks and dependency metadata and invokes callbacks; it is not evidence of an executable userspace service-launch path. `user/README.md` explicitly describes the desktop/session path as incomplete and DML as a registry/preflight component rather than a launcher.
+
+### Architecture conclusion
+The kernel has meaningful handle-rights, IPC-buffer-validation, and authorization primitives, but the end-to-end trusted service bootstrap is still unproven. The Control Center cannot safely assume that a userspace security broker can already be launched, discovered, or given a private endpoint. Keep the first milestone as protocol/host-test design and startup-path investigation; do not add a syscall or UI shortcut to work around this missing lifecycle contract.
+
+### Verification and next action
+- No source/runtime code changed. No local build, QEMU boot, or failure-injection test was run in this continuation.
+- Next single action: inspect existing process/ELF/handle creation call sites and tests to determine whether any real boot path creates a user process and provisions IPC handles. Record exact call sites and test coverage. If no such path exists, document it as a prerequisite rather than implementing an isolated service API.
+- After committing this log update, query workflow runs and combined status for the resulting exact PR head and record the result. Do not infer CI success from older merge-ref runs.
