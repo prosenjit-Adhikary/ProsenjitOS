@@ -480,3 +480,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Made the build workflow run the protocol parser test a second time with AddressSanitizer and UndefinedBehaviorSanitizer enabled. The normal warnings-as-errors host test remains as a separate step.
 - Attempted to obtain a local source checkout for independent compilation, but the execution container could not resolve github.com; no local compile/test result is available. Exact-head GitHub Actions remains the verification gate; do not infer a pass from the workflow configuration.
 - Next source review must check exact-head workflow status, inspect any failures, and only then decide whether to expand into serializer/broker work. No broker authentication or kernel IPC change is included in this checkpoint.
+
+
+## Exact-head queue and protocol source audit — 2026-10-26
+
+- Rechecked draft PR #268 and both workflows associated with the recorded head `b81e1f2d00bfd6013501a81cb094f747c0cf0d1b`: Build/boot-test run `40344694654` and Security architecture run `40344694657` are still queued. Their jobs have no start or completion timestamps, so there is still no compiler, test, sanitizer, or boot result to report.
+- Re-read the parser, public parser header, protocol proposal, host test source, and test runner together. Framing offsets and sizes agree: 16-byte request header, 24-byte response header, 20-byte event record, 40-byte maximum response payload, and 64-byte transport ceiling. LIST_EVENTS supports at most two records and the parser enforces the request/response correlation and cursor invariants documented for v1.
+- Confirmed parser scope is intentionally limited to framing and response shape. It does not authenticate the peer, validate endpoint/handle rights, establish telemetry provenance, or implement a broker. These remain explicit implementation gates, not completed security controls.
+- Follow-up review item before implementation: define a registry for supported capability bits and event enums, then decide which values should be rejected versus mapped to UNKNOWN. The current protocol text says capabilities contain known bits and unknown event severity/category values are preserved as UNKNOWN, but it does not yet enumerate those registries. Do not silently invent values in the parser.
+- No source code changed during this audit; no test pass is inferred from queued workflows. Keep PR #268 draft and do not merge until exact-head CI has executed and failures, if any, are addressed.
