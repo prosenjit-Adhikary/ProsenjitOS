@@ -837,6 +837,39 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: IPC blocked-thread process-teardown regression passed\n");
+ 
+    /*
+     * A blocked thread may have stale wait metadata without a matching queue
+     * entry (for example, after an earlier failed/partial teardown). An
+     * EEMPTY cancellation must not prevent process exit or disturb another
+     * channel; termination must still clear the dead thread's wait metadata.
+     */
+    struct pros_process ipc_absent_waiter_process;
+    struct pros_thread ipc_absent_waiter_thread;
+    struct pros_ipc_channel ipc_absent_waiter_channel;
+    if (process_create(&init_process, &ipc_absent_waiter_process, 14,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&ipc_absent_waiter_thread, &ipc_absent_waiter_process, 14,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                          sizeof(lifecycle_thread_stack))) != 0 ||
+        ipc_channel_init(&ipc_absent_waiter_channel) != PROSENJIT_IPC_OK) {
+        serial_write("ProsenjitOS: ERROR IPC absent-waiter teardown setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_absent_waiter_thread.state = PROS_THREAD_BLOCKED;
+    ipc_absent_waiter_thread.wait_channel = &ipc_absent_waiter_channel;
+    if (process_exit(&ipc_absent_waiter_process, 25) != 0 ||
+        thread_state(&ipc_absent_waiter_thread) != PROS_THREAD_DEAD ||
+        ipc_absent_waiter_thread.wait_channel != 0 ||
+        ipc_absent_waiter_channel.waiter_count != 0 ||
+        process_wait(&init_process, ipc_absent_waiter_process.pid, &waited_exit) != 0 ||
+        waited_exit != 25) {
+        serial_write("ProsenjitOS: ERROR IPC absent-waiter teardown regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC absent-waiter teardown regression passed\n");
+
 
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
