@@ -17,6 +17,17 @@ The repository has moved beyond the original boot/kernel-only milestone. The cur
 10. **Self-healing/recovery architecture:** add layered health detection and safe recovery without allowing the recovery system to become a new source of corruption. The design must follow **Detect -> Verify -> Repair -> Verify -> Rollback** and keep destructive repair disabled by default.
 11. **Display binding:** kernel owns only device discovery/binding, framebuffer/backend validation, permissions and lifecycle; window systems and desktop components remain userspace.\n\n- **Driver compatibility:** build an independently implemented, ReactOS-inspired NT/WDM compatibility track after the native driver and package-management foundations are stable. This is a long-term compatibility subsystem, not a replacement for native drivers.
 
+11. **Security Control Center:** implement a user-space Settings surface on the existing desktop/shared ABI. Start with truthful read-only status and Reason Ledger/audit views; then add permission, quarantine, device, update, and network controls only when each trusted service and enforcement path is available. Specification: [docs/SECURITY-CONTROL-CENTER.md](SECURITY-CONTROL-CENTER.md). Do not add mock toggles or a competing desktop architecture.
+
+### Security Control Center — staged work
+- [x] Document architecture fit, navigation, trust boundaries, failure behavior, and acceptance criteria.
+- [ ] Inspect existing service/ABI contracts and map each UI view to real data sources.
+- [ ] Implement read-only status and bounded audit-event viewer in the existing desktop/Settings integration.
+- [ ] Add GUI/CUI-consistent permission management through the existing capability/permission broker.
+- [ ] Integrate file trust/quarantine, device grants, and update verification as their trusted APIs become available.
+- [ ] Add network-policy UI only after the network stack has real enforcement hooks.
+- [ ] Add QEMU/integration/security regression tests and verify the exact release commit.
+
 ### Latest verified repository work
 - PCI configuration/enumeration foundation implemented and marked complete.
 - Firewall-inspired unknown-threat handling documented as a standing security requirement.
