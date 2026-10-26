@@ -1309,7 +1309,9 @@ static int vfs_vnode_api_selftest(void)
     __asm__ volatile ("pushfq; popq %0" : "=r"(flags_after_outer) : : "memory");
     if ((flags_locked & (1ULL << 9)) != 0u ||
         (flags_after_inner & (1ULL << 9)) != 0u ||
-        ((flags_after_outer ^ flags_before) & (1ULL << 9)) != 0u)
+        ((flags_after_outer ^ flags_before) & (1ULL << 9)) != 0u ||
+        lock_probe_outer.io_lock != 0u ||
+        lock_probe_inner.io_lock != 0u)
         return -130;
 
     root_data = (struct vfs_selftest_node){
