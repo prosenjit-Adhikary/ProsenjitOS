@@ -216,6 +216,8 @@ static void test_response_frames(void)
     event_record(b + 24, 123);
     assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_OK);
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 0, &v)
+           == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 16, 124);
     assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_BAD_PAYLOAD);
