@@ -125,3 +125,23 @@ Always distinguish “planned”, “implemented”, “test passed”, and “r
 - Before designing a read-only security query route, inspect handle creation/ownership and IPC peer semantics, then identify an existing trusted service boundary. Any design must authenticate the caller/service, bound all message fields, avoid exposing kernel pointers, apply user-copy validation, and return explicit unavailable/not-implemented states when data cannot be trusted.
 - Do not add a syscall merely to feed a settings page. Do not repurpose the kernel callback service manager as if it were a userspace service manager.
 - No source code or runtime behavior was changed in this audit; only this persistent work log is being updated. No local build, QEMU, native BIOS, or security regression tests were run in this session.
+
+
+## Continued IPC and capability audit — 2026-10-26
+
+### Additional source facts
+- `include/abi/capability.h`: the public capability bits are READ, WRITE, EXECUTE, DUPLICATE, TRANSFER and ADMIN; IPC is a public object type. The ABI does not define a service identity or security-event-query protocol.
+- `kernel/object.c` and `kernel/include/object.h`: handles encode a slot and generation; handle checks validate object type, generation, refcount, and requested rights. Duplication attenuates rights rather than adding them. The object/handle APIs are kernel interfaces, not public userspace pointers.
+- `kernel/intent.c`: `security_authorize()` checks process state/quarantine, the intent, handle rights/type, the process capability policy, and records decisions in a bounded reason ledger. Ledger recording failure denies authorization. `security_ledger_latest()` exposes only a latest-record accessor in the inspected header; it is not a paginated userspace event API.
+- `kernel/syscall.c`: IPC send validates message size, user range, IPC object type, WRITE intent/capability and authorization, then copies user data into a bounded kernel buffer before enqueueing. IPC receive validates bounded capacity, writable user ranges for the message and length output, IPC object type, READ intent/capability and authorization, then receives a message and copies it to userspace.
+- The IPC syscall code resolves a channel from a process-owned handle and authorizes possession of that capability; it does not establish a named service-discovery mechanism or independently authenticate a peer identity. A future service protocol must define how the trusted endpoint handle is provisioned and protected against unintended transfer/duplication.
+- The receive path removes a queued message before `copy_to_user()` completes. Range validation happens first, but fault/race behavior must be tested before a reliability guarantee is made; a failed copy may have consumed the message. Do not change this kernel-critical path as part of the Control Center design-only milestone.
+
+### Architecture decision / blocker
+A plausible future read-only route is a userspace client holding an explicitly provisioned, least-privilege IPC endpoint to a trusted service, with a versioned fixed-size request/response protocol. This is only a design candidate, not an implemented path: userspace process launch, endpoint provisioning, service identity, policy for handle inheritance/transfer, and a public event-query contract remain unverified or absent.
+
+Do not use direct UI-to-kernel calls. Do not expose raw kernel structs/pointers or assume the existing security ledger is a complete event history. First document endpoint ownership/provisioning and threat model; then add isolated tests for malformed/oversized requests, wrong object type, missing READ/WRITE rights, unauthorized handle transfer, empty/full channels, invalid user buffers, service restart/unavailability, and receive-copy failure semantics.
+
+### Exact-head after this update
+- This section was added to the work log on branch `feature/security-control-center-design`; the resulting commit SHA must be checked below after the commit is created.
+- No kernel/runtime code was changed. No build, QEMU boot, or IPC failure-injection test was run. CI must be queried for the exact resulting commit; absent workflow/status records mean unverified, never passed.
