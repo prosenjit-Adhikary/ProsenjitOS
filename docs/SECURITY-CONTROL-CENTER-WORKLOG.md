@@ -394,3 +394,14 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Reiterated that kernel telemetry C interfaces are not public userspace APIs, IPC handle possession is not service identity, and syscall-level copy-out/dequeue semantics require dedicated tests.
 - CI for previous exact head `f86c4a7a726d9dc31497e13484d7cf7be6444784` was still queued when checked (Build #8683, Security checks #8219). This documentation batch will produce a new head; verify exact-head workflows before claiming a pass. Avoid further commits until these workflows reach a terminal result.
 - Runtime source remains unchanged. The new note is a source map and readiness gate, not implementation.
+
+
+## Health drop-counter saturation fix — 2026-10-26
+
+- Branch: `feature/security-control-center-design`; PR #267 remains open, draft, and unmerged.
+- Code commit `150c896fb0b89e6941e6c63a0c6fa5aa8e779fba`: `kernel/health.c` now saturates the full-ring `dropped_events` counter at `UINT32_MAX`; `pros_health_selftest()` tests the `UINT32_MAX - 1` boundary using two additional records.
+- Follow-up correctness review found that the boundary test would leave synthetic events and a maxed-out counter in the health ring after the self-test. Corrected this in commit `6cd6c13bfd5d6f5ccae9a28b5e32bca373283049`: after successful assertions, the self-test calls `pros_health_init()` to clear test telemetry. Failure still returns `PROS_HEALTH_EIO`.
+- Source was re-fetched from the feature branch and the saturation guard, boundary assertions, and cleanup call were verified in the returned file content. This is source inspection only, not proof that the C code compiles or runs correctly.
+- Exact-head workflow checks for the prior code commit `150c896fb0b89e6941e6c63a0c6fa5aa8e779fba` were queued: Build/boot run `40336660486` (#8685), Security architecture run `40336660574` (#8221). The build workflow targets a self-hosted Linux x64 runner. User reports the local runner is offline; queued status has no job logs and is not a pass/fail result. No local build, QEMU boot, or runtime test was run in this session.
+- Follow-up commit `6cd6c13bfd5d6f5ccae9a28b5e32bca373283049` includes the cleanup correction and therefore needs its own exact-head CI. Re-check runner availability and both workflow statuses before any further code commit; avoid repeated commits while the self-hosted runner is offline.
+- Remaining scope: Security Control Center UI, public telemetry ABI/client, trusted userspace broker, endpoint provisioning/authentication, and end-to-end IPC tests are still unimplemented. Keep PR draft/unmerged.
