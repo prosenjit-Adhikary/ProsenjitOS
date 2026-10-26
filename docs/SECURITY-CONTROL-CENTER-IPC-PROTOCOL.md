@@ -55,7 +55,7 @@ Response total length must equal 24 + payload_len and be <= 64 bytes. The larges
 | 7 | BUFFER_TOO_SMALL | Required output cannot fit; no partial success |
 | 8 | INTERNAL_ERROR | Generic failure; do not disclose sensitive internals |
 
-An error must not be represented as an empty successful event list. Existing IPC receive may dequeue before copy-out succeeds; do not assume retry/delivery guarantees.
+Version 1 normative error rule: every non-OK response has payload_len = 0 and event_cursor = 0. An error must not be represented as an empty successful event list. The host parser rejects error frames carrying payload bytes or a non-zero cursor. Existing IPC receive may dequeue before copy-out succeeds; do not assume retry/delivery guarantees.
 
 ## 3. Version 1 operations
 
@@ -123,7 +123,7 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 
 ## 5.1. Parser and IPC test matrix
 
-The normative test checklist is maintained in [SECURITY-CONTROL-CENTER-TEST-MATRIX.md](SECURITY-CONTROL-CENTER-TEST-MATRIX.md). It covers exact frame sizes, malformed input, integer/length boundaries, cursor invariants, broker authorization prerequisites, and receive copy-out failure. The matrix is a test specification; it is not evidence that a parser or tests have been implemented or executed.
+The normative test checklist is maintained in [SECURITY-CONTROL-CENTER-TEST-MATRIX.md](SECURITY-CONTROL-CENTER-TEST-MATRIX.md). A pure host-testable C framing parser now exists under user/security/ with boundary/negative test cases under tests/ and a security-protocol-test Make target. The test suite has been wired into the build workflow, but its compile/runtime result is pending exact-head CI. Broker authorization, endpoint identity, and kernel IPC integration remain unimplemented.
 
 ## 6. Implementation gates
 
