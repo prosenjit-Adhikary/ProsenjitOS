@@ -328,3 +328,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Exact-head Build and boot-test run `40314781040` (#8676): job `build` is **in_progress**.
 - Job steps observed: runner setup, checkout, toolchain validation, and “Validate desktop scripts and run DML unit tests” completed successfully. “Build ISO” is currently in progress. Diagnostic, ISO QEMU boot, and native BIOS QEMU boot steps have not started at this checkpoint.
 - Do not describe the full build/boot workflow as passed. Await its final conclusion and inspect job logs if it fails.
+
+
+### CI concurrency finding and next-step rule — 2026-10-26
+- While checking run #8676 on SHA `06f8fae896d1ac5c932354f19229769e631f5940`, the ISO build and diagnostic steps completed successfully, but the ISO QEMU boot step was subsequently marked **cancelled** and native BIOS boot was **skipped**. The job did not pass.
+- The workflow defines `concurrency.cancel-in-progress: true` for this build. New commits to the same PR can cancel an in-progress build/boot run. Therefore, repeated “status-only” log commits while QEMU is running can prevent a full result from completing.
+- Latest log-only commit at this checkpoint: `24d9eaa71b49db193d2f92872fbd2774b476a450`. New runs observed: Build and boot-test run `40314944431` (#8677) **pending**; Security architecture checks run `40314944257` (#8213) **in_progress**.
+- Operational rule: avoid another branch commit until the current head's build/boot workflow reaches a terminal result, unless a source correction is required. Capture status externally first, then batch status updates into one work-log commit after terminal results.
+- No conclusion of a successful QEMU ISO boot or native BIOS boot is available from the cancelled run.
