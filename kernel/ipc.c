@@ -113,7 +113,17 @@ int ipc_channel_receive(struct pros_ipc_channel *channel,
 }
 
 uint32_t ipc_channel_count(const struct pros_ipc_channel *channel) {
-    return ipc_channel_valid(channel) ? channel->count : 0;
+    /* Channel lifetime is owned by the caller; protect the mutable queue
+     * count so readers cannot observe an in-flight send/receive update. */
+    if (!channel || channel->object.type != PROS_OBJECT_IPC ||
+        channel->object.refcount == 0)
+        return 0;
+    struct pros_ipc_channel *mutable_channel =
+        (struct pros_ipc_channel *)(uintptr_t)channel;
+    uint64_t irq_flags = ipc_lock(mutable_channel);
+    uint32_t count = mutable_channel->count;
+    ipc_unlock(mutable_channel, irq_flags);
+    return count;
 }
 
 uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
