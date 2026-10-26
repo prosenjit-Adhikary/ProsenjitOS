@@ -223,13 +223,13 @@ This section is a verification snapshot, not a claim that the filesystem is comp
 This is a source/CI handoff update only. It does not mark filesystem concurrency or release readiness as PASS.
 
 
-## Follow-up source review — IRQ-save lock contract and current head (2026-10-26 08:20 IST)
+## Follow-up source review — IRQ-save lock contract (2026-10-26 08:20 IST)
 
-- Live PR #265 source head checked before this note: `5d9e04df0ac83b03f4329f0a7a1f89cb5999dae6`.
+- Source head inspected before this documentation-only update: `5d9e04df0ac83b03f4329f0a7a1f89cb5999dae6`; the audit note itself was committed afterward.
 - `kernel/include/irq_spinlock.h` is now the shared inline primitive used by both `kernel/vfs.c` and `kernel/prosenjitfs.c`. It captures caller RFLAGS, executes `cli` before attempting the atomic lock, uses `pause` while contending, releases the lock before restoring IF, and keeps the saved flags in a caller-local token. This addresses the identified same-CPU timer-preemption deadlock pattern for callers that obey the lock protocol.
 - Nested VFS-handle -> ProsenjitFS locking restores IF in layers: the inner acquisition observes IF clear and does not re-enable it; the outer unlock restores the original IF state. The shared helper comment correctly limits this to short, non-sleeping critical sections.
 - **Newly re-confirmed design limit:** filesystem callbacks may synchronously perform block-device I/O while these locks are held. Therefore local interrupts may remain disabled for the duration of I/O. This can delay timer ticks, scheduler preemption and device interrupt service; it is a correctness mitigation, not a final latency-safe mutex architecture. Do not claim general concurrency is complete.
 - The kernel is x86-64 and the lock word uses atomic builtins, but no repository-wide SMP enablement/contract was established by this review. IRQ masking is local-CPU behavior; it is not, by itself, an SMP lock.
-- Exact-head PR workflow lookup for `5d9e04df0ac83b03f4329f0a7a1f89cb5999dae6` returned no PR-triggered workflow runs; combined commit status also reported no status entries. No local full build or QEMU boot test is claimed.
+- Exact-head PR workflow lookup for the inspected source head `5d9e04df0ac83b03f4329f0a7a1f89cb5999dae6` returned no PR-triggered workflow runs; combined commit status also reported no status entries. The subsequent documentation-only head was rechecked separately and also has no workflow runs or status entries. No local full build or QEMU boot test is claimed.
 - PR #265 remains open/unmerged and GitHub reports `mergeable=false`. PR #264 also remains open/unmerged and reports `mergeable=false`; its journal-target tests still need exact-head Build/boot-test and Security architecture verification.
 - Next safe work: add controlled concurrency tests and audit namespace/mount lifecycle paths; then decide whether the kernel needs a scheduler-aware sleepable mutex before widening lock scope. Do not mechanically wrap create/unlink/rename/readdir with this non-recursive lock until call-graph recursion and lock order are proven.
