@@ -564,3 +564,10 @@ The following functions mutate shared scheduler state and must be covered by one
 - Branch source reviewed: `kernel/thread.c` blob SHA `f67c245ede7319c49d37fea0eff148758e652d7a`; `kernel/include/thread.h` blob SHA `a614eda8f3eff8bb0186b4d1753e4e9e61d793bf`.
 - This checkpoint changes documentation only. It does not claim a scheduler fix, mutex implementation, or race closure.
 - Build/boot verification must be attached to the exact resulting commit. At the preceding checkpoint (`7297a187c755bbe1d20a1d930227fa1007b6e11d`), the GitHub connector reported no commit statuses and no PR workflow runs; that state is unverified, not PASS.
+
+
+## Channel-owned wake validation implementation (2026-10-26)
+
+The scheduler now exposes `thread_wake_on_channel(thread, wait_channel)`. It rejects a wake when the thread is no longer BLOCKED on the expected channel. The existing `thread_wake(thread)` API remains for callers that intentionally perform a generic wake. IPC send and explicit wake now use the channel-specific API, preventing a stale/mismatched IPC waiter entry from waking a thread blocked on a different wait object.
+
+This is a narrow ownership check, not a scheduler-wide synchronization fix. The run queue and thread state still lack a common scheduler guard; SMP safety, full termination ordering, and atomic publication across arbitrary wait sources remain unresolved. No build, boot, or runtime test is claimed until CI verifies the exact commit.
