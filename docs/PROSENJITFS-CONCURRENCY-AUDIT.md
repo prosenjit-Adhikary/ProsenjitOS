@@ -638,3 +638,11 @@ This is a source-level regression addition only. It has not yet been compiled or
 - `kernel/include/ipc.h` now documents that `ipc_channel_cancel_waiter()` detaches only the channel's waiter-array entry. It does not wake the thread and does not clear `thread->wait_channel`; callers must keep the channel object alive and coordinate teardown.
 - The startup regression's failure diagnostic was restored to a meaningful cancellation-specific message after an earlier edit accidentally shortened the string. This is source review only; compile and boot remain unverified.
 - This documentation does not solve the scheduler/IPC lock-order issue or prove that process termination and cancellation are atomic. The blocked-process termination regression remains an open item until a safe fixture and queue/lifetime protocol are established.
+
+
+### Typed IPC wait-channel ownership (2026-10-26)
+
+- `struct pros_thread.wait_channel` and `thread_block()` now use `struct pros_ipc_channel *` rather than an untyped `void *`. This matches the only current blocking implementation, `ipc_channel_wait()`, and makes accidental use of an unrelated object type diagnosable by the compiler.
+- Process termination passes the typed pointer directly to `ipc_channel_cancel_waiter()`; the unchecked cast from a generic pointer is removed.
+- This is an API/type-safety improvement, not a lifetime proof: the channel owner must still keep the channel alive while a thread points to it, and cancellation failure still needs a deliberate teardown policy. It does not add scheduler-wide locking or SMP safety.
+- Verification is source-only until the exact PR head builds and the QEMU startup regressions execute.
