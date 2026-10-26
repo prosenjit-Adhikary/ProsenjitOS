@@ -60,6 +60,8 @@ int thread_schedule(void);
 int thread_schedule_preempt(void);
 int thread_block(void *wait_channel);
 int thread_wake(struct pros_thread *thread);
+/* Wake only if the thread is still blocked on the supplied wait channel. */
+int thread_wake_on_channel(struct pros_thread *thread, const void *wait_channel);
 int thread_has_runnable(void);
 
 /* Read-only scheduler population counters for observability. */
