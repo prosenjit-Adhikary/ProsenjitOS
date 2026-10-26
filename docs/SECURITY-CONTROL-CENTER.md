@@ -265,4 +265,4 @@ The trusted userspace broker startup, endpoint identity, authorization, shutdown
 
 
 ## Telemetry source mapping
-The current source-to-wire constraints and implementation gates are recorded in `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`. In particular, the existing health-event ring is bounded and useful, but its drop counter does not yet saturate, and security-monitor records are decision summaries rather than complete one-to-one event payloads. Do not expose a “complete” audit view until the mapping and failure semantics are implemented and tested.
+The current source-to-wire constraints and implementation gates are recorded in `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`. In particular, the existing health-event ring is bounded and useful, and its `uint32_t` drop counter now saturates at `UINT32_MAX` with a boundary self-test; exact-head compile/runtime verification remains pending CI. The counter's reset/epoch semantics and the mapping from security-monitor decision summaries to public event records still require review and tests. Do not expose a “complete” audit view until mapping and failure semantics are implemented and tested.
