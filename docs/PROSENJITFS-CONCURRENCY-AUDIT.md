@@ -617,3 +617,10 @@ A missing waiter entry is not equivalent to a successful detach. However, cleari
 4. Keep cancellation outside a scheduler guard unless a dedicated non-recursive internal API and an explicitly proven lock order are implemented.
 
 This review is a source audit only. No termination code was changed, and no build, QEMU boot, or runtime pass is claimed. The safe implementation boundary is to establish the shared scheduler/wait-queue protocol first, then make process teardown use it; a local return-code check alone cannot prove that the scheduler queue, IPC waiter array, and thread registry remain consistent.
+
+
+### Absent-waiter cancellation regression added (2026-10-26)
+
+The kernel startup IPC regression now calls `ipc_channel_cancel_waiter()` on a valid, separate channel that has no entry for the blocked thread. It requires `PROSENJIT_IPC_EEMPTY`, zero waiter entries on that unrelated channel, and preservation of the original channel's waiter entry and the blocked thread's `wait_channel`. This exercises the non-mutating “waiter not found” path without dismantling the primary send/wakeup regression.
+
+This is a source-level regression addition only. It has not yet been compiled or executed in QEMU. Successful cancellation during process termination and the lifetime/lock-order protocol remain open follow-ups.
