@@ -485,3 +485,9 @@ This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation 
 - A local build could not be run in this environment because the GitHub host could not be resolved from the build container.
 - At the time checked, the GitHub connector returned no workflow runs and no commit status for this exact SHA. This is **unverified**, not PASS.
 - Next required gate: run the repository's `-Wall -Wextra -Werror` build, then both ISO and native BIOS QEMU boot/regression workflows on this exact source head. Add deterministic tests for prior-IF preservation and waiter publication/wakeup ordering before treating the race as closed.
+
+### IPC interrupt-state regression added
+
+- `kernel/kernel.c` now snapshots RFLAGS immediately before the existing IPC send/wakeup regression and checks that the IF bit is unchanged immediately after `ipc_channel_send()`.
+- This is a narrow regression against accidentally enabling interrupts when the caller entered with them disabled. It does not simulate an IF-enabled caller or deterministic timer preemption; those remain required follow-up tests.
+- Test source commit: `7cbf5768d3129fd4fcdb87c605cdc5d7cdff97a4`.
