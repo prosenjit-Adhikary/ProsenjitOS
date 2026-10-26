@@ -186,40 +186,37 @@ static void test_response_frames(void)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 0, 41);
-    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 2, 41, 0, &v)
+    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_OK);
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 0, 42);
-    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 2, 41, 0, &v)
+    assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 24, 42);
     event_record(b + 24, 42);
-    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_OK);
     assert(v.event_count == 1 && v.event_cursor == 42);
-    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 42, 0, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 42, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 16, 41);
-    assert(scc_parse_response(b, 44, SCC_OP_LIST_EVENTS, 12, 2, 41, 0, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 48, 43);
-    assert(scc_parse_response(b, 65, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, 0, &v)
+    assert(scc_parse_response(b, 65, SCC_OP_LIST_EVENTS, 12, 1, 41, 0, &v)
            == SCC_PARSE_OVERSIZED_FRAME);
-    put64(b + 44, 42);
-    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 2, 41, 0, &v)
-           == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_GET_EVENT, 15, SCC_STATUS_OK, 24, 123);
     event_record(b + 24, 123);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, 123, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_OK);
     put64(b + 16, 124);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, 123, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 16, 123);
     put64(b + 24, 124);
-    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, 123, &v)
+    assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 25, 0);
