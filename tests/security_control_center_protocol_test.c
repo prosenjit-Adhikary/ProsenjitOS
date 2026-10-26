@@ -61,6 +61,17 @@ static void test_request_frames(void)
 
     assert(scc_parse_request(NULL, 0, &v) == SCC_PARSE_INVALID_ARGUMENT);
     assert(scc_parse_request(b, 16, NULL) == SCC_PARSE_INVALID_ARGUMENT);
+    {
+        uint8_t unaligned[SCC_IPC_MESSAGE_MAX + 1];
+        struct scc_request_view before;
+        memset(&before, 0xA5, sizeof(before));
+        memcpy(&v, &before, sizeof(v));
+        assert(scc_parse_request(b, 15, &v) == SCC_PARSE_SHORT_FRAME);
+        assert(memcmp(&v, &before, sizeof(v)) == 0);
+        request_header(unaligned + 1, SCC_OP_GET_STATUS, 5, 0);
+        assert(scc_parse_request(unaligned + 1, 16, &v) == SCC_PARSE_OK);
+        assert(v.request_id == 5);
+    }
     for (n = 0; n < SCC_REQUEST_HEADER_SIZE; ++n)
         assert(scc_parse_request(b, n, &v) == SCC_PARSE_SHORT_FRAME);
     assert(scc_parse_request(b, 65, &v) == SCC_PARSE_OVERSIZED_FRAME);
@@ -115,6 +126,22 @@ static void test_response_frames(void)
            == SCC_PARSE_INVALID_ARGUMENT);
     assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 1, 0, 0, NULL)
            == SCC_PARSE_INVALID_ARGUMENT);
+    {
+        uint8_t unaligned[SCC_IPC_MESSAGE_MAX + 1];
+        uint8_t before[sizeof(v)];
+        memset(&v, 0x5A, sizeof(v));
+        memcpy(before, &v, sizeof(v));
+        response_header(b, SCC_OP_GET_STATUS, 1, SCC_STATUS_OK, 24, 0);
+        assert(scc_parse_response(b, 23, SCC_OP_GET_STATUS, 1, 0, 0, &v)
+               == SCC_PARSE_SHORT_FRAME);
+        assert(memcmp(&v, before, sizeof(v)) == 0);
+        response_header(unaligned + 1, SCC_OP_GET_STATUS, 6, SCC_STATUS_OK, 24, 0);
+        put16(unaligned + 1 + 24, 1);
+        put16(unaligned + 1 + 26, 2);
+        assert(scc_parse_response(unaligned + 1, 48, SCC_OP_GET_STATUS, 6, 0, 0, &v)
+               == SCC_PARSE_OK);
+        assert(v.request_id == 6);
+    }
     for (n = 0; n < SCC_RESPONSE_HEADER_SIZE; ++n)
         assert(scc_parse_response(b, n, SCC_OP_GET_STATUS, 1, 0, 0, &v)
                == SCC_PARSE_SHORT_FRAME);
