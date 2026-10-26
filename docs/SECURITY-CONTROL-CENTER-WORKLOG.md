@@ -499,3 +499,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Additional gap clarified: the current malformed-input loop is a deterministic smoke test, not a coverage-guided fuzzer. There is no response serializer yet, and no registry of supported capability bits or event enum values. These must remain explicit follow-up gates; do not imply they already exist or invent enum values without a reviewed protocol decision.
 - The parser's scope is framing/shape validation only. It does not authenticate peers, enforce handle rights, verify telemetry provenance, or establish broker identity. No new kernel or ABI changes were made in this checkpoint.
 - Next actionable step: get the exact-head workflows to start and inspect their logs; if the runner stays queued, diagnose runner availability before making more commits. After CI, separately specify the v1 capability/event registries and serializer contract, add corresponding tests, then plan trusted broker provisioning. Keep PR #268 draft until all applicable checks and review gates pass.
+
+
+## Protocol hardening continuation — 2026-10-26
+
+- Working branch: `security/scc-u64-timestamp-get-event-guard`, forked from PR #268 head `2bd001fed93556284bcc6393f3ad19e18e2fe2e1`; PR #268 itself is untouched while its exact-head CI is queued.
+- Design decision: event timestamp is 64-bit raw `timer_ticks()`, with `timer_frequency_hz()` defining ticks per second. It is boot-relative monotonic time, not wall-clock time. Event records are 24 bytes; with the 24-byte response header and 64-byte IPC cap, v1 permits one event per response.
+- Parser hardening: `GET_EVENT` response parsing takes the requested event sequence and requires the response record sequence and cursor to match it. A zero sequence is rejected in GET_EVENT requests and responses.
+- Regression tests were revised for one-record pagination, 24-byte event records, bad cursor, requested/returned sequence mismatch, zero sequence, and oversized frames.
+- Verification: source edits are committed to this isolated branch, but no local compile, sanitizer run, or QEMU boot has been performed in this environment. Exact-head CI must be checked; no test pass is claimed.
+- Still missing: authenticated broker identity/provisioning, kernel IPC integration, stable public source/reason mapping, and reviewed timestamp/epoch semantics. Keep PR #268 draft and unmerged until exact-head checks pass.
