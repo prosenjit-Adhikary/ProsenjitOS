@@ -790,7 +790,7 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         thread_schedule() != 0 ||
         thread_current() != &worker_thread ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED) {
-        serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
+        serial_write("ProsenjitOS: ERROR IPC wrong-channel/cancel-absent regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     /* Generic wake must not bypass the owning wait queue, or the channel
