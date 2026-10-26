@@ -189,7 +189,9 @@ enum scc_parse_result scc_parse_response(
     } else {
         if (payload_length != SCC_EVENT_RECORD_SIZE)
             return SCC_PARSE_BAD_PAYLOAD;
-        if (scc_read_u64(bytes + 16) != scc_read_u64(payload))
+        if (expected_event_sequence == 0 ||
+            scc_read_u64(payload) != expected_event_sequence ||
+            scc_read_u64(bytes + 16) != expected_event_sequence)
             return SCC_PARSE_BAD_PAYLOAD;
         count = 1;
     }
