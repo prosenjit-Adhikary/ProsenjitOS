@@ -425,6 +425,11 @@ static int thread_wake_internal(struct pros_thread *thread,
 }
 
 int thread_wake(struct pros_thread *thread) {
+    /* A thread owned by a wait queue must be detached by that queue's
+     * channel-specific wake/cancel path before it can become runnable.
+     * Generic wake would otherwise leave a stale queue entry behind. */
+    if (thread && thread->wait_channel != 0)
+        return -1;
     return thread_wake_internal(thread, 0);
 }
 
