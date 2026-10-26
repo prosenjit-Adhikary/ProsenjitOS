@@ -413,3 +413,14 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Re-audited the IPC protocol, telemetry source map, lifecycle contract, kernel health ring, and IPC implementation. Found stale counter claims in the source map/lifecycle contract and inconsistent `event_cursor` meanings in the protocol.
 - Proposed making `GET_STATUS` carry both `dropped_event_count` and `latest_event_sequence`, while reserving the response-header `event_cursor` for event pagination. The wire `u64` drop count is zero-extended from the current `uint32_t` source; it must not imply extra source precision.
 - Attempted to apply the documentation corrections through the GitHub contents API, but the write tool returned an internal error. No file changes were confirmed; verify branch/file state before retrying. No runtime source or ABI changed; exact-head CI remains queued.
+
+
+## Consistency corrections applied — 2026-10-26
+
+- Applied the documentation-only correction on isolated branch `docs/security-center-consistency-2026-10-26`; the original PR #267 branch and its queued exact-head workflows were not changed.
+- `docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md`: `GET_STATUS` now proposes a 24-byte payload with both `dropped_event_count: u64` and `latest_event_sequence: u64`. The response-header `event_cursor` is reserved for `LIST_EVENTS` pagination and is zero/inapplicable for `GET_STATUS`; an empty event page must not advance the cursor. The wire drop count is explicitly zero-extended from the source's current `uint32_t` and does not imply extra precision.
+- `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`: corrected stale claims that the health drop counter still wraps and clarified that reset/epoch semantics plus exact-head CI remain outstanding.
+- `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`: corrected the stale non-saturating-counter claim and retained the separate limitation that security-monitor records are decision summaries, not one-to-one original events.
+- Cross-checked `kernel/health.c`: saturation guard, `UINT32_MAX - 1` boundary test, and successful-test telemetry reset are present in source. Cross-checked `kernel/ipc.c`: message size is bounded before queue insertion; receive rejects insufficient capacity before copying/dequeueing at this low-level C API. Syscall-level user-copy and delivery semantics still need dedicated tests.
+- Exact-head CI for `e2102a018b166d4bfd3c9819de6190effe5c652b` remained queued at the time of this audit: Build/boot run `40338325240` (#8687) and Security architecture run `40338325191` (#8223). No compile, QEMU, or runtime pass is claimed.
+- No kernel/runtime source, public ABI, filesystem, process lifecycle, boot flow, or desktop code was changed. These commits only correct design documentation and its log. Keep the implementation unmerged until CI and security review pass.
