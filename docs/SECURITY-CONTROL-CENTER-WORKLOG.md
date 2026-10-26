@@ -312,3 +312,11 @@ The first query for head `8e1b6c84331c1f03844c807c7b235988e489d7ca` returned no 
 - Combined commit status endpoint still returned no entries; the workflow-run details above are the direct evidence.
 - An earlier build run `40314446027` / #8673 for the prior SHA had since become **cancelled**; do not count it as a pass.
 - This status is specific to `8e1b6c84331c1f03844c807c7b235988e489d7ca`. Because this status refresh itself is being committed, check workflow runs for the resulting new head before deciding whether CI is green.
+
+
+### Final status refresh for the recorded head — 2026-10-26
+For commit `0710676371c2008645c5b5d22b422ef9ca08ec29`, a follow-up query later returned:
+- Security architecture checks run `40314671057` / #8211: **success**.
+- Build and boot-test ProsenjitOS run `40314671037` / #8675: **in_progress** (no conclusion yet).
+- Combined commit status endpoint: no entries.
+These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The next documentation commit will create another head and may trigger new workflow runs; check the new exact SHA before making any CI claim.
