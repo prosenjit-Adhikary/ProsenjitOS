@@ -540,3 +540,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Audited `kernel/object.c` handle duplication and copy/move transfer. Rights attenuation is enforced: duplicate requires DUPLICATE, transfer requires TRANSFER, and requested rights cannot exceed source rights. The syscall's transfer path resolves the destination by PID and authorizes the transfer intent.
 - Added the distinction to the broker implementation plan: attenuated rights and generation-tagged handles are valuable but do not authenticate the destination as the approved broker. Trusted identity must be established and bound by the OS provisioning path.
 - No kernel behavior or syscall ABI changed. Host tests still have not been run in this environment; exact-head CI is the validation gate.
+
+
+## IPC waiter review and exact-head checkpoint — 2026-10-26
+
+- Inspected `kernel/ipc.c` queue/waiter code. Channel spinlock protects queue and waiter arrays; wait path calls `thread_block()` while locked, and send/wake path calls `thread_wake()` while locked. This is not by itself proof of deadlock freedom or future SMP correctness.
+- Added explicit review gates to `docs/SECURITY-CONTROL-CENTER-BROKER-IMPLEMENTATION-PLAN.md`: lock ordering, wake/block race, blocked-syscall retry, waiter cancellation on exit/revocation, full waiter array, queue saturation, failed wake and repeated send/receive tests. No kernel IPC code was changed.
+- Additional regression added: GET_EVENT response parsing rejects a response when the expected request sequence is zero. Test matrix RS-12 now strictly matches the normative v1 error rule.
+- Current PR head before this note: `e53adb7cb99c87187706496de2cafaef9729a53d`. Exact-head workflow status must be re-fetched after this note's commit.
+- CI status from prior head `6464b8b6f6b5b2ef24b76ac4488cca6a9cc57f5c`: build/boot run `40354720119` and security run `40354720175`; both jobs were still queued. No pass is claimed.
