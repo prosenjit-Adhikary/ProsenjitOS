@@ -462,3 +462,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Added `docs/SECURITY-CONTROL-CENTER-TEST-MATRIX.md` and linked it from the protocol proposal. Updated the test matrix to distinguish the parser implementation from still-unimplemented broker identity, endpoint authorization, UI, and kernel IPC integration.
 - Source review after edits confirmed the new paths, Make target, workflow invocation, and no stale claims that the health drop counter is non-saturating in the audited Security Control Center documents. The parser/tests have **not** been compiled or executed in this session; exact-head CI is the acceptance gate. Do not claim passing tests until logs show it.
 - Safety boundary preserved: no syscall numbers, kernel IPC framing, process lifecycle, filesystem, or desktop code changed in this parser task. The parser is not an authentication layer and must not be used to infer peer trust.
+
+
+## Parser review checkpoint — 2026-10-26
+
+- Re-fetched the parser, public-to-userspace interface header, host tests, test runner, Makefile, protocol proposal, test matrix, and build workflow from the isolated branch after the implementation changes.
+- Confirmed the host target is wired before the OS build, the test source contains 48 assertion sites, and the parser writes result views only after full validation succeeds. Bounds comparisons use explicit fixed-width casts where the protocol's maximum event count is compared with 16-bit fields.
+- Added regression checks for response flags, invalid output pointer, nonzero error cursor, and the requested event-record cap. Corrected the expected parser result for a status payload with a valid frame length but invalid schema length.
+- Current source-level review is not a substitute for execution. The exact-head Security architecture and Build/boot-test workflows have been repeatedly queued on the self-hosted runner; the latest head must be rechecked after this log commit. No compile/test/boot pass is claimed.
+- Known limitations remain explicit: no broker executable, no authenticated endpoint/identity provisioning, no kernel IPC integration, no UI, and no copy-out delivery fix. The parser is pure framing/shape validation only and cannot establish trust.
