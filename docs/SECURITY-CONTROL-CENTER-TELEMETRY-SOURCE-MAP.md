@@ -63,13 +63,18 @@ Verified facts:
 
 ## 4. Wire-format mapping warning
 
-The protocol proposal's 20-byte event record is a deliberately compact wire representation, not a direct cast of `struct pros_health_event`. In particular:
-- Internal timestamp is 64-bit while proposed wire timestamp is 32-bit; a conversion, unit, range and overflow policy must be explicitly defined before implementation.
-- Internal source and code are 32-bit; proposed source identifier is 16-bit. Define stable mapping and reject/trap unrepresentable values rather than silently truncate.
-- Internal `value` is 64-bit and intentionally omitted from v1 to avoid leaking packed state or arbitrary internal values.
-- Severity/category are numeric internal enums. Unknown values must be handled without unsafe assumptions; the public protocol must define its own stable enum values.
+The current draft protocol on `security/scc-u64-timestamp-get-event-guard` proposes a 24-byte event wire record. It is deliberately not a direct cast of `struct pros_health_event`, whose layout and field widths are kernel-internal.
 
-Do not use structure casts, packed-struct assumptions, or copy internal kernel structures directly into userspace. Build wire messages field-by-field, validate every conversion, initialize all response bytes, and test exact byte lengths.
+- `sequence`: wire `u64`, sourced from the internal 64-bit sequence, but only meaningful within a documented source/broker epoch.
+- `timestamp_ticks`: wire `u64`, sourced from the internal 64-bit `timer_ticks()` timestamp. `timer_frequency_hz()` defines units; this is boot-relative monotonic time, not wall-clock time.
+- `severity` and `category`: wire `u8` values require explicit stable public enums. Do not silently cast internal `u32` enums; reject or map unknown values according to a reviewed compatibility rule.
+- `source_id`: wire `u16` while internal source is `u32`. Define a stable allow-listed mapping and never truncate unknown values.
+- `reason_code`: wire `u32`, sourced from internal code only through a reviewed public mapping. Never expose raw kernel addresses, packed internal state, or arbitrary values.
+- Internal `value` is omitted from v1 to avoid leaking packed state or arbitrary internal values.
+
+The 24-byte record plus the 24-byte response header permits one event in a 64-byte IPC message (48 bytes total). Two records would require 72 bytes and must be rejected. `GET_EVENT` requests must carry a nonzero sequence; the response record sequence and response cursor must both equal that requested sequence. This request-binding check is framing validation, not peer authentication.
+
+Build wire messages field-by-field, validate every conversion, initialize all response bytes, and test exact byte lengths. No response serializer or stable source/reason registry is currently implemented.
 
 ## 5. Readiness decision
 
