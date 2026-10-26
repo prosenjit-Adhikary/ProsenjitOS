@@ -404,5 +404,6 @@ int pros_health_selftest(void) {
         snapshot.dropped_events != UINT32_MAX)
         return PROS_HEALTH_EIO;
 
-    return PROS_HEALTH_OK;
+    /* Do not leave synthetic boundary-test telemetry in the live ring. */
+    return pros_health_init();
 }
