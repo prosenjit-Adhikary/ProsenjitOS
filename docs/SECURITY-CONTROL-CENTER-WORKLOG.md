@@ -371,3 +371,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Review caveat: low-level IPC channel locking/waiter behavior and the single-CPU usercopy fault-recovery state require separate concurrency/SMP review; this milestone does not certify them.
 - No kernel/runtime source or ABI was changed. This remains a documentation-only proposal; no trusted broker, public protocol structs, parser, or UI client is implemented.
 - Next: current protocol proposal is ready for design review, not direct implementation. Before adding shared ABI declarations, define broker identity/endpoint provisioning and lifecycle rollback, then implement host-side parser tests against exact field sizes.
+
+
+## Broker lifecycle contract and protocol consistency review — 2026-10-26
+- Rechecked exact-head CI for `20d6711f5d1f378cac14e2a5d8a5f6a60c37f747`: Build and boot-test run `40324993325` (#8681) **success**; Security architecture checks run `40324993329` (#8217) **success**. Verified the build job completed desktop/DML tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot. These results apply only to `20d6711f5d1f378cac14e2a5d8a5f6a60c37f747`.
+- Added `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`, a design-only broker lifecycle contract covering startup transaction, READY publication, service identity, per-request authorization, rollback, shutdown/restart, concurrency/ownership, and verification gates. It explicitly depends on `docs/NATIVE-SPAWN-CONTRACT.md` and the IPC proposal.
+- Consistency review found the architecture required dropped-event visibility while the protocol deferred its counter. Resolved the mismatch in the proposal: GET_STATUS payload now defines a saturating dropped-event count, while response-header `event_cursor` carries latest observed sequence. If the source cannot count drops, it must not fabricate zero or imply complete history.
+- This change is still documentation/design-only. No runtime ABI, syscall, kernel, VFS, process lifecycle, broker, parser or UI implementation was added. New commit needs its own exact-head CI.
+- Next: inspect CI for this new documentation commit; after successful exact-head checks, seek design review before translating the proposal into public ABI and tests. Runtime work remains gated on native spawn and trusted endpoint provisioning.

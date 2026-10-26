@@ -258,3 +258,7 @@ The feature is not complete until all of the following are true on one exact com
 ## Read-only telemetry wire proposal
 
 A separate bounded IPC proposal lives in docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md. It specifies a 16-byte request header, 24-byte response header, read-only status/event operations, a 20-byte event record, explicit error states, and parser/authorization tests sized to the current 64-byte IPC limit. It is not implemented and does not authenticate peers; trusted broker identity and endpoint provisioning remain prerequisites.
+
+
+## Broker lifecycle contract
+The trusted userspace broker startup, endpoint identity, authorization, shutdown and restart proposal is documented in `docs/SECURITY-CONTROL-CENTER-SERVICE-LIFECYCLE.md`. It is a prerequisite contract, not a running service implementation. The IPC protocol's GET_STATUS payload and response cursor were aligned so dropped-event count and latest observed sequence have separate, explicit fields.
