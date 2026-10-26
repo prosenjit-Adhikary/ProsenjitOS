@@ -771,6 +771,44 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     }
     serial_write("ProsenjitOS: process-thread teardown regression passed\n");
 
+    /*
+     * Process termination must detach a blocked thread from its owning IPC
+     * queue before the caller-owned thread/process fixtures can be reaped.
+     * The fixture seeds the queue directly: ipc_channel_wait() intentionally
+     * accepts only thread_current(), and this regression must not terminate
+     * the live init/worker scheduler threads.
+     */
+    struct pros_process ipc_teardown_process;
+    struct pros_thread ipc_teardown_thread;
+    struct pros_ipc_channel ipc_teardown_channel;
+    if (process_create(&init_process, &ipc_teardown_process, 12,
+                       PROS_SECURITY_LIMITED) != 0 ||
+        thread_init(&ipc_teardown_thread, &ipc_teardown_process, 12,
+                    (uint64_t)(uintptr_t)scheduler_test_worker_entry,
+                    (uint64_t)(uintptr_t)(lifecycle_thread_stack +
+                                          sizeof(lifecycle_thread_stack))) != 0 ||
+        ipc_channel_init(&ipc_teardown_channel) != PROSENJIT_IPC_OK) {
+        serial_write("ProsenjitOS: ERROR IPC process-teardown setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    ipc_teardown_thread.state = PROS_THREAD_BLOCKED;
+    ipc_teardown_thread.wait_channel = &ipc_teardown_channel;
+    ipc_teardown_channel.waiters[0] = &ipc_teardown_thread;
+    ipc_teardown_channel.waiter_count = 1;
+    uint64_t teardown_runnable_before = thread_runnable_count();
+    if (process_exit(&ipc_teardown_process, 23) != 0 ||
+        thread_state(&ipc_teardown_thread) != PROS_THREAD_DEAD ||
+        ipc_teardown_thread.wait_channel != 0 ||
+        ipc_teardown_channel.waiter_count != 0 ||
+        ipc_teardown_channel.waiters[0] != 0 ||
+        thread_runnable_count() != teardown_runnable_before ||
+        process_wait(&init_process, ipc_teardown_process.pid, &waited_exit) != 0 ||
+        waited_exit != 23) {
+        serial_write("ProsenjitOS: ERROR IPC blocked-thread teardown regression failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+    serial_write("ProsenjitOS: IPC blocked-thread process-teardown regression passed\n");
+
     /* IPC wait-queue regression: block a receiver, schedule another thread,
      * then wake the receiver when a message arrives. */
     struct pros_ipc_channel ipc_wait_test;
