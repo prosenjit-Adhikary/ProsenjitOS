@@ -217,7 +217,7 @@ static void test_response_frames(void)
     put64(b + 16, 124);
     assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_BAD_PAYLOAD);
-    put64(b + 16, 123);
+    put64(b + 16, 124);
     put64(b + 24, 124);
     assert(scc_parse_response(b, 48, SCC_OP_GET_EVENT, 15, 0, 0, 123, &v)
            == SCC_PARSE_BAD_PAYLOAD);
