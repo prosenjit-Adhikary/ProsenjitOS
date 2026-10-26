@@ -243,3 +243,12 @@ This is a source/CI handoff update only. It does not mark filesystem concurrency
 - Remaining gaps: local interrupts stay disabled across synchronous filesystem/device I/O; namespace and mount-lifecycle operations are not comprehensively serialized; deterministic concurrent tests are missing; and SMP safety is not established. No local full build or QEMU result is claimed.
 - PR #264 remains open/unmerged at `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`; its exact-head CI also requires rechecking.
 - Keep both PRs unmerged until fresh exact-head CI passes and the remaining lock-latency, namespace/lifetime, and concurrency-test gates are reviewed.
+
+
+## Post-refresh verification — 2026-10-26 08:25 IST
+
+- Rechecked PR metadata after the prior audit refresh: current PR #265 head is `7efcf9b14fc60fa798c36721a22a38ac629e16d7`; it remains open and unmerged, with GitHub reporting `mergeable=false`.
+- The current branch's visible Build/boot-test and Security workflow runs remain attached to older source commits, including `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`. The commit-specific PR workflow lookup for `7efcf9b14fc60fa798c36721a22a38ac629e16d7` returned no runs. Therefore there is still no passing exact-head CI evidence for the current branch.
+- Confirmed implementation detail: `kernel/include/irq_spinlock.h` saves caller RFLAGS, executes `cli` before attempting the atomic lock, and restores IF only when it was enabled at entry. VFS and ProsenjitFS use caller-local saved-flags tokens, preserving nested VFS-handle → filesystem lock restoration on the current CPU.
+- The mitigation does not make long critical sections latency-safe. Synchronous filesystem callbacks can hold local interrupts disabled during block-device I/O. A scheduler-aware sleepable mutex remains a separate design task; IRQ masking alone does not establish SMP safety.
+- No local build, QEMU boot, runtime deadlock reproduction, or concurrency stress-test pass is claimed. Keep PR #265 unmerged pending exact-head CI and deterministic concurrency/lifecycle tests.
