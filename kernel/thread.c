@@ -153,7 +153,7 @@ int thread_terminate_process(struct pros_process *process) {
         if (thread == current_thread)
             terminated_current = 1;
         if (thread->wait_channel) {
-            (void)ipc_channel_cancel_waiter((struct pros_ipc_channel *)thread->wait_channel, thread);
+            (void)ipc_channel_cancel_waiter(thread->wait_channel, thread);
             thread->wait_channel = 0;
         }
         thread->blocked_syscall = 0;
@@ -386,7 +386,7 @@ struct pros_interrupt_frame *thread_schedule_interrupt(
     return frame;
 }
 
-int thread_block(void *wait_channel) {
+int thread_block(struct pros_ipc_channel *wait_channel) {
     if (!current_thread || !wait_channel ||
         current_thread->state != PROS_THREAD_RUNNING)
         return -1;
