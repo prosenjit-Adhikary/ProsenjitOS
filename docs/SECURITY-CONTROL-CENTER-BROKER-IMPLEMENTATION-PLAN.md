@@ -34,6 +34,31 @@ Current source constraints that block implementation:
 7. **Consistent snapshot semantics:** define locking/sequence/counter epoch rules before exposing concurrent telemetry. A 64-bit wire drop counter currently zero-extends the kernel's saturating 32-bit counter; it does not add precision.
 8. **Auditable failure:** authorization denial, unavailable source, stale cursor, overflow, startup failure and shutdown are distinguishable internally without leaking protected resource existence to an unauthorized client.
 
+## Source-audit finding: IPC receive is not retry-safe on copy-out failure
+
+Source inspected on this branch:
+- `kernel/syscall.c`, `PROSENJIT_SYS_IPC_RECEIVE` case
+- `kernel/ipc.c`, `ipc_channel_receive()`
+- `kernel/usercopy.c`, `copy_to_user()`
+
+Observed ordering:
+1. The syscall validates the destination ranges and IPC handle/READ authorization.
+2. `ipc_channel_receive()` copies the queued message into a kernel-local buffer, sets `length_out`, advances `head`, decrements `count`, and unlocks the channel.
+3. Only after dequeue, the syscall copies the message bytes to the user buffer, then copies the length to `length_out`.
+4. If either `copy_to_user()` fails, the syscall returns an error but the queued message has already been consumed. Range prevalidation does not guarantee the later copy cannot fault.
+
+Impact: a client must not assume a failed receive is safe to retry or that the message remains queued. For a future broker, this can lose a request/response and create ambiguous timeout behavior. This is a documented existing limitation, not a claim of exploitable memory corruption.
+
+Do not patch this by casually splitting receive into peek and commit. A safe change needs a reviewed delivery contract and concurrency tests, including:
+- failed message-buffer copy-out does not consume the message, if that is the chosen contract;
+- failed length-out copy does not consume the message, if that is the chosen contract;
+- queue head/count remain consistent under concurrent sender/receiver and waiter wake/cancel paths;
+- too-small capacity rejects without dequeue (currently the lower-level function checks size before copying/dequeueing);
+- exactly one successful receive consumes exactly one message;
+- fault-injection exercises both copy-out failure points.
+
+Preferred design to review: reserve/peek a message under a defined channel transaction, copy to userspace without holding a spinlock across faultable memory access, and commit dequeue only after both output copies succeed; add a reservation token/generation or serialize receivers so a second receiver cannot consume the same head during copy-out. The current channel implementation has no such transaction token. Do not implement this design until locking, blocking, waiter and interrupt interactions are audited.
+
 ## Dependency-ordered milestones
 
 ### M0 — Freeze contracts and prove existing boundaries (current)
@@ -41,7 +66,8 @@ Current source constraints that block implementation:
 - [x] Document bounded protocol parser and tests; exact-head CI still needs a result.
 - [x] Document native spawn and service lifecycle as contracts rather than implemented capabilities.
 - [x] Define 24-byte event wire record, 64-bit boot-relative tick timestamp, one-event pagination, and GET_EVENT request/response sequence binding on the current draft branch.
-- [ ] Audit the exact syscall send/receive path, user-copy failure behavior, IPC queue ownership, handle transfer/dup rights reduction, and lock/waiter concurrency from source and tests.
+- [x] Audit the syscall receive path and document copy-out/dequeue failure semantics: the current implementation consumes the message before both user copies complete; retry is not guaranteed.
+- [ ] Audit IPC queue ownership, handle transfer/dup rights reduction, and lock/waiter concurrency from source and tests.
 - [ ] Reconcile all docs against the current 24-byte record; no stale 20-byte descriptions.
 - Exit gate: source paths and tests are recorded; no unsupported end-to-end claim; exact-head CI green.
 
