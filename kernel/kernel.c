@@ -780,6 +780,9 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         thread_current() != &init_thread ||
+        ipc_channel_wait(&ipc_wait_test, &worker_thread) != PROSENJIT_IPC_EINVAL ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
+        ipc_wait_test.waiter_count != 0 ||
         ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
