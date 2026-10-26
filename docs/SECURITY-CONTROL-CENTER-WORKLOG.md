@@ -245,3 +245,39 @@ The source evidence still does not establish a production-ready trusted security
 - For commit `c8061e26526346c6c484313caa85a94efdfa9735`, the PR workflow-run query returned no runs and combined status returned no entries.
 - PR #267 remains open, draft, and unmerged. This is an **unverified CI state**, not a passing result.
 - The PR description was refreshed to match the source findings and this verification state.
+
+
+## Continued boot and user-process launch audit — 2026-10-26
+
+### Exact starting state
+- Repository: `prosenjit-Adhikary/ProsenjitOS`
+- Branch: `feature/security-control-center-design`
+- PR #267: open, draft, unmerged; starting head `10165d7b0afb471a7abc76cb09aa631dbc3d5dfa`.
+- Current scope: Security Control Center design/handoff documentation only. Preserve kernel, syscall ABI, filesystem, boot flow, DML and desktop integration; do not merge automatically.
+
+### Source inspection performed in this continuation
+- `kernel/kernel.c` (full file; especially process initialization and final CPL3 entry sequence).
+- `kernel/init.c` (`pros_init_load()` and its self-test).
+- `kernel/include/process.h` and `kernel/include/thread.h`.
+- `docs/NATIVE-SPAWN-CONTRACT.md`.
+- Repository code search for `enter_user_mode(` and `pros_elf_load(`.
+
+### New facts confirmed
+1. `kernel/kernel.c` creates/registers a limited process with PID 1, initializes a kernel-side IPC channel, and grants that process an IPC handle with READ, WRITE, DUPLICATE and TRANSFER rights. The call site labels this the initial IPC **test** handle; this is bootstrap/test provisioning, not a policy-controlled named service endpoint.
+2. The boot path creates a synthetic ELF image from the linked `user_text_start` bytes in `boot_user_elf`, loads it with `pros_elf_load_with_args()`, checks entry/stack mappings and permissions, then enters CPL3 using `enter_user_mode(..., user_test_handle)`. This proves the source contains a user-mode/IPC smoke-test route; it does not prove general executable discovery, arbitrary application spawn, or a persistent security broker.
+3. `pros_init_load()` in `kernel/init.c` reads the fixed VFS path `/init`, performs file admission and `pros_security_exec_admit()`, validates ELF, and loads it. The inspected `kernel/kernel.c` boot sequence does not call `pros_init_load()`; the loader is therefore an available function plus negative self-test, not evidence that the current boot path launches a filesystem-backed init service.
+4. `process_create()` registers a process and makes it READY but does not load an ELF or create its initial runnable thread. The spawn contract correctly requires atomic construction/publication, initial user stack/thread setup, least-privilege handle inheritance, and rollback on failure.
+5. The only `enter_user_mode()` call found by repository code search is the boot CPL3 test path in `kernel/kernel.c`. Search for `pros_elf_load()` finds loader implementation/self-tests and the `/init` loader, not a public spawn syscall.
+6. The initial test process receives an IPC channel handle directly from kernel bootstrap. No source evidence found in these call sites establishes trusted-service identity, service discovery, endpoint lifecycle/restart, or a user-controlled policy for endpoint duplication/transfer.
+
+### Updated conclusion
+There is a real CPL3/IPC smoke-test path, so it would be inaccurate to say “there is no user mode at all.” The precise blocker is narrower: the inspected code does not establish a production, filesystem-backed user-service bootstrap and authenticated security-broker IPC endpoint for the Control Center. Do not build a UI that assumes that service exists, and do not add an isolated syscall as a shortcut.
+
+### Verification performed
+- GitHub source-file reads and repository code searches only.
+- No build command, QEMU boot, native boot, IPC failure-injection test, or runtime test was run during this continuation.
+- The source inspection is not a test pass. Query exact-head CI after the new log commit; if workflow/status records are absent, record CI as unverified.
+- No kernel, syscall, filesystem, boot or desktop runtime code was changed.
+
+### Next single actionable step
+Inspect the build/test workflow definitions and existing tests to determine why the PR's exact-head workflow/status queries have sometimes returned no records. Establish a reproducible verification path for documentation commits and, separately, a source/test plan for wiring `pros_init_load()` into a future native bootstrap. Do not change boot behavior in this Control Center PR.
