@@ -549,3 +549,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Additional regression added: GET_EVENT response parsing rejects a response when the expected request sequence is zero. Test matrix RS-12 now strictly matches the normative v1 error rule.
 - Current PR head before this note: `e53adb7cb99c87187706496de2cafaef9729a53d`. Exact-head workflow status must be re-fetched after this note's commit.
 - CI status from prior head `6464b8b6f6b5b2ef24b76ac4488cca6a9cc57f5c`: build/boot run `40354720119` and security run `40354720175`; both jobs were still queued. No pass is claimed.
+
+
+## Receive syscall second-pass audit — 2026-10-26
+
+- Re-read the complete `PROSENJIT_SYS_IPC_RECEIVE` path in `kernel/syscall.c`. After `ipc_channel_receive()` dequeues the message, syscall copies message bytes to the user buffer, then separately copies the received length to `length_out`.
+- Failure semantics are now recorded more precisely in the broker plan: first copy failure consumes the message and returns EBADF; second copy failure also consumes it, and message bytes may already be visible even though the output length was not written. Pre-validating ranges does not make these copies atomic.
+- No kernel code changed. A future reserve/peek/commit proposal must cover concurrent receiver exclusion, process exit/fault, partial user-visible output, queue commit semantics and fault-injection tests.
+- CI last checked on previous head `230687755d32262ea2055fe2bd10ad3dff419d23`: build/boot run `40354904771` pending, security run `40354904924` queued. This documentation commit creates a new head; do not treat those runs as validation of the new head.
