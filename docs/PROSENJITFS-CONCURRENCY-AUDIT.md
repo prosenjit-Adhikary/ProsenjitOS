@@ -233,3 +233,13 @@ This is a source/CI handoff update only. It does not mark filesystem concurrency
 - Exact-head PR workflow lookup for the inspected source head `5d9e04df0ac83b03f4329f0a7a1f89cb5999dae6` returned no PR-triggered workflow runs; combined commit status also reported no status entries. The subsequent documentation-only head was rechecked separately and also has no workflow runs or status entries. No local full build or QEMU boot test is claimed.
 - PR #265 remains open/unmerged and GitHub reports `mergeable=false`. PR #264 also remains open/unmerged and reports `mergeable=false`; its journal-target tests still need exact-head Build/boot-test and Security architecture verification.
 - Next safe work: add controlled concurrency tests and audit namespace/mount lifecycle paths; then decide whether the kernel needs a scheduler-aware sleepable mutex before widening lock scope. Do not mechanically wrap create/unlink/rename/readdir with this non-recursive lock until call-graph recursion and lock order are proven.
+
+
+## Live PR recheck — 2026-10-26 08:22 IST
+
+- Live PR #265 source head rechecked: `4787959042ee751524d8c1fa8fe6596f3625cf8c`; PR remains open, unmerged, and GitHub reports `mergeable=false`.
+- The source uses the shared `kernel/include/irq_spinlock.h` helper from both `kernel/vfs.c` and `kernel/prosenjitfs.c`. It saves RFLAGS and executes `cli` before contending; caller-local saved flags preserve nested VFS → filesystem lock restoration.
+- The visible Build/boot-test run [#40209491598](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40209491598) and Security architecture run [#40209491593](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40209491593) are queued against older commit `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`, not the live head. The branch workflow query found no exact-head run; these queued runs do not verify current source.
+- Remaining gaps: local interrupts stay disabled across synchronous filesystem/device I/O; namespace and mount-lifecycle operations are not comprehensively serialized; deterministic concurrent tests are missing; and SMP safety is not established. No local full build or QEMU result is claimed.
+- PR #264 remains open/unmerged at `266ee0c48a5f0b13fb0023539ffd22100c7d8d64`; its exact-head CI also requires rechecking.
+- Keep both PRs unmerged until fresh exact-head CI passes and the remaining lock-latency, namespace/lifetime, and concurrency-test gates are reviewed.
