@@ -121,7 +121,9 @@ uint32_t ipc_channel_capacity(const struct pros_ipc_channel *channel) {
 }
 
 int ipc_channel_wait(struct pros_ipc_channel *channel, struct pros_thread *thread) {
-    if (!ipc_channel_valid(channel) || !thread)
+    /* thread_block() always blocks the current thread; reject a mismatched
+     * waiter so the channel cannot retain a thread that was not blocked. */
+    if (!ipc_channel_valid(channel) || !thread || thread_current() != thread)
         return PROSENJIT_IPC_EINVAL;
     uint64_t irq_flags = ipc_lock(channel);
     /*
