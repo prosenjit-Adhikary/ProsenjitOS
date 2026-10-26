@@ -515,3 +515,10 @@ This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation 
 - `ipc_channel_count()` checks the same mutable invariants while holding the lock and returns zero if the queue state is invalid.
 - Implementation commit: `c47759a3fa0206929b447447e8c5e8f798d02e59`.
 - Object lifetime still requires external ownership/refcount discipline; this patch does not add reference acquisition or an SMP scheduler lock.
+
+### IPC receive/count end-to-end regression
+
+- Extended the existing IPC block/wakeup boot self-test to receive the message after the blocked receiver is scheduled again.
+- The regression checks successful receive, exact payload length, every payload byte, and that the synchronized queue count returns to zero.
+- Test commit: `75d18b06acaabe0c9858bfef8a81c585f3b9469d`.
+- This adds a source-level regression gate; the marker must still be observed in an actual successful ISO/QEMU boot before this is considered verified.
