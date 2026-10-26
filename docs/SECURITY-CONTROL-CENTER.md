@@ -163,3 +163,20 @@ Before writing UI code, map the repository's existing public ABI, syscall dispat
 The current `include/abi/syscall.h` lists syscall IDs for ABI version, user-test completion, handle close/duplicate/transfer, and IPC send/receive. It does not define a security-status/event-query syscall, process spawn/exec, or display/input delivery syscall. The existing `docs/DESKTOP-IMPLEMENTATION-LOG.md` also records that the DML is a registry/preflight component rather than a session launcher, and that the userspace init/service manager and end-to-end display/input path remain prerequisites.
 
 **Decision:** do not add a Security Control Center executable or kernel syscall in this change. That would create a UI with no supported session/service route, or tempt a shortcut across the security boundary. The next safe engineering milestone is to finish and test the existing user-mode/service/IPC prerequisites, then add a small versioned read-only security query contract with caller authorization and bounded output. Only after that contract has integration tests should a UI be connected through the existing desktop path.
+
+## 11. AI/human continuation protocol
+
+Use `docs/SECURITY-CONTROL-CENTER-WORKLOG.md` as the dated handoff record. At the end of every work session, update it with:
+- current branch, PR, and exact head commit SHA;
+- files changed and why;
+- source paths inspected and confirmed facts versus assumptions;
+- tests/CI actually run, with exact commit SHA and queued/passing/failing status;
+- known blockers, safety boundaries, and the single next action.
+
+For a new AI or contributor, read these in order:
+1. `docs/SECURITY-CONTROL-CENTER-WORKLOG.md` (latest handoff and next action);
+2. this document (architecture, source audit, and safety gates);
+3. `docs/ROADMAP.md` (project-wide dependency order);
+4. `docs/DESKTOP-IMPLEMENTATION-LOG.md` (desktop/session blockers and existing work).
+
+Do not infer implementation from a plan or checklist. Re-check repository head, diff, and exact-head CI before acting. Continue on the feature branch unless the owner explicitly approves a different path. Never merge the draft PR, rewrite `main`, or make destructive changes as part of continuation.
