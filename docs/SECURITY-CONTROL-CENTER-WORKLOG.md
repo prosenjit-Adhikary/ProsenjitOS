@@ -471,3 +471,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Added regression checks for response flags, invalid output pointer, nonzero error cursor, and the requested event-record cap. Corrected the expected parser result for a status payload with a valid frame length but invalid schema length.
 - Current source-level review is not a substitute for execution. The exact-head Security architecture and Build/boot-test workflows have been repeatedly queued on the self-hosted runner; the latest head must be rechecked after this log commit. No compile/test/boot pass is claimed.
 - Known limitations remain explicit: no broker executable, no authenticated endpoint/identity provisioning, no kernel IPC integration, no UI, and no copy-out delivery fix. The parser is pure framing/shape validation only and cannot establish trust.
+
+
+## Parser hardening follow-up — 2026-10-26
+
+- Aligned the test matrix with the actual 24-byte GET_STATUS payload and null-input behavior (NULL is rejected for all lengths).
+- Added deliberately unaligned request/response buffer tests and regression checks that parser output structs remain byte-for-byte untouched on a short-frame error.
+- Made the build workflow run the protocol parser test a second time with AddressSanitizer and UndefinedBehaviorSanitizer enabled. The normal warnings-as-errors host test remains as a separate step.
+- Attempted to obtain a local source checkout for independent compilation, but the execution container could not resolve github.com; no local compile/test result is available. Exact-head GitHub Actions remains the verification gate; do not infer a pass from the workflow configuration.
+- Next source review must check exact-head workflow status, inspect any failures, and only then decide whether to expand into serializer/broker work. No broker authentication or kernel IPC change is included in this checkpoint.
