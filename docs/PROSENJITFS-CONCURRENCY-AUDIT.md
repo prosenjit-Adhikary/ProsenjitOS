@@ -571,3 +571,10 @@ The following functions mutate shared scheduler state and must be covered by one
 The scheduler now exposes `thread_wake_on_channel(thread, wait_channel)`. It rejects a wake when the thread is no longer BLOCKED on the expected channel. The existing `thread_wake(thread)` API remains for callers that intentionally perform a generic wake. IPC send and explicit wake now use the channel-specific API, preventing a stale/mismatched IPC waiter entry from waking a thread blocked on a different wait object.
 
 This is a narrow ownership check, not a scheduler-wide synchronization fix. The run queue and thread state still lack a common scheduler guard; SMP safety, full termination ordering, and atomic publication across arbitrary wait sources remain unresolved. No build, boot, or runtime test is claimed until CI verifies the exact commit.
+
+
+### Wrong-channel IPC wake regression
+
+The kernel self-test now deliberately changes a registered receiver's `wait_channel` to a different channel and calls `ipc_channel_wake_one()` on the original channel. It requires the operation to return `PROSENJIT_IPC_EINVAL`, leave the thread BLOCKED, and retain the original channel's waiter entry. The test restores the expected channel and continues the existing normal send/wakeup/receive payload regression.
+
+This is a deterministic source-level regression test added to the kernel startup self-test. It has not yet been executed in QEMU; passing behavior is not claimed until the exact-head build and boot workflow runs.
