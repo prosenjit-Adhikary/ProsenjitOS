@@ -85,6 +85,16 @@ If copy 1 fails, the caller gets `EBADF` after dequeue. If copy 1 succeeds but c
 
 A future delivery contract must define this explicitly. A peek/reserve/commit design cannot merely defer the queue head update: it must also prevent concurrent receivers from claiming the same head, handle process exit/fault during copy-out, and define what happens if message bytes were copied but length copy-out failed. Do not implement a kernel change until the reservation/rollback semantics and race/fault-injection tests are reviewed.
 
+## Scheduler interaction follow-up: channel lock is not a scheduler lock
+
+A follow-up read of `kernel/thread.c` sharpens the waiter review:
+- `thread_block()` changes the current thread's `wait_channel` and state to BLOCKED; it does not acquire a scheduler/run-queue lock.
+- `thread_wake()` changes state, calls `thread_enqueue()`, may edit the saved interrupt frame to restart the blocked syscall, and clears `wait_channel`; these operations likewise have no scheduler lock in the inspected implementation.
+- IPC invokes `thread_block()` and `thread_wake()` while holding the channel spinlock. This serializes the channel's waiter list with message publication, but the source inspected here does not establish a global lock protocol for scheduler/run-queue state or safe concurrent access to thread state.
+- `thread_terminate_process()` removes run-queue entries and cancels channel waiters through separate operations. The current source does not demonstrate one atomic transaction spanning scheduler membership, waiter membership, and thread lifetime.
+
+This is a **correctness gate, not a proven exploit or a claim that the current uniprocessor build is broken**. Until scheduler synchronization and supported CPU/interrupt assumptions are explicit, do not advertise IPC wait/wake as SMP-safe. Before changing it, document the execution model and lock order, then test send-vs-block, wake-vs-exit/cancel, failed enqueue, duplicate waiter, stale thread pointer/lifetime, and queue-full/waiter-full behavior. Keep scheduler and channel lock ordering acyclic; never solve the problem by holding a spinlock across faultable user-copy operations.
+
 ## Source-audit note: IPC waiters and lock discipline
 
 The current `kernel/ipc.c` uses a channel spinlock around queue and waiter bookkeeping. `ipc_channel_wait()` checks for a queued message while locked, rejects duplicate waiter entries, invokes `thread_block()`, and appends the waiter before unlocking. Send publishes the message and attempts to wake the first waiter while holding the channel lock; `ipc_channel_wake_one()` also calls `thread_wake()` while holding it. These comments and checks are helpful but are not a proof of deadlock freedom or correctness under future SMP.
