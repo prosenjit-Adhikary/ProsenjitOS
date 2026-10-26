@@ -180,3 +180,37 @@ For a new AI or contributor, read these in order:
 4. `docs/DESKTOP-IMPLEMENTATION-LOG.md` (desktop/session blockers and existing work).
 
 Do not infer implementation from a plan or checklist. Re-check repository head, diff, and exact-head CI before acting. Continue on the feature branch unless the owner explicitly approves a different path. Never merge the draft PR, rewrite `main`, or make destructive changes as part of continuation.
+
+
+## 10. Read-only IPC contract gate (design only)
+
+The first implementation milestone is limited to read-only status and event queries. It must not add permission, quarantine, device, update, or network mutations.
+
+### Transport and endpoint trust
+- Use an existing IPC/object/handle path only after the trusted service launch path and endpoint provisioning are demonstrated in source and tests.
+- IPC handle possession alone is not peer authentication. Define the trusted service identity, which process creates and owns the endpoint, how the client receives it, and whether handle duplication/transfer/inheritance is permitted.
+- Grant only the minimum channel rights required. Reject wrong object types, stale handles, missing rights, quarantined callers, and denied policy decisions.
+- Do not call kernel-private health/security APIs directly from the UI. Do not add a syscall solely to expose a Settings page.
+
+### Versioned bounded messages
+- Use fixed-size headers and explicitly versioned operation/status enums. Include protocol version, request ID, declared request/response size, and bounded payload length.
+- Reject unknown versions/operations, inconsistent sizes, invalid enums, overflow, truncated messages, and requests larger than the IPC contract permits.
+- Never transmit raw pointers, kernel addresses, or kernel-private structure layouts. Translate trusted service results into ABI-owned response structures.
+- First-version operations are read-only. Unknown or mutation operations return an explicit unsupported/denied status.
+- Responses must distinguish OK, INVALID_REQUEST, DENIED, UNAVAILABLE, NOT_IMPLEMENTED, BUFFER_TOO_SMALL, and INTERNAL_ERROR. A service failure must never be rendered as “protected” or as a verified empty event list.
+- Event retrieval must be bounded and paginated by stable sequence identifiers. Report volatile-only storage and dropped events where known.
+
+### Copy and failure semantics
+- Validate and copy bounded request data before processing; validate response destination ranges before copy-out. Do not hold kernel locks while accessing user memory.
+- Existing IPC receive currently dequeues before copy-out finishes. Treat copy-fault, retry, and message-consumption behavior as an explicit test gate; do not claim reliable retry semantics until proven.
+- If the service is absent, restarting, unauthorized, or unable to return trusted data, show Unavailable/Not verified and preserve enforcement.
+
+### Acceptance tests before a UI adapter
+1. Malformed/truncated/oversized request, unsupported version/operation, invalid enum, inconsistent length and integer-overflow cases.
+2. Wrong object type, stale handle, missing rights, quarantined/unauthorized caller, denied capability, unauthorized handle transfer/duplication.
+3. Empty/full channel, service absent/restart, bounded timeout/failure, invalid user buffers and copy-in/copy-out faults.
+4. Maximum event batch, pagination/sequence boundaries, dropped events and non-persistent logs.
+5. Prove read-only operations cannot mutate permissions, quarantine, device grants, updates, or network policy.
+6. Run host-side contract tests first; run QEMU integration tests only after a real service-launch and endpoint-provisioning path exists.
+
+This section is a design contract, not an implementation claim. Keep PR #267 draft/unmerged until endpoint ownership, user-mode startup, protocol tests, review, and exact-head CI are verified.
