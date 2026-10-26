@@ -62,7 +62,7 @@ Version 1 normative error rule: every non-OK response has payload_len = 0 and ev
 | Opcode | Operation | Request payload | Response payload |
 |---:|---|---|---|
 | 1 | GET_STATUS | Empty | 24-byte status snapshot |
-| 2 | LIST_EVENTS | 16-byte query | Up to two fixed-size event records |
+| 2 | LIST_EVENTS | 16-byte query | Up to one fixed-size event record |
 | 3 | GET_EVENT | nonzero u64 sequence | One 24-byte event record |
 
 No permission changes, quarantine actions, device grants, network policy mutations, or update actions are permitted in this version.
@@ -101,7 +101,7 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 
 - For `LIST_EVENTS`, response `event_cursor` is the last event sequence actually included, not merely the latest sequence observed. For `GET_STATUS`, it is zero/inapplicable; use `latest_event_sequence` in the status payload.
 - If `LIST_EVENTS` returns no records, the response cursor must not advance.
-- Sequence numbers must be monotonic within a broker epoch. Restart/epoch semantics must be specified before persistent cursors are promised; invalid cursors return STALE.
+- Event sequence numbers must be nonzero and monotonic within a source/broker epoch. Restart/epoch semantics must be specified before persistent cursors are promised; invalid cursors return STALE.
 - `GET_STATUS.dropped_event_count` reports the source's bounded loss counter. Never imply complete history if the source cannot prove it; zero is not a valid fallback for an unknown count.
 - Failed query, missing broker, stale cursor, or malformed reply maps to UI Unavailable/Stale/Error, never No threats.
 - Authorization failure must not leak whether another process, hidden event, or protected resource exists.
@@ -112,7 +112,7 @@ Event details, paths, command lines, credentials, and arbitrary evidence blobs a
 ### Parser and framing
 - Test every message length 0 through 65 and boundaries at 16, 24, and 64 bytes.
 - Test version mismatch, unknown opcode/status/enum, nonzero flags/reserved, payload-length mismatch, and integer-overflow attempts.
-- Test zero, one, two, and invalid record counts; prove response payload never exceeds 40 bytes.
+- Test zero, one, and invalid record counts; v1 accepts at most one record and must keep the complete response within 64 bytes.
 - Use an uninitialized-output test to prove all response bytes are initialized.
 
 ### Authorization and lifecycle
