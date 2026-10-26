@@ -29,6 +29,7 @@ static int scc_known_opcode(uint16_t opcode)
 enum scc_parse_result scc_parse_request(
     const uint8_t *bytes, size_t length, struct scc_request_view *out)
 {
+    struct scc_request_view parsed;
     uint16_t payload_length;
     uint16_t opcode;
 
@@ -59,17 +60,17 @@ enum scc_parse_result scc_parse_request(
         (opcode == SCC_OP_GET_EVENT && payload_length != 8))
         return SCC_PARSE_BAD_PAYLOAD;
 
-    out->version = SCC_PROTOCOL_VERSION;
-    out->opcode = opcode;
-    out->request_id = scc_read_u32(bytes + 4);
-    out->payload_length = payload_length;
-    out->payload = bytes + SCC_REQUEST_HEADER_SIZE;
-    out->after_sequence = 0;
-    out->category_mask = 0;
-    out->max_records = 0;
+    parsed.version = SCC_PROTOCOL_VERSION;
+    parsed.opcode = opcode;
+    parsed.request_id = scc_read_u32(bytes + 4);
+    parsed.payload_length = payload_length;
+    parsed.payload = bytes + SCC_REQUEST_HEADER_SIZE;
+    parsed.after_sequence = 0;
+    parsed.category_mask = 0;
+    parsed.max_records = 0;
 
     if (opcode == SCC_OP_LIST_EVENTS) {
-        const uint8_t *p = out->payload;
+        const uint8_t *p = parsed.payload;
         uint16_t max_records = scc_read_u16(p + 12);
 
         if (scc_read_u16(p + 14) != 0)
@@ -77,11 +78,12 @@ enum scc_parse_result scc_parse_request(
         if (max_records < 1 || max_records > SCC_EVENT_RECORDS_MAX)
             return SCC_PARSE_BAD_PAYLOAD;
 
-        out->after_sequence = scc_read_u64(p);
-        out->category_mask = scc_read_u32(p + 8);
-        out->max_records = max_records;
+        parsed.after_sequence = scc_read_u64(p);
+        parsed.category_mask = scc_read_u32(p + 8);
+        parsed.max_records = max_records;
     }
 
+    *out = parsed;
     return SCC_PARSE_OK;
 }
 
@@ -90,6 +92,7 @@ enum scc_parse_result scc_parse_response(
     uint32_t expected_request_id, uint16_t requested_max_records,
     uint64_t prior_cursor, struct scc_response_view *out)
 {
+    struct scc_response_view parsed;
     uint16_t payload_length;
     uint16_t opcode;
     uint32_t status;
@@ -132,14 +135,15 @@ enum scc_parse_result scc_parse_response(
     if (status != SCC_STATUS_OK) {
         if (payload_length != 0 || scc_read_u64(bytes + 16) != 0)
             return SCC_PARSE_BAD_PAYLOAD;
-        out->version = SCC_PROTOCOL_VERSION;
-        out->opcode = opcode;
-        out->request_id = expected_request_id;
-        out->status = status;
-        out->payload_length = 0;
-        out->event_cursor = 0;
-        out->payload = payload;
-        out->event_count = 0;
+        parsed.version = SCC_PROTOCOL_VERSION;
+        parsed.opcode = opcode;
+        parsed.request_id = expected_request_id;
+        parsed.status = status;
+        parsed.payload_length = 0;
+        parsed.event_cursor = 0;
+        parsed.payload = payload;
+        parsed.event_count = 0;
+        *out = parsed;
         return SCC_PARSE_OK;
     }
 
@@ -186,13 +190,14 @@ enum scc_parse_result scc_parse_response(
         count = 1;
     }
 
-    out->version = SCC_PROTOCOL_VERSION;
-    out->opcode = opcode;
-    out->request_id = expected_request_id;
-    out->status = status;
-    out->payload_length = payload_length;
-    out->event_cursor = scc_read_u64(bytes + 16);
-    out->payload = payload;
-    out->event_count = count;
+    parsed.version = SCC_PROTOCOL_VERSION;
+    parsed.opcode = opcode;
+    parsed.request_id = expected_request_id;
+    parsed.status = status;
+    parsed.payload_length = payload_length;
+    parsed.event_cursor = scc_read_u64(bytes + 16);
+    parsed.payload = payload;
+    parsed.event_count = count;
+    *out = parsed;
     return SCC_PARSE_OK;
 }
