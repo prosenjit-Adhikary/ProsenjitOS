@@ -9,10 +9,10 @@ Related design:
 
 ## 1. Pure parser boundary
 
-The first pure host-testable C framing parser is implemented in user/security/telemetry_protocol.c with its interface in user/security/telemetry_protocol.h. Keep it free of kernel pointers, global state, allocation, I/O, and implicit trust decisions. It should accept (const uint8_t *bytes, size_t length) and return a typed parse result plus a view into the caller-owned byte buffer only after complete validation. The caller must retain the buffer lifetime; the parser must never cast untrusted bytes to a packed C struct.
+The first pure host-testable C framing parser is implemented in user/security/telemetry_protocol.c with its interface in user/security/telemetry_protocol.h. It is free of kernel pointers, global state, allocation, and I/O. It accepts (const uint8_t *bytes, size_t length) and returns a typed parse result plus a view into the caller-owned byte buffer only after complete validation. Null input is rejected for all lengths. The caller must retain the buffer lifetime; the parser must never cast untrusted bytes to a packed C struct.
 
 The parser must:
-- Reject a null pointer for non-zero length; define whether (NULL, 0) is a safe invalid-frame result, and test it.
+- Reject a null pointer for any length, including (NULL, 0); the implementation treats a null input as SCC_PARSE_INVALID_ARGUMENT and has a regression test for it.
 - Validate minimum header size before reading any field.
 - Decode little-endian integers byte-by-byte or through checked helpers; never depend on host endianness or alignment.
 - Check header + payload using subtraction-based bounds checks (for example, payload length must equal length - header_size after proving length >= header_size) rather than unchecked addition.
@@ -68,7 +68,7 @@ Version 1 now specifies zero payload and zero event_cursor for every non-OK resp
 ## 4. Size arithmetic invariants
 
 - Request header: 16 bytes; response header: 24 bytes; event record: 20 bytes.
-- GET_STATUS success payload: 24 bytes; total response 48 bytes.
+- GET_STATUS success payload: 24 bytes (component_id u16, state u16, capabilities u32, dropped_event_count u64, latest_event_sequence u64); total response 48 bytes.
 - LIST_EVENTS query: 16 bytes; total request 32 bytes.
 - LIST_EVENTS response with one event: 44 bytes; with two events: 64 bytes exactly.
 - GET_EVENT request: 24 bytes total; successful response with one event: 44 bytes.
