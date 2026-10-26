@@ -347,3 +347,14 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Added an explicit five-gate implementation sequence to `docs/SECURITY-CONTROL-CENTER.md`: baseline; telemetry ABI/access policy; trusted service lifecycle; integration tests; read-only UI; enforcement controls remain separate future scope. Completion is defined by one exact commit passing full build/ISO QEMU/native BIOS QEMU boot, end-to-end event retrieval and negative authorization tests, plus review/merge.
 - **No runtime source was changed in this milestone.** No syscall, kernel, VFS, process lifecycle, desktop or UI implementation is claimed. This is intentional: adding a UI or public API before trusted service identity, spawn lifecycle and rollback contracts exist would create a false security boundary.
 - Next: allow CI for this documentation commit to finish, then implement Gate 1 only after reviewing the native spawn/service bootstrap interfaces and defining a testable ABI; do not skip Gate 2 prerequisites or merge prematurely.
+
+
+## Exact-head CI completion and IPC protocol proposal — 2026-10-26
+- Verified PR #267 at exact head b7127c3c0133b1f3e8017aa30783596e52520e40: open, draft, unmerged.
+- Build and boot-test run 40317199214 (#8679): success. Successful steps include desktop/DML tests, ISO build, ProsenjitFS block-init diagnostic, ISO QEMU boot, and native BIOS QEMU boot.
+- Security architecture checks run 40317199300 (#8215): success.
+- These results apply to the exact SHA above only. Any subsequent commit needs its own CI result.
+- Added docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md as a proposal for bounded, read-only status/event queries within the existing 64-byte IPC limit; linked it from the architecture document.
+- Protocol proposal: 16-byte request envelope, 24-byte response envelope, 20-byte event records, at most two records per response, explicit unavailable/stale/denied states, cursor semantics, and malformed-input/authorization/lifecycle tests.
+- The protocol is not a public ABI implementation and does not authenticate a peer. No runtime source changed. Native spawn, trusted service identity/endpoint provisioning, and failure/rollback semantics remain blockers.
+- Next: wait for exact-head CI on this documentation commit, then review the proposal against actual IPC send/receive and user-copy code before considering shared-header implementation.

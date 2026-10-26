@@ -253,3 +253,8 @@ This sequence deliberately separates a safe first read-only view from enforcemen
 
 ### Completion definition
 The feature is not complete until all of the following are true on one exact commit: the ABI/client and trusted service are implemented; real event retrieval is demonstrated end-to-end; UI failure states are tested; negative authorization tests pass; full build, ISO QEMU boot and native BIOS QEMU boot pass; the PR has review and is merged intentionally. Documentation or architecture checks alone do not satisfy this definition.
+
+
+## Read-only telemetry wire proposal
+
+A separate bounded IPC proposal lives in docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md. It specifies a 16-byte request header, 24-byte response header, read-only status/event operations, a 20-byte event record, explicit error states, and parser/authorization tests sized to the current 64-byte IPC limit. It is not implemented and does not authenticate peers; trusted broker identity and endpoint provisioning remain prerequisites.
