@@ -214,3 +214,42 @@ The first implementation milestone is limited to read-only status and event quer
 6. Run host-side contract tests first; run QEMU integration tests only after a real service-launch and endpoint-provisioning path exists.
 
 This section is a design contract, not an implementation claim. Keep PR #267 draft/unmerged until endpoint ownership, user-mode startup, protocol tests, review, and exact-head CI are verified.
+
+
+## Implementation sequence and release gates (2026-10-26)
+
+This sequence deliberately separates a safe first read-only view from enforcement controls. Do not implement later gates by bypassing an earlier one.
+
+### Gate 0 — preserve and baseline
+- Keep all work on `feature/security-control-center-design`; never commit directly to `main`.
+- Record exact HEAD and workflow run IDs before source changes. Wait for a terminal build/boot result before another commit when the workflow's `cancel-in-progress` is enabled.
+- Keep this PR documentation/design-only until the process launch and trusted IPC service path is designed and reviewable.
+
+### Gate 1 — telemetry ABI and access policy
+- Define a versioned fixed-width request/response contract in a shared ABI header. It must fit the existing IPC message limit or explicitly introduce a separately reviewed bounded transport; do not silently enlarge the kernel IPC ABI.
+- Expose only read-only snapshot and paginated event retrieval initially. Include protocol version, operation, request ID, byte lengths, stable event sequence cursor, dropped-event count and an explicit unavailable/not-implemented status.
+- Validate caller identity and READ capability at the service boundary. A possession of an IPC handle alone is not proof that the peer is the trusted security broker.
+- Keep kernel-private structs out of the user ABI. Translate fields explicitly and zero/initialize output buffers.
+
+### Gate 2 — trusted service lifecycle
+- Reuse and complete the native spawn contract in `docs/NATIVE-SPAWN-CONTRACT.md`; do not build an ad-hoc process launcher inside the UI or bypass execution admission.
+- Add a real service identity and endpoint provisioning mechanism only after process publication, initial CPL3 thread entry, cleanup/rollback and capability inheritance have tests.
+- Provision the broker endpoint with least-privilege rights; do not grant ADMIN, unrestricted handle transfer, or arbitrary kernel telemetry access.
+- Define restart/unavailable behavior and ensure a failed service cannot be reported as an empty-but-healthy security state.
+
+### Gate 3 — kernel-backed integration tests
+- Host-side tests: malformed version/opcode/length, integer overflow, undersized output, unknown cursor, empty/full IPC channel, stale handle, wrong object type, rights attenuation, unauthorized peer and service restart.
+- Kernel/QEMU tests: trusted broker can read bounded snapshots/events; untrusted process cannot; copy-out failure behavior is documented; event pagination is monotonic; dropped-event counters are visible; service failure never changes enforcement.
+- Do not claim delivery/retry guarantees while IPC receive dequeues before copy-out succeeds.
+
+### Gate 4 — read-only UI adapter
+- Build the Security Control Center UI only on top of the stable user-space ABI/client, not direct kernel calls.
+- UI states must distinguish Verified, Unavailable, Not implemented and Stale; a missing service or failed query must never render as “No threats.”
+- Add no permission, quarantine, device-grant or network-policy mutation controls in the first UI release.
+
+### Gate 5 — reviewed enforcement controls (separate future scope)
+- Any action control requires separate threat model, authenticated caller, authorization policy, confirmation UX, audit event, rollback/recovery and abuse tests.
+- UI visibility is not authorization. Kernel/service policy remains authoritative.
+
+### Completion definition
+The feature is not complete until all of the following are true on one exact commit: the ABI/client and trusted service are implemented; real event retrieval is demonstrated end-to-end; UI failure states are tested; negative authorization tests pass; full build, ISO QEMU boot and native BIOS QEMU boot pass; the PR has review and is merged intentionally. Documentation or architecture checks alone do not satisfy this definition.

@@ -336,3 +336,14 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Latest log-only commit at this checkpoint: `24d9eaa71b49db193d2f92872fbd2774b476a450`. New runs observed: Build and boot-test run `40314944431` (#8677) **pending**; Security architecture checks run `40314944257` (#8213) **in_progress**.
 - Operational rule: avoid another branch commit until the current head's build/boot workflow reaches a terminal result, unless a source correction is required. Capture status externally first, then batch status updates into one work-log commit after terminal results.
 - No conclusion of a successful QEMU ISO boot or native BIOS boot is available from the cancelled run.
+
+
+## Implementation gates and exact-head CI — 2026-10-26
+- Re-checked PR #267 at head `2b8894693f60bdda6c941d454478ac5fe5a51f20`: PR is open, draft, and unmerged.
+- Exact-head Build and boot-test run `40315014282` (#8678): **success**.
+- Exact-head Security architecture checks run `40315014301` (#8214): **success**.
+- This is the first verified complete workflow result observed in this continuation for the recorded head; do not infer that any later commit has the same CI result.
+- Source audit reconfirmed that `pros_health_get_event()`, `pros_health_snapshot()`, and `pros_security_monitor_get()` are kernel C interfaces, not public user syscalls. The public ABI still has no security-event query operation. The kernel service manager invokes in-kernel callbacks; it does not itself prove a trusted userspace broker launch path.
+- Added an explicit five-gate implementation sequence to `docs/SECURITY-CONTROL-CENTER.md`: baseline; telemetry ABI/access policy; trusted service lifecycle; integration tests; read-only UI; enforcement controls remain separate future scope. Completion is defined by one exact commit passing full build/ISO QEMU/native BIOS QEMU boot, end-to-end event retrieval and negative authorization tests, plus review/merge.
+- **No runtime source was changed in this milestone.** No syscall, kernel, VFS, process lifecycle, desktop or UI implementation is claimed. This is intentional: adding a UI or public API before trusted service identity, spawn lifecycle and rollback contracts exist would create a false security boundary.
+- Next: allow CI for this documentation commit to finish, then implement Gate 1 only after reviewing the native spawn/service bootstrap interfaces and defining a testable ABI; do not skip Gate 2 prerequisites or merge prematurely.
