@@ -75,6 +75,19 @@ Security implication: these are useful capability attenuation checks, but they d
 
 Required tests: rights amplification is rejected; duplication without DUPLICATE is rejected; transfer without TRANSFER is rejected; stale generation is rejected; authorized transfer to an untrusted target does not gain broker identity; only the approved launcher can provision/publish the trusted endpoint.
 
+## Source-audit note: IPC waiters and lock discipline
+
+The current `kernel/ipc.c` uses a channel spinlock around queue and waiter bookkeeping. `ipc_channel_wait()` checks for a queued message while locked, rejects duplicate waiter entries, invokes `thread_block()`, and appends the waiter before unlocking. Send publishes the message and attempts to wake the first waiter while holding the channel lock; `ipc_channel_wake_one()` also calls `thread_wake()` while holding it. These comments and checks are helpful but are not a proof of deadlock freedom or correctness under future SMP.
+
+Before relying on this path for a broker:
+- document global lock ordering between IPC channel and scheduler/thread state;
+- prove wake-vs-block race behavior and how a blocked syscall retries receive;
+- test cancellation/removal when a thread exits or a channel is revoked;
+- test full waiter array, duplicate waiter, queued-message-before-wait, failed wake, queue saturation, and repeated send/receive;
+- revisit the design before SMP, because the channel lock protects this channel's fields but does not alone establish safe object lifetime or lock ordering.
+
+No change to kernel IPC is authorized by this note; it records review gates only.
+
 ## Dependency-ordered milestones
 
 ### M0 — Freeze contracts and prove existing boundaries (current)
@@ -84,7 +97,7 @@ Required tests: rights amplification is rejected; duplication without DUPLICATE 
 - [x] Define 24-byte event wire record, 64-bit boot-relative tick timestamp, one-event pagination, and GET_EVENT request/response sequence binding on the current draft branch.
 - [x] Audit the syscall receive path and document copy-out/dequeue failure semantics: the current implementation consumes the message before both user copies complete; retry is not guaranteed.
 - [x] Audit handle duplication/transfer: rights are attenuated, but target PID/handle possession does not establish trusted broker identity.
-- [ ] Audit IPC queue ownership and lock/waiter concurrency from source and tests.
+- [x] Inspect IPC queue/waiter locking; global lock order, wake/block proof, lifetime and race tests remain open gates.
 - [ ] Reconcile all docs against the current 24-byte record; no stale 20-byte descriptions.
 - Exit gate: source paths and tests are recorded; no unsupported end-to-end claim; exact-head CI green.
 
