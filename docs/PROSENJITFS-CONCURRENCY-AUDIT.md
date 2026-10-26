@@ -499,3 +499,11 @@ This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation 
 - Implementation commit: `6ec54b4f52ce2a890dc4c5dbb0e961df1697a002`.
 - Regression commit: `5f5169ffd4cbb722ab2dd90a680220f118f00fbe`.
 - These tests are source changes only until the exact PR head builds and the QEMU boot markers pass.
+
+### IPC message-count read synchronization
+
+- `ipc_channel_count()` previously read the mutable `count` field without acquiring the channel lock. It now takes the IRQ-save channel lock while copying the count to a local value, then releases the lock before returning.
+- The kernel IPC regression checks the count is zero immediately after initialization and one after a successful send/wakeup.
+- Implementation commit: `225b1e3376d8390e5ca9a52eead1eca16b74b373`.
+- Test commit: `44ca1ce7e82418bc9659eeb6f4271d300f8cad31`.
+- The channel object lifetime must still be stabilized by its owner while APIs execute. This change protects the count field; it does not yet make all pre-lock validation reads or object lifetime transitions race-free.
