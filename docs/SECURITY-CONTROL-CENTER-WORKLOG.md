@@ -239,3 +239,9 @@ The source evidence still does not establish a production-ready trusted security
 - Repository source/search inspection only; no test command was run in this continuation.
 - No build, QEMU, native BIOS, or runtime result is newly claimed.
 - Next: exact-head workflow/status query for the just-created documentation commit, then leave PR #267 draft/unmerged while CI/review requirements remain outstanding.
+
+
+### Exact-head workflow result — 2026-10-26
+- For commit `c8061e26526346c6c484313caa85a94efdfa9735`, the PR workflow-run query returned no runs and combined status returned no entries.
+- PR #267 remains open, draft, and unmerged. This is an **unverified CI state**, not a passing result.
+- The PR description was refreshed to match the source findings and this verification state.
