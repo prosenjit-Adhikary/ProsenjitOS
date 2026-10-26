@@ -208,3 +208,16 @@ This section is a verification snapshot, not a claim that the filesystem is comp
 - A standalone freestanding x86-64 GCC compile smoke test of the helper's inline-assembly pattern succeeded. This is **not** a full repository build, boot test, or runtime deadlock test.
 - Exact functional head for this refactor: `2ea1a1067ce13676f0453d388065944e2ddab48d`. At the time of this update, no PR-triggered workflow run or commit status was available for that exact SHA.
 - The long interrupt-disabled duration across synchronous filesystem callbacks remains unresolved. This refactor centralizes the primitive; it does not convert the callbacks to a sleepable-mutex design or close namespace/mount-lifetime races.
+
+
+## Continued verification handoff — 2026-10-26 07:35 IST
+
+- Live PR #265 head rechecked: `90cbf9d0328436d000c3e14737fbbd4ce5e1e39d`; PR remains open, unmerged, and GitHub reports `mergeable=false`.
+- The IRQ-save helper is now centralized at `kernel/include/irq_spinlock.h`. It captures caller RFLAGS, executes `cli` before contending, atomically acquires the lock, releases it before conditionally restoring IF, and keeps saved flags in a caller-local token. VFS-handle and ProsenjitFS locks both use this helper.
+- VFS file initialization clears `io_lock`; read/write/truncate/seek/close release the lock on the inspected success and validation/error paths. The boot-time nested-lock self-test verifies that IF remains clear during nested acquisition and is restored to its incoming state. Because early initialization enters with IF clear, this test does **not** exercise the incoming-IF-set branch.
+- The helper's source comment explicitly limits it to short, non-sleeping critical sections. Current filesystem callbacks can perform synchronous block-device I/O while interrupts are disabled, so interrupt latency remains an unresolved design limitation. Do not treat this as a final scheduler-safe mutex.
+- Exact-head query for `90cbf9d0328436d000c3e14737fbbd4ce5e1e39d` returned no PR-triggered workflow runs. Visible Build and Security runs are queued for older SHA `3a759c2498bbcdda5fd15ebbfc762fe996bf0409`, so neither is valid verification for the current head. No local full build or QEMU boot test is claimed.
+- Next gates: obtain exact-head Build/boot-test and Security results; add controlled multi-thread same-handle and distinct-handle read/write/truncate/append interleaving tests; test close/unmount races; audit namespace operations and lock ordering; and decide whether long-running filesystem callbacks require a scheduler-aware mutex before marking concurrency complete.
+- PR #264 remains open and unmerged as well; its journal-target regression also requires exact-head CI before merge.
+
+This is a source/CI handoff update only. It does not mark filesystem concurrency or release readiness as PASS.
