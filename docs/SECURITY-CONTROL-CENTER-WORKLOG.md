@@ -100,3 +100,28 @@ Always distinguish “planned”, “implemented”, “test passed”, and “r
 - The workflow-run query returned no runs and the combined-status query returned no entries for this SHA. **CI remains unverified**; absence of a run is not a pass.
 - Branch comparison: nine commits ahead of `main`, zero behind; only `docs/ROADMAP.md`, `docs/SECURITY-CONTROL-CENTER.md`, and this work log differ from the base.
 - Next contributor must query the exact new head after this commit and diagnose why workflows are not consistently reported for documentation commits. Do not merge while checks are unavailable or unverified.
+
+
+## Continued source audit — 2026-10-26
+
+### Exact-head verification before this log update
+- Branch: `feature/security-control-center-design`.
+- Head inspected: `7a99921b5faf8d6508d941e59972f4f1e073c08e`; PR #267 remains draft/open and unmerged.
+- Repository comparison: 10 commits ahead of `main`, 0 behind. The current PR diff is still documentation-only: `docs/ROADMAP.md`, this work log, and `docs/SECURITY-CONTROL-CENTER.md`.
+- Workflow query for this exact SHA returned Security architecture checks run `40268477067` (queued) and Build and boot-test run `40268477202` (cancelled). Combined commit statuses returned no entries. **CI is not green/verified.** Re-query the new head after this work-log commit.
+
+### Source paths inspected on the feature branch
+- `kernel/process.c`: process registration/lifecycle, current-process tracking, final reap constraints, and process-scoped security monitor cleanup are present. Process lifecycle APIs are not equivalent to a complete public spawn/exec service.
+- `kernel/init.c`: `pros_init_load()` opens the fixed `/init` path, bounds image size, reads it from VFS, calls file admission and `pros_security_exec_admit()`, validates ELF, then calls `pros_elf_load()`. This is an init-image load/admission route, not a general userspace spawn ABI.
+- `kernel/service_manager.c` and `kernel/include/service_manager.h`: a kernel-resident callback service manager exists (bounded registry, dependency start/stop, retry/state APIs). Its header explicitly requires single-owner serialization and warns synchronization is needed before concurrent/SMP use. It does not prove that arbitrary userspace services can be launched.
+- `kernel/usercopy.c`: copy helpers validate ranges through `address_space_validate_user_range()` before assembly copy routines. The comments explicitly scope the current fault-recovery state to single-CPU execution and say it must move to real per-CPU state for SMP.
+- `kernel/address_space.c`: user virtual-address and mapping validation primitives exist. Their presence alone does not establish that a future Control Center protocol is authenticated or race-safe.
+- `kernel/include/ipc.h`: IPC channels have a bounded capacity of 8 messages, maximum message size 64 bytes, waiter tracking, and a lock byte. This is a low-level channel contract, not a public service-discovery or peer-authentication protocol.
+- `include/abi/syscall.h` and `kernel/syscall.c`: public syscall numbers currently cover version, test completion, handle close/duplicate/transfer and IPC send/receive. No public spawn/exec or dedicated security-event query syscall was found in these files.
+- `docs/NATIVE-SPAWN-CONTRACT.md`, `user/README.md`, and `docs/DESKTOP-IMPLEMENTATION-LOG.md`: document the same key gap—ELF/process/IPC primitives exist, but a complete userspace launch/service/display/input path is not yet verified; DML remains a registry/preflight component rather than a session launcher.
+
+### Assessment
+- The safe next milestone remains **contract discovery and tests**, not Control Center UI or permission-changing controls.
+- Before designing a read-only security query route, inspect handle creation/ownership and IPC peer semantics, then identify an existing trusted service boundary. Any design must authenticate the caller/service, bound all message fields, avoid exposing kernel pointers, apply user-copy validation, and return explicit unavailable/not-implemented states when data cannot be trusted.
+- Do not add a syscall merely to feed a settings page. Do not repurpose the kernel callback service manager as if it were a userspace service manager.
+- No source code or runtime behavior was changed in this audit; only this persistent work log is being updated. No local build, QEMU, native BIOS, or security regression tests were run in this session.
