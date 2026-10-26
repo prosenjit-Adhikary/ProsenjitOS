@@ -793,6 +793,15 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR IPC wait-block regression failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    /* Generic wake must not bypass the owning wait queue, or the channel
+     * would retain a stale waiter after the thread becomes runnable. */
+    if (thread_wake(&init_thread) == 0 ||
+        thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
+        init_thread.wait_channel != &ipc_wait_test ||
+        ipc_wait_test.waiter_count != 1) {
+        serial_write("ProsenjitOS: ERROR IPC generic-wake ownership regression failed\\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
     /* A stale/mismatched channel waiter must not wake a thread that has
      * since become blocked on another wait object. Keep the queue entry so
      * restoring its owner lets the normal send/wakeup path complete below. */
