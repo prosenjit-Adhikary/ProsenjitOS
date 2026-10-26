@@ -113,6 +113,8 @@ static void test_response_frames(void)
 
     assert(scc_parse_response(NULL, 0, SCC_OP_GET_STATUS, 1, 0, 0, &v)
            == SCC_PARSE_INVALID_ARGUMENT);
+    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 1, 0, 0, NULL)
+           == SCC_PARSE_INVALID_ARGUMENT);
     for (n = 0; n < SCC_RESPONSE_HEADER_SIZE; ++n)
         assert(scc_parse_response(b, n, SCC_OP_GET_STATUS, 1, 0, 0, &v)
                == SCC_PARSE_SHORT_FRAME);
@@ -120,6 +122,13 @@ static void test_response_frames(void)
            == SCC_PARSE_OVERSIZED_FRAME);
 
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 24, 0);
+    put16(b, 2);
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+           == SCC_PARSE_BAD_VERSION);
+    response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 24, 0);
+    put16(b + 14, 1);
+    assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+           == SCC_PARSE_BAD_FLAGS);
     put16(b + 24, 1);
     put16(b + 26, 2);
     assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
@@ -145,6 +154,9 @@ static void test_response_frames(void)
     response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_UNAVAILABLE, 1, 0);
     assert(scc_parse_response(b, 25, SCC_OP_GET_STATUS, 9, 0, 0, &v)
            == SCC_PARSE_BAD_PAYLOAD);
+    response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_UNAVAILABLE, 0, 1);
+    assert(scc_parse_response(b, 24, SCC_OP_GET_STATUS, 9, 0, 0, &v)
+           == SCC_PARSE_BAD_PAYLOAD);
 
     response_header(b, SCC_OP_LIST_EVENTS, 12, SCC_STATUS_OK, 0, 41);
     assert(scc_parse_response(b, 24, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
@@ -169,6 +181,8 @@ static void test_response_frames(void)
     event_record(b + 44, 43);
     assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
            == SCC_PARSE_OK);
+    assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 1, 41, &v)
+           == SCC_PARSE_BAD_PAYLOAD);
     put64(b + 44, 42);
     assert(scc_parse_response(b, 64, SCC_OP_LIST_EVENTS, 12, 2, 41, &v)
            == SCC_PARSE_BAD_PAYLOAD);
