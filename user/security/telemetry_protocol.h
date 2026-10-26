@@ -70,7 +70,8 @@ struct scc_response_view {
 /*
  * Pure framing/shape validation only. These functions do not authenticate the
  * peer, validate handle rights, or establish that telemetry is trustworthy.
- * Returned payload pointers refer to the caller-owned input buffer.
+ * Returned payload pointers refer to the caller-owned input buffer. Output
+ * structures are assigned only on SCC_PARSE_OK; ignore them on every error.
  */
 enum scc_parse_result scc_parse_request(
     const uint8_t *bytes, size_t length, struct scc_request_view *out);
