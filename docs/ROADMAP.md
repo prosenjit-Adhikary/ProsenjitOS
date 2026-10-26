@@ -334,3 +334,20 @@ The detailed architecture, constraints, security boundaries, phases, and verific
 - [ ] Full desktop environment
 
 ProsenjitOS is an independent project and does not contain Microsoft proprietary source code.
+
+## Security Control Center — continuation checkpoint (2026-10-26)
+
+Status: **design/documentation only; not implemented; not merged**. Track the detailed source audit and handoff notes in `docs/SECURITY-CONTROL-CENTER.md` and `docs/SECURITY-CONTROL-CENTER-WORKLOG.md`.
+
+- [x] Create an isolated draft PR and document architecture/safety boundaries.
+- [x] Audit the existing health-event, security-monitor, quarantine metadata, and device-broker headers at source level.
+- [x] Confirm the public syscall ABI does not yet expose a security-event query route; the existing desktop manager is not a session launcher.
+- [x] Record a no-shortcuts policy: no fake UI state, no direct calls into kernel-private interfaces, no new syscall solely for a settings page, and no merge before exact-head checks.
+- [ ] Verify the actual user-mode startup, IPC/service ownership, and user-copy/authentication path before defining a public read-only security query contract.
+- [ ] Add focused host-side tests for the query contract and malformed/unauthorized requests.
+- [ ] Implement a read-only adapter only after the contract is supported by a real service/IPC route.
+- [ ] Integrate UI through the existing desktop/session and Shared Desktop ABI; preserve existing desktop code.
+- [ ] Add enforcement-backed controls one at a time with authorization, audit events, failure-injection tests, and rollback.
+- [ ] Verify build/boot and security workflows on the exact final commit SHA before claiming success or requesting merge.
+
+Safety rule: if any step requires bypassing capability checks, touching unrelated kernel-critical code, replacing desktop components, or weakening a test, stop and revise the design instead.
