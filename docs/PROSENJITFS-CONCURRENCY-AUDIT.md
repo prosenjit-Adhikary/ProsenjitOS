@@ -62,6 +62,13 @@ The integrity API documents that callers must serialize scans against filesystem
 
 The integrity checker is not currently covered by the file callback lock. If it becomes callable concurrently in production, add an explicit safe serialization boundary rather than relying on a comment or on the file-data lock.
 
+
+## IPC blocked-thread teardown regression checkpoint
+
+The kernel startup regression now creates a dedicated child process/thread fixture, seeds a blocked-thread entry in a live IPC channel, exits the child, and checks that the thread is DEAD, its `wait_channel` is cleared, the channel waiter slot/count are empty, the runnable population is unchanged, and the child can be reaped with the expected exit code.
+
+This is a **source-level regression addition**, not a runtime PASS claim. The test seeds the wait queue directly because `ipc_channel_wait()` intentionally requires the target to be `thread_current()`; it does not yet exercise the full context-switch-to-blocked-child sequence. Scheduler-wide synchronization and channel lifetime during concurrent teardown remain unproven. No scheduler lock was added because a safe lock order between run-queue mutation and channel-lock acquisition has not been established.
+
 ## 6. Required next steps
 
 1. Re-query PR #264/#265 current heads, mergeability and exact-head CI. Do not count runs for superseded SHAs.
