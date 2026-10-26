@@ -531,3 +531,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - No kernel behavior changed. Do not introduce an unreviewed peek/commit change: correct design must avoid holding a spinlock across faultable user copy and must prevent concurrent receivers from consuming the same reserved message.
 - The latest workflow check before this note was for SHA `d61d8ddcf9056685b3f7b2e074acac5b386f52b3`: build/boot run `40354228726` and security run `40354228773`, both queued. A new commit changes the head, so those runs are not evidence for the next head.
 - Next: re-fetch PR head and exact-head CI; continue auditing handle transfer/duplication rights and IPC waiter/lock behavior. Keep PR #269 draft and unmerged.
+
+
+## GET_EVENT binding and handle identity follow-up — 2026-10-26
+
+- Added a response-parser regression vector proving that a successful-looking GET_EVENT reply is rejected when the caller did not supply a nonzero expected sequence to bind it to.
+- Updated the test matrix RS-12 to match the protocol's normative error rule: non-OK responses with payload bytes or nonzero cursor are rejected, not ambiguously “rejected or ignored”.
+- Audited `kernel/object.c` handle duplication and copy/move transfer. Rights attenuation is enforced: duplicate requires DUPLICATE, transfer requires TRANSFER, and requested rights cannot exceed source rights. The syscall's transfer path resolves the destination by PID and authorizes the transfer intent.
+- Added the distinction to the broker implementation plan: attenuated rights and generation-tagged handles are valuable but do not authenticate the destination as the approved broker. Trusted identity must be established and bound by the OS provisioning path.
+- No kernel behavior or syscall ABI changed. Host tests still have not been run in this environment; exact-head CI is the validation gate.
