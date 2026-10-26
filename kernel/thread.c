@@ -395,9 +395,15 @@ int thread_block(void *wait_channel) {
     return 0;
 }
 
-int thread_wake(struct pros_thread *thread) {
+static int thread_wake_internal(struct pros_thread *thread,
+                                const void *expected_wait_channel) {
     if (!thread || thread->state != PROS_THREAD_BLOCKED ||
         !thread_process_runnable(thread))
+        return -1;
+
+    /* Channel-specific wakeups must still own this thread's wait at the
+     * instant of transition; a stale queue entry must not wake another wait. */
+    if (expected_wait_channel && thread->wait_channel != expected_wait_channel)
         return -1;
 
     if (thread->blocked_syscall != 0 &&
@@ -416,6 +422,15 @@ int thread_wake(struct pros_thread *thread) {
     }
     thread->wait_channel = 0;
     return 0;
+}
+
+int thread_wake(struct pros_thread *thread) {
+    return thread_wake_internal(thread, 0);
+}
+
+int thread_wake_on_channel(struct pros_thread *thread, const void *wait_channel) {
+    if (!wait_channel) return -1;
+    return thread_wake_internal(thread, wait_channel);
 }
 
 uint64_t thread_runnable_count(void) {
