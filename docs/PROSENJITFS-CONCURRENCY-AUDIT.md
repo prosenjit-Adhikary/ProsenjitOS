@@ -491,3 +491,11 @@ This is a **narrow IPC lock fix**, not the scheduler-aware mutex implementation 
 - `kernel/kernel.c` now snapshots RFLAGS immediately before the existing IPC send/wakeup regression and checks that the IF bit is unchanged immediately after `ipc_channel_send()`.
 - This is a narrow regression against accidentally enabling interrupts when the caller entered with them disabled. It does not simulate an IF-enabled caller or deterministic timer preemption; those remain required follow-up tests.
 - Test source commit: `7cbf5768d3129fd4fcdb87c605cdc5d7cdff97a4`.
+
+### IPC wait API ownership guard
+
+- `ipc_channel_wait()` now rejects a waiter pointer that is not `thread_current()`. This is required because `thread_block()` blocks the current thread, not an arbitrary supplied thread; accepting a mismatch could previously publish a waiter that had not actually been blocked.
+- The kernel IPC regression now passes the READY worker thread as a negative case and asserts the call returns `PROSENJIT_IPC_EINVAL`, the running init thread remains RUNNING, and no waiter is published before the valid current-thread wait is exercised.
+- Implementation commit: `6ec54b4f52ce2a890dc4c5dbb0e961df1697a002`.
+- Regression commit: `5f5169ffd4cbb722ab2dd90a680220f118f00fbe`.
+- These tests are source changes only until the exact PR head builds and the QEMU boot markers pass.
