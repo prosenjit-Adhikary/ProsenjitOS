@@ -424,3 +424,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Cross-checked `kernel/health.c`: saturation guard, `UINT32_MAX - 1` boundary test, and successful-test telemetry reset are present in source. Cross-checked `kernel/ipc.c`: message size is bounded before queue insertion; receive rejects insufficient capacity before copying/dequeueing at this low-level C API. Syscall-level user-copy and delivery semantics still need dedicated tests.
 - Exact-head CI for `e2102a018b166d4bfd3c9819de6190effe5c652b` remained queued at the time of this audit: Build/boot run `40338325240` (#8687) and Security architecture run `40338325191` (#8223). No compile, QEMU, or runtime pass is claimed.
 - No kernel/runtime source, public ABI, filesystem, process lifecycle, boot flow, or desktop code was changed. These commits only correct design documentation and its log. Keep the implementation unmerged until CI and security review pass.
+
+
+## Boot-integrated health counter regression check — 2026-10-26
+
+- Source audit found that `pros_health_selftest()` was declared and implemented but had no call site in `kernel/kernel.c`; therefore its boundary assertions were not proven to execute during boot.
+- Added a fail-closed call to `pros_health_selftest()` after the central logging self-test and before the initial health sample. On failure, boot emits an explicit error and halts; on success it emits `ProsenjitOS: system health/drop-counter self-test passed`. The self-test reinitializes health telemetry, after which the normal initial sample and kernel watchdog setup proceed.
+- Updated `.github/workflows/build.yml` to require that marker in both ISO/QEMU and native BIOS/QEMU serial logs, so a missing/unexecuted self-test fails the build workflow rather than being inferred from a generic health-init marker.
+- Audited `timer_selftest()`: it checks initialized timer configuration and monotonic tick reads without mutating timer state. Audited `pros_log_init()`: it initializes the health ring before the boot self-tests.
+- This is a runtime source change plus CI assertion on the isolated branch, not yet compiled or boot-tested. Exact-head CI still needs the self-hosted runner. Do not claim success until both QEMU boot paths and the security architecture workflow pass.
