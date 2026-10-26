@@ -521,3 +521,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Verification boundary: source/docs inspected; no local compile, sanitizer execution, or QEMU boot was performed here. CI must be checked against the newest exact head after this work-log commit. Earlier exact-head runs were queued; queued is not pass.
 - Remaining critical gaps: audited syscall-level copy-out/dequeue semantics; trusted launch identity and atomic endpoint publication; general native spawn/CPL3 lifecycle; source/reason public registry; serializer; concurrency/epoch semantics; authenticated broker and UI integration.
 - Next action: fetch the latest head and exact-head workflow runs; then continue a source-level audit of `kernel/syscall.c` receive/copy-out path and relevant tests without adding a syscall or changing kernel behavior before the ownership contract is proven.
+
+
+## IPC receive delivery audit — 2026-10-26
+
+- Audited `kernel/syscall.c` (`PROSENJIT_SYS_IPC_RECEIVE`), `kernel/ipc.c` (`ipc_channel_receive()`) and `kernel/usercopy.c` (`copy_to_user()`).
+- Confirmed behavior: the lower-level receive copies the message into kernel memory and advances queue head/decrements count before the syscall copies message bytes and the length to user memory. If either copy-out fails, the syscall reports an error after the message has already been consumed. User-range prevalidation does not guarantee the later copy will not fault.
+- Recorded the limitation and test gates in `docs/SECURITY-CONTROL-CENTER-BROKER-IMPLEMENTATION-PLAN.md`. This is a delivery/retry correctness issue; no claim of memory corruption is made.
+- No kernel behavior changed. Do not introduce an unreviewed peek/commit change: correct design must avoid holding a spinlock across faultable user copy and must prevent concurrent receivers from consuming the same reserved message.
+- The latest workflow check before this note was for SHA `d61d8ddcf9056685b3f7b2e074acac5b386f52b3`: build/boot run `40354228726` and security run `40354228773`, both queued. A new commit changes the head, so those runs are not evidence for the next head.
+- Next: re-fetch PR head and exact-head CI; continue auditing handle transfer/duplication rights and IPC waiter/lock behavior. Keep PR #269 draft and unmerged.
