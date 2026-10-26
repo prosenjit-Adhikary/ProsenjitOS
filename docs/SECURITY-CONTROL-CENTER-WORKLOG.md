@@ -509,3 +509,15 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Regression tests were revised for one-record pagination, 24-byte event records, bad cursor, requested/returned sequence mismatch, zero sequence, and oversized frames.
 - Verification: source edits are committed to this isolated branch, but no local compile, sanitizer run, or QEMU boot has been performed in this environment. Exact-head CI must be checked; no test pass is claimed.
 - Still missing: authenticated broker identity/provisioning, kernel IPC integration, stable public source/reason mapping, and reviewed timestamp/epoch semantics. Keep PR #268 draft and unmerged until exact-head checks pass.
+
+
+## Broker architecture continuation — 2026-10-26
+
+- Current branch: `security/scc-u64-timestamp-get-event-guard`; PR #269 remains draft/unmerged. Latest confirmed commit before this log update: `20800317b313bf42744045fc6e0d30785de068e4` (broker implementation plan).
+- Added `docs/SECURITY-CONTROL-CENTER-BROKER-IMPLEMENTATION-PLAN.md`: dependency-ordered milestones M0–M5, fail-closed rules, OS-established endpoint identity, atomic publication, least privilege, serializer/source mapping requirements, test gates, and explicit v1 non-goals.
+- Updated `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md` to remove stale 20-byte wire-format claims and align it with the current draft's 24-byte event record, u64 boot-relative tick timestamp, single-event response limit, and GET_EVENT sequence binding.
+- Updated `tests/security_control_center_protocol_test.c` with a 64-byte frame carrying a malformed 40-byte LIST_EVENTS payload; it must be rejected as a bad payload. A 65-byte frame remains rejected as oversized.
+- Source audit reconfirmed: `include/abi/syscall.h` currently declares syscall IDs 1–7 and no spawn/exec or dedicated security telemetry syscall; `kernel/include/ipc.h` defines a 64-byte message limit and eight queue slots; `kernel/include/object.h` has generation-tagged handles and rights but handle possession is not service identity; `kernel/include/health.h` exposes kernel-side APIs and a private internal event shape, not a public userspace service.
+- Verification boundary: source/docs inspected; no local compile, sanitizer execution, or QEMU boot was performed here. CI must be checked against the newest exact head after this work-log commit. Earlier exact-head runs were queued; queued is not pass.
+- Remaining critical gaps: audited syscall-level copy-out/dequeue semantics; trusted launch identity and atomic endpoint publication; general native spawn/CPL3 lifecycle; source/reason public registry; serializer; concurrency/epoch semantics; authenticated broker and UI integration.
+- Next action: fetch the latest head and exact-head workflow runs; then continue a source-level audit of `kernel/syscall.c` receive/copy-out path and relevant tests without adding a syscall or changing kernel behavior before the ownership contract is proven.
