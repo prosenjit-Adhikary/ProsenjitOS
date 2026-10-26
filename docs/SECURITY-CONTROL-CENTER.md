@@ -132,3 +132,28 @@ The Control Center is not complete merely because the screen renders. Each crite
 This document specifies the integration target only. It does not claim that the graphical Control Center, user-mode security service, network firewall, package update UI, or all permission-management flows are implemented.
 
 The repository already documents the Reason Ledger/security event foundation, file-security admission and quarantine policy, device permission broker, shared ABI, and existing desktop direction. The next code task is to inspect those actual interfaces and implement the first read-only status/audit slice against them, rather than building mock controls or duplicating security policy.
+
+## 9. Source audit and safe implementation gate (2026-10-26)
+
+The following is a source-level interface audit, not a claim of runtime validation:
+
+- `kernel/include/health.h` declares a bounded health-event interface (`PROS_HEALTH_EVENT_MAX`, `pros_health_snapshot`, `pros_health_get_event`, and `pros_health_export`). These are kernel C interfaces; they are **not** by themselves a user-mode IPC/API.
+- `kernel/include/security_monitor.h` exposes process-security telemetry/state functions, and `kernel/security_monitor.c` records security decisions into the health-event system. The monitor uses a bounded process-state array. Do not expose this state directly to an untrusted UI.
+- `kernel/include/security_quarantine.h` and `kernel/security_quarantine.c` provide a bounded in-memory metadata table and add/get/release functions. The table is not proof of a complete filesystem quarantine/restore workflow: the UI must not call `release` as if it restores a file.
+- `kernel/include/device_broker.h` declares device grant/revoke/check operations. These are kernel-private headers under `kernel/include/`, not a public user-space ABI. A privileged UI must not call them directly.
+- The project structure assigns public/shared user-kernel interfaces to `include/` and keeps private kernel interfaces under `kernel/include/`. The existing native user-mode and service/IPC path is still a prerequisite for any UI integration.
+
+### Non-negotiable change-safety gates
+
+1. Keep the current feature branch and draft PR isolated from `main`; do not merge automatically.
+2. First implementation slice is **read-only** and must not edit kernel policy, syscall dispatch, memory management, scheduler, VFS/ProsenjitFS, boot code, or existing desktop files.
+3. Do not add a new kernel syscall just to feed a settings page. First establish a versioned, caller-authenticated service/IPC contract using the project's public ABI conventions.
+4. Until that contract exists, do not display invented live values. Mark those panels **Unavailable — no user-mode service contract yet**.
+5. Any future read-only adapter must use bounded snapshots/paging, validate all lengths and caller identity, redact sensitive values, and never block or allocate unbounded memory in a kernel path.
+6. Every implementation change must be a separate, reviewable commit with focused host-side regression tests plus both existing build/boot and security CI gates. Verify the exact head SHA; a green result on another commit does not count.
+7. Stop and investigate on any unexpected diff in kernel-critical paths, any failed test, or any change to existing desktop/session contracts. Never “fix” a failure by weakening a test or bypassing a gate.
+8. No permission grant/revoke, quarantine restore, package install/update, or network-policy toggle is enabled until its real enforcement path, authorization, audit event, and failure-injection tests exist.
+
+### Immediate next step
+
+Before writing UI code, map the repository's existing public ABI, syscall dispatch, user-copy validation, process startup, and IPC/service state. If there is no authenticated read-only route from user mode to the health-event snapshot, the safe deliverable is a tested contract/prototype outside the running kernel—not a direct UI-to-kernel call. Keep the existing desktop and ABI untouched.
