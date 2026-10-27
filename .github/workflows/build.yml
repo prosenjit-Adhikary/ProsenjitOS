@@ -63,6 +63,7 @@ jobs:
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_protocol.sh
+          bash -n scripts/test_security_control_center_service.sh
 
       - name: Validate security architecture contract
         run: |
@@ -100,6 +101,9 @@ jobs:
 
       - name: Run SCC protocol parser tests
         run: make security-protocol-test
+
+      - name: Run SCC service dispatcher tests
+        run: make security-service-test
 
       - name: Run SCC protocol parser sanitizer tests
         env:
