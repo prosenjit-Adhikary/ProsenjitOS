@@ -602,3 +602,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Confirmed reason namespaces overlap by category and source context. Several call sites use source zero or literal numeric codes; security-monitor value packs internal event type/score and must not be serialized. The 16-bit wire source/reason fields require explicit allow-listed mappings from internal 32-bit tuples; no truncation, raw passthrough or public ID assignment has been implemented.
 - Header-defined recovery/network/driver code families were identified, but the complete call-site audit is still open. The inventory explicitly marks itself partial; next pass must enumerate every pros_health_record*() call and all source constants before a reviewed registry or serializer is built.
 - Documentation-only commit. No kernel/runtime behavior changed. Exact-head CI must be rechecked; this source review is not a build or boot test.
+
+### Expanded telemetry call-site audit — 2026-10-27
+
+- Follow-up code searches found additional production telemetry callers in `kernel/driver.c`, `kernel/security_provider.c`, `kernel/security_hardening.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/kernel.c`, and `kernel/vfs.c`. The source map now records each observed internal source/code/value shape and the required privacy gate.
+- Important collision: security admission and intent both use source `0x53454341`, but their code/value semantics differ. Therefore source ID alone is insufficient to interpret a security record; any trusted adapter must understand producer-specific schemas before assigning a public reason.
+- Driver network records use dynamic device IDs and may pack vendor/device identifiers or driver errors into `value`; VFS records use a fixed internal source with caller-derived error codes and values; hardening accepts caller-supplied code/value. None are safe to serialize directly.
+- The call-site search is not treated as proof of completeness. Before implementing a registry, inspect constant definitions and all hardening/VFS call sites, then add table-driven serializer tests for approved pairs, overlapping source IDs, unknown pairs, and private-value non-disclosure.
+- Source-map inventory commit: `ebcdb573f206b4ff8e738d5845d395be878ee674`. Documentation-only; no compile or runtime test was performed. CI must be checked against the latest branch head, not the earlier inventory commit.
+
