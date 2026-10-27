@@ -443,8 +443,11 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
         serial_write("ProsenjitOS: ERROR central logging self-test failed\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
-    if (pros_health_selftest() != PROS_HEALTH_OK) {
-        serial_write("ProsenjitOS: ERROR system health/drop-counter self-test failed\n");
+    int health_selftest_rc = pros_health_selftest();
+    if (health_selftest_rc != PROS_HEALTH_OK) {
+        serial_write("ProsenjitOS: ERROR system health/drop-counter self-test rc = ");
+        serial_hex64((uint64_t)(int64_t)health_selftest_rc);
+        serial_write("\\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
     serial_write("ProsenjitOS: system health/drop-counter self-test passed\n");
