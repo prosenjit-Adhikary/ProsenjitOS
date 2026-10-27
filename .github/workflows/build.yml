@@ -51,6 +51,7 @@ jobs:
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_protocol.sh
           make desktop-unit-test
+          make driver-telemetry-test
           make security-protocol-test
           SCC_SANITIZERS=1 bash scripts/test_security_control_center_protocol.sh
 
