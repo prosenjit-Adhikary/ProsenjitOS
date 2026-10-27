@@ -117,7 +117,8 @@ int scc_service_dispatch(const struct scc_service_backend *backend,
         } else {
             int rc = backend->get_status(backend->context, payload);
             if (rc != SCC_STATUS_OK)
-                status = rc <= SCC_STATUS_INTERNAL_ERROR ?
+                status = rc >= SCC_STATUS_UNSUPPORTED_VERSION &&
+                         rc <= SCC_STATUS_INTERNAL_ERROR ?
                          (uint32_t)rc : SCC_STATUS_INTERNAL_ERROR;
             else if (read_u16(payload + 2) > 3)
                 status = SCC_STATUS_INTERNAL_ERROR;
@@ -135,7 +136,8 @@ int scc_service_dispatch(const struct scc_service_backend *backend,
                                           view.max_records, payload,
                                           &payload_length, &cursor);
             if (rc != SCC_STATUS_OK) {
-                status = rc <= SCC_STATUS_INTERNAL_ERROR ?
+                status = rc >= SCC_STATUS_UNSUPPORTED_VERSION &&
+                         rc <= SCC_STATUS_INTERNAL_ERROR ?
                          (uint32_t)rc : SCC_STATUS_INTERNAL_ERROR;
             } else if (payload_length > max_payload ||
                        payload_length % SCC_EVENT_RECORD_SIZE != 0) {
@@ -162,7 +164,8 @@ int scc_service_dispatch(const struct scc_service_backend *backend,
         } else {
             int rc = backend->get_event(backend->context, sequence, payload);
             if (rc != SCC_STATUS_OK) {
-                status = rc <= SCC_STATUS_INTERNAL_ERROR ?
+                status = rc >= SCC_STATUS_UNSUPPORTED_VERSION &&
+                         rc <= SCC_STATUS_INTERNAL_ERROR ?
                          (uint32_t)rc : SCC_STATUS_INTERNAL_ERROR;
             } else if (read_u64(payload) != sequence) {
                 status = SCC_STATUS_INTERNAL_ERROR;
