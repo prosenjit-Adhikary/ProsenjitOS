@@ -695,3 +695,10 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The precise cause of that missing path is not proven by the log. However, separate build runs had different concurrency groups by ref and `cancel-in-progress: true`, while the runner logs show a shared self-hosted working path. This makes overlapping cleanup/build activity a credible race to eliminate.
 - Changed `.github/workflows/build.yml` to use one shared concurrency group with `cancel-in-progress: false`, serializing build workflow runs until the build script uses per-run isolated output directories. Commit: `318d270f4e1c6cc390e07d3d78f5d8ef44cf13db`.
 - This is a preventive CI change, not a confirmed fix yet. The workflow must run at the new exact head; no current-head parser/sanitizer/ISO/QEMU PASS is claimed.
+
+
+## 2026-10-27 — Exact-head CI rerun after build serialization
+
+- Current PR #269 head before this log-only commit was `340b85ae1755241b8b283daa0a4f7ba1e7852bbc`; its Build/boot-test run [#8781](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40526307002) and Security architecture run [#8313](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40526306104) both reported failure. The job-details API returned no step data and job logs returned BlobNotFound, so these failures cannot be attributed to source tests.
+- Retried both latest failed jobs after applying the shared build concurrency group. The Build retry again completed as failure with no step data (job ID `122274391408`); the Security architecture retry was still queued at the time of inspection (job ID `122274431345`). This does not validate the concurrency mitigation.
+- No source/runtime PASS is claimed. Next requirement is accessible runner logs for the failed attempts or an owner-side run with visible logs. The scheduler atomic wait/wakeup implementation remains a separate, unimplemented Native ProsenjitFS prerequisite.
