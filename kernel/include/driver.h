@@ -65,6 +65,26 @@ enum pros_driver_health_code {
     PROS_DRIVER_HEALTH_REMOVE_FAILURE = 5u
 };
 
+/*
+ * Driver lifecycle codes occupy a separate internal range so bind/probe/
+ * unbind events cannot alias the registry-failure codes above. These are
+ * internal telemetry codes, not public wire-protocol reason IDs.
+ */
+enum pros_driver_lifecycle_health_code {
+    PROS_DRIVER_HEALTH_PROBE_FAILURE = 0x100u,
+    PROS_DRIVER_HEALTH_BIND_SUCCESS = 0x101u,
+    PROS_DRIVER_HEALTH_UNBIND_SUCCESS = 0x102u
+};
+
+#if (PROS_DRIVER_HEALTH_PROBE_FAILURE <= PROS_DRIVER_HEALTH_REMOVE_FAILURE) || \
+    (PROS_DRIVER_HEALTH_BIND_SUCCESS <= PROS_DRIVER_HEALTH_REMOVE_FAILURE) || \
+    (PROS_DRIVER_HEALTH_UNBIND_SUCCESS <= PROS_DRIVER_HEALTH_REMOVE_FAILURE) || \
+    (PROS_DRIVER_HEALTH_PROBE_FAILURE == PROS_DRIVER_HEALTH_BIND_SUCCESS) || \
+    (PROS_DRIVER_HEALTH_PROBE_FAILURE == PROS_DRIVER_HEALTH_UNBIND_SUCCESS) || \
+    (PROS_DRIVER_HEALTH_BIND_SUCCESS == PROS_DRIVER_HEALTH_UNBIND_SUCCESS)
+#error "Driver lifecycle health codes must remain distinct from registry codes"
+#endif
+
 struct pros_driver_id {
     enum pros_driver_bus bus;
     uint16_t vendor_id;

@@ -267,4 +267,9 @@ A further producer-semantic ambiguity was found and must be resolved before any 
 - The network wrapper separately has explicit NETWORK codes for discovered, removed, bound, unbound, probe failed, and stack unavailable. Do not silently treat those as interchangeable with DRIVER-category events.
 - `kernel/kernel.c` also passes `PROS_HEALTH_RECOVERY_DRIVER_READY` (a RECOVERY enum value) through `pros_log_emit()` with category DRIVER and source `0x44525648` (`DRVH`). This is a caller-supplied tuple, not proof that the code is a DRIVER enum member.
 
-Required disposition: keep these tuples unmapped in public telemetry until the producer contract is normalized. A follow-up implementation should introduce explicit, non-overlapping named internal DRIVER event codes for device probe/bind/unbind outcomes (or another reviewed producer discriminant), replace raw numeric literals, and add table-driven tests for both the intended mappings and unknown tuples. Do not mint public IDs as part of this source-audit note. No kernel behavior or serializer was changed by this audit.
+Disposition after follow-up implementation on 2026-10-27:
+- `kernel/include/driver.h` now defines separate internal lifecycle codes: probe failure `0x100`, bind success `0x101`, and unbind success `0x102`. A preprocessor guard prevents overlap with registry codes 1..5 and prevents lifecycle-code collisions.
+- `kernel/driver.c` uses the named lifecycle constants instead of raw `3u`, `2u`, and `4u` for those three events.
+- The boot logger's driver-ready event now uses category `PROS_HEALTH_RECOVERY` to match its `PROS_HEALTH_RECOVERY_DRIVER_READY` reason code; the internal source remains `DRVH`.
+- Added a host-side regression test and `make driver-telemetry-test` target to check that lifecycle codes are pairwise distinct and disjoint from the registry namespace.
+- These values remain internal only. Do not infer public wire IDs from them; dynamic device IDs and raw internal values remain private. The test has been added but has not been executed in this session; local runner/compile environment remains unavailable. Exact-head CI is still required.

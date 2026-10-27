@@ -695,3 +695,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Also found `kernel/kernel.c` sends the RECOVERY enum value `PROS_HEALTH_RECOVERY_DRIVER_READY` through the generic logger under category DRIVER and source `DRVH`. Generic logger inputs therefore cannot be assumed to follow the category's enum.
 - Updated the source map with this exact-head ambiguity and a fail-closed follow-up gate. No kernel code, public wire IDs, or serializer changed.
 - Cross-verification is source-level only. Local runner is offline; no compile, host-test, or boot-test pass is claimed. PR #269 remains draft and unmerged.
+
+
+### Driver telemetry namespace normalization — 2026-10-27
+
+- Implemented the bounded follow-up for the driver telemetry ambiguity: added internal lifecycle event codes `0x100` (probe failure), `0x101` (bind success), and `0x102` (unbind success) to `kernel/include/driver.h`, with a preprocessor guard separating them from registry codes 1..5 and from one another.
+- Replaced the three raw lifecycle code literals in `kernel/driver.c` with their named constants.
+- Corrected the boot-time driver-ready generic log category in `kernel/kernel.c` from DRIVER to RECOVERY so the category matches `PROS_HEALTH_RECOVERY_DRIVER_READY`. Kept source `DRVH` as an internal source; this is not a public mapping.
+- Added `tests/driver_telemetry_codes_test.c` and `make driver-telemetry-test` for pairwise and registry-vs-lifecycle namespace checks.
+- Cross-check performed against the exact prior source: each former raw lifecycle literal in the three targeted call sites is replaced; the named values are unique and outside the 1..5 registry range by construction. The test source has **not** been compiled or run here, and no kernel build/boot pass is claimed because the local runner is offline.
+- Public telemetry source/reason registry and serializer remain unimplemented. PR #269 stays Draft and unmerged pending exact-head CI and review.
