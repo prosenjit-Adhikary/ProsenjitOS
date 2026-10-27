@@ -649,3 +649,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Captured logs contain four ProsenjitFS format/mount/allocation/journal/recovery self-test markers, two native LBA-boundary diagnostic markers and two ATA PIO -> MBR -> ProsenjitFS persistent-mount markers; no compiler `error:` entries.
 - FS-31's injected second home-block write failure during committed journal replay returned EIO; after simulated power loss, retry mount completed the committed unlink and integrity checks passed in the self-test.
 - This is deterministic mock-device/QEMU evidence only; physical-device power-loss certification and general concurrent-mutation safety remain unverified.
+
+## 2026-10-27 — Evening workflow backlog audit
+
+- Current known PR #269 head from the handoff is `a380f268d691d04bbf54cc5c4c0db9d84ae79f98`.
+- **PASS, limited scope:** Security architecture [run 40484817442](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40484817442) completed successfully. The recorded job steps include checkout and security architecture contract validation only; this does not prove kernel compilation or runtime behavior.
+- **CANCELLED / NOT VERIFIED:** Build and boot-test [run 40484817506](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40484817506) was cancelled before any recorded build steps. It is not a source-code failure diagnosis and is not a pass. A fresh exact-head run is required after runner availability returns.
+- Older commit `e2102a018b166d4bfd3c9819de6190effe5c652b` passed Build/boot-test [run 40338325240](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40338325240) and Security architecture [run 40338325191](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40338325191). These are historical results for that exact commit only; they do not verify PR #269 or newer commits.
+- No failed build log was available for the cancelled run, so no code change was justified from that status alone. Local self-hosted runner remains reported offline; do not claim a new compile/QEMU run.
+- Native ProsenjitFS scheduler-aware mutex/wakeup correctness, general VFS concurrency, physical-device durability, and full persistence/crash-recovery certification remain open/NOT TESTED pending exact-head build/QEMU and targeted regression evidence.
