@@ -19,10 +19,20 @@ jobs:
         shell: bash
         working-directory: security-run
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          path: security-run
+      - name: Checkout source using Git directly
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf security-run
+          mkdir -p security-run
+          cd security-run
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
 
       - name: Validate security architecture contract
         shell: bash
