@@ -722,3 +722,10 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - ISO compilation then failed in `kernel/include/driver.h:85`: the new `#if` guard compared enum constants. The C preprocessor treats enum identifiers as undefined macros (zero), so the guard condition was not evaluating the intended numeric enum values.
 - Fixed the guard to use C `_Static_assert`, which evaluates the enum constant expressions at compile time. This retains the distinct-code invariant without relying on preprocessor evaluation of enum identifiers.
 - New fix commit: `8bd2463e5f3d7f9fbc3a60d32af336d16bc4b010`. Exact-head build and both QEMU boot gates still need to run; no build/boot pass is claimed yet.
+
+
+### CI coverage follow-up — driver telemetry regression test — 2026-10-27
+
+- Source audit found `make driver-telemetry-test` existed in the Makefile but was not invoked by the Build/boot-test workflow.
+- Added the target to the workflow's pre-build host-test stage, alongside desktop and SCC parser tests. This ensures the driver telemetry namespace regression is exercised before ISO compilation on subsequent runs.
+- The workflow change is on the PR branch; exact-head execution is pending. Do not infer success from the source edit alone.
