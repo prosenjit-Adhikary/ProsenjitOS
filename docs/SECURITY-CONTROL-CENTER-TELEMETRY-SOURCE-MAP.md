@@ -138,6 +138,24 @@ Additional header-defined code families found but not yet fully inventoried acro
 
 **Registry rule:** do not assign public IDs yet to rows marked candidate. Next audit must enumerate every pros_health_record*() call, all code enums and all source constants on this branch, then review category/source/code tuples with a human before implementing the serializer. Unknown tuple => generic UNKNOWN reason/source, never raw passthrough. The inventory is intentionally partial and must not be read as proof that unlisted producers do not exist.
 
+## 4.3 Expanded repository call-site inventory
+
+A repository code search and branch-source inspection found additional production callers beyond the first-pass wrapper inventory. This section supersedes any implication that the wrappers have only one producer.
+
+| Call site | Category | Source/code behavior observed | Privacy/mapping gate |
+|---|---|---|---|
+| `kernel/driver.c` | NETWORK | Source is device ID; codes include DEVICE_DISCOVERED, DEVICE_REMOVED, PROBE_FAILED, DRIVER_BOUND, DRIVER_UNBOUND and STACK_UNAVAILABLE. Discovery value packs vendor/device IDs; failure values may encode driver errors | Device IDs and hardware identifiers are internal identifiers, not stable public source IDs. Map each approved reason explicitly; do not serialize raw values |
+| `kernel/security_provider.c` | SECURITY | Source `0x53454350`; code `PROS_SECURITY_HEALTH_PROVIDER`; value may be provider index | Provider index is internal inventory detail. Use a coarse reason only after reviewing the provider enum and public semantics |
+| `kernel/security_hardening.c` | SECURITY | Source `0x53454348`; initialization uses code 1 and generation as value; violation path accepts caller-supplied code/value | Caller-supplied code/value require tracing to all call sites; generation and violation metadata must not pass through raw |
+| `kernel/security_admission.c` | SECURITY | Source `0x53454341`; uses admission/signature-failure constants; one value packs security action/state | Must map by explicit reviewed reason; never expose packed action/state |
+| `kernel/intent.c` | SECURITY | Shares source `0x53454341`; code packs decision in upper bits and reason in lower bits; value is intent ID | Same source is reused for a different event family; this demonstrates source alone does not uniquely identify reason semantics. Decode only in trusted internal adapter, then map to generic/public allow-listed reasons |
+| `kernel/kernel.c` | RECOVERY | Crash-capture failure uses `PROS_CRASH_HEALTH_SOURCE` and `PROS_CRASH_HEALTH_CAPTURE_FAILED`; recovered user-copy fault uses source `0x55504346`, code 1, and RIP-like frame value | Trace constants to their defining headers; never expose addresses or raw failure values |
+| `kernel/vfs.c` | FILESYSTEM | Source `0x56465348`; code comes from VFS error/reporting path; value is a negated return code | Error code domain and call sites must be reviewed; no arbitrary VFS code pass-through |
+
+The current wrapper call-site audit found no production caller of `pros_health_record_filesystem()` outside `kernel/vfs.c` in the repository search results; the helper itself and self-test also exist. Repository search results are a source-discovery aid, not a proof of completeness—repeat the search on the exact branch/head before implementing the registry.
+
+**Updated implementation gate:** do not finalize source IDs or public reason IDs yet. First inspect the defining constants/enums for crash, security provider, hardening, admission and intent; trace every hardening/VFS caller; separate the overlapping `0x53454341` security-admission and intent events; then add a reviewed mapping table and tests that unknown source/code pairs fail closed to a documented generic representation. The raw internal `value` remains excluded from v1.
+
 ## 5. Readiness decision
 
 The current source offers useful kernel-side telemetry foundations but is **not yet an end-to-end Security Control Center API**. Before UI integration, the project still needs:
