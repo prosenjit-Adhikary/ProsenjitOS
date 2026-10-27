@@ -37,3 +37,24 @@ This source-level audit does not claim filesystem-wide concurrency safety and do
 ## Decision
 
 **P5 remains OPEN.** No scheduler mutex or filesystem-wide lock was implemented in this audit because current block/wake APIs do not establish the atomic protocol needed to implement one safely. The next code task is scheduler atomic wait/wakeup—not a guessed mutex inside ProsenjitFS. Do not claim native filesystem concurrency completion until all gates have code and exact-head test evidence.
+
+
+## 2026-10-27 follow-up: IPC wait-path hazard confirmed by source inspection
+
+The current branch's `kernel/ipc.c` and `kernel/thread.c` expose additional reasons not to implement a mutex on top of the current API without first changing the scheduler contract:
+
+- `ipc_channel_wait(channel, thread)` accepts a caller-supplied thread pointer, but calls `thread_block(channel)`, which blocks the scheduler's `current_thread` rather than the supplied `thread`. The function does not verify that `thread == thread_current()`. If they differ, it can block one thread while publishing another as the channel waiter.
+- `thread_block()` only sets `wait_channel` and `PROS_THREAD_BLOCKED`; it does not itself perform a context switch. Any blocking primitive must define how the caller stops executing before returning to normal work, and must not leave a function returning to a thread that has been marked BLOCKED.
+- The channel lock is a spinlock held while `thread_block()` runs. This currently avoids a simple sender interleave only under assumptions that need an explicit interrupt/preemption contract; it is not a general atomic scheduler wait primitive and must not be reused as a mutex design by analogy.
+- `thread_wake()` changes state and enqueues the thread independently. A future atomic wait API needs a documented lock order between scheduler/run-queue state and object wait queues to avoid lock inversion.
+
+### Required regression cases before implementation is accepted
+
+1. `ipc_channel_wait` rejects a thread pointer different from `thread_current()` without changing either thread or the channel waiter list.
+2. Wake arriving immediately before wait publication cannot leave a thread asleep with a ready condition.
+3. Wait publication and BLOCKED transition are one scheduler-visible operation; the caller cannot continue as RUNNING while also listed as a waiter.
+4. Wake-one removes exactly one matching waiter, clears its wait channel only after successful enqueue, and cannot duplicate run-queue membership.
+5. Cancellation/termination racing with wake leaves no stale waiter pointer and cannot resurrect a DEAD thread.
+6. Tests cover repeated wake, wake of non-waiter, full waiter queue, invalid process state, and enqueue failure rollback.
+
+These are source-review findings, not a claim that a runtime race has been reproduced. No kernel code was changed in this follow-up. Keep scheduler atomic wait/wakeup as the next implementation milestone and do not mark P5 complete.
