@@ -719,3 +719,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Also confirmed `thread_block()` only changes current-thread state/channel; it does not itself context-switch. Therefore a safe wait primitive must coordinate the condition check, waiter publication, blocked transition, scheduler handoff and wakeup. The existing channel spinlock does not by itself establish a general scheduler wait contract.
 - Expanded `docs/PROSENJITFS-CONCURRENCY-CONTRACT.md` with this finding and required regression scenarios (mismatched waiter, wake-before-wait, no continued execution while BLOCKED, exact one-waiter wake, termination/cancel races, repeated/invalid wake and rollback). Commit: `440ecbf8ba5792839d3d0ebd73e116e8c93ecf42`.
 - No kernel implementation was changed, and no compile/unit/QEMU pass is claimed. This is intentional: changing scheduler state transitions without a reliable exact-head CI path would risk destabilizing the kernel. Next implementation task remains a reviewed atomic scheduler wait/wakeup primitive plus deterministic tests, followed by IPC adaptation and only then scheduler-aware mutex/filesystem integration.
+
+
+## 2026-10-27 — IPC mismatched-waiter guard implemented
+
+- Source review showed `ipc_channel_wait(channel, thread)` accepted a caller-supplied thread but `thread_block(channel)` always blocks `thread_current()`. Added a defensive identity check in `kernel/ipc.c`: mismatched/non-current waiter arguments return `PROSENJIT_IPC_EINVAL` before taking the channel lock or mutating the waiter queue.
+- Added an in-kernel regression to `kernel/kernel.c` before the existing normal wait path: pass a zero-initialized non-current thread, require `PROSENJIT_IPC_EINVAL`, verify waiter count stays zero and the actual current thread stays RUNNING, then run the existing valid wait/wakeup scenario.
+- Commits: IPC guard `a161b033ff68fb4f15fcecef07013ced8770e21c`; regression `642aee9e946deb53f31d4d778feae93af15a708f`.
+- This is a narrow defensive fix, not the atomic wait/wakeup protocol. The API still changes current-thread state without itself switching context; lost-wakeup and interrupt/preemption ordering remain open. No build, unit-test, ISO or QEMU pass is claimed until exact-head workflow evidence arrives.
