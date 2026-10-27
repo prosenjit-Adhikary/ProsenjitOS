@@ -673,3 +673,10 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Updated the telemetry source map with exact-head findings and explicit do-not-serialize rules. No kernel behavior, public wire ID, serializer, or runtime code was changed.
 - Scope limitation: this is a focused review, **not** the complete repository-wide `pros_health_record*` call-site inventory. Public source/reason mapping and serializer remain blocked until that inventory and table-driven host tests are complete.
 - PR #269 stays Draft and unmerged. The exact-head workflows require the offline `self-hosted, linux, x64` runner; no compile, automated-test, or boot pass is claimed.
+
+### Generic logger boundary cross-check — 2026-10-27
+
+- Re-read `kernel/log.c` at PR head `9dc3d7937c6d5df4507b5852955ab6d69dc47414`. `pros_log_emit()` passes caller-provided severity/category/source/code/value directly into `pros_health_record()` before attempting persistence.
+- This means the generic logging entry point is not itself a trusted public-schema boundary. The userspace broker/serializer must still apply a finite producer-aware allow-list and must not forward caller-supplied tuples or raw values as public telemetry.
+- Confirmed the persistence-degradation record uses source `0x4C4F4750` (`LOGP`), code `2`, and an internal persistence error result as value; the raw value must be omitted.
+- Updated the source map to include the generic logger boundary. The inventory remains focused and explicitly non-exhaustive; no serializer or kernel behavior was changed, and CI remains unverified while the self-hosted runner is offline.

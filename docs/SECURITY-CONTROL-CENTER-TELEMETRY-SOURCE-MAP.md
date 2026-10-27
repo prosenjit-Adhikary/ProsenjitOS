@@ -231,7 +231,7 @@ The two security source IDs are now named constants in `kernel/include/health.h`
 
 ## 4.3 Exact-head sensitive-value cross-check — 2026-10-27
 
-Focused source review performed against PR head `a380f268d691d04bbf54cc5c4c0db9d84ae79f98` (not a repository-wide exhaustive audit). Reviewed `kernel/health.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/driver.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/security_provider.c`, and `kernel/vfs.c`.
+Focused source review began at PR head `a380f268d691d04bbf54cc5c4c0db9d84ae79f98` and was extended at head `9dc3d7937c6d5df4507b5852955ab6d69dc47414` (not a repository-wide exhaustive audit). Reviewed `kernel/health.c`, `kernel/kernel.c`, `kernel/block.c`, `kernel/driver.c`, `kernel/log.c`, `kernel/security_admission.c`, `kernel/intent.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/security_provider.c`, and `kernel/vfs.c`.
 
 | Producer / call-site family | Exact-head finding | Required serialization rule |
 |---|---|---|
@@ -244,6 +244,7 @@ Focused source review performed against PR head `a380f268d691d04bbf54cc5c4c0db9d
 | Security hardening (`kernel/security_hardening.c`) | Source `SECH`; success uses code `1`, while other paths can pass a dynamic code/value. | Only map individually reviewed codes; unknown codes and values are omitted. |
 | Security monitor (`kernel/security_monitor.c`) | Source `SDMN`; code is action and value packs event type and score. | Keep packed event type/score private; publish only a finite action/reason mapping, without raw value. |
 | Security provider (`kernel/security_provider.c`) | Source `SECP`; provider error code is used, and a call-site value can be a provider index. | Do not publish provider indexes or raw implementation errors; map approved provider-unavailable/failure reasons only. |
+| Generic log adapter (`kernel/log.c`) | `pros_log_emit()` forwards caller-supplied severity/category/source/code/value into the in-memory health ring; persistence failure emits `LOGP` / code `2` with a negative persistence result. | Treat generic logger tuples as untrusted internal telemetry; never expose caller-supplied source/code/value by default. Map the persistence failure only through a reviewed generic reason and omit raw value. |
 | VFS error helper (`kernel/vfs.c`) | Source `VFSH`; emits I/O error and permission error codes. Other lookup errors may increment counters without emitting a record. | Allow-list the two observed codes only; do not infer that all lookup errors generate events. |
 
 This review is deliberately **not** an exhaustive repository-wide inventory of every `pros_health_record*` wrapper/call site. It does not authorize public source/reason IDs or serializer implementation. Before freezing a registry, finish a complete exact-head call-site inventory, reconcile all constants and wrapper paths, and add host tests for approved tuples plus unknown-source/code fail-closed behavior.
