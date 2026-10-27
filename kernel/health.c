@@ -337,6 +337,12 @@ int pros_health_selftest(void) {
         pros_health_watchdog_kick(77u) != PROS_HEALTH_OK ||
         pros_health_watchdog_unregister(77u) != PROS_HEALTH_OK ||
         pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL ||
+        /*
+         * Watchdog registration records a health event. Reset the ring so
+         * the following snapshot assertions cover only the two explicit
+         * memory/system records below, rather than the registration event.
+         */
+        pros_health_init() != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
                            2u, 1u, heap_used_bytes()) != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_SYSTEM,
