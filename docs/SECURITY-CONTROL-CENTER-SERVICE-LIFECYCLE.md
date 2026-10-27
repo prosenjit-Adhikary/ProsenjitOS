@@ -11,6 +11,14 @@ Related prerequisites:
 - `docs/SECURITY-CONTROL-CENTER-IPC-PROTOCOL.md` — bounded read-only wire proposal.
 - `kernel/include/ipc.h`, `kernel/ipc.c`, `kernel/syscall.c`, `kernel/usercopy.c` — existing transport and copy boundaries.
 
+## Implementation update (2026-10-27)
+
+A host-testable dispatcher core now exists in `user/security/telemetry_service.c` and `.h`, with a sanitizer-backed host test runner at `scripts/test_security_control_center_service.sh` and the `security-service-test` Makefile target. The dispatcher performs bounded framing/response construction, enforces a caller-supplied authorization decision, and rejects malformed backend event lengths/sequences.
+
+This is **not** the trusted userspace service described by this lifecycle contract. The authorization input is a boolean supplied by its caller; the dispatcher does not authenticate a peer. Backend callbacks are not yet wired to `pros_health_snapshot()` / `pros_health_get_event()`, and no broker process is launched or registered. Kernel IPC, OS-controlled endpoint identity, native process spawn, lifecycle rollback/restart, and UI client integration remain unimplemented. The CI workflow has been updated to run the host test, but a passing run for the exact commit must be observed before treating that gate as satisfied.
+
+Do not describe this dispatcher as active protection or live telemetry. The UI must remain unavailable/error until the trusted launch and endpoint identity contract is implemented and verified.
+
 ## Current source status
 
 The current repository has kernel-side health/security-monitor C interfaces and bounded IPC primitives, but no dedicated public security telemetry query syscall. The public syscall ABI does not establish a general spawn/exec route. The inspected boot path's CPL3/IPC smoke test is not proof of a production userspace broker launch. Kernel service-manager callbacks are not equivalent to an authenticated userspace service manager. Treat these as blockers, not assumptions.
