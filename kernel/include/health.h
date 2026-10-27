@@ -13,6 +13,10 @@
 #define PROS_HEALTH_SOURCE_FILE_ADMISSION 0x53454341u /* "SECA" */
 #define PROS_HEALTH_SOURCE_INTENT_AUDIT   0x53454349u /* "SECI" */
 
+#if PROS_HEALTH_SOURCE_FILE_ADMISSION == PROS_HEALTH_SOURCE_INTENT_AUDIT
+#error "Security telemetry source IDs must remain distinct"
+#endif
+
 enum pros_health_severity {
     PROS_HEALTH_DEBUG = 0,
     PROS_HEALTH_INFO = 1,
