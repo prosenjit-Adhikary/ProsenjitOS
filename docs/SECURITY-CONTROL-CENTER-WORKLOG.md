@@ -749,3 +749,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Driver namespace guard now casts cross-enum values to `unsigned` in the compile-time comparisons, avoiding strict `-Wenum-compare` diagnostics under `-Werror`. The driver telemetry and SCC tests were observed passing in a previous attempt; exact latest-head verification remains required.
 - Removed privileged `sudo apt-get` dependency installation from the local-runner workflow after the log showed the runner cannot use sudo non-interactively. Toolchain preflight remains mandatory and had passed.
 - Latest workflow diagnostic change: `0c5cdf8c8bf60db8b3e89f4b4a75adead10fee84`. Await the exact-head run to identify the next concrete failing step; ISO build and both QEMU boots remain unverified. Do not merge PR #269 automatically.
+
+
+### ISO compile failure: missing size_t declaration — 2026-10-27
+
+- Latest isolated-step run [#8796](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40534353533) confirmed the script syntax, DML unit tests, driver telemetry namespace test, SCC parser tests, and SCC ASan/UBSan tests all passed on local runner `home`.
+- ISO compilation then failed in `kernel/kernel.c:787`: `size_t` was unknown because the translation unit did not include `<stddef.h>`. The following signedness diagnostic was a consequence of the unresolved type.
+- Fixed by adding `#include <stddef.h>` to `kernel/kernel.c`; did not weaken warnings or change the test.
+- Source fix commit: `4fdf76b110ce4faac328ffe493b1bb5d684d9f71`. Await the exact-head rerun to reveal any subsequent compile or boot failures. ISO build and both QEMU boot gates remain unverified until they pass.
