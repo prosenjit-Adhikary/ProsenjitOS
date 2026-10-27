@@ -1,5 +1,12 @@
 name: Build and boot-test ProsenjitOS
 
+# This workflow shares the self-hosted runner workspace with the security-branch
+# build. Use the same repository-wide concurrency group to avoid checkout/cleanup
+# races when PRs #268 and #269 run at the same time.
+concurrency:
+  group: prosenjitos-build-shared-workspace
+  cancel-in-progress: false
+
 # Both workflows use the same self-hosted runner workspace. Serialize them
 # across workflow files to prevent concurrent checkout/cleanup races.
 concurrency:
