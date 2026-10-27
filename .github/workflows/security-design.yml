@@ -1,5 +1,11 @@
 name: Security architecture checks
 
+# Share the build workflow's concurrency group: both jobs use the same
+# self-hosted workspace and must not run checkout/cleanup concurrently.
+concurrency:
+  group: prosenjitos-self-hosted-linux-x64
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]
