@@ -759,3 +759,13 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The same job's native BIOS QEMU step was cancelled by the runner before the 20-second timeout completed. This is not evidence of a native BIOS kernel failure; it is an incomplete test. The previous workflow buffered serial output until QEMU exited, which made diagnosis harder.
 - Updated both QEMU checks to stream serial output through `tee` as the guest runs, and shortened each bounded QEMU window to 10 seconds to reduce the chance that the second boot is cancelled by the runner. The test still fails if required boot milestones are absent or QEMU exits unexpectedly.
 - Next verification gate: confirm a fresh run reaches and passes all native BIOS milestones, especially native handoff, ATA PIO, filesystem LBA boundary, and persistent ProsenjitFS mount. No native BIOS pass is claimed yet.
+
+
+## 2026-10-27 — Full build + ISO + native BIOS verification passed
+
+- Verified workflow run [#8829](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40542468607), source head `6fca3589652c32b5a27757f7062fdc081f2c28bf`.
+- **PASS:** DML desktop manager unit tests; driver telemetry namespace tests; SCC protocol parser tests; SCC sanitizer tests; security architecture contract; ISO build; ProsenjitFS disassembly diagnostic; ISO QEMU boot; native BIOS QEMU boot.
+- ISO serial log confirmed the system-health/drop-counter self-test, ProsenjitFS format/mount/allocation/journal/recovery self-test, and CPL3 syscall/IPC test all passed.
+- Native BIOS serial log confirmed native bootloader handoff, system-health self-test, ProsenjitFS self-test, ATA PIO block-path test, filesystem LBA-boundary diagnostic, ATA PIO → MBR → ProsenjitFS persistent mount, and CPL3 syscall/IPC test all passed.
+- Both QEMU processes exited with status 124 after the configured timeout; this is the expected harness termination after boot milestones, and the workflow explicitly accepted it only after checking every required serial marker.
+- Root cause fixed: the health self-test had included the watchdog-registration event in a snapshot expected to contain only two explicit test records. Reinitializing the health ring before those records corrected the test isolation; production watchdog behavior was not changed.
