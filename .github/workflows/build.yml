@@ -26,12 +26,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install x86-64 build and QEMU dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            build-essential nasm grub-common grub-pc-bin xorriso mtools qemu-system-x86
-
       - name: Identify selected runner and verify toolchain
         run: |
           set -eu
