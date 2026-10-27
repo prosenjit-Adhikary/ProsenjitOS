@@ -593,3 +593,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - No public reason/source IDs were minted from the incomplete inventory. All arbitrary source/code pairs remain unmapped by default; internal `value` remains excluded. Next step is repository-wide call-site inventory for the four health helper families, followed by a reviewed public registry and serializer tests.
 - Change commit: `7eeee915fc650827e97d320594f7150fc1799eb7` (source-map inventory). This documentation-only update has not been compiled or runtime-tested. Query exact-head CI after the next log commit; no CI pass is inferred from source inspection.
 
+
+
+## Internal event-code inventory — 2026-10-27
+
+- Inspected kernel/include/health.h, kernel/health.c, kernel/include/block.h, kernel/block.c, kernel/include/driver.h, kernel/driver.c, kernel/security_provider.c, kernel/include/security_monitor.h, kernel/security_monitor.c and kernel/log.c on security/scc-u64-timestamp-get-event-guard.
+- Recorded a partial, source-backed category/source/code inventory in docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md. It covers block I/O/flush errors, some driver-registry failures, security-provider errors, the security-monitor decision summary, log-persistence degradation and a logging self-test event.
+- Confirmed reason namespaces overlap by category and source context. Several call sites use source zero or literal numeric codes; security-monitor value packs internal event type/score and must not be serialized. The 16-bit wire source/reason fields require explicit allow-listed mappings from internal 32-bit tuples; no truncation, raw passthrough or public ID assignment has been implemented.
+- Header-defined recovery/network/driver code families were identified, but the complete call-site audit is still open. The inventory explicitly marks itself partial; next pass must enumerate every pros_health_record*() call and all source constants before a reviewed registry or serializer is built.
+- Documentation-only commit. No kernel/runtime behavior changed. Exact-head CI must be rechecked; this source review is not a build or boot test.
