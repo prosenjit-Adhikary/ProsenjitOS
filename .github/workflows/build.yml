@@ -9,7 +9,7 @@ concurrency:
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "security/**"]
   pull_request:
 
 jobs:
