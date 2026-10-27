@@ -3,7 +3,7 @@ name: Build and boot-test ProsenjitOS
 # Both workflows use the same self-hosted runner workspace. Serialize them
 # across workflow files to prevent concurrent checkout/cleanup races.
 concurrency:
-  group: prosenjitos-self-hosted-linux-x64
+  group: prosenjitos-build-shared-workspace
   cancel-in-progress: false
 
 on:
