@@ -99,10 +99,29 @@ jobs:
         run: bash scripts/test_security_control_center_protocol.sh
 
       - name: Build ISO
+        timeout-minutes: 6
         run: |
           set -euo pipefail
+          echo "===== Runner resources before build ====="
+          df -h .
+          free -h || true
           chmod +x scripts/build.sh
-          bash -x scripts/build.sh 2>&1 | tee build-script.log
+          timeout --signal=TERM --kill-after=10s 300s bash -x scripts/build.sh 2>&1 | tee build-script.log
+
+      - name: Diagnose ISO build failure
+        if: failure()
+        run: |
+          set +e
+          echo "===== Runner identity ====="
+          echo "runner=${RUNNER_NAME:-unknown} os=${RUNNER_OS:-unknown}"
+          echo "===== Disk space ====="
+          df -h .
+          echo "===== Memory ====="
+          free -h
+          echo "===== Build trace tail ====="
+          if [[ -f build-script.log ]]; then tail -n 250 build-script.log; else echo "build-script.log was not created"; fi
+          echo "===== Partial build outputs ====="
+          find build -maxdepth 2 -type f -printf '%p %s bytes\\n' 2>/dev/null | sort | tail -n 100 || true
 
       - name: Diagnose ProsenjitFS block-init call/return path
         run: |
