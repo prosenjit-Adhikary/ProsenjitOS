@@ -649,3 +649,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Captured logs contain four ProsenjitFS format/mount/allocation/journal/recovery self-test markers, two native LBA-boundary diagnostic markers and two ATA PIO -> MBR -> ProsenjitFS persistent-mount markers; no compiler `error:` entries.
 - FS-31's injected second home-block write failure during committed journal replay returned EIO; after simulated power loss, retry mount completed the committed unlink and integrity checks passed in the self-test.
 - This is deterministic mock-device/QEMU evidence only; physical-device power-loss certification and general concurrent-mutation safety remain unverified.
+
+
+## 2026-10-27 — CI runner migration attempt
+
+- The exact-head SCC protocol fix commit `8ab6d01727e13e0dca11e3468f13c3a5ee59e47f` had Build/boot-test and Security architecture runs queued while the configured self-hosted runner was unavailable.
+- To unblock verification, this branch's `.github/workflows/build.yml` and `.github/workflows/security-design.yml` were changed to use `ubuntu-latest`; the build job installs the x86-64 compiler, NASM, GRUB, xorriso, mtools, and QEMU packages. The workflow changes are commits `464d37e847fa7eaa94411caff9c5539508c922f3` and `8cd91ab3ac7a9f4e1391685fe5827efda47503f2`.
+- Result: Build/boot-test [#8772](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550684) and Security architecture [#8308](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550485) failed before any job step ran (the job-step API returned an empty steps list). This is a runner/job-start failure signal, not evidence that source compilation or tests failed. The available logs do not reveal the underlying hosted-runner allocation/policy reason; investigate repository Actions settings/usage or restore an available Linux x64 self-hosted runner.
+- Build run [#8771](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519545742) was cancelled when the subsequent workflow commit superseded it; do not count it as a test result.
+- Status remains NOT COMPLETE: the parser fixture correction is committed, but no successful exact-head parser run, ISO build, QEMU boot, native BIOS boot, or full ProsenjitFS concurrency/durability verification has been established by these attempts.
