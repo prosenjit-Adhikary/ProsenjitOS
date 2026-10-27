@@ -156,6 +156,9 @@ static void test_response_frames(void)
     put16(b + 14, 1);
     assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
            == SCC_PARSE_BAD_FLAGS);
+
+    /* Reset the malformed flags before testing a valid status payload. */
+    response_header(b, SCC_OP_GET_STATUS, 9, SCC_STATUS_OK, 24, 0);
     put16(b + 24, 1);
     put16(b + 26, 2);
     assert(scc_parse_response(b, 48, SCC_OP_GET_STATUS, 9, 0, 0, &v)
