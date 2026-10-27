@@ -410,3 +410,11 @@ The authoritative detailed scope, required tests, acceptance gates, non-goals an
 - **Permissions / UID-GID-mode enforcement:** mandatory Version 1.0 release blocker; implementation status must be confirmed against current VFS source and tests. Metadata fields alone do not qualify.
 - **Basic encryption:** desired but conditional on reviewed cryptography, key management, authenticated I/O, recovery integration and exact-head CI. Otherwise keep it planned/experimental and defer shipment.
 - Acceptance details and tests: [PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md](PROSENJITFS-PERMISSIONS-AND-ENCRYPTION.md).
+
+
+## Concurrency acceptance gate — 2026-10-27
+
+- **AUDIT COMPLETE / IMPLEMENTATION OPEN:** `pfs_io_lock()` is an append-write spinlock only. Scheduler `thread_block()` and `thread_wake()` do not expose an atomic condition-check/enqueue/block protocol suitable for a safe blocking mutex.
+- A spinlock must not be held across storage I/O when its owner may be preempted. No filesystem-wide lock was added without the scheduler wait/wakeup contract.
+- Required sequence: scheduler atomic wait/wakeup + tests; scheduler-aware mutex + handoff/misuse tests; reviewed VFS/FS lock order; controlled mutation/namespace/scan interleavings; exact-head build and QEMU suites.
+- Details: [PROSENJITFS-CONCURRENCY-CONTRACT.md](PROSENJITFS-CONCURRENCY-CONTRACT.md). No runtime test was executed by this documentation audit.

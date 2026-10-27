@@ -667,3 +667,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - The latest attempts again completed as failures before any job step started; the job-step API returned empty step arrays for job IDs `122253611631` (build) and `122253596603` (security-design). The job-log endpoint returned a blob-not-found response, so the underlying runner allocation/policy error is still not exposed by the available connector.
 - Rechecked older runs [#8770](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043228) and [#8306](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043470): both remain queued with no steps. This points to a CI scheduling/configuration gate rather than a compiler/test failure, but the exact cause is unconfirmed.
 - No source or test PASS is inferred from these retries. Next action requiring repository-owner access: inspect repository Settings → Actions (workflow permissions, policy, usage/billing/runner availability) or bring an online Linux x64 self-hosted runner with required labels. Then rerun both workflows and validate the exact current head.
+
+
+## 2026-10-27 — Native ProsenjitFS scheduler-mutex prerequisite audit
+
+- Audited `kernel/include/prosenjitfs.h`, `kernel/prosenjitfs.c`, `kernel/include/thread.h`, `kernel/thread.c`, and the concurrency plan at source head `87f013c181e1c6da1e0ecf6068b73147d932296a`.
+- Confirmed `io_lock` is a busy-wait atomic spinlock used narrowly for append-write serialization, not a filesystem-wide lock. Generalizing it across storage I/O risks deadlock if its owner is preempted.
+- Confirmed `thread_block()` and `thread_wake()` perform separate state/queue operations; their exposed contract does not establish atomic waiter publication and blocking. A correct blocking mutex cannot safely be guessed at the filesystem layer.
+- Added `docs/PROSENJITFS-CONCURRENCY-CONTRACT.md` and updated the implementation plan/completion matrix. No kernel code changed in this audit batch.
+- **P5 remains OPEN; Native ProsenjitFS is not complete.** Next code task: scheduler atomic wait/wakeup with lost-wakeup/handoff tests, then mutex implementation. No compile, unit-test, QEMU or CI pass is claimed. Hosted CI attempts failed before job steps; this is not source-test evidence.
