@@ -38,16 +38,26 @@ jobs:
             fi
           done
 
-      - name: Validate desktop scripts and run DML unit tests
+      - name: Validate desktop and security test scripts
         run: |
           set -euo pipefail
           bash -n scripts/desktop_complete.sh
           bash -n scripts/test_desktop_manager.sh
           bash -n scripts/test_security_control_center_protocol.sh
-          make desktop-unit-test
-          make driver-telemetry-test
-          make security-protocol-test
-          SCC_SANITIZERS=1 bash scripts/test_security_control_center_protocol.sh
+
+      - name: Run DML desktop manager unit tests
+        run: make desktop-unit-test
+
+      - name: Run driver telemetry namespace tests
+        run: make driver-telemetry-test
+
+      - name: Run SCC protocol parser tests
+        run: make security-protocol-test
+
+      - name: Run SCC protocol parser sanitizer tests
+        env:
+          SCC_SANITIZERS: "1"
+        run: bash scripts/test_security_control_center_protocol.sh
 
       - name: Build ISO
         run: |
