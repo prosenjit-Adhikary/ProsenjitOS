@@ -354,7 +354,7 @@ int pros_health_selftest(void) {
         export_buffer[export_length] != '\0' ||
         pros_health_export(export_buffer, 8u, &export_length) != PROS_HEALTH_EIO ||
         pros_health_watchdog_register(0u, 1u) != PROS_HEALTH_EINVAL)
-        return PROS_HEALTH_EIO;
+        return -201;
 
     if (pros_health_init() != PROS_HEALTH_OK ||
         pros_health_record_network(10u, PROS_HEALTH_NETWORK_DEVICE_DISCOVERED, 30u) != PROS_HEALTH_OK ||
@@ -368,15 +368,15 @@ int pros_health_selftest(void) {
         pros_health_watchdog_register(99u, 1000000u) != PROS_HEALTH_OK ||
         pros_health_watchdog_kick(99u) != PROS_HEALTH_OK ||
         pros_health_watchdog_poll() != PROS_HEALTH_OK)
-        return PROS_HEALTH_EIO;
+        return -202;
 
     if (pros_health_init() != PROS_HEALTH_OK)
-        return PROS_HEALTH_EIO;
+        return -203;
 
     for (uint32_t i = 0u; i < PROS_HEALTH_EVENT_MAX + 1u; ++i) {
         if (pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_SYSTEM,
                                3u, i, i) != PROS_HEALTH_OK)
-            return PROS_HEALTH_EIO;
+            return -204;
     }
 
     if (pros_health_snapshot(&snapshot) != PROS_HEALTH_OK ||
@@ -387,7 +387,7 @@ int pros_health_selftest(void) {
         event.code != 1u ||
         pros_health_get_event(PROS_HEALTH_EVENT_MAX - 1u, &event) != PROS_HEALTH_OK ||
         event.sequence != PROS_HEALTH_EVENT_MAX + 1u)
-        return PROS_HEALTH_EIO;
+        return -205;
 
     /*
      * Exercise the overflow boundary without generating billions of events.
@@ -402,7 +402,7 @@ int pros_health_selftest(void) {
         pros_health_snapshot(&snapshot) != PROS_HEALTH_OK ||
         snapshot.event_count != PROS_HEALTH_EVENT_MAX ||
         snapshot.dropped_events != UINT32_MAX)
-        return PROS_HEALTH_EIO;
+        return -206;
 
     /* Do not leave synthetic boundary-test telemetry in the live ring. */
     return pros_health_init();
