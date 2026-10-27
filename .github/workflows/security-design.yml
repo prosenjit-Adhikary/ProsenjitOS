@@ -7,7 +7,7 @@ on:
 
 # Keep security checks deduplicated without replacing the build workflow's pending run.
 concurrency:
-  group: prosenjitos-security-design
+  group: prosenjitos-build-shared-workspace
   cancel-in-progress: false
 
 jobs:
