@@ -156,6 +156,28 @@ The current wrapper call-site audit found no production caller of `pros_health_r
 
 **Updated implementation gate:** do not finalize source IDs or public reason IDs yet. First inspect the defining constants/enums for crash, security provider, hardening, admission and intent; trace every hardening/VFS caller; separate the overlapping `0x53454341` security-admission and intent events; then add a reviewed mapping table and tests that unknown source/code pairs fail closed to a documented generic representation. The raw internal `value` remains excluded from v1.
 
+
+## 4.3 Additional producer families found in follow-up search (partial)
+
+A repository search for the four health-record helper families found additional producers that must be included before the registry can be frozen:
+
+| Category | Source | Code | Observed semantics and privacy gate |
+|---|---|---|---|
+| SECURITY (5) | 0x53454341 ("SECA") | PROS_SECURITY_HEALTH_ADMISSION = 1 | Admission result summary; internal value packs action/state. Do not expose packed value. |
+| SECURITY (5) | 0x53454341 ("SECA") | PROS_SECURITY_HEALTH_SIGNATURE_FAILURE = 2 | Signature verification failure; currently value 0 in inspected call site. |
+| SECURITY (5) | 0x53454341 ("SECA") | PROS_SECURITY_HEALTH_PROVIDER = 3 | Security admission/provider-related failure; confirm all uses and whether it duplicates provider source 0x53454350 before public mapping. |
+| SECURITY (5) | 0x53454348 ("SECH") | 1 and caller-supplied code | Security-hardening ready/violation events; dynamic codes require a full call-site and enum audit. |
+| FILESYSTEM (7) | 0x56465348 ("VFSH") | caller-supplied code | VFS error helper records a code and the negated internal result in value. Do not expose raw error/value or path/resource details. |
+| NETWORK (4) | dynamic device ID | PROS_HEALTH_NETWORK_DEVICE_DISCOVERED = 1 / DEVICE_REMOVED = 2 | Driver registry emits network-device lifecycle events; value may pack vendor/device IDs. Public source must not be a raw internal device ID without privacy and stability review. |
+| RECOVERY (8) | 0x45584350 ("EXCP") | exception vector truncated to u32 | Critical exception record; value includes RIP. Sensitive machine-state details must remain private/redacted. |
+| RECOVERY (8) | 0x45584351 ("EXC1") | exception vector truncated to u32 | Critical exception record; value contains error code. Treat as sensitive internal diagnostic. |
+| RECOVERY (8) | 0x45584352 ("EXC2") | exception vector truncated to u32 | Critical exception record; value contains CR2/page-fault address. Do not serialize raw address. |
+| RECOVERY (8) | 0x43525348 ("CRSH") | crash-record codes 1..3 plus capture-failure code | Crash/recovery reporting uses a separate header-defined source and code family; complete constants/call sites need audit. |
+| RECOVERY (8) | watchdog service ID (dynamic) | PROS_HEALTH_RECOVERY_WATCHDOG_TIMEOUT = 8 | Watchdog timeout event; value is elapsed ticks. Service ID needs a stable allow-list and must not be accepted from an untrusted client as identity. |
+| RECOVERY (8) | 0x55504346 ("UPCF") | 1 | Recovered user-copy fault event; value contains a frame field and needs review before any public mapping. |
+
+This table records search-discovered tuples, not a finished public registry. Some search excerpts were from the repository's default branch; before implementing a serializer, re-verify each producer and enum against the exact PR head and enumerate all helper call sites on that branch. In particular, source IDs may be dynamic (device/watchdog IDs), codes may be caller-supplied, and internal value fields can contain pointers/addresses, hardware IDs, scores or packed decisions. Default behavior for an unreviewed tuple remains UNKNOWN/UNAVAILABLE, with value omitted.
+
 ## 5. Readiness decision
 
 The current source offers useful kernel-side telemetry foundations but is **not yet an end-to-end Security Control Center API**. Before UI integration, the project still needs:
