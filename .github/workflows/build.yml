@@ -102,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/build.sh
-          ./scripts/build.sh 2>&1 | tee build-script.log
+          bash -x scripts/build.sh 2>&1 | tee build-script.log
 
       - name: Diagnose ProsenjitFS block-init call/return path
         run: |
