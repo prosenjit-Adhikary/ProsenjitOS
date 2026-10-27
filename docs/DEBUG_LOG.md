@@ -751,3 +751,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ### Verification status
 - Source-level root cause is identified and patched in commit `b6f7130`.
 - Must confirm on the next local-runner run that the health self-test passes and continue through the remaining ISO and native BIOS boot milestones. No full boot pass is claimed until those checks finish.
+
+
+## 2026-10-27 — Health self-test fix verified; native QEMU run was externally cancelled
+
+- Run #8825 on commit `b5443b6` confirmed **Build ISO: PASS** and **Boot-test ISO in QEMU: PASS** after the health-ring isolation fix. The serial output explicitly includes `system health/drop-counter self-test passed`, ProsenjitFS self-test success, and the CPL3 syscall/IPC success marker.
+- The same job's native BIOS QEMU step was cancelled by the runner before the 20-second timeout completed. This is not evidence of a native BIOS kernel failure; it is an incomplete test. The previous workflow buffered serial output until QEMU exited, which made diagnosis harder.
+- Updated both QEMU checks to stream serial output through `tee` as the guest runs, and shortened each bounded QEMU window to 10 seconds to reduce the chance that the second boot is cancelled by the runner. The test still fails if required boot milestones are absent or QEMU exits unexpectedly.
+- Next verification gate: confirm a fresh run reaches and passes all native BIOS milestones, especially native handoff, ATA PIO, filesystem LBA boundary, and persistent ProsenjitFS mount. No native BIOS pass is claimed yet.
