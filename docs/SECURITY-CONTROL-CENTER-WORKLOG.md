@@ -729,3 +729,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Source audit found `make driver-telemetry-test` existed in the Makefile but was not invoked by the Build/boot-test workflow.
 - Added the target to the workflow's pre-build host-test stage, alongside desktop and SCC parser tests. This ensures the driver telemetry namespace regression is exercised before ISO compilation on subsequent runs.
 - The workflow change is on the PR branch; exact-head execution is pending. Do not infer success from the source edit alone.
+
+
+### Local self-hosted runner CI fix — 2026-10-27
+
+- User requested that CI use their local runner. The build workflow now targets `[self-hosted, Linux, X64]`; run logs confirm runner name `home` on machine `pro`.
+- A retry passed checkout but failed at dependency installation because the workflow invoked `sudo apt-get update/install` and this runner requires an interactive sudo password (`sudo: a terminal is required to read the password`). This is a workflow mismatch, not a source-code build failure.
+- Removed the privileged apt-install step and retained the explicit toolchain preflight, which fails with the name of any missing tool. The local runner had passed that toolchain preflight in an earlier run, so this avoids unnecessary privileged package installation.
+- Workflow fix commit: `a1a9e6552d5ad999f185d2291f7e4e2ef156a9be`. A retry was requested for the preceding run, but its latest attempt still hit the apt/sudo failure before this commit; the new commit needs a fresh exact-head run.
+- Separately, one earlier checkout attempt failed with a missing `_runner_file_commands/set_output_*` file; a later checkout succeeded. Treat this as an intermittent runner/action environment issue unless it recurs.
+- Verification status: desktop and SCC parser/sanitizer tests passed on a prior attempt; the driver telemetry guard was corrected with `_Static_assert`. ISO build and both QEMU boot tests are still pending on the updated workflow. Do not claim overall CI success until the exact latest head passes.
