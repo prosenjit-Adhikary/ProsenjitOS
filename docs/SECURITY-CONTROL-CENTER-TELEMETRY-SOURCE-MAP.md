@@ -90,6 +90,27 @@ The v1 protocol document now proposes explicit public severity values 0..4 (DEBU
 
 Reason codes are not globally unique: current health recovery codes 1..8 and network codes 1..6 are scoped to their respective categories. The future public registry must key mappings by category plus internal code and assign stable public reason IDs. A source-ID inventory is also still required. Until the registry and inventory are reviewed, arbitrary internal source/code values must not be passed through. Security-monitor health events encode an action plus packed type/score in the internal value; that packed value must remain private and must not be treated as a full original security event.
 
+## 4.2 Source/reason inventory — first-pass audit (not a public registry)
+
+Reviewed against `kernel/health.c`, `kernel/include/health.h`, `kernel/security_monitor.c`, and `kernel/include/security_monitor.h`. This is an inventory of internal producer shapes, not authorization to expose their values.
+
+| Producer path | Internal category | Internal source/code shape | Public mapping decision |
+|---|---|---|---|
+| `pros_health_sample()` | SYSTEM | source=1, code=1; value is free physical pages | Candidate for a coarse “health sample” reason only after product/privacy review; never publish the raw value in event v1 |
+| `pros_health_selftest()` synthetic records | MEMORY / SYSTEM | source=2, code=1; source=2, code=2; ring test source=3 with changing code | Test-only records; must not be treated as production reason registry entries. Self-test reinitializes the ring on success |
+| Recovery helpers/watchdog | RECOVERY | recovery codes 1..8; watchdog registration uses code 1 and dynamic service ID as source; timeout uses code 8 and dynamic service ID | Category-scoped internal codes overlap. Dynamic service IDs are not public source IDs; use reviewed generic reason/source mapping until an explicit stable registry exists |
+| Network helper | NETWORK | declared network codes 1..6; caller supplies source ID | Neither caller source nor code may pass through by default; inventory all call sites before approving mappings |
+| Security monitor | SECURITY | source `0x53444D4E` (“SDMN”); code is action 0..2; value packs event type in high 32 bits and score in low 32 bits | This is an action/score summary, not an original event. Do not publish packed value or infer the original event type from the public reason code |
+| Exception capture | RECOVERY | source constants `0x45584350`, `0x45584351`, `0x45584352`; code is truncated exception vector; value contains RIP, error code, or CR2 | Sensitive machine-state data; keep source/code/value internal until a dedicated redacted exception taxonomy is reviewed |
+| Filesystem helper | FILESYSTEM | caller supplies source, code and value; no stable enum registry established by this audit | Unmapped by default; inspect all call sites and define a stable, privacy-reviewed taxonomy before publication |
+
+Important limits:
+- The health API accepts arbitrary `uint32_t source` and `code`; wrapper names do not enforce stable IDs.
+- Current self-test calls are not evidence that a production producer taxonomy exists.
+- The security monitor ignores the return value from `pros_health_record_security()`; the monitor decision can succeed while the corresponding health-ring append fails. End-to-end telemetry must therefore not claim one-to-one complete security-event capture.
+- `pros_health_record_exception()` places instruction pointer, error code and CR2 in the internal `value`. This reinforces the v1 rule that `value` is never serialized.
+- Do not mint final public reason IDs from this first pass. Next prerequisite: repository-wide call-site inventory for `pros_health_record_recovery`, `pros_health_record_network`, `pros_health_record_security`, and `pros_health_record_filesystem`; then security/privacy review and exact byte-level serializer tests.
+
 ## 5. Readiness decision
 
 The current source offers useful kernel-side telemetry foundations but is **not yet an end-to-end Security Control Center API**. Before UI integration, the project still needs:
