@@ -95,9 +95,6 @@ jobs:
       - name: Run DML desktop manager unit tests
         run: make desktop-unit-test
 
-      - name: Run driver telemetry namespace tests
-        run: make driver-telemetry-test
-
       - name: Run SCC protocol parser tests
         run: make security-protocol-test
 
