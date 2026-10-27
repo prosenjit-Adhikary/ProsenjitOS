@@ -3,7 +3,7 @@
 #include <string.h>
 #include "../user/security/telemetry_service.h"
 
-struct fixture { uint32_t calls; };
+struct fixture { uint32_t calls; int corrupt_list; };
 
 static void w16(uint8_t *p, uint16_t v) { p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); }
 static void w32(uint8_t *p, uint32_t v) { p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); p[2]=(uint8_t)(v>>16); p[3]=(uint8_t)(v>>24); }
@@ -19,7 +19,7 @@ static int list_cb(void *ctx, uint64_t after, uint32_t mask, uint16_t max,
                    uint8_t out[SCC_RESPONSE_PAYLOAD_MAX], uint16_t *len, uint64_t *cursor) {
     struct fixture *f=ctx; (void)mask; ++f->calls;
     if (max != 1) return SCC_STATUS_INVALID_ARGUMENT;
-    if (after == 0) { memset(out,0,SCC_EVENT_RECORD_SIZE); w64(out,1); w64(out+8,0x123456789ULL); *len=SCC_EVENT_RECORD_SIZE; *cursor=1; }
+    if (after == 0) { memset(out,0,SCC_EVENT_RECORD_SIZE); w64(out,f->corrupt_list ? 0 : 1); w64(out+8,0x123456789ULL); *len=SCC_EVENT_RECORD_SIZE; *cursor=1; }
     else { *len=0; *cursor=after; }
     return SCC_STATUS_OK;
 }
@@ -31,7 +31,7 @@ static void request(uint8_t *out, uint16_t op, uint32_t id, uint16_t n) {
 }
 
 int main(void) {
-    struct fixture f={0};
+    struct fixture f={0,0};
     struct scc_service_backend b={&f,status_cb,list_cb,event_cb};
     uint8_t req[64], resp[64];
     size_t n=999;
@@ -61,10 +61,17 @@ int main(void) {
     assert(scc_service_dispatch(&b,1,req,16,resp,sizeof(resp),&n)==0);
     assert(r32(resp+8)==SCC_STATUS_INVALID_ARGUMENT && r16(resp+12)==0);
 
-    request(req,SCC_OP_GET_STATUS,47,0);
+    f.corrupt_list=1;
+    request(req,SCC_OP_LIST_EVENTS,47,16);
+    w64(req+16,0); w32(req+24,0); w16(req+28,1); w16(req+30,0);
+    assert(scc_service_dispatch(&b,1,req,32,resp,sizeof(resp),&n)==0);
+    assert(r32(resp+8)==SCC_STATUS_INTERNAL_ERROR && r16(resp+12)==0 && r64(resp+16)==0);
+    f.corrupt_list=0;
+
+    request(req,SCC_OP_GET_STATUS,48,0);
     memset(resp,0xA5,sizeof(resp)); n=999;
     assert(scc_service_dispatch(&b,1,req,16,resp,23,&n)==-1);
     assert(n==0);
-    assert(f.calls==3);
+    assert(f.calls==4);
     return 0;
 }
