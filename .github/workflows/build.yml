@@ -100,13 +100,9 @@ jobs:
 
       - name: Build ISO
         run: |
-          set +e
+          set -euo pipefail
           chmod +x scripts/build.sh
-          ./scripts/build.sh > build-script.log 2>&1
-          build_status=$?
-          set -e
-          cat build-script.log
-          exit "$build_status"
+          ./scripts/build.sh 2>&1 | tee build-script.log
 
       - name: Diagnose ProsenjitFS block-init call/return path
         run: |
