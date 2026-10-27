@@ -575,3 +575,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - `pros_health_init()` resets event head/count, dropped count and `next_sequence` to zero, so sequence values can repeat across source initialization/reboot. Broker cursors must be invalidated after reset until an explicit epoch mechanism is designed and tested.
 - Updated the telemetry source map to remove the stale 20-byte wire-record reference and state the current 24-byte draft record accurately. Added synchronization/epoch gates to the broker implementation plan.
 - No kernel code changed. Before serializer implementation, define interrupt-context constraints and ring synchronization, then test concurrent record/snapshot/get-event, wraparound, reset, overwrite and dropped-counter saturation.
+
+
+## Public telemetry mapping contract — 2026-10-27
+
+- Added explicit proposed v1 severity mapping (DEBUG..CRITICAL = 0..4, UNKNOWN = 255) and category mapping (SYSTEM..RECOVERY = 0..8, UNKNOWN = 255) to the IPC protocol proposal.
+- Clarified these values must be mapped explicitly, never exposed through a blind cast. Values 9..254 remain unassigned for categories.
+- Added a source-map gate: reason codes are category-scoped, so recovery codes 1..8 and network codes 1..6 cannot be treated as globally unique. A reviewed public reason registry keyed by category plus internal code, and an explicit source-ID allow-list, must precede serializer implementation. Internal packed security-monitor value remains private.
+- No runtime serializer or kernel changes were made; this is a contract/documentation milestone only. Exact-head CI must be checked for the new commit before claiming validation.
