@@ -739,3 +739,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Workflow fix commit: `a1a9e6552d5ad999f185d2291f7e4e2ef156a9be`. A retry was requested for the preceding run, but its latest attempt still hit the apt/sudo failure before this commit; the new commit needs a fresh exact-head run.
 - Separately, one earlier checkout attempt failed with a missing `_runner_file_commands/set_output_*` file; a later checkout succeeded. Treat this as an intermittent runner/action environment issue unless it recurs.
 - Verification status: desktop and SCC parser/sanitizer tests passed on a prior attempt; the driver telemetry guard was corrected with `_Static_assert`. ISO build and both QEMU boot tests are still pending on the updated workflow. Do not claim overall CI success until the exact latest head passes.
+
+
+### Follow-up: local runner diagnostics and host-test isolation — 2026-10-27
+
+- Updated both workflows from `actions/checkout@v4` to `actions/checkout@v5`. The newer action successfully checked out the PR merge ref on runner `home`, and the toolchain preflight passed.
+- The latest observed run on the prior workflow layout passed the combined host-test stage once, then failed during ISO build; a retry later failed within the combined host-test stage. The job-log endpoint did not return the step output for these attempts, so the exact failing command in those attempts is not confirmed.
+- To make the next failure diagnosable from job summaries even if logs are unavailable, split the host validation, DML tests, driver telemetry tests, SCC parser tests, and SCC sanitizer tests into separate named workflow steps. This is diagnostic isolation only; it does not skip or weaken tests.
+- Driver namespace guard now casts cross-enum values to `unsigned` in the compile-time comparisons, avoiding strict `-Wenum-compare` diagnostics under `-Werror`. The driver telemetry and SCC tests were observed passing in a previous attempt; exact latest-head verification remains required.
+- Removed privileged `sudo apt-get` dependency installation from the local-runner workflow after the log showed the runner cannot use sudo non-interactively. Toolchain preflight remains mandatory and had passed.
+- Latest workflow diagnostic change: `0c5cdf8c8bf60db8b3e89f4b4a75adead10fee84`. Await the exact-head run to identify the next concrete failing step; ISO build and both QEMU boots remain unverified. Do not merge PR #269 automatically.
