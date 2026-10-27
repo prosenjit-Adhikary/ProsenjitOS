@@ -783,8 +783,14 @@ void kernel_main(uint32_t boot_magic, uint32_t boot_info) {
     scheduler_init_frame.rip = 0x1002;
     init_thread.interrupt_frame = &scheduler_init_frame;
     init_thread.blocked_syscall = PROSENJIT_SYS_IPC_RECEIVE;
+    struct pros_thread wrong_ipc_waiter;
+    for (size_t i = 0; i < sizeof(wrong_ipc_waiter); ++i)
+        ((uint8_t *)&wrong_ipc_waiter)[i] = 0;
     if (ipc_channel_init(&ipc_wait_test) != PROSENJIT_IPC_OK ||
         thread_current() != &init_thread ||
+        ipc_channel_wait(&ipc_wait_test, &wrong_ipc_waiter) != PROSENJIT_IPC_EINVAL ||
+        ipc_wait_test.waiter_count != 0 ||
+        thread_state(&init_thread) != PROS_THREAD_RUNNING ||
         ipc_channel_wait(&ipc_wait_test, &init_thread) != PROSENJIT_IPC_OK ||
         thread_state(&init_thread) != PROS_THREAD_BLOCKED ||
         init_thread.wait_channel != &ipc_wait_test ||
