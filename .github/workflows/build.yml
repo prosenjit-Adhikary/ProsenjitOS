@@ -3,7 +3,7 @@ name: Build and boot-test ProsenjitOS
 # GitHub-hosted jobs use isolated workspaces, avoiding stale shared build outputs
 # and runner-agent state left behind by the local self-hosted runner.
 concurrency:
-  group: prosenjitos-build-{github.ref}
+  group: prosenjitos-build-${{ github.ref }}
   cancel-in-progress: false
 
 on:
