@@ -714,3 +714,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Requested another retry of the failed checkout job. Await its result before attributing this to a persistent runner configuration issue.
 - Security architecture run [#8305](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40518975004) passed, but that does not cover the C protocol parser, ISO build, or QEMU boot.
 - Current status: SCC fixture fix is present in the PR branch; exact-head host tests, sanitizer run, ISO build, ISO QEMU, and native BIOS QEMU are still not verified. Keep PR #269 draft and unmerged.
+
+
+### Driver telemetry guard compile failure — 2026-10-27
+
+- The retried Build/boot-test reached the project checks: desktop manager tests passed, the SCC protocol parser test passed, and the parser passed both sanitizer invocations.
+- ISO compilation then failed in `kernel/include/driver.h:85`: the new `#if` guard compared enum constants. The C preprocessor treats enum identifiers as undefined macros (zero), so the guard condition was not evaluating the intended numeric enum values.
+- Fixed the guard to use C `_Static_assert`, which evaluates the enum constant expressions at compile time. This retains the distinct-code invariant without relying on preprocessor evaluation of enum identifiers.
+- New fix commit: `8bd2463e5f3d7f9fbc3a60d32af336d16bc4b010`. Exact-head build and both QEMU boot gates still need to run; no build/boot pass is claimed yet.
