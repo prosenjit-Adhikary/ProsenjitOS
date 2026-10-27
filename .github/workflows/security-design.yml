@@ -1,11 +1,5 @@
 name: Security architecture checks
 
-# Share the build workflow's concurrency group: both jobs use the same
-# self-hosted workspace and must not run checkout/cleanup concurrently.
-concurrency:
-  group: prosenjitos-build-shared-workspace
-  cancel-in-progress: false
-
 on:
   push:
     branches: [main]
@@ -13,9 +7,9 @@ on:
 
 jobs:
   security-design:
-    # This check uses Bash. Let GitHub schedule it across either Linux X64 runner
-    # (office or office1); OfficeWindows remains eligible for Windows-compatible jobs.
-    runs-on: [self-hosted, linux, x64]
+    # Static architecture-contract checks need Bash but do not need the local
+    # kernel build toolchain or self-hosted workspace.
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
