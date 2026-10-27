@@ -34,8 +34,8 @@ jobs:
           git init
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_REF"
-          git checkout --detach FETCH_HEAD
+          git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach "$GITHUB_SHA"
 
       - name: Identify selected runner and verify toolchain
         run: |
