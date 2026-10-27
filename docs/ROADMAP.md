@@ -1,13 +1,26 @@
 # ProsenjitOS Roadmap
 
+## Filesystem scope gate — 2026-10-25
+
+The owner-confirmed release architecture is native ProsenjitFS as the only filesystem implementation in the kernel core. FAT32, exFAT, EXT/EXT4, NTFS, and future formats are separate providers behind the common VFS interface. **ProsenjitOS 1.0 requires FAT32 and exFAT support**, including end-to-end USB removable-media paths: USB mass storage, block-device registration, partition discovery, filesystem provider mount, VFS file I/O, safe unmount, and media-removal tests. **EXT/EXT4 and NTFS are deferred to later releases**, not 1.0 blockers. None of these compatibility formats is part of native ProsenjitFS.
+
+The current provider registry is scaffolding, not a complete external userspace filesystem runtime: the present ABI exposes probe/mount/unmount and the VFS recognizes only ProsenjitFS. Complete the provider operations and integration tests before describing compatibility providers as functional; userspace isolation remains a target/design choice until implemented and verified. USB controller support, USB Mass Storage transport, partition discovery, safe mount/I/O/unmount, and media-removal handling are separate 1.0 gates for FAT32 and exFAT removable media.
+
+All current filesystem decisions, exact-head evidence, implementation status, security gates, and preserved historical plans are centralized in [docs/FILESYSTEM.md](FILESYSTEM.md). Legacy filesystem documents are navigation stubs only.
+
+## Native ProsenjitFS release gates — owner decision (2026-10-25)
+
+- **1.0:** native filesystem format/mount, allocation and inode/block bounds checks, directory namespace operations, file read/write/seek/truncate within documented limits, VFS integration, metadata validation/checksums where defined, journal/recovery tests, corruption/error-path tests, and **enforced permissions** (UID/GID/mode plus trusted VFS/kernel authorization; allowed/denied operation tests; denied operations must not mutate persistent media). These are acceptance targets, not a claim that all are implemented.
+- **1.1:** **mandatory native ProsenjitFS encryption**. Requires reviewed threat model/format, vetted authenticated encryption, key lifecycle, authenticated metadata/data I/O, nonce uniqueness, tamper/wrong-key handling, journal/recovery integration, and exact-candidate tests. No custom cryptography; fail closed on authentication failure.
+- **1.2 and later:** remaining native features staged after the above gates, such as extended ACLs, quotas, snapshots, compression, deduplication, online checking/repair, performance improvements, and stronger concurrency/durability. These are backlog candidates, not fixed promises.
+- The detailed feature contract and caveats live in [docs/FILESYSTEM.md](FILESYSTEM.md).
+
 ## Current status — 2026-09-30
 
-The repository has moved beyond the original boot/kernel-only milestone. The current kernel filesystem scope is intentionally narrowed to native ProsenjitFS; legacy FAT32, exFAT and NTFS implementations were removed from the kernel image so compatibility support can later be supplied through external filesystem providers.
+The repository has moved beyond the original boot/kernel-only milestone. The kernel core contains only native ProsenjitFS. FAT32, exFAT, NTFS, and future compatibility filesystems must be implemented as modular external providers behind the VFS/provider ABI, so new formats can be added without adding their parsers to kernel core. All filesystem architecture, implementation status, compatibility-provider work, release gates, and test evidence are tracked in the single source of truth: [docs/FILESYSTEM.md](FILESYSTEM.md). Do not create separate filesystem planning/status/test documents; update FILESYSTEM.md.
 
 ### Current engineering focus
-1. **Native filesystem production verification:** finish ProsenjitFS storage, transaction, crash, recovery and LBA verification.
-2. **Filesystem-provider boundary:** define a stable external provider ABI without linking compatibility parsers into kernel-core.
-3. **Compatibility providers:** later add NTFS/exFAT/FAT32 providers outside the kernel image.
+1. **Filesystem workstream (single source of truth: [docs/FILESYSTEM.md](FILESYSTEM.md)):** finish native ProsenjitFS storage, transaction, crash, recovery and LBA verification; define the stable external provider ABI; then implement FAT32/exFAT/NTFS providers outside kernel core.
 4. **Security integration:** connect real filesystem-backed file reads/execute paths to the existing File admission/security broker and quarantine boundary, then add replaceable external reputation-provider adapters without making cloud access mandatory.
 5. **I/O foundation:** the driver model foundation is now implemented around the PCI enumeration layer; next work is the device permission broker and concrete keyboard/display/network device abstractions.
 6. **User mode:** stabilize the process startup path, ELF loading, init/service management, and basic CUI utilities before compatibility layers.

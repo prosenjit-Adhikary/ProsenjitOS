@@ -1,3 +1,23 @@
+## 2026-10-25 — Owner confirmed filesystem architecture
+
+- Owner confirmed that native ProsenjitFS is the only filesystem implementation intended to live in the kernel core.
+- FAT32, exFAT, NTFS and future formats will be separate filesystem drivers/providers exposed through the common VFS interface, following the general multi-filesystem model used by mainstream operating systems.
+- The earlier EXT4 boot + read/write proposal is not the selected first-release baseline and is not a kernel-core requirement. EXT4 may be considered later as an optional compatibility provider if explicitly prioritized.
+- Provider execution model (loadable kernel module versus isolated userspace service) remains a separate technical decision; do not claim userspace isolation unless implemented and tested.
+- Canonical updated plan: [docs/FILESYSTEM.md](FILESYSTEM.md). Roadmap updated to match.
+
+## 2026-10-25 — Filesystem plan reconciliation audit
+
+- Consolidated the former filesystem integration, NTFS status, encryption design, and permissions/encryption documents into `docs/FILESYSTEM.md`; their old paths are now navigation stubs to prevent parallel status sources.
+- Audited the current source/build tree against those documents. `kernel/vfs_provider.c` and `include/vfs_provider.h` are only early registry scaffolding (probe/mount/unmount); `kernel/vfs.c` currently recognizes only native ProsenjitFS. A complete userspace provider process/IPC and compatibility provider operation path are not evidenced.
+- The former NTFS write-status claims do not match the current branch source/build tree: no NTFS implementation source, filesystem enum, or NTFS object is present. NTFS, FAT32 and exFAT must remain planned, not advertised as supported.
+- ATA PIO + MBR/partition + ProsenjitFS QEMU persistence does not prove USB mass-storage discovery or physical removable-media support.
+- Permission enforcement and denial-without-mutation tests remain explicit release gates. Encryption remains deferred until its full reviewed design, key management, authenticated I/O, journal/recovery integration, and exact-head tests are complete.
+- Initially identified a conflict between earlier EXT4 boot + read/write planning and the current ProsenjitFS implementation; the owner subsequently resolved it. EXT4 is not the first-release baseline and is not to be added to the native kernel core.
+- This was a documentation/source-tree audit only. No kernel code changed and no filesystem runtime tests were run. An empty commit-status response is not a CI pass.
+
+Authoritative plan/status and preserved historical notes: [docs/FILESYSTEM.md](FILESYSTEM.md).
+
 ## 2026-10-25 — ProsenjitFS Part 2 verification summary
 
 - Verified source head: `70ed44cd45987682ac50f9fbfd1b82a510e25033`; PR #249 remains open and unmerged.
@@ -429,7 +449,7 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 ## 2026-10-23 — ProsenjitFS integrity-scan caller-serialization audit
 
 ### Checked
-- Inspected `kernel/prosenjitfs.c`, `kernel/include/prosenjitfs.h`, `docs/PROSENJITFS.md`, and the CPL3 entry path in `boot/entry.asm`.
+- Inspected `kernel/prosenjitfs.c`, `kernel/include/prosenjitfs.h`, `docs/FILESYSTEM.md`, and the CPL3 entry path in `boot/entry.asm`.
 - The integrity API explicitly requires callers to serialize scans against mutations. All in-source calls to the report/status APIs are within `prosenjitfs_selftest()`; repository search found no separate production kernel callsite.
 - `pfs_io_lock()` is currently used by the append-write wrapper only. It is not a filesystem-wide lock and must not be described as making all VFS operations thread-safe.
 - `boot/entry.asm` masks IF in the CPL3 interrupt frame because user-mode timer preemption is not yet scheduler-safe.
