@@ -97,6 +97,41 @@ The one-record cap is deliberate: each event record is 24 bytes, so one record p
 
 Event details, paths, command lines, credentials, and arbitrary evidence blobs are excluded from v1. A bounded, redacted detail operation requires separate review.
 
+### Normative public enum and reason-code mapping gate
+
+The following numeric values are the proposed v1 public mapping, not permission to cast kernel values directly:
+
+**Severity mapping**
+
+| Public value | Meaning | Current internal source |
+|---:|---|---|
+| 0 | DEBUG | `PROS_HEALTH_DEBUG` |
+| 1 | INFO | `PROS_HEALTH_INFO` |
+| 2 | WARN | `PROS_HEALTH_WARN` |
+| 3 | ERROR | `PROS_HEALTH_ERROR` |
+| 4 | CRITICAL | `PROS_HEALTH_CRITICAL` |
+| 255 | UNKNOWN | Any unrecognized/unmapped value |
+
+**Category mapping**
+
+| Public value | Meaning | Current internal source |
+|---:|---|---|
+| 0 | SYSTEM | `PROS_HEALTH_SYSTEM` |
+| 1 | MEMORY | `PROS_HEALTH_MEMORY` |
+| 2 | SCHEDULER | `PROS_HEALTH_SCHEDULER` |
+| 3 | STORAGE | `PROS_HEALTH_STORAGE` |
+| 4 | NETWORK | `PROS_HEALTH_NETWORK` |
+| 5 | SECURITY | `PROS_HEALTH_SECURITY` |
+| 6 | DRIVER | `PROS_HEALTH_DRIVER` |
+| 7 | FILESYSTEM | `PROS_HEALTH_FILESYSTEM` |
+| 8 | RECOVERY | `PROS_HEALTH_RECOVERY` |
+| 255 | UNKNOWN | Any unrecognized/unmapped value |
+
+The equality of these current numeric values is intentional for readability only. The future serializer must use explicit switch/table mapping, not numeric casts. Values 9..254 are currently unassigned and must not acquire meaning without a protocol compatibility review.
+
+**Reason codes and source IDs remain allow-list-only.** Recovery codes 1..8 and network codes 1..6 are declared in `kernel/include/health.h`, but those numbers are scoped by category and are not globally unique. A public reason registry must key on (public category, internal code) and assign stable public reason IDs; until that registry and source-ID inventory are reviewed, the broker must map an unapproved pair/source to a generic UNKNOWN/UNMAPPED record or omit it according to a documented policy. Never pass an arbitrary internal `source` or `code` through, and never expose the internal `value` field. Security-monitor codes summarize an action and packed type/score, not a complete original security event.
+
+
 ## 4. Cursor and failure semantics
 
 - For `LIST_EVENTS`, response `event_cursor` is the last event sequence actually included, not merely the latest sequence observed. For `GET_STATUS`, it is zero/inapplicable; use `latest_event_sequence` in the status payload.
