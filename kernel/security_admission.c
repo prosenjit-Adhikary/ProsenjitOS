@@ -40,7 +40,7 @@ int pros_file_admission_evaluate(
         int rc = pros_file_admit(&metadata, &record->security);
         if (rc == 0)
             (void)pros_health_record_security(
-                0x53454341u, PROS_SECURITY_HEALTH_ADMISSION,
+                PROS_HEALTH_SOURCE_FILE_ADMISSION, PROS_SECURITY_HEALTH_ADMISSION,
                 ((uint64_t)record->security.action << 32) |
                 (uint64_t)record->security.state);
         return rc;
@@ -67,7 +67,7 @@ int pros_file_admission_evaluate_signed(
             algorithm, data, length, signature, signature_length,
             public_key, public_key_length, &signature_result) != 0) {
         (void)pros_health_record_security(
-            0x53454341u, PROS_SECURITY_HEALTH_SIGNATURE_FAILURE, 0u);
+            PROS_HEALTH_SOURCE_FILE_ADMISSION, PROS_SECURITY_HEALTH_SIGNATURE_FAILURE, 0u);
         return -2;
     }
 
