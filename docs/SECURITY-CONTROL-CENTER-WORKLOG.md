@@ -680,3 +680,10 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - This means the generic logging entry point is not itself a trusted public-schema boundary. The userspace broker/serializer must still apply a finite producer-aware allow-list and must not forward caller-supplied tuples or raw values as public telemetry.
 - Confirmed the persistence-degradation record uses source `0x4C4F4750` (`LOGP`), code `2`, and an internal persistence error result as value; the raw value must be omitted.
 - Updated the source map to include the generic logger boundary. The inventory remains focused and explicitly non-exhaustive; no serializer or kernel behavior was changed, and CI remains unverified while the self-hosted runner is offline.
+
+### C translation-unit call-site search — 2026-10-27
+
+- Searched all 50 `kernel/*.c` translation units and the 5 non-kernel C translation units in the exact source snapshot `e4d86ab918b4b05beb0694a491505fe3cb3a068e` for direct health-record helpers, `pros_log_emit()`, and related health category/code names.
+- The remaining 22 kernel C files had no matching direct calls; none of the 5 non-kernel C files had matching direct calls. The observed producer families are covered in the source map.
+- This closes the C-file search-coverage gap, but does **not** mean the public mapping registry is complete. The mapping table remains partial until every observed tuple and header-defined code is normalized and reviewed. Unknown tuples remain unmapped; raw internal values remain private.
+- No kernel behavior or serializer code was changed. Exact-head CI remains pending/queued because the self-hosted runner is offline.

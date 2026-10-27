@@ -224,7 +224,7 @@ Additional verified definitions in `kernel/include/health.h`: recovery codes 1..
 2. Define public reason IDs by a stable key that disambiguates category, source, and internal code where necessary. The former `0x53454341` collision was resolved by assigning intent audit the distinct internal source `0x53454349` (`SECI`). Keep this internal packed code private; public reason mapping still requires a finite allow-list.
 3. Treat dynamic/internal codes as UNKNOWN unless a finite allow-list entry explicitly maps them. Do not serialize raw intent decision/reason bit packing, PID/TID, handles, LBA, score, or the internal `value` field.
 4. Add compile-time or host regression tests for every approved mapping and unknown-value fallback before connecting the serializer to the broker.
-5. Extend this inventory with all `pros_health_record*` call sites and verify the list against a repository-wide search; this table is intentionally partial, not exhaustive.
+5. The C-translation-unit search is now complete for this source snapshot, but this table remains a partial *mapping registry*: normalize every observed call tuple and relevant enum into reviewed entries before serializer implementation.
 
 
 The two security source IDs are now named constants in `kernel/include/health.h`; `kernel/security_admission.c` and `kernel/intent.c` use those constants instead of repeated literals. A preprocessor guard fails compilation if the two IDs are ever made equal. These remain internal IDs, not public wire IDs.
@@ -248,3 +248,10 @@ Focused source review began at PR head `a380f268d691d04bbf54cc5c4c0db9d84ae79f98
 | VFS error helper (`kernel/vfs.c`) | Source `VFSH`; emits I/O error and permission error codes. Other lookup errors may increment counters without emitting a record. | Allow-list the two observed codes only; do not infer that all lookup errors generate events. |
 
 This review is deliberately **not** an exhaustive repository-wide inventory of every `pros_health_record*` wrapper/call site. It does not authorize public source/reason IDs or serializer implementation. Before freezing a registry, finish a complete exact-head call-site inventory, reconcile all constants and wrapper paths, and add host tests for approved tuples plus unknown-source/code fail-closed behavior.
+
+
+## 4.4 C translation-unit search coverage — 2026-10-27
+
+At PR head `e4d86ab918b4b05beb0694a491505fe3cb3a068e`, fetched and searched all 50 `kernel/*.c` translation units and all 5 other repository `.c` translation units for direct health-record helpers, `pros_log_emit()`, and the relevant health category/code helper names. The remaining 22 kernel C files and all 5 non-kernel C files had no matching direct calls. The observed direct producers and generic logger boundary are documented in sections 4.2–4.3.
+
+This establishes search coverage over the repository's current C translation units, not proof that every mapping is already safe or complete. Header-defined enums, wrapper semantics, test-only synthetic events, and every observed tuple still need to be reconciled into a finite allow-list. Unknown source/code combinations must remain unmapped; internal values must be omitted by default. No serializer or kernel behavior is implemented by this audit.
