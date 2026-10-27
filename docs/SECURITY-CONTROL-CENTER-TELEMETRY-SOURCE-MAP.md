@@ -84,6 +84,12 @@ The 24-byte record plus the 24-byte response header permits one event in a 64-by
 
 Build wire messages field-by-field, validate every conversion, initialize all response bytes, and test exact byte lengths. No response serializer or stable source/reason registry is currently implemented.
 
+## 4.1 Public enum mapping and source allow-list gate
+
+The v1 protocol document now proposes explicit public severity values 0..4 (DEBUG through CRITICAL) and category values 0..8 (SYSTEM through RECOVERY), with 255 reserved for UNKNOWN. These are protocol values, not an instruction to cast internal `uint32_t` values directly. The serializer must map by explicit switch/table and map unknown internal values to UNKNOWN.
+
+Reason codes are not globally unique: current health recovery codes 1..8 and network codes 1..6 are scoped to their respective categories. The future public registry must key mappings by category plus internal code and assign stable public reason IDs. A source-ID inventory is also still required. Until the registry and inventory are reviewed, arbitrary internal source/code values must not be passed through. Security-monitor health events encode an action plus packed type/score in the internal value; that packed value must remain private and must not be treated as a full original security event.
+
 ## 5. Readiness decision
 
 The current source offers useful kernel-side telemetry foundations but is **not yet an end-to-end Security Control Center API**. Before UI integration, the project still needs:
