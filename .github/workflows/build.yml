@@ -14,8 +14,8 @@ on:
 
 jobs:
   build:
-    # Use a clean, isolated Linux runner so a broken local runner cannot poison CI status.
-    runs-on: ubuntu-latest
+    # This repository's configured build environment is the registered Linux x64 runner.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 20
     defaults:
       run:
@@ -44,14 +44,6 @@ jobs:
             exit "$fetch_status"
           fi
           git checkout --detach "$GITHUB_SHA"
-
-      - name: Install Linux build toolchain
-        working-directory: .
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential dosfstools grub-common grub-pc-bin mtools nasm qemu-system-x86 xorriso
 
       - name: Identify selected runner and verify toolchain
         run: |
