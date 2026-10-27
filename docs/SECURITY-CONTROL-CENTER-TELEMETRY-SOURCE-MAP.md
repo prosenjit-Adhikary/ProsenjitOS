@@ -10,7 +10,7 @@ Source:
 
 Verified facts:
 - `PROS_HEALTH_EVENT_MAX` is 128.
-- `struct pros_health_event` contains 64-bit sequence and timestamp, 32-bit severity/category/source/code, and a 64-bit value. This internal C structure is not the proposed 20-byte userspace wire record.
+- `struct pros_health_event` contains 64-bit sequence and timestamp, 32-bit severity/category/source/code, and a 64-bit value. This internal C structure is not the proposed 24-byte userspace wire record.
 - `pros_health_snapshot()` exposes `event_sequence`, `event_count`, `dropped_events`, last severity and last category to kernel callers.
 - `pros_health_get_event(offset, out)` enumerates retained records from the oldest retained event.
 - The timestamp is `timer_ticks()`; `health.h` says `timer_frequency_hz()` defines the unit.
@@ -22,6 +22,14 @@ Implementation gates:
 2. Preserve the implemented saturation and boundary self-test with exact-head CI; the source counter remains 32-bit, so wire conversion must not imply greater precision.
 3. Expose the count only through a trusted broker after checking snapshot error status. Never synthesize zero on unavailable/error.
 4. Define locking/consistent snapshot semantics before concurrent producers/readers or SMP support is claimed; this source inspection alone does not establish race freedom.
+
+### Additional source audit: ring synchronization and sequence reset
+
+A direct read of `kernel/health.c` shows `pros_health_record()`, `pros_health_snapshot()`, and `pros_health_get_event()` access the event ring, head/count, dropped counter and sequence without an evident ring lock or snapshot transaction in these functions. A snapshot can therefore not yet be described as an atomic view relative to concurrent event writers; an event read racing with overwrite/reset also lacks an explicit consistency guarantee from these functions alone. This observation is a source-level correctness gate, not proof of a particular race occurring in the supported current boot model.
+
+`pros_health_init()` resets `event_head`, `event_count`, `dropped_events`, and `next_sequence` to zero. Sequence values are therefore not globally unique across initialization/reboot epochs. The broker must not pretend a cursor from an earlier epoch remains valid. Until an epoch identifier and synchronized ring semantics are designed, service restart or source reset should invalidate existing cursors and return STALE/UNAVAILABLE instead of claiming continuity.
+
+Before concurrent broker reads are implemented, specify the execution/interrupt model and a synchronization strategy for event writes, snapshot reads, ring enumeration and reset. Avoid introducing a lock that can deadlock in interrupt context; review call sites and lock order, and test wraparound, reset, overwrite, concurrent read/write and dropped-counter saturation.
 
 ## 2. Existing security monitor
 
