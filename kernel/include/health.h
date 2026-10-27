@@ -9,6 +9,10 @@
 #define PROS_HEALTH_EINVAL  -1
 #define PROS_HEALTH_EIO     -2
 
+/* Distinct internal source IDs; not public wire IDs. */
+#define PROS_HEALTH_SOURCE_FILE_ADMISSION 0x53454341u /* "SECA" */
+#define PROS_HEALTH_SOURCE_INTENT_AUDIT   0x53454349u /* "SECI" */
+
 enum pros_health_severity {
     PROS_HEALTH_DEBUG = 0,
     PROS_HEALTH_INFO = 1,
