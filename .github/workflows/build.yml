@@ -22,11 +22,20 @@ jobs:
         shell: bash
         working-directory: build-run
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          path: build-run
-          persist-credentials: false
+      - name: Checkout source using Git directly
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build-run
+          mkdir -p build-run
+          cd build-run
+          git init
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_REF"
+          git checkout --detach FETCH_HEAD
 
       - name: Identify selected runner and verify toolchain
         run: |
