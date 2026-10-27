@@ -208,6 +208,13 @@ This is an inventory of identifiers found in the inspected headers/call sites, n
 | Security monitor | SECURITY (5) | `0x53444D4E` ("SDMN") | current action in code; internal value packs event type and score | Never expose packed value; define a reviewed event/action mapping first |
 | Logging persistence degradation | RECOVERY (8) | `0x4C4F4750` ("LOGP") | 2 persistence emit failure | This is a call-site literal, not yet a public stable code contract |
 
+| Network device lifecycle | NETWORK (4) | dynamic device ID | 1 discovered; 2 removed (from `kernel/driver.c`) | Dynamic device IDs are internal; do not expose directly |
+| Exception capture | RECOVERY (8) | `0x45584350` family observed in `kernel/health.c` | exception vector used as code; error code/RIP/CR2-related data in private fields | Sensitive fault addresses/register context must not be sent raw |
+| Crash-record recovery | RECOVERY (8) | `0x43525348` ("CRSH") | 1 recovered; 2 vector; 3 invalid; capture-failed code also used by kernel | Verify the capture-failed constant and all callers before freezing public mapping |
+| Recovered usercopy page fault | RECOVERY (8) | `0x55504346` ("UPCF") | 1 recovered usercopy fault | Call-site literal; public source/reason IDs not assigned |
+| Boot/recovery logging | RECOVERY (8) | `0x52454356` ("RECV") | boot-begin event; driver-ready logging uses source `0x44525648` | Distinguish boot milestones from dynamic watchdog events; don't infer registry completeness |
+| Watchdog timeout | RECOVERY (8) | dynamic watchdog service ID | `PROS_HEALTH_RECOVERY_WATCHDOG_TIMEOUT` (8) | Service ID is dynamic/private; map to reviewed service class or UNKNOWN |
+
 Additional verified definitions in `kernel/include/health.h`: recovery codes 1..8 (boot begin, storage ready, driver ready, health ready, crash recovered, boot complete, failure, watchdog timeout); network codes 1..6 (device discovered/removed, driver bound/unbound, probe failed, stack unavailable). Their complete source-ID/call-site pairing was not established in this pass, so do not infer a public source mapping from the code enums alone.
 
 ### Required registry review before serializer code
