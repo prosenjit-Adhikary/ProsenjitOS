@@ -1,9 +1,9 @@
 name: Security architecture checks
 
+# Automatic PR/push validation is covered by build.yml to avoid duplicate jobs
+# racing on the shared self-hosted runner. Keep this workflow for manual checks only.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   security-design:
