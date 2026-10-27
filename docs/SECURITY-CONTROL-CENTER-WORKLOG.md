@@ -655,3 +655,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Corrected the inventory wording so the header enum `PROS_SECURITY_HEALTH_PROVIDER = 3` is not mistaken for a confirmed admission call site; provider calls inspected use source `0x53454350`.
 - Confirmed `kernel/include/crash_record.h` defines `PROS_CRASH_HEALTH_CAPTURE_FAILED = 4u`, closing that previously noted definition lookup.
 - The latest source/doc commit changed the exact CI head, so prior queued runs do not verify the latest head. PR #269 remains draft/unmerged; no passing build or boot test is claimed. Re-check CI against the current head before marking the collision task fully verified.
+
+
+### Collision hardening — named constants and compile-time guard
+
+- Promoted the two internal IDs to `PROS_HEALTH_SOURCE_FILE_ADMISSION` (`0x53454341`, SECA) and `PROS_HEALTH_SOURCE_INTENT_AUDIT` (`0x53454349`, SECI) in `kernel/include/health.h`.
+- Updated `kernel/security_admission.c` and `kernel/intent.c` to use the named constants rather than source-ID literals.
+- Added a preprocessor `#error` guard if the two constants ever become equal, so a future accidental collision should fail compilation.
+- Updated the source map to describe these as internal identifiers only; public wire source/reason IDs are still not assigned. This work does not implement a telemetry serializer.
+- Verification remains pending: this head has not yet had a confirmed compile/test/boot result. Both workflows currently require a `self-hosted, linux, x64` runner; the latest exact-head jobs are queued with no runner assigned. Do not claim tests passed until the jobs actually run.
