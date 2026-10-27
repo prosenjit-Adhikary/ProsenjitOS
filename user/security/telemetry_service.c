@@ -99,9 +99,24 @@ int scc_service_dispatch(const struct scc_service_backend *backend,
 
     parsed = scc_parse_request(request, request_length, &view);
     if (parsed != SCC_PARSE_OK) {
-        /* Unknown/bad frames cannot be safely correlated, so return an error. */
+        uint16_t opcode;
+        uint32_t request_id;
+
+        /*
+         * Only answer when the fixed header can be correlated safely. Never
+         * emit an opcode-zero response that a conforming client cannot parse.
+         */
+        if (request == NULL || request_length < SCC_REQUEST_HEADER_SIZE ||
+            request_length > SCC_IPC_MESSAGE_MAX ||
+            read_u16(request) != SCC_PROTOCOL_VERSION)
+            return -1;
+        opcode = read_u16(request + 2);
+        if (opcode < SCC_OP_GET_STATUS || opcode > SCC_OP_GET_EVENT)
+            return -1;
+        request_id = read_u32(request + 4);
         return emit_response(response, response_capacity, response_length,
-                             0, 0, parse_status(parsed), NULL, 0, 0);
+                             opcode, request_id, parse_status(parsed),
+                             NULL, 0, 0);
     }
 
     if (!peer_authorized)
