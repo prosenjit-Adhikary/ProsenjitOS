@@ -583,3 +583,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Clarified these values must be mapped explicitly, never exposed through a blind cast. Values 9..254 remain unassigned for categories.
 - Added a source-map gate: reason codes are category-scoped, so recovery codes 1..8 and network codes 1..6 cannot be treated as globally unique. A reviewed public reason registry keyed by category plus internal code, and an explicit source-ID allow-list, must precede serializer implementation. Internal packed security-monitor value remains private.
 - No runtime serializer or kernel changes were made; this is a contract/documentation milestone only. Exact-head CI must be checked for the new commit before claiming validation.
+
+## Telemetry producer inventory follow-up — 2026-10-27
+
+- Working branch: `security/scc-u64-timestamp-get-event-guard`; PR #269 remains the isolated draft track. Do not merge it or alter PR #268.
+- Added a first-pass internal producer/source/reason inventory to `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`, based on `kernel/health.c`, `kernel/include/health.h`, `kernel/security_monitor.c`, and `kernel/include/security_monitor.h`.
+- Confirmed source shapes include: system health sample (source/code 1/1); synthetic self-test records; category-scoped recovery/network code enums; dynamic watchdog service IDs; security-monitor source `0x53444D4E` with action code 0..2 and packed type/score in the private value; exception source constants `0x45584350`, `0x45584351`, `0x45584352` with vector/RIP/error-code/CR2-related fields; and filesystem helper source/code/value supplied by callers.
+- Security-relevant finding: `pros_security_monitor_record()` ignores the return from `pros_health_record_security()`. A monitor decision can succeed even if appending its summary to the health ring fails; the future Control Center must not imply one-to-one or complete security-event capture.
+- No public reason/source IDs were minted from the incomplete inventory. All arbitrary source/code pairs remain unmapped by default; internal `value` remains excluded. Next step is repository-wide call-site inventory for the four health helper families, followed by a reviewed public registry and serializer tests.
+- Change commit: `7eeee915fc650827e97d320594f7150fc1799eb7` (source-map inventory). This documentation-only update has not been compiled or runtime-tested. Query exact-head CI after the next log commit; no CI pass is inferred from source inspection.
+
