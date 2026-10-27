@@ -1,10 +1,9 @@
 name: Security architecture checks
 
+# Automatic PR/push validation runs in build.yml to avoid concurrent jobs
+# sharing the self-hosted runner's global _temp command files. Keep manual runs available.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
 
 # Keep security checks deduplicated without replacing the build workflow's pending run.
 concurrency:
