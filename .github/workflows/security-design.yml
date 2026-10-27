@@ -6,9 +6,9 @@ on:
     branches: [main]
   pull_request:
 
-# Both workflows share the local runner workspace; serialize them to prevent overlap.
+# Keep security checks deduplicated without replacing the build workflow's pending run.
 concurrency:
-  group: prosenjitos-build-shared-workspace
+  group: prosenjitos-security-design
   cancel-in-progress: false
 
 jobs:
