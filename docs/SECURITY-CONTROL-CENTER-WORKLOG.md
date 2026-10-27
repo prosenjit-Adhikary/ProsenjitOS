@@ -757,3 +757,10 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - ISO compilation then failed in `kernel/kernel.c:787`: `size_t` was unknown because the translation unit did not include `<stddef.h>`. The following signedness diagnostic was a consequence of the unresolved type.
 - Fixed by adding `#include <stddef.h>` to `kernel/kernel.c`; did not weaken warnings or change the test.
 - Source fix commit: `4fdf76b110ce4faac328ffe493b1bb5d684d9f71`. Await the exact-head rerun to reveal any subsequent compile or boot failures. ISO build and both QEMU boot gates remain unverified until they pass.
+
+
+### QEMU boot-test timeout hardening — 2026-10-27
+
+- On the latest observed local-runner attempt, all host tests passed, ISO build passed, and ProsenjitFS block-init diagnostics completed. The ISO QEMU boot step did not produce a final step result in the available job summary; the run was marked failed while the step still appeared in progress, and the job-log endpoint returned no log archive. Therefore no boot pass is claimed.
+- Hardened both ISO and native-BIOS QEMU invocations to use `timeout --kill-after=5s 20s`. This sends the normal timeout first and forcibly terminates QEMU if it ignores the timeout signal, preventing a stuck emulator from holding the self-hosted runner indefinitely. The workflow still checks all boot milestones and does not accept a missing marker.
+- Workflow change commit: `1c5207d55dc4edcdeb79406b36c97c95b5743898`. Re-run on the latest head and inspect the actual QEMU serial/exception output; if a required marker is absent, fix the boot/runtime defect rather than weakening the assertion.
