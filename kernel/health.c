@@ -343,8 +343,14 @@ int pros_health_selftest(void) {
         pros_health_watchdog_register(77u, 1000000u) != PROS_HEALTH_EINVAL ||
         pros_health_watchdog_kick(77u) != PROS_HEALTH_OK ||
         pros_health_watchdog_unregister(77u) != PROS_HEALTH_OK ||
-        pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL ||
-        pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
+        pros_health_watchdog_kick(77u) != PROS_HEALTH_EINVAL)
+        return PROS_HEALTH_EIO;
+
+    /* Registration writes an audit event; reset before testing the event ring. */
+    if (pros_health_init() != PROS_HEALTH_OK)
+        return PROS_HEALTH_EIO;
+
+    if (pros_health_record(PROS_HEALTH_INFO, PROS_HEALTH_MEMORY,
                            2u, 1u, heap_used_bytes()) != PROS_HEALTH_OK ||
         pros_health_record(PROS_HEALTH_WARN, PROS_HEALTH_SYSTEM,
                            2u, 2u, 123u) != PROS_HEALTH_OK ||
@@ -361,10 +367,6 @@ int pros_health_selftest(void) {
         export_buffer[export_length] != '\0' ||
         pros_health_export(export_buffer, 8u, &export_length) != PROS_HEALTH_EIO ||
         pros_health_watchdog_register(0u, 1u) != PROS_HEALTH_EINVAL)
-        return PROS_HEALTH_EIO;
-
-    /* Watchdog registration emits a health event; isolate the event API tests. */
-    if (pros_health_init() != PROS_HEALTH_OK)
         return PROS_HEALTH_EIO;
 
     health_selftest_failure_stage = 2u;
