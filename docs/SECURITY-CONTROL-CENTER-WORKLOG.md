@@ -611,3 +611,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - The call-site search is not treated as proof of completeness. Before implementing a registry, inspect constant definitions and all hardening/VFS call sites, then add table-driven serializer tests for approved pairs, overlapping source IDs, unknown pairs, and private-value non-disclosure.
 - Source-map inventory commit: `ebcdb573f206b4ff8e738d5845d395be878ee674`. Documentation-only; no compile or runtime test was performed. CI must be checked against the latest branch head, not the earlier inventory commit.
 
+
+
+## Producer-family follow-up — 2026-10-27
+
+- Extended the first-pass inventory after repository searches for pros_health_record(), pros_health_record_recovery(), pros_health_record_network(), pros_health_record_security() and pros_health_record_filesystem().
+- Found further security-admission, security-hardening, VFS, network-device, exception, crash-record, watchdog and recovered-usercopy-fault producers. Added a partial source/code table and explicit privacy warnings to the telemetry source map.
+- Some search excerpts were from the default branch rather than the draft branch; this is discovery only. Exact-head re-verification of each producer and a full call-site enumeration remain required before the public registry is frozen.
+- Explicitly keep exception RIP/CR2/error data, internal packed values, dynamic internal device IDs, and security action/score details out of wire output unless a reviewed redaction/mapping contract says otherwise.
+- No runtime code changed. Exact-head CI status remains queued as last observed; no build or boot success is claimed.
