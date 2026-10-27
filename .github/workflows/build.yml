@@ -114,6 +114,10 @@ jobs:
 
       - name: Boot-test ISO in QEMU
         run: |
+          set -e
+          mkdir -p build
+          : > build/qemu-serial.log
+          : > build/qemu-debug.log
           set +e
           timeout --kill-after=5s 20s qemu-system-x86_64 \
             -cdrom build/prosenjitOS.iso \
@@ -187,6 +191,10 @@ jobs:
 
       - name: Boot-test native BIOS image in QEMU
         run: |
+          set -e
+          mkdir -p build
+          : > build/native-qemu-serial.log
+          : > build/native-qemu-debug.log
           set +e
           timeout --kill-after=5s 20s qemu-system-x86_64 \
             -drive format=raw,file=build/prosenjit-native-bios.img,if=ide \
