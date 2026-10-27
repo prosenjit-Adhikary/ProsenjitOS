@@ -687,3 +687,11 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Current PR #269 head is `835e6318f389b4fb0901d8d510790e7f5ec57b59`. Its Build/boot-test run [#8775](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40523390610) and Security architecture run [#8311](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40523390549) failed, but the available job-step API returns empty step arrays and the log endpoint returns BlobNotFound. Retried the latest failed jobs; the retried Build job again returned no steps (job ID `122265848944`). No test result can be inferred from these empty-step failures.
 - Next: obtain actionable logs for the current-head workflow attempts, avoid concurrent jobs sharing a mutable workspace, and run parser tests, ISO build, ISO QEMU boot and native BIOS QEMU boot serially on the exact PR head. Do not merge PR #269 or claim full verification until these gates pass.
 - Native ProsenjitFS scheduler-mutex work remains blocked at design prerequisite: implement/test atomic scheduler wait/wakeup first, then scheduler-aware mutex. Runner availability does not resolve this source-level blocker.
+
+
+## 2026-10-27 — Prevent overlapping build runs from sharing build/
+
+- Source review found `scripts/build.sh` begins with `rm -rf "$BUILD"` where `BUILD` defaults to the repository-local `build/` directory. The failed Build/boot-test log showed the ISO had been produced, then the native formatter link failed because `build/mkprosenjitfs` could not be opened, followed by a cancellation marker.
+- The precise cause of that missing path is not proven by the log. However, separate build runs had different concurrency groups by ref and `cancel-in-progress: true`, while the runner logs show a shared self-hosted working path. This makes overlapping cleanup/build activity a credible race to eliminate.
+- Changed `.github/workflows/build.yml` to use one shared concurrency group with `cancel-in-progress: false`, serializing build workflow runs until the build script uses per-run isolated output directories. Commit: `318d270f4e1c6cc390e07d3d78f5d8ef44cf13db`.
+- This is a preventive CI change, not a confirmed fix yet. The workflow must run at the new exact head; no current-head parser/sanitizer/ISO/QEMU PASS is claimed.
