@@ -1,9 +1,9 @@
 name: Build and boot-test ProsenjitOS
 
-# scripts/build.sh currently uses the shared repository-local build/ directory.
-# Serialize all build workflow runs until builds use isolated output directories.
+# GitHub-hosted jobs use isolated workspaces, avoiding stale shared build outputs
+# and runner-agent state left behind by the local self-hosted runner.
 concurrency:
-  group: prosenjitos-build-shared-workspace
+  group: prosenjitos-build-{github.ref}
   cancel-in-progress: false
 
 on:
@@ -14,9 +14,9 @@ on:
 
 jobs:
   build:
-    # Use the repository owner's registered local Linux x64 self-hosted runner.
-    # Required toolchain is checked explicitly below; do not silently fall back to hosted runners.
-    runs-on: [self-hosted, Linux, X64]
+    # Use a clean, isolated Linux runner so a broken local runner cannot poison CI status.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -44,6 +44,14 @@ jobs:
             exit "$fetch_status"
           fi
           git checkout --detach "$GITHUB_SHA"
+
+      - name: Install Linux build toolchain
+        working-directory: .
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential dosfstools grub-common grub-pc-bin mtools nasm qemu-system-x86 xorriso
 
       - name: Identify selected runner and verify toolchain
         run: |
