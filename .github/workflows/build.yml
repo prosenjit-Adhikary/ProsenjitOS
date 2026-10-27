@@ -34,7 +34,15 @@ jobs:
           git init
           git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
           auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          echo "Fetching immutable workflow commit: $GITHUB_SHA"
+          set +e
+          GIT_TERMINAL_PROMPT=0 timeout --signal=TERM --kill-after=5s 90s git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$GITHUB_SHA" 2>&1
+          fetch_status=$?
+          set -e
+          if (( fetch_status != 0 )); then
+            echo "::error::Git fetch failed or timed out (exit $fetch_status); check local runner network/token connectivity."
+            exit "$fetch_status"
+          fi
           git checkout --detach "$GITHUB_SHA"
 
       - name: Identify selected runner and verify toolchain
