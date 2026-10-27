@@ -91,10 +91,11 @@ int scc_service_dispatch(const struct scc_service_backend *backend,
     uint64_t cursor = 0;
     uint32_t status = SCC_STATUS_OK;
 
-    if (response_length == NULL || response == NULL ||
-        response_capacity < SCC_RESPONSE_HEADER_SIZE)
+    if (response_length == NULL)
         return -1;
     *response_length = 0;
+    if (response == NULL || response_capacity < SCC_RESPONSE_HEADER_SIZE)
+        return -1;
     memset(payload, 0, sizeof(payload));
 
     parsed = scc_parse_request(request, request_length, &view);
