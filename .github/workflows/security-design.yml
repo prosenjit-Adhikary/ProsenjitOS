@@ -7,9 +7,10 @@ on:
 
 jobs:
   security-design:
-    # Static architecture-contract checks need Bash but do not need the local
-    # kernel build toolchain or self-hosted workspace.
-    runs-on: ubuntu-latest
+    # This repository's CI runner is self-hosted; the static checks use only Bash.
+    # Keep this workflow's concurrency separate from the build workflow so a
+    # new PR commit cannot cancel the latest build while the check is pending.
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
