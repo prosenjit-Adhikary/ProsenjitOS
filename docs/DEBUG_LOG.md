@@ -658,3 +658,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Result: Build/boot-test [#8772](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550684) and Security architecture [#8308](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550485) failed before any job step ran (the job-step API returned an empty steps list). This is a runner/job-start failure signal, not evidence that source compilation or tests failed. The available logs do not reveal the underlying hosted-runner allocation/policy reason; investigate repository Actions settings/usage or restore an available Linux x64 self-hosted runner.
 - Build run [#8771](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519545742) was cancelled when the subsequent workflow commit superseded it; do not count it as a test result.
 - Status remains NOT COMPLETE: the parser fixture correction is committed, but no successful exact-head parser run, ISO build, QEMU boot, native BIOS boot, or full ProsenjitFS concurrency/durability verification has been established by these attempts.
+
+
+
+## 2026-10-27 — CI retry outcome
+
+- Retried failed jobs for Build/boot-test run [#8772](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550684) and Security architecture run [#8308](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519550485).
+- The latest attempts again completed as failures before any job step started; the job-step API returned empty step arrays for job IDs `122253611631` (build) and `122253596603` (security-design). The job-log endpoint returned a blob-not-found response, so the underlying runner allocation/policy error is still not exposed by the available connector.
+- Rechecked older runs [#8770](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043228) and [#8306](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043470): both remain queued with no steps. This points to a CI scheduling/configuration gate rather than a compiler/test failure, but the exact cause is unconfirmed.
+- No source or test PASS is inferred from these retries. Next action requiring repository-owner access: inspect repository Settings → Actions (workflow permissions, policy, usage/billing/runner availability) or bring an online Linux x64 self-hosted runner with required labels. Then rerun both workflows and validate the exact current head.
