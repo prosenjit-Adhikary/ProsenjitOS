@@ -620,3 +620,13 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Some search excerpts were from the default branch rather than the draft branch; this is discovery only. Exact-head re-verification of each producer and a full call-site enumeration remain required before the public registry is frozen.
 - Explicitly keep exception RIP/CR2/error data, internal packed values, dynamic internal device IDs, and security action/score details out of wire output unless a reviewed redaction/mapping contract says otherwise.
 - No runtime code changed. Exact-head CI status remains queued as last observed; no build or boot success is claimed.
+
+
+## Source/reason inventory audit — 2026-10-27
+
+- Inspected `kernel/include/health.h`, `kernel/health.c`, `kernel/block.c`, `kernel/include/block.h`, `kernel/driver.c`, `kernel/include/driver.h`, `kernel/vfs.c`, `kernel/include/security_admission.h`, `kernel/security_provider.c`, `kernel/security_hardening.c`, `kernel/security_monitor.c`, `kernel/intent.c`, and `kernel/log.c` on the SCC branch.
+- Added a clearly marked partial internal source/reason inventory to `docs/SECURITY-CONTROL-CENTER-TELEMETRY-SOURCE-MAP.md`. The table records verified block, driver, VFS, security, and log-persistence identifiers while explicitly withholding public mappings.
+- Important issue found: source ID `0x53454341` is used by file admission for stable security codes (admission/signature failure/provider) and by intent auditing for packed `(decision << 16) | reason` values. A public registry keyed only by category plus source/code is not enough unless this collision is resolved; split internal source IDs or use a reviewed discriminant. Do not pass the packed intent value through the wire protocol.
+- Other verified risks: driver health call sites use source ID zero; VFS lookup errors can update counters without emitting a health event; security-monitor telemetry packs event type and score in internal `value`; raw LBA and error details may appear in internal values. These must remain private or be transformed through an explicit allow-list.
+- Header-defined recovery codes 1..8 and network codes 1..6 were verified, but full call-site/source pairing was not established in this pass. The inventory is intentionally partial and must not be described as exhaustive.
+- No kernel behavior or serializer was changed. Next: repository-wide inventory of all `pros_health_record*` and wrapper call sites; resolve the `0x53454341` source collision; approve stable public source/reason IDs; then implement pure serializer plus byte-exact tests. Keep PR #269 draft/unmerged until exact-head CI and review gates are satisfied.
