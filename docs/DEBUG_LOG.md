@@ -676,3 +676,14 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Confirmed `thread_block()` and `thread_wake()` perform separate state/queue operations; their exposed contract does not establish atomic waiter publication and blocking. A correct blocking mutex cannot safely be guessed at the filesystem layer.
 - Added `docs/PROSENJITFS-CONCURRENCY-CONTRACT.md` and updated the implementation plan/completion matrix. No kernel code changed in this audit batch.
 - **P5 remains OPEN; Native ProsenjitFS is not complete.** Next code task: scheduler atomic wait/wakeup with lost-wakeup/handoff tests, then mutex implementation. No compile, unit-test, QEMU or CI pass is claimed. Hosted CI attempts failed before job steps; this is not source-test evidence.
+
+
+
+## 2026-10-27 — Runner is active; latest CI retry diagnosis
+
+- User confirmed the runner is active. Workflow logs independently confirm a runner named `home` on Linux executed Build/boot-test run [#8770](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043228): toolchain verification and desktop-manager tests passed, and `scripts/build.sh` successfully produced `build/prosenjitOS.iso`.
+- That Build run then reported `ld: cannot open output file .../build/mkprosenjitfs: No such file or directory`, followed by GitHub's cancellation marker. The log alone does not establish why the output directory disappeared; possible workspace/run interference must be investigated rather than treated as a confirmed source defect.
+- Security architecture run [#8306](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40519043470) completed successfully, but it tested older main commit `f31542bbdf1670740194206482bc6b40a96e144a`, not the current PR #269 head.
+- Current PR #269 head is `835e6318f389b4fb0901d8d510790e7f5ec57b59`. Its Build/boot-test run [#8775](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40523390610) and Security architecture run [#8311](https://github.com/prosenjit-Adhikary/ProsenjitOS/actions/runs/40523390549) failed, but the available job-step API returns empty step arrays and the log endpoint returns BlobNotFound. Retried the latest failed jobs; the retried Build job again returned no steps (job ID `122265848944`). No test result can be inferred from these empty-step failures.
+- Next: obtain actionable logs for the current-head workflow attempts, avoid concurrent jobs sharing a mutable workspace, and run parser tests, ISO build, ISO QEMU boot and native BIOS QEMU boot serially on the exact PR head. Do not merge PR #269 or claim full verification until these gates pass.
+- Native ProsenjitFS scheduler-mutex work remains blocked at design prerequisite: implement/test atomic scheduler wait/wakeup first, then scheduler-aware mutex. Runner availability does not resolve this source-level blocker.
