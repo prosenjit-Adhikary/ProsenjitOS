@@ -14,8 +14,9 @@ concurrency:
   cancel-in-progress: false
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "security/**", "docs/**"]
   pull_request:
 
 jobs:
