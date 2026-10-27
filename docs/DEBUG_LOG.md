@@ -727,3 +727,12 @@ Verification: build run [`7471`](https://github.com/prosenjit-Adhikary/Prosenjit
 - Added an in-kernel regression to `kernel/kernel.c` before the existing normal wait path: pass a zero-initialized non-current thread, require `PROSENJIT_IPC_EINVAL`, verify waiter count stays zero and the actual current thread stays RUNNING, then run the existing valid wait/wakeup scenario.
 - Commits: IPC guard `a161b033ff68fb4f15fcecef07013ced8770e21c`; regression `642aee9e946deb53f31d4d778feae93af15a708f`.
 - This is a narrow defensive fix, not the atomic wait/wakeup protocol. The API still changes current-thread state without itself switching context; lost-wakeup and interrupt/preemption ordering remain open. No build, unit-test, ISO or QEMU pass is claimed until exact-head workflow evidence arrives.
+
+
+## 2026-10-27 — ISO build passes; QEMU boot gate remains unresolved
+
+- Local self-hosted runner run #8820 executed the source checkout, toolchain validation, security contract checks, DML tests, driver telemetry tests, SCC parser tests, and SCC sanitizer tests successfully.
+- **Build ISO: PASS.** The subsequent ProsenjitFS block-init disassembly diagnostic also completed successfully.
+- The run then failed while the ISO QEMU boot step was reported as still in progress. The job-log endpoint returned no downloadable log archive, so the serial milestone output and exact boot failure are not available from that attempt. Do not infer a kernel panic, compiler error, or successful boot from this incomplete evidence.
+- Improved the build workflow to print runner disk/memory diagnostics and retain the last 250 lines of the traced build output if ISO construction fails. Added a bounded Git fetch with non-interactive authentication and an explicit timeout/error message to make intermittent local-runner checkout stalls diagnosable.
+- Next required gate: obtain a completed ISO QEMU step and inspect its serial milestones/guest-error trace; then verify the native BIOS QEMU path. No boot pass is claimed until required markers are present.
