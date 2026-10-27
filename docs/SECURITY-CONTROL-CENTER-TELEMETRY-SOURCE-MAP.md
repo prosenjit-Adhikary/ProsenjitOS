@@ -255,3 +255,16 @@ This review is deliberately **not** an exhaustive repository-wide inventory of e
 At PR head `e4d86ab918b4b05beb0694a491505fe3cb3a068e`, fetched and searched all 50 `kernel/*.c` translation units and all 5 other repository `.c` translation units for direct health-record helpers, `pros_log_emit()`, and the relevant health category/code helper names. The remaining 22 kernel C files and all 5 non-kernel C files had no matching direct calls. The observed direct producers and generic logger boundary are documented in sections 4.2–4.3.
 
 This establishes search coverage over the repository's current C translation units, not proof that every mapping is already safe or complete. Header-defined enums, wrapper semantics, test-only synthetic events, and every observed tuple still need to be reconciled into a finite allow-list. Unknown source/code combinations must remain unmapped; internal values must be omitted by default. No serializer or kernel behavior is implemented by this audit.
+
+## 4.5 Driver reason-code semantic cross-check — 2026-10-27
+
+Reviewed against PR head `4a5bab6b6b96e221ca24b70586ebef55c38f4f36`, specifically `kernel/include/driver.h`, `kernel/driver.c`, `kernel/include/health.h`, and `kernel/kernel.c`.
+
+A further producer-semantic ambiguity was found and must be resolved before any public reason registry is frozen:
+
+- `kernel/include/driver.h` assigns DRIVER codes 1..5 to register failure, registry exhausted, device-register failure, unsupported class, and remove failure.
+- In `kernel/driver.c`, device bind/probe telemetry uses raw code `3u` for a probe failure and raw code `2u` for a successful bind, with a dynamic device ID as source. Those numeric values overlap the header enum but have different meanings. Although the source differs from the registry's usual zero source, dynamic device IDs are not a safe public discriminator.
+- The network wrapper separately has explicit NETWORK codes for discovered, removed, bound, unbound, probe failed, and stack unavailable. Do not silently treat those as interchangeable with DRIVER-category events.
+- `kernel/kernel.c` also passes `PROS_HEALTH_RECOVERY_DRIVER_READY` (a RECOVERY enum value) through `pros_log_emit()` with category DRIVER and source `0x44525648` (`DRVH`). This is a caller-supplied tuple, not proof that the code is a DRIVER enum member.
+
+Required disposition: keep these tuples unmapped in public telemetry until the producer contract is normalized. A follow-up implementation should introduce explicit, non-overlapping named internal DRIVER event codes for device probe/bind/unbind outcomes (or another reviewed producer discriminant), replace raw numeric literals, and add table-driven tests for both the intended mappings and unknown tuples. Do not mint public IDs as part of this source-audit note. No kernel behavior or serializer was changed by this audit.

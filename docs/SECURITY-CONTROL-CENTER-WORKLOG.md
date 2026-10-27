@@ -687,3 +687,11 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - The remaining 22 kernel C files had no matching direct calls; none of the 5 non-kernel C files had matching direct calls. The observed producer families are covered in the source map.
 - This closes the C-file search-coverage gap, but does **not** mean the public mapping registry is complete. The mapping table remains partial until every observed tuple and header-defined code is normalized and reviewed. Unknown tuples remain unmapped; raw internal values remain private.
 - No kernel behavior or serializer code was changed. Exact-head CI remains pending/queued because the self-hosted runner is offline.
+
+### Driver telemetry semantic collision cross-check — 2026-10-27
+
+- Cross-checked the current PR head `4a5bab6b6b96e221ca24b70586ebef55c38f4f36` in `kernel/include/driver.h`, `kernel/driver.c`, `kernel/include/health.h`, and `kernel/kernel.c`.
+- Found an additional mapping blocker: the DRIVER header enum assigns codes 2 and 3 to registry-exhausted and device-registration-failure, but device lifecycle telemetry in `kernel/driver.c` uses raw code 2 for bind success and raw code 3 for probe failure, with dynamic device IDs as source. Dynamic source IDs are not a safe public-schema discriminator.
+- Also found `kernel/kernel.c` sends the RECOVERY enum value `PROS_HEALTH_RECOVERY_DRIVER_READY` through the generic logger under category DRIVER and source `DRVH`. Generic logger inputs therefore cannot be assumed to follow the category's enum.
+- Updated the source map with this exact-head ambiguity and a fail-closed follow-up gate. No kernel code, public wire IDs, or serializer changed.
+- Cross-verification is source-level only. Local runner is offline; no compile, host-test, or boot-test pass is claimed. PR #269 remains draft and unmerged.
