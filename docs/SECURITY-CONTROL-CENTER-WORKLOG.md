@@ -630,3 +630,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Other verified risks: driver health call sites use source ID zero; VFS lookup errors can update counters without emitting a health event; security-monitor telemetry packs event type and score in internal `value`; raw LBA and error details may appear in internal values. These must remain private or be transformed through an explicit allow-list.
 - Header-defined recovery codes 1..8 and network codes 1..6 were verified, but full call-site/source pairing was not established in this pass. The inventory is intentionally partial and must not be described as exhaustive.
 - No kernel behavior or serializer was changed. Next: repository-wide inventory of all `pros_health_record*` and wrapper call sites; resolve the `0x53454341` source collision; approve stable public source/reason IDs; then implement pure serializer plus byte-exact tests. Keep PR #269 draft/unmerged until exact-head CI and review gates are satisfied.
+
+
+## Exception/network producer follow-up — 2026-10-27
+
+- Follow-up searches found the network device lifecycle caller in `kernel/driver.c`: source is a dynamic device ID, with codes for discovered/removed. Treat that ID as internal and map only to an approved device class/source.
+- Confirmed `pros_health_record_exception()` emits three CRITICAL/RECOVERY records with source IDs `0x45584350`, `0x45584351`, and `0x45584352`; the code is the exception vector and the private value carries RIP, error code, or CR2 respectively. These addresses/context values are sensitive and must not be copied into public telemetry.
+- Confirmed crash recovery source `0x43525348` ("CRSH") in `kernel/include/crash_record.h`; the kernel call references a capture-failed code whose definition still needs locating/verification. Also found recovered usercopy fault source `0x55504346` and boot/recovery source `0x52454356` in `kernel/kernel.c`.
+- Expanded the source map with these producer families. This is still a partial inventory; code search excerpts may reflect default-branch index results, so every mapping must be rechecked against the exact PR head before registry freeze.
+- Exact-head CI checked before this follow-up: the then-current head `54573053fc440f9ad3b84ad95d52e50472396e81` had both Security architecture checks and Build/boot-test queued. New documentation commits require another exact-head CI check. No build or boot pass is claimed.
