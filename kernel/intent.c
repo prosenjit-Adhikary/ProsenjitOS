@@ -65,7 +65,7 @@ static int ledger_record(const struct pros_process *process,
     r->reason = (uint8_t)reason;
     if (ledger_count_value < PROS_REASON_LEDGER_SIZE) ++ledger_count_value;
     (void)pros_health_record_security(
-        0x53454341u,
+        0x53454349u,
         ((uint32_t)decision << 16) | (uint32_t)reason,
         r->intent_id);
     return 0;
