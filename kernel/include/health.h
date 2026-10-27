@@ -124,5 +124,7 @@ int pros_health_record_network(uint32_t source, uint32_t code, uint64_t value);
 int pros_health_record_security(uint32_t source, uint32_t code, uint64_t value);
 int pros_health_record_filesystem(uint32_t source, uint32_t code, uint64_t value);
 int pros_health_selftest(void);
+/* Diagnostic stage for a failed boot self-test; zero means success. */
+uint32_t pros_health_selftest_failure_stage_get(void);
 
 #endif
