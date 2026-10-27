@@ -5,6 +5,11 @@ name: Security architecture checks
 on:
   workflow_dispatch:
 
+# All self-hosted jobs share one concurrency lane to protect runner temp files.
+concurrency:
+  group: prosenjitos-build-shared-workspace
+  cancel-in-progress: false
+
 jobs:
   security-design:
     # This repository's CI runner is self-hosted; the static checks use only Bash.
