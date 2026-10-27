@@ -1,8 +1,10 @@
 name: Build and boot-test ProsenjitOS
 
+# Both workflows use the same self-hosted runner workspace. Serialize them
+# across workflow files to prevent concurrent checkout/cleanup races.
 concurrency:
-  group: prosenjitos-build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: prosenjitos-self-hosted-linux-x64
+  cancel-in-progress: false
 
 on:
   push:
