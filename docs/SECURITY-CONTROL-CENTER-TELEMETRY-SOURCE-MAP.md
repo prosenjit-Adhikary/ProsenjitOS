@@ -202,9 +202,10 @@ This is an inventory of identifiers found in the inspected headers/call sites, n
 | Block flush path | STORAGE (3) | `0x424C4B46` ("BLKF") | 1 invalid request; 4 flush failure | Call-site inventory still needs complete flush-path cross-check |
 | Driver registry | DRIVER (6) | `0` in observed calls | 1 register failure; 2 registry exhausted; 3 device registration failure; 4 unsupported class; 5 remove failure | Header registry verified; source ID zero is not yet approved as a public source |
 | VFS error reporting | FILESYSTEM (7) | `0x56465348` ("VFSH") | 1 I/O error; 2 permission error | `kernel/vfs.c` currently emits these two codes from `vfs_health_error()`; lookup counters may increment without an event |
-| File admission / signature | SECURITY (5) | `0x53454341` ("SECA") | 1 admission; 2 signature failure; 3 provider (from `security_admission.h`) | **Collision risk:** `kernel/intent.c` also uses this source with `(decision << 16) | reason`; same source ID therefore has different code semantics |
+| File admission / signature | SECURITY (5) | `0x53454341` ("SECA") | 1 admission; 2 signature failure | Stable admission/signature codes; provider events use separate `0x53454350` source |
 | Security provider | SECURITY (5) | `0x53454350` ("SECP") | 3 provider in inspected calls | Provider implementation should be fully enumerated before public mapping |
 | Security hardening | SECURITY (5) | `0x53454348` ("SECH") | 1 ready; dynamic violation code in other call | Not a stable public registry yet |
+| Intent decision audit | SECURITY (5) | `0x53454349` ("SECI") | `(decision << 16) | reason` internal packed code; value is intent ID | Source collision resolved in kernel source; packed code and intent ID remain private and must map through a reviewed allow-list |
 | Security monitor | SECURITY (5) | `0x53444D4E` ("SDMN") | current action in code; internal value packs event type and score | Never expose packed value; define a reviewed event/action mapping first |
 | Logging persistence degradation | RECOVERY (8) | `0x4C4F4750` ("LOGP") | 2 persistence emit failure | This is a call-site literal, not yet a public stable code contract |
 
@@ -220,7 +221,7 @@ Additional verified definitions in `kernel/include/health.h`: recovery codes 1..
 ### Required registry review before serializer code
 
 1. Give each public source a unique stable identifier and document its producer/category; do not use source ID zero as a catch-all without an explicit reviewed rule.
-2. Define public reason IDs by a stable key that disambiguates category, source, and internal code where necessary. The observed `0x53454341` collision means category + internal code alone may still be insufficient.
+2. Define public reason IDs by a stable key that disambiguates category, source, and internal code where necessary. The former `0x53454341` collision was resolved by assigning intent audit the distinct internal source `0x53454349` (`SECI`). Keep this internal packed code private; public reason mapping still requires a finite allow-list.
 3. Treat dynamic/internal codes as UNKNOWN unless a finite allow-list entry explicitly maps them. Do not serialize raw intent decision/reason bit packing, PID/TID, handles, LBA, score, or the internal `value` field.
 4. Add compile-time or host regression tests for every approved mapping and unknown-value fallback before connecting the serializer to the broker.
 5. Extend this inventory with all `pros_health_record*` call sites and verify the list against a repository-wide search; this table is intentionally partial, not exhaustive.
