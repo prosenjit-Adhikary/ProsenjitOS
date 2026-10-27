@@ -566,3 +566,12 @@ These run results are for `0710676371c2008645c5b5d22b422ef9ca08ec29` only. The n
 - Process termination removes run-queue membership and cancels waiter membership in separate steps; no atomic cross-structure lifetime transaction is evident from these source paths.
 - Recorded this as a scheduler synchronization and supported-execution-model gate in the broker implementation plan. It is not proof of an exploitable race and does not assert the current uniprocessor configuration is broken; SMP-safety is unproven.
 - No kernel code changed. Before any fix, establish CPU/interrupt assumptions and lock order, then test send-vs-block, wake-vs-exit/cancel, enqueue failure, duplicate/full waiter sets and thread lifetime.
+
+
+## Health telemetry ring and epoch audit — 2026-10-27
+
+- Reviewed `kernel/health.c` recording, snapshot and event retrieval paths against `kernel/include/health.h`.
+- The inspected record/snapshot/get-event functions have no evident shared ring lock or atomic snapshot transaction. Consistent concurrent snapshots and race-free enumeration are therefore not yet established; this is a review gate, not a claim of a demonstrated exploit.
+- `pros_health_init()` resets event head/count, dropped count and `next_sequence` to zero, so sequence values can repeat across source initialization/reboot. Broker cursors must be invalidated after reset until an explicit epoch mechanism is designed and tested.
+- Updated the telemetry source map to remove the stale 20-byte wire-record reference and state the current 24-byte draft record accurately. Added synchronization/epoch gates to the broker implementation plan.
+- No kernel code changed. Before serializer implementation, define interrupt-context constraints and ring synchronization, then test concurrent record/snapshot/get-event, wraparound, reset, overwrite and dropped-counter saturation.
